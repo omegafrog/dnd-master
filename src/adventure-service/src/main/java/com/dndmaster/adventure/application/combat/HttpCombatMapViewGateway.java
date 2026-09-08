@@ -70,9 +70,15 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
 
     @Override
     public void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles, List<Door> doors, String crop) {
+        updateLayout(mapId, ownerId, expectedVersion, commandId, obstacles, doors, List.of(), crop);
+    }
+
+    @Override
+    public void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles, List<Door> doors, List<Boundary> boundaries, String crop) {
         Layout payload = new Layout(ownerId, expectedVersion, commandId,
                 obstacles == null ? List.of() : obstacles.stream().map(position -> position.x() + "," + position.y()).toList(),
-                doors == null ? List.of() : doors.stream().map(door -> door.x() + "," + door.y()).toList(), crop);
+                doors == null ? List.of() : doors.stream().map(door -> door.x() + "," + door.y()).toList(),
+                boundaries == null ? List.of() : boundaries.stream().map(boundary -> boundary.x() + "," + boundary.y() + "," + boundary.orientation() + "," + boundary.kind()).toList(), crop);
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/layout"))
                 .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                 .PUT(HttpRequest.BodyPublishers.ofString(write(payload))).build();
@@ -150,7 +156,7 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             List<Position> current, List<Position> explored, long version) {}
     private record Calibration(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
-    private record Layout(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors, String crop) {}
+    private record Layout(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors, List<String> boundaries, String crop) {}
     private record AlignmentPayload(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize,
                                     UUID ownerId, UUID commandId, long expectedVersion) {
         private AlignmentPayload(UUID mapId, long version, String imageRevision, double originX, double originY, double cellSize) {

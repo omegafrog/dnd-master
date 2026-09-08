@@ -156,6 +156,11 @@ public final class CombatMapViewService {
     /** 맵 시작 전 사용자가 AI 초안을 검수해 벽·문·자르기 영역을 확정한다. */
     public CombatMap updateLayout(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId,
             Set<GridPosition> obstacles, Collection<Door> doors, String crop) {
+        return updateLayout(id, owner, expectedVersion, commandId, obstacles, doors, List.of(), crop);
+    }
+
+    public CombatMap updateLayout(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId,
+            Set<GridPosition> obstacles, Collection<Door> doors, Collection<MapBoundary> boundaries, String crop) {
         VersionedOwnedCombatMap state = owned(id, owner);
         String fingerprint = id + "|" + owner + "|LAYOUT|" + obstacles + "|" + doors + "|" + crop;
         CombatMap replay = replay(id, owner, commandId, fingerprint);
@@ -163,16 +168,20 @@ public final class CombatMapViewService {
         if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
         Set<GridPosition> nextObstacles = Set.copyOf(obstacles == null ? Set.of() : obstacles);
         List<Door> nextDoors = List.copyOf(doors == null ? List.of() : doors);
+        List<MapBoundary> nextBoundaries = List.copyOf(boundaries == null ? List.of() : boundaries);
         if (nextObstacles.stream().anyMatch(position -> !state.map().grid().contains(position))) throw new IllegalArgumentException("obstacles must be inside grid");
         if (nextDoors.stream().anyMatch(door -> !state.map().grid().contains(door.position()))) throw new IllegalArgumentException("doors must be inside grid");
         if (nextDoors.stream().map(Door::position).anyMatch(nextObstacles::contains)) throw new IllegalArgumentException("door cannot be an obstacle");
+        if (nextBoundaries.stream().anyMatch(boundary -> !boundary.inside(state.map().grid()))) throw new IllegalArgumentException("map boundary must be inside grid edges");
+        if (nextBoundaries.stream().map(boundary -> boundary.x() + "," + boundary.y() + "," + boundary.orientation()).distinct().count() != nextBoundaries.size()) throw new IllegalArgumentException("map boundary must be unique");
         GridPosition player = state.map().tokens().stream().filter(token -> token.type() == TokenType.PLAYER).map(CombatToken::position).findFirst().orElse(null);
         if (player != null && nextObstacles.contains(player)) throw new IllegalArgumentException("player start cell is blocked");
         if (crop != null && !crop.isBlank()) {
             PlayerMapImageService.validateCrop(MapGridAlignmentService.mapImage(state.map()), crop);
         }
-        List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !"MAP_CROP".equals(layer.type())).toList());
+        List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !"MAP_CROP".equals(layer.type()) && !"MAP_BOUNDARIES".equals(layer.type())).toList());
         if (crop != null && !crop.isBlank()) layers.add(new MapLayer("MAP_CROP", crop.trim(), LayerVisibility.PLAYER_VISIBLE));
+        if (!nextBoundaries.isEmpty()) layers.add(new MapLayer("MAP_BOUNDARIES", nextBoundaries.stream().map(MapBoundary::encoded).sorted().collect(java.util.stream.Collectors.joining(";")), LayerVisibility.PLAYER_VISIBLE));
         CombatMap updated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(),
                 state.map().ownerPlayerId(), state.map().tokens(), nextObstacles, layers, expectedVersion + 1, commandId, fingerprint);
         updated.replaceDoors(nextDoors);

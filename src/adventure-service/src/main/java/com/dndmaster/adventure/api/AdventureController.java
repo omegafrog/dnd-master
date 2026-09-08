@@ -302,7 +302,8 @@ public class AdventureController {
         UUID mapId = combatMapViewPort.playerView(adventureId, owner).orElseThrow().mapId();
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> obstacles = request.obstacles() == null ? List.of() : request.obstacles().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Position(p.x(), p.y())).toList();
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Door> doors = request.doors() == null ? List.of() : request.doors().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Door(p.x(), p.y(), false)).toList();
-        combatMapViewPort.updateLayout(mapId, owner, request.expectedVersion(), request.commandId(), obstacles, doors, request.crop());
+        List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary> boundaries = request.boundaries() == null ? List.of() : request.boundaries().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary(p.x(), p.y(), p.orientation(), p.kind())).toList();
+        combatMapViewPort.updateLayout(mapId, owner, request.expectedVersion(), request.commandId(), obstacles, doors, boundaries, request.crop());
     }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map/alignment")
@@ -602,7 +603,8 @@ public class AdventureController {
     public record CombatMapCalibrationRequest(UUID mapId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     public record CombatMapCalibrationResponse(UUID mapId, int width, int height) {}
-    public record CombatMapLayoutRequest(UUID commandId, long expectedVersion, List<PositionPayload> obstacles, List<PositionPayload> doors, String crop) {}
+    public record CombatMapLayoutRequest(UUID commandId, long expectedVersion, List<PositionPayload> obstacles, List<PositionPayload> doors, List<BoundaryPayload> boundaries, String crop) {}
+    public record BoundaryPayload(int x, int y, String orientation, String kind) {}
     public record CombatMapAlignmentRequest(UUID mapId, UUID commandId, long expectedVersion, String imageRevision,
                                             double originX, double originY, double cellSize) {}
     public record CombatMapAlignmentResponse(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize) {

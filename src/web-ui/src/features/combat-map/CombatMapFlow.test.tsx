@@ -105,8 +105,11 @@ it('shows AI wall and door drafts across the full map during preparation', async
   await user.click(screen.getByRole('button', { name: '적용' }))
   await user.click(screen.getByRole('button', { name: '벽·문·자르기 편집' }))
   const editor = screen.getByLabelText('맵 초안 검수')
-  expect(within(editor).getByRole('button', { name: '벽 1,0' })).toHaveClass('map-draft-wall')
-  expect(within(editor).getByRole('button', { name: '닫힌 문 0,1' })).toHaveClass('map-draft-door')
+  const wall = within(editor).getByRole('button', { name: '벽 경계선 1,0' })
+  expect(wall).toHaveClass('map-boundary-wall')
+  expect(within(editor).getByRole('button', { name: '문 경계선 0,1' })).toHaveClass('map-boundary-door')
+  await user.click(wall)
+  expect(within(editor).getByRole('button', { name: '문 경계선 1,0' })).toHaveClass('map-boundary-door')
   expect(screen.queryByRole('button', { name: '위치 선택' })).not.toBeInTheDocument()
 })
 

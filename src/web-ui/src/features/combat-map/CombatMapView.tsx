@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react'
-import type { AdventurePlayApi, CombatMapView as CombatMapState } from '../saved-adventures/AdventurePlayApi'
+import type { AdventurePlayApi, CombatMapView as CombatMapState, MapBoundary } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
@@ -157,7 +157,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     setLayoutSaving(true); setMessage('')
     try {
       await api.updateCombatMapLayout(adventureId, { commandId: globalThis.crypto.randomUUID(), expectedVersion: map.version ?? 0,
-        obstacles: map.obstacles ?? [], doors: (map.doors ?? []).map(door => ({ x: door.x, y: door.y })),
+        obstacles: [], doors: [], boundaries: mapBoundaries,
         crop: crop.width > 0 && crop.height > 0 ? `${Math.max(0, crop.x)},${Math.max(0, crop.y)},${crop.width},${crop.height}` : undefined })
       const refreshed = await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))
       setMap(refreshed)
@@ -166,32 +166,39 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     } catch (error) { setMessage(error instanceof Error ? error.message : '맵 초안을 저장하지 못했습니다.') }
     finally { setLayoutSaving(false) }
   }
-  function toggleLayoutCell(cell: { x: number; y: number }) {
+  const mapBoundaries = boundariesFrom(map)
+  function toggleBoundary(boundary: Pick<MapBoundary, 'x' | 'y' | 'orientation'>) {
     if (!map) return
-    const door = map.doors?.find(item => item.x === cell.x && item.y === cell.y)
-    if (door) setMap({ ...map, doors: map.doors?.filter(item => item.x !== cell.x || item.y !== cell.y) })
-    else if (map.obstacles?.some(item => item.x === cell.x && item.y === cell.y)) setMap({ ...map, obstacles: map.obstacles?.filter(item => item.x !== cell.x || item.y !== cell.y), doors: [...(map.doors ?? []), { x: cell.x, y: cell.y, open: false }] })
-    else setMap({ ...map, obstacles: [...(map.obstacles ?? []), cell] })
+    const current = mapBoundaries.find(item => item.x === boundary.x && item.y === boundary.y && item.orientation === boundary.orientation)
+    const next = current?.kind === 'WALL' ? [...mapBoundaries.filter(item => item !== current), { ...boundary, kind: 'DOOR' as const }]
+      : current?.kind === 'DOOR' ? mapBoundaries.filter(item => item !== current)
+        : [...mapBoundaries, { ...boundary, kind: 'WALL' as const }]
+    const layers = (map.layers ?? []).filter(layer => layer.type !== 'MAP_BOUNDARIES')
+    setMap({ ...map, obstacles: [], doors: [], layers: next.length ? [...layers, { type: 'MAP_BOUNDARIES', value: next.map(encodeBoundary).join(';'), visibility: 'PLAYER_VISIBLE' }] : layers })
     setLayoutDirty(true)
   }
   const tacticalMap = map.tokens ? (
     <div className="tactical-map-window">
       {!preparationMode && <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>}
-      <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} className="tactical-map" style={mapStyle}>
+          <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} className="tactical-map" style={mapStyle}>
         {Array.from({ length: previewGrid.width * previewGrid.height }, (_, index) => {
           const cell = { x: index % previewGrid.width, y: Math.floor(index / previewGrid.width) }
           const token = map.tokens?.find(item => item.x === cell.x && item.y === cell.y)
-          const blocked = map.obstacles?.some(obstacle => obstacle.x === cell.x && obstacle.y === cell.y)
-          const door = map.doors?.find(item => item.x === cell.x && item.y === cell.y)
+          const blocked = !preparationMode && map.obstacles?.some(obstacle => obstacle.x === cell.x && obstacle.y === cell.y)
+          const door = !preparationMode && map.doors?.find(item => item.x === cell.x && item.y === cell.y)
           const visible = preparationMode || (map.current?.some(item => item.x === cell.x && item.y === cell.y)
             ?? (!hasVisibilityMetadata && token?.type === 'PLAYER'))
           const explored = map.explored?.some(item => item.x === cell.x && item.y === cell.y) ?? false
           const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
-          return <button key={`${cell.x}-${cell.y}`} type="button" className={preparationMode ? door ? 'map-draft-door' : blocked ? 'map-draft-wall' : undefined : undefined} aria-label={preparationMode ? draftLabel : visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={preparationMode ? token?.type === 'PLAYER' : blocked || !visible} draggable={!preparationMode && token?.type === 'PLAYER'} onDragStart={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (preparationMode && !token) toggleLayoutCell(cell); else if (token?.type === 'PLAYER') setSelectedToken(token.id); else chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
+          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={preparationMode ? token?.type === 'PLAYER' : blocked || !visible} draggable={!preparationMode && token?.type === 'PLAYER'} onDragStart={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id); else if (!preparationMode) chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
             {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
           </button>
-        })}
-      </div>
+          })}
+          {preparationMode && allBoundaries(previewGrid.width, previewGrid.height).map(boundary => {
+            const current = mapBoundaries.find(item => item.x === boundary.x && item.y === boundary.y && item.orientation === boundary.orientation)
+            return <button key={`boundary-${boundary.x}-${boundary.y}-${boundary.orientation}`} type="button" className={`map-boundary${current ? ` map-boundary-${current.kind.toLowerCase()}` : ''}`} aria-label={current ? `${current.kind === 'WALL' ? '벽' : '문'} 경계선 ${boundary.x},${boundary.y}` : `빈 경계선 ${boundary.x},${boundary.y}`} style={boundaryStyle(boundary, previewGrid.width, previewGrid.height)} onClick={() => toggleBoundary(boundary)} />
+          })}
+          </div>
       {!preparationMode && <aside aria-label="맵 범례" className="map-legend">{[
         ['PLAYER', '●', '플레이어 캐릭터'], ['FRIENDLY_NPC', '◆', '우호 NPC'], ['NEUTRAL_NPC', '◇', '중립 NPC'],
         ['ENEMY', '▲', '적대 몬스터'], ['BOSS', '★', '보스'], ['TRAP', '⚠', '발견된 함정'], ['OBJECT', '■', '상호작용 오브젝트'],
@@ -232,4 +239,28 @@ function gridPath(from: { x: number; y: number }, to: { x: number; y: number }) 
     path.push({ ...current })
   }
   return path
+}
+
+function boundariesFrom(map: CombatMapState | null): MapBoundary[] {
+  const stored = map?.layers?.find(layer => layer.type === 'MAP_BOUNDARIES')?.value
+  if (stored) return stored.split(';').flatMap(value => {
+    const [x, y, orientation, kind] = value.split(',')
+    return Number.isInteger(Number(x)) && Number.isInteger(Number(y)) && (orientation === 'HORIZONTAL' || orientation === 'VERTICAL') && (kind === 'WALL' || kind === 'DOOR')
+      ? [{ x: Number(x), y: Number(y), orientation, kind } as MapBoundary] : []
+  })
+  return [...(map?.obstacles ?? []).map(position => ({ ...position, orientation: 'HORIZONTAL' as const, kind: 'WALL' as const })), ...(map?.doors ?? []).map(position => ({ x: position.x, y: position.y, orientation: 'HORIZONTAL' as const, kind: 'DOOR' as const }))]
+}
+
+function allBoundaries(width: number, height: number): Array<Pick<MapBoundary, 'x' | 'y' | 'orientation'>> {
+  return [
+    ...Array.from({ length: width * (height + 1) }, (_, index) => ({ x: index % width, y: Math.floor(index / width), orientation: 'HORIZONTAL' as const })),
+    ...Array.from({ length: (width + 1) * height }, (_, index) => ({ x: index % (width + 1), y: Math.floor(index / (width + 1)), orientation: 'VERTICAL' as const })),
+  ]
+}
+
+function encodeBoundary(boundary: MapBoundary) { return `${boundary.x},${boundary.y},${boundary.orientation},${boundary.kind}` }
+function boundaryStyle(boundary: Pick<MapBoundary, 'x' | 'y' | 'orientation'>, width: number, height: number): CSSProperties {
+  return boundary.orientation === 'HORIZONTAL'
+    ? { left: `${(boundary.x / width) * 100}%`, top: `${(boundary.y / height) * 100}%`, width: `${100 / width}%`, height: '8px' }
+    : { left: `${(boundary.x / width) * 100}%`, top: `${(boundary.y / height) * 100}%`, width: '8px', height: `${100 / height}%` }
 }

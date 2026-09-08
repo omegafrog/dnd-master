@@ -294,7 +294,8 @@ public class CombatMapController {
         try {
             Set<GridPosition> obstacles = authoredPositions(request.obstacles(), "obstacles");
             List<Door> doors = authoredPositions(request.doors(), "doors").stream().map(position -> new Door(position, false)).toList();
-            CombatMap map = mapViewService.updateLayout(new MapId(mapId), new MapOwnerId(request.ownerId()), request.expectedVersion(), request.commandId(), obstacles, doors, request.crop());
+            List<MapBoundary> boundaries = request.boundaries() == null ? List.of() : request.boundaries().stream().map(MapBoundary::parse).toList();
+            CombatMap map = mapViewService.updateLayout(new MapId(mapId), new MapOwnerId(request.ownerId()), request.expectedVersion(), request.commandId(), obstacles, doors, boundaries, request.crop());
             return new CombatMapAiStateResponse(map.id().value());
         } catch (IllegalStateException exception) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, exception.getMessage(), exception);
@@ -345,7 +346,7 @@ public class CombatMapController {
             long expectedVersion,
             List<LayerRequest> layers) {}
     public record DoorRequest(UUID ownerId,int x,int y,boolean open,UUID commandId,long expectedVersion) {}
-    public record LayoutRequest(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors, String crop) {}
+    public record LayoutRequest(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors, List<String> boundaries, String crop) {}
     public record GridCalibrationRequest(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
                                          int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     public record MapGridAlignmentRequest(UUID ownerId, UUID commandId, long expectedVersion, String imageRevision,

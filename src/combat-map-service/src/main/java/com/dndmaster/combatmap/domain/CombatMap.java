@@ -35,6 +35,10 @@ public final class CombatMap {
             GridPosition position=path.orderedPositions().get(i);
             if(!grid.contains(position) || obstacles.contains(position)) throw new CombatMapMovementDeniedException("path crosses blocked or outside position");
             if(i>0 && !path.orderedPositions().get(i-1).adjacentTo(position)) throw new CombatMapMovementDeniedException("path positions must be adjacent");
+            if(i>0) {
+                GridPosition previous = path.orderedPositions().get(i - 1);
+                if (boundaries().stream().anyMatch(boundary -> boundary.blocks(previous, position))) throw new CombatMapMovementDeniedException("path crosses wall or closed door");
+            }
         }
         token.moveTo(path.orderedPositions().getLast());
     }
@@ -52,6 +56,11 @@ public final class CombatMap {
     public void replaceRuntimeState(TacticalRuntimeState state){runtimeState=Objects.requireNonNull(state);}
     public void replaceVisibility(VisibilitySnapshot snapshot){visibilitySnapshot=Objects.requireNonNull(snapshot);}
     public Set<Door> doors(){return doors;}
+    public Set<MapBoundary> boundaries() {
+        return layers.stream().filter(layer -> layer.type().equals("MAP_BOUNDARIES"))
+                .flatMap(layer -> Arrays.stream(layer.value().split(";"))).filter(value -> !value.isBlank())
+                .map(MapBoundary::parse).collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
     public void replaceDoors(Collection<Door> nextDoors){
         Objects.requireNonNull(nextDoors);
         if(nextDoors.stream().anyMatch(door -> !grid.contains(door.position()))) throw new IllegalArgumentException("doors must be inside grid");
