@@ -180,7 +180,9 @@ public class AiGameMasterApiConfiguration {
         if (!node.isArray()) throw new IllegalArgumentException("boundaries must be an array");
         List<String> result = new java.util.ArrayList<>();
         for (var value : node) {
-            String boundary = value.asText().trim();
+            String boundary = value.isTextual() ? value.asText().trim()
+                    : value.path("x").asText("") + "," + value.path("y").asText("") + ","
+                    + value.path("orientation").asText("") + "," + value.path("kind").asText("");
             String[] parts = boundary.split(",", -1);
             if (parts.length != 4) throw new IllegalArgumentException("boundaries contains an invalid edge");
             int x = Integer.parseInt(parts[0].trim()); int y = Integer.parseInt(parts[1].trim());

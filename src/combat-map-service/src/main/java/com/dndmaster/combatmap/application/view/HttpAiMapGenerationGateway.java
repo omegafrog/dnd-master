@@ -158,7 +158,8 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         List<String> result = new ArrayList<>();
         for (JsonNode value : values) {
             try {
-                com.dndmaster.combatmap.domain.MapBoundary boundary = com.dndmaster.combatmap.domain.MapBoundary.parse(value.asText());
+                String raw = value.isTextual() ? value.asText() : value.path("x").asText("") + "," + value.path("y").asText("") + "," + value.path("orientation").asText("") + "," + value.path("kind").asText("");
+                com.dndmaster.combatmap.domain.MapBoundary boundary = com.dndmaster.combatmap.domain.MapBoundary.parse(raw);
                 if (!boundary.inside(new GridSpec(width, height, 1, 1))) throw new IllegalArgumentException("outside grid");
                 String encoded = boundary.encoded();
                 if (!result.contains(encoded)) result.add(encoded);
