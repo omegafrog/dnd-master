@@ -64,7 +64,9 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
   const startRuntime = () => {
     if (!partyFull || !session.runtimeConfiguration) return
     const adventureId = globalThis.crypto.randomUUID()
-    const prepareMap = api.prepareMap ?? ((id: string, version: number, adventure: string) => api.start(id, version, adventure, true))
+    const prepareMap = api.prepareMap
+      ? (id: string, version: number, adventure: string) => api.prepareMap!(id, version, adventure)
+      : (id: string, version: number, adventure: string) => api.start(id, version, adventure, true)
     void prepareMap(sessionId, session.version, adventureId).then(next => {
       setSession(next)
       setPreparingAdventureId(next.adventureId ?? adventureId)
