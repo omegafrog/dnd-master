@@ -13,11 +13,14 @@ it('keeps the 3×3 alignment draft local until explicit apply', async () => {
   render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={cancel} />)
 
   expect(screen.getByText('3×3 격자 맞추기', { selector: 'strong' })).toBeInTheDocument()
-  const magnifier = screen.getByRole('button', { name: '확대경 켜기' })
-  expect(magnifier).toHaveAttribute('aria-pressed', 'false')
-  await user.click(magnifier)
-  expect(screen.getByRole('button', { name: '확대경 끄기' })).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByRole('button', { name: /확대경/ })).not.toBeInTheDocument()
+  const canvas = screen.getByAltText('공개된 지도 이미지').parentElement!
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 40, clientY: 80 }))
   expect(screen.getByLabelText('확대경')).toBeInTheDocument()
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 40, clientY: 80 }))
+  expect(screen.queryByLabelText('확대경')).not.toBeInTheDocument()
   expect(screen.queryByLabelText('한 칸 크기')).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '다음' })).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '취소' }))

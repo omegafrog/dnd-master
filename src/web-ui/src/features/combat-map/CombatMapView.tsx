@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import type { AdventurePlayApi, CombatMapView as CombatMapState } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
+import { MapCropEditor } from './MapCropEditor'
 
 export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, onPreparationComplete }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; onPreparationComplete?: () => void }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
@@ -173,7 +174,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       <h2 id="map-heading">{compact ? '전장 지도' : '플레이어 전투 맵'}</h2>
       {!compact && <p>모험 ID: {adventureId}</p>}
       {!compact && <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>}
-      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>맵 초안 검수</h3><p>AI가 제안한 벽과 문을 칸마다 눌러 고치세요. 격자 크기를 맞춘 뒤 여백을 잘라낼 수 있습니다.</p><button type="button" onClick={() => setLayoutEditing(current => !current)}>{layoutEditing ? '검수 닫기' : '벽·문·자르기 편집'}</button>{layoutEditing && <div><label>자르기 시작 X<input aria-label="자르기 시작 X" type="number" value={crop.x} onChange={event => { setCrop(current => ({ ...current, x: Number(event.target.value) })); setLayoutDirty(true) }} /></label><label>자르기 시작 Y<input aria-label="자르기 시작 Y" type="number" value={crop.y} onChange={event => { setCrop(current => ({ ...current, y: Number(event.target.value) })); setLayoutDirty(true) }} /></label><label>자르기 너비<input aria-label="자르기 너비" type="number" min="1" value={crop.width} onChange={event => { setCrop(current => ({ ...current, width: Number(event.target.value) })); setLayoutDirty(true) }} /></label><label>자르기 높이<input aria-label="자르기 높이" type="number" min="1" value={crop.height} onChange={event => { setCrop(current => ({ ...current, height: Number(event.target.value) })); setLayoutDirty(true) }} /></label><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div>}</section>}
+      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>맵 초안 검수</h3><p>AI가 제안한 벽과 문을 칸마다 눌러 고치세요. 격자 크기를 맞춘 뒤 여백을 잘라낼 수 있습니다.</p><button type="button" onClick={() => setLayoutEditing(current => !current)}>{layoutEditing ? '검수 닫기' : '벽·문·자르기 편집'}</button>{layoutEditing && <div>{mapImage && <MapCropEditor image={mapImage} crop={crop} onChange={next => { setCrop(next); setLayoutDirty(true) }} />}<button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div>}</section>}
       {showGridEditor ? <section aria-label="맵 격자 맞추기" className="map-grid-editor">
         <button type="button" onClick={() => setGridEditor(true)}>격자 맞추기</button>
         {gridEditor && <MapGridAlignmentEditor image={mapImage!} initial={alignment} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {

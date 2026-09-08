@@ -8,7 +8,6 @@ type Drag =
 export function MapGridAlignmentEditor({ image, initial, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { version: number; imageRevision: string }; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
   const [draft, setDraft] = useState<MapGridAlignmentDraft>(initial)
   const [zoom, setZoom] = useState(1)
-  const [magnifierEnabled, setMagnifierEnabled] = useState(false)
   const [magnifier, setMagnifier] = useState<ImagePoint | null>(null)
   const [sizing, setSizing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -38,14 +37,14 @@ export function MapGridAlignmentEditor({ image, initial, onApply, onCancel }: { 
     const anchor = point(event)
     drag.current = { anchor, draft: { ...draft } }
     setSizing(true)
-    setMagnifier(magnifierEnabled ? anchor : null)
+    setMagnifier(anchor)
     changeDraft({ ...draft, originX: anchor.x, originY: anchor.y })
   }
   function move(event: PointerEvent<HTMLDivElement>) {
-    setMagnifier(magnifierEnabled ? point(event) : null)
     const current = drag.current
     if (!current) return
     const next = point(event)
+    setMagnifier(next)
     try {
       changeDraft(refineCellSize(current.draft, { x: 0, y: 0 }, current.anchor, { x: 3, y: 3 }, next))
     } catch {
@@ -79,15 +78,6 @@ export function MapGridAlignmentEditor({ image, initial, onApply, onCancel }: { 
     <div className="map-grid-alignment-toolbar">
       <button type="button" onClick={() => setZoom(value => Math.min(4, value + .25))}>확대</button>
       <button type="button" onClick={() => setZoom(value => Math.max(.5, value - .25))}>축소</button>
-      <button type="button" aria-pressed={magnifierEnabled} onClick={() => {
-        if (magnifierEnabled) {
-          setMagnifierEnabled(false)
-          setMagnifier(null)
-        } else {
-          setMagnifierEnabled(true)
-          setMagnifier({ x: imageSize.width / 2, y: imageSize.height / 2 })
-        }
-      }}>{magnifierEnabled ? '확대경 끄기' : '확대경 켜기'}</button>
     </div>
     <div ref={canvas} className={`map-grid-alignment-canvas${sizing ? ' is-sizing' : ''}`} onPointerDown={beginGridSizing} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onPointerLeave={() => !drag.current && setMagnifier(null)}>
       <img src={image} alt="공개된 지도 이미지" draggable={false} onLoad={event => setImageSize({ width: event.currentTarget.naturalWidth || 1, height: event.currentTarget.naturalHeight || 1 })} style={{ width: imageSize.width, height: imageSize.height, maxWidth: 'none', maxHeight: 'none', transform: `translate(${view.offsetX}px, ${view.offsetY}px) scale(${view.scale * zoom})`, transformOrigin: '0 0' }} />
