@@ -14,7 +14,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [locationMode, setLocationMode] = useState(false)
   const [gridEditor, setGridEditor] = useState(false)
   const [gridMessage, setGridMessage] = useState('')
-  const [alignment, setAlignment] = useState({ version: 0, imageRevision: '', originX: 0, originY: 0, cellSize: 30 })
+  const [alignment, setAlignment] = useState({ mapId: '', version: 0, imageRevision: '', originX: 0, originY: 0, cellSize: 30 })
   const [alignmentAvailable, setAlignmentAvailable] = useState(false)
   const [mapImageSize, setMapImageSize] = useState({ width: 1, height: 1 })
   const [layoutEditing, setLayoutEditing] = useState(preparationMode)
@@ -38,7 +38,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         const bounds = nextMap.layers?.find(layer => layer.type === 'GRID_BOUNDS')?.value?.split(',').map(Number)
         const nextGrid = nextMap.grid ?? { width: 20, height: 20 }
         if (bounds?.length === 6 && bounds.every(Number.isFinite)) {
-          setAlignment({ version: 0, imageRevision: '', cellSize: bounds[2] / nextGrid.width, originX: bounds[0], originY: bounds[1] })
+          setAlignment({ mapId: nextMap.mapId ?? '', version: 0, imageRevision: '', cellSize: bounds[2] / nextGrid.width, originX: bounds[0], originY: bounds[1] })
         }
         try { const current = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable'))); if (active) { setAlignment(current); setAlignmentAvailable(true) } } catch { if (active) { setAlignmentAvailable(false); setGridMessage('저장된 격자 정렬을 불러오지 못했습니다.') } }
         try {
@@ -157,7 +157,10 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       await api.updateCombatMapLayout(adventureId, { commandId: globalThis.crypto.randomUUID(), expectedVersion: map.version ?? 0,
         obstacles: map.obstacles ?? [], doors: (map.doors ?? []).map(door => ({ x: door.x, y: door.y })),
         crop: crop.width > 0 && crop.height > 0 ? `${Math.max(0, crop.x)},${Math.max(0, crop.y)},${crop.width},${crop.height}` : undefined })
-      setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))); setMessage('벽·문·자르기 설정을 저장했습니다.'); setLayoutEditing(false); setLayoutDirty(false)
+      const refreshed = await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))
+      setMap(refreshed)
+      const refreshedAlignment = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable')))
+      setAlignment(refreshedAlignment); setAlignmentAvailable(true); setMessage('벽·문·자르기 설정을 저장했습니다.'); setLayoutEditing(false); setLayoutDirty(false)
     } catch (error) { setMessage(error instanceof Error ? error.message : '맵 초안을 저장하지 못했습니다.') }
     finally { setLayoutSaving(false) }
   }

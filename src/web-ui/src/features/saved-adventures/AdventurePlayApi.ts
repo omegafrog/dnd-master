@@ -64,7 +64,7 @@ export type CombatMapView = {
 }
 
 export type MapGridAlignment = { mapId: string; version: number; imageRevision: string; imageViewId?: string; originX: number; originY: number; cellSize: number }
-export type MapGridAlignmentRequest = { commandId: string; expectedVersion: number; imageRevision: string; originX: number; originY: number; cellSize: number }
+export type MapGridAlignmentRequest = { mapId: string; commandId: string; expectedVersion: number; imageRevision: string; originX: number; originY: number; cellSize: number }
 export type CombatMapLayoutDraft = { commandId: string; expectedVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number }>; crop?: string }
 
 export type MapActionCandidate = {

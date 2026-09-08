@@ -1,12 +1,12 @@
 import { useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { imagePointFromScreen, refineCellSize, type ImagePoint, type MapGridAlignmentDraft } from './mapGridAlignmentGeometry'
 
-export type AlignmentToSave = MapGridAlignmentDraft & { commandId: string; expectedVersion: number; imageRevision: string }
+export type AlignmentToSave = MapGridAlignmentDraft & { mapId: string; commandId: string; expectedVersion: number; imageRevision: string }
 const MAGNIFIER_SCALE = 2.5
 type Drag =
   { anchor: ImagePoint; draft: MapGridAlignmentDraft }
 
-export function MapGridAlignmentEditor({ image, initial, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { version: number; imageRevision: string }; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
+export function MapGridAlignmentEditor({ image, initial, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { mapId: string; version: number; imageRevision: string }; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
   const [draft, setDraft] = useState<MapGridAlignmentDraft>(initial)
   const [zoom, setZoom] = useState(1)
   const [magnifier, setMagnifier] = useState<ImagePoint | null>(null)
@@ -63,7 +63,7 @@ export function MapGridAlignmentEditor({ image, initial, onApply, onCancel }: { 
     setError('')
     try {
       commandId.current ??= globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
-      await onApply({ ...draft, commandId: commandId.current, expectedVersion: initial.version, imageRevision: initial.imageRevision })
+      await onApply({ ...draft, mapId: initial.mapId, commandId: commandId.current, expectedVersion: initial.version, imageRevision: initial.imageRevision })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '격자 맞추기를 저장하지 못했습니다.')
     } finally { setSaving(false) }

@@ -169,6 +169,27 @@ it('does not let a slower stale refresh overwrite the latest map', async () => {
   expect(screen.getByText('현재 맵 상태: latest')).toBeInTheDocument()
 })
 
+it('refreshes the grid alignment after saving the map draft', async () => {
+  const api = fakeApi()
+  api.getCombatMapPreparation = vi.fn()
+    .mockResolvedValueOnce({ adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 1, grid: { width: 2, height: 2 }, tokens: [] })
+    .mockResolvedValueOnce({ adventureId: 'a1', status: 'authoritative-map', mapId: 'm2', version: 2, grid: { width: 2, height: 2 }, tokens: [] })
+  api.getCombatMapPreparationImage = vi.fn().mockResolvedValue('/map.png')
+  api.getMapGridAlignment = vi.fn()
+    .mockResolvedValueOnce({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+    .mockResolvedValueOnce({ mapId: 'm2', version: 2, imageRevision: 'r2', originX: 0, originY: 0, cellSize: 30 })
+  api.updateCombatMapLayout = vi.fn().mockResolvedValue(undefined)
+  api.applyMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm2', version: 3, imageRevision: 'r2', originX: 0, originY: 0, cellSize: 30 })
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  await user.click(await screen.findByRole('button', { name: '맵 초안 저장' }))
+  await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+
+  expect(api.applyMapGridAlignment).toHaveBeenCalledWith('a1', expect.objectContaining({ mapId: 'm2', expectedVersion: 2, imageRevision: 'r2' }))
+})
+
 it('downloads the public image through the authenticated no-store endpoint', async () => {
   const fetchMock = vi.fn()
     .mockResolvedValueOnce(new Response(JSON.stringify({ imageViewId: 'public:image:reference' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
@@ -193,7 +214,7 @@ it('saves only an alignment draft through the dedicated endpoint', async () => {
   const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
   vi.stubGlobal('fetch', fetchMock)
   try {
-    await new HttpAdventurePlayApi(() => 'player-token').applyMapGridAlignment('a1', { commandId: 'c1', expectedVersion: 1, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 })
-    expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/a1/combat-map/alignment', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ commandId: 'c1', expectedVersion: 1, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 }) }))
+    await new HttpAdventurePlayApi(() => 'player-token').applyMapGridAlignment('a1', { mapId: 'm1', commandId: 'c1', expectedVersion: 1, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 })
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/a1/combat-map/alignment', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ mapId: 'm1', commandId: 'c1', expectedVersion: 1, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 }) }))
   } finally { vi.unstubAllGlobals() }
 })

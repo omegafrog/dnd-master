@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 
-const initial = { version: 3, imageRevision: 'image-v1', originX: 12.25, originY: 8.5, cellSize: 31.75 }
+const initial = { mapId: 'map-1', version: 3, imageRevision: 'image-v1', originX: 12.25, originY: 8.5, cellSize: 31.75 }
 
 it('keeps the 3×3 alignment draft local until explicit apply', async () => {
   const apply = vi.fn().mockResolvedValue(undefined)
@@ -55,5 +55,5 @@ it('exposes retry after a save error', async () => {
   await user.click(screen.getByRole('button', { name: '적용' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('network')
   await user.click(screen.getByRole('button', { name: '다시 적용' }))
-  expect(apply).toHaveBeenLastCalledWith(expect.objectContaining({ cellSize: 31.75, expectedVersion: 3, imageRevision: 'image-v1' }))
+  expect(apply).toHaveBeenLastCalledWith(expect.objectContaining({ mapId: 'map-1', cellSize: 31.75, expectedVersion: 3, imageRevision: 'image-v1' }))
 })
