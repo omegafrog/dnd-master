@@ -42,13 +42,13 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           : await api.getCombatMap(adventureId)
         if (!active) return
         setMap(nextMap)
-        if (preparationMode) setLayoutSaved(nextMap.layers?.some(layer => layer.type === 'MAP_LAYOUT_CONFIRMED') ?? false)
+        if (preparationMode) setLayoutSaved(false)
         const bounds = nextMap.layers?.find(layer => layer.type === 'GRID_BOUNDS')?.value?.split(',').map(Number)
         const nextGrid = nextMap.grid ?? { width: 20, height: 20 }
         if (bounds?.length === 6 && bounds.every(Number.isFinite)) {
           setAlignment({ mapId: nextMap.mapId ?? '', version: 0, imageRevision: '', cellSize: bounds[2] / nextGrid.width, originX: bounds[0], originY: bounds[1] })
         }
-        try { const current = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable'))); if (active) { setAlignment(current); setAlignmentAvailable(true); if (current.version > 0) setGridConfirmed(true) } } catch { if (active) { setAlignmentAvailable(false); setGridMessage('저장된 격자 정렬을 불러오지 못했습니다.') } }
+        try { const current = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable'))); if (active) { setAlignment(current); setAlignmentAvailable(true); if (current.version > 0) setGridConfirmed(true); if (preparationMode) setLayoutSaved(layoutConfirmedForAlignment(nextMap, current)) } } catch { if (active) { setAlignmentAvailable(false); setLayoutSaved(false); setGridMessage('저장된 격자 정렬을 불러오지 못했습니다.') } }
         try {
           const image = preparationMode
             ? await (api.getCombatMapPreparationImage?.(adventureId) ?? api.getPublicMapImage?.(adventureId) ?? Promise.resolve(null))
@@ -149,7 +149,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       '--map-background-size': `${(renderedImageWidth / Math.max(renderedGridWidth, 1)) * 100}% ${(renderedImageHeight / Math.max(renderedGridHeight, 1)) * 100}%`,
       '--map-background-position': `${gridEditor ? 'left top' : backgroundPositionX} ${gridEditor ? 'left top' : backgroundPositionY}`,
     } : {}),
-    ...(!gridEditor && !usesSavedAlignment && crop.width > 0 && crop.height > 0 ? {
+    ...(!gridEditor && crop.width > 0 && crop.height > 0 ? {
       '--map-background-size': `${((imageWidth || mapImageSize.width) / crop.width) * 100}% ${((imageHeight || mapImageSize.height) / crop.height) * 100}%`,
       '--map-background-position': `${(crop.x / Math.max((imageWidth || mapImageSize.width) - crop.width, 1)) * 100}% ${(crop.y / Math.max((imageHeight || mapImageSize.height) - crop.height, 1)) * 100}%`,
     } : {}),
@@ -330,7 +330,12 @@ function applyBoundaryProposal(map: CombatMapState, proposal: MapBoundaryProposa
   return { ...map, version: proposal.mapVersion, obstacles: proposal.obstacles, doors: proposal.doors, layers: nextLayers }
 }
 
-function encodeBoundary(boundary: MapBoundary) { return `${boundary.x},${boundary.y},${boundary.orientation},${boundary.kind}` }
+function encodeBoundary(boundary: MapBoundary) { return `${boundary.x},${boundary.y},${boundary.orientation},${boundary.kind},${boundary.open}` }
+function layoutConfirmedForAlignment(map: CombatMapState, current: { version: number }) {
+  const marker = map.layers?.find(layer => layer.type === 'MAP_LAYOUT_CONFIRMED')
+  if (marker?.value === 'USER') return true
+  return marker?.value === `USER|ALIGNMENT_VERSION=${current.version}`
+}
 type BoundaryStroke = { orientation: MapBoundary['orientation']; fixed: number; from: number; to: number }
 
 function startBoundaryStroke(event: React.PointerEvent<HTMLDivElement>, width: number, height: number): BoundaryStroke | null {

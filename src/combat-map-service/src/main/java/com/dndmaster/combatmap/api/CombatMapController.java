@@ -178,8 +178,7 @@ public class CombatMapController {
         requestGuard.internal(token);
         MapId id = new MapId(mapId);
         MapOwnerId owner = new MapOwnerId(ownerId);
-        String imageViewId = requirePublicMapImages().latestReference(id, owner)
-                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND));
+        String imageViewId = requirePublicMapImages().latestReference(id, owner).orElse("");
         return MapGridAlignmentResponse.from(requireAlignmentService().find(id, owner), imageViewId);
     }
 
@@ -216,8 +215,7 @@ public class CombatMapController {
             var alignment = requireAlignmentService().apply(id, owner,
                     new com.dndmaster.combatmap.application.view.MapGridAlignmentRequest(request.commandId(), request.expectedVersion(),
                             request.imageRevision(), request.originX(), request.originY(), request.cellSize()));
-            String imageViewId = requirePublicMapImages().latestReference(id, owner)
-                    .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND));
+            String imageViewId = requirePublicMapImages().latestReference(id, owner).orElse("");
             return MapGridAlignmentResponse.from(alignment, imageViewId);
         } catch (com.dndmaster.combatmap.application.view.MapGridAlignmentConflictException exception) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, exception.getMessage(), exception);

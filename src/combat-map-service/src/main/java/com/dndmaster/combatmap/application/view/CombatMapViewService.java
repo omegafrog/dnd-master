@@ -9,13 +9,18 @@ public final class CombatMapViewService {
     private final MapFilePreparationPort filePort;
     private final AiMapGenerationPort aiPort;
     private final PublicMapImageArtifactService publicImages;
+    private final MapGridAlignmentStore alignments;
 
     public CombatMapViewService(CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort) {
         this(store, filePort, aiPort, null);
     }
     public CombatMapViewService(CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort,
             PublicMapImageArtifactService publicImages) {
-        this.store = Objects.requireNonNull(store); this.filePort = Objects.requireNonNull(filePort); this.aiPort = Objects.requireNonNull(aiPort); this.publicImages = publicImages;
+        this(store, filePort, aiPort, publicImages, null);
+    }
+    public CombatMapViewService(CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort,
+            PublicMapImageArtifactService publicImages, MapGridAlignmentStore alignments) {
+        this.store = Objects.requireNonNull(store); this.filePort = Objects.requireNonNull(filePort); this.aiPort = Objects.requireNonNull(aiPort); this.publicImages = publicImages; this.alignments = alignments;
     }
     public CombatMap prepareUploaded(MapOwnerId owner, AdventureId adventure, RuleSetId rules, UploadedMapSource source) { return saveNew(owner, adventure, rules, filePort.prepare(source)); }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description) {
@@ -182,7 +187,7 @@ public final class CombatMapViewService {
         List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !Set.of("MAP_CROP", "MAP_BOUNDARIES", "MAP_LAYOUT_CONFIRMED").contains(layer.type())).toList());
         if (crop != null && !crop.isBlank()) layers.add(new MapLayer("MAP_CROP", crop.trim(), LayerVisibility.PLAYER_VISIBLE));
         if (!nextBoundaries.isEmpty()) layers.add(new MapLayer("MAP_BOUNDARIES", nextBoundaries.stream().map(MapBoundary::encoded).sorted().collect(java.util.stream.Collectors.joining(";")), LayerVisibility.PLAYER_VISIBLE));
-        layers.add(new MapLayer("MAP_LAYOUT_CONFIRMED", "USER", LayerVisibility.PLAYER_VISIBLE));
+        layers.add(new MapLayer("MAP_LAYOUT_CONFIRMED", layoutConfirmationValue(id), LayerVisibility.PLAYER_VISIBLE));
         CombatMap updated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(),
                 state.map().ownerPlayerId(), state.map().tokens(), nextObstacles, layers, expectedVersion + 1, commandId, fingerprint);
         updated.replaceDoors(nextDoors);
@@ -190,6 +195,12 @@ public final class CombatMapViewService {
         updated.refreshVisibility(state.map().visibilitySnapshot() == null ? 0 : state.map().visibilitySnapshot().ruleTurn());
         store.update(owner, updated, expectedVersion, expectedVersion + 1, commandId, fingerprint);
         return updated;
+    }
+
+    private String layoutConfirmationValue(MapId id) {
+        if (alignments == null) return "USER";
+        long version = alignments.find(id).map(MapGridAlignment::version).orElse(0L);
+        return "USER|ALIGNMENT_VERSION=" + version;
     }
 
     public CombatMap calibrateGrid(MapId id, MapOwnerId owner, long expectedVersion, GridCalibrationRequest request) {

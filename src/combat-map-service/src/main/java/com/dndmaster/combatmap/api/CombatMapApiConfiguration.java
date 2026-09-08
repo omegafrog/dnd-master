@@ -103,8 +103,8 @@ public class CombatMapApiConfiguration {
     @Bean
     CombatMapViewService combatMapViewService(
             CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort,
-            PublicMapImageArtifactService publicImages) {
-        return new CombatMapViewService(store, filePort, aiPort, publicImages);
+            PublicMapImageArtifactService publicImages, MapGridAlignmentStore alignments) {
+        return new CombatMapViewService(store, filePort, aiPort, publicImages, alignments);
     }
 
     @Bean

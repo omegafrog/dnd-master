@@ -140,6 +140,9 @@ public final class AdventureSessionApplicationService {
         session.validateStart();
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
+        if (!prepareMapOnly && !combatMapPreparationPort.mapLayoutConfirmed(adventureId, owner.value())) {
+            throw new IllegalStateException("맵 초안을 먼저 저장해야 모험을 시작할 수 있습니다.");
+        }
         var preparedStage = stagePreparation.prepare(scenarioPackage.packageId());
         // A retried browser request can generate a new adventure id after a
         // previous attempt already persisted the adventure. Reuse the

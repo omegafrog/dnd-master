@@ -147,6 +147,20 @@ it('runs AI wall detection only after grid confirmation and keeps the crop edito
   expect(screen.getByRole('heading', { name: '맵 초안 검수' }).parentElement).toHaveTextContent('AI가 현재 격자와 지도 이미지를 기준으로 벽·문을 찾습니다.')
 })
 
+it('does not treat a draft saved for an older grid as ready after reload', async () => {
+  const api = fakeApi()
+  api.getCombatMapPreparation = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 4,
+    grid: { width: 2, height: 2 }, tokens: [],
+    layers: [{ type: 'MAP_LAYOUT_CONFIRMED', value: 'USER|ALIGNMENT_VERSION=1' }],
+  })
+  api.getMapGridAlignment = async () => ({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  const ready = await screen.findByRole('button', { name: '맵 준비 완료, 모험 시작' })
+  expect(ready).toBeDisabled()
+})
+
 it('releases the replaced public image blob URL', async () => {
   const api = fakeApi()
   api.getPublicMapImage = vi.fn().mockResolvedValueOnce('blob:first-map').mockResolvedValueOnce('blob:second-map')

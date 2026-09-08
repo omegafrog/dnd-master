@@ -12,6 +12,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.List;
+import com.fasterxml.jackson.databind.JsonNode;
 
 /** HTTP adapter for the combat-map prepare-and-activate boundary. */
 public final class HttpCombatMapPreparationGateway implements CombatMapPreparationPort {
@@ -36,6 +37,47 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
         return prepareInitial(adventureId, ownerPlayerId, ruleSetId, mapDefinition, stagePosition,
                 new CombatMapPreparationPort.ActivationContext(null, UUID.randomUUID(), 1, 0,
                         "unknown", "unknown", null, null, null));
+    }
+
+    @Override
+    public boolean mapLayoutConfirmed(AdventureId adventureId, UUID ownerPlayerId) {
+        URI preparationUri = baseUri.resolve("internal/v1/adventures/" + adventureId.value()
+                + "/combat-map/preparation-view?ownerId=" + ownerPlayerId);
+        try {
+            HttpRequest preparation = HttpRequest.newBuilder(preparationUri)
+                    .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
+            HttpResponse<String> response = client.send(preparation, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 404) return true;
+            if (response.statusCode() < 200 || response.statusCode() >= 300) return false;
+            JsonNode body = mapper.readTree(response.body());
+            JsonNode layers = body.path("layers");
+            if (!layers.isArray()) return false;
+            JsonNode marker = null;
+            for (JsonNode layer : layers) {
+                if ("MAP_LAYOUT_CONFIRMED".equals(layer.path("type").asText())) { marker = layer; break; }
+            }
+            if (marker == null) return false;
+            String value = marker.path("value").asText("");
+            String prefix = "USER|ALIGNMENT_VERSION=";
+            if ("USER".equals(value)) return true;
+            if (!value.startsWith(prefix)) return false;
+            long savedVersion;
+            try { savedVersion = Long.parseLong(value.substring(prefix.length())); }
+            catch (NumberFormatException ignored) { return false; }
+            String mapId = body.path("mapId").asText("");
+            if (mapId.isBlank()) return false;
+            URI alignmentUri = baseUri.resolve("internal/v1/combat-maps/" + mapId + "/alignment?ownerId=" + ownerPlayerId);
+            HttpRequest alignment = HttpRequest.newBuilder(alignmentUri)
+                    .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
+            HttpResponse<String> alignmentResponse = client.send(alignment, HttpResponse.BodyHandlers.ofString());
+            if (alignmentResponse.statusCode() < 200 || alignmentResponse.statusCode() >= 300) return false;
+            return mapper.readTree(alignmentResponse.body()).path("version").asLong(-1) == savedVersion;
+        } catch (IOException exception) {
+            throw new IllegalStateException("combat map preparation transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("combat map preparation interrupted", exception);
+        }
     }
 
     @Override

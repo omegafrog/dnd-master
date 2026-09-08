@@ -64,7 +64,7 @@ public final class AdventureSessionController {
     @PostMapping("/{sessionId}/start") SessionView start(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version, @RequestHeader("Idempotency-Key") UUID requestId, @RequestBody StartRequest request) {
         if (!request.prepareMapOnly()) {
             var preparation = combatMapViewPort.preparationView(request.adventureId(), playerResolver.playerId());
-            if (preparation.isPresent() && preparation.get().layers().stream().noneMatch(layer -> "MAP_LAYOUT_CONFIRMED".equals(layer.type()))) {
+            if (preparation.isPresent() && !mapLayoutMatchesAlignment(preparation.get())) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "맵 초안을 먼저 저장해야 모험을 시작할 수 있습니다.");
             }
         }
@@ -84,6 +84,20 @@ public final class AdventureSessionController {
                 mutable || member.backgroundMutableAfterStart(), mutable || member.startingAbilitiesMutableAfterStart(), session.characterEdition(), session.status() == AdventureSession.Status.STARTED);
     }
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
+    private boolean mapLayoutMatchesAlignment(CombatMapViewPort.View preparation) {
+        var marker = preparation.layers().stream().filter(layer -> "MAP_LAYOUT_CONFIRMED".equals(layer.type())).findFirst();
+        if (marker.isEmpty()) return false;
+        String value = marker.get().value();
+        String prefix = "USER|ALIGNMENT_VERSION=";
+        if ("USER".equals(value)) return true;
+        if (!value.startsWith(prefix)) return false;
+        try {
+            long savedVersion = Long.parseLong(value.substring(prefix.length()));
+            return combatMapViewPort.alignment(preparation.mapId(), playerResolver.playerId()).version() == savedVersion;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
     private static GmProviderSelection defaultProvider() { return new GmProviderSelection("codex-cli", "gpt-5.6-luna", "medium"); }
     public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize) {}
     public record StartRequest(UUID adventureId, boolean prepareMapOnly) {
