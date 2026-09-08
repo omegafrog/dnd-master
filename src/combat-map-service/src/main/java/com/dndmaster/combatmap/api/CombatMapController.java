@@ -227,7 +227,7 @@ public class CombatMapController {
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/detect-boundaries")
-    public void detectBoundaries(@PathVariable UUID mapId,
+    public MapBoundaryDetectionResponse detectBoundaries(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody(required = false) MapBoundaryDetectionRequest request) {
         requestGuard.internal(token);
@@ -239,7 +239,7 @@ public class CombatMapController {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
                     "map grid alignment must be confirmed before boundary detection");
         }
-        mapViewService.redraftAfterAlignment(id, owner, alignment);
+        return MapBoundaryDetectionResponse.from(mapViewService.proposeBoundaries(id, owner, alignment));
     }
 
     public CombatMapMoveResponse movePlayer(UUID mapId, String token, MoveRequest request) {
@@ -368,6 +368,15 @@ public class CombatMapController {
     public record MapGridAlignmentRequest(UUID ownerId, UUID commandId, long expectedVersion, String imageRevision,
                                           double originX, double originY, double cellSize) {}
     public record MapBoundaryDetectionRequest(UUID ownerId) {}
+    public record MapBoundaryDetectionResponse(long mapVersion, List<String> obstacles, List<String> doors,
+            List<String> boundaries, String crop) {
+        static MapBoundaryDetectionResponse from(com.dndmaster.combatmap.application.view.CombatMapViewService.BoundaryDraft draft) {
+            return new MapBoundaryDetectionResponse(draft.mapVersion(),
+                    draft.obstacles().stream().map(position -> position.x() + "," + position.y()).sorted().toList(),
+                    draft.doors().stream().map(door -> door.position().x() + "," + door.position().y()).sorted().toList(),
+                    draft.boundaries().stream().map(MapBoundary::encoded).sorted().toList(), draft.crop());
+        }
+    }
     public record MapGridAlignmentResponse(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize) {
         static MapGridAlignmentResponse from(com.dndmaster.combatmap.application.view.MapGridAlignment alignment, String imageViewId) {
             return new MapGridAlignmentResponse(alignment.mapId().value(), alignment.version(), alignment.imageRevision(), imageViewId, alignment.originX(), alignment.originY(), alignment.cellSize());

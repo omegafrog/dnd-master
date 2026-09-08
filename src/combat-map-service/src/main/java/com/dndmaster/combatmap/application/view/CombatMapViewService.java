@@ -179,9 +179,10 @@ public final class CombatMapViewService {
         if (crop != null && !crop.isBlank()) {
             PlayerMapImageService.validateCrop(MapGridAlignmentService.mapImage(state.map()), crop);
         }
-        List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !"MAP_CROP".equals(layer.type()) && !"MAP_BOUNDARIES".equals(layer.type())).toList());
+        List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !Set.of("MAP_CROP", "MAP_BOUNDARIES", "MAP_LAYOUT_CONFIRMED").contains(layer.type())).toList());
         if (crop != null && !crop.isBlank()) layers.add(new MapLayer("MAP_CROP", crop.trim(), LayerVisibility.PLAYER_VISIBLE));
         if (!nextBoundaries.isEmpty()) layers.add(new MapLayer("MAP_BOUNDARIES", nextBoundaries.stream().map(MapBoundary::encoded).sorted().collect(java.util.stream.Collectors.joining(";")), LayerVisibility.PLAYER_VISIBLE));
+        layers.add(new MapLayer("MAP_LAYOUT_CONFIRMED", "USER", LayerVisibility.PLAYER_VISIBLE));
         CombatMap updated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(),
                 state.map().ownerPlayerId(), state.map().tokens(), nextObstacles, layers, expectedVersion + 1, commandId, fingerprint);
         updated.replaceDoors(nextDoors);
@@ -227,12 +228,12 @@ public final class CombatMapViewService {
         return calibrated;
     }
 
-    /** 사용자가 요청한 시점의 저장된 격자와 이미지로 벽·문 초안을 만든다. */
-    public CombatMap redraftAfterAlignment(MapId id, MapOwnerId owner, MapGridAlignment alignment) {
+    /** 사용자가 요청한 시점의 저장된 격자와 이미지로 벽·문 초안 후보를 만든다. */
+    public BoundaryDraft proposeBoundaries(MapId id, MapOwnerId owner, MapGridAlignment alignment) {
         VersionedOwnedCombatMap state = owned(id, owner);
         if (alignment == null || !alignment.mapId().equals(id)) throw new IllegalArgumentException("map grid alignment is required");
         Optional<MapImageEvidence> image = imageEvidence(state.map());
-        if (image.isEmpty()) return state.map();
+        if (image.isEmpty()) throw new MapGridAlignmentImageUnavailableException();
         GridPosition player = state.map().tokens().stream().filter(token -> token.type() == TokenType.PLAYER)
                 .map(CombatToken::position).findFirst().orElse(null);
         PreparedMapData generated = aiPort.generate(new MapGenerationRequest(
@@ -243,7 +244,13 @@ public final class CombatMapViewService {
         Set<MapBoundary> boundaries = generated.layers().stream().filter(layer -> layer.type().equals("MAP_BOUNDARIES"))
                 .flatMap(layer -> Arrays.stream(layer.value().split(";"))).filter(value -> !value.isBlank())
                 .map(MapBoundary::parse).collect(Collectors.toCollection(LinkedHashSet::new));
-        return updateLayout(id, owner, state.version(), UUID.randomUUID(), generated.obstacles(), generated.doors(), boundaries, crop(state.map()));
+        return new BoundaryDraft(state.version(), generated.obstacles(), generated.doors(), boundaries, crop(state.map()));
+    }
+
+    /** 기존 호출부 호환용. 새 준비 흐름은 후보를 먼저 화면에 보여준다. */
+    public CombatMap redraftAfterAlignment(MapId id, MapOwnerId owner, MapGridAlignment alignment) {
+        BoundaryDraft draft = proposeBoundaries(id, owner, alignment);
+        return updateLayout(id, owner, draft.mapVersion(), UUID.randomUUID(), draft.obstacles(), draft.doors(), draft.boundaries(), draft.crop());
     }
 
     /** 기존 호출부 호환용. 새 흐름에서는 반드시 저장된 정렬을 전달한다. */
@@ -264,6 +271,9 @@ public final class CombatMapViewService {
     private static double parseDouble(String value, double fallback) {
         try { return Double.parseDouble(value); } catch (RuntimeException ignored) { return fallback; }
     }
+
+    public record BoundaryDraft(long mapVersion, Set<GridPosition> obstacles, List<Door> doors,
+            Set<MapBoundary> boundaries, String crop) {}
 
     private static Optional<MapImageEvidence> imageEvidence(CombatMap map) {
         String value = map.layers().stream().filter(layer -> layer.type().equals("MAP_IMAGE")).map(MapLayer::value).findFirst().orElse("");

@@ -935,8 +935,9 @@ public class AdventureApiConfiguration {
     CombatMapViewPort combatMapViewPort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
-            ObjectMapper objectMapper) {
-        return new HttpCombatMapViewGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), objectMapper, internalToken);
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.combat-map.detect-timeout:300s}") Duration detectionTimeout) {
+        return new HttpCombatMapViewGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), detectionTimeout, objectMapper, internalToken);
     }
 
     @Bean

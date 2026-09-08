@@ -96,7 +96,7 @@ it('shows AI wall and door drafts across the full map during preparation', async
     obstacles: [{ x: 1, y: 0 }], doors: [{ x: 0, y: 1, open: false }], current: [{ x: 0, y: 0 }], explored: [{ x: 0, y: 0 }],
   })
   api.getCombatMapPreparationImage = async () => '/preparation-map.png'
-  api.getMapGridAlignment = async () => ({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.getMapGridAlignment = async () => ({ mapId: 'm1', version: 0, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
   api.applyMapGridAlignment = async (_adventureId, request) => ({ ...request, version: 2 })
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
@@ -126,12 +126,13 @@ it('shows AI wall and door drafts across the full map during preparation', async
 it('runs AI wall detection only after grid confirmation and keeps the crop editor visible', async () => {
   const api = fakeApi()
   const before = { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, grid: { width: 2, height: 2 }, tokens: [] }
-  const after = { ...before, version: 1, layers: [{ type: 'MAP_BOUNDARIES', value: '0,1,HORIZONTAL,WALL,false' }] }
-  api.getCombatMapPreparation = vi.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(before).mockResolvedValueOnce(after)
+  api.getCombatMapPreparation = vi.fn().mockResolvedValue(before)
   api.getCombatMapPreparationImage = vi.fn().mockResolvedValue('/preparation-map.png')
   api.getMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
   api.applyMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
-  api.detectMapBoundaries = vi.fn().mockResolvedValue(undefined)
+  api.detectMapBoundaries = vi.fn().mockResolvedValue({
+    mapVersion: 0, obstacles: [], doors: [], boundaries: [{ x: 0, y: 1, orientation: 'HORIZONTAL', kind: 'WALL', open: false }], crop: '',
+  })
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 

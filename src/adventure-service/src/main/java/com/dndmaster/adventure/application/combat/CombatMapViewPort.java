@@ -14,7 +14,7 @@ public interface CombatMapViewPort {
 
     default byte[] alignmentImage(UUID mapId, UUID ownerId, String imageViewId) { throw new UnsupportedOperationException("public map image unavailable"); }
     default byte[] preparationImage(UUID mapId, UUID ownerId) { throw new UnsupportedOperationException("map preparation image unavailable"); }
-    default void detectMapBoundaries(UUID mapId, UUID ownerId) { throw new UnsupportedOperationException("map boundary detection unavailable"); }
+    default BoundaryProposal detectMapBoundaries(UUID mapId, UUID ownerId) { throw new UnsupportedOperationException("map boundary detection unavailable"); }
 
     default void calibrate(UUID mapId, UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {
@@ -39,6 +39,7 @@ public interface CombatMapViewPort {
     record Obstacle(int x, int y) {}
     record Door(int x, int y, boolean open) {}
     record Boundary(int x, int y, String orientation, String kind, boolean open) {}
+    record BoundaryProposal(long mapVersion, List<Position> obstacles, List<Door> doors, List<Boundary> boundaries, String crop) {}
     record Layer(String type, String value) {}
     record Position(int x, int y) {}
     record Alignment(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize) {}

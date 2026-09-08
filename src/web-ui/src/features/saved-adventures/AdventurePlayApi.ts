@@ -66,6 +66,7 @@ export type CombatMapView = {
 export type MapGridAlignment = { mapId: string; version: number; imageRevision: string; imageViewId?: string; originX: number; originY: number; cellSize: number }
 export type MapGridAlignmentRequest = { mapId: string; commandId: string; expectedVersion: number; imageRevision: string; originX: number; originY: number; cellSize: number }
 export type MapBoundary = { x: number; y: number; orientation: 'HORIZONTAL' | 'VERTICAL'; kind: 'WALL' | 'DOOR'; open: boolean }
+export type MapBoundaryProposal = { mapVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number; open: boolean }>; boundaries: MapBoundary[]; crop?: string }
 export type CombatMapLayoutDraft = { commandId: string; expectedVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number }>; boundaries?: MapBoundary[]; crop?: string }
 
 export type MapActionCandidate = {
@@ -100,7 +101,7 @@ export interface AdventurePlayApi {
   getCombatMapPreparation?(adventureId: string): Promise<CombatMapView>
   getPublicMapImage?(adventureId: string): Promise<string | null>
   getCombatMapPreparationImage?(adventureId: string): Promise<string | null>
-  detectMapBoundaries?(adventureId: string): Promise<void>
+  detectMapBoundaries?(adventureId: string): Promise<MapBoundaryProposal>
   getMapGridAlignment?(adventureId: string): Promise<MapGridAlignment>
   applyMapGridAlignment?(adventureId: string, alignment: MapGridAlignmentRequest): Promise<MapGridAlignment>
   updateCombatMapLayout?(adventureId: string, draft: CombatMapLayoutDraft): Promise<void>
@@ -242,7 +243,7 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   }
 
   detectMapBoundaries(adventureId: string) {
-    return request<void>(`/api/v1/adventures/${adventureId}/combat-map/detect-boundaries`, {
+    return request<MapBoundaryProposal>(`/api/v1/adventures/${adventureId}/combat-map/detect-boundaries`, {
       method: 'POST', headers: this.authHeaders(),
     })
   }

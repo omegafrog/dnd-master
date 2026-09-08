@@ -16,11 +16,18 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     private final HttpClient client;
     private final URI baseUri;
     private final Duration timeout;
+    private final Duration detectionTimeout;
     private final ObjectMapper mapper;
     private final String internalToken;
 
     public HttpCombatMapViewGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
-        this.client = client; this.baseUri = baseUri; this.timeout = timeout; this.mapper = mapper; this.internalToken = internalToken;
+        this(client, baseUri, timeout, Duration.ofMinutes(5), mapper, internalToken);
+    }
+
+    public HttpCombatMapViewGateway(HttpClient client, URI baseUri, Duration timeout, Duration detectionTimeout,
+            ObjectMapper mapper, String internalToken) {
+        this.client = client; this.baseUri = baseUri; this.timeout = timeout; this.detectionTimeout = detectionTimeout;
+        this.mapper = mapper; this.internalToken = internalToken;
     }
 
     @Override
@@ -91,14 +98,17 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
 
     @Override
-    public void detectMapBoundaries(UUID mapId, UUID ownerId) {
+    public BoundaryProposal detectMapBoundaries(UUID mapId, UUID ownerId) {
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/detect-boundaries"))
-                .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                .timeout(detectionTimeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                 .POST(HttpRequest.BodyPublishers.ofString(write(new Detection(ownerId)))).build();
         try {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 409) throw new IllegalStateException("combat map boundary detection conflict");
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map boundary detection failed");
+            DetectionResult result = mapper.readValue(response.body(), DetectionResult.class);
+            return new BoundaryProposal(result.mapVersion(), result.obstacles().stream().map(HttpCombatMapViewGateway::position).toList(),
+                    result.doors().stream().map(HttpCombatMapViewGateway::door).toList(), result.boundaries().stream().map(HttpCombatMapViewGateway::boundary).toList(), result.crop());
         } catch (IOException exception) { throw new IllegalStateException("combat map boundary detection transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map boundary detection interrupted", exception); }
     }
@@ -171,10 +181,26 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     private record Layout(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors, List<String> boundaries, String crop) {}
     private record Detection(UUID ownerId) {}
+    private record DetectionResult(long mapVersion, List<String> obstacles, List<String> doors, List<String> boundaries, String crop) {
+        private DetectionResult { obstacles = obstacles == null ? List.of() : List.copyOf(obstacles); doors = doors == null ? List.of() : List.copyOf(doors); boundaries = boundaries == null ? List.of() : List.copyOf(boundaries); crop = crop == null ? "" : crop; }
+    }
     private record AlignmentPayload(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize,
                                     UUID ownerId, UUID commandId, long expectedVersion) {
         private AlignmentPayload(UUID mapId, long version, String imageRevision, double originX, double originY, double cellSize) {
             this(mapId, version, imageRevision, null, originX, originY, cellSize, null, null, 0);
         }
+    }
+
+    private static Position position(String value) {
+        String[] parts = value.split(",", -1);
+        return new Position(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+    }
+    private static Door door(String value) {
+        Position position = position(value);
+        return new Door(position.x(), position.y(), false);
+    }
+    private static Boundary boundary(String value) {
+        String[] parts = value.split(",", -1);
+        return new Boundary(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), parts[2], parts[3], parts.length >= 5 && Boolean.parseBoolean(parts[4]));
     }
 }
