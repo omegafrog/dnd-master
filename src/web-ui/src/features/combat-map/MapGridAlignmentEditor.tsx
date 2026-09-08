@@ -2,6 +2,7 @@ import { useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { imagePointFromScreen, refineCellSize, type ImagePoint, type MapGridAlignmentDraft } from './mapGridAlignmentGeometry'
 
 export type AlignmentToSave = MapGridAlignmentDraft & { commandId: string; expectedVersion: number; imageRevision: string }
+const MAGNIFIER_SCALE = 2.5
 type Drag =
   { anchor: ImagePoint; draft: MapGridAlignmentDraft }
 
@@ -82,7 +83,7 @@ export function MapGridAlignmentEditor({ image, initial, onApply, onCancel }: { 
     <div ref={canvas} className={`map-grid-alignment-canvas${sizing ? ' is-sizing' : ''}`} onPointerDown={beginGridSizing} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onPointerLeave={() => !drag.current && setMagnifier(null)}>
       <img src={image} alt="공개된 지도 이미지" draggable={false} onLoad={event => setImageSize({ width: event.currentTarget.naturalWidth || 1, height: event.currentTarget.naturalHeight || 1 })} style={{ width: imageSize.width, height: imageSize.height, maxWidth: 'none', maxHeight: 'none', transform: `translate(${view.offsetX}px, ${view.offsetY}px) scale(${view.scale * zoom})`, transformOrigin: '0 0' }} />
       <div className="map-grid-alignment-grid" style={{ left: origin.left, top: origin.top, width: cellPixels * 3, height: cellPixels * 3, '--alignment-origin-x': '0px', '--alignment-origin-y': '0px', '--alignment-cell-size': `${cellPixels}px` } as CSSProperties} />
-      {magnifier && <div className="map-grid-magnifier" aria-label="확대경" style={{ left: Math.min(Math.max(toCanvas(magnifier.x, magnifier.y).left + 20, 8), 220), top: Math.min(Math.max(toCanvas(magnifier.x, magnifier.y).top - 120, 8), 180) }}><img src={image} alt="" aria-hidden="true" style={{ width: imageSize.width * 4, height: imageSize.height * 4, transform: `translate(${50 - magnifier.x * 4}px, ${50 - magnifier.y * 4}px)` }} /></div>}
+      {magnifier && <div className="map-grid-magnifier" aria-label="확대경" style={{ left: Math.min(Math.max(toCanvas(magnifier.x, magnifier.y).left + 20, 8), 220), top: Math.min(Math.max(toCanvas(magnifier.x, magnifier.y).top - 120, 8), 180) }}><img src={image} alt="" aria-hidden="true" style={{ width: imageSize.width * MAGNIFIER_SCALE, height: imageSize.height * MAGNIFIER_SCALE, transform: `translate(${50 - magnifier.x * MAGNIFIER_SCALE}px, ${50 - magnifier.y * MAGNIFIER_SCALE}px)` }} /></div>}
     </div>
     {error && <p role="alert">{error}</p>}
     <button type="button" disabled={saving || draft.cellSize <= 0} onClick={() => void apply()}>{saving ? '저장 중…' : error ? '다시 적용' : '적용'}</button>
