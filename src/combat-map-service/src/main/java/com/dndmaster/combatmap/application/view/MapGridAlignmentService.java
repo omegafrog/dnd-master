@@ -10,7 +10,8 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Objects;
-import java.util.Set;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import javax.imageio.ImageIO;
 
 /** 정렬값만 조회·적용하며 기존 전체 격자 보정 경로를 호출하지 않는다. */
@@ -36,9 +37,34 @@ public final class MapGridAlignmentService {
         CombatMap map = owned(mapId, owner);
         if (!imageRevision(map).equals(request.imageRevision())) throw new MapGridAlignmentConflictException();
         requireGridFitsImage(map, request);
-        MapGridAlignment saved = alignments.apply(owner, mapId, request);
-        if (mapViews != null) mapViews.redraftAfterAlignment(mapId, owner);
+        Optional<MapGridAlignment> current = alignments.find(mapId);
+        if (current.isPresent() && sameGeometry(current.get(), request)) return current.get();
+        MapGridAlignment saved;
+        try {
+            saved = alignments.apply(owner, mapId, request);
+        } catch (MapGridAlignmentConflictException conflict) {
+            // A timed-out request may already have committed. Treat an identical
+            // retry from a newly mounted editor as a successful replay.
+            Optional<MapGridAlignment> committed = alignments.find(mapId);
+            if (committed.isPresent() && sameGeometry(committed.get(), request)) return committed.get();
+            throw conflict;
+        }
+        if (mapViews != null) {
+            // AI map analysis can take minutes. Never hold the HTTP request open
+            // after the alignment itself has been committed.
+            CompletableFuture.runAsync(() -> {
+                try { mapViews.redraftAfterAlignment(mapId, owner); }
+                catch (RuntimeException ignored) { /* alignment remains usable */ }
+            });
+        }
         return saved;
+    }
+
+    private static boolean sameGeometry(MapGridAlignment current, MapGridAlignmentRequest request) {
+        return current.imageRevision().equals(request.imageRevision())
+                && Double.compare(current.originX(), request.originX()) == 0
+                && Double.compare(current.originY(), request.originY()) == 0
+                && Double.compare(current.cellSize(), request.cellSize()) == 0;
     }
 
     /** 원본은 이 경계 안에서만 읽고, 공개된 칸만 포함한 새 이미지로 바꾼다. */

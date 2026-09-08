@@ -247,6 +247,35 @@ it('refreshes the grid alignment after saving the map draft', async () => {
   expect(api.applyMapGridAlignment).toHaveBeenLastCalledWith('a1', expect.objectContaining({ mapId: 'm2', expectedVersion: 2, imageRevision: 'r2' }))
 })
 
+it('retries a map draft against the latest version after an AI update wins the race', async () => {
+  const api = fakeApi()
+  api.getCombatMapPreparation = vi.fn()
+    .mockResolvedValueOnce({ adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 1, grid: { width: 2, height: 2 }, tokens: [] })
+    .mockResolvedValueOnce({ adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 1, grid: { width: 2, height: 2 }, tokens: [] })
+    .mockResolvedValueOnce({ adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 2, grid: { width: 2, height: 2 }, tokens: [] })
+    .mockResolvedValueOnce({ adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 3, grid: { width: 2, height: 2 }, tokens: [] })
+  api.getCombatMapPreparationImage = vi.fn().mockResolvedValue('/map.png')
+  api.getMapGridAlignment = vi.fn()
+    .mockResolvedValueOnce({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+    .mockResolvedValueOnce({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.applyMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  const update = vi.fn()
+    .mockRejectedValueOnce(Object.assign(new Error('conflict'), { status: 409 }))
+    .mockResolvedValueOnce(undefined)
+  api.updateCombatMapLayout = update
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  await user.click(screen.getByRole('button', { name: '벽·문·자르기 편집' }))
+  await user.click(screen.getByRole('button', { name: '맵 초안 저장' }))
+
+  await waitFor(() => expect(update).toHaveBeenCalledTimes(2))
+  expect(update.mock.calls[1][1]).toEqual(expect.objectContaining({ expectedVersion: 2 }))
+  expect(screen.getByText('최신 초안에 변경 내용을 다시 적용했습니다.')).toBeInTheDocument()
+})
+
 it('downloads the public image through the authenticated no-store endpoint', async () => {
   const fetchMock = vi.fn()
     .mockResolvedValueOnce(new Response(JSON.stringify({ imageViewId: 'public:image:reference' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))

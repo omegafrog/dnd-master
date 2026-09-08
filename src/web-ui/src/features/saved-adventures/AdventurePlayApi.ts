@@ -108,10 +108,20 @@ export interface AdventurePlayApi {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, init)
-  if (response.status === 409 || response.status === 422) throw new Error('적용 규칙상 해당 요청을 처리할 수 없습니다.')
+  if (response.status === 409 || response.status === 422) {
+    const problem = await response.clone().json().catch(() => null) as { error?: string; message?: string } | null
+    if (problem?.error === 'ADVENTURE_START_BLOCKED' && problem.message === 'combat map alignment save failed') {
+      throw new Error('전체 격자가 지도 밖으로 나갑니다. 시작점을 지도 안쪽으로 옮기고 다시 맞추세요.')
+    }
+    throw new AdventureRequestError('적용 규칙상 해당 요청을 처리할 수 없습니다.', response.status)
+  }
   if (!response.ok) throw new Error('요청을 처리하지 못했습니다.')
   if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T
   return response.json() as Promise<T>
+}
+
+class AdventureRequestError extends Error {
+  constructor(message: string, readonly status: number) { super(message); this.name = 'AdventureRequestError' }
 }
 
 export class HttpAdventurePlayApi implements AdventurePlayApi {
@@ -220,7 +230,7 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map/alignment/image/${encodeURIComponent(alignment.imageViewId)}`, {
       headers: this.authHeaders(), cache: 'no-store',
     })
-    if (!response.ok) throw new Error('공개된 지도 이미지를 불러오지 못했습니다.')
+    if (!response.ok) throw new Error(`공개된 지도 이미지를 불러오지 못했습니다. (${response.status})`)
     return URL.createObjectURL(await response.blob())
   }
 

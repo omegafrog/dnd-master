@@ -33,17 +33,18 @@ class MapGridAlignmentServiceTest {
     }
 
     @Test
-    void rejectsChangedPayloadOrStaleAlignmentAndImageVersions() {
+    void acceptsAnIdenticalRetryAfterACommittedRequestButRejectsChangedGeometry() {
         InMemoryMapStore maps = new InMemoryMapStore(map(), owner);
         MapGridAlignmentService service = new MapGridAlignmentService(maps, new InMemoryAlignmentStore());
         String imageRevision = service.find(mapId, owner).imageRevision();
         UUID commandId = UUID.randomUUID();
         service.apply(mapId, owner, new MapGridAlignmentRequest(commandId, 0, imageRevision, 1.5, 2.5, 30.5));
 
+        MapGridAlignment retry = service.apply(mapId, owner,
+                new MapGridAlignmentRequest(UUID.randomUUID(), 0, imageRevision, 1.5, 2.5, 30.5));
+        assertEquals(1, retry.version());
         assertThrows(MapGridAlignmentConflictException.class,
                 () -> service.apply(mapId, owner, new MapGridAlignmentRequest(commandId, 0, imageRevision, 2.5, 2.5, 30.5)));
-        assertThrows(MapGridAlignmentConflictException.class,
-                () -> service.apply(mapId, owner, new MapGridAlignmentRequest(UUID.randomUUID(), 0, imageRevision, 1.5, 2.5, 30.5)));
         assertThrows(MapGridAlignmentConflictException.class,
                 () -> service.apply(mapId, owner, new MapGridAlignmentRequest(UUID.randomUUID(), 1, "old-image", 1.5, 2.5, 30.5)));
     }

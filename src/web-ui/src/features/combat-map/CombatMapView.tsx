@@ -159,15 +159,41 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   async function saveLayout() {
     if (!api.updateCombatMapLayout || !map?.mapId) return
     setLayoutSaving(true); setMessage('')
+    const localBoundaries = mapBoundaries
+    const localCrop = crop.width > 0 && crop.height > 0 ? `${Math.max(0, crop.x)},${Math.max(0, crop.y)},${crop.width},${crop.height}` : undefined
+    const save = (expectedVersion: number) => api.updateCombatMapLayout!(adventureId, {
+      commandId: globalThis.crypto.randomUUID(), expectedVersion, obstacles: [], doors: [], boundaries: localBoundaries, crop: localCrop,
+    })
     try {
-      await api.updateCombatMapLayout(adventureId, { commandId: globalThis.crypto.randomUUID(), expectedVersion: map.version ?? 0,
-        obstacles: [], doors: [], boundaries: mapBoundaries,
-        crop: crop.width > 0 && crop.height > 0 ? `${Math.max(0, crop.x)},${Math.max(0, crop.y)},${crop.width},${crop.height}` : undefined })
+      await save(map.version ?? 0)
       const refreshed = await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))
       setMap(refreshed)
       const refreshedAlignment = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable')))
       setAlignment(refreshedAlignment); setAlignmentAvailable(true); setMessage('벽·문·자르기 설정을 저장했습니다.'); setLayoutEditing(false); setLayoutDirty(false)
-    } catch (error) { setMessage(error instanceof Error ? error.message : '맵 초안을 저장하지 못했습니다.') }
+    } catch (error) {
+      if (error instanceof Error && 'status' in error && (error as { status?: number }).status === 409) {
+        let latest: CombatMapState | null = null
+        try {
+          latest = await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))
+          // AI redraft may have won the version race. Rebase the user's local
+          // lines and crop onto the latest map, then retry once.
+          await save(latest.version ?? 0)
+          const refreshed = await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))
+          setMap(refreshed)
+          const refreshedAlignment = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable')))
+          setAlignment(refreshedAlignment); setAlignmentAvailable(true); setMessage('최신 초안에 변경 내용을 다시 적용했습니다.'); setLayoutEditing(false); setLayoutDirty(false)
+          return
+        } catch {
+          if (latest) {
+            const layers = (latest.layers ?? []).filter(layer => !['MAP_BOUNDARIES', 'MAP_CROP'].includes(layer.type))
+            const rebasedLayers = localBoundaries.length ? [...layers, { type: 'MAP_BOUNDARIES', value: localBoundaries.map(encodeBoundary).join(';'), visibility: 'PLAYER_VISIBLE' }] : layers
+            if (localCrop) rebasedLayers.push({ type: 'MAP_CROP', value: localCrop, visibility: 'PLAYER_VISIBLE' })
+            setMap({ ...latest, obstacles: [], doors: [], layers: rebasedLayers })
+          }
+          setMessage('최신 초안과 충돌했습니다. 변경 내용을 확인한 뒤 다시 저장하세요.')
+        }
+      } else setMessage(error instanceof Error ? error.message : '맵 초안을 저장하지 못했습니다.')
+    }
     finally { setLayoutSaving(false) }
   }
   const mapBoundaries = boundariesFrom(map)
@@ -233,9 +259,16 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {!compact && <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>}
       {showGridEditor ? <section aria-label="맵 격자 맞추기" className="map-grid-editor">
         <button type="button" onClick={() => setGridEditor(true)}>격자 맞추기</button>
-        {gridEditor && <MapGridAlignmentEditor image={mapImage!} initial={alignment} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {
-          const saved = await api.applyMapGridAlignment!(adventureId, value)
-          setAlignment(saved); setGridConfirmed(true); setGridEditor(false); setGridMessage('격자 정렬을 저장했습니다. 이제 벽과 문 초안을 검수하세요.'); setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId)))
+        {gridEditor && <MapGridAlignmentEditor key={`${alignment.mapId}-${alignment.version}`} image={mapImage!} initial={alignment} gridWidth={grid.width} gridHeight={grid.height} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {
+          try {
+            const saved = await api.applyMapGridAlignment!(adventureId, value)
+            setAlignment(saved); setGridConfirmed(true); setGridEditor(false); setGridMessage('격자 정렬을 저장했습니다. 이제 벽과 문 초안을 검수하세요.'); setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId)))
+          } catch (error) {
+            if (error instanceof Error && 'status' in error && (error as { status?: number }).status === 409) {
+              try { const latest = await api.getMapGridAlignment!(adventureId); setAlignment(latest); setAlignmentAvailable(true); setGridMessage('다른 정렬 저장이 먼저 반영됐습니다. 최신 정렬을 불러왔습니다. 다시 적용하세요.') } catch { /* keep the original error in the editor */ }
+            }
+            throw error
+          }
         }} />}
         <p role="status">{gridMessage}</p>
       </section> : null}

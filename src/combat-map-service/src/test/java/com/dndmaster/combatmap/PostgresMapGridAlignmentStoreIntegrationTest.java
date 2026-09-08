@@ -41,10 +41,12 @@ class PostgresMapGridAlignmentStoreIntegrationTest {
         } catch (SQLException e) { throw new AssertionError(e); }
     }
 
-    @Test void rejectsStaleVersionAndChangedCommandPayload() {
+    @Test void acceptsAnIdenticalRetryAfterACommittedRequestAndRejectsChangedPayload() {
         MapGridAlignment initial = service.find(map.id(), owner); UUID commandId = UUID.randomUUID();
         service.apply(map.id(), owner, new MapGridAlignmentRequest(commandId, 0, initial.imageRevision(), 1.25, 2.5, 25.5));
-        assertThrows(MapGridAlignmentConflictException.class, () -> service.apply(map.id(), owner, new MapGridAlignmentRequest(UUID.randomUUID(), 0, initial.imageRevision(), 1.25, 2.5, 25.5)));
+        assertEquals(1, service.apply(map.id(), owner,
+                new MapGridAlignmentRequest(UUID.randomUUID(), 0, initial.imageRevision(), 1.25, 2.5, 25.5)).version());
+        assertThrows(MapGridAlignmentConflictException.class, () -> service.apply(map.id(), owner, new MapGridAlignmentRequest(UUID.randomUUID(), 0, initial.imageRevision(), 2.25, 2.5, 25.5)));
         assertThrows(MapGridAlignmentConflictException.class, () -> service.apply(map.id(), owner, new MapGridAlignmentRequest(commandId, 0, initial.imageRevision(), 2.25, 2.5, 25.5)));
     }
 

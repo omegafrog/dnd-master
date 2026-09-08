@@ -6,7 +6,7 @@ const MAGNIFIER_SCALE = 2.5
 type Drag =
   { anchor: ImagePoint; draft: MapGridAlignmentDraft }
 
-export function MapGridAlignmentEditor({ image, initial, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { mapId: string; version: number; imageRevision: string }; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
+export function MapGridAlignmentEditor({ image, initial, gridWidth = 20, gridHeight = 20, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { mapId: string; version: number; imageRevision: string }; gridWidth?: number; gridHeight?: number; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
   const [draft, setDraft] = useState<MapGridAlignmentDraft>(initial)
   const [zoom, setZoom] = useState(1)
   const [magnifier, setMagnifier] = useState<ImagePoint | null>(null)
@@ -36,10 +36,20 @@ export function MapGridAlignmentEditor({ image, initial, onApply, onCancel }: { 
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     const anchor = point(event)
+    if (imageSize.width > 1 && (anchor.x < 0 || anchor.y < 0 || anchor.x > imageSize.width || anchor.y > imageSize.height)) {
+      setError('지도 이미지 안쪽에서 시작점을 찍으세요.')
+      return
+    }
+    const maxCellSize = maxCellThatFits(anchor, imageSize, gridWidth, gridHeight)
+    if (maxCellSize <= 0) {
+      setError('전체 격자가 들어갈 수 있는 지도 안쪽에서 시작점을 찍으세요.')
+      return
+    }
+    const startingDraft = { ...draft, originX: anchor.x, originY: anchor.y, cellSize: Math.min(draft.cellSize, maxCellSize) }
     drag.current = { anchor, draft: { ...draft } }
     setSizing(true)
     setMagnifier(anchor)
-    changeDraft({ ...draft, originX: anchor.x, originY: anchor.y })
+    changeDraft(startingDraft)
   }
   function move(event: PointerEvent<HTMLDivElement>) {
     const current = drag.current
@@ -47,7 +57,9 @@ export function MapGridAlignmentEditor({ image, initial, onApply, onCancel }: { 
     const next = point(event)
     setMagnifier(next)
     try {
-      changeDraft(refineCellSize(current.draft, { x: 0, y: 0 }, current.anchor, { x: 3, y: 3 }, next))
+      const refined = refineCellSize(current.draft, { x: 0, y: 0 }, current.anchor, { x: 3, y: 3 }, next)
+      const maxCellSize = maxCellThatFits(current.anchor, imageSize, gridWidth, gridHeight)
+      changeDraft({ ...refined, cellSize: Math.min(refined.cellSize, maxCellSize) })
     } catch {
       changeDraft({ ...current.draft, originX: current.anchor.x, originY: current.anchor.y })
     }
@@ -89,4 +101,9 @@ export function MapGridAlignmentEditor({ image, initial, onApply, onCancel }: { 
     <button type="button" disabled={saving || draft.cellSize <= 0} onClick={() => void apply()}>{saving ? '저장 중…' : error ? '다시 적용' : '적용'}</button>
     <button type="button" disabled={saving} onClick={onCancel}>취소</button>
   </section>
+}
+
+function maxCellThatFits(anchor: ImagePoint, imageSize: { width: number; height: number }, gridWidth: number, gridHeight: number) {
+  if (imageSize.width <= 1 || imageSize.height <= 1) return Number.POSITIVE_INFINITY
+  return Math.min((imageSize.width - anchor.x) / Math.max(1, gridWidth), (imageSize.height - anchor.y) / Math.max(1, gridHeight))
 }
