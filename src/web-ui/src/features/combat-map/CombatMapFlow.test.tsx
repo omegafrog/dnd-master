@@ -73,6 +73,20 @@ it('keeps the map usable when the public image is temporarily unavailable', asyn
   expect(screen.getByText('현재 맵 상태: authoritative-map')).toBeInTheDocument()
 })
 
+it('shows AI wall and door drafts across the full map during preparation', async () => {
+  const api = fakeApi()
+  api.getCombatMapPreparation = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 2, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 0, y: 0 }],
+    obstacles: [{ x: 1, y: 0 }], doors: [{ x: 0, y: 1, open: false }], current: [{ x: 0, y: 0 }], explored: [{ x: 0, y: 0 }],
+  })
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  expect(await screen.findByRole('button', { name: '벽 1,0' })).toHaveClass('map-draft-wall')
+  expect(screen.getByRole('button', { name: '닫힌 문 0,1' })).toHaveClass('map-draft-door')
+  expect(screen.queryByRole('button', { name: '위치 선택' })).not.toBeInTheDocument()
+})
+
 it('releases the replaced public image blob URL', async () => {
   const api = fakeApi()
   api.getPublicMapImage = vi.fn().mockResolvedValueOnce('blob:first-map').mockResolvedValueOnce('blob:second-map')

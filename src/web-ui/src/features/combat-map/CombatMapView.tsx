@@ -188,18 +188,19 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       </section> : null}
       {map.tokens ? (
         <div className="tactical-map-window">
-          <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>
+          {!preparationMode && <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>}
           <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} className="tactical-map" style={mapStyle}>
             {Array.from({ length: previewGrid.width * previewGrid.height }, (_, index) => {
               const cell = { x: index % previewGrid.width, y: Math.floor(index / previewGrid.width) }
               const token = map.tokens?.find(item => item.x === cell.x && item.y === cell.y)
               const blocked = map.obstacles?.some(obstacle => obstacle.x === cell.x && obstacle.y === cell.y)
               const door = map.doors?.find(item => item.x === cell.x && item.y === cell.y)
-              const visible = map.current?.some(item => item.x === cell.x && item.y === cell.y)
-                ?? (!hasVisibilityMetadata && token?.type === 'PLAYER')
+              const visible = preparationMode || (map.current?.some(item => item.x === cell.x && item.y === cell.y)
+                ?? (!hasVisibilityMetadata && token?.type === 'PLAYER'))
               const explored = map.explored?.some(item => item.x === cell.x && item.y === cell.y) ?? false
-              return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={preparationMode ? token?.type === 'PLAYER' : blocked || !visible} draggable={token?.type === 'PLAYER'} onDragStart={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (preparationMode && !token) toggleLayoutCell(cell); else if (token?.type === 'PLAYER') setSelectedToken(token.id); else chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
-                {visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
+              const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
+              return <button key={`${cell.x}-${cell.y}`} type="button" className={preparationMode ? door ? 'map-draft-door' : blocked ? 'map-draft-wall' : undefined : undefined} aria-label={preparationMode ? draftLabel : visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={preparationMode ? token?.type === 'PLAYER' : blocked || !visible} draggable={!preparationMode && token?.type === 'PLAYER'} onDragStart={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (preparationMode && !token) toggleLayoutCell(cell); else if (token?.type === 'PLAYER') setSelectedToken(token.id); else chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
+                {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
               </button>
             })}
           </div>
