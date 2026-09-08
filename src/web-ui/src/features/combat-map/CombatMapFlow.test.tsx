@@ -101,7 +101,9 @@ it('shows AI wall and door drafts across the full map during preparation', async
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
-  await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
+  const align = await screen.findByRole('button', { name: '격자 맞추기' })
+  expect(screen.queryByRole('button', { name: '벽·문·자르기 편집' })).not.toBeInTheDocument()
+  await user.click(align)
   await user.click(screen.getByRole('button', { name: '적용' }))
   await user.click(screen.getByRole('button', { name: '벽·문·자르기 편집' }))
   const editor = screen.getByLabelText('맵 초안 검수')
