@@ -6,6 +6,7 @@ import com.dndmaster.combatmap.application.movement.CombatMapRepository;
 import com.dndmaster.combatmap.application.view.*;
 import com.dndmaster.combatmap.domain.*;
 import com.dndmaster.combatmap.infrastructure.persistence.PostgresCombatMapViewStore;
+import com.dndmaster.combatmap.infrastructure.persistence.PostgresMapGridAlignmentStore;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +31,16 @@ public class CombatMapApiConfiguration {
     @Bean
     CombatMapViewStore combatMapViewStore(DataSource dataSource) {
         return new PostgresCombatMapViewStore(dataSource);
+    }
+
+    @Bean
+    MapGridAlignmentStore mapGridAlignmentStore(DataSource dataSource) {
+        return new PostgresMapGridAlignmentStore(dataSource);
+    }
+
+    @Bean
+    MapGridAlignmentService mapGridAlignmentService(CombatMapViewStore maps, MapGridAlignmentStore alignments) {
+        return new MapGridAlignmentService(maps, alignments);
     }
 
     @Bean
@@ -142,7 +153,7 @@ public class CombatMapApiConfiguration {
     @Bean
     CombatMapController combatMapController(
             CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
-            MapImageEvidencePort mapImageEvidence) {
-        return new CombatMapController(mapViewService, movementService, requestGuard, mapImageEvidence);
+            MapImageEvidencePort mapImageEvidence, MapGridAlignmentService mapGridAlignmentService) {
+        return new CombatMapController(mapViewService, movementService, requestGuard, mapImageEvidence, mapGridAlignmentService);
     }
 }

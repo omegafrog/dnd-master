@@ -286,6 +286,31 @@ public class AdventureController {
         return new CombatMapCalibrationResponse(request.mapId(), request.width(), request.height());
     }
 
+    @GetMapping("/api/v1/adventures/{adventureId}/combat-map/alignment")
+    CombatMapAlignmentResponse mapAlignment(@PathVariable UUID adventureId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID mapId = combatMapViewPort.playerView(adventureId, owner).orElseThrow().mapId();
+        return CombatMapAlignmentResponse.from(combatMapViewPort.alignment(mapId, owner));
+    }
+
+    @PutMapping("/api/v1/adventures/{adventureId}/combat-map/alignment")
+    CombatMapAlignmentResponse applyMapAlignment(@PathVariable UUID adventureId, @RequestBody CombatMapAlignmentRequest request) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID activeMap = combatMapViewPort.playerView(adventureId, owner).orElseThrow().mapId();
+        if (!activeMap.equals(request.mapId())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND);
+        try {
+            return CombatMapAlignmentResponse.from(combatMapViewPort.applyAlignment(activeMap, owner,
+                    new com.dndmaster.adventure.application.combat.CombatMapViewPort.AlignmentRequest(request.commandId(), request.expectedVersion(), request.imageRevision(), request.originX(), request.originY(), request.cellSize())));
+        } catch (IllegalStateException exception) {
+            if ("map grid alignment conflict".equals(exception.getMessage())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, exception.getMessage(), exception);
+            throw exception;
+        }
+    }
+
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
     @Deprecated(forRemoval = false)
     @Operation(deprecated = true, summary = "Legacy combat dice path", description = "Use POST combat/actions with Idempotency-Key and If-Match-Version.")
@@ -537,6 +562,13 @@ public class AdventureController {
     public record CombatMapCalibrationRequest(UUID mapId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     public record CombatMapCalibrationResponse(UUID mapId, int width, int height) {}
+    public record CombatMapAlignmentRequest(UUID mapId, UUID commandId, long expectedVersion, String imageRevision,
+                                            double originX, double originY, double cellSize) {}
+    public record CombatMapAlignmentResponse(UUID mapId, long version, String imageRevision, double originX, double originY, double cellSize) {
+        static CombatMapAlignmentResponse from(com.dndmaster.adventure.application.combat.CombatMapViewPort.Alignment alignment) {
+            return new CombatMapAlignmentResponse(alignment.mapId(), alignment.version(), alignment.imageRevision(), alignment.originX(), alignment.originY(), alignment.cellSize());
+        }
+    }
     public record DiceRollRequest(
             UUID ruleSetId,
             UUID characterSheetId,
