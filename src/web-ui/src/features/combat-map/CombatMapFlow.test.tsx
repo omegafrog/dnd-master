@@ -188,3 +188,12 @@ it('downloads the public image through the authenticated no-store endpoint', asy
     vi.unstubAllGlobals()
   }
 })
+
+it('saves only an alignment draft through the dedicated endpoint', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+  vi.stubGlobal('fetch', fetchMock)
+  try {
+    await new HttpAdventurePlayApi(() => 'player-token').applyMapGridAlignment('a1', { commandId: 'c1', expectedVersion: 1, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 })
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/a1/combat-map/alignment', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ commandId: 'c1', expectedVersion: 1, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 }) }))
+  } finally { vi.unstubAllGlobals() }
+})

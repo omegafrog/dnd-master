@@ -63,6 +63,9 @@ export type CombatMapView = {
   objects?: Array<{ id: string; type: string; x: number; y: number }>
 }
 
+export type MapGridAlignment = { mapId: string; version: number; imageRevision: string; imageViewId?: string; originX: number; originY: number; cellSize: number }
+export type MapGridAlignmentRequest = { commandId: string; expectedVersion: number; imageRevision: string; originX: number; originY: number; cellSize: number }
+
 export type MapActionCandidate = {
   mapId: string
   mapVersion: number
@@ -93,7 +96,8 @@ export interface AdventurePlayApi {
   saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]): Promise<SessionKnowledgeSet>
   getCombatMap(adventureId: string): Promise<CombatMapView>
   getPublicMapImage?(adventureId: string): Promise<string | null>
-  calibrateCombatMap?(adventureId: string, calibration: { mapId: string; expectedVersion: number; width: number; height: number; cellSize: number; originX: number; originY: number; imageWidth: number; imageHeight: number; playerX: number; playerY: number }): Promise<void>
+  getMapGridAlignment?(adventureId: string): Promise<MapGridAlignment>
+  applyMapGridAlignment?(adventureId: string, alignment: MapGridAlignmentRequest): Promise<MapGridAlignment>
   submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number }>
 }
 
@@ -211,11 +215,17 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     return URL.createObjectURL(await response.blob())
   }
 
-  calibrateCombatMap(adventureId: string, calibration: { mapId: string; expectedVersion: number; width: number; height: number; cellSize: number; originX: number; originY: number; imageWidth: number; imageHeight: number; playerX: number; playerY: number }) {
-    return request<void>(`/api/v1/adventures/${adventureId}/combat-map/calibration`, {
+  getMapGridAlignment(adventureId: string) {
+    return request<MapGridAlignment>(`/api/v1/adventures/${adventureId}/combat-map/alignment`, {
+      headers: this.authHeaders(),
+    })
+  }
+
+  applyMapGridAlignment(adventureId: string, alignment: MapGridAlignmentRequest) {
+    return request<MapGridAlignment>(`/api/v1/adventures/${adventureId}/combat-map/alignment`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-      body: JSON.stringify(calibration),
+      body: JSON.stringify(alignment),
     })
   }
 
