@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { CharacterSheetView } from '../character/CharacterSheetView'
@@ -95,10 +95,18 @@ it('shows AI wall and door drafts across the full map during preparation', async
     grid: { width: 2, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 0, y: 0 }],
     obstacles: [{ x: 1, y: 0 }], doors: [{ x: 0, y: 1, open: false }], current: [{ x: 0, y: 0 }], explored: [{ x: 0, y: 0 }],
   })
+  api.getCombatMapPreparationImage = async () => '/preparation-map.png'
+  api.getMapGridAlignment = async () => ({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.applyMapGridAlignment = async (_adventureId, request) => ({ ...request, version: 2 })
+  const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
-  expect(await screen.findByRole('button', { name: '벽 1,0' })).toHaveClass('map-draft-wall')
-  expect(screen.getByRole('button', { name: '닫힌 문 0,1' })).toHaveClass('map-draft-door')
+  await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  await user.click(screen.getByRole('button', { name: '벽·문·자르기 편집' }))
+  const editor = screen.getByLabelText('맵 초안 검수')
+  expect(within(editor).getByRole('button', { name: '벽 1,0' })).toHaveClass('map-draft-wall')
+  expect(within(editor).getByRole('button', { name: '닫힌 문 0,1' })).toHaveClass('map-draft-door')
   expect(screen.queryByRole('button', { name: '위치 선택' })).not.toBeInTheDocument()
 })
 
