@@ -168,6 +168,9 @@ public final class CombatMapViewService {
         if (nextDoors.stream().map(Door::position).anyMatch(nextObstacles::contains)) throw new IllegalArgumentException("door cannot be an obstacle");
         GridPosition player = state.map().tokens().stream().filter(token -> token.type() == TokenType.PLAYER).map(CombatToken::position).findFirst().orElse(null);
         if (player != null && nextObstacles.contains(player)) throw new IllegalArgumentException("player start cell is blocked");
+        if (crop != null && !crop.isBlank()) {
+            PlayerMapImageService.validateCrop(MapGridAlignmentService.mapImage(state.map()), crop);
+        }
         List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !"MAP_CROP".equals(layer.type())).toList());
         if (crop != null && !crop.isBlank()) layers.add(new MapLayer("MAP_CROP", crop.trim(), LayerVisibility.PLAYER_VISIBLE));
         CombatMap updated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(),

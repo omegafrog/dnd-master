@@ -17,6 +17,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [alignmentAvailable, setAlignmentAvailable] = useState(false)
   const [mapImageSize, setMapImageSize] = useState({ width: 1, height: 1 })
   const [layoutEditing, setLayoutEditing] = useState(preparationMode)
+  const [layoutDirty, setLayoutDirty] = useState(false)
   const [crop, setCrop] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const [layoutSaving, setLayoutSaving] = useState(false)
 
@@ -138,7 +139,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       '--map-background-size': `${((imageWidth || mapImageSize.width) / Math.max(renderedGridWidth, 1)) * 100}% ${((imageHeight || mapImageSize.height) / Math.max(renderedGridHeight, 1)) * 100}%`,
       '--map-background-position': `${gridEditor ? 'left top' : backgroundPositionX} ${gridEditor ? 'left top' : backgroundPositionY}`,
     } : {}),
-    ...(preparationMode && !gridEditor && crop.width > 0 && crop.height > 0 ? {
+    ...(!gridEditor && crop.width > 0 && crop.height > 0 ? {
       '--map-background-size': `${((imageWidth || mapImageSize.width) / crop.width) * 100}% ${((imageHeight || mapImageSize.height) / crop.height) * 100}%`,
       '--map-background-position': `${(crop.x / Math.max((imageWidth || mapImageSize.width) - crop.width, 1)) * 100}% ${(crop.y / Math.max((imageHeight || mapImageSize.height) - crop.height, 1)) * 100}%`,
     } : {}),
@@ -155,7 +156,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       await api.updateCombatMapLayout(adventureId, { commandId: globalThis.crypto.randomUUID(), expectedVersion: map.version ?? 0,
         obstacles: map.obstacles ?? [], doors: (map.doors ?? []).map(door => ({ x: door.x, y: door.y })),
         crop: crop.width > 0 && crop.height > 0 ? `${Math.max(0, crop.x)},${Math.max(0, crop.y)},${crop.width},${crop.height}` : undefined })
-      setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))); setMessage('벽·문·자르기 설정을 저장했습니다.'); setLayoutEditing(false)
+      setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))); setMessage('벽·문·자르기 설정을 저장했습니다.'); setLayoutEditing(false); setLayoutDirty(false)
     } catch (error) { setMessage(error instanceof Error ? error.message : '맵 초안을 저장하지 못했습니다.') }
     finally { setLayoutSaving(false) }
   }
@@ -165,18 +166,19 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     if (door) setMap({ ...map, doors: map.doors?.filter(item => item.x !== cell.x || item.y !== cell.y) })
     else if (map.obstacles?.some(item => item.x === cell.x && item.y === cell.y)) setMap({ ...map, obstacles: map.obstacles?.filter(item => item.x !== cell.x || item.y !== cell.y), doors: [...(map.doors ?? []), { x: cell.x, y: cell.y, open: false }] })
     else setMap({ ...map, obstacles: [...(map.obstacles ?? []), cell] })
+    setLayoutDirty(true)
   }
   return (
     <section className={`adventure-tool map-panel${compact ? ' combat-map-panel' : ''}`} aria-labelledby="map-heading">
       <h2 id="map-heading">{compact ? '전장 지도' : '플레이어 전투 맵'}</h2>
       {!compact && <p>모험 ID: {adventureId}</p>}
       {!compact && <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>}
-      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>맵 초안 검수</h3><p>AI가 제안한 벽과 문을 칸마다 눌러 고치세요. 격자 크기를 맞춘 뒤 여백을 잘라낼 수 있습니다.</p><button type="button" onClick={() => setLayoutEditing(current => !current)}>{layoutEditing ? '검수 닫기' : '벽·문·자르기 편집'}</button>{layoutEditing && <div><label>자르기 시작 X<input aria-label="자르기 시작 X" type="number" value={crop.x} onChange={event => setCrop(current => ({ ...current, x: Number(event.target.value) }))} /></label><label>자르기 시작 Y<input aria-label="자르기 시작 Y" type="number" value={crop.y} onChange={event => setCrop(current => ({ ...current, y: Number(event.target.value) }))} /></label><label>자르기 너비<input aria-label="자르기 너비" type="number" min="1" value={crop.width} onChange={event => setCrop(current => ({ ...current, width: Number(event.target.value) }))} /></label><label>자르기 높이<input aria-label="자르기 높이" type="number" min="1" value={crop.height} onChange={event => setCrop(current => ({ ...current, height: Number(event.target.value) }))} /></label><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div>}</section>}
+      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>맵 초안 검수</h3><p>AI가 제안한 벽과 문을 칸마다 눌러 고치세요. 격자 크기를 맞춘 뒤 여백을 잘라낼 수 있습니다.</p><button type="button" onClick={() => setLayoutEditing(current => !current)}>{layoutEditing ? '검수 닫기' : '벽·문·자르기 편집'}</button>{layoutEditing && <div><label>자르기 시작 X<input aria-label="자르기 시작 X" type="number" value={crop.x} onChange={event => { setCrop(current => ({ ...current, x: Number(event.target.value) })); setLayoutDirty(true) }} /></label><label>자르기 시작 Y<input aria-label="자르기 시작 Y" type="number" value={crop.y} onChange={event => { setCrop(current => ({ ...current, y: Number(event.target.value) })); setLayoutDirty(true) }} /></label><label>자르기 너비<input aria-label="자르기 너비" type="number" min="1" value={crop.width} onChange={event => { setCrop(current => ({ ...current, width: Number(event.target.value) })); setLayoutDirty(true) }} /></label><label>자르기 높이<input aria-label="자르기 높이" type="number" min="1" value={crop.height} onChange={event => { setCrop(current => ({ ...current, height: Number(event.target.value) })); setLayoutDirty(true) }} /></label><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div>}</section>}
       {showGridEditor ? <section aria-label="맵 격자 맞추기" className="map-grid-editor">
         <button type="button" onClick={() => setGridEditor(true)}>격자 맞추기</button>
         {gridEditor && <MapGridAlignmentEditor image={mapImage!} initial={alignment} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {
           const saved = await api.applyMapGridAlignment!(adventureId, value)
-          setAlignment(saved); setGridEditor(false); setGridMessage('격자 정렬을 저장했습니다. 게임 상태는 바뀌지 않습니다.'); setMap(await api.getCombatMap(adventureId))
+          setAlignment(saved); setGridEditor(false); setGridMessage('격자 정렬을 저장했습니다. 게임 상태는 바뀌지 않습니다.'); setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId)))
         }} />}
         <p role="status">{gridMessage}</p>
       </section> : null}
@@ -209,7 +211,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}
       {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p><button type="button" disabled={submitting} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting} onClick={() => { setCandidate(null); setSelectedToken(null) }}>취소</button></div>}
       <p role="status">{message}</p>
-      {preparationMode && <button type="button" disabled={layoutSaving} onClick={onPreparationComplete}>맵 준비 완료, 모험 시작</button>}
+      {preparationMode && <button type="button" disabled={layoutSaving || layoutDirty} onClick={onPreparationComplete}>맵 준비 완료, 모험 시작</button>}
     </section>
   )
 }

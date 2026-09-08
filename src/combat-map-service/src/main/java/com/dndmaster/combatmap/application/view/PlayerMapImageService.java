@@ -82,4 +82,25 @@ public final class PlayerMapImageService {
             throw new IllegalArgumentException("map image is unavailable", exception);
         }
     }
+
+    /** 원본 이미지 안에서 잘라낼 영역인지 확인한다. 형식: x,y,width,height (픽셀). */
+    public static void validateCrop(String sourceDataUri, String crop) {
+        if (crop == null || crop.isBlank()) return;
+        try {
+            String[] values = crop.trim().split(",", -1);
+            if (values.length != 4) throw new IllegalArgumentException("map crop must be x,y,width,height");
+            long x = Long.parseLong(values[0].trim());
+            long y = Long.parseLong(values[1].trim());
+            long width = Long.parseLong(values[2].trim());
+            long height = Long.parseLong(values[3].trim());
+            BufferedImage image = decode(sourceDataUri);
+            if (x < 0 || y < 0 || width <= 0 || height <= 0
+                    || x > image.getWidth() || y > image.getHeight()
+                    || width > image.getWidth() - x || height > image.getHeight() - y) {
+                throw new IllegalArgumentException("map crop must fit inside source image");
+            }
+        } catch (IOException | NumberFormatException exception) {
+            throw new IllegalArgumentException("map crop is invalid", exception);
+        }
+    }
 }

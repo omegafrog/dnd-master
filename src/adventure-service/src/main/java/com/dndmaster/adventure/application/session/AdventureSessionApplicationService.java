@@ -113,6 +113,15 @@ public final class AdventureSessionApplicationService {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion); session.removePartyMember(sheetId); repository.save(session, expectedVersion); return session;
     }
     public AdventureSession start(SessionId id, OwnerPlayerId owner, long expectedVersion, java.util.UUID requestId, AdventureId adventureId) {
+        return start(id, owner, expectedVersion, requestId, adventureId, false);
+    }
+
+    /**
+     * Starts the session preparation transaction. When prepareMapOnly is true,
+     * the session intentionally remains STARTING until the player confirms the
+     * map draft; a later idempotent call completes the runtime start.
+     */
+    public AdventureSession start(SessionId id, OwnerPlayerId owner, long expectedVersion, java.util.UUID requestId, AdventureId adventureId, boolean prepareMapOnly) {
         AdventureSession session = authorize(load(id), owner);
         if (session.status() == AdventureSession.Status.STARTED && requestId.equals(session.startRequestId()) && adventureId.equals(session.startedAdventureId())) return session;
         if (session.status() == AdventureSession.Status.STARTING
@@ -165,6 +174,7 @@ public final class AdventureSessionApplicationService {
         scenarioPackage.initialMapDefinition(configuration.initialScene()).ifPresent(mapDefinition ->
                 combatMapPreparationPort.prepareInitial(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, 1,
                         activationContext(activeAdventure, session)));
+        if (prepareMapOnly) return session;
         runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(effectiveAdventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();

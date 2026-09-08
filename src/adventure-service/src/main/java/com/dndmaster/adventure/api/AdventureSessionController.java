@@ -45,7 +45,7 @@ public final class AdventureSessionController {
     @PutMapping("/{sessionId}/party/{characterSheetId}") SessionView replace(@PathVariable UUID sessionId, @PathVariable UUID characterSheetId, @RequestHeader("If-Match-Version") long version, @RequestBody PartyMemberRequest request) { return SessionView.from(service.replaceMember(new SessionId(sessionId), owner(), version, request.toDomain(characterSheetId))); }
     @DeleteMapping("/{sessionId}/party/{characterSheetId}") SessionView remove(@PathVariable UUID sessionId, @PathVariable UUID characterSheetId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.removeMember(new SessionId(sessionId), owner(), version, new CharacterSheetId(characterSheetId))); }
     @PostMapping("/{sessionId}/start") SessionView start(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version, @RequestHeader("Idempotency-Key") UUID requestId, @RequestBody StartRequest request) {
-        return SessionView.from(service.start(new SessionId(sessionId), owner(), version, requestId, new AdventureId(request.adventureId())));
+        return SessionView.from(service.start(new SessionId(sessionId), owner(), version, requestId, new AdventureId(request.adventureId()), request.prepareMapOnly()));
     }
     @PostMapping("/{sessionId}/complete") SessionView complete(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.complete(new SessionId(sessionId), owner(), version)); }
     @PostMapping("/{sessionId}/start/recover") SessionView recoverStart(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.recoverFailedStart(new SessionId(sessionId), owner(), version)); }
@@ -63,7 +63,9 @@ public final class AdventureSessionController {
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
     private static GmProviderSelection defaultProvider() { return new GmProviderSelection("codex-cli", "gpt-5.6-luna", "medium"); }
     public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize) {}
-    public record StartRequest(UUID adventureId) {}
+    public record StartRequest(UUID adventureId, boolean prepareMapOnly) {
+        public StartRequest(UUID adventureId) { this(adventureId, false); }
+    }
     public record GmProviderRequest(UUID endpointId, String provider, String model, String reasoning) {
         public GmProviderRequest(String provider, String model, String reasoning) { this(null, provider, model, reasoning); }
         GmProviderSelection toSelection() { return new GmProviderSelection(endpointId, provider, model, reasoning); }
