@@ -306,6 +306,15 @@ public class AdventureController {
         combatMapViewPort.updateLayout(mapId, owner, request.expectedVersion(), request.commandId(), obstacles, doors, boundaries, request.crop());
     }
 
+    @PostMapping("/api/v1/adventures/{adventureId}/combat-map/detect-boundaries")
+    void detectMapBoundaries(@PathVariable UUID adventureId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID mapId = combatMapViewPort.preparationView(adventureId, owner).orElseThrow().mapId();
+        combatMapViewPort.detectMapBoundaries(mapId, owner);
+    }
+
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map/alignment")
     CombatMapAlignmentResponse mapAlignment(@PathVariable UUID adventureId) {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();

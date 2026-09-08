@@ -91,6 +91,19 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
 
     @Override
+    public void detectMapBoundaries(UUID mapId, UUID ownerId) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/detect-boundaries"))
+                .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                .POST(HttpRequest.BodyPublishers.ofString(write(new Detection(ownerId)))).build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 409) throw new IllegalStateException("combat map boundary detection conflict");
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map boundary detection failed");
+        } catch (IOException exception) { throw new IllegalStateException("combat map boundary detection transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map boundary detection interrupted", exception); }
+    }
+
+    @Override
     public Alignment alignment(UUID mapId, UUID ownerId) {
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/alignment?ownerId=" + ownerId))
                 .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
@@ -157,6 +170,7 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     private record Calibration(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     private record Layout(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors, List<String> boundaries, String crop) {}
+    private record Detection(UUID ownerId) {}
     private record AlignmentPayload(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize,
                                     UUID ownerId, UUID commandId, long expectedVersion) {
         private AlignmentPayload(UUID mapId, long version, String imageRevision, double originX, double originY, double cellSize) {

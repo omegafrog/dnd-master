@@ -57,3 +57,23 @@ it('exposes retry after a save error', async () => {
   await user.click(screen.getByRole('button', { name: '다시 적용' }))
   expect(apply).toHaveBeenLastCalledWith(expect.objectContaining({ mapId: 'map-1', cellSize: 31.75, expectedVersion: 3, imageRevision: 'image-v1' }))
 })
+
+it('can move the zoomed map without changing the alignment drag mode', async () => {
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={vi.fn()} onCancel={() => {}} />)
+  const canvas = screen.getByAltText('공개된 지도 이미지').parentElement!
+  const image = screen.getByAltText('공개된 지도 이미지')
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+  Object.defineProperty(image, 'naturalWidth', { value: 600 })
+  Object.defineProperty(image, 'naturalHeight', { value: 400 })
+  fireEvent.load(image)
+
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: '확대' }))
+  await user.click(screen.getByRole('button', { name: '지도 이동' }))
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 80 }))
+  fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 140, clientY: 110 }))
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 140, clientY: 110 }))
+
+  expect(image.getAttribute('style')).toContain('translate(37.5px, 25px)')
+})

@@ -14,6 +14,7 @@ public interface CombatMapViewPort {
 
     default byte[] alignmentImage(UUID mapId, UUID ownerId, String imageViewId) { throw new UnsupportedOperationException("public map image unavailable"); }
     default byte[] preparationImage(UUID mapId, UUID ownerId) { throw new UnsupportedOperationException("map preparation image unavailable"); }
+    default void detectMapBoundaries(UUID mapId, UUID ownerId) { throw new UnsupportedOperationException("map boundary detection unavailable"); }
 
     default void calibrate(UUID mapId, UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {

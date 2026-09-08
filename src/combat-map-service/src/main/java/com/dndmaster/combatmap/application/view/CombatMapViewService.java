@@ -227,28 +227,42 @@ public final class CombatMapViewService {
         return calibrated;
     }
 
-    /** 격자 적용 직후, 확정된 격자를 기준으로 이미지 초안을 다시 만든다. */
-    public CombatMap redraftAfterAlignment(MapId id, MapOwnerId owner) {
+    /** 사용자가 요청한 시점의 저장된 격자와 이미지로 벽·문 초안을 만든다. */
+    public CombatMap redraftAfterAlignment(MapId id, MapOwnerId owner, MapGridAlignment alignment) {
         VersionedOwnedCombatMap state = owned(id, owner);
+        if (alignment == null || !alignment.mapId().equals(id)) throw new IllegalArgumentException("map grid alignment is required");
         Optional<MapImageEvidence> image = imageEvidence(state.map());
         if (image.isEmpty()) return state.map();
         GridPosition player = state.map().tokens().stream().filter(token -> token.type() == TokenType.PLAYER)
                 .map(CombatToken::position).findFirst().orElse(null);
-        PreparedMapData generated;
-        try {
-            generated = aiPort.generate(new MapGenerationRequest(
-                    "지도 이미지의 벽과 문 초안", "사용자가 격자 정렬을 확정한 뒤 다시 검수하는 지도",
-                    state.map().grid().width(), state.map().grid().height(), state.map().grid().cellSize(),
-                    state.map().grid().distanceUnit(), Set.of(), List.of(), player, image.get()));
-        } catch (RuntimeException failure) {
-            // Grid confirmation must remain usable even when the optional AI provider is down.
-            generated = new PreparedMapData(state.map().grid(), List.of(), Set.of(), List.of(), List.of());
-        }
+        PreparedMapData generated = aiPort.generate(new MapGenerationRequest(
+                "지도 이미지의 벽과 문 초안", "GRID_CONFIRMED; 사용자가 확정한 격자와 자르기 범위를 기준으로 벽과 문만 찾는다",
+                state.map().grid().width(), state.map().grid().height(), state.map().grid().cellSize(),
+                state.map().grid().distanceUnit(), Set.of(), List.of(), player, image.get(),
+                alignment.originX(), alignment.originY(), alignment.cellSize(), crop(state.map())));
         Set<MapBoundary> boundaries = generated.layers().stream().filter(layer -> layer.type().equals("MAP_BOUNDARIES"))
                 .flatMap(layer -> Arrays.stream(layer.value().split(";"))).filter(value -> !value.isBlank())
                 .map(MapBoundary::parse).collect(Collectors.toCollection(LinkedHashSet::new));
-        String crop = state.map().layers().stream().filter(layer -> layer.type().equals("MAP_CROP")).map(MapLayer::value).findFirst().orElse(null);
-        return updateLayout(id, owner, state.version(), UUID.randomUUID(), generated.obstacles(), generated.doors(), boundaries, crop);
+        return updateLayout(id, owner, state.version(), UUID.randomUUID(), generated.obstacles(), generated.doors(), boundaries, crop(state.map()));
+    }
+
+    /** 기존 호출부 호환용. 새 흐름에서는 반드시 저장된 정렬을 전달한다. */
+    public CombatMap redraftAfterAlignment(MapId id, MapOwnerId owner) {
+        VersionedOwnedCombatMap state = owned(id, owner);
+        String bounds = state.map().layers().stream().filter(layer -> layer.type().equals("GRID_BOUNDS")).map(MapLayer::value).findFirst().orElse("");
+        String[] values = bounds.split(",", -1);
+        double originX = values.length > 0 ? parseDouble(values[0], 0) : 0;
+        double originY = values.length > 1 ? parseDouble(values[1], 0) : 0;
+        double cell = values.length > 2 ? parseDouble(values[2], state.map().grid().width() * state.map().grid().cellSize()) / Math.max(1, state.map().grid().width()) : state.map().grid().cellSize();
+        return redraftAfterAlignment(id, owner, new MapGridAlignment(id, "legacy", originX, originY, Math.max(.01, cell), 0));
+    }
+
+    private static String crop(CombatMap map) {
+        return map.layers().stream().filter(layer -> layer.type().equals("MAP_CROP")).map(MapLayer::value).findFirst().orElse("");
+    }
+
+    private static double parseDouble(String value, double fallback) {
+        try { return Double.parseDouble(value); } catch (RuntimeException ignored) { return fallback; }
     }
 
     private static Optional<MapImageEvidence> imageEvidence(CombatMap map) {

@@ -11,21 +11,20 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import javax.imageio.ImageIO;
 
 /** 정렬값만 조회·적용하며 기존 전체 격자 보정 경로를 호출하지 않는다. */
 public final class MapGridAlignmentService {
     private final CombatMapViewStore maps;
     private final MapGridAlignmentStore alignments;
-    private final CombatMapViewService mapViews;
 
     public MapGridAlignmentService(CombatMapViewStore maps, MapGridAlignmentStore alignments) {
-        this(maps, alignments, null);
+        this.maps = Objects.requireNonNull(maps);
+        this.alignments = Objects.requireNonNull(alignments);
     }
 
     public MapGridAlignmentService(CombatMapViewStore maps, MapGridAlignmentStore alignments, CombatMapViewService mapViews) {
-        this.maps = Objects.requireNonNull(maps); this.alignments = Objects.requireNonNull(alignments); this.mapViews = mapViews;
+        this(maps, alignments);
     }
 
     public MapGridAlignment find(MapId mapId, MapOwnerId owner) {
@@ -48,14 +47,6 @@ public final class MapGridAlignmentService {
             Optional<MapGridAlignment> committed = alignments.find(mapId);
             if (committed.isPresent() && sameGeometry(committed.get(), request)) return committed.get();
             throw conflict;
-        }
-        if (mapViews != null) {
-            // AI map analysis can take minutes. Never hold the HTTP request open
-            // after the alignment itself has been committed.
-            CompletableFuture.runAsync(() -> {
-                try { mapViews.redraftAfterAlignment(mapId, owner); }
-                catch (RuntimeException ignored) { /* alignment remains usable */ }
-            });
         }
         return saved;
     }

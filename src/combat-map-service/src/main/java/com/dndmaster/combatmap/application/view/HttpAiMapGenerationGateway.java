@@ -47,13 +47,18 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
     @Override
     public PreparedMapData generate(MapGenerationRequest request) {
         try {
-            String mapData = mapper.writeValueAsString(java.util.Map.of(
-                    "gridWidth", request.gridWidth(),
-                    "gridHeight", request.gridHeight(),
-                    "authoredObstacles", request.authoredObstacles().stream().map(HttpAiMapGenerationGateway::position).toList(),
-                    "authoredDoors", request.authoredDoors().stream().map(door -> position(door.position())).toList(),
-                    "authoredPlayerStart", request.authoredPlayerStart() == null ? "" : position(request.authoredPlayerStart()),
-                    "mapImageAvailable", request.mapImage() != null));
+            String mapData = mapper.writeValueAsString(java.util.Map.ofEntries(
+                    java.util.Map.entry("gridWidth", request.gridWidth()),
+                    java.util.Map.entry("gridHeight", request.gridHeight()),
+                    java.util.Map.entry("gridOriginX", request.gridOriginX()),
+                    java.util.Map.entry("gridOriginY", request.gridOriginY()),
+                    java.util.Map.entry("gridCellSize", request.gridCellSize()),
+                    java.util.Map.entry("gridConfirmed", request.gridConfirmed()),
+                    java.util.Map.entry("crop", request.crop()),
+                    java.util.Map.entry("authoredObstacles", request.authoredObstacles().stream().map(HttpAiMapGenerationGateway::position).toList()),
+                    java.util.Map.entry("authoredDoors", request.authoredDoors().stream().map(door -> position(door.position())).toList()),
+                    java.util.Map.entry("authoredPlayerStart", request.authoredPlayerStart() == null ? "" : position(request.authoredPlayerStart())),
+                    java.util.Map.entry("mapImageAvailable", request.mapImage() != null)));
             String body = mapper.writeValueAsString(new Request(request.selectedScenario(), request.currentContext(), mapData,
                     request.mapImage() == null ? "" : request.mapImage().dataUri()));
             HttpRequest httpRequest = HttpRequest.newBuilder(endpoint)
@@ -76,8 +81,8 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
     }
 
     private static PreparedMapData toPreparedMap(JsonNode root, MapGenerationRequest request) {
-        int width = Math.max(1, root.path("width").asInt(request.gridWidth()));
-        int height = Math.max(1, root.path("height").asInt(request.gridHeight()));
+        int width = request.gridConfirmed() ? request.gridWidth() : Math.max(1, root.path("width").asInt(request.gridWidth()));
+        int height = request.gridConfirmed() ? request.gridHeight() : Math.max(1, root.path("height").asInt(request.gridHeight()));
         width = Math.max(width, minimumWidth(request));
         height = Math.max(height, minimumHeight(request));
         Set<GridPosition> obstacles = parsePositions(root.path("obstacles"), width, height, "obstacles");

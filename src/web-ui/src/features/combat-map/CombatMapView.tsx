@@ -24,6 +24,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [crop, setCrop] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const [layoutSaving, setLayoutSaving] = useState(false)
   const [boundaryTool, setBoundaryTool] = useState<'WALL' | 'DOOR' | 'ERASE'>('WALL')
+  const [boundaryDetecting, setBoundaryDetecting] = useState(false)
   const boundaryStroke = useRef<BoundaryStroke | null>(null)
   const [boundaryPreview, setBoundaryPreview] = useState<BoundaryStroke | null>(null)
 
@@ -197,6 +198,21 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     finally { setLayoutSaving(false) }
   }
   const mapBoundaries = boundariesFrom(map)
+  async function detectBoundaries() {
+    if (!api.detectMapBoundaries || !map?.mapId) return
+    setBoundaryDetecting(true); setMessage('')
+    try {
+      await api.detectMapBoundaries(adventureId)
+      const refreshed = await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))
+      setMap(refreshed)
+      setLayoutBeforeEdit(refreshed)
+      setLayoutEditing(true)
+      setLayoutDirty(false)
+      setMessage('AI가 현재 격자와 지도 이미지를 기준으로 벽·문 초안을 만들었습니다. 결과를 확인하고 저장하세요.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'AI 벽·문 감지를 처리하지 못했습니다.')
+    } finally { setBoundaryDetecting(false) }
+  }
   function paintBoundaries(boundaries: Array<Pick<MapBoundary, 'x' | 'y' | 'orientation'>>) {
     setMap(currentMap => {
       if (!currentMap) return currentMap
@@ -272,7 +288,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         }} />}
         <p role="status">{gridMessage}</p>
       </section> : null}
-      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>맵 초안 검수</h3><p>{gridConfirmed ? '격자 적용 완료. 이제 AI 초안을 격자 경계선에서 확인하고 고치세요.' : '1. 격자 맞추기를 열어 맞춥니다. 2. 적용을 눌러 저장합니다. 3. 저장 뒤에만 벽·문 초안을 고칠 수 있습니다.'}</p>{gridConfirmed && <><button type="button" onClick={() => { if (layoutEditing) { setLayoutEditing(false); return }; setLayoutBeforeEdit(map); setLayoutEditing(true) }}>{layoutEditing ? '검수 닫기' : '벽·문·자르기 편집'}</button>{layoutEditing && <div className="map-layout-editor"><ol className="map-layout-guide"><li>격자 적용 완료: 선은 칸의 한 면에 붙어 표시됩니다.</li><li>벽 그리기·문 그리기·지우기 중 하나를 고르세요.</li><li>격자선 위를 누른 채 끌면 지나간 선분에 적용됩니다.</li></ol><div className="map-boundary-tools" role="group" aria-label="벽과 문 그리기 도구"><button type="button" aria-pressed={boundaryTool === 'WALL'} onClick={() => setBoundaryTool('WALL')}>벽 그리기</button><button type="button" aria-pressed={boundaryTool === 'DOOR'} onClick={() => setBoundaryTool('DOOR')}>문 그리기</button><button type="button" aria-pressed={boundaryTool === 'ERASE'} onClick={() => setBoundaryTool('ERASE')}>지우기</button></div>{tacticalMap}<p>칸은 이동하거나 선택되지 않습니다.</p>{mapImage && <MapCropEditor image={mapImage} crop={crop} onChange={next => { setCrop(next); setLayoutDirty(true) }} />}<div className="map-layout-actions"><button type="button" disabled={layoutSaving} onClick={() => { boundaryStroke.current = null; setBoundaryPreview(null); setMap(layoutBeforeEdit); setLayoutDirty(false); setLayoutEditing(false) }}>편집 취소</button><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div></div>}</>}</section>}
+      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>맵 초안 검수</h3><p>{gridConfirmed ? '격자 적용 완료. AI가 현재 격자와 지도 이미지를 기준으로 벽·문을 찾습니다.' : '1. 격자 맞추기를 열어 맞춥니다. 2. 적용을 눌러 저장합니다. 3. 저장 뒤에만 벽·문 초안을 고칠 수 있습니다.'}</p>{gridConfirmed && <><button type="button" disabled={boundaryDetecting || layoutSaving || layoutEditing} onClick={() => void detectBoundaries()}>{boundaryDetecting ? 'AI 벽·문 감지 중…' : 'AI 벽·문 감지'}</button><button type="button" onClick={() => { if (layoutEditing) { setLayoutEditing(false); return }; setLayoutBeforeEdit(map); setLayoutEditing(true) }}>{layoutEditing ? '검수 닫기' : '벽·문·자르기 편집'}</button>{layoutEditing && <div className="map-layout-editor"><ol className="map-layout-guide"><li>격자 적용 완료: 선은 칸의 한 면에 붙어 표시됩니다.</li><li>벽 그리기·문 그리기·지우기 중 하나를 고르세요.</li><li>격자선 위를 누른 채 끌면 지나간 선분에 적용됩니다.</li></ol><div className="map-boundary-tools" role="group" aria-label="벽과 문 그리기 도구"><button type="button" aria-pressed={boundaryTool === 'WALL'} onClick={() => setBoundaryTool('WALL')}>벽 그리기</button><button type="button" aria-pressed={boundaryTool === 'DOOR'} onClick={() => setBoundaryTool('DOOR')}>문 그리기</button><button type="button" aria-pressed={boundaryTool === 'ERASE'} onClick={() => setBoundaryTool('ERASE')}>지우기</button></div>{tacticalMap}<p>칸은 이동하거나 선택되지 않습니다.</p>{mapImage && <MapCropEditor image={mapImage} crop={crop} onChange={next => { setCrop(next); setLayoutDirty(true) }} />}<div className="map-layout-actions"><button type="button" disabled={layoutSaving} onClick={() => { boundaryStroke.current = null; setBoundaryPreview(null); setMap(layoutBeforeEdit); setLayoutDirty(false); setLayoutEditing(false) }}>편집 취소</button><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div></div>}</>}</section>}
       {!preparationMode && tacticalMap}
       {map?.tokens?.filter(token => token.type !== 'PLAYER' && !token.lastSeen && map.current?.some(cell => cell.x === token.x && cell.y === token.y)).map(token => <button key={`target-${token.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'TARGET', { x: token.x, y: token.y }, token.id)) }}>대상 선택: {token.type}</button>)}
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}

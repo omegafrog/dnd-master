@@ -100,6 +100,7 @@ export interface AdventurePlayApi {
   getCombatMapPreparation?(adventureId: string): Promise<CombatMapView>
   getPublicMapImage?(adventureId: string): Promise<string | null>
   getCombatMapPreparationImage?(adventureId: string): Promise<string | null>
+  detectMapBoundaries?(adventureId: string): Promise<void>
   getMapGridAlignment?(adventureId: string): Promise<MapGridAlignment>
   applyMapGridAlignment?(adventureId: string, alignment: MapGridAlignmentRequest): Promise<MapGridAlignment>
   updateCombatMapLayout?(adventureId: string, draft: CombatMapLayoutDraft): Promise<void>
@@ -238,6 +239,12 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map/preparation-image`, { headers: this.authHeaders(), cache: 'no-store' })
     if (!response.ok) throw new Error('맵 준비 이미지를 불러오지 못했습니다.')
     return URL.createObjectURL(await response.blob())
+  }
+
+  detectMapBoundaries(adventureId: string) {
+    return request<void>(`/api/v1/adventures/${adventureId}/combat-map/detect-boundaries`, {
+      method: 'POST', headers: this.authHeaders(),
+    })
   }
 
   getMapGridAlignment(adventureId: string) {

@@ -123,6 +123,29 @@ it('shows AI wall and door drafts across the full map during preparation', async
   expect(screen.queryByRole('button', { name: '위치 선택' })).not.toBeInTheDocument()
 })
 
+it('runs AI wall detection only after grid confirmation and keeps the crop editor visible', async () => {
+  const api = fakeApi()
+  const before = { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, grid: { width: 2, height: 2 }, tokens: [] }
+  const after = { ...before, version: 1, layers: [{ type: 'MAP_BOUNDARIES', value: '0,1,HORIZONTAL,WALL,false' }] }
+  api.getCombatMapPreparation = vi.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(before).mockResolvedValueOnce(after)
+  api.getCombatMapPreparationImage = vi.fn().mockResolvedValue('/preparation-map.png')
+  api.getMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.applyMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.detectMapBoundaries = vi.fn().mockResolvedValue(undefined)
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  expect(screen.queryByRole('button', { name: 'AI 벽·문 감지' })).not.toBeInTheDocument()
+  await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  const detect = await screen.findByRole('button', { name: 'AI 벽·문 감지' })
+  await user.click(detect)
+
+  expect(api.detectMapBoundaries).toHaveBeenCalledWith('a1')
+  expect(await screen.findByLabelText('지도 자르기')).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '맵 초안 검수' }).parentElement).toHaveTextContent('AI가 현재 격자와 지도 이미지를 기준으로 벽·문을 찾습니다.')
+})
+
 it('releases the replaced public image blob URL', async () => {
   const api = fakeApi()
   api.getPublicMapImage = vi.fn().mockResolvedValueOnce('blob:first-map').mockResolvedValueOnce('blob:second-map')

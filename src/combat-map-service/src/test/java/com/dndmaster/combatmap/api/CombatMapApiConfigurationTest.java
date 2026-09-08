@@ -64,6 +64,35 @@ class CombatMapApiConfigurationTest {
     }
 
     @Test
+    void sendsConfirmedGridGeometryToTheAiWallDetectionContract() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/gm/maps", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            byte[] response = "{\"width\":4,\"height\":3,\"boundaries\":[],\"obstacles\":[],\"doors\":[],\"playerStart\":\"\"}".getBytes();
+            exchange.sendResponseHeaders(200, response.length);
+            try (var output = exchange.getResponseBody()) { output.write(response); }
+        });
+        server.start();
+        try {
+            var gateway = new HttpAiMapGenerationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(5), new ObjectMapper(), "token");
+            gateway.generate(new MapGenerationRequest("벽·문 감지", "confirmed", 4, 3, 30, 5,
+                    java.util.List.of(), java.util.List.of(), null,
+                    new com.dndmaster.combatmap.application.view.MapImageEvidence("image/png", new byte[] {1}),
+                    112.5, 48.25, 31.75, "100,40,900,700"));
+            JsonNode mapData = new ObjectMapper().readTree(new ObjectMapper().readTree(requestBody.get()).path("mapData").asText());
+            assertEquals(112.5, mapData.path("gridOriginX").asDouble());
+            assertEquals(48.25, mapData.path("gridOriginY").asDouble());
+            assertEquals(31.75, mapData.path("gridCellSize").asDouble());
+            assertEquals("100,40,900,700", mapData.path("crop").asText());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void uploadedMapPreparationDelegatesGridGeometryToPreprocessingPort() throws Exception {
         var image = new BufferedImage(32, 40, BufferedImage.TYPE_INT_RGB);
         var bytes = new ByteArrayOutputStream();
