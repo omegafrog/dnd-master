@@ -17,9 +17,14 @@ import javax.imageio.ImageIO;
 public final class MapGridAlignmentService {
     private final CombatMapViewStore maps;
     private final MapGridAlignmentStore alignments;
+    private final CombatMapViewService mapViews;
 
     public MapGridAlignmentService(CombatMapViewStore maps, MapGridAlignmentStore alignments) {
-        this.maps = Objects.requireNonNull(maps); this.alignments = Objects.requireNonNull(alignments);
+        this(maps, alignments, null);
+    }
+
+    public MapGridAlignmentService(CombatMapViewStore maps, MapGridAlignmentStore alignments, CombatMapViewService mapViews) {
+        this.maps = Objects.requireNonNull(maps); this.alignments = Objects.requireNonNull(alignments); this.mapViews = mapViews;
     }
 
     public MapGridAlignment find(MapId mapId, MapOwnerId owner) {
@@ -31,7 +36,9 @@ public final class MapGridAlignmentService {
         CombatMap map = owned(mapId, owner);
         if (!imageRevision(map).equals(request.imageRevision())) throw new MapGridAlignmentConflictException();
         requireGridFitsImage(map, request);
-        return alignments.apply(owner, mapId, request);
+        MapGridAlignment saved = alignments.apply(owner, mapId, request);
+        if (mapViews != null) mapViews.redraftAfterAlignment(mapId, owner);
+        return saved;
     }
 
     /** 원본은 이 경계 안에서만 읽고, 공개된 칸만 포함한 새 이미지로 바꾼다. */

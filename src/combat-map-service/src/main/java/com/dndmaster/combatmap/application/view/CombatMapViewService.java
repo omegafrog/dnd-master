@@ -227,6 +227,38 @@ public final class CombatMapViewService {
         return calibrated;
     }
 
+    /** 격자 적용 직후, 확정된 격자를 기준으로 이미지 초안을 다시 만든다. */
+    public CombatMap redraftAfterAlignment(MapId id, MapOwnerId owner) {
+        VersionedOwnedCombatMap state = owned(id, owner);
+        Optional<MapImageEvidence> image = imageEvidence(state.map());
+        if (image.isEmpty()) return state.map();
+        GridPosition player = state.map().tokens().stream().filter(token -> token.type() == TokenType.PLAYER)
+                .map(CombatToken::position).findFirst().orElse(null);
+        PreparedMapData generated;
+        try {
+            generated = aiPort.generate(new MapGenerationRequest(
+                    "지도 이미지의 벽과 문 초안", "사용자가 격자 정렬을 확정한 뒤 다시 검수하는 지도",
+                    state.map().grid().width(), state.map().grid().height(), state.map().grid().cellSize(),
+                    state.map().grid().distanceUnit(), Set.of(), List.of(), player, image.get()));
+        } catch (RuntimeException failure) {
+            // Grid confirmation must remain usable even when the optional AI provider is down.
+            generated = new PreparedMapData(state.map().grid(), List.of(), Set.of(), List.of(), List.of());
+        }
+        Set<MapBoundary> boundaries = generated.layers().stream().filter(layer -> layer.type().equals("MAP_BOUNDARIES"))
+                .flatMap(layer -> Arrays.stream(layer.value().split(";"))).filter(value -> !value.isBlank())
+                .map(MapBoundary::parse).collect(Collectors.toCollection(LinkedHashSet::new));
+        String crop = state.map().layers().stream().filter(layer -> layer.type().equals("MAP_CROP")).map(MapLayer::value).findFirst().orElse(null);
+        return updateLayout(id, owner, state.version(), UUID.randomUUID(), generated.obstacles(), generated.doors(), boundaries, crop);
+    }
+
+    private static Optional<MapImageEvidence> imageEvidence(CombatMap map) {
+        String value = map.layers().stream().filter(layer -> layer.type().equals("MAP_IMAGE")).map(MapLayer::value).findFirst().orElse("");
+        int marker = value.indexOf(";base64,");
+        if (!value.startsWith("data:image/") || marker < 0) return Optional.empty();
+        try { return Optional.of(new MapImageEvidence(value.substring(5, marker), Base64.getDecoder().decode(value.substring(marker + 8)))); }
+        catch (IllegalArgumentException exception) { return Optional.empty(); }
+    }
+
     private static GridPosition scale(GridPosition position, GridSpec from, GridSpec to) {
         if (position == null) return null;
         return new GridPosition(Math.min(to.width() - 1, Math.max(0, Math.round(position.x() * (to.width() - 1f) / Math.max(1, from.width() - 1)))),
