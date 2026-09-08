@@ -6,6 +6,11 @@ import com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.util.Base64;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -52,6 +57,39 @@ class MapModelContractTest {
         assertEquals(6, output.height());
         assertEquals(java.util.List.of(), output.obstacles());
         assertEquals(java.util.List.of(), output.doors());
+    }
+
+    @Test
+    void createsVisualBoundaryDraftWhenProviderTimesOut() throws Exception {
+        BufferedImage image = new BufferedImage(50, 40, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D graphics = image.createGraphics();
+        graphics.setColor(java.awt.Color.WHITE);
+        graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+        graphics.setColor(java.awt.Color.BLACK);
+        graphics.fillRect(15, 14, 10, 3);
+        graphics.fillRect(24, 15, 3, 10);
+        graphics.dispose();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", bytes);
+        String dataUri = "data:image/png;base64," + Base64.getEncoder().encodeToString(bytes.toByteArray());
+
+        GmCompletionAdapter failing = new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser) {
+                throw new IllegalStateException("provider unavailable");
+            }
+        };
+        MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(failing, mapper);
+
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(
+                "map", "room",
+                "{\"gridWidth\":4,\"gridHeight\":3,\"gridOriginX\":5,\"gridOriginY\":5,\"gridCellSize\":10,\"gridConfirmed\":true}",
+                dataUri));
+
+        assertEquals(4, output.width());
+        assertEquals(3, output.height());
+        org.junit.jupiter.api.Assertions.assertTrue(output.boundaries().contains("1,1,HORIZONTAL,WALL,false"));
+        org.junit.jupiter.api.Assertions.assertTrue(output.boundaries().contains("2,1,VERTICAL,WALL,false"));
     }
 
     private static GmCompletionAdapter fixed(String response) {

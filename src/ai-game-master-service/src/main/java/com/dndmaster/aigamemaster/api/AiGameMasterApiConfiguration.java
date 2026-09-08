@@ -26,6 +26,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
@@ -120,18 +125,167 @@ public class AiGameMasterApiConfiguration {
                 // Map preparation must remain usable when the optional GM provider
                 // is unavailable or returns malformed output. Authored map data is
                 // still preserved by the combat-map service after this fallback.
-                return deterministicMapFallback(input);
+                return deterministicMapFallback(input, mapper);
             }
-            return parseMap(mapper, raw);
+            MapModelPort.MapOutput parsed = parseMap(mapper, raw);
+            if (parsed.boundaries().isEmpty() && !input.imageDataUri().isBlank()) {
+                List<String> visualDraft = visualBoundaryDraft(input, mapper, parsed.width(), parsed.height());
+                if (!visualDraft.isEmpty()) {
+                    return new MapModelPort.MapOutput(parsed.width(), parsed.height(),
+                            "이미지에서 확인한 선을 벽·문 초안으로 만들었습니다.", parsed.obstacles(), parsed.doors(),
+                            visualDraft, parsed.playerStart());
+                }
+            }
+            return parsed;
         };
     }
 
-    private static MapModelPort.MapOutput deterministicMapFallback(MapModelPort.MapInput input) {
+    private static MapModelPort.MapOutput deterministicMapFallback(MapModelPort.MapInput input,
+            com.fasterxml.jackson.databind.ObjectMapper mapper) {
         int width = extractPositive(input.mapData(), "gridWidth", 20);
         int height = extractPositive(input.mapData(), "gridHeight", 20);
+        List<String> boundaries = visualBoundaryDraft(input, mapper, width, height);
         return new MapModelPort.MapOutput(width, height,
-                "GM provider unavailable; deterministic empty layout used.", List.of(), List.of(), "");
+                boundaries.isEmpty()
+                        ? "AI 제공자가 응답하지 않았고 지도에서 확실한 선을 찾지 못했습니다."
+                        : "GM 제공자가 응답하지 않아 이미지에서 확인한 선으로 벽·문 초안을 만들었습니다.",
+                List.of(), List.of(), boundaries, "");
     }
+
+    /**
+     * The map provider is optional in local development. When it times out, keep
+     * map preparation useful by detecting the strong dark line work already in
+     * the supplied, user-aligned image. This is deliberately conservative: only
+     * nearly-black, cell-spanning lines become walls, and one-cell gaps between
+     * such lines become door candidates for user review.
+     */
+    private static List<String> visualBoundaryDraft(MapModelPort.MapInput input,
+            com.fasterxml.jackson.databind.ObjectMapper mapper, int width, int height) {
+        try {
+            if (input.imageDataUri().isBlank()) return List.of();
+            var geometry = mapper.readTree(input.mapData());
+            if (!geometry.path("gridConfirmed").asBoolean(false)) return List.of();
+            double originX = geometry.path("gridOriginX").asDouble(Double.NaN);
+            double originY = geometry.path("gridOriginY").asDouble(Double.NaN);
+            double cellSize = geometry.path("gridCellSize").asDouble(Double.NaN);
+            if (!Double.isFinite(originX) || !Double.isFinite(originY) || !Double.isFinite(cellSize) || cellSize <= 0) {
+                return List.of();
+            }
+            int comma = input.imageDataUri().indexOf(',');
+            if (comma < 0) return List.of();
+            byte[] bytes = Base64.getDecoder().decode(input.imageDataUri().substring(comma + 1));
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
+            if (image == null) return List.of();
+
+            EdgeSample[][] horizontal = new EdgeSample[height + 1][width];
+            EdgeSample[][] vertical = new EdgeSample[height][width + 1];
+            boolean[][] horizontalWalls = new boolean[height + 1][width];
+            boolean[][] verticalWalls = new boolean[height][width + 1];
+            for (int y = 0; y <= height; y++) {
+                for (int x = 0; x < width; x++) {
+                    horizontal[y][x] = sample(image, originX + x * cellSize,
+                            originY + y * cellSize, cellSize, true);
+                    horizontalWalls[y][x] = isWall(horizontal[y][x]);
+                }
+            }
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x <= width; x++) {
+                    vertical[y][x] = sample(image, originX + x * cellSize,
+                            originY + y * cellSize, cellSize, false);
+                    verticalWalls[y][x] = isWall(vertical[y][x]);
+                }
+            }
+
+            List<String> result = new ArrayList<>();
+            for (int y = 0; y <= height; y++) {
+                for (int x = 0; x < width; x++) {
+                    if (horizontalWalls[y][x]) result.add(x + "," + y + ",HORIZONTAL,WALL,false");
+                }
+            }
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x <= width; x++) {
+                    if (verticalWalls[y][x]) result.add(x + "," + y + ",VERTICAL,WALL,false");
+                }
+            }
+            // A short, dark interruption in a continuous line is a useful door
+            // candidate. It remains a review draft and is never treated as final.
+            for (int y = 0; y <= height; y++) {
+                for (int x = 1; x < width - 1; x++) {
+                    if (!horizontalWalls[y][x] && horizontalWalls[y][x - 1] && horizontalWalls[y][x + 1]
+                            && isDoorGap(horizontal[y][x])) {
+                        result.add(x + "," + y + ",HORIZONTAL,DOOR,false");
+                    }
+                }
+            }
+            for (int y = 1; y < height - 1; y++) {
+                for (int x = 0; x <= width; x++) {
+                    if (!verticalWalls[y][x] && verticalWalls[y - 1][x] && verticalWalls[y + 1][x]
+                            && isDoorGap(vertical[y][x])) {
+                        result.add(x + "," + y + ",VERTICAL,DOOR,false");
+                    }
+                }
+            }
+            return List.copyOf(result);
+        } catch (RuntimeException | java.io.IOException ignored) {
+            return List.of();
+        }
+    }
+
+    private static boolean isWall(EdgeSample sample) {
+        return sample.average() <= 55 && sample.darkFraction() >= .70;
+    }
+
+    private static boolean isDoorGap(EdgeSample sample) {
+        return sample.average() <= 105 && sample.darkFraction() >= .35;
+    }
+
+    private static EdgeSample sample(BufferedImage image, double x, double y, double cellSize, boolean horizontal) {
+        int start = horizontal ? (int) Math.round(x + cellSize * .12) : (int) Math.round(y + cellSize * .12);
+        int end = horizontal ? (int) Math.round(x + cellSize * .88) : (int) Math.round(y + cellSize * .88);
+        int limit = horizontal ? image.getWidth() - 1 : image.getHeight() - 1;
+        start = Math.max(0, Math.min(limit, start));
+        end = Math.max(0, Math.min(limit, end));
+        if (end < start) return new EdgeSample(Double.POSITIVE_INFINITY, 0);
+        EdgeSample best = new EdgeSample(Double.POSITIVE_INFINITY, 0);
+        for (int offset = -8; offset <= 8; offset++) {
+            double sum = 0;
+            int dark = 0;
+            int count = 0;
+            if (horizontal) {
+                int row = (int) Math.round(y) + offset;
+                if (row < 0 || row >= image.getHeight()) continue;
+                for (int column = start; column <= end; column++) {
+                    int luminance = luminance(image.getRGB(column, row));
+                    sum += luminance;
+                    if (luminance < 80) dark++;
+                    count++;
+                }
+            } else {
+                int column = (int) Math.round(x) + offset;
+                if (column < 0 || column >= image.getWidth()) continue;
+                for (int row = start; row <= end; row++) {
+                    int luminance = luminance(image.getRGB(column, row));
+                    sum += luminance;
+                    if (luminance < 80) dark++;
+                    count++;
+                }
+            }
+            if (count > 0) {
+                EdgeSample candidate = new EdgeSample(sum / count, (double) dark / count);
+                if (candidate.average() < best.average()) best = candidate;
+            }
+        }
+        return best;
+    }
+
+    private static int luminance(int rgb) {
+        int red = (rgb >> 16) & 0xff;
+        int green = (rgb >> 8) & 0xff;
+        int blue = rgb & 0xff;
+        return (299 * red + 587 * green + 114 * blue) / 1000;
+    }
+
+    private record EdgeSample(double average, double darkFraction) {}
 
     private static int extractPositive(String text, String key, int fallback) {
         java.util.regex.Matcher matcher = java.util.regex.Pattern
