@@ -17,8 +17,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [alignment, setAlignment] = useState({ mapId: '', version: 0, imageRevision: '', originX: 0, originY: 0, cellSize: 30 })
   const [alignmentAvailable, setAlignmentAvailable] = useState(false)
   const [mapImageSize, setMapImageSize] = useState({ width: 1, height: 1 })
-  const [layoutEditing, setLayoutEditing] = useState(preparationMode)
+  const [layoutEditing, setLayoutEditing] = useState(false)
   const [layoutDirty, setLayoutDirty] = useState(false)
+  const [gridConfirmed, setGridConfirmed] = useState(!preparationMode)
   const [crop, setCrop] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const [layoutSaving, setLayoutSaving] = useState(false)
 
@@ -177,15 +178,15 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       <h2 id="map-heading">{compact ? '전장 지도' : '플레이어 전투 맵'}</h2>
       {!compact && <p>모험 ID: {adventureId}</p>}
       {!compact && <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>}
-      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>맵 초안 검수</h3><p>AI가 제안한 벽과 문을 칸마다 눌러 고치세요. 격자 크기를 맞춘 뒤 여백을 잘라낼 수 있습니다.</p><button type="button" onClick={() => setLayoutEditing(current => !current)}>{layoutEditing ? '검수 닫기' : '벽·문·자르기 편집'}</button>{layoutEditing && <div>{mapImage && <MapCropEditor image={mapImage} crop={crop} onChange={next => { setCrop(next); setLayoutDirty(true) }} />}<button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div>}</section>}
       {showGridEditor ? <section aria-label="맵 격자 맞추기" className="map-grid-editor">
         <button type="button" onClick={() => setGridEditor(true)}>격자 맞추기</button>
         {gridEditor && <MapGridAlignmentEditor image={mapImage!} initial={alignment} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {
           const saved = await api.applyMapGridAlignment!(adventureId, value)
-          setAlignment(saved); setGridEditor(false); setGridMessage('격자 정렬을 저장했습니다. 게임 상태는 바뀌지 않습니다.'); setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId)))
+          setAlignment(saved); setGridConfirmed(true); setGridEditor(false); setGridMessage('격자 정렬을 저장했습니다. 이제 벽과 문 초안을 검수하세요.'); setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId)))
         }} />}
         <p role="status">{gridMessage}</p>
       </section> : null}
+      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>맵 초안 검수</h3><p>{gridConfirmed ? 'AI가 제안한 벽과 문을 격자 경계선마다 고치고, 여백을 잘라내세요.' : '먼저 격자 맞추기에서 격자를 저장하세요. 저장 뒤 벽·문 초안을 검수할 수 있습니다.'}</p>{gridConfirmed && <><button type="button" onClick={() => setLayoutEditing(current => !current)}>{layoutEditing ? '검수 닫기' : '벽·문·자르기 편집'}</button>{layoutEditing && <div>{mapImage && <MapCropEditor image={mapImage} crop={crop} onChange={next => { setCrop(next); setLayoutDirty(true) }} />}<button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div>}</>}</section>}
       {map.tokens ? (
         <div className="tactical-map-window">
           {!preparationMode && <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>}
