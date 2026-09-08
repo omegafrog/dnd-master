@@ -1071,6 +1071,7 @@ body {
 .map-layout-editor > .tactical-map-window { width:100%; }
 .map-layout-editor > p { margin:0; font-size:.75rem; }
 .map-layout-guide { display:grid; gap:.2rem; margin:0; padding-left:1.2rem; font-size:.75rem; }
+.map-boundary-tools { display:flex; flex-wrap:wrap; gap:.4rem; }.map-boundary-tools button[aria-pressed='true'] { background:#342a20 !important; border-color:#342a20 !important; color:#fff !important; }
 .map-preparation-editor label { display:grid; gap:.2rem; font-size:.68rem; font-weight:700; }
 .map-preparation-editor input { min-width:0; padding:.35rem; border:1px solid #cdbda8; border-radius:4px; background:#fff; color:#392e24; }
 .map-crop-editor { display:grid; gap:.45rem; grid-column:1 / -1; }.map-crop-editor p { font-size:.72rem; }.map-crop-canvas { position:relative; width:min(100%,42rem); aspect-ratio:16 / 10; overflow:hidden; border:1px solid #9e8764; background:#202428; cursor:crosshair; touch-action:none; }.map-crop-canvas > img { position:absolute; left:0; top:0; max-width:none; max-height:none; pointer-events:none; user-select:none; }.map-crop-selection { position:absolute; box-sizing:border-box; border:2px solid rgb(255 220 91 / 95%); background:rgb(255 220 91 / 12%); pointer-events:none; }
@@ -1079,8 +1080,8 @@ body {
 .map-layout-editor .tactical-map::after { content:""; position:absolute; inset:0; z-index:1; background:rgb(255 255 255 / 52%); pointer-events:none; }
 .tactical-map > button { min-width:0; min-height:0; box-sizing:border-box; padding:0; border:1px solid rgb(0 0 0 / 45%) !important; border-radius:0 !important; background-color:transparent !important; color:transparent; font-size:0; opacity:1; }
 .tactical-map > button.map-draft-wall { background:rgb(67 54 40 / 82%) !important; box-shadow:inset 0 0 0 1px rgb(255 241 204 / 35%); }.tactical-map > button.map-draft-door { background:rgb(157 99 36 / 92%) !important; box-shadow:inset 0 0 0 2px rgb(255 220 91 / 90%); }
-.tactical-map > button.map-boundary { position:absolute; z-index:3; min-width:0; min-height:0; padding:0; border:0 !important; border-radius:0 !important; background:transparent !important; color:transparent; transform:translate(-50%,-50%) !important; transition:none !important; cursor:pointer; }
-.tactical-map > button.map-boundary:hover,.tactical-map > button.map-boundary:focus-visible { background:rgb(255 255 255 / 32%) !important; outline:1px solid #f6d66b; outline-offset:0; transform:translate(-50%,-50%) !important; box-shadow:none; }
+.tactical-map > button.map-boundary { position:absolute; z-index:3; min-width:0; min-height:0; padding:0; border:0 !important; border-radius:0 !important; background:transparent !important; color:transparent; transition:none !important; cursor:crosshair; touch-action:none; }
+.tactical-map > button.map-boundary:hover,.tactical-map > button.map-boundary:focus-visible { background:rgb(255 255 255 / 32%) !important; outline:1px solid #f6d66b; outline-offset:0; transform:none !important; box-shadow:none; }
 .tactical-map > button.map-boundary-wall { z-index:4; background:#342a20 !important; box-shadow:0 0 0 1px rgb(255 241 204 / 68%); }
 .tactical-map > button.map-boundary-door { z-index:4; background:#9d6324 !important; box-shadow:0 0 0 1px #ffdc5b; }
 .tactical-map > button:hover,.tactical-map > button:focus-visible { background-color:rgb(255 255 255 / 18%) !important; outline:2px solid #202428; outline-offset:-2px; }

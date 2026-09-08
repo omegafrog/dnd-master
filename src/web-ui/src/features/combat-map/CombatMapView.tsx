@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { AdventurePlayApi, CombatMapView as CombatMapState, MapBoundary } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
@@ -22,6 +22,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [gridConfirmed, setGridConfirmed] = useState(!preparationMode)
   const [crop, setCrop] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const [layoutSaving, setLayoutSaving] = useState(false)
+  const [boundaryTool, setBoundaryTool] = useState<'WALL' | 'DOOR' | 'ERASE'>('WALL')
+  const boundaryPainting = useRef(false)
 
   useEffect(() => () => {
     if (publicMapImage?.startsWith('blob:')) URL.revokeObjectURL(publicMapImage)
@@ -167,20 +169,22 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     finally { setLayoutSaving(false) }
   }
   const mapBoundaries = boundariesFrom(map)
-  function toggleBoundary(boundary: Pick<MapBoundary, 'x' | 'y' | 'orientation'>) {
-    if (!map) return
-    const current = mapBoundaries.find(item => item.x === boundary.x && item.y === boundary.y && item.orientation === boundary.orientation)
-    const next = current?.kind === 'WALL' ? [...mapBoundaries.filter(item => item !== current), { ...boundary, kind: 'DOOR' as const, open: false }]
-      : current?.kind === 'DOOR' ? mapBoundaries.filter(item => item !== current)
-        : [...mapBoundaries, { ...boundary, kind: 'WALL' as const, open: false }]
-    const layers = (map.layers ?? []).filter(layer => layer.type !== 'MAP_BOUNDARIES')
-    setMap({ ...map, obstacles: [], doors: [], layers: next.length ? [...layers, { type: 'MAP_BOUNDARIES', value: next.map(encodeBoundary).join(';'), visibility: 'PLAYER_VISIBLE' }] : layers })
+  function paintBoundary(boundary: Pick<MapBoundary, 'x' | 'y' | 'orientation'>) {
+    setMap(currentMap => {
+      if (!currentMap) return currentMap
+      const currentBoundaries = boundariesFrom(currentMap)
+      const existing = currentBoundaries.find(item => item.x === boundary.x && item.y === boundary.y && item.orientation === boundary.orientation)
+      const withoutExisting = currentBoundaries.filter(item => item !== existing)
+      const next = boundaryTool === 'ERASE' ? withoutExisting : [...withoutExisting, { ...boundary, kind: boundaryTool, open: false }]
+      const layers = (currentMap.layers ?? []).filter(layer => layer.type !== 'MAP_BOUNDARIES')
+      return { ...currentMap, obstacles: [], doors: [], layers: next.length ? [...layers, { type: 'MAP_BOUNDARIES', value: next.map(encodeBoundary).join(';'), visibility: 'PLAYER_VISIBLE' }] : layers }
+    })
     setLayoutDirty(true)
   }
   const tacticalMap = map.tokens ? (
     <div className="tactical-map-window">
       {!preparationMode && <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>}
-          <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} className="tactical-map" style={mapStyle}>
+          <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} className="tactical-map" style={mapStyle} onPointerUp={() => { boundaryPainting.current = false }} onPointerLeave={() => { boundaryPainting.current = false }}>
         {Array.from({ length: previewGrid.width * previewGrid.height }, (_, index) => {
           const cell = { x: index % previewGrid.width, y: Math.floor(index / previewGrid.width) }
           const token = map.tokens?.find(item => item.x === cell.x && item.y === cell.y)
@@ -196,7 +200,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           })}
           {preparationMode && allBoundaries(previewGrid.width, previewGrid.height).map(boundary => {
             const current = mapBoundaries.find(item => item.x === boundary.x && item.y === boundary.y && item.orientation === boundary.orientation)
-            return <button key={`boundary-${boundary.x}-${boundary.y}-${boundary.orientation}`} type="button" className={`map-boundary${current ? ` map-boundary-${current.kind.toLowerCase()}` : ''}`} aria-label={current ? `${current.kind === 'WALL' ? '벽' : '문'} 경계선 ${boundary.x},${boundary.y}` : `빈 경계선 ${boundary.x},${boundary.y}`} style={boundaryStyle(boundary, previewGrid.width, previewGrid.height)} onClick={() => toggleBoundary(boundary)} />
+            const direction = boundary.orientation === 'HORIZONTAL' ? '가로' : '세로'
+            return <button key={`boundary-${boundary.x}-${boundary.y}-${boundary.orientation}`} type="button" className={`map-boundary${current ? ` map-boundary-${current.kind.toLowerCase()}` : ''}`} aria-label={current ? `${direction} ${current.kind === 'WALL' ? '벽' : '문'} 경계선 ${boundary.x},${boundary.y}` : `${direction} 빈 경계선 ${boundary.x},${boundary.y}`} style={boundaryStyle(boundary, previewGrid.width, previewGrid.height)} onPointerDown={event => { event.preventDefault(); boundaryPainting.current = true; paintBoundary(boundary) }} onPointerEnter={() => { if (boundaryPainting.current) paintBoundary(boundary) }} />
           })}
           </div>
       {!preparationMode && <aside aria-label="맵 범례" className="map-legend">{[
@@ -220,7 +225,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         }} />}
         <p role="status">{gridMessage}</p>
       </section> : null}
-      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>맵 초안 검수</h3><p>{gridConfirmed ? '격자 적용 완료. 이제 AI 초안을 격자 경계선에서 확인하고 고치세요.' : '1. 격자 맞추기를 열어 맞춥니다. 2. 적용을 눌러 저장합니다. 3. 저장 뒤에만 벽·문 초안을 고칠 수 있습니다.'}</p>{gridConfirmed && <><button type="button" onClick={() => setLayoutEditing(current => !current)}>{layoutEditing ? '검수 닫기' : '벽·문·자르기 편집'}</button>{layoutEditing && <div className="map-layout-editor"><ol className="map-layout-guide"><li>격자 적용 완료: 아래 선은 이 격자에 맞춰 표시됩니다.</li><li>벽이나 문을 둘 칸의 <strong>경계선만</strong> 누르세요.</li><li>한 경계선을 누를 때마다 벽 → 문 → 없음으로 바뀝니다.</li></ol>{tacticalMap}<p>칸은 이동하거나 선택되지 않습니다.</p>{mapImage && <MapCropEditor image={mapImage} crop={crop} onChange={next => { setCrop(next); setLayoutDirty(true) }} />}<button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div>}</>}</section>}
+      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>맵 초안 검수</h3><p>{gridConfirmed ? '격자 적용 완료. 이제 AI 초안을 격자 경계선에서 확인하고 고치세요.' : '1. 격자 맞추기를 열어 맞춥니다. 2. 적용을 눌러 저장합니다. 3. 저장 뒤에만 벽·문 초안을 고칠 수 있습니다.'}</p>{gridConfirmed && <><button type="button" onClick={() => setLayoutEditing(current => !current)}>{layoutEditing ? '검수 닫기' : '벽·문·자르기 편집'}</button>{layoutEditing && <div className="map-layout-editor"><ol className="map-layout-guide"><li>격자 적용 완료: 선은 칸의 한 면에 붙어 표시됩니다.</li><li>벽 그리기·문 그리기·지우기 중 하나를 고르세요.</li><li>격자선 위를 누른 채 끌면 지나간 선분에 적용됩니다.</li></ol><div className="map-boundary-tools" role="group" aria-label="벽과 문 그리기 도구"><button type="button" aria-pressed={boundaryTool === 'WALL'} onClick={() => setBoundaryTool('WALL')}>벽 그리기</button><button type="button" aria-pressed={boundaryTool === 'DOOR'} onClick={() => setBoundaryTool('DOOR')}>문 그리기</button><button type="button" aria-pressed={boundaryTool === 'ERASE'} onClick={() => setBoundaryTool('ERASE')}>지우기</button></div>{tacticalMap}<p>칸은 이동하거나 선택되지 않습니다.</p>{mapImage && <MapCropEditor image={mapImage} crop={crop} onChange={next => { setCrop(next); setLayoutDirty(true) }} />}<button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div>}</>}</section>}
       {!preparationMode && tacticalMap}
       {map?.tokens?.filter(token => token.type !== 'PLAYER' && !token.lastSeen && map.current?.some(cell => cell.x === token.x && cell.y === token.y)).map(token => <button key={`target-${token.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'TARGET', { x: token.x, y: token.y }, token.id)) }}>대상 선택: {token.type}</button>)}
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}
@@ -261,6 +266,6 @@ function allBoundaries(width: number, height: number): Array<Pick<MapBoundary, '
 function encodeBoundary(boundary: MapBoundary) { return `${boundary.x},${boundary.y},${boundary.orientation},${boundary.kind}` }
 function boundaryStyle(boundary: Pick<MapBoundary, 'x' | 'y' | 'orientation'>, width: number, height: number): CSSProperties {
   return boundary.orientation === 'HORIZONTAL'
-    ? { left: `${(boundary.x / width) * 100}%`, top: `${(boundary.y / height) * 100}%`, width: `${100 / width}%`, height: '8px' }
-    : { left: `${(boundary.x / width) * 100}%`, top: `${(boundary.y / height) * 100}%`, width: '8px', height: `${100 / height}%` }
+    ? { left: `${(boundary.x / width) * 100}%`, top: boundary.y === height ? 'calc(100% - 5px)' : `${(boundary.y / height) * 100}%`, width: `${100 / width}%`, height: '5px' }
+    : { left: boundary.x === width ? 'calc(100% - 5px)' : `${(boundary.x / width) * 100}%`, top: `${(boundary.y / height) * 100}%`, width: '5px', height: `${100 / height}%` }
 }

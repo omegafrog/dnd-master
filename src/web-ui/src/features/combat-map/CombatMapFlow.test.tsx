@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { CharacterSheetView } from '../character/CharacterSheetView'
@@ -107,11 +107,15 @@ it('shows AI wall and door drafts across the full map during preparation', async
   await user.click(screen.getByRole('button', { name: '적용' }))
   await user.click(screen.getByRole('button', { name: '벽·문·자르기 편집' }))
   const editor = screen.getByLabelText('맵 초안 검수')
-  const wall = within(editor).getByRole('button', { name: '벽 경계선 1,0' })
+  const wall = within(editor).getByRole('button', { name: '가로 벽 경계선 1,0' })
   expect(wall).toHaveClass('map-boundary-wall')
-  expect(within(editor).getByRole('button', { name: '문 경계선 0,1' })).toHaveClass('map-boundary-door')
-  await user.click(wall)
-  expect(within(editor).getByRole('button', { name: '문 경계선 1,0' })).toHaveClass('map-boundary-door')
+  expect(wall).toHaveStyle({ left: '50%', top: '0%', height: '5px' })
+  expect(within(editor).getByRole('button', { name: '가로 문 경계선 0,1' })).toHaveClass('map-boundary-door')
+  await user.click(within(editor).getByRole('button', { name: '문 그리기' }))
+  fireEvent.pointerDown(within(editor).getByRole('button', { name: '가로 빈 경계선 0,0' }))
+  fireEvent.pointerEnter(wall)
+  fireEvent.pointerUp(within(editor).getByLabelText('tactical-map'))
+  expect(within(editor).getByRole('button', { name: '가로 문 경계선 1,0' })).toHaveClass('map-boundary-door')
   expect(within(editor).getByRole('button', { name: '빈 격자 1,0' })).toBeDisabled()
   expect(within(editor).getByText('칸은 이동하거나 선택되지 않습니다.')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '위치 선택' })).not.toBeInTheDocument()
