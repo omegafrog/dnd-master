@@ -40,6 +40,20 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
 
     @Override
+    public Optional<View> preparationView(UUID adventureId, UUID ownerId) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/adventures/" + adventureId + "/combat-map/preparation-view?ownerId=" + ownerId))
+                .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 404 || response.statusCode() == 403) return Optional.empty();
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map preparation view failed");
+            Payload payload = mapper.readValue(response.body(), Payload.class);
+            return Optional.of(new View(payload.mapId(), new Grid(payload.grid().width(), payload.grid().height(), payload.grid().cellSize(), payload.grid().distanceUnit()), payload.tokens(), payload.obstacles(), payload.doors(), payload.layers(), payload.current(), payload.explored(), payload.version()));
+        } catch (IOException exception) { throw new IllegalStateException("combat map preparation view transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map preparation view interrupted", exception); }
+    }
+
+    @Override
     public void calibrate(UUID mapId, UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {
         Calibration payload = new Calibration(ownerId, expectedVersion, width, height, cellSize, originX, originY,
@@ -52,6 +66,22 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map calibration failed");
         } catch (IOException exception) { throw new IllegalStateException("combat map calibration transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map calibration interrupted", exception); }
+    }
+
+    @Override
+    public void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles, List<Door> doors, String crop) {
+        Layout payload = new Layout(ownerId, expectedVersion, commandId,
+                obstacles == null ? List.of() : obstacles.stream().map(position -> position.x() + "," + position.y()).toList(),
+                doors == null ? List.of() : doors.stream().map(door -> door.x() + "," + door.y()).toList(), crop);
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/layout"))
+                .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                .PUT(HttpRequest.BodyPublishers.ofString(write(payload))).build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 409) throw new IllegalStateException("combat map layout conflict");
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map layout save failed");
+        } catch (IOException exception) { throw new IllegalStateException("combat map layout transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map layout interrupted", exception); }
     }
 
     @Override
@@ -98,6 +128,19 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("public map image interrupted", exception); }
     }
 
+    @Override
+    public byte[] preparationImage(UUID mapId, UUID ownerId) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/preparation-image?ownerId=" + ownerId))
+                .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
+        try {
+            HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() == 404) throw new IllegalStateException("map preparation image unavailable");
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("map preparation image failed");
+            return response.body();
+        } catch (IOException exception) { throw new IllegalStateException("map preparation image transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("map preparation image interrupted", exception); }
+    }
+
     private String write(Object value) {
         try { return mapper.writeValueAsString(value); }
         catch (IOException exception) { throw new IllegalStateException("combat map calibration serialization failed", exception); }
@@ -107,6 +150,7 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             List<Position> current, List<Position> explored, long version) {}
     private record Calibration(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
+    private record Layout(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors, String crop) {}
     private record AlignmentPayload(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize,
                                     UUID ownerId, UUID commandId, long expectedVersion) {
         private AlignmentPayload(UUID mapId, long version, String imageRevision, double originX, double originY, double cellSize) {

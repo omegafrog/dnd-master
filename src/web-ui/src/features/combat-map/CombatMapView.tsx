@@ -3,7 +3,7 @@ import type { AdventurePlayApi, CombatMapView as CombatMapState } from '../saved
 import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 
-export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean }) {
+export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, onPreparationComplete }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; onPreparationComplete?: () => void }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [publicMapImage, setPublicMapImage] = useState<string | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
@@ -16,6 +16,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [alignment, setAlignment] = useState({ version: 0, imageRevision: '', originX: 0, originY: 0, cellSize: 30 })
   const [alignmentAvailable, setAlignmentAvailable] = useState(false)
   const [mapImageSize, setMapImageSize] = useState({ width: 1, height: 1 })
+  const [layoutEditing, setLayoutEditing] = useState(preparationMode)
+  const [crop, setCrop] = useState({ x: 0, y: 0, width: 0, height: 0 })
+  const [layoutSaving, setLayoutSaving] = useState(false)
 
   useEffect(() => () => {
     if (publicMapImage?.startsWith('blob:')) URL.revokeObjectURL(publicMapImage)
@@ -25,7 +28,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     let active = true
     void (async () => {
       try {
-        const nextMap = await api.getCombatMap(adventureId)
+        const nextMap = preparationMode
+          ? await (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId))
+          : await api.getCombatMap(adventureId)
         if (!active) return
         setMap(nextMap)
         const bounds = nextMap.layers?.find(layer => layer.type === 'GRID_BOUNDS')?.value?.split(',').map(Number)
@@ -35,7 +40,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         }
         try { const current = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable'))); if (active) { setAlignment(current); setAlignmentAvailable(true) } } catch { if (active) { setAlignmentAvailable(false); setGridMessage('저장된 격자 정렬을 불러오지 못했습니다.') } }
         try {
-          const image = await (api.getPublicMapImage?.(adventureId) ?? Promise.resolve(null))
+          const image = preparationMode
+            ? await (api.getCombatMapPreparationImage?.(adventureId) ?? api.getPublicMapImage?.(adventureId) ?? Promise.resolve(null))
+            : await (api.getPublicMapImage?.(adventureId) ?? Promise.resolve(null))
           if (!active) {
             if (image?.startsWith('blob:')) URL.revokeObjectURL(image)
             return
@@ -49,7 +56,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       }
     })()
     return () => { active = false }
-  }, [adventureId, api, refreshToken])
+  }, [adventureId, api, preparationMode, refreshToken])
 
   function chooseCell(cell: { x: number; y: number }) {
     if (!map || !selectedToken) return
@@ -85,6 +92,11 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
 
   const grid = map?.grid ?? { width: 0, height: 0 }
   const mapImage = publicMapImage
+  useEffect(() => {
+    const raw = map?.layers?.find(layer => layer.type === 'MAP_CROP')?.value?.split(',').map(Number)
+    if (raw?.length === 4 && raw.every(Number.isFinite)) setCrop({ x: raw[0], y: raw[1], width: raw[2], height: raw[3] })
+    else if (mapImageSize.width > 1 && mapImageSize.height > 1) setCrop({ x: 0, y: 0, width: mapImageSize.width, height: mapImageSize.height })
+  }, [map, mapImageSize])
   const gridBounds = map?.layers?.find(layer => layer.type === 'GRID_BOUNDS')?.value?.split(',').map(Number)
   const hasGridBounds = gridBounds && gridBounds.length >= 6 && gridBounds.every(Number.isFinite)
     && gridBounds[0] >= 0 && gridBounds[1] >= 0 && gridBounds[2] > 0 && gridBounds[3] > 0
@@ -126,17 +138,40 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       '--map-background-size': `${((imageWidth || mapImageSize.width) / Math.max(renderedGridWidth, 1)) * 100}% ${((imageHeight || mapImageSize.height) / Math.max(renderedGridHeight, 1)) * 100}%`,
       '--map-background-position': `${gridEditor ? 'left top' : backgroundPositionX} ${gridEditor ? 'left top' : backgroundPositionY}`,
     } : {}),
+    ...(preparationMode && !gridEditor && crop.width > 0 && crop.height > 0 ? {
+      '--map-background-size': `${((imageWidth || mapImageSize.width) / crop.width) * 100}% ${((imageHeight || mapImageSize.height) / crop.height) * 100}%`,
+      '--map-background-position': `${(crop.x / Math.max((imageWidth || mapImageSize.width) - crop.width, 1)) * 100}% ${(crop.y / Math.max((imageHeight || mapImageSize.height) - crop.height, 1)) * 100}%`,
+    } : {}),
   } as CSSProperties
   const hasVisibilityMetadata = Array.isArray(map?.current) && Array.isArray(map?.explored)
   // A combat map is stage-scoped.  The backend returns an empty projection for
   // event/town stages; keep the entire tactical panel out of the player UI in
   // that state instead of showing a permanent "no map" panel.
   if (!map || !map.mapId) return null
+  async function saveLayout() {
+    if (!api.updateCombatMapLayout || !map?.mapId) return
+    setLayoutSaving(true); setMessage('')
+    try {
+      await api.updateCombatMapLayout(adventureId, { commandId: globalThis.crypto.randomUUID(), expectedVersion: map.version ?? 0,
+        obstacles: map.obstacles ?? [], doors: (map.doors ?? []).map(door => ({ x: door.x, y: door.y })),
+        crop: crop.width > 0 && crop.height > 0 ? `${Math.max(0, crop.x)},${Math.max(0, crop.y)},${crop.width},${crop.height}` : undefined })
+      setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))); setMessage('벽·문·자르기 설정을 저장했습니다.'); setLayoutEditing(false)
+    } catch (error) { setMessage(error instanceof Error ? error.message : '맵 초안을 저장하지 못했습니다.') }
+    finally { setLayoutSaving(false) }
+  }
+  function toggleLayoutCell(cell: { x: number; y: number }) {
+    if (!map) return
+    const door = map.doors?.find(item => item.x === cell.x && item.y === cell.y)
+    if (door) setMap({ ...map, doors: map.doors?.filter(item => item.x !== cell.x || item.y !== cell.y) })
+    else if (map.obstacles?.some(item => item.x === cell.x && item.y === cell.y)) setMap({ ...map, obstacles: map.obstacles?.filter(item => item.x !== cell.x || item.y !== cell.y), doors: [...(map.doors ?? []), { x: cell.x, y: cell.y, open: false }] })
+    else setMap({ ...map, obstacles: [...(map.obstacles ?? []), cell] })
+  }
   return (
     <section className={`adventure-tool map-panel${compact ? ' combat-map-panel' : ''}`} aria-labelledby="map-heading">
       <h2 id="map-heading">{compact ? '전장 지도' : '플레이어 전투 맵'}</h2>
       {!compact && <p>모험 ID: {adventureId}</p>}
       {!compact && <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>}
+      {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>맵 초안 검수</h3><p>AI가 제안한 벽과 문을 칸마다 눌러 고치세요. 격자 크기를 맞춘 뒤 여백을 잘라낼 수 있습니다.</p><button type="button" onClick={() => setLayoutEditing(current => !current)}>{layoutEditing ? '검수 닫기' : '벽·문·자르기 편집'}</button>{layoutEditing && <div><label>자르기 시작 X<input aria-label="자르기 시작 X" type="number" value={crop.x} onChange={event => setCrop(current => ({ ...current, x: Number(event.target.value) }))} /></label><label>자르기 시작 Y<input aria-label="자르기 시작 Y" type="number" value={crop.y} onChange={event => setCrop(current => ({ ...current, y: Number(event.target.value) }))} /></label><label>자르기 너비<input aria-label="자르기 너비" type="number" min="1" value={crop.width} onChange={event => setCrop(current => ({ ...current, width: Number(event.target.value) }))} /></label><label>자르기 높이<input aria-label="자르기 높이" type="number" min="1" value={crop.height} onChange={event => setCrop(current => ({ ...current, height: Number(event.target.value) }))} /></label><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div>}</section>}
       {showGridEditor ? <section aria-label="맵 격자 맞추기" className="map-grid-editor">
         <button type="button" onClick={() => setGridEditor(true)}>격자 맞추기</button>
         {gridEditor && <MapGridAlignmentEditor image={mapImage!} initial={alignment} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {
@@ -157,23 +192,24 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
               const visible = map.current?.some(item => item.x === cell.x && item.y === cell.y)
                 ?? (!hasVisibilityMetadata && token?.type === 'PLAYER')
               const explored = map.explored?.some(item => item.x === cell.x && item.y === cell.y) ?? false
-              return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={blocked || !visible} draggable={token?.type === 'PLAYER'} onDragStart={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id); else chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
+              return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={preparationMode ? token?.type === 'PLAYER' : blocked || !visible} draggable={token?.type === 'PLAYER'} onDragStart={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (preparationMode && !token) toggleLayoutCell(cell); else if (token?.type === 'PLAYER') setSelectedToken(token.id); else chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
                 {visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
               </button>
             })}
           </div>
-          <aside aria-label="맵 범례" className="map-legend">{[
+          {!preparationMode && <aside aria-label="맵 범례" className="map-legend">{[
             ['PLAYER', '●', '플레이어 캐릭터'], ['FRIENDLY_NPC', '◆', '우호 NPC'], ['NEUTRAL_NPC', '◇', '중립 NPC'],
             ['ENEMY', '▲', '적대 몬스터'], ['BOSS', '★', '보스'], ['TRAP', '⚠', '발견된 함정'], ['OBJECT', '■', '상호작용 오브젝트'],
           ].filter(([type]) => map.tokens?.some(token => token.type === type &&
             (token.type === 'PLAYER' && !hasVisibilityMetadata || map.current?.some(cell => cell.x === token.x && cell.y === token.y))))
-            .map(([type, icon, label]) => <span key={type} className={`legend-token legend-${type.toLowerCase()}`}><span aria-hidden="true">{icon}</span><span>{label}</span></span>)}</aside>
+            .map(([type, icon, label]) => <span key={type} className={`legend-token legend-${type.toLowerCase()}`}><span aria-hidden="true">{icon}</span><span>{label}</span></span>)}</aside>}
         </div>
       ) : null}
       {map?.tokens?.filter(token => token.type !== 'PLAYER' && !token.lastSeen && map.current?.some(cell => cell.x === token.x && cell.y === token.y)).map(token => <button key={`target-${token.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'TARGET', { x: token.x, y: token.y }, token.id)) }}>대상 선택: {token.type}</button>)}
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}
       {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p><button type="button" disabled={submitting} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting} onClick={() => { setCandidate(null); setSelectedToken(null) }}>취소</button></div>}
       <p role="status">{message}</p>
+      {preparationMode && <button type="button" disabled={layoutSaving} onClick={onPreparationComplete}>맵 준비 완료, 모험 시작</button>}
     </section>
   )
 }

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AdventureSessionApi, AdventureSessionView, AiCompanionCandidate, CharacterSheetSummary, GmProviderView } from './AdventureSessionApi'
+import type { AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
+import { CombatMapView } from '../combat-map/CombatMapView'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'listOwnedCharacters' | 'copyOwnedCharacter' | 'addMember' | 'removeMember' | 'start' | 'complete' | 'delete'> & Partial<Pick<AdventureSessionApi, 'generateAiCandidate' | 'adoptAiCandidate' | 'replaceMember' | 'readGmProvider' | 'switchGmProvider'>>
 
@@ -7,7 +9,7 @@ const sessionStatusLabel: Record<AdventureSessionView['status'], string> = {
   DRAFT: '준비 중', STARTING: '시작하는 중', STARTED: '진행 중', COMPLETED: '완료', DELETED: '삭제됨',
 }
 
-export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: SessionApi; ownerPlayerId: string; sessionId: string }) {
+export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }: { api: SessionApi; ownerPlayerId: string; sessionId: string; playApi?: AdventurePlayApi }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
   const [characters, setCharacters] = useState<CharacterSheetSummary[]>([])
   const [message, setMessage] = useState('')
@@ -15,6 +17,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
   const [pendingEnd, setPendingEnd] = useState<'complete' | 'delete' | null>(null)
   const [providerForm, setProviderForm] = useState({ provider: 'ollama', model: 'qwen3:8b', reasoning: 'medium' })
   const [candidate, setCandidate] = useState<AiCompanionCandidate | null>(null)
+  const [preparingAdventureId, setPreparingAdventureId] = useState<string | null>(null)
   const frozen = session?.status !== 'DRAFT'
   const load = () => void Promise.all([api.read(sessionId), api.listOwnedCharacters(ownerPlayerId), api.readGmProvider ? api.readGmProvider(sessionId) : Promise.resolve(null)]).then(([nextSession, ownedCharacters, nextProvider]) => { setSession(nextSession); setCharacters(ownedCharacters); if (nextProvider) { setProvider(nextProvider); setProviderForm({ provider: nextProvider.provider, model: nextProvider.model, reasoning: nextProvider.reasoning }) } }).catch(error => setMessage(error instanceof Error ? error.message : '세션을 불러오지 못했습니다.'))
   useEffect(load, [api, ownerPlayerId, sessionId])
@@ -63,7 +66,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
     const adventureId = globalThis.crypto.randomUUID()
     void api.start(sessionId, session.version, adventureId).then(next => {
       setSession(next)
-      window.location.hash = `#/adventures/${next.adventureId ?? adventureId}`
+      setPreparingAdventureId(next.adventureId ?? adventureId)
     }).catch(error => setMessage(error instanceof Error ? error.message : '시나리오 런타임을 시작하지 못했습니다.'))
   }
   return <section className="session-page" aria-labelledby="session-party-heading">
@@ -104,7 +107,9 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
       </aside>}
     </div>
 
-    {session.status === 'DRAFT' && <div className="session-start-actions"><button type="button" onClick={startRuntime} disabled={!partyFull || !session.runtimeConfiguration}>시나리오 런타임 시작</button>{!partyFull && <p>파티 정원 {session.characterLimit}명에 맞춰야 시작할 수 있습니다.</p>}{partyFull && !session.runtimeConfiguration && <p>런타임 설정이 없어 시나리오를 시작할 수 없습니다.</p>}</div>}
+    {session.status === 'DRAFT' && <div className="session-start-actions"><button type="button" onClick={startRuntime} disabled={!partyFull || !session.runtimeConfiguration}>시나리오 런타임 시작</button>{partyFull && session.runtimeConfiguration && <p>시작 전에 맵 초안을 먼저 검수합니다.</p>}{!partyFull && <p>파티 정원 {session.characterLimit}명에 맞춰야 시작할 수 있습니다.</p>}{partyFull && !session.runtimeConfiguration && <p>런타임 설정이 없어 시나리오를 시작할 수 없습니다.</p>}</div>}
+
+    {preparingAdventureId && playApi && <section className="session-map-preparation" aria-label="모험 시작 전 맵 준비"><div className="page-heading"><div><p className="eyebrow">MAP PREPARATION</p><h2>모험 시작 전 맵 준비</h2><p>AI가 만든 벽과 문 초안을 확인하고, 격자를 맞추고, 여백을 잘라낸 뒤 모험을 시작하세요.</p></div></div><CombatMapView adventureId={preparingAdventureId} api={playApi} preparationMode onPreparationComplete={() => { window.location.hash = `#/adventures/${preparingAdventureId}` }} /></section>}
 
     {provider && api.switchGmProvider && <details className="party-provider-settings"><summary>GM 연결 설정 <span>{provider.provider} · {provider.model}</span></summary><div><label>연결 방식<select aria-label="GM provider" value={providerForm.provider} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, provider: value })) }}><option value="codex-cli">Codex OAuth</option><option value="openai">OpenAI 호환</option></select></label><label>모델<input aria-label="GM model" value={providerForm.model} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, model: value })) }} /></label><label>Reasoning<select aria-label="GM reasoning" value={providerForm.reasoning} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, reasoning: value })) }}><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label><button type="button" onClick={() => void switchProvider()}>연결 변경</button></div></details>}
     {frozen && <p className="session-frozen-note">시작 후 파티와 제어 방식은 변경할 수 없습니다. 종료된 세션의 시트는 비활성화됩니다.</p>}

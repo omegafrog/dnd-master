@@ -78,4 +78,15 @@ public final class PublicMapImageArtifactService {
             return Optional.empty();
         }
     }
+
+    /** 맵 준비 단계에서 소유자에게만 원본을 전달한다. 플레이 중 공개 이미지 경로와 분리한다. */
+    public Optional<byte[]> sourcePng(MapId mapId, MapOwnerId owner) {
+        VersionedOwnedCombatMap state = maps.find(mapId).orElseThrow(CombatMapAccessDeniedException::new);
+        if (!state.owner().equals(owner)) throw new CombatMapAccessDeniedException();
+        try {
+            return Optional.of(PlayerMapImageService.sourcePng(MapGridAlignmentService.mapImage(state.map())));
+        } catch (RuntimeException exception) {
+            return Optional.empty();
+        }
+    }
 }

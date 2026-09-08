@@ -70,4 +70,16 @@ public final class PlayerMapImageService {
         if (image == null) throw new IllegalArgumentException("public map image is unavailable");
         return image;
     }
+
+    public static byte[] sourcePng(String sourceDataUri) {
+        try {
+            BufferedImage image = decode(sourceDataUri);
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            if (!ImageIO.write(image, "png", bytes)) throw new IllegalArgumentException("map image is unavailable");
+            return bytes.toByteArray();
+        } catch (IOException | RuntimeException exception) {
+            if (exception instanceof IllegalArgumentException) throw (IllegalArgumentException) exception;
+            throw new IllegalArgumentException("map image is unavailable", exception);
+        }
+    }
 }

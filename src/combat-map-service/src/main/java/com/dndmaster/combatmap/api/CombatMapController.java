@@ -164,6 +164,14 @@ public class CombatMapController {
         return PlayerCombatMapResponse.from(view);
     }
 
+    @GetMapping("/internal/v1/adventures/{adventureId}/combat-map/preparation-view")
+    public PlayerCombatMapResponse preparationAdventureView(@PathVariable UUID adventureId, @RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        return mapViewService.displayForPreparation(new AdventureId(adventureId), new MapOwnerId(ownerId))
+                .map(PlayerCombatMapResponse::from).orElseThrow(CombatMapAccessDeniedException::new);
+    }
+
     @GetMapping("/internal/v1/combat-maps/{mapId}/alignment")
     public MapGridAlignmentResponse alignment(@PathVariable UUID mapId, @RequestParam UUID ownerId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {
@@ -181,6 +189,16 @@ public class CombatMapController {
         requestGuard.internal(token);
         byte[] png = requirePublicMapImages().download(new MapId(mapId), new MapOwnerId(ownerId), imageViewId)
                 .map(com.dndmaster.combatmap.application.view.PublicMapImageArtifact::png)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND));
+        return org.springframework.http.ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
+                .cacheControl(org.springframework.http.CacheControl.noStore()).body(png);
+    }
+
+    @GetMapping(value = "/internal/v1/combat-maps/{mapId}/preparation-image", produces = "image/png")
+    public org.springframework.http.ResponseEntity<byte[]> preparationImage(@PathVariable UUID mapId, @RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        byte[] png = requirePublicMapImages().sourcePng(new MapId(mapId), new MapOwnerId(ownerId))
                 .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND));
         return org.springframework.http.ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
                 .cacheControl(org.springframework.http.CacheControl.noStore()).body(png);
@@ -269,6 +287,22 @@ public class CombatMapController {
         return new CombatMapAiStateResponse(map.id().value());
     }
 
+    @PutMapping("/internal/v1/combat-maps/{mapId}/layout")
+    public CombatMapAiStateResponse updateLayout(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) LayoutRequest request) {
+        requestGuard.internal(token); requireRequest(request, "layout request is required");
+        try {
+            Set<GridPosition> obstacles = authoredPositions(request.obstacles(), "obstacles");
+            List<Door> doors = authoredPositions(request.doors(), "doors").stream().map(position -> new Door(position, false)).toList();
+            CombatMap map = mapViewService.updateLayout(new MapId(mapId), new MapOwnerId(request.ownerId()), request.expectedVersion(), request.commandId(), obstacles, doors, request.crop());
+            return new CombatMapAiStateResponse(map.id().value());
+        } catch (IllegalStateException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, exception.getMessage(), exception);
+        } catch (IllegalArgumentException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
+    }
+
     @PutMapping("/internal/v1/combat-maps/{mapId}/calibration")
     public CombatMapAiStateResponse calibrateGrid(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
@@ -311,6 +345,7 @@ public class CombatMapController {
             long expectedVersion,
             List<LayerRequest> layers) {}
     public record DoorRequest(UUID ownerId,int x,int y,boolean open,UUID commandId,long expectedVersion) {}
+    public record LayoutRequest(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors, String crop) {}
     public record GridCalibrationRequest(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
                                          int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     public record MapGridAlignmentRequest(UUID ownerId, UUID commandId, long expectedVersion, String imageRevision,

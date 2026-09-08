@@ -113,6 +113,10 @@ public final class CombatMapViewService {
     public PlayerCombatMapView displayForPlayer(MapId id, MapOwnerId owner) { VersionedOwnedCombatMap state = owned(id, owner); observePublicImage(id, owner, state); return projection(state.map(), state.version()); }
     public CombatMap displayForGm(MapId id, MapOwnerId owner) { return owned(id, owner).map(); }
     public Optional<PlayerCombatMapView> displayForAdventure(AdventureId adventureId, MapOwnerId owner) { return store.findByAdventureId(adventureId, owner).map(state -> { observePublicImage(state.map().id(), owner, state); return projection(state.map(), state.version()); }); }
+    public Optional<PlayerCombatMapView> displayForPreparation(AdventureId adventureId, MapOwnerId owner) {
+        return store.findByAdventureId(adventureId, owner).map(state -> new PlayerCombatMapView(state.map().id(), state.map().grid(), state.map().tokens(),
+                state.map().obstacles(), state.map().doors().stream().toList(), playerSafeLayers(state.map()), Set.of(), Set.of(), Set.of(), state.version()));
+    }
     public void activateForAdventure(MapId id, MapOwnerId owner, int stagePosition) {
         activateForAdventure(id, owner, MapActivationContext.atStage(stagePosition));
     }
@@ -147,6 +151,32 @@ public final class CombatMapViewService {
         if(state.version()!=expectedVersion) throw new IllegalStateException("version mismatch");
         Set<Door> doors=new HashSet<>(state.map().doors()); doors.removeIf(door->door.position().equals(position)); doors.add(new Door(position,open)); state.map().replaceDoors(doors); state.map().refreshVisibility(state.map().visibilitySnapshot()==null?0:state.map().visibilitySnapshot().ruleTurn());
         store.update(owner,state.map(),expectedVersion,expectedVersion+1,commandId,fingerprint); return state.map();
+    }
+
+    /** 맵 시작 전 사용자가 AI 초안을 검수해 벽·문·자르기 영역을 확정한다. */
+    public CombatMap updateLayout(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId,
+            Set<GridPosition> obstacles, Collection<Door> doors, String crop) {
+        VersionedOwnedCombatMap state = owned(id, owner);
+        String fingerprint = id + "|" + owner + "|LAYOUT|" + obstacles + "|" + doors + "|" + crop;
+        CombatMap replay = replay(id, owner, commandId, fingerprint);
+        if (replay != null) return replay;
+        if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
+        Set<GridPosition> nextObstacles = Set.copyOf(obstacles == null ? Set.of() : obstacles);
+        List<Door> nextDoors = List.copyOf(doors == null ? List.of() : doors);
+        if (nextObstacles.stream().anyMatch(position -> !state.map().grid().contains(position))) throw new IllegalArgumentException("obstacles must be inside grid");
+        if (nextDoors.stream().anyMatch(door -> !state.map().grid().contains(door.position()))) throw new IllegalArgumentException("doors must be inside grid");
+        if (nextDoors.stream().map(Door::position).anyMatch(nextObstacles::contains)) throw new IllegalArgumentException("door cannot be an obstacle");
+        GridPosition player = state.map().tokens().stream().filter(token -> token.type() == TokenType.PLAYER).map(CombatToken::position).findFirst().orElse(null);
+        if (player != null && nextObstacles.contains(player)) throw new IllegalArgumentException("player start cell is blocked");
+        List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !"MAP_CROP".equals(layer.type())).toList());
+        if (crop != null && !crop.isBlank()) layers.add(new MapLayer("MAP_CROP", crop.trim(), LayerVisibility.PLAYER_VISIBLE));
+        CombatMap updated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(),
+                state.map().ownerPlayerId(), state.map().tokens(), nextObstacles, layers, expectedVersion + 1, commandId, fingerprint);
+        updated.replaceDoors(nextDoors);
+        updated.replaceRuntimeState(state.map().runtimeState());
+        updated.refreshVisibility(state.map().visibilitySnapshot() == null ? 0 : state.map().visibilitySnapshot().ruleTurn());
+        store.update(owner, updated, expectedVersion, expectedVersion + 1, commandId, fingerprint);
+        return updated;
     }
 
     public CombatMap calibrateGrid(MapId id, MapOwnerId owner, long expectedVersion, GridCalibrationRequest request) {

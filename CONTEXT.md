@@ -62,6 +62,7 @@
 - **Reveal State Ownership**: Reveal Filter의 정본 출력은 새 Player Knowledge 저장소가 아닌 기존 세션 `NarrativeState`의 `revealedFacts`와 `CharacterKnowledge`다. Writer에는 이 공개 projection만 전달한다.
 - **Meaningful Progress**: GM Turn이 플레이어 의도를 해결하면서 세계 상태 변경, 정보 공개, 결과를 수반한 행동 실패, 구체적 결정 요구, 진행 달성 중 하나 이상을 만든 상태. 어느 것도 없으면 `NO_MEANINGFUL_PROGRESS`다.
 - **Tactical Map**: Scenario Bundle에서 감지되어 Adventure Story Plan의 장면·장소·진입 조건에 연결되는 격자형 플레이 공간. 탐험, 잠입, 추격, 전투에 사용한다.
+- **모험 시작 전 맵 초안 검수**: AI가 맵 이미지와 시나리오에서 제안한 벽·문을 Solo Player가 모험 시작 전에 확인·수정하고, 격자와 외곽 자르기 범위를 저장하는 준비 단계.
 - **Map Interaction Candidate**: Solo Player가 토큰 드래그, 문·오브젝트 클릭, 대상 또는 위치 선택을 완료했지만 확인 팝오버에서 아직 확정하지 않은 맵 행동. 확인 전에는 모험 상태를 바꾸지 않는다.
 - **Fog of War**: 플레이어 토큰의 시야, 벽, 문, 장애물, 발견 판정을 바탕으로 Tactical Map의 현재 가시 영역, 과거 탐험 영역, 미탐험 영역을 구분하는 공개 규칙.
 - **Last Seen Token**: 공개된 몬스터가 시야에서 벗어났을 때 룰북의 최근 1턴 동안 마지막 목격 칸에 축소 표시되는 기존 토큰. 별도 토큰 종류가 아니며 기한이 지나면 제거한다.

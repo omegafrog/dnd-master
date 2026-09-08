@@ -275,6 +275,14 @@ public class AdventureController {
                 .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), null));
     }
 
+    @GetMapping("/api/v1/adventures/{adventureId}/combat-map/preparation")
+    CombatMapResponse preparationMap(@PathVariable UUID adventureId) {
+        var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        return combatMapViewPort.preparationView(adventureId, owner).map(view -> CombatMapResponse.from(adventureId, adventure.version(), view)).orElseThrow();
+    }
+
     @PutMapping("/api/v1/adventures/{adventureId}/combat-map/calibration")
     CombatMapCalibrationResponse calibrateMap(@PathVariable UUID adventureId, @RequestBody CombatMapCalibrationRequest request) {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
@@ -284,6 +292,17 @@ public class AdventureController {
         combatMapViewPort.calibrate(request.mapId(), playerResolver.playerId(), request.expectedVersion(), request.width(), request.height(),
                 request.cellSize(), request.originX(), request.originY(), request.imageWidth(), request.imageHeight(), request.playerX(), request.playerY());
         return new CombatMapCalibrationResponse(request.mapId(), request.width(), request.height());
+    }
+
+    @PutMapping("/api/v1/adventures/{adventureId}/combat-map/layout")
+    void updateMapLayout(@PathVariable UUID adventureId, @RequestBody CombatMapLayoutRequest request) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID mapId = combatMapViewPort.playerView(adventureId, owner).orElseThrow().mapId();
+        List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> obstacles = request.obstacles() == null ? List.of() : request.obstacles().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Position(p.x(), p.y())).toList();
+        List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Door> doors = request.doors() == null ? List.of() : request.doors().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Door(p.x(), p.y(), false)).toList();
+        combatMapViewPort.updateLayout(mapId, owner, request.expectedVersion(), request.commandId(), obstacles, doors, request.crop());
     }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map/alignment")
@@ -304,6 +323,16 @@ public class AdventureController {
         return ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
                 .cacheControl(org.springframework.http.CacheControl.noStore())
                 .body(combatMapViewPort.alignmentImage(mapId, owner, imageViewId));
+    }
+
+    @GetMapping(value = "/api/v1/adventures/{adventureId}/combat-map/preparation-image", produces = "image/png")
+    ResponseEntity<byte[]> preparationMapImage(@PathVariable UUID adventureId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID mapId = combatMapViewPort.playerView(adventureId, owner).orElseThrow().mapId();
+        return ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
+                .cacheControl(org.springframework.http.CacheControl.noStore()).body(combatMapViewPort.preparationImage(mapId, owner));
     }
 
     @PutMapping("/api/v1/adventures/{adventureId}/combat-map/alignment")
@@ -573,6 +602,7 @@ public class AdventureController {
     public record CombatMapCalibrationRequest(UUID mapId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     public record CombatMapCalibrationResponse(UUID mapId, int width, int height) {}
+    public record CombatMapLayoutRequest(UUID commandId, long expectedVersion, List<PositionPayload> obstacles, List<PositionPayload> doors, String crop) {}
     public record CombatMapAlignmentRequest(UUID mapId, UUID commandId, long expectedVersion, String imageRevision,
                                             double originX, double originY, double cellSize) {}
     public record CombatMapAlignmentResponse(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize) {
