@@ -2,6 +2,7 @@ import { useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 
 type Crop = { x: number; y: number; width: number; height: number }
 const MAGNIFIER_SCALE = 2.5
+const MAGNIFIER_SIZE = 100
 
 export function MapCropEditor({ image, crop, onChange }: { image: string; crop: Crop; onChange: (crop: Crop) => void }) {
   const [imageSize, setImageSize] = useState({ width: 1, height: 1 })
@@ -14,7 +15,7 @@ export function MapCropEditor({ image, crop, onChange }: { image: string; crop: 
     const width = Math.max(1, rect?.width ?? imageSize.width)
     const height = Math.max(1, rect?.height ?? imageSize.height)
     const scale = Math.min(width / imageSize.width, height / imageSize.height)
-    return { scale, offsetX: (width - imageSize.width * scale) / 2, offsetY: (height - imageSize.height * scale) / 2 }
+    return { width, height, scale, offsetX: (width - imageSize.width * scale) / 2, offsetY: (height - imageSize.height * scale) / 2 }
   }
   const point = (event: PointerEvent<HTMLDivElement>) => {
     const rect = canvas.current?.getBoundingClientRect()
@@ -32,7 +33,10 @@ export function MapCropEditor({ image, crop, onChange }: { image: string; crop: 
   }
   const layout = view()
   const cropStyle = { left: layout.offsetX + crop.x * layout.scale, top: layout.offsetY + crop.y * layout.scale, width: crop.width * layout.scale, height: crop.height * layout.scale } as CSSProperties
-  const magnifierPosition = magnifier && { left: Math.min(Math.max(layout.offsetX + magnifier.x * layout.scale + 20, 8), 220), top: Math.min(Math.max(layout.offsetY + magnifier.y * layout.scale - 120, 8), 180) }
+  const magnifierPosition = magnifier && {
+    left: Math.min(Math.max(layout.offsetX + magnifier.x * layout.scale - MAGNIFIER_SIZE / 2, 0), Math.max(0, layout.width - MAGNIFIER_SIZE)),
+    top: Math.min(Math.max(layout.offsetY + magnifier.y * layout.scale - MAGNIFIER_SIZE / 2, 0), Math.max(0, layout.height - MAGNIFIER_SIZE)),
+  }
 
   return <section className="map-crop-editor" aria-label="지도 자르기">
     <p>남길 지도의 왼쪽 위 모서리에서 오른쪽 아래 모서리까지 끌어 자를 영역을 정하세요.</p>
