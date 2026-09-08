@@ -10,6 +10,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.HexFormat;
 import java.util.Objects;
+import java.util.Set;
 import javax.imageio.ImageIO;
 
 /** 정렬값만 조회·적용하며 기존 전체 격자 보정 경로를 호출하지 않는다. */
@@ -33,17 +34,18 @@ public final class MapGridAlignmentService {
         return alignments.apply(owner, mapId, request);
     }
 
+    /** 원본은 이 경계 안에서만 읽고, 공개된 칸만 포함한 새 이미지로 바꾼다. */
     private CombatMap owned(MapId mapId, MapOwnerId owner) {
         VersionedOwnedCombatMap state = maps.find(mapId).orElseThrow(CombatMapAccessDeniedException::new);
         if (!state.owner().equals(owner)) throw new CombatMapAccessDeniedException();
         return state.map();
     }
 
-    private static MapGridAlignment legacy(CombatMap map) {
+    static MapGridAlignment legacy(CombatMap map) {
         return new MapGridAlignment(map.id(), imageRevision(map), 0, 0, map.grid().cellSize(), 0);
     }
 
-    private static String imageRevision(CombatMap map) {
+    static String imageRevision(CombatMap map) {
         String image = mapImage(map);
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(image.getBytes(StandardCharsets.UTF_8)));
@@ -68,7 +70,7 @@ public final class MapGridAlignmentService {
         }
     }
 
-    private static String mapImage(CombatMap map) {
+    static String mapImage(CombatMap map) {
         return map.layers().stream().filter(layer -> "MAP_IMAGE".equals(layer.type())).map(MapLayer::value).findFirst()
                 .orElseThrow(MapGridAlignmentImageUnavailableException::new);
     }

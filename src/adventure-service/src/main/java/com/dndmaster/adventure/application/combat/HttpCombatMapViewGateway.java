@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.combat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -61,14 +62,14 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map alignment load failed");
             AlignmentPayload payload = mapper.readValue(response.body(), AlignmentPayload.class);
-            return new Alignment(payload.mapId(), payload.version(), payload.imageRevision(), payload.originX(), payload.originY(), payload.cellSize());
+            return new Alignment(payload.mapId(), payload.version(), payload.imageRevision(), payload.imageViewId(), payload.originX(), payload.originY(), payload.cellSize());
         } catch (IOException exception) { throw new IllegalStateException("combat map alignment transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map alignment interrupted", exception); }
     }
 
     @Override
     public Alignment applyAlignment(UUID mapId, UUID ownerId, AlignmentRequest alignment) {
-        AlignmentPayload payload = new AlignmentPayload(mapId, 0, alignment.imageRevision(), alignment.originX(), alignment.originY(), alignment.cellSize(), ownerId, alignment.commandId(), alignment.expectedVersion());
+        AlignmentPayload payload = new AlignmentPayload(mapId, 0, alignment.imageRevision(), null, alignment.originX(), alignment.originY(), alignment.cellSize(), ownerId, alignment.commandId(), alignment.expectedVersion());
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/alignment"))
                 .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                 .PUT(HttpRequest.BodyPublishers.ofString(write(payload))).build();
@@ -77,9 +78,24 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             if (response.statusCode() == 409) throw new IllegalStateException("map grid alignment conflict");
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map alignment save failed");
             AlignmentPayload result = mapper.readValue(response.body(), AlignmentPayload.class);
-            return new Alignment(result.mapId(), result.version(), result.imageRevision(), result.originX(), result.originY(), result.cellSize());
+            return new Alignment(result.mapId(), result.version(), result.imageRevision(), result.imageViewId(), result.originX(), result.originY(), result.cellSize());
         } catch (IOException exception) { throw new IllegalStateException("combat map alignment transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map alignment interrupted", exception); }
+    }
+
+    @Override
+    public byte[] alignmentImage(UUID mapId, UUID ownerId, String imageViewId) {
+        String encodedImageViewId = URLEncoder.encode(imageViewId, java.nio.charset.StandardCharsets.UTF_8);
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId
+                + "/alignment/image?ownerId=" + ownerId + "&imageViewId=" + encodedImageViewId))
+                .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
+        try {
+            HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            if (response.statusCode() == 404) throw new IllegalStateException("public map image unavailable");
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("public map image download failed");
+            return response.body();
+        } catch (IOException exception) { throw new IllegalStateException("public map image transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("public map image interrupted", exception); }
     }
 
     private String write(Object value) {
@@ -91,10 +107,10 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             List<Position> current, List<Position> explored, long version) {}
     private record Calibration(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
-    private record AlignmentPayload(UUID mapId, long version, String imageRevision, double originX, double originY, double cellSize,
+    private record AlignmentPayload(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize,
                                     UUID ownerId, UUID commandId, long expectedVersion) {
         private AlignmentPayload(UUID mapId, long version, String imageRevision, double originX, double originY, double cellSize) {
-            this(mapId, version, imageRevision, originX, originY, cellSize, null, null, 0);
+            this(mapId, version, imageRevision, null, originX, originY, cellSize, null, null, 0);
         }
     }
 }

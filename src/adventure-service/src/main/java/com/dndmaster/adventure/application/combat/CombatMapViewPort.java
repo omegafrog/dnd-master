@@ -11,6 +11,8 @@ public interface CombatMapViewPort {
 
     default Alignment applyAlignment(UUID mapId, UUID ownerId, AlignmentRequest request) { throw new UnsupportedOperationException("map grid alignment unavailable"); }
 
+    default byte[] alignmentImage(UUID mapId, UUID ownerId, String imageViewId) { throw new UnsupportedOperationException("public map image unavailable"); }
+
     default void calibrate(UUID mapId, UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {
         throw new UnsupportedOperationException("combat map calibration unavailable");
@@ -29,6 +31,6 @@ public interface CombatMapViewPort {
     record Door(int x, int y, boolean open) {}
     record Layer(String type, String value) {}
     record Position(int x, int y) {}
-    record Alignment(UUID mapId, long version, String imageRevision, double originX, double originY, double cellSize) {}
+    record Alignment(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize) {}
     record AlignmentRequest(UUID commandId, long expectedVersion, String imageRevision, double originX, double originY, double cellSize) {}
 }

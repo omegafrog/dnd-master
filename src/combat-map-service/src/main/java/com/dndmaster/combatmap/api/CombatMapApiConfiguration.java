@@ -7,6 +7,7 @@ import com.dndmaster.combatmap.application.view.*;
 import com.dndmaster.combatmap.domain.*;
 import com.dndmaster.combatmap.infrastructure.persistence.PostgresCombatMapViewStore;
 import com.dndmaster.combatmap.infrastructure.persistence.PostgresMapGridAlignmentStore;
+import com.dndmaster.combatmap.infrastructure.persistence.PostgresPublicMapImageArtifactStore;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,6 +42,17 @@ public class CombatMapApiConfiguration {
     @Bean
     MapGridAlignmentService mapGridAlignmentService(CombatMapViewStore maps, MapGridAlignmentStore alignments) {
         return new MapGridAlignmentService(maps, alignments);
+    }
+
+    @Bean
+    PublicMapImageArtifactStore publicMapImageArtifactStore(DataSource dataSource) {
+        return new PostgresPublicMapImageArtifactStore(dataSource);
+    }
+
+    @Bean
+    PublicMapImageArtifactService publicMapImageArtifactService(CombatMapViewStore maps, MapGridAlignmentStore alignments,
+            PublicMapImageArtifactStore artifacts) {
+        return new PublicMapImageArtifactService(maps, alignments, artifacts);
     }
 
     @Bean
@@ -90,8 +102,9 @@ public class CombatMapApiConfiguration {
 
     @Bean
     CombatMapViewService combatMapViewService(
-            CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort) {
-        return new CombatMapViewService(store, filePort, aiPort);
+            CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort,
+            PublicMapImageArtifactService publicImages) {
+        return new CombatMapViewService(store, filePort, aiPort, publicImages);
     }
 
     @Bean
@@ -153,7 +166,8 @@ public class CombatMapApiConfiguration {
     @Bean
     CombatMapController combatMapController(
             CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
-            MapImageEvidencePort mapImageEvidence, MapGridAlignmentService mapGridAlignmentService) {
-        return new CombatMapController(mapViewService, movementService, requestGuard, mapImageEvidence, mapGridAlignmentService);
+            MapImageEvidencePort mapImageEvidence, MapGridAlignmentService mapGridAlignmentService,
+            PublicMapImageArtifactService publicMapImages) {
+        return new CombatMapController(mapViewService, movementService, requestGuard, mapImageEvidence, mapGridAlignmentService, publicMapImages);
     }
 }

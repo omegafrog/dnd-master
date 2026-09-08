@@ -48,6 +48,19 @@ class PostgresMapGridAlignmentStoreIntegrationTest {
         assertThrows(MapGridAlignmentConflictException.class, () -> service.apply(map.id(), owner, new MapGridAlignmentRequest(commandId, 0, initial.imageRevision(), 2.25, 2.5, 25.5)));
     }
 
+    @Test void persistsPublicImageArtifactsByOwnerMapImageAndObservationVersion() {
+        PublicMapImageArtifactStore artifacts = new PostgresPublicMapImageArtifactStore(dataSource);
+        String firstImage = service.find(map.id(), owner).imageRevision();
+        PublicMapImageArtifact first = new PublicMapImageArtifact(owner, map.id(), firstImage, 1, 3, new byte[] {1, 2});
+        PublicMapImageArtifact second = new PublicMapImageArtifact(owner, map.id(), "other-image", 1, 3, new byte[] {3, 4});
+        artifacts.save(first); artifacts.save(second);
+
+        assertArrayEquals(first.png(), artifacts.findByObservation(owner, map.id(), firstImage, 3).orElseThrow().png());
+        assertArrayEquals(second.png(), artifacts.findLatest(owner, map.id(), "other-image").orElseThrow().png());
+        assertTrue(artifacts.findLatest(new MapOwnerId(UUID.randomUUID()), map.id(), firstImage).isEmpty());
+        assertArrayEquals(first.png(), artifacts.save(new PublicMapImageArtifact(owner, map.id(), firstImage, 2, 3, new byte[] {5})).png());
+    }
+
     private record DriverManagerDataSource(String url, String user, String password) implements DataSource {
         public Connection getConnection() throws SQLException { return DriverManager.getConnection(url, user, password); }
         public Connection getConnection(String username, String password) throws SQLException { return DriverManager.getConnection(url, username, password); }

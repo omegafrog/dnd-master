@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { CharacterSheetView } from '../character/CharacterSheetView'
 import { RoleDiceRoller } from '../dice/RoleDiceRoller'
-import type { AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
+import { HttpAdventurePlayApi, type AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
 import { CombatMapView } from './CombatMapView'
 
 function fakeApi(): AdventurePlayApi {
@@ -47,19 +47,47 @@ it('shows character sheet, rolls dice, and shows combat map', async () => {
   expect(await screen.findByText('현재 맵 상태: authoritative-map')).toBeInTheDocument()
 })
 
-it('crops map whitespace to printed grid bounds and keeps grid transparent', async () => {
+it('uses the authenticated public image rather than a map image layer', async () => {
   const api = fakeApi()
+  api.getPublicMapImage = async () => '/public-map-image.png'
   api.getCombatMap = async () => ({
     adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
     grid: { width: 20, height: 20 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 0, y: 0 }],
-    layers: [{ type: 'MAP_IMAGE', value: '/assets/maps/a-potent-brew-map.png' }, { type: 'GRID_BOUNDS', value: '311,105,800,800,1403,992' }],
+    layers: [{ type: 'MAP_IMAGE', value: '/unsafe-original-map.png' }, { type: 'GRID_BOUNDS', value: '311,105,800,800,1403,992' }],
   })
   render(<CombatMapView adventureId="a1" api={api} />)
   const map = await screen.findByLabelText('tactical-map')
-  expect(map).toHaveStyle({ backgroundImage: 'url(/assets/maps/a-potent-brew-map.png)' })
+  expect(map).toHaveStyle({ backgroundImage: 'url(/public-map-image.png)' })
+  expect(map.getAttribute('style')).not.toContain('unsafe-original-map')
   expect(map.getAttribute('style')).toContain('--map-aspect: 800 / 800')
   expect(map.getAttribute('style')).toContain('--map-background-size: 175.375% 124%')
   expect(map.querySelectorAll('button')).toHaveLength(400)
+})
+
+it('keeps the map usable when the public image is temporarily unavailable', async () => {
+  const api = fakeApi()
+  api.getPublicMapImage = async () => { throw new Error('not ready') }
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  expect(await screen.findByLabelText('tactical-map')).toBeInTheDocument()
+  expect(screen.getByText('현재 맵 상태: authoritative-map')).toBeInTheDocument()
+})
+
+it('releases the replaced public image blob URL', async () => {
+  const api = fakeApi()
+  api.getPublicMapImage = vi.fn().mockResolvedValueOnce('blob:first-map').mockResolvedValueOnce('blob:second-map')
+  const revoke = vi.fn()
+  vi.stubGlobal('URL', { revokeObjectURL: revoke })
+  try {
+    const { rerender, unmount } = render(<CombatMapView adventureId="a1" api={api} refreshToken={0} />)
+    await screen.findByLabelText('tactical-map')
+    rerender(<CombatMapView adventureId="a1" api={api} refreshToken={1} />)
+    await waitFor(() => expect(api.getPublicMapImage).toHaveBeenCalledTimes(2))
+    expect(revoke).toHaveBeenCalledWith('blob:first-map')
+    unmount()
+  } finally {
+    vi.unstubAllGlobals()
+  }
 })
 
 it('gives each visible token type a stable styling hook', async () => {
@@ -139,4 +167,24 @@ it('does not let a slower stale refresh overwrite the latest map', async () => {
   await screen.findByText('현재 맵 상태: latest')
   await act(async () => { resolveFirst({ adventureId: 'a1', status: 'stale', mapId: 'm1', version: 1, grid: { width: 1, height: 1 }, tokens: [] }) })
   expect(screen.getByText('현재 맵 상태: latest')).toBeInTheDocument()
+})
+
+it('downloads the public image through the authenticated no-store endpoint', async () => {
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({ imageViewId: 'public:image:reference' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    .mockResolvedValueOnce(new Response(new Blob(['safe-png'], { type: 'image/png' }), { status: 200, headers: { 'Content-Type': 'image/png' } }))
+  vi.stubGlobal('fetch', fetchMock)
+  const createObjectUrl = vi.fn(() => 'blob:public-map')
+  vi.stubGlobal('URL', { ...URL, createObjectURL: createObjectUrl })
+  try {
+    const image = await new HttpAdventurePlayApi(() => 'player-token').getPublicMapImage('a1')
+
+    expect(image).toBe('blob:public-map')
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/v1/adventures/a1/combat-map/alignment', { headers: { Authorization: 'Bearer player-token' } })
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/v1/adventures/a1/combat-map/alignment/image/public%3Aimage%3Areference', {
+      headers: { Authorization: 'Bearer player-token' }, cache: 'no-store',
+    })
+  } finally {
+    vi.unstubAllGlobals()
+  }
 })

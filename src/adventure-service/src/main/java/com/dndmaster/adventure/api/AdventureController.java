@@ -295,6 +295,17 @@ public class AdventureController {
         return CombatMapAlignmentResponse.from(combatMapViewPort.alignment(mapId, owner));
     }
 
+    @GetMapping(value = "/api/v1/adventures/{adventureId}/combat-map/alignment/image/{imageViewId}", produces = "image/png")
+    ResponseEntity<byte[]> mapAlignmentImage(@PathVariable UUID adventureId, @PathVariable String imageViewId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID mapId = combatMapViewPort.playerView(adventureId, owner).orElseThrow().mapId();
+        return ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
+                .cacheControl(org.springframework.http.CacheControl.noStore())
+                .body(combatMapViewPort.alignmentImage(mapId, owner, imageViewId));
+    }
+
     @PutMapping("/api/v1/adventures/{adventureId}/combat-map/alignment")
     CombatMapAlignmentResponse applyMapAlignment(@PathVariable UUID adventureId, @RequestBody CombatMapAlignmentRequest request) {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
@@ -564,9 +575,9 @@ public class AdventureController {
     public record CombatMapCalibrationResponse(UUID mapId, int width, int height) {}
     public record CombatMapAlignmentRequest(UUID mapId, UUID commandId, long expectedVersion, String imageRevision,
                                             double originX, double originY, double cellSize) {}
-    public record CombatMapAlignmentResponse(UUID mapId, long version, String imageRevision, double originX, double originY, double cellSize) {
+    public record CombatMapAlignmentResponse(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize) {
         static CombatMapAlignmentResponse from(com.dndmaster.adventure.application.combat.CombatMapViewPort.Alignment alignment) {
-            return new CombatMapAlignmentResponse(alignment.mapId(), alignment.version(), alignment.imageRevision(), alignment.originX(), alignment.originY(), alignment.cellSize());
+            return new CombatMapAlignmentResponse(alignment.mapId(), alignment.version(), alignment.imageRevision(), alignment.imageViewId(), alignment.originX(), alignment.originY(), alignment.cellSize());
         }
     }
     public record DiceRollRequest(

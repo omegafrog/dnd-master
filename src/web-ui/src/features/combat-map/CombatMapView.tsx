@@ -4,6 +4,7 @@ import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './
 
 export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
+  const [publicMapImage, setPublicMapImage] = useState<string | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
   const [candidate, setCandidate] = useState<MapInteractionCandidate | null>(null)
   const [message, setMessage] = useState('')
@@ -15,10 +16,16 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [mapImageSize, setMapImageSize] = useState({ width: 1, height: 1 })
   const gridDrag = useRef<{ mode: 'move' | 'resize'; startX: number; startY: number; rect: DOMRect; draft: typeof gridDraft } | null>(null)
 
+  useEffect(() => () => {
+    if (publicMapImage?.startsWith('blob:')) URL.revokeObjectURL(publicMapImage)
+  }, [publicMapImage])
+
   useEffect(() => {
     let active = true
-    void api.getCombatMap(adventureId).then(nextMap => {
-      if (active) {
+    void (async () => {
+      try {
+        const nextMap = await api.getCombatMap(adventureId)
+        if (!active) return
         setMap(nextMap)
         const bounds = nextMap.layers?.find(layer => layer.type === 'GRID_BOUNDS')?.value?.split(',').map(Number)
         const player = nextMap.tokens?.find(token => token.type === 'PLAYER')
@@ -26,10 +33,20 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         if (bounds?.length === 6 && bounds.every(Number.isFinite)) {
           setGridDraft({ width: nextGrid.width, height: nextGrid.height, cellSize: Math.max(1, Math.round(bounds[2] / nextGrid.width)), originX: bounds[0], originY: bounds[1], imageWidth: bounds[4], imageHeight: bounds[5], playerX: player?.x ?? 0, playerY: player?.y ?? 0 })
         }
+        try {
+          const image = await (api.getPublicMapImage?.(adventureId) ?? Promise.resolve(null))
+          if (!active) {
+            if (image?.startsWith('blob:')) URL.revokeObjectURL(image)
+            return
+          }
+          setPublicMapImage(image)
+        } catch {
+          if (active) setPublicMapImage(null)
+        }
+      } catch {
+        if (active) { setMap(null); setPublicMapImage(null) }
       }
-    }).catch(() => {
-      if (active) setMap(null)
-    })
+    })()
     return () => { active = false }
   }, [adventureId, api, refreshToken])
 
@@ -66,7 +83,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   }
 
   const grid = map?.grid ?? { width: 0, height: 0 }
-  const mapImage = map?.layers?.find(layer => layer.type === 'MAP_IMAGE')?.value
+  const mapImage = publicMapImage
   const gridBounds = map?.layers?.find(layer => layer.type === 'GRID_BOUNDS')?.value?.split(',').map(Number)
   const hasGridBounds = gridBounds && gridBounds.length >= 6 && gridBounds.every(Number.isFinite)
     && gridBounds[0] >= 0 && gridBounds[1] >= 0 && gridBounds[2] > 0 && gridBounds[3] > 0

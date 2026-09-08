@@ -92,6 +92,7 @@ export interface AdventurePlayApi {
   getSessionKnowledgeSet(adventureId: string): Promise<SessionKnowledgeSet>
   saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]): Promise<SessionKnowledgeSet>
   getCombatMap(adventureId: string): Promise<CombatMapView>
+  getPublicMapImage?(adventureId: string): Promise<string | null>
   calibrateCombatMap?(adventureId: string, calibration: { mapId: string; expectedVersion: number; width: number; height: number; cellSize: number; originX: number; originY: number; imageWidth: number; imageHeight: number; playerX: number; playerY: number }): Promise<void>
   submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number }>
 }
@@ -196,6 +197,18 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     return request<CombatMapView>(`/api/v1/adventures/${adventureId}/combat-map`, {
       headers: this.authHeaders(),
     })
+  }
+
+  async getPublicMapImage(adventureId: string): Promise<string | null> {
+    const alignment = await request<{ imageViewId?: string }>(`/api/v1/adventures/${adventureId}/combat-map/alignment`, {
+      headers: this.authHeaders(),
+    })
+    if (!alignment.imageViewId) return null
+    const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map/alignment/image/${encodeURIComponent(alignment.imageViewId)}`, {
+      headers: this.authHeaders(), cache: 'no-store',
+    })
+    if (!response.ok) throw new Error('공개된 지도 이미지를 불러오지 못했습니다.')
+    return URL.createObjectURL(await response.blob())
   }
 
   calibrateCombatMap(adventureId: string, calibration: { mapId: string; expectedVersion: number; width: number; height: number; cellSize: number; originX: number; originY: number; imageWidth: number; imageHeight: number; playerX: number; playerY: number }) {
