@@ -108,10 +108,6 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const imageHeight = hasGridBounds ? gridBounds[5] : 0
   const boundsWidth = hasGridBounds ? gridBounds[2] : 0
   const boundsHeight = hasGridBounds ? gridBounds[3] : 0
-  const backgroundPositionX = hasGridBounds && imageWidth > boundsWidth
-    ? `${(gridBounds[0] / (imageWidth - boundsWidth)) * 100}%` : 'center'
-  const backgroundPositionY = hasGridBounds && imageHeight > boundsHeight
-    ? `${(gridBounds[1] / (imageHeight - boundsHeight)) * 100}%` : 'center'
   const showGridEditor = !!mapImage && alignmentAvailable && !!api.getMapGridAlignment && !!api.applyMapGridAlignment
   useEffect(() => {
     if (!mapImage) {
@@ -127,21 +123,26 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     }
     image.src = mapImage
   }, [mapImage])
-  const previewGrid = gridEditor && showGridEditor
+  const usesSavedAlignment = alignmentAvailable && alignment.mapId === map?.mapId && alignment.cellSize > 0 && (!preparationMode || gridConfirmed)
+  const previewGrid = (gridEditor && showGridEditor) || usesSavedAlignment
     ? { ...grid, ...alignment }
     : { width: grid.width, height: grid.height, cellSize: hasGridBounds ? Math.round(boundsWidth / Math.max(grid.width, 1)) : 30, originX: hasGridBounds ? gridBounds[0] : 0, originY: hasGridBounds ? gridBounds[1] : 0, imageWidth: imageWidth || mapImageSize.width, imageHeight: imageHeight || mapImageSize.height }
-  const renderedGridWidth = hasGridBounds && !gridEditor ? boundsWidth : previewGrid.width * previewGrid.cellSize
-  const renderedGridHeight = hasGridBounds && !gridEditor ? boundsHeight : previewGrid.height * previewGrid.cellSize
+  const renderedGridWidth = hasGridBounds && !gridEditor && !usesSavedAlignment ? boundsWidth : previewGrid.width * previewGrid.cellSize
+  const renderedGridHeight = hasGridBounds && !gridEditor && !usesSavedAlignment ? boundsHeight : previewGrid.height * previewGrid.cellSize
+  const renderedImageWidth = imageWidth || mapImageSize.width
+  const renderedImageHeight = imageHeight || mapImageSize.height
+  const backgroundPositionX = renderedImageWidth > renderedGridWidth ? `${(previewGrid.originX / (renderedImageWidth - renderedGridWidth)) * 100}%` : 'center'
+  const backgroundPositionY = renderedImageHeight > renderedGridHeight ? `${(previewGrid.originY / (renderedImageHeight - renderedGridHeight)) * 100}%` : 'center'
   const mapStyle = {
     '--grid-columns': previewGrid.width,
     '--grid-rows': previewGrid.height,
     '--map-aspect': `${Math.max(renderedGridWidth, 1)} / ${Math.max(renderedGridHeight, 1)}`,
     ...(mapImage ? { backgroundImage: `url(${mapImage})` } : {}),
-    ...(hasGridBounds || gridEditor ? {
-      '--map-background-size': `${((imageWidth || mapImageSize.width) / Math.max(renderedGridWidth, 1)) * 100}% ${((imageHeight || mapImageSize.height) / Math.max(renderedGridHeight, 1)) * 100}%`,
+    ...(hasGridBounds || gridEditor || usesSavedAlignment ? {
+      '--map-background-size': `${(renderedImageWidth / Math.max(renderedGridWidth, 1)) * 100}% ${(renderedImageHeight / Math.max(renderedGridHeight, 1)) * 100}%`,
       '--map-background-position': `${gridEditor ? 'left top' : backgroundPositionX} ${gridEditor ? 'left top' : backgroundPositionY}`,
     } : {}),
-    ...(!gridEditor && crop.width > 0 && crop.height > 0 ? {
+    ...(!gridEditor && !usesSavedAlignment && crop.width > 0 && crop.height > 0 ? {
       '--map-background-size': `${((imageWidth || mapImageSize.width) / crop.width) * 100}% ${((imageHeight || mapImageSize.height) / crop.height) * 100}%`,
       '--map-background-position': `${(crop.x / Math.max((imageWidth || mapImageSize.width) - crop.width, 1)) * 100}% ${(crop.y / Math.max((imageHeight || mapImageSize.height) - crop.height, 1)) * 100}%`,
     } : {}),

@@ -64,6 +64,21 @@ it('uses the authenticated public image rather than a map image layer', async ()
   expect(map.querySelectorAll('button')).toHaveLength(400)
 })
 
+it('renders the saved grid alignment in the map below the editor', async () => {
+  const api = fakeApi()
+  api.getPublicMapImage = async () => '/public-map-image.png'
+  api.getMapGridAlignment = async () => ({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 200, originY: 10, cellSize: 30 })
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 20, height: 20 }, tokens: [], layers: [{ type: 'GRID_BOUNDS', value: '311,105,800,800,1403,992' }],
+  })
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  const map = await screen.findByLabelText('tactical-map')
+  await waitFor(() => expect(map.getAttribute('style')).toContain('--map-aspect: 600 / 600'))
+  expect(map.getAttribute('style')).toContain('--map-background-position: 24.906600249066003% 2.5510204081632653%')
+})
+
 it('keeps the map usable when the public image is temporarily unavailable', async () => {
   const api = fakeApi()
   api.getPublicMapImage = async () => { throw new Error('not ready') }
