@@ -36,7 +36,7 @@ class CombatMapApiConfigurationTest {
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/v1/gm/maps", exchange -> {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
-            byte[] response = "{\"width\":4,\"height\":3,\"obstacles\":[\"1,1\"],\"doors\":[\"2,1\"],\"playerStart\":\"0,0\",\"rationale\":\"source-backed layout\"}".getBytes();
+            byte[] response = "{\"width\":4,\"height\":3,\"boundaries\":[\"1,1,VERTICAL,WALL,false\",\"2,1,HORIZONTAL,DOOR,false\"],\"obstacles\":[],\"doors\":[],\"playerStart\":\"0,0\",\"rationale\":\"source-backed layout\"}".getBytes();
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, response.length);
             try (var output = exchange.getResponseBody()) { output.write(response); }
@@ -50,8 +50,9 @@ class CombatMapApiConfigurationTest {
                     java.util.List.of(), java.util.List.of(), new com.dndmaster.combatmap.domain.GridPosition(0, 0),
                     new com.dndmaster.combatmap.application.view.MapImageEvidence("image/png", new byte[] {1, 2, 3})));
             assertEquals(new GridSpec(4, 3, 30, 5), data.grid());
-            assertTrue(data.obstacles().contains(new com.dndmaster.combatmap.domain.GridPosition(1, 1)));
-            assertEquals(1, data.doors().size());
+            assertTrue(data.obstacles().isEmpty());
+            assertTrue(data.doors().isEmpty());
+            assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("MAP_BOUNDARIES") && layer.value().contains("1,1,VERTICAL,WALL,false")));
             assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("GM_PLAYER_START") && layer.value().equals("0,0")));
             assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("MAP_IMAGE") && layer.value().startsWith("data:image/png;base64,")));
             JsonNode request = new ObjectMapper().readTree(requestBody.get());

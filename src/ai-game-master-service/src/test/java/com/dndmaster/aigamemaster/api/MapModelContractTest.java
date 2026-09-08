@@ -14,14 +14,15 @@ class MapModelContractTest {
 
     @Test
     void parsesStructuredGmPlacementAndRejectsBlockedDoor() {
-        GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"obstacles\":[\"1,1\"],\"doors\":[\"2,1\"],\"playerStart\":\"0,0\",\"rationale\":\"visible room boundary\"}");
+        GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"boundaries\":[\"1,1,VERTICAL,WALL\",\"2,1,HORIZONTAL,DOOR\"],\"obstacles\":[],\"doors\":[],\"playerStart\":\"0,0\",\"rationale\":\"visible room boundary\"}");
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(adapter, mapper);
 
         MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput("map", "room", "grid"));
 
         assertEquals(4, output.width());
-        assertEquals(java.util.List.of("1,1"), output.obstacles());
-        assertEquals(java.util.List.of("2,1"), output.doors());
+        assertEquals(java.util.List.of(), output.obstacles());
+        assertEquals(java.util.List.of(), output.doors());
+        assertEquals(java.util.List.of("1,1,VERTICAL,WALL,false", "2,1,HORIZONTAL,DOOR,false"), output.boundaries());
         assertEquals("0,0", output.playerStart());
     }
 

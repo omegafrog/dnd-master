@@ -82,6 +82,7 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         height = Math.max(height, minimumHeight(request));
         Set<GridPosition> obstacles = parsePositions(root.path("obstacles"), width, height, "obstacles");
         List<Door> doors = parseDoors(root.path("doors"), width, height);
+        List<String> boundaries = parseBoundaries(root.path("boundaries"), width, height);
         for (Door door : doors) {
             if (obstacles.contains(door.position())) throw new IllegalArgumentException("AI map proposal door is blocked");
             obstacles.remove(door.position());
@@ -102,6 +103,7 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
             layers.add(new MapLayer("GRID_BOUNDS", initialGridBounds(request, width, height), LayerVisibility.PLAYER_VISIBLE));
         }
         layers.add(new MapLayer("GRID_SOURCE", "GM_PROPOSED", LayerVisibility.PLAYER_VISIBLE));
+        if (!boundaries.isEmpty()) layers.add(new MapLayer("MAP_BOUNDARIES", String.join(";", boundaries), LayerVisibility.PLAYER_VISIBLE));
         if (!playerStart.isBlank()) layers.add(new MapLayer("GM_PLAYER_START", playerStart, LayerVisibility.AI_ONLY));
         String rationale = root.path("rationale").asText("").trim();
         if (!rationale.isBlank()) layers.add(new MapLayer("GM_MAP_RATIONALE", rationale, LayerVisibility.AI_ONLY));
@@ -148,6 +150,21 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         Set<GridPosition> result = new HashSet<>();
         for (JsonNode value : values) result.add(parsePosition(value.asText(), width, height, field));
         return result;
+    }
+
+    private static List<String> parseBoundaries(JsonNode values, int width, int height) {
+        if (values.isMissingNode() || values.isNull()) return List.of();
+        if (!values.isArray()) throw new IllegalArgumentException("AI map proposal boundaries must be an array");
+        List<String> result = new ArrayList<>();
+        for (JsonNode value : values) {
+            try {
+                com.dndmaster.combatmap.domain.MapBoundary boundary = com.dndmaster.combatmap.domain.MapBoundary.parse(value.asText());
+                if (!boundary.inside(new GridSpec(width, height, 1, 1))) throw new IllegalArgumentException("outside grid");
+                String encoded = boundary.encoded();
+                if (!result.contains(encoded)) result.add(encoded);
+            } catch (RuntimeException exception) { throw new IllegalArgumentException("AI map proposal boundaries contains an invalid edge", exception); }
+        }
+        return List.copyOf(result);
     }
 
     private static List<Door> parseDoors(JsonNode values, int width, int height) {

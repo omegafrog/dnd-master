@@ -102,12 +102,12 @@ public class AiGameMasterApiConfiguration {
                         + "CURRENT_CONTEXT=" + input.currentContext() + "\n"
                         + "MAP_DATA=" + input.mapData() + "\n"
                         + "MAP_IMAGE=" + (input.imageDataUri().isBlank() ? "not provided" : "provided; inspect the attached image") + "\n"
-                        + "OUTPUT_CONTRACT=Return exactly one JSON object with width, height, obstacles, doors, playerStart, and rationale. "
+                        + "OUTPUT_CONTRACT=Return exactly one JSON object with width, height, boundaries, obstacles, doors, playerStart, and rationale. "
                         + "Treat MAP_DATA.gridWidth and MAP_DATA.gridHeight as a rough initial suggestion. When MAP_IMAGE is provided, choose a practical width and height that fit the visible map layout; when it is not provided, preserve the suggested dimensions. "
-                        + "obstacles must be an array of grid cells written as x,y. doors must be an array of grid cells written as x,y. "
+                        + "boundaries must be an array of shared cell sides written x,y,HORIZONTAL,WALL or x,y,VERTICAL,DOOR. A HORIZONTAL side x,y spans above cell x,y; a VERTICAL side x,y spans left of cell x,y. Put visible walls and closed doors in boundaries. obstacles and doors must be empty arrays unless an entire cell is blocked. "
                         + "playerStart must be one grid cell written as x,y or an empty string. "
                         + "Use only the supplied map data and scenario evidence. Do not invent a structure that is not supported by the supplied data. "
-                        + "When MAP_IMAGE is provided, inspect the attached image and convert only clearly visible walls, closed doors, and blocking structures to grid cells. "
+                        + "When MAP_IMAGE is provided, inspect the attached image and convert clearly visible wall and door lines to boundaries. Prefer continuous visible wall lines. "
                         + "Treat authored obstacle, door, and player-start coordinates as user-confirmed evidence and preserve them. If the image is unclear, omit the uncertain cell instead of guessing. "
                         + "Keep every coordinate inside the returned width and height. A closed door cell must not also be an obstacle. "
                         + "Do not use markdown or any text outside the JSON object.", input.imageDataUri()),
@@ -149,12 +149,13 @@ public class AiGameMasterApiConfiguration {
             if (width < 1 || height < 1) throw new IllegalArgumentException("map model dimensions must be positive");
             List<String> obstacles = positions(root.path("obstacles"), width, height, "obstacles");
             List<String> doors = positions(root.path("doors"), width, height, "doors");
+            List<String> boundaries = boundaries(root.path("boundaries"), width, height);
             if (obstacles.stream().anyMatch(doors::contains)) throw new IllegalArgumentException("door cannot be an obstacle");
             String playerStart = root.path("playerStart").asText("").trim();
             if (!playerStart.isBlank()) validatePosition(playerStart, width, height, "playerStart");
             if (obstacles.contains(playerStart)) throw new IllegalArgumentException("player start cannot be an obstacle");
             if (doors.contains(playerStart)) throw new IllegalArgumentException("player start cannot be a door");
-            return new MapModelPort.MapOutput(width, height, root.path("rationale").asText(""), obstacles, doors, playerStart);
+            return new MapModelPort.MapOutput(width, height, root.path("rationale").asText(""), obstacles, doors, boundaries, playerStart);
         } catch (IllegalArgumentException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -170,6 +171,24 @@ public class AiGameMasterApiConfiguration {
                     : value.path("x").asText("") + "," + value.path("y").asText("");
             validatePosition(position, width, height, field);
             if (!result.contains(position)) result.add(position);
+        }
+        return List.copyOf(result);
+    }
+
+    private static List<String> boundaries(com.fasterxml.jackson.databind.JsonNode node, int width, int height) {
+        if (node.isMissingNode() || node.isNull()) return List.of();
+        if (!node.isArray()) throw new IllegalArgumentException("boundaries must be an array");
+        List<String> result = new java.util.ArrayList<>();
+        for (var value : node) {
+            String boundary = value.asText().trim();
+            String[] parts = boundary.split(",", -1);
+            if (parts.length != 4) throw new IllegalArgumentException("boundaries contains an invalid edge");
+            int x = Integer.parseInt(parts[0].trim()); int y = Integer.parseInt(parts[1].trim());
+            boolean horizontal = "HORIZONTAL".equals(parts[2].trim()); boolean vertical = "VERTICAL".equals(parts[2].trim());
+            boolean wall = "WALL".equals(parts[3].trim()); boolean door = "DOOR".equals(parts[3].trim());
+            if ((!horizontal && !vertical) || (!wall && !door) || (horizontal && (x < 0 || x >= width || y < 0 || y > height)) || (vertical && (x < 0 || x > width || y < 0 || y >= height))) throw new IllegalArgumentException("boundaries contains an invalid edge");
+            String encoded = x + "," + y + "," + parts[2].trim() + "," + parts[3].trim() + ",false";
+            if (!result.contains(encoded)) result.add(encoded);
         }
         return List.copyOf(result);
     }

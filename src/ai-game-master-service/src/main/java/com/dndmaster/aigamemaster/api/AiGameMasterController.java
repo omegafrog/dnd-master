@@ -86,7 +86,7 @@ public class AiGameMasterController {
         var input = new MapModelPort.MapInput(request.selectedScenario(), request.currentContext(), request.mapData(), request.imageDataUri());
         var output = mapPort.generate(input);
         return new MapResponse(output.width(), output.height(), output.structuredLayers(),
-                output.obstacles(), output.doors(), output.playerStart());
+                output.obstacles(), output.doors(), output.boundaries(), output.playerStart());
     }
 
     @PostMapping("/internal/v1/gm/agent-actions")
@@ -163,7 +163,10 @@ public class AiGameMasterController {
     }
 
     public record MapResponse(int width, int height, String structuredLayers,
-                              List<String> obstacles, List<String> doors, String playerStart) {
+                              List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart) {
+        public MapResponse(int width, int height, String structuredLayers, List<String> obstacles, List<String> doors, String playerStart) {
+            this(width, height, structuredLayers, obstacles, doors, List.of(), playerStart);
+        }
         public MapResponse(int width, int height, String structuredLayers) {
             this(width, height, structuredLayers, List.of(), List.of(), "");
         }

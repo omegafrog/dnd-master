@@ -25,7 +25,10 @@ public interface MapModelPort {
     }
 
     record MapOutput(int width, int height, String structuredLayers,
-                     List<String> obstacles, List<String> doors, String playerStart) {
+                     List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart) {
+        public MapOutput(int width, int height, String structuredLayers, List<String> obstacles, List<String> doors, String playerStart) {
+            this(width, height, structuredLayers, obstacles, doors, List.of(), playerStart);
+        }
         public MapOutput(int width, int height, String structuredLayers) {
             this(width, height, structuredLayers, List.of(), List.of(), "");
         }
@@ -35,6 +38,7 @@ public interface MapModelPort {
             structuredLayers = structuredLayers == null ? "" : structuredLayers.trim();
             obstacles = immutable(obstacles);
             doors = immutable(doors);
+            boundaries = immutable(boundaries);
             playerStart = playerStart == null ? "" : playerStart.trim();
         }
     }
