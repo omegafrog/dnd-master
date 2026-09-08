@@ -59,7 +59,6 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
             if (marker == null) return false;
             String value = marker.path("value").asText("");
             String prefix = "USER|ALIGNMENT_VERSION=";
-            if ("USER".equals(value)) return true;
             if (!value.startsWith(prefix)) return false;
             long savedVersion;
             try { savedVersion = Long.parseLong(value.substring(prefix.length())); }

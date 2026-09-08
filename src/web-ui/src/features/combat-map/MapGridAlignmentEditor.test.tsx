@@ -77,3 +77,27 @@ it('can move the zoomed map without changing the alignment drag mode', async () 
 
   expect(image.getAttribute('style')).toContain('translate(37.5px, 25px)')
 })
+
+it('converts a grid drag through the zoomed image coordinates', async () => {
+  const apply = vi.fn().mockResolvedValue(undefined)
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={() => {}} />)
+  const canvas = screen.getByAltText('공개된 지도 이미지').parentElement!
+  const image = screen.getByAltText('공개된 지도 이미지')
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+  Object.defineProperty(image, 'naturalWidth', { value: 600 })
+  Object.defineProperty(image, 'naturalHeight', { value: 400 })
+  fireEvent.load(image)
+
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: '확대' }))
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 75, clientY: 50 }))
+  fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 100, clientY: 75 }))
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 100, clientY: 75 }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+
+  const saved = apply.mock.calls[0][0]
+  expect(saved.originX).toBeCloseTo(120)
+  expect(saved.originY).toBeCloseTo(80)
+  expect(saved.cellSize).toBeCloseTo(13.3333)
+})

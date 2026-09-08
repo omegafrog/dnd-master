@@ -333,7 +333,6 @@ function applyBoundaryProposal(map: CombatMapState, proposal: MapBoundaryProposa
 function encodeBoundary(boundary: MapBoundary) { return `${boundary.x},${boundary.y},${boundary.orientation},${boundary.kind},${boundary.open}` }
 function layoutConfirmedForAlignment(map: CombatMapState, current: { version: number }) {
   const marker = map.layers?.find(layer => layer.type === 'MAP_LAYOUT_CONFIRMED')
-  if (marker?.value === 'USER') return true
   return marker?.value === `USER|ALIGNMENT_VERSION=${current.version}`
 }
 type BoundaryStroke = { orientation: MapBoundary['orientation']; fixed: number; from: number; to: number }

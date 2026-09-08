@@ -89,7 +89,6 @@ public final class AdventureSessionController {
         if (marker.isEmpty()) return false;
         String value = marker.get().value();
         String prefix = "USER|ALIGNMENT_VERSION=";
-        if ("USER".equals(value)) return true;
         if (!value.startsWith(prefix)) return false;
         try {
             long savedVersion = Long.parseLong(value.substring(prefix.length()));

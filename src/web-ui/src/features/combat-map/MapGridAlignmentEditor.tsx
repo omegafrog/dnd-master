@@ -1,5 +1,5 @@
 import { useRef, useState, type CSSProperties, type PointerEvent } from 'react'
-import { imagePointFromScreen, refineCellSize, type ImagePoint, type MapGridAlignmentDraft } from './mapGridAlignmentGeometry'
+import { refineCellSize, type ImagePoint, type MapGridAlignmentDraft } from './mapGridAlignmentGeometry'
 
 export type AlignmentToSave = MapGridAlignmentDraft & { mapId: string; commandId: string; expectedVersion: number; imageRevision: string }
 const MAGNIFIER_SCALE = 2.5
@@ -33,8 +33,9 @@ export function MapGridAlignmentEditor({ image, initial, gridWidth = 20, gridHei
   function point(event: PointerEvent<HTMLElement>) {
     const rect = canvas.current?.getBoundingClientRect()
     const view = layout()
-    const transformed = imagePointFromScreen({ x: event.clientX - (rect?.left ?? 0) - view.offsetX - pan.x, y: event.clientY - (rect?.top ?? 0) - view.offsetY - pan.y }, { zoom, panX: 0, panY: 0 })
-    return { x: transformed.x / view.scale, y: transformed.y / view.scale }
+    const screenX = event.clientX - (rect?.left ?? 0) - view.offsetX - pan.x
+    const screenY = event.clientY - (rect?.top ?? 0) - view.offsetY - pan.y
+    return { x: screenX / (view.scale * zoom), y: screenY / (view.scale * zoom) }
   }
   function beginPanning(event: PointerEvent<HTMLDivElement>) {
     event.preventDefault()
