@@ -24,7 +24,7 @@ class PostgresMapGridAlignmentStoreIntegrationTest {
         owner = new MapOwnerId(UUID.randomUUID());
         map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), new GridSpec(8, 8, 50, 5),
                 new PlayerId(owner.value()), List.of(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER, new GridPosition(1, 2), TokenController.PLAYER, new PlayerId(owner.value()))),
-                Set.of(new GridPosition(3, 3)), List.of(new MapLayer("MAP_IMAGE", "data:image/png;base64,test", LayerVisibility.PLAYER_VISIBLE)), 0, null);
+                Set.of(new GridPosition(3, 3)), List.of(new MapLayer("MAP_IMAGE", MapImageTestFixture.dataUri(1_000, 1_000), LayerVisibility.PLAYER_VISIBLE)), 0, null);
         PostgresCombatMapViewStore maps = new PostgresCombatMapViewStore(dataSource); maps.insert(owner, map);
         service = new MapGridAlignmentService(maps, new PostgresMapGridAlignmentStore(dataSource));
     }

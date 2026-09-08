@@ -56,11 +56,29 @@ class MapGridAlignmentServiceTest {
                 () -> new MapGridAlignmentRequest(UUID.randomUUID(), 0, "image", 0, 0, 0));
     }
 
+    @Test
+    void rejectsAnAlignmentOutsideTheStoredMapImage() {
+        InMemoryMapStore maps = new InMemoryMapStore(map(), owner);
+        MapGridAlignmentService service = new MapGridAlignmentService(maps, new InMemoryAlignmentStore());
+
+        assertThrows(IllegalArgumentException.class, () -> service.apply(mapId, owner,
+                new MapGridAlignmentRequest(UUID.randomUUID(), 0, service.find(mapId, owner).imageRevision(), 900, 0, 20)));
+    }
+
+    @Test
+    void rejectsAlignmentWhenTheMapHasNoReadableImage() {
+        CombatMap withoutImage = new CombatMap(mapId, new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new GridSpec(10, 10, 50, 5), new PlayerId(owner.value()), List.of(), Set.of(), List.of(), 0, null);
+        MapGridAlignmentService service = new MapGridAlignmentService(new InMemoryMapStore(withoutImage, owner), new InMemoryAlignmentStore());
+
+        assertThrows(MapGridAlignmentImageUnavailableException.class, () -> service.find(mapId, owner));
+    }
+
     private CombatMap map() {
         return new CombatMap(mapId, new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), new GridSpec(10, 10, 50, 5),
                 new PlayerId(owner.value()), List.of(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
                 new GridPosition(2, 3), TokenController.PLAYER, new PlayerId(owner.value()))), Set.of(new GridPosition(4, 4)),
-                List.of(new MapLayer("MAP_IMAGE", "data:image/png;base64,abc", LayerVisibility.PLAYER_VISIBLE)), 0, null);
+                List.of(new MapLayer("MAP_IMAGE", MapImageTestFixture.dataUri(1_000, 1_000), LayerVisibility.PLAYER_VISIBLE)), 0, null);
     }
 
     private static final class InMemoryMapStore implements CombatMapViewStore {
