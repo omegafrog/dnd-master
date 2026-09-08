@@ -1070,6 +1070,7 @@ body {
 .map-preparation-editor > .map-layout-editor { grid-template-columns:1fr; align-items:stretch; }
 .map-layout-editor > .tactical-map-window { width:100%; }
 .map-layout-editor > p { margin:0; font-size:.75rem; }
+.map-layout-guide { display:grid; gap:.2rem; margin:0; padding-left:1.2rem; font-size:.75rem; }
 .map-preparation-editor label { display:grid; gap:.2rem; font-size:.68rem; font-weight:700; }
 .map-preparation-editor input { min-width:0; padding:.35rem; border:1px solid #cdbda8; border-radius:4px; background:#fff; color:#392e24; }
 .map-crop-editor { display:grid; gap:.45rem; grid-column:1 / -1; }.map-crop-editor p { font-size:.72rem; }.map-crop-canvas { position:relative; width:min(100%,42rem); aspect-ratio:16 / 10; overflow:hidden; border:1px solid #9e8764; background:#202428; cursor:crosshair; touch-action:none; }.map-crop-canvas > img { position:absolute; left:0; top:0; max-width:none; max-height:none; pointer-events:none; user-select:none; }.map-crop-selection { position:absolute; box-sizing:border-box; border:2px solid rgb(255 220 91 / 95%); background:rgb(255 220 91 / 12%); pointer-events:none; }

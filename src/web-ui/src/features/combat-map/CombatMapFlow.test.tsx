@@ -110,6 +110,8 @@ it('shows AI wall and door drafts across the full map during preparation', async
   expect(within(editor).getByRole('button', { name: '문 경계선 0,1' })).toHaveClass('map-boundary-door')
   await user.click(wall)
   expect(within(editor).getByRole('button', { name: '문 경계선 1,0' })).toHaveClass('map-boundary-door')
+  expect(within(editor).getByRole('button', { name: '빈 격자 1,0' })).toBeDisabled()
+  expect(within(editor).getByText('칸은 이동하거나 선택되지 않습니다.')).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '위치 선택' })).not.toBeInTheDocument()
 })
 
