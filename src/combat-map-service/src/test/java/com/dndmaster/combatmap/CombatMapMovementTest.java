@@ -122,7 +122,7 @@ class CombatMapMovementTest {
         Fixture fixture = new Fixture();
         fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
                 fixture.map.ownerPlayerId(), fixture.map.tokens(), Set.of(),
-                List.of(new MapLayer("MAP_BOUNDARIES", "2,1,VERTICAL,WALL", LayerVisibility.PLAYER_VISIBLE)), 0, null);
+                List.of(new MapLayer("MAP_BOUNDARIES", "2,1,VERTICAL,WALL,false", LayerVisibility.PLAYER_VISIBLE)), 0, null);
 
         MovementPath crossing = new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5);
 

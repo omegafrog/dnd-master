@@ -70,7 +70,7 @@ public final class CombatMap {
         Set<GridPosition> origins=tokens.stream().filter(t->t.type()==TokenType.PLAYER).map(CombatToken::position).collect(java.util.stream.Collectors.toSet());
         Set<GridPosition> blocked=new HashSet<>(obstacles); doors.stream().filter(d->!d.open()).map(Door::position).forEach(blocked::add);
         VisibilitySnapshot prior=visibilitySnapshot;
-        visibilitySnapshot=new VisibilityPolicy().calculate(grid,origins,prior==null?Set.of():prior.explored(),blocked,doors,tokens,prior==null?Set.of():prior.lastSeen(),ruleTurn);
+        visibilitySnapshot=new VisibilityPolicy().calculate(grid,origins,prior==null?Set.of():prior.explored(),blocked,doors,boundaries(),tokens,prior==null?Set.of():prior.lastSeen(),ruleTurn);
     }
     public CombatMap apply(com.dndmaster.combatmap.application.view.TacticalTriggerEffect effect) {
         if (!effect.planned()) throw new IllegalArgumentException("only planned tactical triggers may change the map");

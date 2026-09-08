@@ -78,7 +78,7 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
         Layout payload = new Layout(ownerId, expectedVersion, commandId,
                 obstacles == null ? List.of() : obstacles.stream().map(position -> position.x() + "," + position.y()).toList(),
                 doors == null ? List.of() : doors.stream().map(door -> door.x() + "," + door.y()).toList(),
-                boundaries == null ? List.of() : boundaries.stream().map(boundary -> boundary.x() + "," + boundary.y() + "," + boundary.orientation() + "," + boundary.kind()).toList(), crop);
+                boundaries == null ? List.of() : boundaries.stream().map(boundary -> boundary.x() + "," + boundary.y() + "," + boundary.orientation() + "," + boundary.kind() + "," + boundary.open()).toList(), crop);
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/layout"))
                 .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                 .PUT(HttpRequest.BodyPublishers.ofString(write(payload))).build();

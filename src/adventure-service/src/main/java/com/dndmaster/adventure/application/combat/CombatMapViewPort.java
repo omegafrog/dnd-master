@@ -37,7 +37,7 @@ public interface CombatMapViewPort {
     record Token(UUID id, String type, int x, int y) {}
     record Obstacle(int x, int y) {}
     record Door(int x, int y, boolean open) {}
-    record Boundary(int x, int y, String orientation, String kind) {}
+    record Boundary(int x, int y, String orientation, String kind, boolean open) {}
     record Layer(String type, String value) {}
     record Position(int x, int y) {}
     record Alignment(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize) {}

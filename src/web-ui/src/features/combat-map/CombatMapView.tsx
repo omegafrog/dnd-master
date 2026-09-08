@@ -170,9 +170,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   function toggleBoundary(boundary: Pick<MapBoundary, 'x' | 'y' | 'orientation'>) {
     if (!map) return
     const current = mapBoundaries.find(item => item.x === boundary.x && item.y === boundary.y && item.orientation === boundary.orientation)
-    const next = current?.kind === 'WALL' ? [...mapBoundaries.filter(item => item !== current), { ...boundary, kind: 'DOOR' as const }]
+    const next = current?.kind === 'WALL' ? [...mapBoundaries.filter(item => item !== current), { ...boundary, kind: 'DOOR' as const, open: false }]
       : current?.kind === 'DOOR' ? mapBoundaries.filter(item => item !== current)
-        : [...mapBoundaries, { ...boundary, kind: 'WALL' as const }]
+        : [...mapBoundaries, { ...boundary, kind: 'WALL' as const, open: false }]
     const layers = (map.layers ?? []).filter(layer => layer.type !== 'MAP_BOUNDARIES')
     setMap({ ...map, obstacles: [], doors: [], layers: next.length ? [...layers, { type: 'MAP_BOUNDARIES', value: next.map(encodeBoundary).join(';'), visibility: 'PLAYER_VISIBLE' }] : layers })
     setLayoutDirty(true)
@@ -246,9 +246,9 @@ function boundariesFrom(map: CombatMapState | null): MapBoundary[] {
   if (stored) return stored.split(';').flatMap(value => {
     const [x, y, orientation, kind] = value.split(',')
     return Number.isInteger(Number(x)) && Number.isInteger(Number(y)) && (orientation === 'HORIZONTAL' || orientation === 'VERTICAL') && (kind === 'WALL' || kind === 'DOOR')
-      ? [{ x: Number(x), y: Number(y), orientation, kind } as MapBoundary] : []
+      ? [{ x: Number(x), y: Number(y), orientation, kind, open: value.split(',')[4] === 'true' } as MapBoundary] : []
   })
-  return [...(map?.obstacles ?? []).map(position => ({ ...position, orientation: 'HORIZONTAL' as const, kind: 'WALL' as const })), ...(map?.doors ?? []).map(position => ({ x: position.x, y: position.y, orientation: 'HORIZONTAL' as const, kind: 'DOOR' as const }))]
+  return [...(map?.obstacles ?? []).map(position => ({ ...position, orientation: 'HORIZONTAL' as const, kind: 'WALL' as const, open: false })), ...(map?.doors ?? []).map(position => ({ x: position.x, y: position.y, orientation: 'HORIZONTAL' as const, kind: 'DOOR' as const, open: position.open }))]
 }
 
 function allBoundaries(width: number, height: number): Array<Pick<MapBoundary, 'x' | 'y' | 'orientation'>> {

@@ -15,13 +15,20 @@ public final class VisibilityPolicy {
             Set<GridPosition> exploredBefore, Set<GridPosition> blockers,
             List<CombatToken> tokens, Collection<LastSeenState> previousLastSeen, long ruleTurn,
             VisibilityProfile profile) {
+        return calculate(grid, origins, exploredBefore, blockers, tokens, previousLastSeen, ruleTurn, profile, Set.of());
+    }
+
+    private VisibilitySnapshot calculate(GridSpec grid, Set<GridPosition> origins,
+            Set<GridPosition> exploredBefore, Set<GridPosition> blockers,
+            List<CombatToken> tokens, Collection<LastSeenState> previousLastSeen, long ruleTurn,
+            VisibilityProfile profile, Collection<MapBoundary> boundaries) {
         Objects.requireNonNull(grid); Objects.requireNonNull(origins); Objects.requireNonNull(blockers);
         Objects.requireNonNull(profile);
         Set<GridPosition> current = new HashSet<>();
         for (int y = 0; y < grid.height(); y++) for (int x = 0; x < grid.width(); x++) {
             GridPosition cell = new GridPosition(x, y);
             if (origins.stream().anyMatch(origin -> withinRange(origin, cell, profile)
-                    && lineClear(origin, cell, blockers))) current.add(cell);
+                    && lineClear(origin, cell, blockers, boundaries))) current.add(cell);
         }
         Set<GridPosition> explored = new HashSet<>(exploredBefore);
         explored.addAll(current);
@@ -61,11 +68,19 @@ public final class VisibilityPolicy {
         return calculate(grid, origins, exploredBefore, blockers, tokens, previousLastSeen, ruleTurn, profile);
     }
 
+    public VisibilitySnapshot calculate(GridSpec grid, Set<GridPosition> origins, Set<GridPosition> exploredBefore,
+            Set<GridPosition> walls, Collection<Door> doors, Collection<MapBoundary> boundaries, List<CombatToken> tokens,
+            Collection<LastSeenState> previousLastSeen, long ruleTurn) {
+        Set<GridPosition> blockers = new HashSet<>(walls);
+        doors.stream().filter(door -> !door.open()).map(Door::position).forEach(blockers::add);
+        return calculate(grid, origins, exploredBefore, blockers, tokens, previousLastSeen, ruleTurn, VisibilityProfile.DEFAULT, boundaries);
+    }
+
     private boolean withinRange(GridPosition from, GridPosition to, VisibilityProfile profile) {
         return Math.max(Math.abs(to.x() - from.x()), Math.abs(to.y() - from.y())) <= profile.maxRangeCells();
     }
 
-    private boolean lineClear(GridPosition from, GridPosition to, Set<GridPosition> blockers) {
+    private boolean lineClear(GridPosition from, GridPosition to, Set<GridPosition> blockers, Collection<MapBoundary> boundaries) {
         int dx = Math.abs(to.x() - from.x()), dy = Math.abs(to.y() - from.y());
         int sx = Integer.compare(to.x(), from.x()), sy = Integer.compare(to.y(), from.y());
         int x = from.x(), y = from.y(), error = dx - dy;
@@ -74,6 +89,8 @@ public final class VisibilityPolicy {
             if (twice > -dy) { error -= dy; x += sx; }
             if (twice < dx) { error += dx; y += sy; }
             GridPosition step = new GridPosition(x, y);
+            GridPosition previous = new GridPosition(x - (twice > -dy ? sx : 0), y - (twice < dx ? sy : 0));
+            if (boundaries.stream().anyMatch(boundary -> boundary.blocks(previous, step))) return false;
             if (!step.equals(to) && blockers.contains(step)) return false;
         }
         return true;

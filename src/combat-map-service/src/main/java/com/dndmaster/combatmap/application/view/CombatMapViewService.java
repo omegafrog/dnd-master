@@ -162,7 +162,7 @@ public final class CombatMapViewService {
     public CombatMap updateLayout(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId,
             Set<GridPosition> obstacles, Collection<Door> doors, Collection<MapBoundary> boundaries, String crop) {
         VersionedOwnedCombatMap state = owned(id, owner);
-        String fingerprint = id + "|" + owner + "|LAYOUT|" + obstacles + "|" + doors + "|" + crop;
+        String fingerprint = id + "|" + owner + "|LAYOUT|" + obstacles + "|" + doors + "|" + boundaries + "|" + crop;
         CombatMap replay = replay(id, owner, commandId, fingerprint);
         if (replay != null) return replay;
         if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
