@@ -91,14 +91,21 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
         return sendPrepare(adventureId, ownerPlayerId, ruleSetId, mapDefinition, null, context);
     }
 
+    @Override
+    public UUID activatePrepared(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
+            int stagePosition, CombatMapPreparationPort.ActivationContext context) {
+        return sendPrepare(adventureId, ownerPlayerId, ruleSetId, null, stagePosition, context);
+    }
+
     private UUID sendPrepare(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
             MapDefinition mapDefinition, Integer stagePosition, CombatMapPreparationPort.ActivationContext context) {
-        Request payload = new Request(adventureId.value(), ownerPlayerId, ruleSetId.value(), mapDefinition.id(),
-                mapDefinition.assetId(), mapDefinition.assetLocator(), stagePosition,
+        Request payload = new Request(adventureId.value(), ownerPlayerId, ruleSetId.value(), mapDefinition == null ? null : mapDefinition.id(),
+                mapDefinition == null ? null : mapDefinition.assetId(), mapDefinition == null ? null : mapDefinition.assetLocator(), stagePosition,
                 context.spawnCandidateX(), context.spawnCandidateY(), context.playerTokenId(), context.situationId(),
                 context.situationRevision(), context.turnIndex(), context.currentScene(), context.location(), context.entrySide(),
-                mapDefinition.walls(), mapDefinition.doors(), mapDefinition.obstacles(),
-                mapDefinition.source().knowledgeDocumentId().value(), mapDefinition.source().locator());
+                mapDefinition == null ? List.of() : mapDefinition.walls(), mapDefinition == null ? List.of() : mapDefinition.doors(), mapDefinition == null ? List.of() : mapDefinition.obstacles(),
+                mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().knowledgeDocumentId().value(),
+                mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().locator());
         try {
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/prepare"))
                     .timeout(timeout)

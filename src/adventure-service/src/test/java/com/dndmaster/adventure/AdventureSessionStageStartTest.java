@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
+import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationApplicationService;
@@ -30,6 +31,7 @@ import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.adventure.ScenarioId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.MapDefinition;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -108,6 +110,50 @@ class AdventureSessionStageStartTest {
 
         assertEquals(AdventureSession.Status.STARTING, preparedSession.status());
         verify(bindings, never()).bindForSession(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void final_start_keeps_the_map_as_a_draft_until_combat_enters() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
+        UUID packageId = UUID.randomUUID();
+        when(scenarioPackage.packageId()).thenReturn(packageId);
+        when(scenarioPackage.bundleRevision()).thenReturn(1L);
+        when(scenarioPackage.isReady()).thenReturn(true);
+        when(scenarioPackage.scenarioModel()).thenReturn(mock(com.dndmaster.adventure.domain.scenario.ScenarioModel.class));
+        MapDefinition mapDefinition = mock(MapDefinition.class);
+        when(scenarioPackage.initialMapDefinition(org.mockito.ArgumentMatchers.anyString())).thenReturn(Optional.of(mapDefinition));
+        AdventureSession session = AdventureSession.rehydrate(SessionId.generate(), owner, packageId, 1,
+                packageId, 1, 1, List.of(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()),
+                        ControlMode.DIRECT, true, true, true, true, true, true)), configuration(packageId),
+                AdventureSession.Status.DRAFT, null, null, 0);
+        AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(adventures.findById(org.mockito.ArgumentMatchers.any())).thenReturn(Optional.empty());
+        StageArtifactPreparationApplicationService preparation = mock(StageArtifactPreparationApplicationService.class);
+        var prepared = mock(StageArtifactPreparationApplicationService.Result.class);
+        var opening = mock(com.dndmaster.adventure.domain.scenario.SituationDefinition.class);
+        when(opening.situationId()).thenReturn("prepared-opening");
+        when(prepared.openingSituation()).thenReturn(opening);
+        when(preparation.prepare(packageId)).thenReturn(prepared);
+        RuntimeBindingApplicationService bindings = mock(RuntimeBindingApplicationService.class);
+        CombatMapPreparationPort maps = mock(CombatMapPreparationPort.class);
+        when(maps.mapLayoutConfirmed(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenReturn(true);
+
+        AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions,
+                packageRepository(scenarioPackage), adventures, bindings,
+                mock(AdventureSessionStartCoordinator.class), mock(CharacterSheetOwnershipPort.class),
+                mock(SessionKnowledgeSetRepository.class), mock(AiCompanionGenerationPort.class),
+                mock(AiCompanionSheetCreationPort.class), maps, preparation);
+
+        service.start(session.id(), owner, 0, UUID.randomUUID(), AdventureId.generate());
+
+        verify(maps).prepareDraft(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(owner.value()),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.same(mapDefinition), org.mockito.ArgumentMatchers.any());
+        verify(maps, never()).prepareInitial(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.any());
     }
 
     @Test

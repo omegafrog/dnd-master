@@ -185,11 +185,10 @@ public final class AdventureSessionApplicationService {
         Adventure activeAdventure = adventure;
         scenarioPackage.initialMapDefinition(configuration.initialScene()).ifPresent(mapDefinition -> {
             var context = activationContext(activeAdventure, session);
-            if (prepareMapOnly) {
-                combatMapPreparationPort.prepareDraft(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, context);
-            } else {
-                combatMapPreparationPort.prepareInitial(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, 1, context);
-            }
+            // Starting the adventure only prepares the editable draft. The
+            // player's location is resolved from the situation when combat
+            // actually begins, never from the opening scene.
+            combatMapPreparationPort.prepareDraft(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, context);
         });
         if (prepareMapOnly) return session;
         runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(effectiveAdventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));

@@ -88,6 +88,17 @@ it('keeps the map usable when the public image is temporarily unavailable', asyn
   expect(screen.getByText('현재 맵 상태: authoritative-map')).toBeInTheDocument()
 })
 
+it('does not render a tactical map while the story has not entered combat', async () => {
+  const api = fakeApi()
+  api.getCombatMap = vi.fn().mockResolvedValue({ adventureId: 'a1', status: 'map-view', mapId: null, version: 2, grid: { width: 20, height: 20 }, tokens: [] })
+
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  await waitFor(() => expect(api.getCombatMap).toHaveBeenCalled())
+  expect(screen.queryByLabelText('tactical-map')).not.toBeInTheDocument()
+  expect(screen.queryByRole('heading', { name: '플레이어 전투 맵' })).not.toBeInTheDocument()
+})
+
 it('shows AI wall and door drafts across the full map during preparation', async () => {
   const api = fakeApi()
   api.getCombatMapPreparation = async () => ({
@@ -241,6 +252,8 @@ it('gives each visible token type a stable styling hook', async () => {
   const map = await screen.findByLabelText('tactical-map')
   expect(map.querySelector('[data-token-type="PLAYER"]')).toBeInTheDocument()
   expect(map.querySelector('[data-token-type="ENEMY"]')).toBeInTheDocument()
+  expect(screen.getByLabelText('지도 공개 범례')).toHaveTextContent('아직 확인하지 않은 영역')
+  expect(screen.getByLabelText('지도 공개 범례')).toHaveTextContent('전에 확인했지만 지금은 시야 밖인 영역')
 })
 
 it('fails closed when visibility metadata is missing and only shows visible token types in the legend', async () => {

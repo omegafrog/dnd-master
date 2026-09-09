@@ -71,6 +71,20 @@ class GmViewAuthorizationTest {
     }
 
     @Test
+    void activation_request_without_a_reviewed_draft_does_not_generate_a_new_map() {
+        var maps = mock(CombatMapViewService.class);
+        var controller = new CombatMapController(maps, mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        var request = new CombatMapController.PrepareRequest(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                null, "", "", null, null, null, null, null, 1);
+
+        var error = assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.prepare("service-secret", request));
+
+        assertEquals(404, error.getStatusCode().value());
+        verify(maps, never()).prepareGenerated(any(), any(), any(), any(MapGenerationRequest.class), anyBoolean());
+    }
+
+    @Test
     void protectsAllInternalCombatMapMutators() {
         var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
         UUID mapId = UUID.randomUUID();

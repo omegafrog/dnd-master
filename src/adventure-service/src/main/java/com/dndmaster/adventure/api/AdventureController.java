@@ -36,6 +36,7 @@ import com.dndmaster.adventure.application.combat.CombatActionApplicationService
 import com.dndmaster.adventure.application.combat.CombatStartParticipantFactory;
 import com.dndmaster.adventure.application.combat.CombatStartTransitionPolicy;
 import com.dndmaster.adventure.application.combat.CombatMapPlayerTokenResolver;
+import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
@@ -58,6 +59,7 @@ public class AdventureController {
     private final CombatMapPort combatMapPort;
     private final CharacterCombatPort characterCombatPort;
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
+    private final CombatMapPreparationPort combatMapPreparationPort;
     private final ObjectMapper objectMapper;
     private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
 
@@ -78,6 +80,7 @@ public class AdventureController {
             ObjectProvider<CharacterCombatPort> characterCombatPort,
             ObjectMapper objectMapper,
             ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort,
+            ObjectProvider<CombatMapPreparationPort> combatMapPreparationPort,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
@@ -98,6 +101,10 @@ public class AdventureController {
             throw new IllegalStateException("character combat gateway unavailable");
         });
         this.combatMapViewPort = combatMapViewPort.getIfAvailable(() -> (adventureId1, ownerId) -> java.util.Optional.empty());
+        this.combatMapPreparationPort = combatMapPreparationPort.getIfAvailable(() -> new CombatMapPreparationPort() {
+            @Override public UUID prepareInitial(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
+                    com.dndmaster.adventure.domain.scenario.MapDefinition mapDefinition, int stagePosition) { return null; }
+        });
         this.objectMapper = objectMapper;
         this.combatLifecycleService = combatLifecycleService;
     }
@@ -200,6 +207,7 @@ public class AdventureController {
                     .orElseThrow(() -> new IllegalStateException("adventure disappeared after runtime commit"));
             CombatStartTransitionPolicy.requireCommittedCombatSituation(committedAdventure.currentSituation(),
                     result.turn().plan().combatEnemies());
+            activatePreparedCombatMap(committedAdventure);
             combatLifecycleService.startFromCommittedGmTurn(adventureId, committedTurn,
                     new com.dndmaster.adventure.domain.combat.CombatStartProposal(true,
                             CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, adventure.party(),
@@ -270,9 +278,45 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId())) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         }
+        if (adventure.currentSituation() == null || adventure.currentSituation().activeCombatScenarioId() == null) {
+            // A prepared draft is intentionally invisible until the story has
+            // entered a tactical combat situation.
+            return new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), null);
+        }
         var projection = combatMapViewPort.playerView(adventureId, playerResolver.playerId());
         return projection.map(view -> CombatMapResponse.from(adventureId, adventure.version(), view))
                 .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), null));
+    }
+
+    private void activatePreparedCombatMap(Adventure adventure) {
+        var situation = adventure.currentSituation();
+        UUID playerTokenId = adventure.party().stream().findFirst()
+                .map(AdventurePartyMember::characterSheetId)
+                .map(sheet -> UUID.nameUUIDFromBytes(("player-" + sheet.value())
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .orElse(null);
+        CombatMapPreparationPort.ActivationContext context = new CombatMapPreparationPort.ActivationContext(
+                playerTokenId, situation.situationId(), situation.revision(), adventure.turnIndex(),
+                adventure.currentContext().currentScene(), situation.location(), null, null,
+                entrySide(adventure, situation));
+        combatMapPreparationPort.activatePrepared(adventure.id(), adventure.ownerPlayerId().value(),
+                adventure.ruleSetId(), 1, context);
+    }
+
+    private static String entrySide(Adventure adventure, com.dndmaster.adventure.domain.runtime.CurrentSituation situation) {
+        String context = (adventure.currentContext().currentScene() + " " + situation.location() + " "
+                + situation.problem() + " " + situation.threat() + " " + situation.goal())
+                .toLowerCase(java.util.Locale.ROOT);
+        if (contains(context, "north", "북", "upper")) return "NORTH";
+        if (contains(context, "east", "동", "right")) return "EAST";
+        if (contains(context, "south", "남", "lower")) return "SOUTH";
+        if (contains(context, "west", "서", "left")) return "WEST";
+        return null;
+    }
+
+    private static boolean contains(String value, String... signals) {
+        for (String signal : signals) if (value.contains(signal)) return true;
+        return false;
     }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map/preparation")

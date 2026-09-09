@@ -151,7 +151,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       '--map-background-size': `${(renderedImageWidth / Math.max(renderedGridWidth, 1)) * 100}% ${(renderedImageHeight / Math.max(renderedGridHeight, 1)) * 100}%`,
       '--map-background-position': `${gridEditor ? 'left top' : backgroundPositionX} ${gridEditor ? 'left top' : backgroundPositionY}`,
     } : {}),
-    ...(!gridEditor && !preserveAlignmentForLayout && crop.width > 0 && crop.height > 0 ? {
+    ...(!gridEditor && !preserveAlignmentForLayout && !hasGridBounds && !usesSavedAlignment && crop.width > 0 && crop.height > 0 ? {
       '--map-background-size': `${((imageWidth || mapImageSize.width) / crop.width) * 100}% ${((imageHeight || mapImageSize.height) / crop.height) * 100}%`,
       '--map-background-position': `${(crop.x / Math.max((imageWidth || mapImageSize.width) - crop.width, 1)) * 100}% ${(crop.y / Math.max((imageHeight || mapImageSize.height) - crop.height, 1)) * 100}%`,
     } : {}),
@@ -297,6 +297,10 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       ].filter(([type]) => map.tokens?.some(token => token.type === type &&
           (token.type === 'PLAYER' && !hasVisibilityMetadata || map.current?.some(cell => cell.x === token.x && cell.y === token.y))))
           .map(([type, icon, label]) => <span key={type} className={`legend-token legend-${type.toLowerCase()}`}><span aria-hidden="true">{icon}</span><span>{label}</span></span>)}</aside>}
+      {!preparationMode && hasVisibilityMetadata && <aside aria-label="지도 공개 범례" className="map-visibility-legend">
+        <span><i className="visibility-swatch visibility-hidden" aria-hidden="true" />아직 확인하지 않은 영역</span>
+        <span><i className="visibility-swatch visibility-explored" aria-hidden="true" />전에 확인했지만 지금은 시야 밖인 영역</span>
+      </aside>}
     </div>
   ) : null
   return (

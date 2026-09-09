@@ -99,6 +99,19 @@ public class CombatMapController {
         requestGuard.internal(token);
         requireRequest(request, "prepare request is required");
         if (request.stagePosition() != null) {
+            // A combat-entry activation is identified by the missing map
+            // definition. Prefer the reviewed draft even if an older buggy
+            // run left a stale active binding behind, and never regenerate a
+            // map at that point.
+            if (request.mapDefinitionId() == null) {
+                var prepared = mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
+                if (prepared.isEmpty()) {
+                    throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,
+                            "reviewed combat map draft not found");
+                }
+                activatePreparedMap(request, prepared.get());
+                return new PrepareResponse(prepared.get().value());
+            }
             var existing = mapViewService.displayForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
             if (existing.isPresent()) return new PrepareResponse(existing.get().mapId().value());
             var prepared = mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));

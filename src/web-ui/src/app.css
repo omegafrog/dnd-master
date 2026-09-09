@@ -1011,7 +1011,8 @@ body {
 
 /* Adventure workspace */
 .adventure-workspace { display:grid; grid-template-columns:minmax(0,1fr) minmax(21rem,27rem); align-items:start; gap:1.15rem; }
-.adventure-map-main { min-width:0; min-height:36rem; display:flex; align-items:flex-start; justify-content:center; padding:1.1rem; border:1px solid var(--color-border); border-radius:10px; background:linear-gradient(145deg,#f8f2e7,#eee4d4); box-shadow:var(--shadow-card); }
+.adventure-map-main { min-width:0; min-height:0; display:flex; align-items:flex-start; justify-content:center; padding:1.1rem; border:1px solid var(--color-border); border-radius:10px; background:linear-gradient(145deg,#f8f2e7,#eee4d4); box-shadow:var(--shadow-card); }
+.adventure-map-main:not(:has(.map-panel)) { display:none; }
 .adventure-map-main .map-panel { width:100%; }
 .adventure-map-main .tactical-map-window { display:flex; justify-content:center; }
 .adventure-map-main .tactical-map { width:min(100%,82rem); }
@@ -1059,6 +1060,11 @@ body {
 .character-ability-card span { color:#6f6252; font-size:.72rem; font-weight:700; }
 .ability-tone-1 { --ability-tone:#a24332; }.ability-tone-2 { --ability-tone:#28683b; }.ability-tone-3 { --ability-tone:#8c6320; }.ability-tone-4 { --ability-tone:#275c86; }.ability-tone-5 { --ability-tone:#68428c; }.ability-tone-6 { --ability-tone:#79336e; }
 .map-legend { display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); gap:.4rem; margin-top:.7rem; padding:.6rem; border:1px solid #cdbda6; border-radius:6px; background:#f8f2e6; }
+.map-visibility-legend { display:flex; flex-wrap:wrap; gap:.45rem .9rem; margin-top:.45rem; color:#655744; font-size:.68rem; }
+.map-visibility-legend > span { display:inline-flex; align-items:center; gap:.3rem; }
+.visibility-swatch { display:inline-block; width:.85rem; height:.85rem; border:1px solid #69747a; border-radius:2px; }
+.visibility-hidden { background:#181e22; }
+.visibility-explored { background:rgb(30 35 38 / 28%); }
 .tactical-map-window { overflow:auto; }
 .map-grid-editor { display:grid; gap:.45rem; margin:.6rem 0; padding:.7rem; border:1px solid #cdbda8; border-radius:6px; background:#fffaf0; color:#5b4a36; font-size:.74rem; }
 .map-grid-editor > div { display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); gap:.45rem; }
