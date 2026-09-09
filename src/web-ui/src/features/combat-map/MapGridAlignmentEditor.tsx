@@ -6,8 +6,9 @@ const MAGNIFIER_SCALE = 2.5
 type Drag =
   { anchor: ImagePoint; draft: MapGridAlignmentDraft }
 type PanDrag = { startX: number; startY: number; initialX: number; initialY: number }
+export type AlignmentCrop = { x: number; y: number; width: number; height: number }
 
-export function MapGridAlignmentEditor({ image, initial, gridWidth = 20, gridHeight = 20, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { mapId: string; version: number; imageRevision: string }; gridWidth?: number; gridHeight?: number; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
+export function MapGridAlignmentEditor({ image, initial, crop, gridWidth = 20, gridHeight = 20, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { mapId: string; version: number; imageRevision: string }; crop?: AlignmentCrop; gridWidth?: number; gridHeight?: number; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
   const [draft, setDraft] = useState<MapGridAlignmentDraft>(initial)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -21,13 +22,14 @@ export function MapGridAlignmentEditor({ image, initial, gridWidth = 20, gridHei
   const commandId = useRef<string | null>(null)
   const drag = useRef<Drag | null>(null)
   const panDrag = useRef<PanDrag | null>(null)
+  const displayCrop = crop && crop.width > 0 && crop.height > 0 ? crop : { x: 0, y: 0, width: imageSize.width, height: imageSize.height }
 
   const layout = () => {
     const rect = canvas.current?.getBoundingClientRect()
-    const width = Math.max(1, rect?.width ?? imageSize.width)
-    const height = Math.max(1, rect?.height ?? imageSize.height)
-    const scale = Math.min(width / imageSize.width, height / imageSize.height)
-    return { scale, offsetX: (width - imageSize.width * scale) / 2, offsetY: (height - imageSize.height * scale) / 2 }
+    const width = Math.max(1, rect?.width ?? displayCrop.width)
+    const height = Math.max(1, rect?.height ?? displayCrop.height)
+    const scale = Math.min(width / displayCrop.width, height / displayCrop.height)
+    return { scale, offsetX: (width - displayCrop.width * scale) / 2, offsetY: (height - displayCrop.height * scale) / 2 }
   }
   const changeDraft = (next: MapGridAlignmentDraft) => { commandId.current = null; setDraft(next) }
   function point(event: PointerEvent<HTMLElement>) {
@@ -35,7 +37,7 @@ export function MapGridAlignmentEditor({ image, initial, gridWidth = 20, gridHei
     const view = layout()
     const screenX = event.clientX - (rect?.left ?? 0) - view.offsetX - pan.x
     const screenY = event.clientY - (rect?.top ?? 0) - view.offsetY - pan.y
-    return { x: screenX / (view.scale * zoom), y: screenY / (view.scale * zoom) }
+    return { x: displayCrop.x + screenX / (view.scale * zoom), y: displayCrop.y + screenY / (view.scale * zoom) }
   }
   function beginPanning(event: PointerEvent<HTMLDivElement>) {
     event.preventDefault()
@@ -47,11 +49,11 @@ export function MapGridAlignmentEditor({ image, initial, gridWidth = 20, gridHei
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     const anchor = point(event)
-    if (imageSize.width > 1 && (anchor.x < 0 || anchor.y < 0 || anchor.x > imageSize.width || anchor.y > imageSize.height)) {
-      setError('지도 이미지 안쪽에서 시작점을 찍으세요.')
+    if (imageSize.width > 1 && (anchor.x < displayCrop.x || anchor.y < displayCrop.y || anchor.x > displayCrop.x + displayCrop.width || anchor.y > displayCrop.y + displayCrop.height)) {
+      setError('잘린 지도 영역 안쪽에서 시작점을 찍으세요.')
       return
     }
-    const maxCellSize = maxCellThatFits(anchor, imageSize, gridWidth, gridHeight)
+    const maxCellSize = maxCellThatFits(anchor, { width: displayCrop.x + displayCrop.width, height: displayCrop.y + displayCrop.height }, gridWidth, gridHeight)
     if (maxCellSize <= 0) {
       setError('전체 격자가 들어갈 수 있는 지도 안쪽에서 시작점을 찍으세요.')
       return
@@ -65,7 +67,7 @@ export function MapGridAlignmentEditor({ image, initial, gridWidth = 20, gridHei
   function move(event: PointerEvent<HTMLDivElement>) {
     if (panDrag.current) {
       const current = panDrag.current
-      setPan(clampPan({ x: current.initialX + event.clientX - current.startX, y: current.initialY + event.clientY - current.startY }, imageSize, canvas.current, zoom))
+      setPan(clampPan({ x: current.initialX + event.clientX - current.startX, y: current.initialY + event.clientY - current.startY }, displayCrop, canvas.current, zoom))
       return
     }
     const current = drag.current
@@ -74,7 +76,7 @@ export function MapGridAlignmentEditor({ image, initial, gridWidth = 20, gridHei
     setMagnifier(next)
     try {
       const refined = refineCellSize(current.draft, { x: 0, y: 0 }, current.anchor, { x: 3, y: 3 }, next)
-      const maxCellSize = maxCellThatFits(current.anchor, imageSize, gridWidth, gridHeight)
+      const maxCellSize = maxCellThatFits(current.anchor, { width: displayCrop.x + displayCrop.width, height: displayCrop.y + displayCrop.height }, gridWidth, gridHeight)
       changeDraft({ ...refined, cellSize: Math.min(refined.cellSize, maxCellSize) })
     } catch {
       changeDraft({ ...current.draft, originX: current.anchor.x, originY: current.anchor.y })
@@ -90,7 +92,7 @@ export function MapGridAlignmentEditor({ image, initial, gridWidth = 20, gridHei
   function changeZoom(delta: number) {
     setZoom(current => {
       const next = Math.min(4, Math.max(.5, current + delta))
-      setPan(previous => clampPan(previous, imageSize, canvas.current, next))
+      setPan(previous => clampPan(previous, displayCrop, canvas.current, next))
       return next
     })
   }
@@ -106,7 +108,7 @@ export function MapGridAlignmentEditor({ image, initial, gridWidth = 20, gridHei
   }
 
   const view = layout()
-  const toCanvas = (x: number, y: number) => ({ left: view.offsetX + pan.x + x * view.scale * zoom, top: view.offsetY + pan.y + y * view.scale * zoom })
+  const toCanvas = (x: number, y: number) => ({ left: view.offsetX + pan.x + (x - displayCrop.x) * view.scale * zoom, top: view.offsetY + pan.y + (y - displayCrop.y) * view.scale * zoom })
   const origin = toCanvas(draft.originX, draft.originY)
   const cellPixels = draft.cellSize * view.scale * zoom
 
@@ -119,7 +121,7 @@ export function MapGridAlignmentEditor({ image, initial, gridWidth = 20, gridHei
       <button type="button" aria-pressed={!panMode} onClick={() => setPanMode(false)}>격자 맞추기</button>
     </div>
     <div ref={canvas} className={`map-grid-alignment-canvas${sizing ? ' is-sizing' : ''}${panMode ? ' is-panning' : ''}`} onPointerDown={event => panMode ? beginPanning(event) : beginGridSizing(event)} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onPointerLeave={() => !drag.current && !panDrag.current && setMagnifier(null)}>
-      <img src={image} alt="공개된 지도 이미지" draggable={false} onLoad={event => { const loadedSize = { width: event.currentTarget.naturalWidth || 1, height: event.currentTarget.naturalHeight || 1 }; setImageSize(loadedSize); setPan(current => clampPan(current, loadedSize, canvas.current, zoom)) }} style={{ width: imageSize.width, height: imageSize.height, maxWidth: 'none', maxHeight: 'none', transform: `translate(${view.offsetX + pan.x}px, ${view.offsetY + pan.y}px) scale(${view.scale * zoom})`, transformOrigin: '0 0' }} />
+      <img src={image} alt="공개된 지도 이미지" draggable={false} onLoad={event => { const loadedSize = { width: event.currentTarget.naturalWidth || 1, height: event.currentTarget.naturalHeight || 1 }; setImageSize(loadedSize); setPan(current => clampPan(current, crop && crop.width > 0 && crop.height > 0 ? crop : loadedSize, canvas.current, zoom)) }} style={{ width: imageSize.width, height: imageSize.height, maxWidth: 'none', maxHeight: 'none', transform: `translate(${view.offsetX + pan.x - displayCrop.x * view.scale * zoom}px, ${view.offsetY + pan.y - displayCrop.y * view.scale * zoom}px) scale(${view.scale * zoom})`, transformOrigin: '0 0' }} />
       <div className="map-grid-alignment-grid" style={{ left: origin.left, top: origin.top, width: cellPixels * 3, height: cellPixels * 3, '--alignment-origin-x': '0px', '--alignment-origin-y': '0px', '--alignment-cell-size': `${cellPixels}px` } as CSSProperties} />
       {magnifier && <div className="map-grid-magnifier" aria-label="확대경" style={{ left: Math.min(Math.max(toCanvas(magnifier.x, magnifier.y).left + 20, 8), 220), top: Math.min(Math.max(toCanvas(magnifier.x, magnifier.y).top - 120, 8), 180) }}><img src={image} alt="" aria-hidden="true" style={{ width: imageSize.width * MAGNIFIER_SCALE, height: imageSize.height * MAGNIFIER_SCALE, transform: `translate(${50 - magnifier.x * MAGNIFIER_SCALE}px, ${50 - magnifier.y * MAGNIFIER_SCALE}px)` }} /></div>}
     </div>
