@@ -76,13 +76,13 @@ public final class TypedAgentContractController {
                         + "The next GM turn receives this saved situation, so make it concrete and playable. Decide combat from the saved situation and the evidence, never from a word in the player's action. "
                         + "MANDATORY: if a hostile creature already supported by the saved situation is attacking, has cornered the party, or the player is exchanging attacks with it, return combatStart=true and a SITUATION enemy entry in the same response. "
                         + "Do not narrate a supported hostile creature attacking, closing in to attack, or 'combat ready' while returning combatStart=false. This is an output validity rule, not a discretionary pacing choice. "
-                        + "When ACTION is SESSION_OPENING, make the first player-facing narration establish the current location and why the party is here, state the immediate problem or pressure, identify a few observable things the party can respond to, and end with an open question about what they do. Use only RUNTIME_CONTEXT and COMPOSITE_FACT_LOOKUP_RESULTS; never reveal a puzzle answer or hidden fact. "
+                        + "When ACTION is SESSION_OPENING, LANGUAGE_CONTRACT requires all player-visible text in scene, judgment, narration, and situation to be written only in natural Korean. Do not output English or any other foreign-language words, labels, headings, or meta-commentary. Translate common nouns, class names, location names, action prompts, and proper names into Korean. Make the first player-facing narration establish the current location and why the party is here, state the immediate problem or pressure, identify a few observable things the party can respond to, and end with a Korean question inviting the player's action, such as '어떻게 하시겠어요?'. Use only RUNTIME_CONTEXT and COMPOSITE_FACT_LOOKUP_RESULTS; never reveal a puzzle answer or hidden fact. "
                         + "A player action is not evidence that an entity exists. Only enter combat with a combat scenario id present in RUNTIME_CONTEXT or COMPOSITE_FACT_LOOKUP_RESULTS. "
                         + "combatEnemies must always be an array of objects with mode (SCENARIO, SITUATION, or INSTANT), scenarioId, enemyKey, name, and positive count; "
                         + "SCENARIO requires a scenarioId from the current ScenarioModel. SITUATION leaves scenarioId empty and requires matching storybook RAG evidence for the current situation. INSTANT leaves scenarioId empty and is reserved for a GM-forced consequence such as noise or a critical failure. "
                         + "Use [] when combatStart is false. Never invent an enemy from the action alone. "
                         + "Do not use markdown, code fences, or any other text.",
-                this::parseRuntimeTurn);
+                json -> parseRuntimeTurn(json, "SESSION_OPENING".equalsIgnoreCase(request.action())));
     }
 
     @PostMapping("/internal/gm/narration-safety")
@@ -114,8 +114,16 @@ public final class TypedAgentContractController {
         return new ScenarioLookupResponse(status, root.path("answer").asText(""), ids);
     }
 
-    private RuntimeTurnResponse parseRuntimeTurn(String json) {
+    private RuntimeTurnResponse parseRuntimeTurn(String json, boolean opening) {
         JsonNode root = readObject(json);
+        String scene = required(root, "scene");
+        String judgment = required(root, "judgment");
+        String narration = required(root, "narration");
+        if (opening) {
+            requireKoreanPlayerText("scene", scene);
+            requireKoreanPlayerText("judgment", judgment);
+            requireKoreanPlayerText("narration", narration);
+        }
         if (!root.has("combatStart") || !root.path("combatStart").isBoolean()) {
             throw new IllegalArgumentException("combatStart is required and must be boolean");
         }
@@ -134,8 +142,9 @@ public final class TypedAgentContractController {
             if (mode.equals("SCENARIO") && scenarioId.isBlank()) {
                 throw new IllegalArgumentException("scenarioId is required for a SCENARIO combat enemy");
             }
-            enemies.add(new CombatEnemyResponse(mode, scenarioId, required(enemy, "enemyKey"),
-                    required(enemy, "name"), count));
+            String name = required(enemy, "name");
+            if (opening) requireKoreanPlayerText("combatEnemies.name", name);
+            enemies.add(new CombatEnemyResponse(mode, scenarioId, required(enemy, "enemyKey"), name, count));
         }
         boolean combatStart = root.path("combatStart").booleanValue();
         if (combatStart && enemies.isEmpty()) {
@@ -152,10 +161,19 @@ public final class TypedAgentContractController {
         }
         String kind = required(situation, "kind").toUpperCase(java.util.Locale.ROOT);
         if (!kind.equals("CONTINUE") && !kind.equals("TRANSITION")) throw new IllegalArgumentException("invalid situation kind");
-        SituationResponse response = new SituationResponse(kind, required(situation, "location"), required(situation, "problem"),
-                required(situation, "threat"), required(situation, "goal"), basis, situation.path("reference").asText(""),
+        String location = required(situation, "location");
+        String problem = required(situation, "problem");
+        String threat = required(situation, "threat");
+        String goal = required(situation, "goal");
+        if (opening) {
+            requireKoreanPlayerText("situation.location", location);
+            requireKoreanPlayerText("situation.problem", problem);
+            requireKoreanPlayerText("situation.threat", threat);
+            requireKoreanPlayerText("situation.goal", goal);
+        }
+        SituationResponse response = new SituationResponse(kind, location, problem, threat, goal, basis, situation.path("reference").asText(""),
                 situation.path("required").booleanValue());
-        return new RuntimeTurnResponse(required(root, "scene"), required(root, "judgment"), required(root, "narration"),
+        return new RuntimeTurnResponse(scene, judgment, narration,
                 combatStart, List.copyOf(enemies), response);
     }
 
@@ -181,6 +199,21 @@ public final class TypedAgentContractController {
         String value = root.path(field).asText("").trim();
         if (value.isBlank()) throw new IllegalArgumentException(field + " is required");
         return value;
+    }
+
+    private static void requireKoreanPlayerText(String field, String value) {
+        boolean hasKoreanLetter = value.codePoints().anyMatch(TypedAgentContractController::isKoreanLetter);
+        boolean hasForeignLetter = value.codePoints()
+                .anyMatch(codePoint -> Character.isLetter(codePoint) && !isKoreanLetter(codePoint));
+        if (!hasKoreanLetter || hasForeignLetter) throw new IllegalArgumentException(field + " must be written in Korean");
+    }
+
+    private static boolean isKoreanLetter(int codePoint) {
+        return (codePoint >= 0x1100 && codePoint <= 0x11FF)
+                || (codePoint >= 0x3130 && codePoint <= 0x318F)
+                || (codePoint >= 0xA960 && codePoint <= 0xA97F)
+                || (codePoint >= 0xAC00 && codePoint <= 0xD7A3)
+                || (codePoint >= 0xD7B0 && codePoint <= 0xD7FF);
     }
 
     private String write(Object value) {
