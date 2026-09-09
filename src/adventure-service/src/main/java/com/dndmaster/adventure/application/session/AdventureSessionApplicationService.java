@@ -123,10 +123,19 @@ public final class AdventureSessionApplicationService {
      */
     public AdventureSession start(SessionId id, OwnerPlayerId owner, long expectedVersion, java.util.UUID requestId, AdventureId adventureId, boolean prepareMapOnly) {
         AdventureSession session = authorize(load(id), owner);
-        if (session.status() == AdventureSession.Status.STARTED && requestId.equals(session.startRequestId()) && adventureId.equals(session.startedAdventureId())) return session;
-        if (session.status() == AdventureSession.Status.STARTING
-                && (!requestId.equals(session.startRequestId()) || !adventureId.equals(session.startedAdventureId()))) {
-            throw new IllegalStateException("adventure session is already starting with another request");
+        if (session.status() == AdventureSession.Status.STARTED) {
+            if (adventureId.equals(session.startedAdventureId())) return session;
+            throw new IllegalStateException("adventure session is already started with another adventure");
+        }
+        if (session.status() == AdventureSession.Status.STARTING) {
+            // The browser can lose its in-memory idempotency key after a reload.
+            // A STARTING session already owns one durable adventure and request;
+            // resume that transaction instead of creating a second start attempt.
+            if (session.startedAdventureId() == null || session.startRequestId() == null) {
+                throw new IllegalStateException("adventure session start recovery data is missing");
+            }
+            adventureId = session.startedAdventureId();
+            requestId = session.startRequestId();
         }
         boolean resumingStart = session.status() == AdventureSession.Status.STARTING;
         if (!resumingStart) requireVersion(session, expectedVersion);
