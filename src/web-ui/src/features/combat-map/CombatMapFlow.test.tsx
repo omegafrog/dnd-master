@@ -75,12 +75,8 @@ it('falls back to the reviewed preparation image when the play image is not read
   api.getPublicMapImage = async () => null
   api.getCombatMapPreparationImage = async () => '/reviewed-preparation.png'
   api.getCombatMap = vi.fn().mockResolvedValue({
-    adventureId: 'a1', status: 'map-view', mapId: null, version: 2,
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 2,
     grid: { width: 2, height: 2 }, tokens: [],
-  })
-  api.getCombatMapPreparation = async () => ({
-    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 3,
-    grid: { width: 2, height: 2 }, tokens: [], layers: [{ type: 'MAP_BOUNDARIES', value: '1,0,HORIZONTAL,WALL,false' }],
   })
   render(<CombatMapView adventureId="a1" api={api} />)
   const map = await screen.findByLabelText('tactical-map')
@@ -151,25 +147,6 @@ it('does not render a tactical map while the story has not entered combat', asyn
   await waitFor(() => expect(api.getCombatMap).toHaveBeenCalled())
   expect(screen.queryByLabelText('tactical-map')).not.toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: '플레이어 전투 맵' })).not.toBeInTheDocument()
-})
-
-it('shows the reviewed map during story conversation before combat starts', async () => {
-  const api = fakeApi()
-  api.getCombatMap = vi.fn().mockResolvedValue({ adventureId: 'a1', status: 'map-view', mapId: null, version: 2, grid: { width: 2, height: 2 }, tokens: [] })
-  api.getCombatMapPreparation = vi.fn().mockResolvedValue({
-    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 3,
-    grid: { width: 2, height: 2 }, tokens: [], current: [], explored: [],
-    layers: [{ type: 'MAP_BOUNDARIES', value: '1,0,HORIZONTAL,WALL,false;0,1,VERTICAL,DOOR,false' }],
-  })
-
-  render(<CombatMapView adventureId="a1" api={api} />)
-
-  expect(await screen.findByLabelText('tactical-map')).toBeInTheDocument()
-  expect(screen.getByText('현재 맵 상태: story-map')).toBeInTheDocument()
-  expect(api.getCombatMapPreparation).toHaveBeenCalledWith('a1')
-  expect(screen.getAllByLabelText(/격자/)).toHaveLength(4)
-  expect(screen.getByLabelText('tactical-map').querySelector('[data-boundary="HORIZONTAL:1:0"]')).toHaveClass('map-boundary-wall')
-  expect(screen.getByLabelText('tactical-map').querySelector('[data-boundary="VERTICAL:0:1"]')).toHaveClass('map-boundary-door')
 })
 
 it('shows AI wall and door drafts across the full map during preparation', async () => {
