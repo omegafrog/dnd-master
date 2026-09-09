@@ -58,9 +58,15 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         }
         try { const current = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable'))); if (active) { setAlignment(current); setAlignmentAvailable(true); if (current.version > 0 && !preparationMode) setGridConfirmed(true); if (preparationMode) setLayoutSaved(layoutConfirmedForAlignment(nextMap, current)) } } catch { if (active) { setAlignmentAvailable(false); setLayoutSaved(false); setGridMessage('저장된 격자 정렬을 불러오지 못했습니다.') } }
         try {
-          const image = preparationMode
+          let image = preparationMode
             ? await (api.getCombatMapPreparationImage?.(adventureId) ?? api.getPublicMapImage?.(adventureId) ?? Promise.resolve(null))
             : await (api.getPublicMapImage?.(adventureId) ?? Promise.resolve(null))
+          // The reviewed map can be shown before a combat image view is
+          // materialized. In that case the alignment response has no image
+          // identifier yet, but the preparation image is still authoritative.
+          if (!image && !preparationMode && api.getCombatMapPreparationImage) {
+            image = await api.getCombatMapPreparationImage(adventureId)
+          }
           if (!active) {
             if (image?.startsWith('blob:')) URL.revokeObjectURL(image)
             return
@@ -352,7 +358,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           <button type="button" disabled={layoutSaving || crop.width <= 0 || crop.height <= 0} onClick={() => void applyCrop()}>자르기 적용</button>
         </> : <button type="button" onClick={() => { setCropEditorOpen(true); setCropConfirmed(false); setGridConfirmed(false); setLayoutDirty(true); setLayoutSaved(false) }}>자르기 다시 수정</button>}
       </section>}
-      {showGridEditor && (!preparationMode || cropConfirmed) ? <section aria-label="맵 격자 맞추기" className="map-grid-editor">
+      {preparationMode && showGridEditor && cropConfirmed ? <section aria-label="맵 격자 맞추기" className="map-grid-editor">
         <h3>2. 맵 격자 맞추기</h3>
         <button type="button" onClick={() => setGridEditor(true)}>격자 맞추기</button>
         {gridEditor && <MapGridAlignmentEditor key={`${alignment.mapId}-${alignment.version}`} image={mapImage!} initial={alignment} crop={crop} gridWidth={grid.width} gridHeight={grid.height} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {

@@ -70,6 +70,23 @@ it('uses the authenticated public image rather than a map image layer', async ()
   expect(map.querySelectorAll('button')).toHaveLength(400)
 })
 
+it('falls back to the reviewed preparation image when the play image is not ready', async () => {
+  const api = fakeApi()
+  api.getPublicMapImage = async () => null
+  api.getCombatMapPreparationImage = async () => '/reviewed-preparation.png'
+  api.getCombatMap = vi.fn().mockResolvedValue({
+    adventureId: 'a1', status: 'map-view', mapId: null, version: 2,
+    grid: { width: 2, height: 2 }, tokens: [],
+  })
+  api.getCombatMapPreparation = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 3,
+    grid: { width: 2, height: 2 }, tokens: [], layers: [{ type: 'MAP_BOUNDARIES', value: '1,0,HORIZONTAL,WALL,false' }],
+  })
+  render(<CombatMapView adventureId="a1" api={api} />)
+  const map = await screen.findByLabelText('tactical-map')
+  expect(map).toHaveStyle({ backgroundImage: 'url(/reviewed-preparation.png)' })
+})
+
 it('renders only the reviewed crop in the player map', async () => {
   const api = fakeApi()
   api.getPublicMapImage = async () => '/public-map-image.png'
