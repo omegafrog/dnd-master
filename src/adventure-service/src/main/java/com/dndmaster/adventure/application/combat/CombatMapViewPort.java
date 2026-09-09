@@ -26,6 +26,10 @@ public interface CombatMapViewPort {
     default void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles, List<Door> doors, List<Boundary> boundaries, String crop) {
         updateLayout(mapId, ownerId, expectedVersion, commandId, obstacles, doors, crop);
     }
+    default void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles,
+            List<Door> doors, List<Boundary> boundaries, String crop, Long alignmentVersion, String imageRevision) {
+        updateLayout(mapId, ownerId, expectedVersion, commandId, obstacles, doors, boundaries, crop);
+    }
 
     record View(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Door> doors, List<Layer> layers,
             List<Position> current, List<Position> explored, long version) {
@@ -39,7 +43,30 @@ public interface CombatMapViewPort {
     record Obstacle(int x, int y) {}
     record Door(int x, int y, boolean open) {}
     record Boundary(int x, int y, String orientation, String kind, boolean open) {}
-    record BoundaryProposal(long mapVersion, List<Position> obstacles, List<Door> doors, List<Boundary> boundaries, String crop) {}
+    record BoundaryCandidate(int x, int y, String orientation, String kind, double confidence, List<String> evidence, String source) {
+        public BoundaryCandidate {
+            evidence = evidence == null ? List.of() : List.copyOf(evidence);
+            source = source == null || source.isBlank() ? "IMAGE_RULES" : source;
+        }
+    }
+    record BoundaryProposal(long mapVersion, List<Position> obstacles, List<Door> doors, List<Boundary> boundaries, String crop,
+                            List<BoundaryCandidate> candidates, long alignmentVersion, String imageRevision) {
+        public BoundaryProposal(long mapVersion, List<Position> obstacles, List<Door> doors, List<Boundary> boundaries, String crop) {
+            this(mapVersion, obstacles, doors, boundaries, crop, List.of(), 0, "");
+        }
+        public BoundaryProposal(long mapVersion, List<Position> obstacles, List<Door> doors, List<Boundary> boundaries,
+                String crop, List<BoundaryCandidate> candidates) {
+            this(mapVersion, obstacles, doors, boundaries, crop, candidates, 0, "");
+        }
+        public BoundaryProposal {
+            obstacles = obstacles == null ? List.of() : List.copyOf(obstacles);
+            doors = doors == null ? List.of() : List.copyOf(doors);
+            boundaries = boundaries == null ? List.of() : List.copyOf(boundaries);
+            crop = crop == null ? "" : crop;
+            candidates = candidates == null ? List.of() : List.copyOf(candidates);
+            imageRevision = imageRevision == null ? "" : imageRevision;
+        }
+    }
     record Layer(String type, String value) {}
     record Position(int x, int y) {}
     record Alignment(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize) {}

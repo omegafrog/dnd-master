@@ -161,16 +161,32 @@ public final class CombatMapViewService {
     /** 맵 시작 전 사용자가 AI 초안을 검수해 벽·문·자르기 영역을 확정한다. */
     public CombatMap updateLayout(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId,
             Set<GridPosition> obstacles, Collection<Door> doors, String crop) {
-        return updateLayout(id, owner, expectedVersion, commandId, obstacles, doors, List.of(), crop);
+        return updateLayout(id, owner, expectedVersion, commandId, obstacles, doors, List.of(), crop, null, "");
     }
 
     public CombatMap updateLayout(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId,
             Set<GridPosition> obstacles, Collection<Door> doors, Collection<MapBoundary> boundaries, String crop) {
+        return updateLayout(id, owner, expectedVersion, commandId, obstacles, doors, boundaries, crop, null, "");
+    }
+
+    /** 정렬 버전이 감지·검수 시작 시점과 같은지 확인한 뒤 맵 초안을 저장한다. */
+    public CombatMap updateLayout(MapId id, MapOwnerId owner, long expectedVersion,
+            UUID commandId, Set<GridPosition> obstacles, Collection<Door> doors,
+            Collection<MapBoundary> boundaries, String crop, Long alignmentVersion, String imageRevision) {
         VersionedOwnedCombatMap state = owned(id, owner);
-        String fingerprint = id + "|" + owner + "|LAYOUT|" + obstacles + "|" + doors + "|" + boundaries + "|" + crop;
+        String fingerprint = id + "|" + owner + "|LAYOUT|" + obstacles + "|" + doors + "|" + boundaries + "|" + crop
+                + "|ALIGNMENT=" + alignmentVersion + "|IMAGE=" + imageRevision;
         CombatMap replay = replay(id, owner, commandId, fingerprint);
         if (replay != null) return replay;
         if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
+        if (alignmentVersion != null || (imageRevision != null && !imageRevision.isBlank())) {
+            if (alignments == null) throw new MapGridAlignmentConflictException();
+            MapGridAlignment current = alignments.find(id).orElseThrow(MapGridAlignmentConflictException::new);
+            if (alignmentVersion == null || imageRevision == null || imageRevision.isBlank()
+                    || current.version() != alignmentVersion || !current.imageRevision().equals(imageRevision)) {
+                throw new MapGridAlignmentConflictException();
+            }
+        }
         Set<GridPosition> nextObstacles = Set.copyOf(obstacles == null ? Set.of() : obstacles);
         List<Door> nextDoors = List.copyOf(doors == null ? List.of() : doors);
         List<MapBoundary> nextBoundaries = List.copyOf(boundaries == null ? List.of() : boundaries);
@@ -184,7 +200,7 @@ public final class CombatMapViewService {
         if (crop != null && !crop.isBlank()) {
             PlayerMapImageService.validateCrop(MapGridAlignmentService.mapImage(state.map()), crop);
         }
-        List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !Set.of("MAP_CROP", "MAP_BOUNDARIES", "MAP_LAYOUT_CONFIRMED").contains(layer.type())).toList());
+        List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !Set.of("MAP_CROP", "MAP_BOUNDARIES", "MAP_LAYOUT_CONFIRMED", "MAP_BOUNDARY_CANDIDATES").contains(layer.type())).toList());
         if (crop != null && !crop.isBlank()) layers.add(new MapLayer("MAP_CROP", crop.trim(), LayerVisibility.PLAYER_VISIBLE));
         if (!nextBoundaries.isEmpty()) layers.add(new MapLayer("MAP_BOUNDARIES", nextBoundaries.stream().map(MapBoundary::encoded).sorted().collect(java.util.stream.Collectors.joining(";")), LayerVisibility.PLAYER_VISIBLE));
         layers.add(new MapLayer("MAP_LAYOUT_CONFIRMED", layoutConfirmationValue(id), LayerVisibility.PLAYER_VISIBLE));
@@ -250,12 +266,23 @@ public final class CombatMapViewService {
         PreparedMapData generated = aiPort.generate(new MapGenerationRequest(
                 "지도 이미지의 벽과 문 초안", "GRID_CONFIRMED; 사용자가 확정한 격자와 자르기 범위를 기준으로 벽과 문만 찾는다",
                 state.map().grid().width(), state.map().grid().height(), state.map().grid().cellSize(),
-                state.map().grid().distanceUnit(), Set.of(), List.of(), player, image.get(),
-                alignment.originX(), alignment.originY(), alignment.cellSize(), crop(state.map())));
+                state.map().grid().distanceUnit(), state.map().obstacles(), state.map().doors().stream().toList(), player, image.get(),
+                alignment.originX(), alignment.originY(), alignment.cellSize(), crop(state.map()),
+                alignment.imageRevision(), state.map().boundaries()));
+        if (alignments != null) {
+            MapGridAlignment current = alignments.find(id).orElse(alignment);
+            if (current.version() != alignment.version() || !current.imageRevision().equals(alignment.imageRevision())
+                    || Double.compare(current.originX(), alignment.originX()) != 0
+                    || Double.compare(current.originY(), alignment.originY()) != 0
+                    || Double.compare(current.cellSize(), alignment.cellSize()) != 0) {
+                throw new MapGridAlignmentConflictException();
+            }
+        }
         Set<MapBoundary> boundaries = generated.layers().stream().filter(layer -> layer.type().equals("MAP_BOUNDARIES"))
                 .flatMap(layer -> Arrays.stream(layer.value().split(";"))).filter(value -> !value.isBlank())
                 .map(MapBoundary::parse).collect(Collectors.toCollection(LinkedHashSet::new));
-        return new BoundaryDraft(state.version(), generated.obstacles(), generated.doors(), boundaries, crop(state.map()));
+        return new BoundaryDraft(state.version(), generated.obstacles(), generated.doors(), boundaries,
+                crop(state.map()), generated.candidates(), alignment.version(), alignment.imageRevision());
     }
 
     /** 기존 호출부 호환용. 새 준비 흐름은 후보를 먼저 화면에 보여준다. */
@@ -284,7 +311,17 @@ public final class CombatMapViewService {
     }
 
     public record BoundaryDraft(long mapVersion, Set<GridPosition> obstacles, List<Door> doors,
-            Set<MapBoundary> boundaries, String crop) {}
+            Set<MapBoundary> boundaries, String crop, List<MapBoundaryCandidate> candidates,
+            long alignmentVersion, String imageRevision) {
+        public BoundaryDraft(long mapVersion, Set<GridPosition> obstacles, List<Door> doors,
+                Set<MapBoundary> boundaries, String crop) {
+            this(mapVersion, obstacles, doors, boundaries, crop, List.of(), 0, "");
+        }
+        public BoundaryDraft(long mapVersion, Set<GridPosition> obstacles, List<Door> doors,
+                Set<MapBoundary> boundaries, String crop, List<MapBoundaryCandidate> candidates) {
+            this(mapVersion, obstacles, doors, boundaries, crop, candidates, 0, "");
+        }
+    }
 
     private static Optional<MapImageEvidence> imageEvidence(CombatMap map) {
         String value = map.layers().stream().filter(layer -> layer.type().equals("MAP_IMAGE")).map(MapLayer::value).findFirst().orElse("");

@@ -26,11 +26,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 
-import javax.imageio.ImageIO;
-import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
-import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
@@ -115,7 +110,8 @@ public class AiGameMasterApiConfiguration {
                         + "playerStart must be one grid cell written as x,y or an empty string. "
                         + "Use only the supplied map data and scenario evidence. Do not invent a structure that is not supported by the supplied data. "
                         + "When MAP_IMAGE is provided, inspect the attached image and convert clearly visible wall and door lines to boundaries. Prefer continuous visible wall lines. "
-                        + "Treat authored obstacle, door, and player-start coordinates as user-confirmed evidence and preserve them. If the image is unclear, omit the uncertain cell instead of guessing. "
+                        + "Treat authored obstacle, door, boundary, and player-start coordinates as user-confirmed evidence and preserve them. If the image is unclear, omit the uncertain cell instead of guessing. "
+                        + "For image-derived candidates, optionally include candidates with x, y, orientation, kind, confidence (0 to 1), evidence, and source. Confidence is a review score, not a guarantee. "
                         + "Keep every coordinate inside the returned width and height. A closed door cell must not also be an obstacle. "
                         + "Do not use markdown or any text outside the JSON object.", input.imageDataUri()),
                 text -> text))
@@ -127,16 +123,36 @@ public class AiGameMasterApiConfiguration {
                 // still preserved by the combat-map service after this fallback.
                 return deterministicMapFallback(input, mapper);
             }
-            MapModelPort.MapOutput parsed = parseMap(mapper, raw);
-            if (parsed.boundaries().isEmpty() && !input.imageDataUri().isBlank()) {
-                List<String> visualDraft = visualBoundaryDraft(input, mapper, parsed.width(), parsed.height());
-                if (!visualDraft.isEmpty()) {
+            MapModelPort.MapOutput parsed;
+            try {
+                parsed = parseMap(mapper, raw);
+            } catch (RuntimeException malformed) {
+                // A malformed optional provider response must not discard the
+                // user's confirmed geometry; use the same deterministic review
+                // draft as a timeout/unavailable provider.
+                if (isMapContractViolation(malformed)) throw malformed;
+                return deterministicMapFallback(input, mapper);
+            }
+            parsed = preserveAuthoredMap(input, mapper, parsed);
+            if (!input.imageDataUri().isBlank()) {
+                ImageBoundaryDetector.Detection detection = ImageBoundaryDetector.detect(input, mapper, parsed.width(), parsed.height());
+                AuthoredMap authored = authoredMap(input, mapper, parsed.width(), parsed.height());
+                List<MapModelPort.MapBoundaryCandidate> candidates = withoutAuthoredCandidates(
+                        mergeCandidates(parsed.candidates(), detection.candidates()), authored.boundaries());
+                if (parsed.boundaries().isEmpty() && !detection.boundaries().isEmpty()) {
                     return new MapModelPort.MapOutput(parsed.width(), parsed.height(),
-                            "이미지에서 확인한 선을 벽·문 초안으로 만들었습니다.", parsed.obstacles(), parsed.doors(),
-                            visualDraft, parsed.playerStart());
+                            detection.rationale(), parsed.obstacles(), parsed.doors(),
+                            detection.boundaries(), parsed.playerStart(), candidates);
+                }
+                if (!candidates.equals(parsed.candidates())) {
+                    return new MapModelPort.MapOutput(parsed.width(), parsed.height(), parsed.structuredLayers(),
+                            parsed.obstacles(), parsed.doors(), parsed.boundaries(), parsed.playerStart(), candidates);
                 }
             }
-            return parsed;
+            AuthoredMap authored = authoredMap(input, mapper, parsed.width(), parsed.height());
+            List<MapModelPort.MapBoundaryCandidate> candidates = withoutAuthoredCandidates(parsed.candidates(), authored.boundaries());
+            return candidates.equals(parsed.candidates()) ? parsed : new MapModelPort.MapOutput(parsed.width(), parsed.height(),
+                    parsed.structuredLayers(), parsed.obstacles(), parsed.doors(), parsed.boundaries(), parsed.playerStart(), candidates);
         };
     }
 
@@ -144,148 +160,132 @@ public class AiGameMasterApiConfiguration {
             com.fasterxml.jackson.databind.ObjectMapper mapper) {
         int width = extractPositive(input.mapData(), "gridWidth", 20);
         int height = extractPositive(input.mapData(), "gridHeight", 20);
-        List<String> boundaries = visualBoundaryDraft(input, mapper, width, height);
+        ImageBoundaryDetector.Detection detection = ImageBoundaryDetector.detect(input, mapper, width, height);
+        AuthoredMap authored = authoredMap(input, mapper, width, height);
+        List<String> boundaries = new java.util.ArrayList<>(authored.boundaries());
+        detection.boundaries().forEach(boundary -> {
+            if (boundaries.stream().noneMatch(existing -> sameBoundarySide(existing, boundary))) boundaries.add(boundary);
+        });
         return new MapModelPort.MapOutput(width, height,
                 boundaries.isEmpty()
                         ? "AI 제공자가 응답하지 않았고 지도에서 확실한 선을 찾지 못했습니다."
-                        : "GM 제공자가 응답하지 않아 이미지에서 확인한 선으로 벽·문 초안을 만들었습니다.",
-                List.of(), List.of(), boundaries, "");
+                        : "GM 제공자가 응답하지 않아 이미지 선분 분석으로 벽·문 초안을 만들었습니다.",
+                authored.obstacles(), authored.doors(), boundaries, authored.playerStart(),
+                withoutAuthoredCandidates(detection.candidates(), authored.boundaries()));
     }
 
-    /**
-     * The map provider is optional in local development. When it times out, keep
-     * map preparation useful by detecting the strong dark line work already in
-     * the supplied, user-aligned image. This is deliberately conservative: only
-     * nearly-black, cell-spanning lines become walls, and one-cell gaps between
-     * such lines become door candidates for user review.
-     */
-    private static List<String> visualBoundaryDraft(MapModelPort.MapInput input,
+    private static MapModelPort.MapOutput preserveAuthoredMap(MapModelPort.MapInput input,
+            com.fasterxml.jackson.databind.ObjectMapper mapper, MapModelPort.MapOutput parsed) {
+        AuthoredMap authored = authoredMap(input, mapper, parsed.width(), parsed.height());
+        List<String> obstacles = new java.util.ArrayList<>(parsed.obstacles());
+        authored.obstacles().forEach(value -> { if (!obstacles.contains(value)) obstacles.add(value); });
+        List<String> doors = new java.util.ArrayList<>(parsed.doors());
+        authored.doors().forEach(value -> { if (!doors.contains(value)) doors.add(value); });
+        List<String> boundaries = new java.util.ArrayList<>(parsed.boundaries());
+        for (String value : authored.boundaries()) {
+            boundaries.removeIf(existing -> sameBoundarySide(existing, value));
+            boundaries.add(value);
+        }
+        if (obstacles.stream().anyMatch(doors::contains)) throw new IllegalArgumentException("door cannot be an obstacle");
+        String playerStart = parsed.playerStart().isBlank() ? authored.playerStart() : parsed.playerStart();
+        if (!playerStart.isBlank() && (obstacles.contains(playerStart) || doors.contains(playerStart))) {
+            throw new IllegalArgumentException("player start cannot be blocked");
+        }
+        return new MapModelPort.MapOutput(parsed.width(), parsed.height(), parsed.structuredLayers(),
+                obstacles, doors, boundaries, playerStart, parsed.candidates());
+    }
+
+    private static boolean isMapContractViolation(RuntimeException exception) {
+        String message = exception.getMessage();
+        return message != null && (message.contains("door cannot be an obstacle")
+                || message.contains("player start cannot be an obstacle")
+                || message.contains("player start cannot be a door"));
+    }
+
+    private static List<MapModelPort.MapBoundaryCandidate> mergeCandidates(
+            List<MapModelPort.MapBoundaryCandidate> primary,
+            List<MapModelPort.MapBoundaryCandidate> supplemental) {
+        List<MapModelPort.MapBoundaryCandidate> merged = new java.util.ArrayList<>(primary);
+        for (MapModelPort.MapBoundaryCandidate candidate : supplemental) {
+            if (merged.stream().noneMatch(existing -> existing.x() == candidate.x()
+                    && existing.y() == candidate.y()
+                    && existing.orientation().equals(candidate.orientation()))) {
+                merged.add(candidate);
+            }
+        }
+        return List.copyOf(merged);
+    }
+
+    private static List<MapModelPort.MapBoundaryCandidate> withoutAuthoredCandidates(
+            List<MapModelPort.MapBoundaryCandidate> candidates, List<String> authoredBoundaries) {
+        return candidates.stream().filter(candidate -> authoredBoundaries.stream().noneMatch(authored -> {
+            String[] parts = authored.split(",", -1);
+            return parts.length >= 3 && Integer.toString(candidate.x()).equals(parts[0].trim())
+                    && Integer.toString(candidate.y()).equals(parts[1].trim())
+                    && candidate.orientation().equalsIgnoreCase(parts[2].trim());
+        })).toList();
+    }
+
+    private static AuthoredMap authoredMap(MapModelPort.MapInput input,
             com.fasterxml.jackson.databind.ObjectMapper mapper, int width, int height) {
         try {
-            if (input.imageDataUri().isBlank()) return List.of();
-            var geometry = mapper.readTree(input.mapData());
-            if (!geometry.path("gridConfirmed").asBoolean(false)) return List.of();
-            double originX = geometry.path("gridOriginX").asDouble(Double.NaN);
-            double originY = geometry.path("gridOriginY").asDouble(Double.NaN);
-            double cellSize = geometry.path("gridCellSize").asDouble(Double.NaN);
-            if (!Double.isFinite(originX) || !Double.isFinite(originY) || !Double.isFinite(cellSize) || cellSize <= 0) {
-                return List.of();
-            }
-            int comma = input.imageDataUri().indexOf(',');
-            if (comma < 0) return List.of();
-            byte[] bytes = Base64.getDecoder().decode(input.imageDataUri().substring(comma + 1));
-            BufferedImage image = ImageIO.read(new ByteArrayInputStream(bytes));
-            if (image == null) return List.of();
-
-            EdgeSample[][] horizontal = new EdgeSample[height + 1][width];
-            EdgeSample[][] vertical = new EdgeSample[height][width + 1];
-            boolean[][] horizontalWalls = new boolean[height + 1][width];
-            boolean[][] verticalWalls = new boolean[height][width + 1];
-            for (int y = 0; y <= height; y++) {
-                for (int x = 0; x < width; x++) {
-                    horizontal[y][x] = sample(image, originX + x * cellSize,
-                            originY + y * cellSize, cellSize, true);
-                    horizontalWalls[y][x] = isWall(horizontal[y][x]);
+            var root = mapper.readTree(input.mapData());
+            List<String> obstacles = authoredPositions(root.path("authoredObstacles"), width, height);
+            List<String> doors = authoredPositions(root.path("authoredDoors"), width, height);
+            List<String> boundaries = new java.util.ArrayList<>();
+            if (root.path("authoredBoundaries").isArray()) {
+                for (var item : root.path("authoredBoundaries")) {
+                    try {
+                        String value = item.asText("").trim();
+                        if (!value.isBlank()) {
+                            String[] parts = value.split(",", -1);
+                            if (parts.length == 4 || parts.length == 5) {
+                                int x = Integer.parseInt(parts[0].trim());
+                                int y = Integer.parseInt(parts[1].trim());
+                                String orientation = parts[2].trim().toUpperCase(java.util.Locale.ROOT);
+                                String kind = parts[3].trim().toUpperCase(java.util.Locale.ROOT);
+                                if (("HORIZONTAL".equals(orientation) && x >= 0 && x < width && y >= 0 && y <= height)
+                                        || ("VERTICAL".equals(orientation) && x >= 0 && x <= width && y >= 0 && y < height)) {
+                                    if (!"WALL".equals(kind) && !"DOOR".equals(kind)) continue;
+                                    String encoded = x + "," + y + "," + orientation + "," + kind
+                                            + "," + (parts.length == 5 && Boolean.parseBoolean(parts[4].trim()));
+                                    if (boundaries.stream().noneMatch(existing -> sameBoundarySide(existing, encoded))) boundaries.add(encoded);
+                                }
+                            }
+                        }
+                    } catch (RuntimeException ignored) { /* keep other authored lines intact */ }
                 }
             }
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x <= width; x++) {
-                    vertical[y][x] = sample(image, originX + x * cellSize,
-                            originY + y * cellSize, cellSize, false);
-                    verticalWalls[y][x] = isWall(vertical[y][x]);
-                }
+            String player = root.path("authoredPlayerStart").asText("").trim();
+            if (!player.isBlank()) {
+                try { validatePosition(player, width, height, "authoredPlayerStart"); }
+                catch (RuntimeException ignored) { player = ""; }
             }
-
-            List<String> result = new ArrayList<>();
-            for (int y = 0; y <= height; y++) {
-                for (int x = 0; x < width; x++) {
-                    if (horizontalWalls[y][x]) result.add(x + "," + y + ",HORIZONTAL,WALL,false");
-                }
-            }
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x <= width; x++) {
-                    if (verticalWalls[y][x]) result.add(x + "," + y + ",VERTICAL,WALL,false");
-                }
-            }
-            // A short, dark interruption in a continuous line is a useful door
-            // candidate. It remains a review draft and is never treated as final.
-            for (int y = 0; y <= height; y++) {
-                for (int x = 1; x < width - 1; x++) {
-                    if (!horizontalWalls[y][x] && horizontalWalls[y][x - 1] && horizontalWalls[y][x + 1]
-                            && isDoorGap(horizontal[y][x])) {
-                        result.add(x + "," + y + ",HORIZONTAL,DOOR,false");
-                    }
-                }
-            }
-            for (int y = 1; y < height - 1; y++) {
-                for (int x = 0; x <= width; x++) {
-                    if (!verticalWalls[y][x] && verticalWalls[y - 1][x] && verticalWalls[y + 1][x]
-                            && isDoorGap(vertical[y][x])) {
-                        result.add(x + "," + y + ",VERTICAL,DOOR,false");
-                    }
-                }
-            }
-            return List.copyOf(result);
-        } catch (RuntimeException | java.io.IOException ignored) {
-            return List.of();
+            return new AuthoredMap(List.copyOf(obstacles), List.copyOf(doors), List.copyOf(boundaries), player);
+        } catch (Exception ignored) {
+            return new AuthoredMap(List.of(), List.of(), List.of(), "");
         }
     }
 
-    private static boolean isWall(EdgeSample sample) {
-        return sample.average() <= 55 && sample.darkFraction() >= .70;
-    }
-
-    private static boolean isDoorGap(EdgeSample sample) {
-        return sample.average() <= 105 && sample.darkFraction() >= .35;
-    }
-
-    private static EdgeSample sample(BufferedImage image, double x, double y, double cellSize, boolean horizontal) {
-        int start = horizontal ? (int) Math.round(x + cellSize * .12) : (int) Math.round(y + cellSize * .12);
-        int end = horizontal ? (int) Math.round(x + cellSize * .88) : (int) Math.round(y + cellSize * .88);
-        int limit = horizontal ? image.getWidth() - 1 : image.getHeight() - 1;
-        start = Math.max(0, Math.min(limit, start));
-        end = Math.max(0, Math.min(limit, end));
-        if (end < start) return new EdgeSample(Double.POSITIVE_INFINITY, 0);
-        EdgeSample best = new EdgeSample(Double.POSITIVE_INFINITY, 0);
-        for (int offset = -8; offset <= 8; offset++) {
-            double sum = 0;
-            int dark = 0;
-            int count = 0;
-            if (horizontal) {
-                int row = (int) Math.round(y) + offset;
-                if (row < 0 || row >= image.getHeight()) continue;
-                for (int column = start; column <= end; column++) {
-                    int luminance = luminance(image.getRGB(column, row));
-                    sum += luminance;
-                    if (luminance < 80) dark++;
-                    count++;
-                }
-            } else {
-                int column = (int) Math.round(x) + offset;
-                if (column < 0 || column >= image.getWidth()) continue;
-                for (int row = start; row <= end; row++) {
-                    int luminance = luminance(image.getRGB(column, row));
-                    sum += luminance;
-                    if (luminance < 80) dark++;
-                    count++;
-                }
-            }
-            if (count > 0) {
-                EdgeSample candidate = new EdgeSample(sum / count, (double) dark / count);
-                if (candidate.average() < best.average()) best = candidate;
-            }
+    private static List<String> authoredPositions(com.fasterxml.jackson.databind.JsonNode node, int width, int height) {
+        if (!node.isArray()) return List.of();
+        List<String> result = new java.util.ArrayList<>();
+        for (var item : node) {
+            String value = item.isTextual() ? item.asText().trim() : item.path("x").asText("") + "," + item.path("y").asText("");
+            try { validatePosition(value, width, height, "authored map"); if (!result.contains(value)) result.add(value); }
+            catch (RuntimeException ignored) { /* malformed authored values are ignored by the provider boundary */ }
         }
-        return best;
+        return List.copyOf(result);
     }
 
-    private static int luminance(int rgb) {
-        int red = (rgb >> 16) & 0xff;
-        int green = (rgb >> 8) & 0xff;
-        int blue = rgb & 0xff;
-        return (299 * red + 587 * green + 114 * blue) / 1000;
+    private static boolean sameBoundarySide(String left, String right) {
+        String[] a = left.split(",", -1);
+        String[] b = right.split(",", -1);
+        return a.length >= 3 && b.length >= 3 && a[0].trim().equals(b[0].trim())
+                && a[1].trim().equals(b[1].trim()) && a[2].trim().equalsIgnoreCase(b[2].trim());
     }
 
-    private record EdgeSample(double average, double darkFraction) {}
+    private record AuthoredMap(List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart) {}
 
     private static int extractPositive(String text, String key, int fallback) {
         java.util.regex.Matcher matcher = java.util.regex.Pattern
@@ -306,12 +306,13 @@ public class AiGameMasterApiConfiguration {
             List<String> obstacles = positions(root.path("obstacles"), width, height, "obstacles");
             List<String> doors = positions(root.path("doors"), width, height, "doors");
             List<String> boundaries = boundaries(root.path("boundaries"), width, height);
+            List<MapModelPort.MapBoundaryCandidate> candidates = candidates(root.path("candidates"), width, height);
             if (obstacles.stream().anyMatch(doors::contains)) throw new IllegalArgumentException("door cannot be an obstacle");
             String playerStart = root.path("playerStart").asText("").trim();
             if (!playerStart.isBlank()) validatePosition(playerStart, width, height, "playerStart");
             if (obstacles.contains(playerStart)) throw new IllegalArgumentException("player start cannot be an obstacle");
             if (doors.contains(playerStart)) throw new IllegalArgumentException("player start cannot be a door");
-            return new MapModelPort.MapOutput(width, height, root.path("rationale").asText(""), obstacles, doors, boundaries, playerStart);
+            return new MapModelPort.MapOutput(width, height, root.path("rationale").asText(""), obstacles, doors, boundaries, playerStart, candidates);
         } catch (IllegalArgumentException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -347,6 +348,29 @@ public class AiGameMasterApiConfiguration {
             if ((!horizontal && !vertical) || (!wall && !door) || (horizontal && (x < 0 || x >= width || y < 0 || y > height)) || (vertical && (x < 0 || x > width || y < 0 || y >= height))) throw new IllegalArgumentException("boundaries contains an invalid edge");
             String encoded = x + "," + y + "," + parts[2].trim() + "," + parts[3].trim() + ",false";
             if (!result.contains(encoded)) result.add(encoded);
+        }
+        return List.copyOf(result);
+    }
+
+    private static List<MapModelPort.MapBoundaryCandidate> candidates(com.fasterxml.jackson.databind.JsonNode node,
+            int width, int height) {
+        if (node.isMissingNode() || node.isNull()) return List.of();
+        if (!node.isArray()) throw new IllegalArgumentException("candidates must be an array");
+        List<MapModelPort.MapBoundaryCandidate> result = new java.util.ArrayList<>();
+        for (var value : node) {
+            if (!value.isObject()) throw new IllegalArgumentException("candidates contains an invalid item");
+            int x = value.path("x").asInt(-1);
+            int y = value.path("y").asInt(-1);
+            String orientation = value.path("orientation").asText("").trim().toUpperCase(java.util.Locale.ROOT);
+            String kind = value.path("kind").asText("").trim().toUpperCase(java.util.Locale.ROOT);
+            boolean inside = ("HORIZONTAL".equals(orientation) && x >= 0 && x < width && y >= 0 && y <= height)
+                    || ("VERTICAL".equals(orientation) && x >= 0 && x <= width && y >= 0 && y < height);
+            if (!inside) throw new IllegalArgumentException("candidates contains an out-of-grid edge");
+            List<String> evidence = new java.util.ArrayList<>();
+            if (value.path("evidence").isArray()) for (var item : value.path("evidence")) evidence.add(item.asText());
+            result.add(new MapModelPort.MapBoundaryCandidate(x, y, orientation, kind,
+                    value.path("confidence").asDouble(Double.NaN), evidence,
+                    value.path("source").asText("IMAGE_RULES")));
         }
         return List.copyOf(result);
     }

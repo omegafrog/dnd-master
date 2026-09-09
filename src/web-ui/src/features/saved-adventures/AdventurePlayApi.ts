@@ -66,8 +66,9 @@ export type CombatMapView = {
 export type MapGridAlignment = { mapId: string; version: number; imageRevision: string; imageViewId?: string; originX: number; originY: number; cellSize: number }
 export type MapGridAlignmentRequest = { mapId: string; commandId: string; expectedVersion: number; imageRevision: string; originX: number; originY: number; cellSize: number }
 export type MapBoundary = { x: number; y: number; orientation: 'HORIZONTAL' | 'VERTICAL'; kind: 'WALL' | 'DOOR'; open: boolean }
-export type MapBoundaryProposal = { mapVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number; open: boolean }>; boundaries: MapBoundary[]; crop?: string }
-export type CombatMapLayoutDraft = { commandId: string; expectedVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number }>; boundaries?: MapBoundary[]; crop?: string }
+export type MapBoundaryCandidate = { x: number; y: number; orientation: 'HORIZONTAL' | 'VERTICAL'; kind: 'WALL' | 'DOOR'; confidence: number; evidence: string[]; source?: string }
+export type MapBoundaryProposal = { mapVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number; open: boolean }>; boundaries: MapBoundary[]; crop?: string; candidates?: MapBoundaryCandidate[]; alignmentVersion?: number; imageRevision?: string }
+export type CombatMapLayoutDraft = { commandId: string; expectedVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number }>; boundaries?: MapBoundary[]; crop?: string; alignmentVersion?: number; imageRevision?: string }
 
 export type MapActionCandidate = {
   mapId: string

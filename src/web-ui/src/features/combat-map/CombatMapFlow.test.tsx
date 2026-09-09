@@ -169,6 +169,35 @@ it('runs AI wall detection only after grid confirmation and keeps the crop edito
   expect(screen.getByRole('heading', { name: '맵 초안 검수' }).parentElement).toHaveTextContent('AI가 현재 격자와 지도 이미지를 기준으로 벽·문을 찾습니다.')
 })
 
+it('lets the user approve or exclude each image boundary candidate before saving', async () => {
+  const api = fakeApi()
+  const map = { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, grid: { width: 2, height: 2 }, tokens: [] }
+  api.getCombatMapPreparation = vi.fn().mockResolvedValue(map)
+  api.getCombatMapPreparationImage = vi.fn().mockResolvedValue('/preparation-map.png')
+  api.getMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.applyMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.detectMapBoundaries = vi.fn().mockResolvedValue({
+    mapVersion: 0, obstacles: [], doors: [], boundaries: [], crop: '', alignmentVersion: 1, imageRevision: 'r1',
+    candidates: [
+      { x: 0, y: 1, orientation: 'HORIZONTAL', kind: 'WALL', confidence: .84, evidence: ['continuous-edge'] },
+      { x: 1, y: 1, orientation: 'VERTICAL', kind: 'DOOR', confidence: .44, evidence: ['door-frame'] },
+    ],
+  })
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  await user.click(await screen.findByRole('button', { name: 'AI 벽·문 감지' }))
+
+  const candidates = await screen.findByLabelText('이미지 분석 후보 설명')
+  expect(candidates).toHaveTextContent('이미지 분석 후보 2개')
+  await user.click(within(candidates).getByRole('button', { name: '후보 승인 0,1' }))
+  expect(within(screen.getByLabelText('맵 초안 검수')).getByLabelText('tactical-map').querySelector('[data-boundary="HORIZONTAL:0:1"]')).toHaveClass('map-boundary-wall')
+  await user.click(within(candidates).getByRole('button', { name: '후보 제외 1,1' }))
+  expect(screen.queryByLabelText('이미지 분석 후보 설명')).not.toBeInTheDocument()
+})
+
 it('does not treat a draft saved for an older grid as ready after reload', async () => {
   const api = fakeApi()
   api.getCombatMapPreparation = async () => ({

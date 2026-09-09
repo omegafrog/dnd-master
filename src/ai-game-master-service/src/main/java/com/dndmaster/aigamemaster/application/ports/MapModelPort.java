@@ -24,10 +24,33 @@ public interface MapModelPort {
         }
     }
 
+    record MapBoundaryCandidate(int x, int y, String orientation, String kind,
+                                double confidence, List<String> evidence, String source) {
+        public MapBoundaryCandidate {
+            if (x < 0 || y < 0) throw new IllegalArgumentException("boundary candidate coordinates must not be negative");
+            if (!"HORIZONTAL".equals(orientation) && !"VERTICAL".equals(orientation)) {
+                throw new IllegalArgumentException("boundary candidate orientation is invalid");
+            }
+            if (!"WALL".equals(kind) && !"DOOR".equals(kind)) {
+                throw new IllegalArgumentException("boundary candidate kind is invalid");
+            }
+            if (!Double.isFinite(confidence) || confidence < 0 || confidence > 1) {
+                throw new IllegalArgumentException("boundary candidate confidence must be between 0 and 1");
+            }
+            evidence = evidence == null ? List.of() : List.copyOf(evidence);
+            source = source == null || source.isBlank() ? "IMAGE_RULES" : source.trim();
+        }
+    }
+
     record MapOutput(int width, int height, String structuredLayers,
-                     List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart) {
+                     List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart,
+                     List<MapBoundaryCandidate> candidates) {
+        public MapOutput(int width, int height, String structuredLayers,
+                         List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart) {
+            this(width, height, structuredLayers, obstacles, doors, boundaries, playerStart, List.of());
+        }
         public MapOutput(int width, int height, String structuredLayers, List<String> obstacles, List<String> doors, String playerStart) {
-            this(width, height, structuredLayers, obstacles, doors, List.of(), playerStart);
+            this(width, height, structuredLayers, obstacles, doors, List.of(), playerStart, List.of());
         }
         public MapOutput(int width, int height, String structuredLayers) {
             this(width, height, structuredLayers, List.of(), List.of(), "");
@@ -40,6 +63,7 @@ public interface MapModelPort {
             doors = immutable(doors);
             boundaries = immutable(boundaries);
             playerStart = playerStart == null ? "" : playerStart.trim();
+            candidates = List.copyOf(Objects.requireNonNull(candidates, "map boundary candidates must not be null"));
         }
     }
 

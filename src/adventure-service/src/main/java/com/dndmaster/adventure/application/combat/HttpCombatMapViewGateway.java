@@ -77,15 +77,21 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
 
     @Override
     public void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles, List<Door> doors, String crop) {
-        updateLayout(mapId, ownerId, expectedVersion, commandId, obstacles, doors, List.of(), crop);
+        updateLayout(mapId, ownerId, expectedVersion, commandId, obstacles, doors, List.of(), crop, null, "");
     }
 
     @Override
     public void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles, List<Door> doors, List<Boundary> boundaries, String crop) {
+        updateLayout(mapId, ownerId, expectedVersion, commandId, obstacles, doors, boundaries, crop, null, "");
+    }
+
+    @Override
+    public void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles,
+            List<Door> doors, List<Boundary> boundaries, String crop, Long alignmentVersion, String imageRevision) {
         Layout payload = new Layout(ownerId, expectedVersion, commandId,
                 obstacles == null ? List.of() : obstacles.stream().map(position -> position.x() + "," + position.y()).toList(),
                 doors == null ? List.of() : doors.stream().map(door -> door.x() + "," + door.y()).toList(),
-                boundaries == null ? List.of() : boundaries.stream().map(boundary -> boundary.x() + "," + boundary.y() + "," + boundary.orientation() + "," + boundary.kind() + "," + boundary.open()).toList(), crop);
+                boundaries == null ? List.of() : boundaries.stream().map(boundary -> boundary.x() + "," + boundary.y() + "," + boundary.orientation() + "," + boundary.kind() + "," + boundary.open()).toList(), crop, alignmentVersion, imageRevision);
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/layout"))
                 .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                 .PUT(HttpRequest.BodyPublishers.ofString(write(payload))).build();
@@ -108,7 +114,9 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map boundary detection failed");
             DetectionResult result = mapper.readValue(response.body(), DetectionResult.class);
             return new BoundaryProposal(result.mapVersion(), result.obstacles().stream().map(HttpCombatMapViewGateway::position).toList(),
-                    result.doors().stream().map(HttpCombatMapViewGateway::door).toList(), result.boundaries().stream().map(HttpCombatMapViewGateway::boundary).toList(), result.crop());
+                    result.doors().stream().map(HttpCombatMapViewGateway::door).toList(), result.boundaries().stream().map(HttpCombatMapViewGateway::boundary).toList(), result.crop(),
+                    result.candidates().stream().map(candidate -> new BoundaryCandidate(candidate.x(), candidate.y(), candidate.orientation(), candidate.kind(), candidate.confidence(), candidate.evidence(), candidate.source())).toList(),
+                    result.alignmentVersion(), result.imageRevision());
         } catch (IOException exception) { throw new IllegalStateException("combat map boundary detection transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map boundary detection interrupted", exception); }
     }
@@ -179,10 +187,26 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             List<Position> current, List<Position> explored, long version) {}
     private record Calibration(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
-    private record Layout(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors, List<String> boundaries, String crop) {}
+    private record Layout(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors,
+                          List<String> boundaries, String crop, Long alignmentVersion, String imageRevision) {}
     private record Detection(UUID ownerId) {}
-    private record DetectionResult(long mapVersion, List<String> obstacles, List<String> doors, List<String> boundaries, String crop) {
-        private DetectionResult { obstacles = obstacles == null ? List.of() : List.copyOf(obstacles); doors = doors == null ? List.of() : List.copyOf(doors); boundaries = boundaries == null ? List.of() : List.copyOf(boundaries); crop = crop == null ? "" : crop; }
+    private record DetectionResult(long mapVersion, List<String> obstacles, List<String> doors, List<String> boundaries, String crop,
+                                   List<BoundaryCandidatePayload> candidates, long alignmentVersion, String imageRevision) {
+        private DetectionResult {
+            obstacles = obstacles == null ? List.of() : List.copyOf(obstacles);
+            doors = doors == null ? List.of() : List.copyOf(doors);
+            boundaries = boundaries == null ? List.of() : List.copyOf(boundaries);
+            crop = crop == null ? "" : crop;
+            candidates = candidates == null ? List.of() : List.copyOf(candidates);
+            imageRevision = imageRevision == null ? "" : imageRevision;
+        }
+    }
+    private record BoundaryCandidatePayload(int x, int y, String orientation, String kind,
+                                            double confidence, List<String> evidence, String source) {
+        private BoundaryCandidatePayload {
+            evidence = evidence == null ? List.of() : List.copyOf(evidence);
+            source = source == null || source.isBlank() ? "IMAGE_RULES" : source;
+        }
     }
     private record AlignmentPayload(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize,
                                     UUID ownerId, UUID commandId, long expectedVersion) {

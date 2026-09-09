@@ -303,7 +303,8 @@ public class AdventureController {
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> obstacles = request.obstacles() == null ? List.of() : request.obstacles().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Position(p.x(), p.y())).toList();
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Door> doors = request.doors() == null ? List.of() : request.doors().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Door(p.x(), p.y(), false)).toList();
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary> boundaries = request.boundaries() == null ? List.of() : request.boundaries().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary(p.x(), p.y(), p.orientation(), p.kind(), p.open())).toList();
-        combatMapViewPort.updateLayout(mapId, owner, request.expectedVersion(), request.commandId(), obstacles, doors, boundaries, request.crop());
+        combatMapViewPort.updateLayout(mapId, owner, request.expectedVersion(), request.commandId(), obstacles, doors, boundaries,
+                request.crop(), request.alignmentVersion(), request.imageRevision());
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/detect-boundaries")
@@ -612,7 +613,14 @@ public class AdventureController {
     public record CombatMapCalibrationRequest(UUID mapId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     public record CombatMapCalibrationResponse(UUID mapId, int width, int height) {}
-    public record CombatMapLayoutRequest(UUID commandId, long expectedVersion, List<PositionPayload> obstacles, List<PositionPayload> doors, List<BoundaryPayload> boundaries, String crop) {}
+    public record CombatMapLayoutRequest(UUID commandId, long expectedVersion, List<PositionPayload> obstacles,
+                                         List<PositionPayload> doors, List<BoundaryPayload> boundaries, String crop,
+                                         Long alignmentVersion, String imageRevision) {
+        public CombatMapLayoutRequest(UUID commandId, long expectedVersion, List<PositionPayload> obstacles,
+                List<PositionPayload> doors, List<BoundaryPayload> boundaries, String crop) {
+            this(commandId, expectedVersion, obstacles, doors, boundaries, crop, null, "");
+        }
+    }
     public record BoundaryPayload(int x, int y, String orientation, String kind, boolean open) {}
     public record CombatMapAlignmentRequest(UUID mapId, UUID commandId, long expectedVersion, String imageRevision,
                                             double originX, double originY, double cellSize) {}

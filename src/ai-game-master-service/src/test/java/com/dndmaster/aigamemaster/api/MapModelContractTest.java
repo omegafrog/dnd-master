@@ -19,7 +19,7 @@ class MapModelContractTest {
 
     @Test
     void parsesStructuredGmPlacementAndRejectsBlockedDoor() {
-        GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"boundaries\":[\"1,1,VERTICAL,WALL\",\"2,1,HORIZONTAL,DOOR\"],\"obstacles\":[],\"doors\":[],\"playerStart\":\"0,0\",\"rationale\":\"visible room boundary\"}");
+        GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"boundaries\":[\"1,1,VERTICAL,WALL\",\"2,1,HORIZONTAL,DOOR\"],\"obstacles\":[],\"doors\":[],\"playerStart\":\"0,0\",\"rationale\":\"visible room boundary\",\"candidates\":[{\"x\":1,\"y\":1,\"orientation\":\"VERTICAL\",\"kind\":\"WALL\",\"confidence\":0.91,\"evidence\":[\"continuous-edge\",\"room-contrast\"],\"source\":\"IMAGE_RULES\"}]}");
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(adapter, mapper);
 
         MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput("map", "room", "grid"));
@@ -29,6 +29,8 @@ class MapModelContractTest {
         assertEquals(java.util.List.of(), output.doors());
         assertEquals(java.util.List.of("1,1,VERTICAL,WALL,false", "2,1,HORIZONTAL,DOOR,false"), output.boundaries());
         assertEquals("0,0", output.playerStart());
+        assertEquals(1, output.candidates().size());
+        assertEquals(0.91, output.candidates().getFirst().confidence());
     }
 
     @Test
@@ -57,6 +59,29 @@ class MapModelContractTest {
         assertEquals(6, output.height());
         assertEquals(java.util.List.of(), output.obstacles());
         assertEquals(java.util.List.of(), output.doors());
+    }
+
+    @Test
+    void fallsBackToImageRulesWhenTheProviderReturnsMalformedJson() throws Exception {
+        String image = dataUri(30, 30, graphics -> {
+            graphics.setColor(java.awt.Color.BLACK);
+            graphics.fillRect(10, 9, 10, 3);
+        });
+        MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(fixed("not json"), mapper);
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(
+                "map", "room", "{\"gridWidth\":3,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":true}", image));
+        org.junit.jupiter.api.Assertions.assertTrue(output.boundaries().contains("1,1,HORIZONTAL,WALL,false"));
+    }
+
+    @Test
+    void keepsAuthoredLinesWhenTheImageDraftIsRegenerated() throws Exception {
+        MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(fixed("not json"), mapper);
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput("map", "room",
+                "{\"gridWidth\":3,\"gridHeight\":3,\"gridConfirmed\":true,\"authoredBoundaries\":[\"0,0,VERTICAL,DOOR,false\"],\"authoredObstacles\":[\"2,2\"],\"authoredDoors\":[\"1,2\"],\"authoredPlayerStart\":\"0,1\"}"));
+        assertEquals(java.util.List.of("2,2"), output.obstacles());
+        assertEquals(java.util.List.of("1,2"), output.doors());
+        assertEquals(java.util.List.of("0,0,VERTICAL,DOOR,false"), output.boundaries());
+        assertEquals("0,1", output.playerStart());
     }
 
     @Test
@@ -90,6 +115,65 @@ class MapModelContractTest {
         assertEquals(3, output.height());
         org.junit.jupiter.api.Assertions.assertTrue(output.boundaries().contains("1,1,HORIZONTAL,WALL,false"));
         org.junit.jupiter.api.Assertions.assertTrue(output.boundaries().contains("2,1,VERTICAL,WALL,false"));
+        org.junit.jupiter.api.Assertions.assertTrue(output.candidates().stream().anyMatch(candidate ->
+                candidate.x() == 1 && candidate.y() == 1
+                        && candidate.confidence() > 0.8
+                        && candidate.evidence().contains("continuous-edge")));
+    }
+
+    @Test
+    void doesNotAnalyseAnUnconfirmedGridOrAStaleImageRevision() throws Exception {
+        String image = dataUri(30, 30, graphics -> {
+            graphics.setColor(java.awt.Color.BLACK);
+            graphics.fillRect(10, 9, 10, 3);
+        });
+        MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(unavailableProvider(), mapper);
+
+        MapModelPort.MapOutput unconfirmed = model.generate(new MapModelPort.MapInput(
+                "map", "room", "{\"gridWidth\":3,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":false}", image));
+        assertEquals(java.util.List.of(), unconfirmed.boundaries());
+
+        MapModelPort.MapOutput stale = model.generate(new MapModelPort.MapInput(
+                "map", "room", "{\"gridWidth\":3,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":true,\"imageRevision\":\"stale\"}", image));
+        assertEquals(java.util.List.of(), stale.boundaries());
+    }
+
+    @Test
+    void keepsAPlainLightDecorationOutOfWallCandidatesAndDoesNotCallAWhiteGapADoor() throws Exception {
+        String image = dataUri(40, 30, graphics -> {
+            graphics.setColor(new java.awt.Color(120, 120, 120));
+            graphics.fillRect(10, 9, 10, 2);
+            graphics.setColor(java.awt.Color.BLACK);
+            graphics.fillRect(0, 14, 10, 3);
+            graphics.fillRect(20, 14, 10, 3);
+        });
+        MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(unavailableProvider(), mapper);
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(
+                "map", "room", "{\"gridWidth\":4,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":true}", image));
+
+        org.junit.jupiter.api.Assertions.assertTrue(output.boundaries().stream().noneMatch(value -> value.startsWith("1,1,HORIZONTAL,WALL")));
+        org.junit.jupiter.api.Assertions.assertTrue(output.boundaries().stream().noneMatch(value -> value.startsWith("1,1,HORIZONTAL,DOOR")));
+    }
+
+    private static GmCompletionAdapter unavailableProvider() {
+        return new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser) {
+                throw new IllegalStateException("provider unavailable");
+            }
+        };
+    }
+
+    private static String dataUri(int width, int height, java.util.function.Consumer<java.awt.Graphics2D> draw) throws Exception {
+        BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D graphics = image.createGraphics();
+        graphics.setColor(java.awt.Color.WHITE);
+        graphics.fillRect(0, 0, width, height);
+        draw.accept(graphics);
+        graphics.dispose();
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", bytes);
+        return "data:image/png;base64," + Base64.getEncoder().encodeToString(bytes.toByteArray());
     }
 
     private static GmCompletionAdapter fixed(String response) {

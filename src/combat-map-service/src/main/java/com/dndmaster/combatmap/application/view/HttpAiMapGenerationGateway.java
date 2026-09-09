@@ -55,8 +55,10 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                     java.util.Map.entry("gridCellSize", request.gridCellSize()),
                     java.util.Map.entry("gridConfirmed", request.gridConfirmed()),
                     java.util.Map.entry("crop", request.crop()),
+                    java.util.Map.entry("imageRevision", request.imageRevision()),
                     java.util.Map.entry("authoredObstacles", request.authoredObstacles().stream().map(HttpAiMapGenerationGateway::position).toList()),
                     java.util.Map.entry("authoredDoors", request.authoredDoors().stream().map(door -> position(door.position())).toList()),
+                    java.util.Map.entry("authoredBoundaries", request.authoredBoundaries().stream().map(com.dndmaster.combatmap.domain.MapBoundary::encoded).toList()),
                     java.util.Map.entry("authoredPlayerStart", request.authoredPlayerStart() == null ? "" : position(request.authoredPlayerStart())),
                     java.util.Map.entry("mapImageAvailable", request.mapImage() != null)));
             String body = mapper.writeValueAsString(new Request(request.selectedScenario(), request.currentContext(), mapData,
@@ -71,7 +73,7 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("AI Game Master map proposal failed with status " + response.statusCode());
             }
-            return toPreparedMap(mapper.readTree(response.body()), request);
+            return toPreparedMap(mapper.readTree(response.body()), request, mapper);
         } catch (IOException exception) {
             throw new IllegalStateException("AI Game Master map proposal transport failed", exception);
         } catch (InterruptedException exception) {
@@ -80,14 +82,33 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         }
     }
 
-    private static PreparedMapData toPreparedMap(JsonNode root, MapGenerationRequest request) {
+    private static PreparedMapData toPreparedMap(JsonNode root, MapGenerationRequest request, ObjectMapper mapper) {
         int width = request.gridConfirmed() ? request.gridWidth() : Math.max(1, root.path("width").asInt(request.gridWidth()));
         int height = request.gridConfirmed() ? request.gridHeight() : Math.max(1, root.path("height").asInt(request.gridHeight()));
         width = Math.max(width, minimumWidth(request));
         height = Math.max(height, minimumHeight(request));
         Set<GridPosition> obstacles = parsePositions(root.path("obstacles"), width, height, "obstacles");
-        List<Door> doors = parseDoors(root.path("doors"), width, height);
-        List<String> boundaries = parseBoundaries(root.path("boundaries"), width, height);
+        Set<GridPosition> authoredObstacles = new HashSet<>(request.authoredObstacles());
+        Set<GridPosition> authoredDoors = request.authoredDoors().stream().map(Door::position).collect(java.util.stream.Collectors.toSet());
+        // User-authored cells are authoritative when the provider guessed a
+        // conflicting obstacle or door. Provider-only conflicts remain an
+        // invalid response and are rejected below.
+        obstacles.removeAll(authoredDoors);
+        obstacles.addAll(authoredObstacles);
+        List<Door> doors = new ArrayList<>(parseDoors(root.path("doors"), width, height));
+        doors.removeIf(door -> authoredObstacles.contains(door.position()));
+        for (Door authored : request.authoredDoors()) {
+            doors.removeIf(existing -> existing.position().equals(authored.position()));
+            doors.add(authored);
+        }
+        List<String> boundaries = new ArrayList<>(request.authoredBoundaries().stream()
+                .map(com.dndmaster.combatmap.domain.MapBoundary::encoded).toList());
+        for (String boundary : parseBoundaries(root.path("boundaries"), width, height)) {
+            // A user's saved line wins over an AI proposal at the same shared
+            // cell side, even when the provider returned a different kind.
+            if (boundaries.stream().noneMatch(existing -> sameBoundarySide(existing, boundary))) boundaries.add(boundary);
+        }
+        List<MapBoundaryCandidate> candidates = parseCandidates(root.path("candidates"), width, height);
         for (Door door : doors) {
             if (obstacles.contains(door.position())) throw new IllegalArgumentException("AI map proposal door is blocked");
             obstacles.remove(door.position());
@@ -109,11 +130,15 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         }
         layers.add(new MapLayer("GRID_SOURCE", "GM_PROPOSED", LayerVisibility.PLAYER_VISIBLE));
         if (!boundaries.isEmpty()) layers.add(new MapLayer("MAP_BOUNDARIES", String.join(";", boundaries), LayerVisibility.PLAYER_VISIBLE));
+        if (!candidates.isEmpty()) {
+            try { layers.add(new MapLayer("MAP_BOUNDARY_CANDIDATES", mapper.writeValueAsString(candidates), LayerVisibility.AI_ONLY)); }
+            catch (IOException ignored) { /* candidate explanations are optional; boundary strings remain usable */ }
+        }
         if (!playerStart.isBlank()) layers.add(new MapLayer("GM_PLAYER_START", playerStart, LayerVisibility.AI_ONLY));
         String rationale = root.path("rationale").asText("").trim();
         if (!rationale.isBlank()) layers.add(new MapLayer("GM_MAP_RATIONALE", rationale, LayerVisibility.AI_ONLY));
         return new PreparedMapData(new GridSpec(width, height, request.cellSize(), request.distanceUnit()),
-                List.<CombatToken>of(), obstacles, layers, doors);
+                List.<CombatToken>of(), obstacles, layers, doors, candidates);
     }
 
     private static int minimumWidth(MapGenerationRequest request) {
@@ -171,6 +196,34 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
             } catch (RuntimeException exception) { throw new IllegalArgumentException("AI map proposal boundaries contains an invalid edge", exception); }
         }
         return List.copyOf(result);
+    }
+
+    private static List<MapBoundaryCandidate> parseCandidates(JsonNode values, int width, int height) {
+        if (values.isMissingNode() || values.isNull()) return List.of();
+        if (!values.isArray()) throw new IllegalArgumentException("AI map proposal candidates must be an array");
+        List<MapBoundaryCandidate> result = new ArrayList<>();
+        for (JsonNode value : values) {
+            int x = value.path("x").asInt(-1);
+            int y = value.path("y").asInt(-1);
+            String orientation = value.path("orientation").asText("").trim().toUpperCase(java.util.Locale.ROOT);
+            String kind = value.path("kind").asText("").trim().toUpperCase(java.util.Locale.ROOT);
+            boolean inside = ("HORIZONTAL".equals(orientation) && x >= 0 && x < width && y >= 0 && y <= height)
+                    || ("VERTICAL".equals(orientation) && x >= 0 && x <= width && y >= 0 && y < height);
+            if (!inside) throw new IllegalArgumentException("AI map proposal candidate is outside grid");
+            List<String> evidence = new ArrayList<>();
+            if (value.path("evidence").isArray()) for (JsonNode item : value.path("evidence")) evidence.add(item.asText());
+            result.add(new MapBoundaryCandidate(x, y, orientation, kind,
+                    value.path("confidence").asDouble(Double.NaN), evidence,
+                    value.path("source").asText("IMAGE_RULES")));
+        }
+        return List.copyOf(result);
+    }
+
+    private static boolean sameBoundarySide(String left, String right) {
+        String[] a = left.split(",", -1);
+        String[] b = right.split(",", -1);
+        return a.length >= 3 && b.length >= 3 && a[0].trim().equals(b[0].trim())
+                && a[1].trim().equals(b[1].trim()) && a[2].trim().equalsIgnoreCase(b[2].trim());
     }
 
     private static List<Door> parseDoors(JsonNode values, int width, int height) {

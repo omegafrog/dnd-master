@@ -237,7 +237,12 @@ public class CombatMapController {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
                     "map grid alignment must be confirmed before boundary detection");
         }
-        return MapBoundaryDetectionResponse.from(mapViewService.proposeBoundaries(id, owner, alignment));
+        try {
+            return MapBoundaryDetectionResponse.from(mapViewService.proposeBoundaries(id, owner, alignment));
+        } catch (com.dndmaster.combatmap.application.view.MapGridAlignmentConflictException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+                    "map grid alignment changed while detecting boundaries", exception);
+        }
     }
 
     public CombatMapMoveResponse movePlayer(UUID mapId, String token, MoveRequest request) {
@@ -309,7 +314,7 @@ public class CombatMapController {
             Set<GridPosition> obstacles = authoredPositions(request.obstacles(), "obstacles");
             List<Door> doors = authoredPositions(request.doors(), "doors").stream().map(position -> new Door(position, false)).toList();
             List<MapBoundary> boundaries = request.boundaries() == null ? List.of() : request.boundaries().stream().map(MapBoundary::parse).toList();
-            CombatMap map = mapViewService.updateLayout(new MapId(mapId), new MapOwnerId(request.ownerId()), request.expectedVersion(), request.commandId(), obstacles, doors, boundaries, request.crop());
+            CombatMap map = mapViewService.updateLayout(new MapId(mapId), new MapOwnerId(request.ownerId()), request.expectedVersion(), request.commandId(), obstacles, doors, boundaries, request.crop(), request.alignmentVersion(), request.imageRevision());
             return new CombatMapAiStateResponse(map.id().value());
         } catch (IllegalStateException exception) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, exception.getMessage(), exception);
@@ -360,19 +365,35 @@ public class CombatMapController {
             long expectedVersion,
             List<LayerRequest> layers) {}
     public record DoorRequest(UUID ownerId,int x,int y,boolean open,UUID commandId,long expectedVersion) {}
-    public record LayoutRequest(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors, List<String> boundaries, String crop) {}
+    public record LayoutRequest(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors,
+                                List<String> boundaries, String crop, Long alignmentVersion, String imageRevision) {
+        public LayoutRequest(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles,
+                List<String> doors, List<String> boundaries, String crop) {
+            this(ownerId, expectedVersion, commandId, obstacles, doors, boundaries, crop, null, "");
+        }
+    }
     public record GridCalibrationRequest(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
                                          int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     public record MapGridAlignmentRequest(UUID ownerId, UUID commandId, long expectedVersion, String imageRevision,
                                           double originX, double originY, double cellSize) {}
     public record MapBoundaryDetectionRequest(UUID ownerId) {}
     public record MapBoundaryDetectionResponse(long mapVersion, List<String> obstacles, List<String> doors,
-            List<String> boundaries, String crop) {
+            List<String> boundaries, String crop, List<com.dndmaster.combatmap.application.view.MapBoundaryCandidate> candidates,
+            long alignmentVersion, String imageRevision) {
+        public MapBoundaryDetectionResponse(long mapVersion, List<String> obstacles, List<String> doors,
+                List<String> boundaries, String crop) {
+            this(mapVersion, obstacles, doors, boundaries, crop, List.of(), 0, "");
+        }
+        public MapBoundaryDetectionResponse(long mapVersion, List<String> obstacles, List<String> doors,
+                List<String> boundaries, String crop, List<com.dndmaster.combatmap.application.view.MapBoundaryCandidate> candidates) {
+            this(mapVersion, obstacles, doors, boundaries, crop, candidates, 0, "");
+        }
         static MapBoundaryDetectionResponse from(com.dndmaster.combatmap.application.view.CombatMapViewService.BoundaryDraft draft) {
             return new MapBoundaryDetectionResponse(draft.mapVersion(),
                     draft.obstacles().stream().map(position -> position.x() + "," + position.y()).sorted().toList(),
                     draft.doors().stream().map(door -> door.position().x() + "," + door.position().y()).sorted().toList(),
-                    draft.boundaries().stream().map(MapBoundary::encoded).sorted().toList(), draft.crop());
+                    draft.boundaries().stream().map(MapBoundary::encoded).sorted().toList(), draft.crop(), draft.candidates(),
+                    draft.alignmentVersion(), draft.imageRevision());
         }
     }
     public record MapGridAlignmentResponse(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize) {
