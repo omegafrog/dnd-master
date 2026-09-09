@@ -33,7 +33,7 @@ final class ImageBoundaryDetector {
     // A wrong wall blocks movement and sight, while a missed wall is still easy
     // for the user to draw. Bias the automatic draft strongly toward precision.
     private static final double MIN_CANDIDATE_SCORE = .52;
-    private static final double WALL_SCORE = .78;
+    private static final double WALL_SCORE = .72;
     private static final int MIN_DARK_THRESHOLD = 25;
     private static final int MAX_DARK_THRESHOLD = 90;
 
@@ -70,7 +70,9 @@ final class ImageBoundaryDetector {
             EdgeSample[][] vertical = new EdgeSample[height][width + 1];
             boolean[][] horizontalWalls = new boolean[height + 1][width];
             boolean[][] verticalWalls = new boolean[height][width + 1];
-            for (int y = 0; y <= height; y++) {
+            // The image canvas edge is a crop artifact, not evidence of a
+            // dungeon wall. Only inspect sides between two map cells.
+            for (int y = 1; y < height; y++) {
                 for (int x = 0; x < width; x++) {
                     horizontal[y][x] = sample(luminance, crop, originX + x * cellSize,
                             originY + y * cellSize, cellSize, true, darkThreshold);
@@ -78,7 +80,7 @@ final class ImageBoundaryDetector {
                 }
             }
             for (int y = 0; y < height; y++) {
-                for (int x = 0; x <= width; x++) {
+                for (int x = 1; x < width; x++) {
                     vertical[y][x] = sample(luminance, crop, originX + x * cellSize,
                             originY + y * cellSize, cellSize, false, darkThreshold);
                     verticalWalls[y][x] = vertical[y][x].wall();
@@ -87,18 +89,18 @@ final class ImageBoundaryDetector {
 
             List<String> boundaries = new ArrayList<>();
             Map<String, MapModelPort.MapBoundaryCandidate> candidates = new LinkedHashMap<>();
-            for (int y = 0; y <= height; y++) {
+            for (int y = 1; y < height; y++) {
                 for (int x = 0; x < width; x++) {
                     addCandidate(boundaries, candidates, x, y, "HORIZONTAL", horizontal[y][x], darkThreshold);
                 }
             }
             for (int y = 0; y < height; y++) {
-                for (int x = 0; x <= width; x++) {
+                for (int x = 1; x < width; x++) {
                     addCandidate(boundaries, candidates, x, y, "VERTICAL", vertical[y][x], darkThreshold);
                 }
             }
             int doorCount = 0;
-            for (int y = 0; y <= height; y++) {
+            for (int y = 1; y < height; y++) {
                 for (int x = 1; x < width - 1; x++) {
                     if (horizontalWalls[y][x - 1] && horizontalWalls[y][x + 1]
                             && doorFeatures(horizontal[y][x]) >= 2) {
@@ -108,7 +110,7 @@ final class ImageBoundaryDetector {
                 }
             }
             for (int y = 1; y < height - 1; y++) {
-                for (int x = 0; x <= width; x++) {
+                for (int x = 1; x < width; x++) {
                     if (verticalWalls[y - 1][x] && verticalWalls[y + 1][x]
                             && doorFeatures(vertical[y][x]) >= 2) {
                         replaceDoor(boundaries, candidates, x, y, "VERTICAL", vertical[y][x]);
@@ -220,7 +222,7 @@ final class ImageBoundaryDetector {
             double score = .45 * darkFraction + .30 * clamp(contrast * 2.4) + .25 * continuity;
             EdgeSample current = new EdgeSample(mean, median, darkFraction, contrast, continuity,
             clamp(coverage), jambSignal, score, true, score >= WALL_SCORE
-                    && coverage >= .90 && darkFraction >= .70 && continuity >= .78 && contrast >= .15);
+                    && coverage >= .85 && darkFraction >= .65 && continuity >= .70 && contrast >= .10);
             if (!best.valid() || current.score() > best.score()) best = current;
         }
         return best;

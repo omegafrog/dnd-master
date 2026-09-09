@@ -34,6 +34,16 @@ class MapModelContractTest {
     }
 
     @Test
+    void dropsLowConfidenceImageCandidatesBeforeTheyReachTheReviewScreen() {
+        GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"boundaries\":[],\"obstacles\":[],\"doors\":[],\"playerStart\":\"\",\"candidates\":[{\"x\":1,\"y\":1,\"orientation\":\"VERTICAL\",\"kind\":\"WALL\",\"confidence\":0.55,\"evidence\":[\"dark-line\"],\"source\":\"IMAGE_RULES\"}]}");
+        MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(adapter, mapper);
+
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput("map", "room", "grid"));
+
+        assertEquals(java.util.List.of(), output.candidates());
+    }
+
+    @Test
     void rejectsDoorThatOverlapsObstacle() {
         GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"obstacles\":[\"1,1\"],\"doors\":[\"1,1\"],\"playerStart\":\"0,0\"}");
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(adapter, mapper);
@@ -165,6 +175,25 @@ class MapModelContractTest {
 
         MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(
                 "map", "room", "{\"gridWidth\":4,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":true}", image));
+
+        assertEquals(java.util.List.of(), output.boundaries());
+    }
+
+    @Test
+    void doesNotTreatTheImageCanvasBorderAsWalls() throws Exception {
+        String image = dataUri(30, 30, graphics -> {
+            graphics.setColor(java.awt.Color.WHITE);
+            graphics.fillRect(0, 0, 30, 30);
+            graphics.setColor(java.awt.Color.BLACK);
+            graphics.fillRect(0, 0, 30, 3);
+            graphics.fillRect(0, 0, 3, 30);
+            graphics.fillRect(0, 27, 30, 3);
+            graphics.fillRect(27, 0, 3, 30);
+        });
+        MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(unavailableProvider(), mapper);
+
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(
+                "map", "room", "{\"gridWidth\":3,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":true}", image));
 
         assertEquals(java.util.List.of(), output.boundaries());
     }

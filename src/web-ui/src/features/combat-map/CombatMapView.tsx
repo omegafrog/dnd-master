@@ -4,6 +4,8 @@ import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
 
+const MIN_REVIEW_BOUNDARY_CONFIDENCE = .78
+
 export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, onPreparationComplete }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; onPreparationComplete?: () => void }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [publicMapImage, setPublicMapImage] = useState<string | null>(null)
@@ -244,7 +246,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       if (proposal.imageRevision !== undefined && proposal.imageRevision !== alignment.imageRevision) {
         throw new Error('지도 이미지가 바뀌었습니다. 최신 이미지를 불러온 뒤 다시 감지하세요.')
       }
-      setBoundaryCandidates(proposal.candidates ?? [])
+      // The server applies the same cutoff. Keep the browser defensive so a
+      // stale response cannot clutter review with weak image guesses.
+      setBoundaryCandidates((proposal.candidates ?? []).filter(candidate => candidate.confidence >= MIN_REVIEW_BOUNDARY_CONFIDENCE))
       setLayoutBeforeEdit(map)
       setMap(currentMap => currentMap ? applyBoundaryProposal(currentMap, proposal) : currentMap)
       setLayoutEditing(true)
@@ -275,16 +279,20 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             if (!stroke) return
             event.currentTarget.setPointerCapture?.(event.pointerId)
             boundaryStroke.current = stroke; setBoundaryPreview(stroke)
+            paintBoundaries(boundariesInStroke(stroke))
           }} onPointerMove={event => {
             if (!boundaryStroke.current) return
             const next = extendBoundaryStroke(boundaryStroke.current, event, previewGrid.width, previewGrid.height)
             boundaryStroke.current = next; setBoundaryPreview(next)
+            // Draw continuously, rather than waiting for pointer-up. The edit
+            // remains local until save and the existing cancel action restores
+            // the complete pre-edit map.
+            paintBoundaries(boundariesInStroke(next))
           }} onPointerUp={event => {
             const stroke = boundaryStroke.current
             if (!stroke) return
             boundaryStroke.current = null; setBoundaryPreview(null)
             if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId)
-            paintBoundaries(boundariesInStroke(stroke))
           }} onPointerCancel={() => { boundaryStroke.current = null; setBoundaryPreview(null) }}>
         {Array.from({ length: displayedColumns * displayedRows }, (_, index) => {
           const cell = { x: (playableWindow?.minX ?? 0) + index % displayedColumns, y: (playableWindow?.minY ?? 0) + Math.floor(index / displayedColumns) }

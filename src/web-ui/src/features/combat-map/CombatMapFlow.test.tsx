@@ -219,10 +219,10 @@ it('lets the user approve or exclude each image boundary candidate before saving
   await user.click(await screen.findByRole('button', { name: 'AI 벽·문 감지' }))
 
   const candidates = await screen.findByLabelText('이미지 분석 후보 설명')
-  expect(candidates).toHaveTextContent('이미지 분석 후보 2개')
+  expect(candidates).toHaveTextContent('이미지 분석 후보 1개')
+  expect(candidates).not.toHaveTextContent('후보 제외 1,1')
   await user.click(within(candidates).getByRole('button', { name: '후보 승인 0,1' }))
   expect(within(screen.getByLabelText('맵 초안 검수')).getByLabelText('tactical-map').querySelector('[data-boundary="HORIZONTAL:0:1"]')).toHaveClass('map-boundary-wall')
-  await user.click(within(candidates).getByRole('button', { name: '후보 제외 1,1' }))
   expect(screen.queryByLabelText('이미지 분석 후보 설명')).not.toBeInTheDocument()
 })
 

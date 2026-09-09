@@ -31,6 +31,7 @@ import java.util.UUID;
 
 @Configuration(proxyBeanMethods = false)
 public class AiGameMasterApiConfiguration {
+    private static final double MIN_REVIEW_CANDIDATE_CONFIDENCE = .78;
 
     @Bean
     AgentEndpointStore agentEndpointStore(ObjectProvider<DataSource> dataSource) {
@@ -218,7 +219,8 @@ public class AiGameMasterApiConfiguration {
 
     private static List<MapModelPort.MapBoundaryCandidate> withoutAuthoredCandidates(
             List<MapModelPort.MapBoundaryCandidate> candidates, List<String> authoredBoundaries) {
-        return candidates.stream().filter(candidate -> authoredBoundaries.stream().noneMatch(authored -> {
+        return candidates.stream().filter(candidate -> candidate.confidence() >= MIN_REVIEW_CANDIDATE_CONFIDENCE)
+                .filter(candidate -> authoredBoundaries.stream().noneMatch(authored -> {
             String[] parts = authored.split(",", -1);
             return parts.length >= 3 && Integer.toString(candidate.x()).equals(parts[0].trim())
                     && Integer.toString(candidate.y()).equals(parts[1].trim())
