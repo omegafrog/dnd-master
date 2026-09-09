@@ -2,6 +2,9 @@
 
 - 작성: 2026-09-09
 - 상태: 외부 기술 조사와 현재 코드 검토를 바탕으로 한 구현 계획
+- 추적 이슈: [#315 맵 벽·문 감지 고도화](https://github.com/omegafrog/dnd-master/issues/315)
+- 부모 계획: [#309 맵 격자 맞추기](https://github.com/omegafrog/dnd-master/issues/309)
+- 구현 PR: [#313 단일 구현 PR](https://github.com/omegafrog/dnd-master/pull/313)
 - 범위: 사용자가 저장한 격자 정렬·자르기 값을 기준으로 지도 이미지에서 벽·문 후보를 만들고 검수 가능한 초안으로 반환하는 흐름
 - 제외: 사용자의 승인 없이 후보를 플레이 맵의 최종 상태로 바꾸기, 비밀 정보 공개 범위를 넓히기, 격자 정렬값 다시 계산하기
 
