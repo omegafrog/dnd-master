@@ -259,16 +259,27 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       setMessage(error instanceof Error ? error.message : 'AI 벽·문 감지를 처리하지 못했습니다.')
     } finally { setBoundaryDetecting(false) }
   }
-  function paintBoundaries(boundaries: Array<Pick<MapBoundary, 'x' | 'y' | 'orientation'>>) {
+  function applyBoundaryStroke(stroke: BoundaryStroke) {
+    const touched = boundariesInStroke(stroke)
     setMap(currentMap => {
       if (!currentMap) return currentMap
-      const currentBoundaries = boundariesFrom(currentMap)
-      const withoutPainted = currentBoundaries.filter(current => !boundaries.some(boundary => boundary.x === current.x && boundary.y === current.y && boundary.orientation === current.orientation))
-      const next = boundaryTool === 'ERASE' ? withoutPainted : [...withoutPainted, ...boundaries.map(boundary => ({ ...boundary, kind: boundaryTool, open: false }))]
+      const next = stroke.tool === 'ERASE'
+        ? stroke.originalBoundaries.filter(existing => !touched.some(item => sameBoundarySide(existing, item)))
+        : [...stroke.originalBoundaries.filter(existing => !touched.some(item => sameBoundarySide(existing, item))), ...touched.map(item => ({ ...item, kind: stroke.tool, open: false } as MapBoundary))]
       const layers = (currentMap.layers ?? []).filter(layer => layer.type !== 'MAP_BOUNDARIES')
       return { ...currentMap, layers: next.length ? [...layers, { type: 'MAP_BOUNDARIES', value: next.map(encodeBoundary).join(';'), visibility: 'PLAYER_VISIBLE' }] : layers }
     })
     setLayoutDirty(true); setLayoutSaved(false)
+    const label = stroke.tool === 'ERASE' ? '지우는 중' : stroke.tool === 'DOOR' ? '문 그리는 중' : '벽 그리는 중'
+    setMessage(`${label} · ${touched.length}개 선분`)
+  }
+  function restoreBoundaryStroke(stroke: BoundaryStroke) {
+    setMap(currentMap => {
+      if (!currentMap) return currentMap
+      const layers = (currentMap.layers ?? []).filter(layer => layer.type !== 'MAP_BOUNDARIES')
+      return { ...currentMap, layers: stroke.originalBoundaries.length ? [...layers, { type: 'MAP_BOUNDARIES', value: stroke.originalBoundaries.map(encodeBoundary).join(';'), visibility: 'PLAYER_VISIBLE' }] : layers }
+    })
+    setLayoutDirty(false); setLayoutSaved(false)
   }
   const tacticalMap = map.tokens ? (
     <div className="tactical-map-window">
@@ -278,22 +289,24 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             const stroke = startBoundaryStroke(event, previewGrid.width, previewGrid.height)
             if (!stroke) return
             event.currentTarget.setPointerCapture?.(event.pointerId)
-            boundaryStroke.current = stroke; setBoundaryPreview(stroke)
-            paintBoundaries(boundariesInStroke(stroke))
+            const activeStroke = { ...stroke, tool: boundaryTool, originalBoundaries: mapBoundaries }
+            boundaryStroke.current = activeStroke; setBoundaryPreview(activeStroke)
+            applyBoundaryStroke(activeStroke)
           }} onPointerMove={event => {
             if (!boundaryStroke.current) return
             const next = extendBoundaryStroke(boundaryStroke.current, event, previewGrid.width, previewGrid.height)
-            boundaryStroke.current = next; setBoundaryPreview(next)
+            const activeStroke = { ...next, tool: boundaryStroke.current.tool, originalBoundaries: boundaryStroke.current.originalBoundaries }
+            boundaryStroke.current = activeStroke; setBoundaryPreview(activeStroke)
             // Draw continuously, rather than waiting for pointer-up. The edit
             // remains local until save and the existing cancel action restores
             // the complete pre-edit map.
-            paintBoundaries(boundariesInStroke(next))
+            applyBoundaryStroke(activeStroke)
           }} onPointerUp={event => {
             const stroke = boundaryStroke.current
             if (!stroke) return
-            boundaryStroke.current = null; setBoundaryPreview(null)
+            boundaryStroke.current = null; setBoundaryPreview(null); setMessage('선분 수정을 반영했습니다. 저장하려면 맵 초안 저장을 누르세요.')
             if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId)
-          }} onPointerCancel={() => { boundaryStroke.current = null; setBoundaryPreview(null) }}>
+          }} onPointerCancel={() => { const stroke = boundaryStroke.current; if (stroke) restoreBoundaryStroke(stroke); boundaryStroke.current = null; setBoundaryPreview(null); setMessage('선분 드래그를 취소했습니다.') }}>
         {Array.from({ length: displayedColumns * displayedRows }, (_, index) => {
           const cell = { x: (playableWindow?.minX ?? 0) + index % displayedColumns, y: (playableWindow?.minY ?? 0) + Math.floor(index / displayedColumns) }
           const token = map.tokens?.find(item => item.x === cell.x && item.y === cell.y)
@@ -424,9 +437,10 @@ function layoutConfirmedForAlignment(map: CombatMapState, current: { version: nu
   const marker = map.layers?.find(layer => layer.type === 'MAP_LAYOUT_CONFIRMED')
   return marker?.value === `USER|ALIGNMENT_VERSION=${current.version}`
 }
-type BoundaryStroke = { orientation: MapBoundary['orientation']; fixed: number; from: number; to: number }
+type BoundaryGeometry = { orientation: MapBoundary['orientation']; fixed: number; from: number; to: number }
+type BoundaryStroke = BoundaryGeometry & { tool: 'WALL' | 'DOOR' | 'ERASE'; originalBoundaries: MapBoundary[] }
 
-function startBoundaryStroke(event: React.PointerEvent<HTMLDivElement>, width: number, height: number): BoundaryStroke | null {
+function startBoundaryStroke(event: React.PointerEvent<HTMLDivElement>, width: number, height: number): BoundaryGeometry | null {
   const rect = event.currentTarget.getBoundingClientRect()
   const x = Math.max(0, Math.min(width, ((event.clientX - rect.left) / rect.width) * width))
   const y = Math.max(0, Math.min(height, ((event.clientY - rect.top) / rect.height) * height))
@@ -438,7 +452,7 @@ function startBoundaryStroke(event: React.PointerEvent<HTMLDivElement>, width: n
     : { orientation: 'HORIZONTAL', fixed: Math.round(y), from: Math.min(width - 1, Math.floor(x)), to: Math.min(width - 1, Math.floor(x)) }
 }
 
-function extendBoundaryStroke(stroke: BoundaryStroke, event: React.PointerEvent<HTMLDivElement>, width: number, height: number): BoundaryStroke {
+function extendBoundaryStroke(stroke: BoundaryGeometry, event: React.PointerEvent<HTMLDivElement>, width: number, height: number): BoundaryGeometry {
   const rect = event.currentTarget.getBoundingClientRect()
   const coordinate = stroke.orientation === 'HORIZONTAL'
     ? Math.max(0, Math.min(width - 1, Math.floor(((event.clientX - rect.left) / rect.width) * width)))
@@ -446,7 +460,7 @@ function extendBoundaryStroke(stroke: BoundaryStroke, event: React.PointerEvent<
   return { ...stroke, to: coordinate }
 }
 
-export function boundariesInStroke(stroke: BoundaryStroke): Array<Pick<MapBoundary, 'x' | 'y' | 'orientation'>> {
+export function boundariesInStroke(stroke: BoundaryGeometry): Array<Pick<MapBoundary, 'x' | 'y' | 'orientation'>> {
   return Array.from({ length: Math.abs(stroke.to - stroke.from) + 1 }, (_, index) => {
     const variable = Math.min(stroke.from, stroke.to) + index
     return stroke.orientation === 'HORIZONTAL'
@@ -494,7 +508,7 @@ function evidenceLabel(value: string) {
   } as Record<string, string>)[value] ?? '영상 단서'
 }
 
-function boundaryStrokeStyle(stroke: BoundaryStroke, width: number, height: number): CSSProperties {
+function boundaryStrokeStyle(stroke: BoundaryGeometry, width: number, height: number): CSSProperties {
   const start = Math.min(stroke.from, stroke.to)
   const length = Math.abs(stroke.to - stroke.from) + 1
   return stroke.orientation === 'HORIZONTAL'

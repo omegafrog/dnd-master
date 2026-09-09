@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { act, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { CharacterSheetView } from '../character/CharacterSheetView'
@@ -171,6 +171,32 @@ it('keeps the saved grid scale while reviewing a separately cropped image', asyn
   const map = within(screen.getByLabelText('맵 초안 검수')).getByLabelText('tactical-map')
   expect(map.getAttribute('style')).toContain('--map-background-size: 200% 150%')
   expect(map.getAttribute('style')).not.toContain('--map-background-size: 120% 112.5%')
+})
+
+it('updates boundary feedback while dragging and restores the stroke on cancel', async () => {
+  const api = fakeApi()
+  api.getCombatMapPreparation = async () => ({ adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, grid: { width: 2, height: 2 }, tokens: [] })
+  api.getCombatMapPreparationImage = async () => '/preparation-map.png'
+  api.getMapGridAlignment = async () => ({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.applyMapGridAlignment = async (_adventureId, request) => ({ ...request, version: 1 })
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  await user.click(await screen.findByRole('button', { name: '벽·문·자르기 편집' }))
+  const editor = screen.getByLabelText('맵 초안 검수')
+  const canvas = within(editor).getByLabelText('tactical-map')
+  Object.defineProperty(canvas, 'getBoundingClientRect', { value: () => ({ left: 0, top: 0, width: 200, height: 200 }) })
+
+  fireEvent.pointerDown(canvas, { clientX: 25, clientY: 100, pointerId: 1 })
+  expect(await screen.findByText(/벽 그리는 중/)).toBeInTheDocument()
+  await waitFor(() => expect(canvas.querySelector('.map-boundary-preview')).toHaveClass('map-boundary-wall'))
+  fireEvent.pointerMove(canvas, { clientX: 175, clientY: 100, pointerId: 1 })
+  await waitFor(() => expect(canvas.querySelector('.map-boundary-preview')).toHaveClass('map-boundary-wall'))
+  fireEvent.pointerCancel(canvas, { pointerId: 1 })
+  expect(canvas.querySelector('[data-boundary="HORIZONTAL:0:1"]')).not.toBeInTheDocument()
+  expect(canvas.querySelector('[data-boundary="HORIZONTAL:1:1"]')).not.toBeInTheDocument()
 })
 
 it('runs AI wall detection only after grid confirmation and keeps the crop editor visible', async () => {

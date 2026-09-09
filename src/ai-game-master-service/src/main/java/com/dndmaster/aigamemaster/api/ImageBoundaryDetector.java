@@ -32,8 +32,8 @@ import java.util.Set;
 final class ImageBoundaryDetector {
     // A wrong wall blocks movement and sight, while a missed wall is still easy
     // for the user to draw. Bias the automatic draft strongly toward precision.
-    private static final double MIN_CANDIDATE_SCORE = .52;
-    private static final double WALL_SCORE = .72;
+    private static final double MIN_CANDIDATE_SCORE = .78;
+    private static final double WALL_SCORE = .78;
     private static final int MIN_DARK_THRESHOLD = 25;
     private static final int MAX_DARK_THRESHOLD = 90;
 
@@ -222,7 +222,7 @@ final class ImageBoundaryDetector {
             double score = .45 * darkFraction + .30 * clamp(contrast * 2.4) + .25 * continuity;
             EdgeSample current = new EdgeSample(mean, median, darkFraction, contrast, continuity,
             clamp(coverage), jambSignal, score, true, score >= WALL_SCORE
-                    && coverage >= .85 && darkFraction >= .65 && continuity >= .70 && contrast >= .10);
+                    && coverage >= .90 && darkFraction >= .70 && continuity >= .78 && contrast >= .15);
             if (!best.valid() || current.score() > best.score()) best = current;
         }
         return best;
