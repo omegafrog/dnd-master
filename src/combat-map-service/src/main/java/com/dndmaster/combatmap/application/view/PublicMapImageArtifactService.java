@@ -43,11 +43,18 @@ public final class PublicMapImageArtifactService {
             var explored = PlayerSafeFogProjection.filter(visibility.explored(), map.layers());
             if (explored.isEmpty()) return lastSafe;
             var newlyCovered = new java.util.HashSet<>(explored);
-            lastSafe.ifPresent(previous -> newlyCovered.removeAll(previous.coveredCells()));
-            if (lastSafe.isPresent() && newlyCovered.isEmpty()) return lastSafe;
-            byte[] png = lastSafe.map(previous -> PlayerMapImageService.extendPng(previous.png(), MapGridAlignmentService.mapImage(map),
-                    alignment.originX(), alignment.originY(), alignment.cellSize(), newlyCovered))
-                    .orElseGet(() -> renderer.render(MapGridAlignmentService.mapImage(map), alignment.originX(), alignment.originY(), alignment.cellSize(), explored));
+            // Re-entering a map can intentionally reset visibility at a new
+            // situation-derived starting edge.  A previous public artifact is
+            // usable only when this observation includes all of its cells;
+            // otherwise it would reveal cells the player has not seen in the
+            // new entry.
+            boolean canExtend = lastSafe.map(previous -> explored.containsAll(previous.coveredCells())).orElse(false);
+            if (canExtend) lastSafe.ifPresent(previous -> newlyCovered.removeAll(previous.coveredCells()));
+            if (canExtend && lastSafe.isPresent() && newlyCovered.isEmpty()) return lastSafe;
+            byte[] png = canExtend && lastSafe.isPresent()
+                    ? PlayerMapImageService.extendPng(lastSafe.orElseThrow().png(), MapGridAlignmentService.mapImage(map),
+                            alignment.originX(), alignment.originY(), alignment.cellSize(), newlyCovered)
+                    : renderer.render(MapGridAlignmentService.mapImage(map), alignment.originX(), alignment.originY(), alignment.cellSize(), explored);
             long nextRevision = lastSafe.map(value -> value.publicAreaRevision() + 1).orElse(1L);
             return Optional.of(artifacts.save(new PublicMapImageArtifact(owner, mapId, imageRevision, nextRevision, observationVersion, png, explored)));
         } catch (RuntimeException exception) {

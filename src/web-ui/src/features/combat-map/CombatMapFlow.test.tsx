@@ -64,6 +64,23 @@ it('uses the authenticated public image rather than a map image layer', async ()
   expect(map.querySelectorAll('button')).toHaveLength(400)
 })
 
+it('renders only the reviewed crop in the player map', async () => {
+  const api = fakeApi()
+  api.getPublicMapImage = async () => '/public-map-image.png'
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 0 }],
+    current: [{ x: 1, y: 0 }], explored: [{ x: 1, y: 0 }],
+    layers: [{ type: 'GRID_BOUNDS', value: '0,0,300,200,300,200' }, { type: 'MAP_CROP', value: '100,0,100,200' }],
+  })
+  render(<CombatMapView adventureId="a1" api={api} />)
+  const map = await screen.findByLabelText('tactical-map')
+  expect(map).toHaveStyle({ '--map-aspect': '100 / 200' })
+  expect(map.querySelectorAll('button')).toHaveLength(2)
+  expect(screen.getByRole('button', { name: 'PLAYER 1,0' })).toBeInTheDocument()
+  expect(screen.queryByLabelText('지도 밖 영역')).not.toBeInTheDocument()
+})
+
 it('renders the saved grid alignment in the map below the editor', async () => {
   const api = fakeApi()
   api.getPublicMapImage = async () => '/public-map-image.png'

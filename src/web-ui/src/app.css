@@ -1065,6 +1065,7 @@ body {
 .visibility-swatch { display:inline-block; width:.85rem; height:.85rem; border:1px solid #69747a; border-radius:2px; }
 .visibility-hidden { background:#181e22; }
 .visibility-explored { background:rgb(30 35 38 / 28%); }
+.visibility-outside { background:#0e1113; border-color:#0e1113; }
 .tactical-map-window { overflow:auto; }
 .map-grid-editor { display:grid; gap:.45rem; margin:.6rem 0; padding:.7rem; border:1px solid #cdbda8; border-radius:6px; background:#fffaf0; color:#5b4a36; font-size:.74rem; }
 .map-grid-editor > div { display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); gap:.45rem; }
@@ -1097,6 +1098,7 @@ body {
 .tactical-map > button:hover,.tactical-map > button:focus-visible { background-color:rgb(255 255 255 / 18%) !important; outline:2px solid #202428; outline-offset:-2px; }
 .tactical-map > button[data-visibility='hidden'] { background-color:rgb(24 30 34) !important; background-image:none !important; }
 .tactical-map > button[data-visibility='explored'] { background:rgb(30 35 38 / 28%) !important; }
+.tactical-map > button[data-visibility='outside'] { border-color:transparent !important; background:#0e1113 !important; background-image:none !important; }
 .tactical-map > button[data-token-type] { color:#fff; font-size:.55rem; font-weight:800; text-shadow:0 1px 1px rgb(0 0 0 / 55%); }
 .tactical-map > button[data-token-type='PLAYER'] { background-color:rgb(29 98 87 / 85%) !important; }
 .tactical-map > button[data-token-type='FRIENDLY_NPC'] { background-color:rgb(46 111 159 / 85%) !important; }

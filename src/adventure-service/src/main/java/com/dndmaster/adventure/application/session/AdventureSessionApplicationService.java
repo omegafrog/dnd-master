@@ -11,6 +11,7 @@ import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
+import com.dndmaster.adventure.application.combat.CombatMapEntryContextResolver;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationPort;
 import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
@@ -209,26 +210,9 @@ public final class AdventureSessionApplicationService {
                 .orElse(null);
         return new CombatMapPreparationPort.ActivationContext(playerTokenId, situation.situationId(),
                 situation.revision(), adventure.turnIndex(), adventure.currentContext().currentScene(),
-                situation.location(), null, null, entrySide(adventure, situation));
+                situation.location(), null, null, CombatMapEntryContextResolver.entrySide(adventure, situation));
     }
 
-    private static String entrySide(Adventure adventure, com.dndmaster.adventure.domain.runtime.CurrentSituation situation) {
-        // 진입 방향은 지도 준비 시점의 임의 좌표가 아니라 현재 시추에이션의
-        // 장소·문제·위협·목표와 장면 설명에서만 추출한다.
-        String context = (adventure.currentContext().currentScene() + " " + situation.location() + " "
-                + situation.problem() + " " + situation.threat() + " " + situation.goal())
-                .toLowerCase(java.util.Locale.ROOT);
-        if (contains(context, "north", "북", "upper")) return "NORTH";
-        if (contains(context, "east", "동", "right")) return "EAST";
-        if (contains(context, "south", "남", "lower")) return "SOUTH";
-        if (contains(context, "west", "서", "left")) return "WEST";
-        return null;
-    }
-
-    private static boolean contains(String value, String... signals) {
-        for (String signal : signals) if (value.contains(signal)) return true;
-        return false;
-    }
     public AdventureSession complete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);
         session.complete();

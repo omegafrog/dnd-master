@@ -22,6 +22,25 @@ class CombatMapVisibilityIntegrationTest{
   CombatMap activated=service.activateForAdventure(draft.id(),owner,MapActivationContext.from(1,Optional.empty(),Optional.of(MapActivationContext.EntrySide.EAST),Optional.empty(),UUID.randomUUID(),1,0,"opening","east gate"));
   assertEquals(new GridPosition(9,5),activated.tokens().stream().filter(token -> token.type()==TokenType.PLAYER).findFirst().orElseThrow().position());
  }
+ @Test void legacyDraftPlayerTokenCannotOverrideSituationEntrySide(){
+  AdventureId adventure=adventure();
+  PreparedMapData aiDraft=new PreparedMapData(new GridSpec(10,10,50,5),List.of(new CombatToken(new TokenId(UUID.randomUUID()),TokenType.PLAYER,new GridPosition(1,1),TokenController.PLAYER,new PlayerId(owner.value()))),Set.of(),List.of());
+  CombatMapViewService service=service(aiDraft);
+  CombatMap draft=service.prepareGenerated(owner,adventure,rules(),new MapGenerationRequest("opening","scene=cellar;location=지하 맥주 저장고",10,10,50,5,List.of(),List.of()),true);
+  CombatMap activated=service.activateForAdventure(draft.id(),owner,MapActivationContext.from(1,Optional.empty(),Optional.of(MapActivationContext.EntrySide.NORTH),Optional.empty(),UUID.randomUUID(),1,0,"거대 쥐가 드러난 지하 맥주 저장고","지하 맥주 저장고"));
+  assertEquals(new GridPosition(5,0),activated.tokens().stream().filter(token -> token.type()==TokenType.PLAYER).findFirst().orElseThrow().position());
+ }
+ @Test void activationAndVisibilityStayInsideTheReviewedCrop(){
+  AdventureId adventure=adventure();
+  PreparedMapData draftData=new PreparedMapData(new GridSpec(20,20,10,5),List.of(),Set.of(),List.of(
+          new MapLayer("GRID_BOUNDS","0,0,200,200,200,200",LayerVisibility.PLAYER_VISIBLE),
+          new MapLayer("MAP_CROP","50,50,100,100",LayerVisibility.PLAYER_VISIBLE)));
+  CombatMapViewService service=service(draftData);
+  CombatMap draft=service.prepareGenerated(owner,adventure,rules(),"opening");
+  CombatMap activated=service.activateForAdventure(draft.id(),owner,MapActivationContext.from(1,Optional.empty(),Optional.of(MapActivationContext.EntrySide.NORTH),Optional.empty(),UUID.randomUUID(),1,0,"cellar","cellar"));
+  assertEquals(new GridPosition(10,5),activated.tokens().stream().filter(token -> token.type()==TokenType.PLAYER).findFirst().orElseThrow().position());
+  assertTrue(activated.visibilitySnapshot().current().stream().allMatch(position -> position.x() >= 5 && position.x() <= 14 && position.y() >= 5 && position.y() <= 14));
+ }
  @Test void activationRejectsVersionConflictAndDoesNotCreateActiveRelation(){AdventureId adventure=adventure();CombatMapViewService service=service(new PreparedMapData(new GridSpec(2,2,50,5),List.of(),Set.of(),List.of()));CombatMap map=service.prepareGenerated(owner,adventure,rules(),"opening");assertThrows(RuntimeException.class,()->store.activate(owner,map,1,1,UUID.randomUUID(),"stale"));assertTrue(service.displayForAdventure(adventure,owner).isEmpty());assertEquals(0,store.find(map.id()).orElseThrow().version());}
  @Test void activationReturnsNoValidPlayerSpawnWithoutPartialState(){AdventureId adventure=adventure();Set<GridPosition> blocked=Set.of(new GridPosition(0,0),new GridPosition(1,0),new GridPosition(0,1),new GridPosition(1,1));CombatMapViewService service=service(new PreparedMapData(new GridSpec(2,2,50,5),List.of(),blocked,List.of()));CombatMap map=service.prepareGenerated(owner,adventure,rules(),"opening");assertThrows(NoValidPlayerSpawnException.class,()->service.activateForAdventure(map.id(),owner,MapActivationContext.atStage(1)));assertTrue(service.displayForAdventure(adventure,owner).isEmpty());assertEquals(0,store.find(map.id()).orElseThrow().version());}
  @Test void adventureProjectionScopesActiveMapSelectionToRequestingOwnerBeforeSelecting() throws Exception {PreparedMapData data=data();CombatMapViewService service=service(data);AdventureId adventure=adventure();MapOwnerId other=new MapOwnerId(UUID.randomUUID());CombatMap own=service.prepareGenerated(owner,adventure,rules(),"own");CombatMap foreign=service.prepareGenerated(other,adventure,rules(),"foreign");try(Connection c=ds.getConnection();PreparedStatement p=c.prepareStatement("INSERT INTO adventure_active_tactical_map(adventure_id,stage_position,owner_player_id,combat_map_id,active) VALUES (?,?,?,?,true)")){p.setObject(1,adventure.value());p.setInt(2,1);p.setObject(3,other.value());p.setObject(4,foreign.id().value());p.executeUpdate();p.setInt(2,1);p.setObject(3,owner.value());p.setObject(4,own.id().value());p.executeUpdate();}assertEquals(own.id(),service.displayForAdventure(adventure,owner).orElseThrow().mapId());}

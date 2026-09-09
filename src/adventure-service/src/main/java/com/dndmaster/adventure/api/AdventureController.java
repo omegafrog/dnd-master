@@ -37,6 +37,7 @@ import com.dndmaster.adventure.application.combat.CombatStartParticipantFactory;
 import com.dndmaster.adventure.application.combat.CombatStartTransitionPolicy;
 import com.dndmaster.adventure.application.combat.CombatMapPlayerTokenResolver;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
+import com.dndmaster.adventure.application.combat.CombatMapEntryContextResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
@@ -298,25 +299,9 @@ public class AdventureController {
         CombatMapPreparationPort.ActivationContext context = new CombatMapPreparationPort.ActivationContext(
                 playerTokenId, situation.situationId(), situation.revision(), adventure.turnIndex(),
                 adventure.currentContext().currentScene(), situation.location(), null, null,
-                entrySide(adventure, situation));
-        combatMapPreparationPort.activatePrepared(adventure.id(), adventure.ownerPlayerId().value(),
+                CombatMapEntryContextResolver.entrySide(adventure, situation));
+    combatMapPreparationPort.activatePrepared(adventure.id(), adventure.ownerPlayerId().value(),
                 adventure.ruleSetId(), 1, context);
-    }
-
-    private static String entrySide(Adventure adventure, com.dndmaster.adventure.domain.runtime.CurrentSituation situation) {
-        String context = (adventure.currentContext().currentScene() + " " + situation.location() + " "
-                + situation.problem() + " " + situation.threat() + " " + situation.goal())
-                .toLowerCase(java.util.Locale.ROOT);
-        if (contains(context, "north", "북", "upper")) return "NORTH";
-        if (contains(context, "east", "동", "right")) return "EAST";
-        if (contains(context, "south", "남", "lower")) return "SOUTH";
-        if (contains(context, "west", "서", "left")) return "WEST";
-        return null;
-    }
-
-    private static boolean contains(String value, String... signals) {
-        for (String signal : signals) if (value.contains(signal)) return true;
-        return false;
     }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map/preparation")

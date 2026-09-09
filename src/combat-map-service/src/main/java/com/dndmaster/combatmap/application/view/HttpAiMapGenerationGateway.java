@@ -127,6 +127,7 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         if (request.mapImage() != null) {
             layers.add(new MapLayer("MAP_IMAGE", request.mapImage().dataUri(), LayerVisibility.PLAYER_VISIBLE));
             layers.add(new MapLayer("GRID_BOUNDS", initialGridBounds(request, width, height), LayerVisibility.PLAYER_VISIBLE));
+            detectedContentCrop(request.mapImage()).ifPresent(crop -> layers.add(new MapLayer("MAP_CROP", crop, LayerVisibility.PLAYER_VISIBLE)));
         }
         layers.add(new MapLayer("GRID_SOURCE", "GM_PROPOSED", LayerVisibility.PLAYER_VISIBLE));
         if (!boundaries.isEmpty()) layers.add(new MapLayer("MAP_BOUNDARIES", String.join(";", boundaries), LayerVisibility.PLAYER_VISIBLE));
@@ -173,6 +174,17 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         int originX = Math.max(0, (imageWidth - boundsWidth) / 2);
         int originY = Math.max(0, (imageHeight - boundsHeight) / 2);
         return originX + "," + originY + "," + boundsWidth + "," + boundsHeight + "," + imageWidth + "," + imageHeight;
+    }
+
+    private static java.util.Optional<String> detectedContentCrop(MapImageEvidence image) {
+        try {
+            var decoded = ImageIO.read(new ByteArrayInputStream(image.content()));
+            if (decoded == null) return java.util.Optional.empty();
+            MapContentBounds bounds = new MapContentBoundsDetector().detect(decoded);
+            return bounds.confidence() >= .10d
+                    ? java.util.Optional.of(bounds.x() + "," + bounds.y() + "," + bounds.width() + "," + bounds.height())
+                    : java.util.Optional.empty();
+        } catch (IOException ignored) { return java.util.Optional.empty(); }
     }
 
     private static Set<GridPosition> parsePositions(JsonNode values, int width, int height, String field) {

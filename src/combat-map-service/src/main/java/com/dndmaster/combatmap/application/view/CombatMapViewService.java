@@ -145,8 +145,20 @@ public final class CombatMapViewService {
         VersionedOwnedCombatMap state = owned(id, owner);
         List<CombatToken> nonPlayers = state.map().tokens().stream().filter(t -> t.type() != TokenType.PLAYER).toList();
         Set<GridPosition> occupied = nonPlayers.stream().map(CombatToken::position).collect(Collectors.toSet());
-        Optional<GridPosition> tactical = state.map().tokens().stream().filter(t -> t.type() == TokenType.PLAYER).map(CombatToken::position).findFirst();
-        SpawnResolution resolution = new SpawnResolutionPolicy().resolve(state.map().grid(), state.map().obstacles(), state.map().doors(), occupied, context, tactical);
+        Set<GridPosition> playable = new HashSet<>();
+        for (int y = 0; y < state.map().grid().height(); y++) for (int x = 0; x < state.map().grid().width(); x++) {
+            GridPosition position = new GridPosition(x, y);
+            if (state.map().isPlayable(position)) playable.add(position);
+        }
+        // A PLAYER token on a prepared draft may be an old AI suggestion (or a
+        // legacy map created before situation-based entry was introduced).  It
+        // is not authoritative until the map has actually entered combat.
+        // Otherwise that stale token would silently override the committed
+        // situation's entry side and place the party at an unrelated cell.
+        Optional<GridPosition> tactical = state.map().runtimeState().combatEntered()
+                ? state.map().tokens().stream().filter(t -> t.type() == TokenType.PLAYER).map(CombatToken::position).findFirst()
+                : Optional.empty();
+        SpawnResolution resolution = new SpawnResolutionPolicy().resolve(state.map().grid(), state.map().obstacles(), state.map().doors(), occupied, playable, context, tactical);
         List<CombatToken> tokens = new ArrayList<>(nonPlayers);
         tokens.add(new CombatToken(state.map().tokens().stream().filter(t -> t.type() == TokenType.PLAYER).findFirst().map(CombatToken::id)
                 .orElse(context.playerTokenId().map(TokenId::new).orElse(new TokenId(UUID.randomUUID()))),

@@ -139,15 +139,26 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const renderedGridHeight = hasGridBounds && !gridEditor && !usesSavedAlignment ? boundsHeight : previewGrid.height * previewGrid.cellSize
   const renderedImageWidth = imageWidth || mapImageSize.width
   const renderedImageHeight = imageHeight || mapImageSize.height
+  // The crop is gameplay data, not merely an image-editor aid.  In the player
+  // view, remove cells outside it altogether so an unplayable black canvas is
+  // never mistaken for unexplored dungeon space.
+  const playableWindow = !preparationMode ? playableGridWindow(map, previewGrid, grid) : null
+  const displayedColumns = playableWindow?.width ?? previewGrid.width
+  const displayedRows = playableWindow?.height ?? previewGrid.height
+  const displayedGridWidth = playableWindow ? displayedColumns * previewGrid.cellSize : renderedGridWidth
+  const displayedGridHeight = playableWindow ? displayedRows * previewGrid.cellSize : renderedGridHeight
   const backgroundPositionX = renderedImageWidth > renderedGridWidth ? `${(previewGrid.originX / (renderedImageWidth - renderedGridWidth)) * 100}%` : 'center'
   const backgroundPositionY = renderedImageHeight > renderedGridHeight ? `${(previewGrid.originY / (renderedImageHeight - renderedGridHeight)) * 100}%` : 'center'
   const preserveAlignmentForLayout = preparationMode && layoutEditing
   const mapStyle = {
-    '--grid-columns': previewGrid.width,
-    '--grid-rows': previewGrid.height,
-    '--map-aspect': `${Math.max(renderedGridWidth, 1)} / ${Math.max(renderedGridHeight, 1)}`,
+    '--grid-columns': displayedColumns,
+    '--grid-rows': displayedRows,
+    '--map-aspect': `${Math.max(displayedGridWidth, 1)} / ${Math.max(displayedGridHeight, 1)}`,
     ...(mapImage ? { backgroundImage: `url(${mapImage})` } : {}),
-    ...(hasGridBounds || gridEditor || usesSavedAlignment ? {
+    ...(playableWindow ? {
+      '--map-background-size': `${(renderedImageWidth / Math.max(crop.width, 1)) * 100}% ${(renderedImageHeight / Math.max(crop.height, 1)) * 100}%`,
+      '--map-background-position': `${(crop.x / Math.max(renderedImageWidth - crop.width, 1)) * 100}% ${(crop.y / Math.max(renderedImageHeight - crop.height, 1)) * 100}%`,
+    } : hasGridBounds || gridEditor || usesSavedAlignment ? {
       '--map-background-size': `${(renderedImageWidth / Math.max(renderedGridWidth, 1)) * 100}% ${(renderedImageHeight / Math.max(renderedGridHeight, 1)) * 100}%`,
       '--map-background-position': `${gridEditor ? 'left top' : backgroundPositionX} ${gridEditor ? 'left top' : backgroundPositionY}`,
     } : {}),
@@ -275,16 +286,17 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId)
             paintBoundaries(boundariesInStroke(stroke))
           }} onPointerCancel={() => { boundaryStroke.current = null; setBoundaryPreview(null) }}>
-        {Array.from({ length: previewGrid.width * previewGrid.height }, (_, index) => {
-          const cell = { x: index % previewGrid.width, y: Math.floor(index / previewGrid.width) }
+        {Array.from({ length: displayedColumns * displayedRows }, (_, index) => {
+          const cell = { x: (playableWindow?.minX ?? 0) + index % displayedColumns, y: (playableWindow?.minY ?? 0) + Math.floor(index / displayedColumns) }
           const token = map.tokens?.find(item => item.x === cell.x && item.y === cell.y)
+          const playable = isPlayableGridCell(map, previewGrid, cell)
           const blocked = !preparationMode && map.obstacles?.some(obstacle => obstacle.x === cell.x && obstacle.y === cell.y)
           const door = !preparationMode && map.doors?.find(item => item.x === cell.x && item.y === cell.y)
-          const visible = preparationMode || (map.current?.some(item => item.x === cell.x && item.y === cell.y)
-            ?? (!hasVisibilityMetadata && token?.type === 'PLAYER'))
-          const explored = map.explored?.some(item => item.x === cell.x && item.y === cell.y) ?? false
+          const visible = playable && (preparationMode || (map.current?.some(item => item.x === cell.x && item.y === cell.y)
+            ?? (!hasVisibilityMetadata && token?.type === 'PLAYER')))
+          const explored = playable && (map.explored?.some(item => item.x === cell.x && item.y === cell.y) ?? false)
           const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
-          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={preparationMode || blocked || !visible} draggable={!preparationMode && token?.type === 'PLAYER'} onDragStart={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id); else if (!preparationMode) chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
+          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={preparationMode || !playable || blocked || !visible} draggable={!preparationMode && token?.type === 'PLAYER'} onDragStart={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id); else if (!preparationMode) chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
             {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
           </button>
           })}
@@ -342,6 +354,32 @@ function gridPath(from: { x: number; y: number }, to: { x: number; y: number }) 
     path.push({ ...current })
   }
   return path
+}
+
+function isPlayableGridCell(map: CombatMapState | null, grid: { originX?: number; originY?: number; cellSize?: number }, cell: { x: number; y: number }) {
+  const crop = map?.layers?.find(layer => layer.type === 'MAP_CROP')?.value?.split(',').map(Number)
+  if (!crop || crop.length !== 4 || !crop.every(Number.isFinite) || crop[2] <= 0 || crop[3] <= 0) return true
+  const cellSize = grid.cellSize ?? 0
+  if (!Number.isFinite(cellSize) || cellSize <= 0) return true
+  const centerX = (grid.originX ?? 0) + (cell.x + .5) * cellSize
+  const centerY = (grid.originY ?? 0) + (cell.y + .5) * cellSize
+  return centerX >= crop[0] && centerX < crop[0] + crop[2] && centerY >= crop[1] && centerY < crop[1] + crop[3]
+}
+
+function playableGridWindow(map: CombatMapState | null, grid: { width: number; height: number; originX?: number; originY?: number; cellSize?: number }, fallback: { width: number; height: number }) {
+  const playable = Array.from({ length: grid.width * grid.height }, (_, index) => ({ x: index % grid.width, y: Math.floor(index / grid.width) }))
+    .filter(cell => isPlayableGridCell(map, grid, cell))
+  if (playable.length === 0 || playable.length === grid.width * grid.height) return null
+  const minX = Math.min(...playable.map(cell => cell.x))
+  const maxX = Math.max(...playable.map(cell => cell.x))
+  const minY = Math.min(...playable.map(cell => cell.y))
+  const maxY = Math.max(...playable.map(cell => cell.y))
+  // A malformed crop must not collapse the player map. Only trim a rectangular
+  // region when every cell in that region is part of the playable map.
+  const width = maxX - minX + 1
+  const height = maxY - minY + 1
+  if (playable.length !== width * height || width > fallback.width || height > fallback.height) return null
+  return { minX, minY, width, height }
 }
 
 function boundariesFrom(map: CombatMapState | null): MapBoundary[] {

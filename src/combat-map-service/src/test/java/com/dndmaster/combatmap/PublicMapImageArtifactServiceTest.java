@@ -47,6 +47,17 @@ class PublicMapImageArtifactServiceTest {
         assertEquals(2, fixture.store.saved.size());
     }
 
+    @Test void newEntryDoesNotReusePixelsFromAFormerExploredArea() {
+        Fixture fixture = new Fixture();
+        fixture.service.observe(fixture.map.id(), fixture.owner, 7).orElseThrow();
+        fixture.map.replaceVisibility(new VisibilitySnapshot(Set.of(new GridPosition(1, 0)), Set.of(new GridPosition(1, 0)), Set.of(), List.of(), 0));
+
+        PublicMapImageArtifact reset = fixture.service.observe(fixture.map.id(), fixture.owner, 8).orElseThrow();
+
+        assertEquals(Set.of(new GridPosition(1, 0)), reset.coveredCells());
+        assertEquals(2, fixture.store.saved.size());
+    }
+
     @Test void deniesImageWhenNoPersistedVisibilityExists() {
         Fixture fixture = new Fixture();
         fixture.map = fixture.mapWithVisibility(null);
