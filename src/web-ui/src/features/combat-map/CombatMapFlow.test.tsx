@@ -123,6 +123,28 @@ it('shows AI wall and door drafts across the full map during preparation', async
   expect(screen.queryByRole('button', { name: '위치 선택' })).not.toBeInTheDocument()
 })
 
+it('keeps the saved grid scale while reviewing a separately cropped image', async () => {
+  const api = fakeApi()
+  api.getCombatMapPreparation = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 2,
+    grid: { width: 2, height: 2 }, tokens: [],
+    layers: [
+      { type: 'GRID_BOUNDS', value: '0,0,60,60,120,90' },
+      { type: 'MAP_CROP', value: '0,0,100,80' },
+      { type: 'MAP_LAYOUT_CONFIRMED', value: 'USER|ALIGNMENT_VERSION=1' },
+    ],
+  })
+  api.getCombatMapPreparationImage = async () => '/preparation-map.png'
+  api.getMapGridAlignment = async () => ({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  await user.click(await screen.findByRole('button', { name: '벽·문·자르기 편집' }))
+  const map = within(screen.getByLabelText('맵 초안 검수')).getByLabelText('tactical-map')
+  expect(map.getAttribute('style')).toContain('--map-background-size: 200% 150%')
+  expect(map.getAttribute('style')).not.toContain('--map-background-size: 120% 112.5%')
+})
+
 it('runs AI wall detection only after grid confirmation and keeps the crop editor visible', async () => {
   const api = fakeApi()
   const before = { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, grid: { width: 2, height: 2 }, tokens: [] }

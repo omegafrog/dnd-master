@@ -140,6 +140,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const renderedImageHeight = imageHeight || mapImageSize.height
   const backgroundPositionX = renderedImageWidth > renderedGridWidth ? `${(previewGrid.originX / (renderedImageWidth - renderedGridWidth)) * 100}%` : 'center'
   const backgroundPositionY = renderedImageHeight > renderedGridHeight ? `${(previewGrid.originY / (renderedImageHeight - renderedGridHeight)) * 100}%` : 'center'
+  const preserveAlignmentForLayout = preparationMode && layoutEditing
   const mapStyle = {
     '--grid-columns': previewGrid.width,
     '--grid-rows': previewGrid.height,
@@ -149,7 +150,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       '--map-background-size': `${(renderedImageWidth / Math.max(renderedGridWidth, 1)) * 100}% ${(renderedImageHeight / Math.max(renderedGridHeight, 1)) * 100}%`,
       '--map-background-position': `${gridEditor ? 'left top' : backgroundPositionX} ${gridEditor ? 'left top' : backgroundPositionY}`,
     } : {}),
-    ...(!gridEditor && crop.width > 0 && crop.height > 0 ? {
+    ...(!gridEditor && !preserveAlignmentForLayout && crop.width > 0 && crop.height > 0 ? {
       '--map-background-size': `${((imageWidth || mapImageSize.width) / crop.width) * 100}% ${((imageHeight || mapImageSize.height) / crop.height) * 100}%`,
       '--map-background-position': `${(crop.x / Math.max((imageWidth || mapImageSize.width) - crop.width, 1)) * 100}% ${(crop.y / Math.max((imageHeight || mapImageSize.height) - crop.height, 1)) * 100}%`,
     } : {}),
