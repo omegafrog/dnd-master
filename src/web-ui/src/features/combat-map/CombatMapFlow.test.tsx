@@ -87,6 +87,20 @@ it('renders only the reviewed crop in the player map', async () => {
   expect(screen.queryByLabelText('지도 밖 영역')).not.toBeInTheDocument()
 })
 
+it('renders reviewed wall and door boundaries during an active turn', async () => {
+  const api = fakeApi()
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 4,
+    grid: { width: 2, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 0, y: 0 }],
+    current: [{ x: 0, y: 0 }], explored: [{ x: 0, y: 0 }],
+    layers: [{ type: 'MAP_BOUNDARIES', value: '1,0,HORIZONTAL,WALL,false;0,1,VERTICAL,DOOR,false' }],
+  })
+  render(<CombatMapView adventureId="a1" api={api} />)
+  const map = await screen.findByLabelText('tactical-map')
+  expect(map.querySelector('[data-boundary="HORIZONTAL:1:0"]')).toHaveClass('map-boundary-wall')
+  expect(map.querySelector('[data-boundary="VERTICAL:0:1"]')).toHaveClass('map-boundary-door')
+})
+
 it('renders the saved grid alignment in the map below the editor', async () => {
   const api = fakeApi()
   api.getPublicMapImage = async () => '/public-map-image.png'
@@ -128,6 +142,7 @@ it('shows the reviewed map during story conversation before combat starts', asyn
   api.getCombatMapPreparation = vi.fn().mockResolvedValue({
     adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 3,
     grid: { width: 2, height: 2 }, tokens: [], current: [], explored: [],
+    layers: [{ type: 'MAP_BOUNDARIES', value: '1,0,HORIZONTAL,WALL,false;0,1,VERTICAL,DOOR,false' }],
   })
 
   render(<CombatMapView adventureId="a1" api={api} />)
@@ -136,6 +151,8 @@ it('shows the reviewed map during story conversation before combat starts', asyn
   expect(screen.getByText('현재 맵 상태: story-map')).toBeInTheDocument()
   expect(api.getCombatMapPreparation).toHaveBeenCalledWith('a1')
   expect(screen.getAllByLabelText(/격자/)).toHaveLength(4)
+  expect(screen.getByLabelText('tactical-map').querySelector('[data-boundary="HORIZONTAL:1:0"]')).toHaveClass('map-boundary-wall')
+  expect(screen.getByLabelText('tactical-map').querySelector('[data-boundary="VERTICAL:0:1"]')).toHaveClass('map-boundary-door')
 })
 
 it('shows AI wall and door drafts across the full map during preparation', async () => {
