@@ -1,5 +1,6 @@
 package com.dndmaster.adventure.domain.runtime;
 
+import com.dndmaster.adventure.domain.scenario.DetailedStage;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -28,6 +29,13 @@ public record CurrentSituation(UUID situationId, long revision, String location,
 
     public static CurrentSituation initial(String startingSituation) {
         return new CurrentSituation(UUID.randomUUID(), 1, "starting area", startingSituation, "unresolved threat", startingSituation, null);
+    }
+
+    /** Builds the initial runtime context from the prepared first stage instead of its internal situation id. */
+    public static CurrentSituation fromOpeningStage(DetailedStage stage, String startingLocation) {
+        Objects.requireNonNull(stage, "opening stage must not be null");
+        return new CurrentSituation(UUID.randomUUID(), 1, required(startingLocation, "starting location"),
+                stage.coreProblem(), stage.threat().core(), stage.funnel().meaning(), null);
     }
 
     public CurrentSituation enterCombatScenario(String scenarioId) {

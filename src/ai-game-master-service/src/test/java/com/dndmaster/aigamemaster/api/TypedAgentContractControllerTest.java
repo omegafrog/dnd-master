@@ -58,6 +58,8 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("OUTPUT_CONTRACT"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scene, judgment, narration, situation, combatStart, and combatEnemies"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("MANDATORY: if a hostile creature"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("SESSION_OPENING"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("current location and why the party is here"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not use markdown"));
     }
 

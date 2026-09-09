@@ -50,7 +50,9 @@ public final class AdventureStartApplicationService {
             adventure.initializeScenarioRuntime(command.ownerPlayerId(),
                     com.dndmaster.adventure.domain.runtime.GameState.empty(),
                     com.dndmaster.adventure.domain.runtime.DisclosureState.empty(),
-                    com.dndmaster.adventure.domain.runtime.CurrentSituation.initial(prepared.openingSituation().situationId()),
+                    prepared.currentStage() == null
+                            ? com.dndmaster.adventure.domain.runtime.CurrentSituation.initial(prepared.openingSituation().situationId())
+                            : com.dndmaster.adventure.domain.runtime.CurrentSituation.fromOpeningStage(prepared.currentStage(), command.initialContext().currentScene()),
                     java.util.List.of(),
                     new com.dndmaster.adventure.domain.adventure.AdventureContext(
                             prepared.openingSituation().situationId(), null, null, null),

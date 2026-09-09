@@ -1,7 +1,6 @@
 export interface AdventureApi {
   subscribeEvents?(adventureId: string, afterVersion: number, onEvent: (event: AdventureSessionEvent) => void, onError?: () => void): () => void
   readConversation?(adventureId: string): Promise<AdventureConversationResponse>
-  startOpening?(adventureId: string, expectedVersion: number): Promise<AdventureMessageResponse>
   sendMessage(
     adventureId: string,
     message: string,
@@ -67,15 +66,6 @@ export class HttpAdventureApi implements AdventureApi {
     const response = await fetch(`/api/v1/adventures/${adventureId}/conversation`, { headers: { Authorization: `Bearer ${this.getToken()}` } })
     if (!response.ok) throw new Error('대화 기록을 불러오지 못했습니다.')
     return response.json() as Promise<AdventureConversationResponse>
-  }
-
-  async startOpening(adventureId: string, expectedVersion: number): Promise<AdventureMessageResponse> {
-    const response = await fetch(`/api/v1/adventures/${adventureId}/opening`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${this.getToken()}`, 'If-Match-Version': String(expectedVersion) },
-    })
-    if (!response.ok) throw new Error('오프닝 장면을 불러오지 못했습니다.')
-    return response.json() as Promise<AdventureMessageResponse>
   }
 
   async sendMessage(
