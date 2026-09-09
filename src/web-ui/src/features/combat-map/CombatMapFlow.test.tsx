@@ -122,6 +122,22 @@ it('does not render a tactical map while the story has not entered combat', asyn
   expect(screen.queryByRole('heading', { name: '플레이어 전투 맵' })).not.toBeInTheDocument()
 })
 
+it('shows the reviewed map during story conversation before combat starts', async () => {
+  const api = fakeApi()
+  api.getCombatMap = vi.fn().mockResolvedValue({ adventureId: 'a1', status: 'map-view', mapId: null, version: 2, grid: { width: 2, height: 2 }, tokens: [] })
+  api.getCombatMapPreparation = vi.fn().mockResolvedValue({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 3,
+    grid: { width: 2, height: 2 }, tokens: [], current: [], explored: [],
+  })
+
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  expect(await screen.findByLabelText('tactical-map')).toBeInTheDocument()
+  expect(screen.getByText('현재 맵 상태: story-map')).toBeInTheDocument()
+  expect(api.getCombatMapPreparation).toHaveBeenCalledWith('a1')
+  expect(screen.getAllByLabelText(/격자/)).toHaveLength(4)
+})
+
 it('shows AI wall and door drafts across the full map during preparation', async () => {
   const api = fakeApi()
   api.getCombatMapPreparation = async () => ({

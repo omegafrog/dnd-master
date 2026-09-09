@@ -39,9 +39,15 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     let active = true
     void (async () => {
       try {
-        const nextMap = preparationMode
+        const fetchedMap = preparationMode
           ? await (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId))
           : await api.getCombatMap(adventureId)
+        // Story turns happen before a tactical combat situation is active.
+        // The player still needs the reviewed map in that conversation, so
+        // fall back to the prepared projection instead of rendering nothing.
+        const nextMap = !preparationMode && !fetchedMap.mapId && api.getCombatMapPreparation
+          ? { ...await api.getCombatMapPreparation(adventureId), status: 'story-map' }
+          : fetchedMap
         if (!active) return
         setMap(nextMap)
         if (preparationMode) setLayoutSaved(false)
@@ -168,7 +174,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       '--map-background-position': `${(crop.x / Math.max((imageWidth || mapImageSize.width) - crop.width, 1)) * 100}% ${(crop.y / Math.max((imageHeight || mapImageSize.height) - crop.height, 1)) * 100}%`,
     } : {}),
   } as CSSProperties
-  const hasVisibilityMetadata = Array.isArray(map?.current) && Array.isArray(map?.explored)
+  const storyMap = map?.status === 'story-map'
+  const hasVisibilityMetadata = !storyMap && Array.isArray(map?.current) && Array.isArray(map?.explored)
   // A combat map is stage-scoped.  The backend returns an empty projection for
   // event/town stages; keep the entire tactical panel out of the player UI in
   // that state instead of showing a permanent "no map" panel.
@@ -309,7 +316,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           const playable = isPlayableGridCell(map, previewGrid, cell)
           const blocked = !preparationMode && map.obstacles?.some(obstacle => obstacle.x === cell.x && obstacle.y === cell.y)
           const door = !preparationMode && map.doors?.find(item => item.x === cell.x && item.y === cell.y)
-          const visible = playable && (preparationMode || (map.current?.some(item => item.x === cell.x && item.y === cell.y)
+          const visible = playable && (preparationMode || storyMap || (map.current?.some(item => item.x === cell.x && item.y === cell.y)
             ?? (!hasVisibilityMetadata && token?.type === 'PLAYER')))
           const explored = playable && (map.explored?.some(item => item.x === cell.x && item.y === cell.y) ?? false)
           const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
