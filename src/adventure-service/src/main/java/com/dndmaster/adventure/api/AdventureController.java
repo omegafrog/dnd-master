@@ -23,7 +23,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
@@ -142,14 +141,17 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns")
-    @Transactional
     public ResponseEntity<RuntimeTurnResponse> submitTypedTurn(
             @PathVariable UUID adventureId,
             @RequestHeader("Idempotency-Key") UUID commandId,
             @RequestHeader("If-Match-Version") long expectedVersion,
             @RequestBody GmTurnRequest request) {
         UUID owner = playerResolver.playerId();
-        gmTurnRepository.lockAdventure(adventureId);
+        // Do not hold a database transaction or advisory lock across the
+        // provider call. RuntimeTurnApplicationService persists each lifecycle
+        // step independently and enforces the adventure-version boundary;
+        // keeping the controller transaction open can deadlock failure
+        // recording when a provider request is interrupted.
         var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         adventure.reopen(new OwnerPlayerId(owner));
         var input = request.input().toDomain();
