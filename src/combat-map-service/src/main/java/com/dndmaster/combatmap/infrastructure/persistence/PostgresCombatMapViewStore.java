@@ -116,7 +116,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     @Override
     public Optional<VersionedOwnedCombatMap> findPreparedByAdventureId(AdventureId adventureId, MapOwnerId owner) {
         try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement("SELECT map.* FROM " + TABLE + " map WHERE map.adventure_id=? AND map.owner_player_id=? AND NOT EXISTS (SELECT 1 FROM adventure_active_tactical_map active_map WHERE active_map.adventure_id=map.adventure_id AND active_map.owner_player_id=map.owner_player_id AND active_map.active=true) ORDER BY map.updated_at DESC, map.map_id DESC LIMIT 1")) {
+                PreparedStatement statement = connection.prepareStatement("SELECT map.* FROM " + TABLE + " map WHERE map.adventure_id=? AND map.owner_player_id=? AND NOT EXISTS (SELECT 1 FROM adventure_active_tactical_map active_map WHERE active_map.combat_map_id=map.map_id AND active_map.active=true) ORDER BY map.updated_at DESC, map.map_id DESC LIMIT 1")) {
             statement.setObject(1, adventureId.value());
             statement.setObject(2, owner.value());
             try (ResultSet row = statement.executeQuery()) {
