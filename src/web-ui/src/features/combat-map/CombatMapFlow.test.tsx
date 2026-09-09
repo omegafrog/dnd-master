@@ -26,7 +26,13 @@ function fakeApi(): AdventurePlayApi {
     async deleteAdventure() {},
     async getSessionKnowledgeSet() { return { adventureId: 'a1', sessionId: 's1', knowledgeDocumentIds: [] } },
     async saveSessionKnowledgeSet() { return { adventureId: 'a1', sessionId: 's1', knowledgeDocumentIds: [] } },
+    async updateCombatMapLayout() {},
   }
+}
+
+async function confirmCrop(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole('button', { name: '전체 지도' }))
+  await user.click(screen.getByRole('button', { name: '자르기 적용' }))
 }
 
 it('shows character sheet, rolls dice, and shows combat map', async () => {
@@ -129,11 +135,13 @@ it('shows AI wall and door drafts across the full map during preparation', async
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
+  expect(screen.queryByRole('button', { name: '격자 맞추기' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '벽·문 편집' })).not.toBeInTheDocument()
+  await confirmCrop(user)
   const align = await screen.findByRole('button', { name: '격자 맞추기' })
-  expect(screen.queryByRole('button', { name: '벽·문·자르기 편집' })).not.toBeInTheDocument()
   await user.click(align)
   await user.click(screen.getByRole('button', { name: '적용' }))
-  await user.click(screen.getByRole('button', { name: '벽·문·자르기 편집' }))
+  await user.click(screen.getByRole('button', { name: '벽·문 편집' }))
   const editor = screen.getByLabelText('맵 초안 검수')
   const mapCanvas = within(editor).getByLabelText('tactical-map')
   const wall = mapCanvas.querySelector('[data-boundary="HORIZONTAL:1:0"]')
@@ -147,7 +155,7 @@ it('shows AI wall and door drafts across the full map during preparation', async
   expect(within(editor).getByRole('button', { name: '빈 격자 1,0' })).toBeDisabled()
   expect(within(editor).getByText('칸은 이동하거나 선택되지 않습니다.')).toBeInTheDocument()
   await user.click(within(editor).getByRole('button', { name: '편집 취소' }))
-  expect(screen.getByRole('button', { name: '벽·문·자르기 편집' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '벽·문 편집' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '위치 선택' })).not.toBeInTheDocument()
 })
 
@@ -164,10 +172,14 @@ it('keeps the saved grid scale while reviewing a separately cropped image', asyn
   })
   api.getCombatMapPreparationImage = async () => '/preparation-map.png'
   api.getMapGridAlignment = async () => ({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.applyMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
-  await user.click(await screen.findByRole('button', { name: '벽·문·자르기 편집' }))
+  await confirmCrop(user)
+  await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  await user.click(await screen.findByRole('button', { name: '벽·문 편집' }))
   const map = within(screen.getByLabelText('맵 초안 검수')).getByLabelText('tactical-map')
   expect(map.getAttribute('style')).toContain('--map-background-size: 200% 150%')
   expect(map.getAttribute('style')).not.toContain('--map-background-size: 120% 112.5%')
@@ -182,9 +194,10 @@ it('updates boundary feedback while dragging and restores the stroke on cancel',
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
+  await confirmCrop(user)
   await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
   await user.click(screen.getByRole('button', { name: '적용' }))
-  await user.click(await screen.findByRole('button', { name: '벽·문·자르기 편집' }))
+  await user.click(await screen.findByRole('button', { name: '벽·문 편집' }))
   const editor = screen.getByLabelText('맵 초안 검수')
   const canvas = within(editor).getByLabelText('tactical-map')
   Object.defineProperty(canvas, 'getBoundingClientRect', { value: () => ({ left: 0, top: 0, width: 200, height: 200 }) })
@@ -212,6 +225,7 @@ it('runs AI wall detection only after grid confirmation and keeps the crop edito
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
+  await confirmCrop(user)
   expect(screen.queryByRole('button', { name: 'AI 벽·문 감지' })).not.toBeInTheDocument()
   await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
   await user.click(screen.getByRole('button', { name: '적용' }))
@@ -220,10 +234,10 @@ it('runs AI wall detection only after grid confirmation and keeps the crop edito
 
   expect(api.detectMapBoundaries).toHaveBeenCalledWith('a1')
   expect(await screen.findByLabelText('지도 자르기')).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: '맵 초안 검수' }).parentElement).toHaveTextContent('AI가 현재 격자와 지도 이미지를 기준으로 벽·문을 찾습니다.')
+  expect(screen.getByRole('heading', { name: '3. AI 초안 생성 및 검수' }).parentElement).toHaveTextContent('현재 자른 영역과 격자를 기준으로 AI 초안을 생성합니다.')
 })
 
-it('lets the user approve or exclude each image boundary candidate before saving', async () => {
+it('does not show image-analysis candidate controls', async () => {
   const api = fakeApi()
   const map = { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, grid: { width: 2, height: 2 }, tokens: [] }
   api.getCombatMapPreparation = vi.fn().mockResolvedValue(map)
@@ -240,16 +254,13 @@ it('lets the user approve or exclude each image boundary candidate before saving
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
+  await confirmCrop(user)
   await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
   await user.click(screen.getByRole('button', { name: '적용' }))
   await user.click(await screen.findByRole('button', { name: 'AI 벽·문 감지' }))
 
-  const candidates = await screen.findByLabelText('이미지 분석 후보 설명')
-  expect(candidates).toHaveTextContent('이미지 분석 후보 1개')
-  expect(candidates).not.toHaveTextContent('후보 제외 1,1')
-  await user.click(within(candidates).getByRole('button', { name: '후보 승인 0,1' }))
-  expect(within(screen.getByLabelText('맵 초안 검수')).getByLabelText('tactical-map').querySelector('[data-boundary="HORIZONTAL:0:1"]')).toHaveClass('map-boundary-wall')
   expect(screen.queryByLabelText('이미지 분석 후보 설명')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: /후보 승인|후보 제외/ })).not.toBeInTheDocument()
 })
 
 it('does not treat a draft saved for an older grid as ready after reload', async () => {
@@ -382,9 +393,10 @@ it('refreshes the grid alignment after saving the map draft', async () => {
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
+  await confirmCrop(user)
   await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
   await user.click(screen.getByRole('button', { name: '적용' }))
-  await user.click(screen.getByRole('button', { name: '벽·문·자르기 편집' }))
+  await user.click(screen.getByRole('button', { name: '벽·문 편집' }))
   await user.click(screen.getByRole('button', { name: '맵 초안 저장' }))
   await user.click(screen.getByRole('button', { name: '격자 맞추기' }))
   await user.click(screen.getByRole('button', { name: '적용' }))
@@ -405,19 +417,21 @@ it('retries a map draft against the latest version after an AI update wins the r
     .mockResolvedValueOnce({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
   api.applyMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
   const update = vi.fn()
+    .mockResolvedValueOnce(undefined)
     .mockRejectedValueOnce(Object.assign(new Error('conflict'), { status: 409 }))
     .mockResolvedValueOnce(undefined)
   api.updateCombatMapLayout = update
   const user = userEvent.setup()
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
+  await confirmCrop(user)
   await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
   await user.click(screen.getByRole('button', { name: '적용' }))
-  await user.click(screen.getByRole('button', { name: '벽·문·자르기 편집' }))
+  await user.click(screen.getByRole('button', { name: '벽·문 편집' }))
   await user.click(screen.getByRole('button', { name: '맵 초안 저장' }))
 
-  await waitFor(() => expect(update).toHaveBeenCalledTimes(2))
-  expect(update.mock.calls[1][1]).toEqual(expect.objectContaining({ expectedVersion: 2 }))
+  await waitFor(() => expect(update).toHaveBeenCalledTimes(3))
+  expect(update.mock.calls[2][1]).toEqual(expect.objectContaining({ expectedVersion: 3 }))
   expect(screen.getByText('최신 초안에 변경 내용을 다시 적용했습니다.')).toBeInTheDocument()
 })
 
