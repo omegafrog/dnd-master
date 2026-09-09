@@ -196,11 +196,12 @@ public class AdventureApiConfiguration {
             AiCompanionGenerationPort aiCompanionGenerationPort,
             AiCompanionSheetCreationPort aiCompanionSheetCreationPort,
             com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort,
-            StageArtifactPreparationApplicationService stagePreparation) {
+            StageArtifactPreparationApplicationService stagePreparation,
+            com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService) {
         return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository,
                 runtimeBindingService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort,
                 sessionKnowledgeSetRepository, aiCompanionGenerationPort, aiCompanionSheetCreationPort,
-                combatMapPreparationPort, stagePreparation);
+                combatMapPreparationPort, stagePreparation, runtimeTurnService);
     }
 
     @Bean

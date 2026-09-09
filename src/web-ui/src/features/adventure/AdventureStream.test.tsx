@@ -100,7 +100,7 @@ it('uses the conversation version for opening instead of the session version', a
   render(<AdventureStream adventureId="a1" api={api} expectedVersion={6} />)
 
   expect(await screen.findByText('오프닝')).toBeInTheDocument()
-  expect(opening).toHaveBeenCalledWith('a1', 1)
+expect(opening).toHaveBeenCalledWith('a1', 1)
 })
 
 it('uses the persisted conversation version for the next turn', async () => {

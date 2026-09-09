@@ -223,27 +223,6 @@ public class AdventureController {
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
     }
 
-    /** Publishes the prepared opening narration before the first player action. */
-    @PostMapping("/api/v1/adventures/{adventureId}/opening")
-    public ResponseEntity<RuntimeTurnResponse> submitOpening(
-            @PathVariable UUID adventureId,
-            @RequestHeader("If-Match-Version") long expectedVersion) {
-        UUID owner = playerResolver.playerId();
-        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
-        if (!adventure.ownerPlayerId().value().equals(owner)) {
-            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
-        }
-        UUID turnId = UUID.nameUUIDFromBytes(("opening-turn:" + adventureId)
-                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        UUID commandId = UUID.nameUUIDFromBytes(("opening-command:" + adventureId)
-                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        RuntimeTurnResult result = runtimeTurnService.submitOpeningTurn(
-                new AdventureId(adventureId), new OwnerPlayerId(owner), turnId, commandId, expectedVersion);
-        sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
-                adventure.sessionId().value(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", turnId.toString()));
-        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
-    }
-
     @PostMapping("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/roll")
     RuntimeTurnResponse submitPlayerRoll(@PathVariable UUID adventureId, @PathVariable UUID pendingTurnId,
             @RequestBody PlayerRollRequest request) {

@@ -66,7 +66,9 @@ class ScenarioRuntimeAdventureStartTest {
         assertNotNull(started.currentSituation());
         assertNotNull(started.storyRuntimeState());
         assertEquals("opening-situation", started.storyRuntimeState().activeSituationId());
-        assertEquals("opening-situation", started.currentSituation().problem());
+        assertEquals("Find the key", started.currentSituation().problem());
+        assertEquals("The door is guarded", started.currentSituation().threat());
+        assertEquals("The key is found", started.currentSituation().goal());
         assertThrows(IllegalStateException.class, () -> started.lockScenarioPackage(UUID.randomUUID(), 99));
     }
 

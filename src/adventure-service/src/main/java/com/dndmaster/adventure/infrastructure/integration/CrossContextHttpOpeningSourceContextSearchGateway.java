@@ -20,7 +20,8 @@ import java.util.UUID;
 public final class CrossContextHttpOpeningSourceContextSearchGateway implements OpeningSourceContextSearchPort {
     private static final String OPENING_QUERY =
             "Find the first playable opening situation: the earliest numbered location where the party arrives and can act. "
-                    + "Return the immediate scene and location. Exclude summary sections, later locations, hazards, monster statistics, "
+                    + "Return the immediate scene, location, why the party is there, the immediate problem, and visible things they can respond to. "
+                    + "Exclude summary sections, later locations, hazards, monster statistics, "
                     + "combat rules, and damage procedures.";
     /** The story-source search already applies the opening-specific ordering; keep only its first result. */
     private static final int RESULT_LIMIT = 1;

@@ -31,6 +31,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 // 근거 수집 -> 계획 -> 안전 검사 -> 세션 저장 순서로 런타임 턴을 처리한다.
 public class RuntimeTurnApplicationService {
+    private static final String SESSION_OPENING_ACTION = "SESSION_OPENING";
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(RuntimeTurnApplicationService.class);
     private static final RuntimeTurnFailureClassifier FAILURE_CLASSIFIER = new RuntimeTurnFailureClassifier();
     private final AdventureRepository adventureRepository;
@@ -116,6 +117,19 @@ public class RuntimeTurnApplicationService {
         this.exemplarRetriever = query -> List.of();
         this.exemplarRetrievalAuditPort = audit -> { };
         this.narrativeStateService = null;
+    }
+
+    /** Persists the first GM message through the same runtime pipeline as every later turn. */
+    public RuntimeTurnResult openSessionTurn(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID requestId) {
+        Objects.requireNonNull(requestId, "opening request id must not be null");
+        RuntimeTurn existing = runtimeTurnRepository.findByCommandId(requestId).orElse(null);
+        if (existing != null && existing.lifecycle() == RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE) {
+            return retryPresentation(requestId);
+        }
+        UUID turnId = UUID.nameUUIDFromBytes(("session-turn-1:" + adventureId.value())
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return submitTurn(new SubmitRuntimeTurnCommand(adventureId, ownerPlayerId, turnId, requestId,
+                SESSION_OPENING_ACTION, -1, null, -1, true, true, false, List.of()));
     }
 
 
@@ -244,14 +258,6 @@ public class RuntimeTurnApplicationService {
                 .orElseThrow(() -> new IllegalStateException("scenario package not found"));
 
         return submitSafeScenarioRuntimeTurn(command, adventure, binding, scenarioPackage);
-    }
-
-    /** Publishes the prepared opening scene without fabricating a player action. */
-    public RuntimeTurnResult submitOpeningTurn(AdventureId adventureId, OwnerPlayerId ownerPlayerId,
-                                               UUID turnId, UUID commandId, long expectedVersion) {
-        return submitTurn(new SubmitRuntimeTurnCommand(adventureId, ownerPlayerId, turnId, commandId,
-                "오프닝 장면을 시작하며 스토리북 초반의 현재 장소를 묘사한다.", expectedVersion,
-                null, -1, false, true, false, List.of()));
     }
 
     private <T> T stage(UUID turnId, String stage, Supplier<T> operation) {
@@ -474,7 +480,9 @@ public class RuntimeTurnApplicationService {
         List<ConversationEntry> conversation = new ArrayList<>(turn.conversation());
         if (!turn.gmOnly()) conversation.add(new ConversationEntry(conversation.size(), "PLAYER", turn.action()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", prose.prose()));
-        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", presentedPlan.judgment()));
+        if (!turn.gmOnly() && presentedPlan.judgment() != null && !presentedPlan.judgment().isBlank()) {
+            conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", presentedPlan.judgment()));
+        }
         RuntimeTurn presented = new RuntimeTurn(turn.turnId(), turn.commandId(), turn.adventureId(), turn.sessionId(),
                 turn.scenarioPackageId(), turn.bindingVersion(), turn.action(), turn.evidencePack(), presentedPlan,
                 turn.activeSourceContext(), new AdventureContext(presentedPlan.scene(), presentedPlan.npcState(), turn.action(), presentedPlan.judgment()),
