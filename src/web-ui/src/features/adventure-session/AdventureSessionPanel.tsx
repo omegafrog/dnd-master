@@ -18,6 +18,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
   const [providerForm, setProviderForm] = useState({ provider: 'ollama', model: 'qwen3:8b', reasoning: 'medium' })
   const [candidate, setCandidate] = useState<AiCompanionCandidate | null>(null)
   const [preparingAdventureId, setPreparingAdventureId] = useState<string | null>(null)
+  const [runtimeStarting, setRuntimeStarting] = useState(false)
   const frozen = session?.status !== 'DRAFT'
   const load = () => void Promise.all([api.read(sessionId), api.listOwnedCharacters(ownerPlayerId), api.readGmProvider ? api.readGmProvider(sessionId) : Promise.resolve(null)]).then(([nextSession, ownedCharacters, nextProvider]) => { setSession(nextSession); setCharacters(ownedCharacters); if (nextSession.status === 'STARTING' && nextSession.adventureId) setPreparingAdventureId(nextSession.adventureId); if (nextProvider) { setProvider(nextProvider); setProviderForm({ provider: nextProvider.provider, model: nextProvider.model, reasoning: nextProvider.reasoning }) } }).catch(error => setMessage(error instanceof Error ? error.message : '세션을 불러오지 못했습니다.'))
   useEffect(load, [api, ownerPlayerId, sessionId])
@@ -62,7 +63,9 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
       .catch(error => setMessage(error instanceof Error ? error.message : 'AI 동료를 채택하지 못했습니다.'))
   }
   const startRuntime = () => {
-    if (!partyFull || !session.runtimeConfiguration) return
+    if (runtimeStarting || !partyFull || !session.runtimeConfiguration) return
+    setRuntimeStarting(true)
+    setMessage('시나리오 런타임과 맵을 준비하는 중입니다. 잠시만 기다려 주세요.')
     const adventureId = globalThis.crypto.randomUUID()
     const prepareMap = api.prepareMap
       ? (id: string, version: number, adventure: string) => api.prepareMap!(id, version, adventure)
@@ -70,7 +73,9 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
     void prepareMap(sessionId, session.version, adventureId).then(next => {
       setSession(next)
       setPreparingAdventureId(next.adventureId ?? adventureId)
+      setMessage('맵 준비 화면을 열었습니다. 격자를 맞춘 뒤 초안을 검수하세요.')
     }).catch(error => setMessage(error instanceof Error ? error.message : '시나리오 런타임을 시작하지 못했습니다.'))
+      .finally(() => setRuntimeStarting(false))
   }
   return <section className="session-page" aria-labelledby="session-party-heading">
     <div className="page-heading party-heading">
@@ -110,7 +115,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
       </aside>}
     </div>
 
-    {session.status === 'DRAFT' && <div className="session-start-actions"><button type="button" onClick={startRuntime} disabled={!partyFull || !session.runtimeConfiguration}>시나리오 런타임 시작</button>{partyFull && session.runtimeConfiguration && <p>시작 전에 맵 초안을 먼저 검수합니다.</p>}{!partyFull && <p>파티 정원 {session.characterLimit}명에 맞춰야 시작할 수 있습니다.</p>}{partyFull && !session.runtimeConfiguration && <p>런타임 설정이 없어 시나리오를 시작할 수 없습니다.</p>}</div>}
+    {session.status === 'DRAFT' && <div className="session-start-actions"><button type="button" onClick={startRuntime} disabled={runtimeStarting || !partyFull || !session.runtimeConfiguration} aria-busy={runtimeStarting}>{runtimeStarting ? '시나리오 런타임 준비 중…' : '시나리오 런타임 시작'}</button>{runtimeStarting && <p>맵을 준비하는 동안 잠시만 기다려 주세요. 같은 요청을 다시 보내지 않습니다.</p>}{!runtimeStarting && partyFull && session.runtimeConfiguration && <p>시작 전에 맵 초안을 먼저 검수합니다.</p>}{!runtimeStarting && !partyFull && <p>파티 정원 {session.characterLimit}명에 맞춰야 시작할 수 있습니다.</p>}{!runtimeStarting && partyFull && !session.runtimeConfiguration && <p>런타임 설정이 없어 시나리오를 시작할 수 없습니다.</p>}</div>}
 
     {preparingAdventureId && playApi && <section className="session-map-preparation" aria-label="모험 시작 전 맵 준비"><div className="page-heading"><div><p className="eyebrow">MAP PREPARATION</p><h2>모험 시작 전 맵 준비</h2><p>AI가 만든 벽과 문 초안을 확인하고, 격자를 맞추고, 여백을 잘라낸 뒤 모험을 시작하세요.</p></div></div><CombatMapView adventureId={preparingAdventureId} api={playApi} preparationMode onPreparationComplete={() => { if (session.status !== 'STARTING') return; void api.start(sessionId, session.version, preparingAdventureId).then(() => { window.location.hash = `#/adventures/${preparingAdventureId}` }).catch(error => setMessage(error instanceof Error ? error.message : '맵 준비를 완료하지 못했습니다.')) }} /></section>}
 
