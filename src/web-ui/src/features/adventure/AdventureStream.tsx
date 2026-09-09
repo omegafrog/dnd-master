@@ -15,7 +15,10 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
   const [conversationHydrated, setConversationHydrated] = useState(() => !api.readConversation)
   const [eventSubscriptionReady, setEventSubscriptionReady] = useState(() => !api.readConversation)
   const hydrationPending = Boolean(api.readConversation) && !conversationHydrated
-  const projectionVersion = useRef<number | null>(expectedVersion ?? (api.readConversation ? null : 0))
+  // The session version and the adventure conversation version are separate
+  // optimistic-lock streams. Once conversation hydration is available, start
+  // from its version instead of carrying the session version into opening.
+  const projectionVersion = useRef<number | null>(api.readConversation ? null : (expectedVersion ?? 0))
   const committedVersion = useRef(-1)
   const localTurn = useRef<LocalTurn | null>(null)
   const openingRequested = useRef<string | null>(null)
