@@ -212,7 +212,7 @@ it('updates boundary feedback while dragging and restores the stroke on cancel',
   expect(canvas.querySelector('[data-boundary="HORIZONTAL:1:1"]')).not.toBeInTheDocument()
 })
 
-it('runs AI wall detection only after grid confirmation and keeps the crop editor visible', async () => {
+it('runs AI wall detection only after grid confirmation and keeps crop editing collapsed', async () => {
   const api = fakeApi()
   const before = { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, grid: { width: 2, height: 2 }, tokens: [] }
   api.getCombatMapPreparation = vi.fn().mockResolvedValue(before)
@@ -233,8 +233,10 @@ it('runs AI wall detection only after grid confirmation and keeps the crop edito
   await user.click(detect)
 
   expect(api.detectMapBoundaries).toHaveBeenCalledWith('a1')
-  expect(await screen.findByLabelText('지도 자르기')).toBeInTheDocument()
+  expect(screen.queryByLabelText('지도 자르기')).not.toBeInTheDocument()
   expect(screen.getByRole('heading', { name: '3. AI 초안 생성 및 검수' }).parentElement).toHaveTextContent('현재 자른 영역과 격자를 기준으로 AI 초안을 생성합니다.')
+  await user.click(screen.getByRole('button', { name: '자르기 다시 수정' }))
+  expect(await screen.findByLabelText('지도 자르기')).toBeInTheDocument()
 })
 
 it('does not show image-analysis candidate controls', async () => {

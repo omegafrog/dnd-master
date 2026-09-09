@@ -23,6 +23,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [layoutSaved, setLayoutSaved] = useState(!preparationMode)
   const [gridConfirmed, setGridConfirmed] = useState(!preparationMode)
   const [cropConfirmed, setCropConfirmed] = useState(!preparationMode)
+  const [cropEditorOpen, setCropEditorOpen] = useState(preparationMode)
   const [crop, setCrop] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const [layoutSaving, setLayoutSaving] = useState(false)
   const [boundaryTool, setBoundaryTool] = useState<'WALL' | 'DOOR' | 'ERASE'>('WALL')
@@ -183,7 +184,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         boundaries: mapBoundaries, crop: localCrop,
       })
       const refreshed = await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))
-      setMap(refreshed); setCropConfirmed(true); setGridConfirmed(false); setLayoutDirty(false); setLayoutSaved(false)
+      setMap(refreshed); setCropConfirmed(true); setGridConfirmed(false); setCropEditorOpen(false); setLayoutDirty(false); setLayoutSaved(false)
       setMessage('여백 자르기를 적용했습니다. 이제 격자를 맞추세요.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '여백 자르기를 적용하지 못했습니다.')
@@ -338,9 +339,11 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {!compact && <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>}
       {preparationMode && mapImage && <section aria-label="맵 여백 자르기" className="map-crop-preparation">
         <h3>1. 맵 여백 자르기</h3>
-        <p>남길 영역을 드래그한 뒤 자르기 적용을 누르세요. 적용해야 다음 단계로 넘어갑니다.</p>
-        <MapCropEditor image={mapImage} crop={crop} onChange={next => { setCrop(next); setLayoutDirty(true); setLayoutSaved(false); setCropConfirmed(false) }} />
-        <button type="button" disabled={layoutSaving || crop.width <= 0 || crop.height <= 0} onClick={() => void applyCrop()}>자르기 적용</button>
+        {cropEditorOpen ? <>
+          <p>남길 영역을 드래그한 뒤 자르기 적용을 누르세요. 적용해야 다음 단계로 넘어갑니다.</p>
+          <MapCropEditor image={mapImage} crop={crop} onChange={next => { setCrop(next); setLayoutDirty(true); setLayoutSaved(false); setCropConfirmed(false) }} />
+          <button type="button" disabled={layoutSaving || crop.width <= 0 || crop.height <= 0} onClick={() => void applyCrop()}>자르기 적용</button>
+        </> : <button type="button" onClick={() => { setCropEditorOpen(true); setCropConfirmed(false); setGridConfirmed(false); setLayoutDirty(true); setLayoutSaved(false) }}>자르기 다시 수정</button>}
       </section>}
       {showGridEditor && (!preparationMode || cropConfirmed) ? <section aria-label="맵 격자 맞추기" className="map-grid-editor">
         <h3>2. 맵 격자 맞추기</h3>
