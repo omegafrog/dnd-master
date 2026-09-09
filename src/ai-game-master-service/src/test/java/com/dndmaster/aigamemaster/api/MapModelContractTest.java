@@ -155,6 +155,20 @@ class MapModelContractTest {
         org.junit.jupiter.api.Assertions.assertTrue(output.boundaries().stream().noneMatch(value -> value.startsWith("1,1,HORIZONTAL,DOOR")));
     }
 
+    @Test
+    void doesNotTurnAContinuousDarkFloorIntoAnAutomaticWall() throws Exception {
+        String image = dataUri(40, 30, graphics -> {
+            graphics.setColor(new java.awt.Color(18, 18, 18));
+            graphics.fillRect(0, 0, 40, 30);
+        });
+        MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(unavailableProvider(), mapper);
+
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(
+                "map", "room", "{\"gridWidth\":4,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":true}", image));
+
+        assertEquals(java.util.List.of(), output.boundaries());
+    }
+
     private static GmCompletionAdapter unavailableProvider() {
         return new GmCompletionAdapter() {
             @Override

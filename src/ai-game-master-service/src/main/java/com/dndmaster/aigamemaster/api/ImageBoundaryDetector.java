@@ -30,10 +30,12 @@ import java.util.Set;
  * 연속성을 함께 계산하므로 장식의 짧은 선은 자동 벽으로 확정하지 않는다.</p>
  */
 final class ImageBoundaryDetector {
-    private static final double MIN_CANDIDATE_SCORE = .28;
-    private static final double WALL_SCORE = .62;
-    private static final int MIN_DARK_THRESHOLD = 35;
-    private static final int MAX_DARK_THRESHOLD = 115;
+    // A wrong wall blocks movement and sight, while a missed wall is still easy
+    // for the user to draw. Bias the automatic draft strongly toward precision.
+    private static final double MIN_CANDIDATE_SCORE = .52;
+    private static final double WALL_SCORE = .78;
+    private static final int MIN_DARK_THRESHOLD = 25;
+    private static final int MAX_DARK_THRESHOLD = 90;
 
     private ImageBoundaryDetector() {}
 
@@ -217,8 +219,8 @@ final class ImageBoundaryDetector {
             double jambSignal = jambSignal(dark);
             double score = .45 * darkFraction + .30 * clamp(contrast * 2.4) + .25 * continuity;
             EdgeSample current = new EdgeSample(mean, median, darkFraction, contrast, continuity,
-                    clamp(coverage), jambSignal, score, true, score >= WALL_SCORE
-                    && darkFraction >= .55 && (contrast >= .08 || darkFraction >= .85));
+            clamp(coverage), jambSignal, score, true, score >= WALL_SCORE
+                    && coverage >= .90 && darkFraction >= .70 && continuity >= .78 && contrast >= .15);
             if (!best.valid() || current.score() > best.score()) best = current;
         }
         return best;
@@ -267,7 +269,7 @@ final class ImageBoundaryDetector {
                 count++;
             }
         }
-        int target = Math.max(0, (int) Math.floor(count * .20));
+        int target = Math.max(0, (int) Math.floor(count * .12));
         int seen = 0;
         int percentile = 255;
         for (int value = 0; value < histogram.length; value++) {
@@ -278,7 +280,7 @@ final class ImageBoundaryDetector {
             }
         }
         return Math.max(MIN_DARK_THRESHOLD, Math.min(MAX_DARK_THRESHOLD,
-                (int) Math.round(percentile * .72)));
+                (int) Math.round(percentile * .65)));
     }
 
     private static double median(List<Integer> values) {

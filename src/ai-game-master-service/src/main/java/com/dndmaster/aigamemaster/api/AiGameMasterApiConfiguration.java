@@ -109,7 +109,7 @@ public class AiGameMasterApiConfiguration {
                         + "boundaries must be an array of shared cell sides written x,y,HORIZONTAL,WALL or x,y,VERTICAL,DOOR. A HORIZONTAL side x,y spans above cell x,y; a VERTICAL side x,y spans left of cell x,y. Put visible walls and closed doors in boundaries. obstacles and doors must be empty arrays unless an entire cell is blocked. "
                         + "playerStart must be one grid cell written as x,y or an empty string. "
                         + "Use only the supplied map data and scenario evidence. Do not invent a structure that is not supported by the supplied data. "
-                        + "When MAP_IMAGE is provided, inspect the attached image and convert clearly visible wall and door lines to boundaries. Prefer continuous visible wall lines. "
+                        + "When MAP_IMAGE is provided, inspect the attached image and convert only clearly visible, continuous wall and door lines to boundaries. Be conservative: a dark floor texture, furniture edge, shadow, grid line, or decoration is not a wall. When unsure, omit it. "
                         + "Treat authored obstacle, door, boundary, and player-start coordinates as user-confirmed evidence and preserve them. If the image is unclear, omit the uncertain cell instead of guessing. "
                         + "For image-derived candidates, optionally include candidates with x, y, orientation, kind, confidence (0 to 1), evidence, and source. Confidence is a review score, not a guarantee. "
                         + "Keep every coordinate inside the returned width and height. A closed door cell must not also be an obstacle. "
