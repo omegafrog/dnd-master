@@ -28,17 +28,20 @@ public final class PublicMapImageArtifactService {
         CombatMap map = state.map();
         VisibilitySnapshot visibility = map.visibilitySnapshot();
         if (visibility == null) return Optional.empty();
-        String imageRevision;
-        try { imageRevision = MapGridAlignmentService.imageRevision(map); }
+        String sourceImageRevision;
+        try { sourceImageRevision = MapGridAlignmentService.imageRevision(map); }
         catch (RuntimeException ignored) { return Optional.empty(); }
+        MapGridAlignment alignment = alignments.find(mapId).orElseGet(() -> MapGridAlignmentService.legacy(map));
+        if (!alignment.imageRevision().equals(sourceImageRevision)) return Optional.empty();
+        // 정렬 버전이 바뀌면 같은 원본 이미지라도 마스크 좌표가 달라진다.
+        // 원본 SHA만 캐시 키로 쓰면 이전 정렬의 검은색 마스크를 계속 재사용한다.
+        String imageRevision = artifactRevision(sourceImageRevision, alignment.version());
         Optional<PublicMapImageArtifact> sameObservation = artifacts.findByObservation(owner, mapId, imageRevision, observationVersion);
         if (sameObservation.isPresent()) return sameObservation;
         Optional<PublicMapImageArtifact> lastSafe = artifacts.findLatest(owner, mapId, imageRevision);
         try {
             var explored = PlayerSafeFogProjection.filter(visibility.explored(), map.layers());
             if (explored.isEmpty()) return lastSafe;
-            MapGridAlignment alignment = alignments.find(mapId).orElseGet(() -> MapGridAlignmentService.legacy(map));
-            if (!alignment.imageRevision().equals(imageRevision)) return lastSafe;
             var newlyCovered = new java.util.HashSet<>(explored);
             lastSafe.ifPresent(previous -> newlyCovered.removeAll(previous.coveredCells()));
             if (lastSafe.isPresent() && newlyCovered.isEmpty()) return lastSafe;
@@ -72,11 +75,18 @@ public final class PublicMapImageArtifactService {
         VersionedOwnedCombatMap state = maps.find(mapId).orElseThrow(CombatMapAccessDeniedException::new);
         if (!state.owner().equals(owner)) throw new CombatMapAccessDeniedException();
         try {
-            return artifacts.findLatest(owner, mapId, MapGridAlignmentService.imageRevision(state.map()))
+            String sourceRevision = MapGridAlignmentService.imageRevision(state.map());
+            MapGridAlignment alignment = alignments.find(mapId).orElseGet(() -> MapGridAlignmentService.legacy(state.map()));
+            if (!alignment.imageRevision().equals(sourceRevision)) return Optional.empty();
+            return artifacts.findLatest(owner, mapId, artifactRevision(sourceRevision, alignment.version()))
                     .map(PublicMapImageArtifact::reference);
         } catch (RuntimeException exception) {
             return Optional.empty();
         }
+    }
+
+    static String artifactRevision(String sourceImageRevision, long alignmentVersion) {
+        return sourceImageRevision + "~alignment-" + alignmentVersion;
     }
 
     /** 맵 준비 단계에서 소유자에게만 원본을 전달한다. 플레이 중 공개 이미지 경로와 분리한다. */

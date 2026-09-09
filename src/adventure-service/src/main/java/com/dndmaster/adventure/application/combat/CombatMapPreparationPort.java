@@ -15,6 +15,12 @@ public interface CombatMapPreparationPort {
         return prepareInitial(adventureId, ownerPlayerId, ruleSetId, mapDefinition, stagePosition);
     }
 
+    /** 맵 초안만 만들고 활성화하지 않는다. 실제 시작 위치는 사용자가 초안을 확정한 뒤 정한다. */
+    default UUID prepareDraft(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
+            MapDefinition mapDefinition, ActivationContext context) {
+        return prepareInitial(adventureId, ownerPlayerId, ruleSetId, mapDefinition, 1, context);
+    }
+
     /** Final start guard for the owner-edited map draft. Missing maps are not blocked. */
     default boolean mapLayoutConfirmed(AdventureId adventureId, UUID ownerPlayerId) { return true; }
 

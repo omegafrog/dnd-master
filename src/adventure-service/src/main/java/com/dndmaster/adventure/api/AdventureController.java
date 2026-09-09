@@ -299,7 +299,7 @@ public class AdventureController {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
-        UUID mapId = combatMapViewPort.playerView(adventureId, owner).orElseThrow().mapId();
+        UUID mapId = editingMap(adventureId, owner).mapId();
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> obstacles = request.obstacles() == null ? List.of() : request.obstacles().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Position(p.x(), p.y())).toList();
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Door> doors = request.doors() == null ? List.of() : request.doors().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Door(p.x(), p.y(), false)).toList();
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary> boundaries = request.boundaries() == null ? List.of() : request.boundaries().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary(p.x(), p.y(), p.orientation(), p.kind(), p.open())).toList();
@@ -321,7 +321,7 @@ public class AdventureController {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
-        UUID mapId = combatMapViewPort.playerView(adventureId, owner).orElseThrow().mapId();
+        UUID mapId = editingMap(adventureId, owner).mapId();
         return CombatMapAlignmentResponse.from(combatMapViewPort.alignment(mapId, owner));
     }
 
@@ -330,7 +330,7 @@ public class AdventureController {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
-        UUID mapId = combatMapViewPort.playerView(adventureId, owner).orElseThrow().mapId();
+        UUID mapId = editingMap(adventureId, owner).mapId();
         return ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
                 .cacheControl(org.springframework.http.CacheControl.noStore())
                 .body(combatMapViewPort.alignmentImage(mapId, owner, imageViewId));
@@ -341,7 +341,7 @@ public class AdventureController {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
-        UUID mapId = combatMapViewPort.playerView(adventureId, owner).orElseThrow().mapId();
+        UUID mapId = editingMap(adventureId, owner).mapId();
         return ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
                 .cacheControl(org.springframework.http.CacheControl.noStore()).body(combatMapViewPort.preparationImage(mapId, owner));
     }
@@ -351,7 +351,7 @@ public class AdventureController {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
-        UUID activeMap = combatMapViewPort.playerView(adventureId, owner).orElseThrow().mapId();
+        UUID activeMap = editingMap(adventureId, owner).mapId();
         if (!activeMap.equals(request.mapId())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND);
         try {
             return CombatMapAlignmentResponse.from(combatMapViewPort.applyAlignment(activeMap, owner,
@@ -588,6 +588,13 @@ public class AdventureController {
     private static UUID canonicalPlayerTokenId(UUID characterSheetId) {
         return UUID.nameUUIDFromBytes(("player-" + Objects.requireNonNull(characterSheetId))
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    /** 준비 단계와 플레이 단계 모두에서 같은 맵을 편집 대상으로 선택한다. */
+    private com.dndmaster.adventure.application.combat.CombatMapViewPort.View editingMap(UUID adventureId, UUID owner) {
+        return combatMapViewPort.preparationView(adventureId, owner)
+                .or(() -> combatMapViewPort.playerView(adventureId, owner))
+                .orElseThrow();
     }
 
     private com.dndmaster.adventure.domain.adventure.AdventurePartyMember characterSheetForToken(

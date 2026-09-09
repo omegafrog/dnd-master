@@ -183,9 +183,14 @@ public final class AdventureSessionApplicationService {
         }
         initializeSessionKnowledgeSetIfMissing(session, scenarioPackage);
         Adventure activeAdventure = adventure;
-        scenarioPackage.initialMapDefinition(configuration.initialScene()).ifPresent(mapDefinition ->
-                combatMapPreparationPort.prepareInitial(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, 1,
-                        activationContext(activeAdventure, session)));
+        scenarioPackage.initialMapDefinition(configuration.initialScene()).ifPresent(mapDefinition -> {
+            var context = activationContext(activeAdventure, session);
+            if (prepareMapOnly) {
+                combatMapPreparationPort.prepareDraft(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, context);
+            } else {
+                combatMapPreparationPort.prepareInitial(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, 1, context);
+            }
+        });
         if (prepareMapOnly) return session;
         runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(effectiveAdventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
         if (session.status() == AdventureSession.Status.STARTING) {
@@ -209,7 +214,11 @@ public final class AdventureSessionApplicationService {
     }
 
     private static String entrySide(Adventure adventure, com.dndmaster.adventure.domain.runtime.CurrentSituation situation) {
-        String context = (adventure.currentContext().currentScene() + " " + situation.location()).toLowerCase(java.util.Locale.ROOT);
+        // 진입 방향은 지도 준비 시점의 임의 좌표가 아니라 현재 시추에이션의
+        // 장소·문제·위협·목표와 장면 설명에서만 추출한다.
+        String context = (adventure.currentContext().currentScene() + " " + situation.location() + " "
+                + situation.problem() + " " + situation.threat() + " " + situation.goal())
+                .toLowerCase(java.util.Locale.ROOT);
         if (contains(context, "north", "북", "upper")) return "NORTH";
         if (contains(context, "east", "동", "right")) return "EAST";
         if (contains(context, "south", "남", "lower")) return "SOUTH";

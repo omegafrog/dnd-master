@@ -8,15 +8,15 @@ import java.util.*;
 import org.junit.jupiter.api.Test;
 
 class PublicMapImageArtifactServiceTest {
-    @Test void storesOneImageForAnAuthoritativeObservationAndNeverRegeneratesItForLaterAlignment() {
+    @Test void regeneratesImageWhenAlignmentVersionChanges() {
         Fixture fixture = new Fixture();
         PublicMapImageArtifact first = fixture.service.observe(fixture.map.id(), fixture.owner, 7).orElseThrow();
-        fixture.alignments.value = new MapGridAlignment(fixture.map.id(), first.imageRevision(), 2, 0, 2, 1);
+        fixture.alignments.value = new MapGridAlignment(fixture.map.id(), MapGridAlignmentService.imageRevision(fixture.map), 2, 0, 2, 1);
 
         PublicMapImageArtifact repeated = fixture.service.observe(fixture.map.id(), fixture.owner, 7).orElseThrow();
 
-        assertEquals(first, repeated);
-        assertEquals(1, fixture.store.saved.size());
+        assertNotEquals(first.imageRevision(), repeated.imageRevision());
+        assertEquals(2, fixture.store.saved.size());
         assertEquals(7, first.observationVersion());
         assertEquals(1, first.publicAreaRevision());
         assertTrue(first.reference().contains(fixture.owner.value().toString()));
@@ -38,13 +38,13 @@ class PublicMapImageArtifactServiceTest {
     @Test void alignmentChangeCannotAddPixelsForCellsAlreadyObservedOnALaterMapVersion() {
         Fixture fixture = new Fixture();
         PublicMapImageArtifact first = fixture.service.observe(fixture.map.id(), fixture.owner, 7).orElseThrow();
-        fixture.alignments.value = new MapGridAlignment(fixture.map.id(), first.imageRevision(), 1, 0, 2, 1);
+        fixture.alignments.value = new MapGridAlignment(fixture.map.id(), MapGridAlignmentService.imageRevision(fixture.map), 1, 0, 2, 1);
         fixture.maps.version = 8;
 
         PublicMapImageArtifact later = fixture.service.observe(fixture.map.id(), fixture.owner, 8).orElseThrow();
 
-        assertEquals(first, later);
-        assertEquals(1, fixture.store.saved.size());
+        assertNotEquals(first.imageRevision(), later.imageRevision());
+        assertEquals(2, fixture.store.saved.size());
     }
 
     @Test void deniesImageWhenNoPersistedVisibilityExists() {

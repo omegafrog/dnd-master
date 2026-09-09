@@ -82,6 +82,17 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
     @Override
     public UUID prepareInitial(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
             MapDefinition mapDefinition, int stagePosition, CombatMapPreparationPort.ActivationContext context) {
+        return sendPrepare(adventureId, ownerPlayerId, ruleSetId, mapDefinition, stagePosition, context);
+    }
+
+    @Override
+    public UUID prepareDraft(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
+            MapDefinition mapDefinition, CombatMapPreparationPort.ActivationContext context) {
+        return sendPrepare(adventureId, ownerPlayerId, ruleSetId, mapDefinition, null, context);
+    }
+
+    private UUID sendPrepare(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
+            MapDefinition mapDefinition, Integer stagePosition, CombatMapPreparationPort.ActivationContext context) {
         Request payload = new Request(adventureId.value(), ownerPlayerId, ruleSetId.value(), mapDefinition.id(),
                 mapDefinition.assetId(), mapDefinition.assetLocator(), stagePosition,
                 context.spawnCandidateX(), context.spawnCandidateY(), context.playerTokenId(), context.situationId(),
@@ -109,7 +120,7 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
     }
 
     private record Request(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId,
-            String assetId, String assetLocator, int stagePosition, Integer playerSpawnX, Integer playerSpawnY,
+            String assetId, String assetLocator, Integer stagePosition, Integer playerSpawnX, Integer playerSpawnY,
             UUID playerTokenId, UUID situationId, long situationRevision, int turnIndex,
             String currentScene, String location, String entrySide,
             List<String> walls, List<String> doors, List<String> obstacles,

@@ -37,12 +37,16 @@ public final class CombatMapViewService {
     }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules,
             MapGenerationRequest request) {
+        return prepareGenerated(owner, adventure, rules, request, true);
+    }
+    public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules,
+            MapGenerationRequest request, boolean includeAiPlayerStart) {
         PreparedMapData generated = aiPort.generate(request);
         Set<GridPosition> mergedObstacles = new HashSet<>(generated.obstacles());
         mergedObstacles.addAll(request.authoredObstacles());
         List<Door> mergedDoors = new ArrayList<>(generated.doors());
         mergedDoors.addAll(request.authoredDoors());
-        return saveNew(owner, adventure, rules, new PreparedMapData(generated.grid(), generated.tokens(), mergedObstacles, generated.layers(), mergedDoors));
+        return saveNew(owner, adventure, rules, new PreparedMapData(generated.grid(), generated.tokens(), mergedObstacles, generated.layers(), mergedDoors), null, null, includeAiPlayerStart);
     }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description, int spawnX, int spawnY) {
         if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
@@ -63,16 +67,24 @@ public final class CombatMapViewService {
         return saveNew(owner, adventure, rules, new PreparedMapData(prepared.grid(), tactical.tokens(), tactical.obstacles(),
                 java.util.stream.Stream.concat(prepared.layers().stream(), tactical.layers().stream()).toList()));
     }
-    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) { return saveNew(owner, adventure, rules, data, null, null); }
-    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, Integer spawnX, Integer spawnY) {
+    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) { return saveNew(owner, adventure, rules, data, null, null, true); }
+    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, Integer spawnX, Integer spawnY) { return saveNew(owner, adventure, rules, data, spawnX, spawnY, true); }
+    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, Integer spawnX, Integer spawnY, boolean includeAiPlayerStart) {
         List<CombatToken> tokens = new ArrayList<>(data.tokens());
-        data.layers().stream().filter(layer -> layer.type().equals("GM_PLAYER_START")).findFirst()
-                .flatMap(layer -> parsePosition(layer.value())).ifPresent(position -> {
-                    if (tokens.stream().noneMatch(token -> token.type() == TokenType.PLAYER)) {
-                        tokens.add(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
-                                position, TokenController.PLAYER, new PlayerId(owner.value())));
-                    }
-                });
+        if (!includeAiPlayerStart) {
+            // 준비/활성화 경계에서는 AI가 제안한 PLAYER를 위치 결정으로
+            // 오인하지 않도록 제거하고, 활성화 때 상황 문맥으로 다시 만든다.
+            tokens.removeIf(token -> token.type() == TokenType.PLAYER);
+        }
+        if (includeAiPlayerStart) {
+            data.layers().stream().filter(layer -> layer.type().equals("GM_PLAYER_START")).findFirst()
+                    .flatMap(layer -> parsePosition(layer.value())).ifPresent(position -> {
+                        if (tokens.stream().noneMatch(token -> token.type() == TokenType.PLAYER)) {
+                            tokens.add(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
+                                    position, TokenController.PLAYER, new PlayerId(owner.value())));
+                        }
+                    });
+        }
         if (tokens.stream().noneMatch(token -> token.type() == TokenType.PLAYER) && spawnX != null && spawnY != null) {
             tokens.add(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
                     new GridPosition(spawnX, spawnY), TokenController.PLAYER, new PlayerId(owner.value())));
@@ -119,8 +131,12 @@ public final class CombatMapViewService {
     public CombatMap displayForGm(MapId id, MapOwnerId owner) { return owned(id, owner).map(); }
     public Optional<PlayerCombatMapView> displayForAdventure(AdventureId adventureId, MapOwnerId owner) { return store.findByAdventureId(adventureId, owner).map(state -> { observePublicImage(state.map().id(), owner, state); return projection(state.map(), state.version()); }); }
     public Optional<PlayerCombatMapView> displayForPreparation(AdventureId adventureId, MapOwnerId owner) {
-        return store.findByAdventureId(adventureId, owner).map(state -> new PlayerCombatMapView(state.map().id(), state.map().grid(), state.map().tokens(),
+        return store.findPreparedByAdventureId(adventureId, owner).or(() -> store.findByAdventureId(adventureId, owner))
+                .map(state -> new PlayerCombatMapView(state.map().id(), state.map().grid(), state.map().tokens(),
                 state.map().obstacles(), state.map().doors().stream().toList(), playerSafeLayers(state.map()), Set.of(), Set.of(), Set.of(), state.version()));
+    }
+    public Optional<MapId> preparedMapIdForAdventure(AdventureId adventureId, MapOwnerId owner) {
+        return store.findPreparedByAdventureId(adventureId, owner).map(state -> state.map().id());
     }
     public void activateForAdventure(MapId id, MapOwnerId owner, int stagePosition) {
         activateForAdventure(id, owner, MapActivationContext.atStage(stagePosition));

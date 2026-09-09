@@ -101,6 +101,14 @@ public class CombatMapController {
         if (request.stagePosition() != null) {
             var existing = mapViewService.displayForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
             if (existing.isPresent()) return new PrepareResponse(existing.get().mapId().value());
+            var prepared = mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
+            if (prepared.isPresent()) {
+                activatePreparedMap(request, prepared.get());
+                return new PrepareResponse(prepared.get().value());
+            }
+        } else {
+            var prepared = mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
+            if (prepared.isPresent()) return new PrepareResponse(prepared.get().value());
         }
         Set<GridPosition> authoredObstacles = authoredPositions(request.obstacles(), "obstacles");
         authoredObstacles.addAll(authoredPositions(request.walls(), "walls"));
@@ -117,7 +125,7 @@ public class CombatMapController {
                                 20, 20, 30, 5, authoredObstacles, authoredDoors,
                                 request.playerSpawnX() == null || request.playerSpawnY() == null ? null
                                         : new GridPosition(request.playerSpawnX(), request.playerSpawnY()),
-                                mapImage.orElse(null)))
+                                mapImage.orElse(null)), false)
                 : request.sourceImage() != null && !request.sourceImage().isBlank()
                 ? mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(),
@@ -143,6 +151,21 @@ public class CombatMapController {
                             request.turnIndex(), request.currentScene(), request.location()));
         }
         return new PrepareResponse(map.id().value());
+    }
+
+    private void activatePreparedMap(PrepareRequest request, MapId mapId) {
+        java.util.Optional<GridPosition> candidate = request.playerSpawnX() == null || request.playerSpawnY() == null
+                ? java.util.Optional.empty() : java.util.Optional.of(new GridPosition(request.playerSpawnX(), request.playerSpawnY()));
+        java.util.Optional<MapActivationContext.EntrySide> entrySide;
+        try {
+            entrySide = request.entrySide() == null || request.entrySide().isBlank() ? java.util.Optional.empty()
+                    : java.util.Optional.of(MapActivationContext.EntrySide.valueOf(request.entrySide().trim().toUpperCase(java.util.Locale.ROOT)));
+        } catch (IllegalArgumentException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid entry side", exception);
+        }
+        mapViewService.activateForAdventure(mapId, new MapOwnerId(request.ownerId()), MapActivationContext.from(
+                request.stagePosition(), candidate, entrySide, java.util.Optional.ofNullable(request.playerTokenId()),
+                request.situationId(), request.situationRevision(), request.turnIndex(), request.currentScene(), request.location()));
     }
 
     @PostMapping(value = "/internal/v1/combat-maps/prepare-upload", consumes = "multipart/form-data")

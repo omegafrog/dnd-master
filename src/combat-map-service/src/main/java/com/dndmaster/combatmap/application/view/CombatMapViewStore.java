@@ -9,6 +9,11 @@ public interface CombatMapViewStore {
 
     Optional<VersionedOwnedCombatMap> find(MapId id);
     Optional<VersionedOwnedCombatMap> findByAdventureId(AdventureId adventureId, MapOwnerId owner);
+
+    /** 활성화 전 사용자가 편집 중인 맵 초안. */
+    default Optional<VersionedOwnedCombatMap> findPreparedByAdventureId(AdventureId adventureId, MapOwnerId owner) {
+        return Optional.empty();
+    }
     Optional<VersionedOwnedCombatMap> findByCommandId(UUID commandId);
 
     default void activate(AdventureId adventureId, MapOwnerId owner, MapId mapId, int stagePosition) {

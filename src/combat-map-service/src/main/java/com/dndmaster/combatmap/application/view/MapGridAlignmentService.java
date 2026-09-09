@@ -69,7 +69,7 @@ public final class MapGridAlignmentService {
         return new MapGridAlignment(map.id(), imageRevision(map), 0, 0, map.grid().cellSize(), 0);
     }
 
-    static String imageRevision(CombatMap map) {
+    public static String imageRevision(CombatMap map) {
         String image = mapImage(map);
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(image.getBytes(StandardCharsets.UTF_8)));
