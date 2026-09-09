@@ -42,7 +42,7 @@ class TypedAgentContractControllerTest {
             public <T> T complete(String operation, String value,
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 prompt.set(value);
-                return parser.parse("{\"scene\":\"brewery\",\"judgment\":\"safe\",\"narration\":\"The room is quiet.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush") + ",\"combatStart\":true,\"combatEnemies\":[{\"scenarioId\":\"cellar-rat-ambush\",\"enemyKey\":\"giant-rat\",\"name\":\"Giant Rat\",\"count\":8}]}");
+                return parser.parse("{\"scene\":\"양조장\",\"judgment\":\"안전함\",\"narration\":\"방 안은 조용합니다.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush") + ",\"combatStart\":true,\"combatEnemies\":[{\"scenarioId\":\"cellar-rat-ambush\",\"enemyKey\":\"giant-rat\",\"name\":\"거대 쥐\",\"count\":8}]}");
             }
         };
 
@@ -50,7 +50,7 @@ class TypedAgentContractControllerTest {
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
         TypedAgentContractController.RuntimeTurnResponse response = controller.runtimeTurn("service-secret",
-                new TypedAgentContractController.RuntimeTurnRequest("op", "look around", List.of()));
+                new TypedAgentContractController.RuntimeTurnRequest("op", "SESSION_OPENING", List.of()));
 
         org.junit.jupiter.api.Assertions.assertTrue(response.combatStart());
         org.junit.jupiter.api.Assertions.assertEquals("cellar-rat-ambush", response.combatEnemies().get(0).scenarioId());
@@ -58,7 +58,51 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("OUTPUT_CONTRACT"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scene, judgment, narration, situation, combatStart, and combatEnemies"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("MANDATORY: if a hostile creature"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("SESSION_OPENING"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("current location and why the party is here"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("LANGUAGE_CONTRACT"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("only in natural Korean"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not output English or any other foreign-language words"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("end with a Korean question"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not use markdown"));
+    }
+
+    @Test
+    void opening_rejects_player_visible_text_that_contains_a_foreign_language() {
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String prompt,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"scene\":\"양조장\",\"judgment\":\"안전함\","
+                        + "\"narration\":\"The room is quiet.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
+                        + ",\"combatStart\":false,\"combatEnemies\":[]}");
+            }
+        };
+        TypedAgentContractController controller = new TypedAgentContractController(
+                adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> controller.runtimeTurn("service-secret",
+                        new TypedAgentContractController.RuntimeTurnRequest("op", "SESSION_OPENING", List.of())));
+    }
+
+    @Test
+    void opening_rejects_player_visible_text_without_korean_letters() {
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String prompt,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"scene\":\"양조장\",\"judgment\":\"안전함\","
+                        + "\"narration\":\"123 !!!\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
+                        + ",\"combatStart\":false,\"combatEnemies\":[]}");
+            }
+        };
+        TypedAgentContractController controller = new TypedAgentContractController(
+                adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> controller.runtimeTurn("service-secret",
+                        new TypedAgentContractController.RuntimeTurnRequest("op", "SESSION_OPENING", List.of())));
     }
 
     @Test
@@ -128,8 +172,8 @@ class TypedAgentContractControllerTest {
     }
 
     private static String situation(String basis, String reference) {
-        return "{\"kind\":\"TRANSITION\",\"location\":\"cellar\",\"problem\":\"find the threat\","
-                + "\"threat\":\"a hostile creature\",\"goal\":\"stay safe\",\"basis\":\"" + basis
+        return "{\"kind\":\"TRANSITION\",\"location\":\"지하 저장고\",\"problem\":\"위협을 찾기\","
+                + "\"threat\":\"적대적인 생물\",\"goal\":\"안전 확보\",\"basis\":\"" + basis
                 + "\",\"reference\":\"" + reference + "\",\"required\":true}";
     }
 }

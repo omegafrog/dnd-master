@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationApplicationService;
@@ -59,18 +60,23 @@ class AdventureSessionStageStartTest {
         when(opening.situationId()).thenReturn("prepared-opening");
         when(prepared.openingSituation()).thenReturn(opening);
         when(preparation.prepare(packageId)).thenReturn(prepared);
+        RuntimeTurnApplicationService openingRuntime = mock(RuntimeTurnApplicationService.class);
+        UUID requestId = UUID.randomUUID();
 
         AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions,
                 packageRepository(scenarioPackage), adventures, mock(RuntimeBindingApplicationService.class),
                 mock(AdventureSessionStartCoordinator.class), mock(CharacterSheetOwnershipPort.class),
                 mock(SessionKnowledgeSetRepository.class), mock(AiCompanionGenerationPort.class),
-                mock(AiCompanionSheetCreationPort.class), (adventure, player, rules, map, stage) -> null, preparation);
+                mock(AiCompanionSheetCreationPort.class), (adventure, player, rules, map, stage) -> null, preparation,
+                openingRuntime);
 
-        service.start(session.id(), owner, 0, UUID.randomUUID(), AdventureId.generate());
+        AdventureId adventureId = AdventureId.generate();
+        service.start(session.id(), owner, 0, requestId, adventureId);
 
         org.mockito.ArgumentCaptor<Adventure> saved = org.mockito.ArgumentCaptor.forClass(Adventure.class);
         org.mockito.Mockito.verify(adventures, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
         assertEquals("prepared-opening", saved.getAllValues().getLast().currentSituation().problem());
+        verify(openingRuntime).openSessionTurn(adventureId, owner, requestId);
     }
 
     @Test
