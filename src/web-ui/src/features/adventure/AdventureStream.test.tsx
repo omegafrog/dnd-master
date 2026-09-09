@@ -88,6 +88,21 @@ it('requests and renders the opening narration when the adventure starts empty',
   expect(screen.getByRole('list', { name: '대화 기록' }).querySelectorAll('li')).toHaveLength(1)
 })
 
+it('uses the conversation version for opening instead of the session version', async () => {
+  const opening = vi.fn(async () => ({
+    narration: '오프닝', judgment: '', currentScene: 'opening', sourceRefs: [], warnings: [], version: 2,
+  }))
+  const api: AdventureApi = {
+    async readConversation() { return { adventureId: 'a1', version: 1, entries: [] } },
+    startOpening: opening,
+    async sendMessage() { throw new Error('not used') },
+  }
+  render(<AdventureStream adventureId="a1" api={api} expectedVersion={6} />)
+
+  expect(await screen.findByText('오프닝')).toBeInTheDocument()
+  expect(opening).toHaveBeenCalledWith('a1', 1)
+})
+
 it('uses the persisted conversation version for the next turn', async () => {
   let receivedVersion: number | undefined
   const api: AdventureApi = {
