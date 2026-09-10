@@ -251,6 +251,32 @@ class BestOfNTurnPlanningTest {
         assertEquals(2, calls[0]);
     }
 
+    @Test
+    void reports_last_validation_reason_when_all_runtime_candidates_fail() {
+        RuntimeEvidence story = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()),
+                1, "page:1", "A supported cellar scene.");
+        RuntimeEvidence outsidePack = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()),
+                1, "page:2", "Outside evidence.");
+        GmAgentPort agent = context -> new GmPlanResult(
+                new RuntimePlan("scene", "npc", "judgment", "narration", null, List.of(outsidePack), List.of(), "p", "m", "r"),
+                "p", "m", "r", List.of());
+        var adapter = new BestOfNRuntimePlanningAdapter(new GmAgentRuntimePlanningAdapter(agent, new GmFinalValidator()),
+                1, 1, false, audit -> { });
+
+        IllegalStateException failure = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () ->
+                adapter.plan(new RuntimePlanningRequest(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()),
+                        UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
+                        new AdventureContext("scene", "npc", "open", "judgment"), null, "open",
+                        new EvidencePack(List.of(story), List.of(), List.of()), List.of(), List.of(), "stage", null,
+                        "provider", "model", "reasoning", new NarrativeContext("player", "scene", 0,
+                                Set.of(), List.of(), java.util.Map.of(), List.of(), List.of(), List.of()))));
+
+        org.junit.jupiter.api.Assertions.assertTrue(failure.getMessage().contains("CITATION_NOT_IN_EVIDENCE_PACK"));
+        org.junit.jupiter.api.Assertions.assertNotNull(failure.getCause());
+    }
+
     private static PlanningContext context() {
         return new PlanningContext("open door", "state-1", "stage-1", "player-visible", Set.of("door"), Set.of("door-key"), Set.of("hidden-key"));
     }

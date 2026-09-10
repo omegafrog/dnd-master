@@ -295,6 +295,22 @@ public final class Adventure {
             if (existing != null) continue;
             String normalized = addition.content().toLowerCase(Locale.ROOT);
             if (merged.stream().anyMatch(fact -> fact.content().toLowerCase(Locale.ROOT).equals(normalized))) continue;
+            if (!addition.subject().isBlank()) {
+                int sameSubject = -1;
+                for (int index = 0; index < merged.size(); index++) {
+                    if (addition.subject().equalsIgnoreCase(merged.get(index).subject())) {
+                        sameSubject = index;
+                        break;
+                    }
+                }
+                if (sameSubject >= 0) {
+                    // A negotiation/counteroffer updates the authoritative
+                    // value for that subject instead of creating conflicting
+                    // facts that later lookups could answer inconsistently.
+                    merged.set(sameSubject, addition);
+                    continue;
+                }
+            }
             merged.add(addition);
         }
         return List.copyOf(merged);

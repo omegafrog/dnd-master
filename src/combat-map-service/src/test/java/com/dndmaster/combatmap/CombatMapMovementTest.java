@@ -118,6 +118,18 @@ class CombatMapMovementTest {
     }
 
     @Test
+    void rejects_movement_across_a_shared_wall_boundary_without_blocking_the_cell() {
+        Fixture fixture = new Fixture();
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.map.ownerPlayerId(), fixture.map.tokens(), Set.of(),
+                List.of(new MapLayer("MAP_BOUNDARIES", "2,1,VERTICAL,WALL,false", LayerVisibility.PLAYER_VISIBLE)), 0, null);
+
+        MovementPath crossing = new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5);
+
+        assertThrows(CombatMapMovementDeniedException.class, () -> fixture.service(30).movePlayerToken(command(fixture, crossing, 0)));
+    }
+
+    @Test
     void enforces_controller_and_layer_visibility_model() {
         PlayerId player = new PlayerId(UUID.randomUUID());
         assertThrows(IllegalArgumentException.class, () -> new CombatToken(

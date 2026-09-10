@@ -63,6 +63,45 @@ class HttpCombatMapPreparationGatewayTest {
         }
     }
 
+    @Test
+    void activates_only_an_existing_reviewed_draft_without_sending_a_new_map_definition() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/combat-maps/prepare", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            byte[] response = ("{\"mapId\":\"" + UUID.randomUUID() + "\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            UUID adventureId = UUID.randomUUID();
+            UUID ownerId = UUID.randomUUID();
+            UUID rulesId = UUID.randomUUID();
+            UUID situationId = UUID.randomUUID();
+            UUID playerTokenId = UUID.randomUUID();
+            UUID mapId = new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(2), new ObjectMapper(), "secret")
+                    .activatePrepared(new AdventureId(adventureId), ownerId, new RuleSetId(rulesId), 1,
+                            new CombatMapPreparationPort.ActivationContext(playerTokenId, situationId, 4, 8,
+                                    "cellar-combat", "basement", null, null, "NORTH"));
+
+            JsonNode payload = new ObjectMapper().readTree(requestBody.get());
+            assertEquals(1, payload.get("stagePosition").asInt());
+            assertTrue(payload.get("mapDefinitionId").isNull());
+            assertTrue(payload.get("assetId").isNull());
+            assertEquals(adventureId.toString(), payload.get("adventureId").asText());
+            assertEquals(ownerId.toString(), payload.get("ownerId").asText());
+            assertEquals(playerTokenId.toString(), payload.get("playerTokenId").asText());
+            assertEquals("NORTH", payload.get("entrySide").asText());
+            assertTrue(mapId != null);
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private static MapDefinition mapDefinition() {
         UUID documentId = UUID.randomUUID();
         return new MapDefinition(UUID.randomUUID(), "map", "page-1", new MapGrid(0, 0, 50, 0, "5 ft"),

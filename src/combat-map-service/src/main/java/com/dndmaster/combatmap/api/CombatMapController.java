@@ -27,6 +27,8 @@ public class CombatMapController {
     private final CombatMapMovementService movementService;
     private final ApiRequestGuard requestGuard;
     private final com.dndmaster.combatmap.application.view.MapImageEvidencePort mapImageEvidence;
+    private final com.dndmaster.combatmap.application.view.MapGridAlignmentService mapGridAlignmentService;
+    private final com.dndmaster.combatmap.application.view.PublicMapImageArtifactService publicMapImages;
 
     public CombatMapController(CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard) {
         this(mapViewService, movementService, requestGuard, (documentId, locator) -> java.util.Optional.empty());
@@ -34,10 +36,25 @@ public class CombatMapController {
 
     public CombatMapController(CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
             com.dndmaster.combatmap.application.view.MapImageEvidencePort mapImageEvidence) {
+        this(mapViewService, movementService, requestGuard, mapImageEvidence, null);
+    }
+
+    public CombatMapController(CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
+            com.dndmaster.combatmap.application.view.MapImageEvidencePort mapImageEvidence,
+            com.dndmaster.combatmap.application.view.MapGridAlignmentService mapGridAlignmentService) {
+        this(mapViewService, movementService, requestGuard, mapImageEvidence, mapGridAlignmentService, null);
+    }
+
+    public CombatMapController(CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
+            com.dndmaster.combatmap.application.view.MapImageEvidencePort mapImageEvidence,
+            com.dndmaster.combatmap.application.view.MapGridAlignmentService mapGridAlignmentService,
+            com.dndmaster.combatmap.application.view.PublicMapImageArtifactService publicMapImages) {
         this.mapViewService = mapViewService;
         this.movementService = movementService;
         this.requestGuard = requestGuard;
         this.mapImageEvidence = mapImageEvidence;
+        this.mapGridAlignmentService = mapGridAlignmentService;
+        this.publicMapImages = publicMapImages;
     }
 
     @GetMapping("/internal/v1/combat-maps/{mapId}/player-view")
@@ -82,8 +99,29 @@ public class CombatMapController {
         requestGuard.internal(token);
         requireRequest(request, "prepare request is required");
         if (request.stagePosition() != null) {
+            // A map-entry activation is identified by the missing map
+            // definition. Prefer the reviewed draft even if an older buggy
+            // run left a stale active binding behind, and never regenerate a
+            // map at that point.
+            if (request.mapDefinitionId() == null) {
+                var prepared = mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
+                if (prepared.isEmpty()) {
+                    throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,
+                            "reviewed combat map draft not found");
+                }
+                activatePreparedMap(request, prepared.get());
+                return new PrepareResponse(prepared.get().value());
+            }
             var existing = mapViewService.displayForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
             if (existing.isPresent()) return new PrepareResponse(existing.get().mapId().value());
+            var prepared = mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
+            if (prepared.isPresent()) {
+                activatePreparedMap(request, prepared.get());
+                return new PrepareResponse(prepared.get().value());
+            }
+        } else {
+            var prepared = mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
+            if (prepared.isPresent()) return new PrepareResponse(prepared.get().value());
         }
         Set<GridPosition> authoredObstacles = authoredPositions(request.obstacles(), "obstacles");
         authoredObstacles.addAll(authoredPositions(request.walls(), "walls"));
@@ -100,7 +138,7 @@ public class CombatMapController {
                                 20, 20, 30, 5, authoredObstacles, authoredDoors,
                                 request.playerSpawnX() == null || request.playerSpawnY() == null ? null
                                         : new GridPosition(request.playerSpawnX(), request.playerSpawnY()),
-                                mapImage.orElse(null)))
+                                mapImage.orElse(null)), false)
                 : request.sourceImage() != null && !request.sourceImage().isBlank()
                 ? mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(),
@@ -128,6 +166,21 @@ public class CombatMapController {
         return new PrepareResponse(map.id().value());
     }
 
+    private void activatePreparedMap(PrepareRequest request, MapId mapId) {
+        java.util.Optional<GridPosition> candidate = request.playerSpawnX() == null || request.playerSpawnY() == null
+                ? java.util.Optional.empty() : java.util.Optional.of(new GridPosition(request.playerSpawnX(), request.playerSpawnY()));
+        java.util.Optional<MapActivationContext.EntrySide> entrySide;
+        try {
+            entrySide = request.entrySide() == null || request.entrySide().isBlank() ? java.util.Optional.empty()
+                    : java.util.Optional.of(MapActivationContext.EntrySide.valueOf(request.entrySide().trim().toUpperCase(java.util.Locale.ROOT)));
+        } catch (IllegalArgumentException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid entry side", exception);
+        }
+        mapViewService.activateForAdventure(mapId, new MapOwnerId(request.ownerId()), MapActivationContext.from(
+                request.stagePosition(), candidate, entrySide, java.util.Optional.ofNullable(request.playerTokenId()),
+                request.situationId(), request.situationRevision(), request.turnIndex(), request.currentScene(), request.location()));
+    }
+
     @PostMapping(value = "/internal/v1/combat-maps/prepare-upload", consumes = "multipart/form-data")
     public PrepareResponse prepareUpload(@RequestHeader(value = "X-Internal-Token", required = false) String token,
                                   @RequestPart MultipartFile file, @RequestParam UUID adventureId,
@@ -145,6 +198,87 @@ public class CombatMapController {
         PlayerCombatMapView view = mapViewService.displayForAdventure(new AdventureId(adventureId), new MapOwnerId(ownerId))
                 .orElseThrow(CombatMapAccessDeniedException::new);
         return PlayerCombatMapResponse.from(view);
+    }
+
+    @GetMapping("/internal/v1/adventures/{adventureId}/combat-map/preparation-view")
+    public PlayerCombatMapResponse preparationAdventureView(@PathVariable UUID adventureId, @RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        return mapViewService.displayForPreparation(new AdventureId(adventureId), new MapOwnerId(ownerId))
+                .map(PlayerCombatMapResponse::from).orElseThrow(CombatMapAccessDeniedException::new);
+    }
+
+    @GetMapping("/internal/v1/combat-maps/{mapId}/alignment")
+    public MapGridAlignmentResponse alignment(@PathVariable UUID mapId, @RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        MapId id = new MapId(mapId);
+        MapOwnerId owner = new MapOwnerId(ownerId);
+        String imageViewId = requirePublicMapImages().latestReference(id, owner).orElse("");
+        return MapGridAlignmentResponse.from(requireAlignmentService().find(id, owner), imageViewId);
+    }
+
+    @GetMapping(value = "/internal/v1/combat-maps/{mapId}/alignment/image", produces = "image/png")
+    public org.springframework.http.ResponseEntity<byte[]> alignmentImage(@PathVariable UUID mapId, @RequestParam UUID ownerId,
+            @RequestParam String imageViewId, @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        byte[] png = requirePublicMapImages().download(new MapId(mapId), new MapOwnerId(ownerId), imageViewId)
+                .map(com.dndmaster.combatmap.application.view.PublicMapImageArtifact::png)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND));
+        return org.springframework.http.ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
+                .cacheControl(org.springframework.http.CacheControl.noStore()).body(png);
+    }
+
+    @GetMapping(value = "/internal/v1/combat-maps/{mapId}/preparation-image", produces = "image/png")
+    public org.springframework.http.ResponseEntity<byte[]> preparationImage(@PathVariable UUID mapId, @RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        byte[] png = requirePublicMapImages().sourcePng(new MapId(mapId), new MapOwnerId(ownerId))
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND));
+        return org.springframework.http.ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
+                .cacheControl(org.springframework.http.CacheControl.noStore()).body(png);
+    }
+
+    @PutMapping("/internal/v1/combat-maps/{mapId}/alignment")
+    public MapGridAlignmentResponse applyAlignment(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) MapGridAlignmentRequest request) {
+        requestGuard.internal(token);
+        requireRequest(request, "map grid alignment request is required");
+        try {
+            MapId id = new MapId(mapId);
+            MapOwnerId owner = new MapOwnerId(request.ownerId());
+            var alignment = requireAlignmentService().apply(id, owner,
+                    new com.dndmaster.combatmap.application.view.MapGridAlignmentRequest(request.commandId(), request.expectedVersion(),
+                            request.imageRevision(), request.originX(), request.originY(), request.cellSize()));
+            String imageViewId = requirePublicMapImages().latestReference(id, owner).orElse("");
+            return MapGridAlignmentResponse.from(alignment, imageViewId);
+        } catch (com.dndmaster.combatmap.application.view.MapGridAlignmentConflictException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, exception.getMessage(), exception);
+        } catch (IllegalArgumentException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
+    }
+
+    @PostMapping("/internal/v1/combat-maps/{mapId}/detect-boundaries")
+    public MapBoundaryDetectionResponse detectBoundaries(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) MapBoundaryDetectionRequest request) {
+        requestGuard.internal(token);
+        requireRequest(request, "map boundary detection request is required");
+        MapId id = new MapId(mapId);
+        MapOwnerId owner = new MapOwnerId(request.ownerId());
+        var alignment = requireAlignmentService().find(id, owner);
+        if (alignment.version() < 1) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "map grid alignment must be confirmed before boundary detection");
+        }
+        try {
+            return MapBoundaryDetectionResponse.from(mapViewService.proposeBoundaries(id, owner, alignment));
+        } catch (com.dndmaster.combatmap.application.view.MapGridAlignmentConflictException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+                    "map grid alignment changed while detecting boundaries", exception);
+        }
     }
 
     public CombatMapMoveResponse movePlayer(UUID mapId, String token, MoveRequest request) {
@@ -208,6 +342,23 @@ public class CombatMapController {
         return new CombatMapAiStateResponse(map.id().value());
     }
 
+    @PutMapping("/internal/v1/combat-maps/{mapId}/layout")
+    public CombatMapAiStateResponse updateLayout(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) LayoutRequest request) {
+        requestGuard.internal(token); requireRequest(request, "layout request is required");
+        try {
+            Set<GridPosition> obstacles = authoredPositions(request.obstacles(), "obstacles");
+            List<Door> doors = authoredPositions(request.doors(), "doors").stream().map(position -> new Door(position, false)).toList();
+            List<MapBoundary> boundaries = request.boundaries() == null ? List.of() : request.boundaries().stream().map(MapBoundary::parse).toList();
+            CombatMap map = mapViewService.updateLayout(new MapId(mapId), new MapOwnerId(request.ownerId()), request.expectedVersion(), request.commandId(), obstacles, doors, boundaries, request.crop(), request.alignmentVersion(), request.imageRevision());
+            return new CombatMapAiStateResponse(map.id().value());
+        } catch (IllegalStateException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, exception.getMessage(), exception);
+        } catch (IllegalArgumentException exception) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
+    }
+
     @PutMapping("/internal/v1/combat-maps/{mapId}/calibration")
     public CombatMapAiStateResponse calibrateGrid(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
@@ -250,8 +401,42 @@ public class CombatMapController {
             long expectedVersion,
             List<LayerRequest> layers) {}
     public record DoorRequest(UUID ownerId,int x,int y,boolean open,UUID commandId,long expectedVersion) {}
+    public record LayoutRequest(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors,
+                                List<String> boundaries, String crop, Long alignmentVersion, String imageRevision) {
+        public LayoutRequest(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles,
+                List<String> doors, List<String> boundaries, String crop) {
+            this(ownerId, expectedVersion, commandId, obstacles, doors, boundaries, crop, null, "");
+        }
+    }
     public record GridCalibrationRequest(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
                                          int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
+    public record MapGridAlignmentRequest(UUID ownerId, UUID commandId, long expectedVersion, String imageRevision,
+                                          double originX, double originY, double cellSize) {}
+    public record MapBoundaryDetectionRequest(UUID ownerId) {}
+    public record MapBoundaryDetectionResponse(long mapVersion, List<String> obstacles, List<String> doors,
+            List<String> boundaries, String crop, List<com.dndmaster.combatmap.application.view.MapBoundaryCandidate> candidates,
+            long alignmentVersion, String imageRevision) {
+        public MapBoundaryDetectionResponse(long mapVersion, List<String> obstacles, List<String> doors,
+                List<String> boundaries, String crop) {
+            this(mapVersion, obstacles, doors, boundaries, crop, List.of(), 0, "");
+        }
+        public MapBoundaryDetectionResponse(long mapVersion, List<String> obstacles, List<String> doors,
+                List<String> boundaries, String crop, List<com.dndmaster.combatmap.application.view.MapBoundaryCandidate> candidates) {
+            this(mapVersion, obstacles, doors, boundaries, crop, candidates, 0, "");
+        }
+        static MapBoundaryDetectionResponse from(com.dndmaster.combatmap.application.view.CombatMapViewService.BoundaryDraft draft) {
+            return new MapBoundaryDetectionResponse(draft.mapVersion(),
+                    draft.obstacles().stream().map(position -> position.x() + "," + position.y()).sorted().toList(),
+                    draft.doors().stream().map(door -> door.position().x() + "," + door.position().y()).sorted().toList(),
+                    draft.boundaries().stream().map(MapBoundary::encoded).sorted().toList(), draft.crop(), draft.candidates(),
+                    draft.alignmentVersion(), draft.imageRevision());
+        }
+    }
+    public record MapGridAlignmentResponse(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize) {
+        static MapGridAlignmentResponse from(com.dndmaster.combatmap.application.view.MapGridAlignment alignment, String imageViewId) {
+            return new MapGridAlignmentResponse(alignment.mapId().value(), alignment.version(), alignment.imageRevision(), imageViewId, alignment.originX(), alignment.originY(), alignment.cellSize());
+        }
+    }
     public record RevealRequest(UUID ownerId,UUID tokenId,UUID commandId,long expectedVersion) {}
     public record GameTimeRequest(UUID ownerId,UUID adventureId,long ruleTurn,UUID causeId,long expectedVersion) {}
 
@@ -259,6 +444,14 @@ public class CombatMapController {
         if (request == null) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, message);
         }
+    }
+    private com.dndmaster.combatmap.application.view.MapGridAlignmentService requireAlignmentService() {
+        if (mapGridAlignmentService == null) throw new IllegalStateException("map grid alignment unavailable");
+        return mapGridAlignmentService;
+    }
+    private com.dndmaster.combatmap.application.view.PublicMapImageArtifactService requirePublicMapImages() {
+        if (publicMapImages == null) throw new IllegalStateException("public map image unavailable");
+        return publicMapImages;
     }
 
     private static void requireIdempotencyKey(String header, UUID commandId) {

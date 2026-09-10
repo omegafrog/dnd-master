@@ -22,7 +22,7 @@ public final class RuntimeFallbackFactPolicy {
         if (existingFacts.stream().anyMatch(fact -> contains(fact.content(), subject))) return Optional.empty();
         if (gameState.values().entrySet().stream().anyMatch(entry -> contains(entry.getKey(), subject)
                 || contains(String.valueOf(entry.getValue()), subject))) return Optional.empty();
-        return Optional.of(new RuntimeAddedFact(UUID.randomUUID(), candidate.content(), turnId));
+        return Optional.of(new RuntimeAddedFact(UUID.randomUUID(), candidate.content(), turnId, candidate.subject()));
     }
 
     private static boolean contains(String value, String needle) {

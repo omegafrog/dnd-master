@@ -11,7 +11,8 @@ public record GmPlanResult(
         String reasoning,
         List<String> stateDelta,
         List<GmToolCall> toolCalls,
-        SituationProposal situationProposal) {
+        SituationProposal situationProposal,
+        List<RuntimeAddedFactCandidate> runtimeFacts) {
     public GmPlanResult {
         plan = Objects.requireNonNull(plan, "plan must not be null");
         provider = required(provider, "provider");
@@ -19,15 +20,24 @@ public record GmPlanResult(
         reasoning = reasoning == null ? "" : reasoning.trim();
         stateDelta = List.copyOf(Objects.requireNonNull(stateDelta, "state delta must not be null"));
         toolCalls = List.copyOf(Objects.requireNonNull(toolCalls, "tool calls must not be null"));
+        runtimeFacts = List.copyOf(Objects.requireNonNull(runtimeFacts, "runtime facts must not be null"));
+        if (runtimeFacts.stream().anyMatch(Objects::isNull)) {
+            throw new IllegalArgumentException("runtime facts must not contain null");
+        }
     }
 
     public GmPlanResult(RuntimePlan plan, String provider, String model, String reasoning, List<String> stateDelta) {
-        this(plan, provider, model, reasoning, stateDelta, List.of(), null);
+        this(plan, provider, model, reasoning, stateDelta, List.of(), null, List.of());
     }
 
     public GmPlanResult(RuntimePlan plan, String provider, String model, String reasoning, List<String> stateDelta,
             List<GmToolCall> toolCalls) {
-        this(plan, provider, model, reasoning, stateDelta, toolCalls, null);
+        this(plan, provider, model, reasoning, stateDelta, toolCalls, null, List.of());
+    }
+
+    public GmPlanResult(RuntimePlan plan, String provider, String model, String reasoning,
+            List<String> stateDelta, List<GmToolCall> toolCalls, SituationProposal situationProposal) {
+        this(plan, provider, model, reasoning, stateDelta, toolCalls, situationProposal, List.of());
     }
 
     private static String required(String value, String name) {

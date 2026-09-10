@@ -10,7 +10,7 @@ import javax.sql.DataSource;
 
 public final class PostgresAdventureSessionStartOutboxRepository implements AdventureSessionStartOutboxRepository {
     private final DataSource dataSource;
-    public PostgresAdventureSessionStartOutboxRepository(DataSource dataSource) { this.dataSource = java.util.Objects.requireNonNull(dataSource); }
+    public PostgresAdventureSessionStartOutboxRepository(DataSource dataSource) { this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(java.util.Objects.requireNonNull(dataSource)); }
     @Override public void prepare(SessionId sessionId, UUID requestId, UUID adventureId, UUID scenarioPackageId) {
         execute("INSERT INTO adventure_session_start_outbox(session_id, request_id, adventure_id, scenario_package_id, status) VALUES (?, ?, ?, ?, 'PREPARED') ON CONFLICT (session_id, request_id) DO UPDATE SET status='PREPARED'", sessionId.value(), requestId, adventureId, scenarioPackageId);
     }

@@ -8,10 +8,13 @@ import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
+import com.dndmaster.adventure.domain.adventure.AdventureStatus;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
+import com.dndmaster.adventure.application.combat.CombatMapEntryContextResolver;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationPort;
 import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
@@ -19,8 +22,9 @@ import com.dndmaster.adventure.domain.knowledge.SessionKnowledgeSet;
 import java.util.Objects;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.transaction.annotation.Transactional;
 
-public final class AdventureSessionApplicationService {
+public class AdventureSessionApplicationService {
     private final AdventureSessionRepository repository;
     private final ScenarioPackageRepository packageRepository;
     private final AdventureRepository adventureRepository;
@@ -116,11 +120,32 @@ public final class AdventureSessionApplicationService {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion); session.removePartyMember(sheetId); repository.save(session, expectedVersion); return session;
     }
     public AdventureSession start(SessionId id, OwnerPlayerId owner, long expectedVersion, java.util.UUID requestId, AdventureId adventureId) {
+        return start(id, owner, expectedVersion, requestId, adventureId, false);
+    }
+
+    /**
+     * Starts the session preparation transaction. When prepareMapOnly is true,
+     * the session intentionally remains STARTING until the player confirms the
+     * map draft; a later idempotent call completes the runtime start.
+     */
+    public AdventureSession start(SessionId id, OwnerPlayerId owner, long expectedVersion, java.util.UUID requestId, AdventureId adventureId, boolean prepareMapOnly) {
         AdventureSession session = authorize(load(id), owner);
-        if (session.status() == AdventureSession.Status.STARTED && requestId.equals(session.startRequestId()) && adventureId.equals(session.startedAdventureId())) return session;
-        if (session.status() == AdventureSession.Status.STARTING
-                && (!requestId.equals(session.startRequestId()) || !adventureId.equals(session.startedAdventureId()))) {
-            throw new IllegalStateException("adventure session is already starting with another request");
+        if (session.status() == AdventureSession.Status.DELETED) {
+            throw new IllegalStateException("deleted adventure session cannot be started");
+        }
+        if (session.status() == AdventureSession.Status.STARTED) {
+            if (adventureId.equals(session.startedAdventureId())) return session;
+            throw new IllegalStateException("adventure session is already started with another adventure");
+        }
+        if (session.status() == AdventureSession.Status.STARTING) {
+            // The browser can lose its in-memory idempotency key after a reload.
+            // A STARTING session already owns one durable adventure and request;
+            // resume that transaction instead of creating a second start attempt.
+            if (session.startedAdventureId() == null || session.startRequestId() == null) {
+                throw new IllegalStateException("adventure session start recovery data is missing");
+            }
+            adventureId = session.startedAdventureId();
+            requestId = session.startRequestId();
         }
         boolean resumingStart = session.status() == AdventureSession.Status.STARTING;
         if (!resumingStart) requireVersion(session, expectedVersion);
@@ -134,6 +159,9 @@ public final class AdventureSessionApplicationService {
         session.validateStart();
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
+        if (!prepareMapOnly && !combatMapPreparationPort.mapLayoutConfirmed(adventureId, owner.value())) {
+            throw new IllegalStateException("맵 초안을 먼저 저장해야 모험을 시작할 수 있습니다.");
+        }
         var preparedStage = stagePreparation.prepare(scenarioPackage.packageId());
         // A retried browser request can generate a new adventure id after a
         // previous attempt already persisted the adventure. Reuse the
@@ -167,11 +195,25 @@ public final class AdventureSessionApplicationService {
         }
         initializeSessionKnowledgeSetIfMissing(session, scenarioPackage);
         Adventure activeAdventure = adventure;
-        scenarioPackage.initialMapDefinition(configuration.initialScene()).ifPresent(mapDefinition ->
-                combatMapPreparationPort.prepareInitial(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, 1,
-                        activationContext(activeAdventure, session)));
+        var initialMapDefinition = scenarioPackage.initialMapDefinition(configuration.initialScene());
+        initialMapDefinition.ifPresent(mapDefinition -> {
+            var context = activationContext(activeAdventure, session);
+            // Starting the adventure only prepares the editable draft. The
+            // player's location is resolved from the committed map-bearing
+            // situation, never from the opening scene.
+            combatMapPreparationPort.prepareDraft(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, context);
+        });
+        if (prepareMapOnly) return session;
         runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(effectiveAdventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
-        if (runtimeTurnService != null) runtimeTurnService.openSessionTurn(effectiveAdventureId, owner, requestId);
+        RuntimeTurnResult openingResult = runtimeTurnService == null
+                ? null
+                : runtimeTurnService.openSessionTurn(effectiveAdventureId, owner, requestId);
+        if (initialMapDefinition.isPresent() && openingResult != null
+                && openingResult.turn().plan().mapEntryRequested()) {
+            Adventure committedAdventure = adventureRepository.findById(effectiveAdventureId).orElse(adventure);
+            combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
+                    1, activationContext(committedAdventure, session));
+        }
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();
             repository.save(session, session.version() - 1);
@@ -189,22 +231,9 @@ public final class AdventureSessionApplicationService {
                 .orElse(null);
         return new CombatMapPreparationPort.ActivationContext(playerTokenId, situation.situationId(),
                 situation.revision(), adventure.turnIndex(), adventure.currentContext().currentScene(),
-                situation.location(), null, null, entrySide(adventure, situation));
+                situation.location(), null, null, CombatMapEntryContextResolver.entrySide(adventure, situation));
     }
 
-    private static String entrySide(Adventure adventure, com.dndmaster.adventure.domain.runtime.CurrentSituation situation) {
-        String context = (adventure.currentContext().currentScene() + " " + situation.location()).toLowerCase(java.util.Locale.ROOT);
-        if (contains(context, "north", "북", "upper")) return "NORTH";
-        if (contains(context, "east", "동", "right")) return "EAST";
-        if (contains(context, "south", "남", "lower")) return "SOUTH";
-        if (contains(context, "west", "서", "left")) return "WEST";
-        return null;
-    }
-
-    private static boolean contains(String value, String... signals) {
-        for (String signal : signals) if (value.contains(signal)) return true;
-        return false;
-    }
     public AdventureSession complete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);
         session.complete();
@@ -218,11 +247,22 @@ public final class AdventureSessionApplicationService {
         repository.save(session, expectedVersion);
         return session;
     }
+    @Transactional
     public AdventureSession delete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);
+        retireStartedAdventure(session, owner);
         session.delete();
         repository.save(session, expectedVersion);
         return session;
+    }
+    private void retireStartedAdventure(AdventureSession session, OwnerPlayerId owner) {
+        var adventure = session.startedAdventureId() == null
+                ? adventureRepository.findBySessionId(session.id())
+                : adventureRepository.findById(session.startedAdventureId()).or(() -> adventureRepository.findBySessionId(session.id()));
+        adventure.filter(value -> value.status() != AdventureStatus.DELETED).ifPresent(value -> {
+            value.delete(owner, value.version());
+            adventureRepository.save(value);
+        });
     }
     private AdventureSession load(SessionId id) { return repository.findById(id).orElseThrow(() -> new IllegalArgumentException("adventure session not found")); }
     private static AdventureSession authorize(AdventureSession session, OwnerPlayerId owner) {

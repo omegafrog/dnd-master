@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
 import type { AdventureSessionApi, AdventureSessionView, AiCompanionCandidate, CharacterSheetSummary, GmProviderView } from './AdventureSessionApi'
+import type { AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
+import { CombatMapView } from '../combat-map/CombatMapView'
 
-type SessionApi = Pick<AdventureSessionApi, 'read' | 'listOwnedCharacters' | 'copyOwnedCharacter' | 'addMember' | 'removeMember' | 'start' | 'complete' | 'delete'> & Partial<Pick<AdventureSessionApi, 'generateAiCandidate' | 'adoptAiCandidate' | 'replaceMember' | 'readGmProvider' | 'switchGmProvider'>>
+type SessionApi = Pick<AdventureSessionApi, 'read' | 'listOwnedCharacters' | 'copyOwnedCharacter' | 'addMember' | 'removeMember' | 'start' | 'complete' | 'delete'> & Partial<Pick<AdventureSessionApi, 'prepareMap' | 'generateAiCandidate' | 'adoptAiCandidate' | 'replaceMember' | 'readGmProvider' | 'switchGmProvider'>>
 
 const sessionStatusLabel: Record<AdventureSessionView['status'], string> = {
   DRAFT: '준비 중', STARTING: '시작하는 중', STARTED: '진행 중', COMPLETED: '완료', DELETED: '삭제됨',
 }
 
-export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: SessionApi; ownerPlayerId: string; sessionId: string }) {
+export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }: { api: SessionApi; ownerPlayerId: string; sessionId: string; playApi?: AdventurePlayApi }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
   const [characters, setCharacters] = useState<CharacterSheetSummary[]>([])
   const [message, setMessage] = useState('')
@@ -15,8 +17,10 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
   const [pendingEnd, setPendingEnd] = useState<'complete' | 'delete' | null>(null)
   const [providerForm, setProviderForm] = useState({ provider: 'ollama', model: 'qwen3:8b', reasoning: 'medium' })
   const [candidate, setCandidate] = useState<AiCompanionCandidate | null>(null)
+  const [preparingAdventureId, setPreparingAdventureId] = useState<string | null>(null)
+  const [runtimeStarting, setRuntimeStarting] = useState(false)
   const frozen = session?.status !== 'DRAFT'
-  const load = () => void Promise.all([api.read(sessionId), api.listOwnedCharacters(ownerPlayerId), api.readGmProvider ? api.readGmProvider(sessionId) : Promise.resolve(null)]).then(([nextSession, ownedCharacters, nextProvider]) => { setSession(nextSession); setCharacters(ownedCharacters); if (nextProvider) { setProvider(nextProvider); setProviderForm({ provider: nextProvider.provider, model: nextProvider.model, reasoning: nextProvider.reasoning }) } }).catch(error => setMessage(error instanceof Error ? error.message : '세션을 불러오지 못했습니다.'))
+  const load = () => void Promise.all([api.read(sessionId), api.listOwnedCharacters(ownerPlayerId), api.readGmProvider ? api.readGmProvider(sessionId) : Promise.resolve(null)]).then(([nextSession, ownedCharacters, nextProvider]) => { setSession(nextSession); setCharacters(ownedCharacters); if (nextSession.status === 'STARTING' && nextSession.adventureId) setPreparingAdventureId(nextSession.adventureId); if (nextProvider) { setProvider(nextProvider); setProviderForm({ provider: nextProvider.provider, model: nextProvider.model, reasoning: nextProvider.reasoning }) } }).catch(error => setMessage(error instanceof Error ? error.message : '세션을 불러오지 못했습니다.'))
   useEffect(load, [api, ownerPlayerId, sessionId])
 
   async function addMember(characterSheetId: string) {
@@ -33,7 +37,8 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
     catch (error) { setMessage(error instanceof Error ? error.message : '조작 방식을 변경하지 못했습니다.') }
   }
   async function finish(action: 'complete' | 'delete') {
-    if (!session || session.status !== 'STARTED') return
+    if (!session || session.status === 'COMPLETED' || session.status === 'DELETED') return
+    if (action === 'complete' && session.status !== 'STARTED') return
     try { setSession(await api[action](sessionId, session.version)); setPendingEnd(null); setMessage('세션이 종료되었습니다. 캐릭터 시트 정리를 요청했습니다.') }
     catch (error) { setMessage(error instanceof Error ? error.message : '세션을 종료하지 못했습니다.') }
   }
@@ -59,12 +64,19 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
       .catch(error => setMessage(error instanceof Error ? error.message : 'AI 동료를 채택하지 못했습니다.'))
   }
   const startRuntime = () => {
-    if (!partyFull || !session.runtimeConfiguration) return
+    if (runtimeStarting || !partyFull || !session.runtimeConfiguration) return
+    setRuntimeStarting(true)
+    setMessage('시나리오 런타임과 맵을 준비하는 중입니다. 잠시만 기다려 주세요.')
     const adventureId = globalThis.crypto.randomUUID()
-    void api.start(sessionId, session.version, adventureId).then(next => {
+    const prepareMap = api.prepareMap
+      ? (id: string, version: number, adventure: string) => api.prepareMap!(id, version, adventure)
+      : (id: string, version: number, adventure: string) => api.start(id, version, adventure, true)
+    void prepareMap(sessionId, session.version, adventureId).then(next => {
       setSession(next)
-      window.location.hash = `#/adventures/${next.adventureId ?? adventureId}`
+      setPreparingAdventureId(next.adventureId ?? adventureId)
+      setMessage('맵 준비 화면을 열었습니다. 격자를 맞춘 뒤 초안을 검수하세요.')
     }).catch(error => setMessage(error instanceof Error ? error.message : '시나리오 런타임을 시작하지 못했습니다.'))
+      .finally(() => setRuntimeStarting(false))
   }
   return <section className="session-page" aria-labelledby="session-party-heading">
     <div className="page-heading party-heading">
@@ -104,11 +116,13 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
       </aside>}
     </div>
 
-    {session.status === 'DRAFT' && <div className="session-start-actions"><button type="button" onClick={startRuntime} disabled={!partyFull || !session.runtimeConfiguration}>시나리오 런타임 시작</button>{!partyFull && <p>파티 정원 {session.characterLimit}명에 맞춰야 시작할 수 있습니다.</p>}{partyFull && !session.runtimeConfiguration && <p>런타임 설정이 없어 시나리오를 시작할 수 없습니다.</p>}</div>}
+    {session.status === 'DRAFT' && <div className="session-start-actions"><button type="button" onClick={startRuntime} disabled={runtimeStarting || !partyFull || !session.runtimeConfiguration} aria-busy={runtimeStarting}>{runtimeStarting ? '시나리오 런타임 준비 중…' : '시나리오 런타임 시작'}</button>{runtimeStarting && <p>맵을 준비하는 동안 잠시만 기다려 주세요. 같은 요청을 다시 보내지 않습니다.</p>}{!runtimeStarting && partyFull && session.runtimeConfiguration && <p>시작 전에 맵 초안을 먼저 검수합니다.</p>}{!runtimeStarting && !partyFull && <p>파티 정원 {session.characterLimit}명에 맞춰야 시작할 수 있습니다.</p>}{!runtimeStarting && partyFull && !session.runtimeConfiguration && <p>런타임 설정이 없어 시나리오를 시작할 수 없습니다.</p>}</div>}
+
+    {preparingAdventureId && playApi && <section className="session-map-preparation" aria-label="모험 시작 전 맵 준비"><div className="page-heading"><div><p className="eyebrow">MAP PREPARATION</p><h2>모험 시작 전 맵 준비</h2><p>여백을 먼저 자르고, 격자를 맞춘 뒤 AI 벽과 문 초안을 생성해 확인하고 모험을 시작하세요.</p></div></div><CombatMapView adventureId={preparingAdventureId} api={playApi} preparationMode onPreparationComplete={async () => { if (session.status !== 'STARTING') throw new Error('모험 시작 상태가 바뀌었습니다. 세션을 새로고침한 뒤 다시 시도하세요.'); const started = await api.start(sessionId, session.version, preparingAdventureId); if (started.status !== 'STARTED') throw new Error('모험 시작이 아직 완료되지 않았습니다. 잠시 후 다시 시도하세요.'); setSession(started); window.location.hash = `#/adventures/${preparingAdventureId}` }} /></section>}
 
     {provider && api.switchGmProvider && <details className="party-provider-settings"><summary>GM 연결 설정 <span>{provider.provider} · {provider.model}</span></summary><div><label>연결 방식<select aria-label="GM provider" value={providerForm.provider} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, provider: value })) }}><option value="codex-cli">Codex OAuth</option><option value="openai">OpenAI 호환</option></select></label><label>모델<input aria-label="GM model" value={providerForm.model} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, model: value })) }} /></label><label>Reasoning<select aria-label="GM reasoning" value={providerForm.reasoning} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, reasoning: value })) }}><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label><button type="button" onClick={() => void switchProvider()}>연결 변경</button></div></details>}
     {frozen && <p className="session-frozen-note">시작 후 파티와 제어 방식은 변경할 수 없습니다. 종료된 세션의 시트는 비활성화됩니다.</p>}
-    {session.status === 'STARTED' && <div className="session-end-actions"><button type="button" disabled={pendingEnd !== null} onClick={() => setPendingEnd('complete')}>세션 완료</button><button type="button" disabled={pendingEnd !== null} onClick={() => setPendingEnd('delete')}>세션 삭제</button></div>}
+    {(session.status === 'DRAFT' || session.status === 'STARTING' || session.status === 'STARTED') && <div className="session-end-actions">{session.status === 'STARTED' && <button type="button" disabled={pendingEnd !== null} onClick={() => setPendingEnd('complete')}>세션 완료</button>}<button type="button" disabled={pendingEnd !== null} onClick={() => setPendingEnd('delete')}>세션 삭제</button></div>}
     {pendingEnd && <div className="session-confirmation" role="alert"><p>현재 모험을 종료하면 이후 변경할 수 없습니다. 계속할까요?</p><button type="button" onClick={() => void finish(pendingEnd)}>종료 확인</button><button type="button" onClick={() => setPendingEnd(null)}>취소</button></div>}
     <p role="status">{message}</p>
   </section>

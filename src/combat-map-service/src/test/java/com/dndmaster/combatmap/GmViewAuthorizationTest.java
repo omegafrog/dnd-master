@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 import com.dndmaster.combatmap.api.ApiRequestGuard;
 import java.util.UUID;
@@ -70,6 +71,20 @@ class GmViewAuthorizationTest {
     }
 
     @Test
+    void activation_request_without_a_reviewed_draft_does_not_generate_a_new_map() {
+        var maps = mock(CombatMapViewService.class);
+        var controller = new CombatMapController(maps, mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        var request = new CombatMapController.PrepareRequest(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                null, "", "", null, null, null, null, null, 1);
+
+        var error = assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.prepare("service-secret", request));
+
+        assertEquals(404, error.getStatusCode().value());
+        verify(maps, never()).prepareGenerated(any(), any(), any(), any(MapGenerationRequest.class), anyBoolean());
+    }
+
+    @Test
     void protectsAllInternalCombatMapMutators() {
         var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
         UUID mapId = UUID.randomUUID();
@@ -79,6 +94,25 @@ class GmViewAuthorizationTest {
         assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.changeDoor(mapId, null, null));
         assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.reveal(mapId, null, null));
         assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.gameTime(mapId, null, null));
+    }
+
+    @Test
+    void downloadsOnlyTheStoredPublicImageWithInternalAuthenticationAndNoStoreCaching() {
+        UUID owner = UUID.randomUUID();
+        MapId map = new MapId(UUID.randomUUID());
+        var images = mock(PublicMapImageArtifactService.class);
+        var artifact = new PublicMapImageArtifact(new MapOwnerId(owner), map, "image-version", 1, 2, new byte[] {1, 2, 3});
+        when(images.download(map, new MapOwnerId(owner), artifact.reference())).thenReturn(java.util.Optional.of(artifact));
+        var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class),
+                new ApiRequestGuard("service-secret"), (documentId, locator) -> java.util.Optional.empty(),
+                mock(MapGridAlignmentService.class), images);
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.alignmentImage(map.value(), owner, artifact.reference(), "wrong"));
+        var response = controller.alignmentImage(map.value(), owner, artifact.reference(), "service-secret");
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("no-store", response.getHeaders().getCacheControl());
+        assertArrayEquals(new byte[] {1, 2, 3}, response.getBody());
     }
 
     @Test

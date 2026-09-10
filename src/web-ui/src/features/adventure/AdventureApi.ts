@@ -10,6 +10,14 @@ export interface AdventureApi {
   submitPlayerRoll?(adventureId: string, pendingTurnId: string, result: number, expectedVersion: number): Promise<AdventureMessageResponse>
 }
 
+/** HTTP failure that lets the conversation surface make a safe retry decision. */
+export class AdventureRequestError extends Error {
+  constructor(message: string, readonly status: number, readonly diagnostic?: string) {
+    super(message)
+    this.name = 'AdventureRequestError'
+  }
+}
+
 export type AdventureSessionEvent = { version: number; type: string; payload: string }
 
 export type AdventureConversationEntry = { sequence: number; speaker: string; content: string }
@@ -89,7 +97,11 @@ export class HttpAdventureApi implements AdventureApi {
         input: { type: 'TEXT', text: message },
       }),
     })
-    if (!response.ok) throw new Error('모험 메시지를 전송하지 못했습니다.')
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { message?: unknown } | null
+      const diagnostic = typeof payload?.message === 'string' ? payload.message : undefined
+      throw new AdventureRequestError('모험 메시지를 전송하지 못했습니다.', response.status, diagnostic)
+    }
     return response.json() as Promise<AdventureMessageResponse>
   }
 

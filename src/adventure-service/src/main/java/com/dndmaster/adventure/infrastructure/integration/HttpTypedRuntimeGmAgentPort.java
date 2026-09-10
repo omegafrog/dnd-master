@@ -57,8 +57,11 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                     response.combatEnemies().stream().map(enemy -> new CombatEnemyProposal(
                             enemy.scenarioId(), enemy.enemyKey(), enemy.name(), enemy.count(),
                             combatStartMode(enemy.mode()))).toList(),
-                    response.combatStart());
-            return new GmPlanResult(plan, provider, model, reasoning, List.of(), List.of(), situation(response.situation()));
+                    response.combatStart(), response.mapEntryRequested());
+            List<com.dndmaster.adventure.application.runtime.RuntimeAddedFactCandidate> runtimeFacts = response.runtimeFacts().stream()
+                    .map(fact -> new com.dndmaster.adventure.application.runtime.RuntimeAddedFactCandidate(fact.subject(), fact.content()))
+                    .toList();
+            return new GmPlanResult(plan, provider, model, reasoning, List.of(), List.of(), situation(response.situation()), runtimeFacts);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("typed runtime GM interrupted", exception);
@@ -83,6 +86,7 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         Map<String, Object> runtimeContext = new HashMap<>();
         runtimeContext.put("currentContext", context.currentContext());
         runtimeContext.put("scenarioContext", context.scenarioContext());
+        runtimeContext.put("runtimeFacts", context.runtimeFacts());
         runtimeContext.put("recentTurns", context.recentTurns());
         runtimeContext.put("characterSnapshots", context.characterSnapshots());
         runtimeContext.put("narrativeContext", context.narrativeContext());
@@ -128,6 +132,15 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
 
     private static List<Map<String, Object>> compositeResults(GmContextEnvelope context) {
         List<Map<String, Object>> results = new ArrayList<>();
+        context.factLookupResults().forEach(lookup -> {
+            Map<String, Object> result = new HashMap<>();
+            result.put("source", lookup.source().name());
+            result.put("status", lookup.status().name());
+            result.put("answer", lookup.answer());
+            result.put("supportingElementIds", lookup.supportingElementIds());
+            result.put("evidence", lookup.evidence());
+            results.add(Map.copyOf(result));
+        });
         context.evidencePack().storybook().forEach(evidence -> {
             Map<String, Object> result = new HashMap<>();
             result.put("source", "STORYBOOK_RAG");
@@ -142,8 +155,14 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
     record RuntimeRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults,
                           Map<String, Object> runtimeContext) { }
     record RuntimeResponse(String scene, String judgment, String narration, boolean combatStart,
-                           List<CombatEnemyResponse> combatEnemies, SituationResponse situation) { }
+                           List<CombatEnemyResponse> combatEnemies, SituationResponse situation,
+                           boolean mapEntryRequested, List<RuntimeFactResponse> runtimeFacts) {
+        RuntimeResponse {
+            runtimeFacts = runtimeFacts == null ? List.of() : List.copyOf(runtimeFacts);
+        }
+    }
     record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) { }
     record SituationResponse(String kind, String location, String problem, String threat, String goal,
                              String basis, String reference, boolean required) { }
+    record RuntimeFactResponse(String subject, String content) { }
 }

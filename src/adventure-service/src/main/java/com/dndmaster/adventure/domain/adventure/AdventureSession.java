@@ -166,8 +166,8 @@ public final class AdventureSession {
     }
 
     public List<CharacterSheetId> delete() {
-        if (status != Status.STARTED && status != Status.COMPLETED) {
-            throw new IllegalStateException("only an active or completed adventure session can be deleted");
+        if (status == Status.DELETED) {
+            throw new IllegalStateException("adventure session is already deleted");
         }
         status = Status.DELETED;
         version++;

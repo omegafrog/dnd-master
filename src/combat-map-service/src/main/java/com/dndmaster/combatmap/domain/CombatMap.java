@@ -33,8 +33,12 @@ public final class CombatMap {
         if(path.distance()!=expectedDistance) throw new CombatMapMovementDeniedException("path distance does not match grid");
         for(int i=0;i<path.orderedPositions().size();i++){
             GridPosition position=path.orderedPositions().get(i);
-            if(!grid.contains(position) || obstacles.contains(position)) throw new CombatMapMovementDeniedException("path crosses blocked or outside position");
+            if(!grid.contains(position) || !isPlayable(position) || obstacles.contains(position)) throw new CombatMapMovementDeniedException("path crosses blocked or outside position");
             if(i>0 && !path.orderedPositions().get(i-1).adjacentTo(position)) throw new CombatMapMovementDeniedException("path positions must be adjacent");
+            if(i>0) {
+                GridPosition previous = path.orderedPositions().get(i - 1);
+                if (boundaries().stream().anyMatch(boundary -> boundary.blocks(previous, position))) throw new CombatMapMovementDeniedException("path crosses wall or closed door");
+            }
         }
         token.moveTo(path.orderedPositions().getLast());
     }
@@ -52,6 +56,12 @@ public final class CombatMap {
     public void replaceRuntimeState(TacticalRuntimeState state){runtimeState=Objects.requireNonNull(state);}
     public void replaceVisibility(VisibilitySnapshot snapshot){visibilitySnapshot=Objects.requireNonNull(snapshot);}
     public Set<Door> doors(){return doors;}
+    public boolean isPlayable(GridPosition position) { return PlayableMapArea.contains(grid, layers, position); }
+    public Set<MapBoundary> boundaries() {
+        return layers.stream().filter(layer -> layer.type().equals("MAP_BOUNDARIES"))
+                .flatMap(layer -> Arrays.stream(layer.value().split(";"))).filter(value -> !value.isBlank())
+                .map(MapBoundary::parse).collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
     public void replaceDoors(Collection<Door> nextDoors){
         Objects.requireNonNull(nextDoors);
         if(nextDoors.stream().anyMatch(door -> !grid.contains(door.position()))) throw new IllegalArgumentException("doors must be inside grid");
@@ -61,7 +71,18 @@ public final class CombatMap {
         Set<GridPosition> origins=tokens.stream().filter(t->t.type()==TokenType.PLAYER).map(CombatToken::position).collect(java.util.stream.Collectors.toSet());
         Set<GridPosition> blocked=new HashSet<>(obstacles); doors.stream().filter(d->!d.open()).map(Door::position).forEach(blocked::add);
         VisibilitySnapshot prior=visibilitySnapshot;
-        visibilitySnapshot=new VisibilityPolicy().calculate(grid,origins,prior==null?Set.of():prior.explored(),blocked,doors,tokens,prior==null?Set.of():prior.lastSeen(),ruleTurn);
+        origins.removeIf(position -> !isPlayable(position));
+        for (int y = 0; y < grid.height(); y++) for (int x = 0; x < grid.width(); x++) {
+            GridPosition position = new GridPosition(x, y);
+            if (!isPlayable(position)) blocked.add(position);
+        }
+        VisibilitySnapshot calculated = new VisibilityPolicy().calculate(grid,origins,prior==null?Set.of():prior.explored(),blocked,doors,boundaries(),tokens,prior==null?Set.of():prior.lastSeen(),ruleTurn);
+        Set<GridPosition> current = calculated.current().stream().filter(this::isPlayable).collect(java.util.stream.Collectors.toSet());
+        Set<GridPosition> explored = calculated.explored().stream().filter(this::isPlayable).collect(java.util.stream.Collectors.toSet());
+        Set<TokenId> observed = calculated.observedTokens().stream().filter(id -> tokens.stream()
+                .anyMatch(token -> token.id().equals(id) && current.contains(token.position()))).collect(java.util.stream.Collectors.toSet());
+        visibilitySnapshot = new VisibilitySnapshot(current, explored, observed,
+                calculated.lastSeen().stream().filter(last -> isPlayable(last.position())).toList(), ruleTurn);
     }
     public CombatMap apply(com.dndmaster.combatmap.application.view.TacticalTriggerEffect effect) {
         if (!effect.planned()) throw new IllegalArgumentException("only planned tactical triggers may change the map");

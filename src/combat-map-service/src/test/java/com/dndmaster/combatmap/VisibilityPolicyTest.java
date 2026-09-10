@@ -45,6 +45,18 @@ class VisibilityPolicyTest {
     }
 
     @Test
+    void closed_boundary_door_blocks_sight_and_open_boundary_door_does_not() {
+        GridPosition origin = new GridPosition(1, 1);
+        GridPosition target = new GridPosition(5, 1);
+        VisibilitySnapshot closed = policy.calculate(grid, Set.of(origin), Set.of(), Set.of(), List.of(),
+                List.of(new MapBoundary(3, 1, MapBoundary.Orientation.VERTICAL, MapBoundary.Kind.DOOR, false)), List.of(), Set.of(), 0);
+        VisibilitySnapshot open = policy.calculate(grid, Set.of(origin), Set.of(), Set.of(), List.of(),
+                List.of(new MapBoundary(3, 1, MapBoundary.Orientation.VERTICAL, MapBoundary.Kind.DOOR, true)), List.of(), Set.of(), 0);
+        assertFalse(closed.current().contains(target));
+        assertTrue(open.current().contains(target));
+    }
+
+    @Test
     void exploredCellsRemainDimAndHiddenTokenNeverEntersPlayerProjection() {
         GridPosition origin = new GridPosition(1, 1);
         CombatToken hidden = new CombatToken(new TokenId(UUID.randomUUID()), TokenType.ENEMY,

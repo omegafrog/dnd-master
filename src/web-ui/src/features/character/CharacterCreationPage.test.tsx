@@ -133,6 +133,29 @@ describe("CharacterCreationPage", () => {
     expect(screen.getByText("횃불 10개")).toBeTruthy();
   });
 
+  it("limits class skill choices and exposes exactly two rogue expertise choices", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.selectOptions(await screen.findByLabelText("직업"), "로그");
+    await user.selectOptions(screen.getByLabelText("배경"), "범죄자");
+    await user.click(screen.getByRole("button", { name: "기술" }));
+
+    const skill = (name: string) =>
+      screen.getByLabelText(new RegExp(`${name} \\(.*\\) 숙련`)) as HTMLInputElement;
+    const expertise = (name: string) =>
+      screen.getByLabelText(new RegExp(`${name} \\(.*\\) 숙달`)) as HTMLInputElement;
+
+    await user.click(skill("곡예"));
+    await user.click(skill("운동"));
+    await user.click(skill("통찰"));
+    await user.click(skill("위협"));
+
+    expect(screen.getByText("기술 숙련 4/4개 선택 · 숙달 0/2개 선택")).toBeTruthy();
+    expect(skill("수사").disabled).toBe(true);
+    expect(expertise("곡예").disabled).toBe(false);
+    expect(expertise("수사").disabled).toBe(true);
+  });
+
   it("shows creation-time spell choices and computed spell metadata", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -194,6 +217,51 @@ describe("CharacterCreationPage", () => {
     });
     expect(build.equippedItems).toEqual({ armor: "", shield: false, mainHandWeaponId: "quarterstaff" });
     expect(build.learnedSpells).toHaveLength(6);
+  });
+
+  it("sends the selected rogue skills and expertise instead of a hard-coded list", async () => {
+    const user = userEvent.setup();
+    const { createCharacterSheet } = renderPage();
+    await user.type(await screen.findByPlaceholderText("이름을 입력하세요"), "도적 아리아");
+    await user.selectOptions(screen.getByLabelText("종족"), "인간");
+    await user.selectOptions(screen.getByLabelText("직업"), "로그");
+    await user.selectOptions(screen.getByLabelText("배경"), "범죄자");
+    await user.click(screen.getByRole("button", { name: "기술" }));
+    const proficiency = (name: string) =>
+      screen.getByLabelText(new RegExp(`${name} \\(.*\\) 숙련`));
+    const expertise = (name: string) =>
+      screen.getByLabelText(new RegExp(`${name} \\(.*\\) 숙달`));
+    for (const name of ["곡예", "운동", "통찰", "위협"]) {
+      await user.click(proficiency(name));
+    }
+    await user.click(expertise("곡예"));
+    await user.click(expertise("운동"));
+    await user.click(screen.getByRole("button", { name: "능력치" }));
+    for (const [label, value] of [
+      ["근력 능력치", "15"],
+      ["민첩 능력치", "14"],
+      ["건강 능력치", "13"],
+      ["지능 능력치", "12"],
+      ["지혜 능력치", "10"],
+      ["매력 능력치", "8"],
+    ]) {
+      await user.selectOptions(screen.getByLabelText(label), value);
+    }
+    await user.click(screen.getByRole("button", { name: "캐릭터 저장하기 →" }));
+
+    const build = JSON.parse(createCharacterSheet.mock.calls[0][0].characterBuild) as {
+      skillProficiencies: string[];
+      expertise: string[];
+    };
+    expect(build.skillProficiencies).toEqual([
+      "기만",
+      "은신",
+      "곡예",
+      "운동",
+      "통찰",
+      "위협",
+    ]);
+    expect(build.expertise).toEqual(["곡예", "운동"]);
   });
 
   it("uses the complete 2014 fighter starting equipment instead of generic preview armor", async () => {

@@ -66,16 +66,22 @@ public final class TypedAgentContractController {
         requestGuard.internal(token);
         require(request);
         return adapter.complete(request.operationKey(),
-                "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=" + write(request.factLookupResults())
+                        "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=" + write(request.factLookupResults())
                         + "\nRUNTIME_CONTEXT=" + write(request.runtimeContext())
                         + "\nACTION=" + request.action()
-                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with scene, judgment, narration, situation, combatStart, and combatEnemies. "
+                        + "\nLOOKUP_ORDER_RULE=Use authoritative results in this order: Game State, established Runtime-added Facts, locked Scenario Model, then Storybook RAG. If all are NOT_FOUND, create only the minimum Runtime Fact needed to keep this turn playable. Do not use a lower-priority answer to contradict a higher-priority result."
+                        + "\nGROUNDING_RULES=Distinguish Canonical Fact from Runtime Fact. Canonical Fact means a scenario truth such as a culprit, secret route, cause, hidden clue, or encounter structure; create or reveal it only when the locked ScenarioModel or selected evidence supports it. Runtime Fact means a play-created NPC reaction, opinion, refusal, negotiation, or compatible offer; it may be improvised when it does not contradict canonical truth, and any saved Runtime Fact must be treated as existing on later turns."
+                        + "\nDIALOGUE_RULE=ACTION is an executed dialogue action, not a suggestion. If ACTION directly addresses an NPC, generate the NPC reaction in the current response. Do not tell the player to ask the same question again, and do not turn a completed question into an instruction. If a canonical answer is unavailable, respond diegetically through the NPC's ignorance, refusal, evasion, or negotiation; never say that the scenario lacks the information."
+                        + "\nANTI_LOOP_RULE=Do not repeat the same dialogue action as a next choice or recommendation. Use a follow-up action such as negotiating a different condition, accepting or refusing an offer, asking a new question, or observing the surroundings."
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with scene, judgment, narration, situation, combatStart, combatEnemies, mapEntryRequested, and optional runtimeFacts. "
                         + "situation must contain kind (CONTINUE or TRANSITION), location, problem, threat, goal, basis (SCENARIO, RAG, or FALLBACK), reference, and required. "
                         + "Choose the situation basis in this order: an applicable ScenarioModel element; otherwise a matching storybook RAG citation; otherwise FALLBACK only when a new fact is necessary to keep play moving, with required=true. "
                         + "For SCENARIO, reference is a ScenarioModel element id. For RAG, reference is a citationKey or locator from COMPOSITE_FACT_LOOKUP_RESULTS. For FALLBACK, reference is empty. "
                         + "The next GM turn receives this saved situation, so make it concrete and playable. Decide combat from the saved situation and the evidence, never from a word in the player's action. "
                         + "MANDATORY: if a hostile creature already supported by the saved situation is attacking, has cornered the party, or the player is exchanging attacks with it, return combatStart=true and a SITUATION enemy entry in the same response. "
                         + "Do not narrate a supported hostile creature attacking, closing in to attack, or 'combat ready' while returning combatStart=false. This is an output validity rule, not a discretionary pacing choice. "
+                        + "mapEntryRequested must be a boolean. Set it to true only when the committed situation places the party inside the prepared map area and the player should see that map now; set it to false while the party is still outside, approaching, or when no prepared map applies. Base this on the saved situation and scenario context, not on keyword matching. "
+                        + "runtimeFacts is optional. Include it only for a newly established playthrough fact created by this turn's compatible NPC reaction, refusal, offer, or negotiation after all authoritative lookup results are NOT_FOUND. Each item must contain subject and content. Never use runtimeFacts for a culprit, secret route, cause, hidden clue, puzzle answer, or other canonical scenario truth. "
                         + "When ACTION is SESSION_OPENING, LANGUAGE_CONTRACT requires all player-visible text in scene, judgment, narration, and situation to be written only in natural Korean. Do not output English or any other foreign-language words, labels, headings, or meta-commentary. Translate common nouns, class names, location names, action prompts, and proper names into Korean. Make the first player-facing narration establish the current location and why the party is here, state the immediate problem or pressure, identify a few observable things the party can respond to, and end with a Korean question inviting the player's action, such as '어떻게 하시겠어요?'. Use only RUNTIME_CONTEXT and COMPOSITE_FACT_LOOKUP_RESULTS; never reveal a puzzle answer or hidden fact. "
                         + "A player action is not evidence that an entity exists. Only enter combat with a combat scenario id present in RUNTIME_CONTEXT or COMPOSITE_FACT_LOOKUP_RESULTS. "
                         + "combatEnemies must always be an array of objects with mode (SCENARIO, SITUATION, or INSTANT), scenarioId, enemyKey, name, and positive count; "
@@ -127,6 +133,9 @@ public final class TypedAgentContractController {
         if (!root.has("combatStart") || !root.path("combatStart").isBoolean()) {
             throw new IllegalArgumentException("combatStart is required and must be boolean");
         }
+        if (!root.has("mapEntryRequested") || !root.path("mapEntryRequested").isBoolean()) {
+            throw new IllegalArgumentException("mapEntryRequested is required and must be boolean");
+        }
         JsonNode enemiesNode = root.path("combatEnemies");
         if (!enemiesNode.isArray()) throw new IllegalArgumentException("combatEnemies is required and must be an array");
         List<CombatEnemyResponse> enemies = new java.util.ArrayList<>();
@@ -173,8 +182,23 @@ public final class TypedAgentContractController {
         }
         SituationResponse response = new SituationResponse(kind, location, problem, threat, goal, basis, situation.path("reference").asText(""),
                 situation.path("required").booleanValue());
+        List<RuntimeFactResponse> runtimeFacts = new java.util.ArrayList<>();
+        JsonNode runtimeFactsNode = root.path("runtimeFacts");
+        if (!runtimeFactsNode.isMissingNode()) {
+            if (!runtimeFactsNode.isArray()) throw new IllegalArgumentException("runtimeFacts must be an array when provided");
+            for (JsonNode fact : runtimeFactsNode) {
+                if (!fact.isObject()) throw new IllegalArgumentException("runtimeFacts entries must be objects");
+                String subject = required(fact, "subject");
+                String content = required(fact, "content");
+                if (opening) {
+                    requireKoreanPlayerText("runtimeFacts.subject", subject);
+                    requireKoreanPlayerText("runtimeFacts.content", content);
+                }
+                runtimeFacts.add(new RuntimeFactResponse(subject, content));
+            }
+        }
         return new RuntimeTurnResponse(scene, judgment, narration,
-                combatStart, List.copyOf(enemies), response);
+                combatStart, List.copyOf(enemies), response, root.path("mapEntryRequested").booleanValue(), List.copyOf(runtimeFacts));
     }
 
     private NarrationSafetyResponse parseSafety(String json) {
@@ -263,10 +287,20 @@ public final class TypedAgentContractController {
     public record ScenarioCompilationResponse(String status, Map<String, Object> scenarioModel) { }
     public record ScenarioLookupResponse(String status, String answer, List<String> supportingElementIds) { }
     public record RuntimeTurnResponse(String scene, String judgment, String narration, boolean combatStart,
-                                      List<CombatEnemyResponse> combatEnemies, SituationResponse situation) { }
+                                      List<CombatEnemyResponse> combatEnemies, SituationResponse situation,
+                                      boolean mapEntryRequested, List<RuntimeFactResponse> runtimeFacts) {
+        public RuntimeTurnResponse(String scene, String judgment, String narration, boolean combatStart,
+                List<CombatEnemyResponse> combatEnemies, SituationResponse situation, boolean mapEntryRequested) {
+            this(scene, judgment, narration, combatStart, combatEnemies, situation, mapEntryRequested, List.of());
+        }
+        public RuntimeTurnResponse {
+            runtimeFacts = runtimeFacts == null ? List.of() : List.copyOf(runtimeFacts);
+        }
+    }
     public record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) { }
     public record SituationResponse(String kind, String location, String problem, String threat, String goal,
                                     String basis, String reference, boolean required) { }
+    public record RuntimeFactResponse(String subject, String content) { }
     public record NarrationSafetyResponse(boolean approved, String reason) { }
 
     private static String required(String value, String field) {

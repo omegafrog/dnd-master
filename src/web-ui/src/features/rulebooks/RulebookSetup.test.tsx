@@ -219,6 +219,39 @@ describe('rulebook and adventure setup', () => {
     expect(await screen.findByText('이름 없는 모험 자료')).toBeInTheDocument()
     expect(screen.queryByText('모험 자료 저장 완료: bundle-1 v1')).not.toBeInTheDocument()
   })
+
+  it('explains how to clean up connected sessions when bundle deletion is blocked', async () => {
+    const api = Object.assign(new FakeSetupApi(false, true), {
+      listScenarioBundles: async () => [bundle('bundle-1', 1, [])],
+      deleteScenarioBundle: vi.fn().mockRejectedValue(Object.assign(new Error('진행 중인 모험이 사용 중인 자료는 삭제할 수 없습니다.'), {
+        status: 409,
+        code: 'ACTIVE_ADVENTURE_REFERENCES_BUNDLE',
+      })),
+    }) as unknown as SetupApi
+    const user = userEvent.setup()
+    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
+    render(<RulebookSetup api={api} playerId="p1" />)
+
+    const saved = await screen.findByRole('list', { name: '저장된 모험 자료 목록' })
+    await user.click(within(saved).getByRole('button', { name: '삭제' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('연결 세션 관리')
+  })
+
+  it('shows a fallback when bundle deletion rejects without an error object', async () => {
+    const api = Object.assign(new FakeSetupApi(false, true), {
+      listScenarioBundles: async () => [bundle('bundle-1', 1, [])],
+      deleteScenarioBundle: vi.fn().mockRejectedValue(null),
+    }) as unknown as SetupApi
+    const user = userEvent.setup()
+    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
+    render(<RulebookSetup api={api} playerId="p1" />)
+
+    const saved = await screen.findByRole('list', { name: '저장된 모험 자료 목록' })
+    await user.click(within(saved).getByRole('button', { name: '삭제' }))
+
+    expect(await screen.findByRole('status')).toHaveTextContent('모험 자료를 삭제하지 못했습니다.')
+  })
 })
 
 function bundle(bundleId: string, currentRevision: number, documents: ScenarioBundleView['documents']): ScenarioBundleView {

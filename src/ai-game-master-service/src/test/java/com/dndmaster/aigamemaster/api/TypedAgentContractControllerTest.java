@@ -42,7 +42,7 @@ class TypedAgentContractControllerTest {
             public <T> T complete(String operation, String value,
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 prompt.set(value);
-                return parser.parse("{\"scene\":\"양조장\",\"judgment\":\"안전함\",\"narration\":\"방 안은 조용합니다.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush") + ",\"combatStart\":true,\"combatEnemies\":[{\"scenarioId\":\"cellar-rat-ambush\",\"enemyKey\":\"giant-rat\",\"name\":\"거대 쥐\",\"count\":8}]}");
+                return parser.parse("{\"scene\":\"양조장\",\"judgment\":\"안전함\",\"narration\":\"방 안은 조용합니다.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush") + ",\"combatStart\":true,\"mapEntryRequested\":true,\"combatEnemies\":[{\"scenarioId\":\"cellar-rat-ambush\",\"enemyKey\":\"giant-rat\",\"name\":\"거대 쥐\",\"count\":8}]}");
             }
         };
 
@@ -53,10 +53,11 @@ class TypedAgentContractControllerTest {
                 new TypedAgentContractController.RuntimeTurnRequest("op", "SESSION_OPENING", List.of()));
 
         org.junit.jupiter.api.Assertions.assertTrue(response.combatStart());
+        org.junit.jupiter.api.Assertions.assertTrue(response.mapEntryRequested());
         org.junit.jupiter.api.Assertions.assertEquals("cellar-rat-ambush", response.combatEnemies().get(0).scenarioId());
         org.junit.jupiter.api.Assertions.assertEquals(8, response.combatEnemies().get(0).count());
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("OUTPUT_CONTRACT"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scene, judgment, narration, situation, combatStart, and combatEnemies"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scene, judgment, narration, situation, combatStart, combatEnemies, mapEntryRequested, and optional runtimeFacts"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("MANDATORY: if a hostile creature"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("SESSION_OPENING"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("current location and why the party is here"));
@@ -65,6 +66,35 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not output English or any other foreign-language words"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("end with a Korean question"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not use markdown"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("executed dialogue action"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Runtime Fact"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Canonical Fact"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("NPC reaction"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not repeat the same dialogue action"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("diegetic"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Game State, established Runtime-added Facts, locked Scenario Model, then Storybook RAG"));
+    }
+
+    @Test
+    void runtime_turn_reads_optional_runtime_facts_from_the_typed_response() {
+        var adapter = new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String value,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"scene\":\"양조장\",\"judgment\":\"협상 가능\",\"narration\":\"글로우킨이 조건을 제안합니다.\",\"situation\":"
+                        + situation("SCENARIO", "cellar")
+                        + ",\"combatStart\":false,\"mapEntryRequested\":false,\"combatEnemies\":[],"
+                        + "\"runtimeFacts\":[{\"subject\":\"보상\",\"content\":\"글로우킨이 30골드를 제안했습니다.\"}]}");
+            }
+        };
+        TypedAgentContractController controller = new TypedAgentContractController(
+                adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        var response = controller.runtimeTurn("service-secret",
+                new TypedAgentContractController.RuntimeTurnRequest("op", "PLAYER_ACTION", List.of()));
+
+        org.junit.jupiter.api.Assertions.assertEquals(1, response.runtimeFacts().size());
+        org.junit.jupiter.api.Assertions.assertEquals("보상", response.runtimeFacts().get(0).subject());
     }
 
     @Test
@@ -75,7 +105,7 @@ class TypedAgentContractControllerTest {
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 return parser.parse("{\"scene\":\"양조장\",\"judgment\":\"안전함\","
                         + "\"narration\":\"The room is quiet.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
-                        + ",\"combatStart\":false,\"combatEnemies\":[]}");
+                        + ",\"combatStart\":false,\"mapEntryRequested\":false,\"combatEnemies\":[]}");
             }
         };
         TypedAgentContractController controller = new TypedAgentContractController(
@@ -94,7 +124,7 @@ class TypedAgentContractControllerTest {
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 return parser.parse("{\"scene\":\"양조장\",\"judgment\":\"안전함\","
                         + "\"narration\":\"123 !!!\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
-                        + ",\"combatStart\":false,\"combatEnemies\":[]}");
+                        + ",\"combatStart\":false,\"mapEntryRequested\":false,\"combatEnemies\":[]}");
             }
         };
         TypedAgentContractController controller = new TypedAgentContractController(
@@ -128,7 +158,7 @@ class TypedAgentContractControllerTest {
             @Override
             public <T> T complete(String operation, String prompt,
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
-                return parser.parse("{\"scene\":\"brewery\",\"judgment\":\"combat\",\"narration\":\"The door bursts open.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,\"combatEnemies\":[]}");
+                return parser.parse("{\"scene\":\"brewery\",\"judgment\":\"combat\",\"narration\":\"The door bursts open.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,\"mapEntryRequested\":false,\"combatEnemies\":[]}");
             }
         };
         TypedAgentContractController controller = new TypedAgentContractController(
@@ -146,7 +176,7 @@ class TypedAgentContractControllerTest {
             public <T> T complete(String operation, String prompt,
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 return parser.parse("{\"scene\":\"cellar\",\"judgment\":\"critical failure\","
-                        + "\"narration\":\"The noise draws a giant rat.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,"
+                        + "\"narration\":\"The noise draws a giant rat.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,\"mapEntryRequested\":false,"
                         + "\"combatEnemies\":[{\"mode\":\"INSTANT\",\"scenarioId\":\"\","
                         + "\"enemyKey\":\"giant-rat\",\"name\":\"Giant Rat\",\"count\":1}]}");
             }

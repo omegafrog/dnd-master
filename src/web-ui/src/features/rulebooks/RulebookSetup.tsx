@@ -22,6 +22,15 @@ const batchStatusText: Record<BatchRulebookView['status'], string> = {
 
 const indexingFinishedStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'READY', 'PARTIAL_CONFIRMED'])
 const isIndexingFinished = (document: KnowledgeDocumentView) => indexingFinishedStatuses.has(document.status) || document.progress?.stage === 'READY'
+type SetupApiError = Error & { status?: number; code?: string }
+
+function bundleDeletionErrorMessage(error: unknown, fallback: string) {
+  const candidate = error && typeof error === 'object' ? error as SetupApiError : undefined
+  if (candidate?.status === 409 && candidate.code === 'ACTIVE_ADVENTURE_REFERENCES_BUNDLE') {
+    return '진행 중인 모험 세션이 이 자료를 사용 중입니다. 연결 세션 관리에서 세션을 정리한 뒤 다시 삭제하세요.'
+  }
+  return error instanceof Error ? error.message : fallback
+}
 
 type PendingDocument = RulebookUploadDraft & { originalFilename: string }
 type CatalogRulebook = { catalogRevisionId: string; edition: string; displayName: string; rulebookId: string | null; revisionNumber: number; status: string }
@@ -150,7 +159,7 @@ export function RulebookSetup({
       setSelectedBundle(current => current?.bundleId === bundleId ? null : current)
       setMessage('모험 자료를 삭제했습니다.')
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '모험 자료를 삭제하지 못했습니다.')
+      setMessage(bundleDeletionErrorMessage(error, '모험 자료를 삭제하지 못했습니다.'))
     } finally {
       setDeletingBundleId(null)
     }
@@ -183,7 +192,14 @@ export function RulebookSetup({
     setBundles(current => current.filter(bundle => !deletedIds.includes(bundle.bundleId)))
     setSelectedBundleIds(new Set(failedIds))
     setSelectedBundle(current => current && deletedIds.includes(current.bundleId) ? null : current)
-    setMessage(failedIds.length ? `${deletedIds.length}개 삭제, ${failedIds.length}개 삭제 실패` : `${deletedIds.length}개 자료를 삭제했습니다.`)
+    const blockedBySessions = outcomes.some(outcome => outcome.status === 'rejected'
+      && (outcome.reason as SetupApiError)?.status === 409
+      && (outcome.reason as SetupApiError)?.code === 'ACTIVE_ADVENTURE_REFERENCES_BUNDLE')
+    setMessage(failedIds.length
+      ? blockedBySessions
+        ? `${deletedIds.length}개 삭제, ${failedIds.length}개는 진행 중인 모험 세션이 사용 중입니다. 연결 세션 관리에서 정리한 뒤 다시 시도하세요.`
+        : `${deletedIds.length}개 삭제, ${failedIds.length}개 삭제 실패`
+      : `${deletedIds.length}개 자료를 삭제했습니다.`)
     setDeletingBundles(false)
   }
 
@@ -431,6 +447,7 @@ export function RulebookSetup({
               <li key={bundle.bundleId}>
                 <Checkbox aria-label={`${bundle.name ?? '모험 자료'} 선택`} checked={selectedBundleIds.has(bundle.bundleId)} onCheckedChange={() => toggleBundleSelection(bundle.bundleId)} />
                 <span><strong>{bundle.name ?? '이름 없는 모험 자료'}</strong> · {bundle.rulebookEdition === 'DND_5E_2014' ? 'D&D 5판' : bundle.rulebookEdition === 'DND_5E_2024' ? 'D&D 5.5판' : '룰북 미지정'} · 자료 {bundle.documents.length}개</span>
+                <Button type="button" variant="outline" onClick={() => { window.location.hash = `#/bundles/${bundle.bundleId}` }}>연결 세션 관리</Button>
                 <Button type="button" onClick={() => void openPreparation(bundle.bundleId)}>게임 준비</Button>
                 <Button type="button" variant="destructive" disabled={deletingBundleId === bundle.bundleId} onClick={() => void deleteBundle(bundle.bundleId)}>
                   {deletingBundleId === bundle.bundleId ? '삭제 중…' : '삭제'}

@@ -122,6 +122,26 @@ class ScenarioRuntimeTurnSafetyTest {
     }
 
     @Test
+    void a_counteroffer_replaces_the_previous_runtime_fact_for_the_same_subject() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        RuntimeAddedFact initial = new RuntimeAddedFact(UUID.randomUUID(), "The keeper offers 20 gold pieces.", UUID.randomUUID(), "reward");
+        Adventure adventure = Adventure.rehydrateWithRuntimeState(
+                AdventureId.generate(), SessionId.generate(), owner, new ScenarioId(UUID.randomUUID()),
+                new RuleSetId(UUID.randomUUID()), List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                        new CharacterSheetId(UUID.randomUUID()), com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT,
+                        true, true, true, true, true, true)), List.of(), new AdventureContext("cellar", "keeper", "", "waiting"),
+                com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE, 2, 0, null, UUID.randomUUID(), 1,
+                GameState.empty(), DisclosureState.empty(), CurrentSituation.initial("cellar"), List.of(initial));
+        RuntimeAddedFact counteroffer = new RuntimeAddedFact(UUID.randomUUID(), "The keeper offers 30 gold pieces.", UUID.randomUUID(), "reward");
+
+        adventure.commitRuntimeTurn(owner, 2,
+                new PendingRuntimeState(GameStateDelta.empty(), DisclosureState.empty(), CurrentSituation.initial("cellar"), List.of(counteroffer)),
+                new AdventureContext("cellar", "keeper", "negotiate", "counteroffer"), List.of(), CompletionProposal.continueAdventure());
+
+        assertEquals(List.of(counteroffer), adventure.runtimeAddedFacts());
+    }
+
+    @Test
     void unsafe_narration_retry_keeps_fixed_resolution_and_pending_state_stable() {
         AdventureContext context = new AdventureContext("gate", "guard", "", "waiting");
         RuntimeTurn requested = new RuntimeTurn(UUID.randomUUID(), UUID.randomUUID(), AdventureId.generate(), UUID.randomUUID(),

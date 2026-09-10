@@ -63,6 +63,13 @@ export type CombatMapView = {
   objects?: Array<{ id: string; type: string; x: number; y: number }>
 }
 
+export type MapGridAlignment = { mapId: string; version: number; imageRevision: string; imageViewId?: string; originX: number; originY: number; cellSize: number }
+export type MapGridAlignmentRequest = { mapId: string; commandId: string; expectedVersion: number; imageRevision: string; originX: number; originY: number; cellSize: number }
+export type MapBoundary = { x: number; y: number; orientation: 'HORIZONTAL' | 'VERTICAL'; kind: 'WALL' | 'DOOR'; open: boolean }
+export type MapBoundaryCandidate = { x: number; y: number; orientation: 'HORIZONTAL' | 'VERTICAL'; kind: 'WALL' | 'DOOR'; confidence: number; evidence: string[]; source?: string }
+export type MapBoundaryProposal = { mapVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number; open: boolean }>; boundaries: MapBoundary[]; crop?: string; candidates?: MapBoundaryCandidate[]; alignmentVersion?: number; imageRevision?: string }
+export type CombatMapLayoutDraft = { commandId: string; expectedVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number }>; boundaries?: MapBoundary[]; crop?: string; alignmentVersion?: number; imageRevision?: string }
+
 export type MapActionCandidate = {
   mapId: string
   mapVersion: number
@@ -92,16 +99,32 @@ export interface AdventurePlayApi {
   getSessionKnowledgeSet(adventureId: string): Promise<SessionKnowledgeSet>
   saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]): Promise<SessionKnowledgeSet>
   getCombatMap(adventureId: string): Promise<CombatMapView>
-  calibrateCombatMap?(adventureId: string, calibration: { mapId: string; expectedVersion: number; width: number; height: number; cellSize: number; originX: number; originY: number; imageWidth: number; imageHeight: number; playerX: number; playerY: number }): Promise<void>
+  getCombatMapPreparation?(adventureId: string): Promise<CombatMapView>
+  getPublicMapImage?(adventureId: string): Promise<string | null>
+  getCombatMapPreparationImage?(adventureId: string): Promise<string | null>
+  detectMapBoundaries?(adventureId: string): Promise<MapBoundaryProposal>
+  getMapGridAlignment?(adventureId: string): Promise<MapGridAlignment>
+  applyMapGridAlignment?(adventureId: string, alignment: MapGridAlignmentRequest): Promise<MapGridAlignment>
+  updateCombatMapLayout?(adventureId: string, draft: CombatMapLayoutDraft): Promise<void>
   submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number }>
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, init)
-  if (response.status === 409 || response.status === 422) throw new Error('적용 규칙상 해당 요청을 처리할 수 없습니다.')
+  if (response.status === 409 || response.status === 422) {
+    const problem = await response.clone().json().catch(() => null) as { error?: string; message?: string } | null
+    if (problem?.error === 'ADVENTURE_START_BLOCKED' && problem.message === 'combat map alignment save failed') {
+      throw new Error('전체 격자가 지도 밖으로 나갑니다. 시작점을 지도 안쪽으로 옮기고 다시 맞추세요.')
+    }
+    throw new AdventureRequestError('적용 규칙상 해당 요청을 처리할 수 없습니다.', response.status)
+  }
   if (!response.ok) throw new Error('요청을 처리하지 못했습니다.')
   if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T
   return response.json() as Promise<T>
+}
+
+class AdventureRequestError extends Error {
+  constructor(message: string, readonly status: number) { super(message); this.name = 'AdventureRequestError' }
 }
 
 export class HttpAdventurePlayApi implements AdventurePlayApi {
@@ -198,11 +221,51 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     })
   }
 
-  calibrateCombatMap(adventureId: string, calibration: { mapId: string; expectedVersion: number; width: number; height: number; cellSize: number; originX: number; originY: number; imageWidth: number; imageHeight: number; playerX: number; playerY: number }) {
-    return request<void>(`/api/v1/adventures/${adventureId}/combat-map/calibration`, {
+  getCombatMapPreparation(adventureId: string) {
+    return request<CombatMapView>(`/api/v1/adventures/${adventureId}/combat-map/preparation`, { headers: this.authHeaders() })
+  }
+
+  async getPublicMapImage(adventureId: string): Promise<string | null> {
+    const alignment = await request<{ imageViewId?: string }>(`/api/v1/adventures/${adventureId}/combat-map/alignment`, {
+      headers: this.authHeaders(),
+    })
+    if (!alignment.imageViewId) return null
+    const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map/alignment/image/${encodeURIComponent(alignment.imageViewId)}`, {
+      headers: this.authHeaders(), cache: 'no-store',
+    })
+    if (!response.ok) throw new Error(`공개된 지도 이미지를 불러오지 못했습니다. (${response.status})`)
+    return URL.createObjectURL(await response.blob())
+  }
+
+  async getCombatMapPreparationImage(adventureId: string): Promise<string | null> {
+    const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map/preparation-image`, { headers: this.authHeaders(), cache: 'no-store' })
+    if (!response.ok) throw new Error('맵 준비 이미지를 불러오지 못했습니다.')
+    return URL.createObjectURL(await response.blob())
+  }
+
+  detectMapBoundaries(adventureId: string) {
+    return request<MapBoundaryProposal>(`/api/v1/adventures/${adventureId}/combat-map/detect-boundaries`, {
+      method: 'POST', headers: this.authHeaders(),
+    })
+  }
+
+  getMapGridAlignment(adventureId: string) {
+    return request<MapGridAlignment>(`/api/v1/adventures/${adventureId}/combat-map/alignment`, {
+      headers: this.authHeaders(),
+    })
+  }
+
+  applyMapGridAlignment(adventureId: string, alignment: MapGridAlignmentRequest) {
+    return request<MapGridAlignment>(`/api/v1/adventures/${adventureId}/combat-map/alignment`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
-      body: JSON.stringify(calibration),
+      body: JSON.stringify(alignment),
+    })
+  }
+
+  updateCombatMapLayout(adventureId: string, draft: CombatMapLayoutDraft) {
+    return request<void>(`/api/v1/adventures/${adventureId}/combat-map/layout`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(draft),
     })
   }
 

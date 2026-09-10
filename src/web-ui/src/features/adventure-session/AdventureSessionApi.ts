@@ -110,11 +110,12 @@ export class AdventureSessionApi {
   removeMember(sessionId: string, version: number, characterSheetId: string) {
     return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/party/${characterSheetId}`, { method: 'DELETE', headers: { 'If-Match-Version': String(version) } })
   }
-  start(sessionId: string, version: number, adventureId: string) {
+  start(sessionId: string, version: number, adventureId: string, prepareMapOnly = false) {
     const requestId = this.startKeys.get(sessionId) ?? crypto.randomUUID()
     this.startKeys.set(sessionId, requestId)
-    return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version), 'Idempotency-Key': requestId }, body: JSON.stringify({ adventureId }) })
+    return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version), 'Idempotency-Key': requestId }, body: JSON.stringify({ adventureId, prepareMapOnly }) })
   }
+  prepareMap(sessionId: string, version: number, adventureId: string) { return this.start(sessionId, version, adventureId, true) }
   saveAppliedRuleSet(adventureId: string, ruleSetId: string, edition: string, rulebookIds: string[]) {
     return this.request<{ ruleSetId: string }>(`/api/v1/adventures/${adventureId}/applied-rule-set`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ruleSetId, edition, rulebookIds }) })
   }

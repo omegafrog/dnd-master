@@ -23,9 +23,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.multipart.MultipartFile;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import com.dndmaster.adventure.domain.runtime.GmTurn;
@@ -36,6 +36,8 @@ import com.dndmaster.adventure.application.combat.CombatActionApplicationService
 import com.dndmaster.adventure.application.combat.CombatStartParticipantFactory;
 import com.dndmaster.adventure.application.combat.CombatStartTransitionPolicy;
 import com.dndmaster.adventure.application.combat.CombatMapPlayerTokenResolver;
+import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
+import com.dndmaster.adventure.application.combat.CombatMapEntryContextResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
@@ -58,6 +60,7 @@ public class AdventureController {
     private final CombatMapPort combatMapPort;
     private final CharacterCombatPort characterCombatPort;
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
+    private final CombatMapPreparationPort combatMapPreparationPort;
     private final ObjectMapper objectMapper;
     private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
 
@@ -78,6 +81,7 @@ public class AdventureController {
             ObjectProvider<CharacterCombatPort> characterCombatPort,
             ObjectMapper objectMapper,
             ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort,
+            ObjectProvider<CombatMapPreparationPort> combatMapPreparationPort,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
@@ -98,6 +102,10 @@ public class AdventureController {
             throw new IllegalStateException("character combat gateway unavailable");
         });
         this.combatMapViewPort = combatMapViewPort.getIfAvailable(() -> (adventureId1, ownerId) -> java.util.Optional.empty());
+        this.combatMapPreparationPort = combatMapPreparationPort.getIfAvailable(() -> new CombatMapPreparationPort() {
+            @Override public UUID prepareInitial(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
+                    com.dndmaster.adventure.domain.scenario.MapDefinition mapDefinition, int stagePosition) { return null; }
+        });
         this.objectMapper = objectMapper;
         this.combatLifecycleService = combatLifecycleService;
     }
@@ -134,14 +142,17 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns")
-    @Transactional
-    public ResponseEntity<RuntimeTurnResponse> submitTypedTurn(
+    public ResponseEntity<?> submitTypedTurn(
             @PathVariable UUID adventureId,
             @RequestHeader("Idempotency-Key") UUID commandId,
             @RequestHeader("If-Match-Version") long expectedVersion,
             @RequestBody GmTurnRequest request) {
         UUID owner = playerResolver.playerId();
-        gmTurnRepository.lockAdventure(adventureId);
+        // Do not hold a database transaction or advisory lock across the
+        // provider call. RuntimeTurnApplicationService persists each lifecycle
+        // step independently and enforces the adventure-version boundary;
+        // keeping the controller transaction open can deadlock failure
+        // recording when a provider request is interrupted.
         var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         adventure.reopen(new OwnerPlayerId(owner));
         var input = request.input().toDomain();
@@ -186,7 +197,7 @@ public class AdventureController {
             if (message.contains("GM_TURN_ALREADY_IN_PROGRESS")) {
                 return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).build();
             }
-            return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).build();
+            return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).body(runtimeTurnFailure(exception));
         }
         String providerMetadata = "provider=" + result.turn().plan().provider()
                 + ";model=" + result.turn().plan().model()
@@ -195,11 +206,23 @@ public class AdventureController {
         gmTurnRepository.save(turn.process().commit(providerMetadata), adventureId);
         GmTurn committedTurn = turn.process().commit(providerMetadata);
         com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(committedTurn, result.version());
-        if (result.turn().plan().combatStartRequested()) {
-            Adventure committedAdventure = adventureRepository.findById(new AdventureId(adventureId))
-                    .orElseThrow(() -> new IllegalStateException("adventure disappeared after runtime commit"));
+        Adventure committedAdventure = adventureRepository.findById(new AdventureId(adventureId))
+                .orElseThrow(() -> new IllegalStateException("adventure disappeared after runtime commit"));
+        boolean combatStartRequested = result.turn().plan().combatStartRequested();
+        boolean mapEntryRequested = result.turn().plan().mapEntryRequested();
+        if (combatStartRequested) {
             CombatStartTransitionPolicy.requireCommittedCombatSituation(committedAdventure.currentSituation(),
                     result.turn().plan().combatEnemies());
+        }
+        if (combatStartRequested || mapEntryRequested) {
+            // A prepared draft is activated once, at the committed map entry.
+            // Combat is only one possible reason to enter a map; exploration
+            // and investigation must use the same authoritative projection.
+            if (combatMapViewPort.preparationView(adventureId, owner).isPresent()) {
+                activatePreparedMap(committedAdventure);
+            }
+        }
+        if (combatStartRequested) {
             combatLifecycleService.startFromCommittedGmTurn(adventureId, committedTurn,
                     new com.dndmaster.adventure.domain.combat.CombatStartProposal(true,
                             CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, adventure.party(),
@@ -210,6 +233,17 @@ public class AdventureController {
         sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
+    }
+
+    private static Map<String, String> runtimeTurnFailure(RuntimeException exception) {
+        String raw = exception.getMessage() == null ? "" : exception.getMessage();
+        int marker = raw.indexOf("GM final validation failed:");
+        String message = marker >= 0
+                ? "턴 계획 검증 실패: " + raw.substring(marker + "GM final validation failed:".length()).trim()
+                : raw.isBlank()
+                        ? "모험 메시지를 처리하지 못했습니다. 잠시 후 다시 시도해주세요."
+                        : "턴 처리 실패: " + raw.substring(0, Math.min(raw.length(), 500));
+        return Map.of("error", "GM_TURN_FAILED_RETRYABLE", "message", message);
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/roll")
@@ -254,6 +288,29 @@ public class AdventureController {
                 .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), null));
     }
 
+    private void activatePreparedMap(Adventure adventure) {
+        var situation = adventure.currentSituation();
+        UUID playerTokenId = adventure.party().stream().findFirst()
+                .map(AdventurePartyMember::characterSheetId)
+                .map(sheet -> UUID.nameUUIDFromBytes(("player-" + sheet.value())
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .orElse(null);
+        CombatMapPreparationPort.ActivationContext context = new CombatMapPreparationPort.ActivationContext(
+                playerTokenId, situation.situationId(), situation.revision(), adventure.turnIndex(),
+                adventure.currentContext().currentScene(), situation.location(), null, null,
+                CombatMapEntryContextResolver.entrySide(adventure, situation));
+    combatMapPreparationPort.activatePrepared(adventure.id(), adventure.ownerPlayerId().value(),
+                adventure.ruleSetId(), 1, context);
+    }
+
+    @GetMapping("/api/v1/adventures/{adventureId}/combat-map/preparation")
+    CombatMapResponse preparationMap(@PathVariable UUID adventureId) {
+        var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        return combatMapViewPort.preparationView(adventureId, owner).map(view -> CombatMapResponse.from(adventureId, adventure.version(), view)).orElseThrow();
+    }
+
     @PutMapping("/api/v1/adventures/{adventureId}/combat-map/calibration")
     CombatMapCalibrationResponse calibrateMap(@PathVariable UUID adventureId, @RequestBody CombatMapCalibrationRequest request) {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
@@ -263,6 +320,74 @@ public class AdventureController {
         combatMapViewPort.calibrate(request.mapId(), playerResolver.playerId(), request.expectedVersion(), request.width(), request.height(),
                 request.cellSize(), request.originX(), request.originY(), request.imageWidth(), request.imageHeight(), request.playerX(), request.playerY());
         return new CombatMapCalibrationResponse(request.mapId(), request.width(), request.height());
+    }
+
+    @PutMapping("/api/v1/adventures/{adventureId}/combat-map/layout")
+    void updateMapLayout(@PathVariable UUID adventureId, @RequestBody CombatMapLayoutRequest request) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID mapId = editingMap(adventureId, owner).mapId();
+        List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> obstacles = request.obstacles() == null ? List.of() : request.obstacles().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Position(p.x(), p.y())).toList();
+        List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Door> doors = request.doors() == null ? List.of() : request.doors().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Door(p.x(), p.y(), false)).toList();
+        List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary> boundaries = request.boundaries() == null ? List.of() : request.boundaries().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary(p.x(), p.y(), p.orientation(), p.kind(), p.open())).toList();
+        combatMapViewPort.updateLayout(mapId, owner, request.expectedVersion(), request.commandId(), obstacles, doors, boundaries,
+                request.crop(), request.alignmentVersion(), request.imageRevision());
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/combat-map/detect-boundaries")
+    com.dndmaster.adventure.application.combat.CombatMapViewPort.BoundaryProposal detectMapBoundaries(@PathVariable UUID adventureId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID mapId = combatMapViewPort.preparationView(adventureId, owner).orElseThrow().mapId();
+        return combatMapViewPort.detectMapBoundaries(mapId, owner);
+    }
+
+    @GetMapping("/api/v1/adventures/{adventureId}/combat-map/alignment")
+    CombatMapAlignmentResponse mapAlignment(@PathVariable UUID adventureId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID mapId = editingMap(adventureId, owner).mapId();
+        return CombatMapAlignmentResponse.from(combatMapViewPort.alignment(mapId, owner));
+    }
+
+    @GetMapping(value = "/api/v1/adventures/{adventureId}/combat-map/alignment/image/{imageViewId}", produces = "image/png")
+    ResponseEntity<byte[]> mapAlignmentImage(@PathVariable UUID adventureId, @PathVariable String imageViewId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID mapId = editingMap(adventureId, owner).mapId();
+        return ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
+                .cacheControl(org.springframework.http.CacheControl.noStore())
+                .body(combatMapViewPort.alignmentImage(mapId, owner, imageViewId));
+    }
+
+    @GetMapping(value = "/api/v1/adventures/{adventureId}/combat-map/preparation-image", produces = "image/png")
+    ResponseEntity<byte[]> preparationMapImage(@PathVariable UUID adventureId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID mapId = editingMap(adventureId, owner).mapId();
+        return ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
+                .cacheControl(org.springframework.http.CacheControl.noStore()).body(combatMapViewPort.preparationImage(mapId, owner));
+    }
+
+    @PutMapping("/api/v1/adventures/{adventureId}/combat-map/alignment")
+    CombatMapAlignmentResponse applyMapAlignment(@PathVariable UUID adventureId, @RequestBody CombatMapAlignmentRequest request) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        UUID activeMap = editingMap(adventureId, owner).mapId();
+        if (!activeMap.equals(request.mapId())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND);
+        try {
+            return CombatMapAlignmentResponse.from(combatMapViewPort.applyAlignment(activeMap, owner,
+                    new com.dndmaster.adventure.application.combat.CombatMapViewPort.AlignmentRequest(request.commandId(), request.expectedVersion(), request.imageRevision(), request.originX(), request.originY(), request.cellSize())));
+        } catch (IllegalStateException exception) {
+            if ("map grid alignment conflict".equals(exception.getMessage())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, exception.getMessage(), exception);
+            throw exception;
+        }
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
@@ -493,6 +618,13 @@ public class AdventureController {
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
+    /** 준비 단계와 플레이 단계 모두에서 같은 맵을 편집 대상으로 선택한다. */
+    private com.dndmaster.adventure.application.combat.CombatMapViewPort.View editingMap(UUID adventureId, UUID owner) {
+        return combatMapViewPort.preparationView(adventureId, owner)
+                .or(() -> combatMapViewPort.playerView(adventureId, owner))
+                .orElseThrow();
+    }
+
     private com.dndmaster.adventure.domain.adventure.AdventurePartyMember characterSheetForToken(
             Adventure adventure, UUID owner, UUID tokenId) {
         return CombatMapPlayerTokenResolver.resolve(adventure, owner, tokenId, combatMapViewPort);
@@ -516,6 +648,22 @@ public class AdventureController {
     public record CombatMapCalibrationRequest(UUID mapId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     public record CombatMapCalibrationResponse(UUID mapId, int width, int height) {}
+    public record CombatMapLayoutRequest(UUID commandId, long expectedVersion, List<PositionPayload> obstacles,
+                                         List<PositionPayload> doors, List<BoundaryPayload> boundaries, String crop,
+                                         Long alignmentVersion, String imageRevision) {
+        public CombatMapLayoutRequest(UUID commandId, long expectedVersion, List<PositionPayload> obstacles,
+                List<PositionPayload> doors, List<BoundaryPayload> boundaries, String crop) {
+            this(commandId, expectedVersion, obstacles, doors, boundaries, crop, null, "");
+        }
+    }
+    public record BoundaryPayload(int x, int y, String orientation, String kind, boolean open) {}
+    public record CombatMapAlignmentRequest(UUID mapId, UUID commandId, long expectedVersion, String imageRevision,
+                                            double originX, double originY, double cellSize) {}
+    public record CombatMapAlignmentResponse(UUID mapId, long version, String imageRevision, String imageViewId, double originX, double originY, double cellSize) {
+        static CombatMapAlignmentResponse from(com.dndmaster.adventure.application.combat.CombatMapViewPort.Alignment alignment) {
+            return new CombatMapAlignmentResponse(alignment.mapId(), alignment.version(), alignment.imageRevision(), alignment.imageViewId(), alignment.originX(), alignment.originY(), alignment.cellSize());
+        }
+    }
     public record DiceRollRequest(
             UUID ruleSetId,
             UUID characterSheetId,

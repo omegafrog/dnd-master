@@ -27,7 +27,8 @@ public record RuntimePlan(
         List<GmCitationBinding> citationBindings,
         StateDelta stateDelta,
         List<CombatEnemyProposal> combatEnemies,
-        boolean combatStartRequested) {
+        boolean combatStartRequested,
+        boolean mapEntryRequested) {
     public RuntimePlan {
         scene = required(scene, "scene");
         judgment = required(judgment, "judgment");
@@ -55,7 +56,20 @@ public record RuntimePlan(
                        boolean combatStartRequested) {
         this(scene, npcState, judgment, narration, activeSourceContext, citedEvidence, warnings, provider, model,
                 reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection, effectiveSelection,
-                attemptCount, citationBindings, stateDelta, List.of(), combatStartRequested);
+                attemptCount, citationBindings, stateDelta, List.of(), combatStartRequested, false);
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext activeSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings, String provider, String model, String reasoning,
+                       boolean stateTransitionRequested, String requestedSelectionId,
+                       RequestedGmProviderSelection requestedSelection,
+                       EffectiveGmProviderSelection effectiveSelection, int attemptCount,
+                       List<GmCitationBinding> citationBindings, StateDelta stateDelta,
+                       List<CombatEnemyProposal> combatEnemies, boolean combatStartRequested) {
+        this(scene, npcState, judgment, narration, activeSourceContext, citedEvidence, warnings, provider, model,
+                reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection, effectiveSelection,
+                attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested, false);
     }
 
     public String resolutionStatus() {
@@ -120,19 +134,19 @@ public record RuntimePlan(
     public RuntimePlan withStateDelta(StateDelta delta) {
         return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
                 warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
-                effectiveSelection, attemptCount, citationBindings, delta, combatEnemies, combatStartRequested);
+                effectiveSelection, attemptCount, citationBindings, delta, combatEnemies, combatStartRequested, mapEntryRequested);
     }
 
     public RuntimePlan withCitedEvidence(List<RuntimeEvidence> evidence) {
         return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, evidence,
                 warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
-                effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested);
+                effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested, mapEntryRequested);
     }
 
     public RuntimePlan withCombatEnemies(List<CombatEnemyProposal> groundedEnemies) {
         return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
                 warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
-                effectiveSelection, attemptCount, citationBindings, stateDelta, groundedEnemies, !groundedEnemies.isEmpty());
+                effectiveSelection, attemptCount, citationBindings, stateDelta, groundedEnemies, !groundedEnemies.isEmpty(), mapEntryRequested);
     }
 
     public RuntimePlan withoutCombat(String reason) {
@@ -140,7 +154,7 @@ public record RuntimePlan(
         nextWarnings.add(reason);
         return new RuntimePlan(scene, npcState, reason, narration, proposedActiveSourceContext, citedEvidence,
                 nextWarnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
-                effectiveSelection, attemptCount, citationBindings, stateDelta, List.of(), false);
+                effectiveSelection, attemptCount, citationBindings, stateDelta, List.of(), false, mapEntryRequested);
     }
 
     private static String required(String value, String name) {

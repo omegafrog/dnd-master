@@ -56,6 +56,20 @@ class RuntimeFactLookupServiceTest {
     }
 
     @Test
+    void action_wording_is_reduced_to_the_runtime_subject_before_lookup() {
+        RuntimeFactLookupService service = new RuntimeFactLookupService(
+                request -> { throw new AssertionError("scenario lookup must not run"); },
+                request -> { throw new AssertionError("RAG lookup must not run"); });
+
+        RuntimeFactLookupResult result = service.lookup(request("I ask the keeper what the reward is", Map.of(),
+                List.of(new RuntimeAddedFact(UUID.randomUUID(), "The keeper offers 20 gold pieces.", UUID.randomUUID(), "reward")),
+                model("model-reward")));
+
+        assertEquals(RuntimeFactLookupResult.Source.RUNTIME_ADDED_FACT, result.source());
+        assertEquals("The keeper offers 20 gold pieces.", result.answer());
+    }
+
+    @Test
     void locked_model_hit_short_circuits_storybook_rag() {
         AtomicInteger ragCalls = new AtomicInteger();
         RuntimeFactLookupService service = new RuntimeFactLookupService(

@@ -29,7 +29,7 @@ const documentStatusLabel: Record<KnowledgeDocumentView['status'], string> = {
 }
 const sessionStatusLabel = { DRAFT: '준비 중', STARTING: '시작하는 중', STARTED: '진행 중', COMPLETED: '완료', DELETED: '삭제됨' } as const
 
-export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bundleId: string; api: SetupApi; playerId: string; sessionApi: Pick<AdventureSessionApi, 'create' | 'listByScenarioPackage'> & Partial<Pick<AdventureSessionApi, 'readGmProvider' | 'switchGmProvider'>> }) {
+export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bundleId: string; api: SetupApi; playerId: string; sessionApi: Pick<AdventureSessionApi, 'create' | 'listByScenarioPackage' | 'delete'> & Partial<Pick<AdventureSessionApi, 'readGmProvider' | 'switchGmProvider'>> }) {
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
   const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
   const [packages, setPackages] = useState<ScenarioPackageView[]>([])
@@ -46,6 +46,8 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
   const [gmModel, setGmModel] = useState('gpt-5.6-luna')
   const [gmReasoning, setGmReasoning] = useState('medium')
   const [preparing, setPreparing] = useState(false)
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null)
+  const [deletingSessions, setDeletingSessions] = useState(false)
 
   useEffect(() => {
     window.localStorage.setItem('dnd-selected-bundle-id', bundleId)
@@ -63,8 +65,17 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
       setBundle(loadedBundle)
       setDocuments(loadedDocuments)
       setPackages(loadedPackages)
-      const currentPackage = loadedPackages.find(item => item.bundleRevision === loadedBundle.currentRevision)
-      setSessions(currentPackage ? await sessionApi.listByScenarioPackage(currentPackage.packageId) : [])
+      const sessionResults = await Promise.allSettled(loadedPackages.map(item => sessionApi.listByScenarioPackage(item.packageId)))
+      const sessionsById = new Map(
+        sessionResults
+          .flatMap(result => result.status === 'fulfilled' ? result.value : [])
+          .map(session => [session.sessionId, session]),
+      )
+      setSessions([...sessionsById.values()])
+      const failedSessionLists = sessionResults.filter(result => result.status === 'rejected').length
+      if (failedSessionLists > 0) {
+        setMessage(`${failedSessionLists}개 자료 버전의 연결 세션을 불러오지 못했습니다. 목록 새로고침 후 다시 시도하세요.`)
+      }
       setSelectedIds(new Set(loadedBundle.documents.map(document => document.knowledgeDocumentId)))
       setSelectedCatalogRulebookIds(new Set(loadedBundle.documents.filter(document => document.role === 'RULEBOOK').map(document => document.knowledgeDocumentId)))
       setRolesByDocument(Object.fromEntries(loadedBundle.documents.map(document => [document.knowledgeDocumentId, document.role])))
@@ -181,6 +192,39 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
     }
   }
 
+  async function deleteSession(session: AdventureSessionView) {
+    if (session.status === 'COMPLETED' || session.status === 'DELETED' || deletingSessionId || deletingSessions) return
+    if (!window.confirm('이 자료를 사용 중인 모험 세션을 삭제할까요? 삭제한 세션은 복구할 수 없습니다.')) return
+    setDeletingSessionId(session.sessionId)
+    setMessage('연결된 모험 세션을 삭제하는 중입니다.')
+    try {
+      await sessionApi.delete(session.sessionId, session.version)
+      setSessions(current => current.filter(item => item.sessionId !== session.sessionId))
+      setMessage('연결된 모험 세션을 삭제했습니다. 이제 자료를 삭제할 수 있습니다.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '모험 세션을 삭제하지 못했습니다.')
+    } finally {
+      setDeletingSessionId(null)
+    }
+  }
+
+  async function deleteAllSessions() {
+    if (deletingSessionId || deletingSessions || !sessionApi.delete) return
+    const targets = sessions.filter(session => session.status !== 'COMPLETED' && session.status !== 'DELETED')
+    if (targets.length === 0) return
+    if (!window.confirm(`이 자료를 사용 중인 모험 세션 ${targets.length}개를 모두 삭제할까요? 삭제한 세션은 복구할 수 없습니다.`)) return
+    setDeletingSessions(true)
+    setMessage('연결된 모험 세션을 정리하는 중입니다.')
+    const outcomes = await Promise.allSettled(targets.map(session => sessionApi.delete(session.sessionId, session.version)))
+    const deletedIds = targets.filter((_, index) => outcomes[index].status === 'fulfilled').map(session => session.sessionId)
+    const failedCount = targets.length - deletedIds.length
+    setSessions(current => current.filter(session => !deletedIds.includes(session.sessionId)))
+    setMessage(failedCount === 0
+      ? '연결된 모험 세션을 모두 삭제했습니다. 이제 자료를 삭제할 수 있습니다.'
+      : `${deletedIds.length}개 세션을 삭제했고 ${failedCount}개 세션은 삭제하지 못했습니다.`)
+    setDeletingSessions(false)
+  }
+
   function openCharacter(packageId: string) {
     window.location.hash = `#/scenario-packages/${packageId}/character-blueprint`
   }
@@ -229,12 +273,13 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
       </CardContent>
     </Card>
     <Card>
-      <div className="bundle-card-heading"><h3>연결된 모험 세션 ({sessions.length})</h3></div>
+      <div className="bundle-card-heading"><h3>연결된 모험 세션 ({sessions.length})</h3>{sessions.some(session => session.status !== 'COMPLETED' && session.status !== 'DELETED') && <Button type="button" variant="destructive" onClick={() => void deleteAllSessions()} disabled={deletingSessions || deletingSessionId !== null}>{deletingSessions ? '세션 정리 중…' : `연결 세션 모두 삭제 (${sessions.filter(session => session.status !== 'COMPLETED' && session.status !== 'DELETED').length})`}</Button>}</div>
       <CardContent>
         {sessions.length === 0 ? <p>이 자료로 생성된 모험 세션이 없습니다.</p> : <ul aria-label="자료로 만든 모험 목록">{sessions.map(session => <li key={session.sessionId}>
           <strong>진행 중인 모험</strong> · {sessionStatusLabel[session.status]} · 캐릭터 {session.party.length}/{session.characterLimit}
           {session.party.length > 0 && <ul>{session.party.map(member => <li key={member.characterSheetId}><a href={`#/character/${member.characterSheetId}`}>캐릭터 시트 열기</a> · {member.controlMode === 'DIRECT' ? '직접 조작' : 'AI 조작'}</li>)}</ul>}
           <Button type="button" variant="outline" onClick={() => { window.location.hash = `#/sessions/${session.sessionId}/party` }}>파티 구성 열기</Button>
+          {session.status !== 'COMPLETED' && session.status !== 'DELETED' && <Button type="button" variant="destructive" onClick={() => void deleteSession(session)} disabled={deletingSessions || deletingSessionId !== null}>{deletingSessionId === session.sessionId ? '세션 삭제 중…' : '세션 삭제'}</Button>}
         </li>)}</ul>}
       </CardContent>
     </Card>
