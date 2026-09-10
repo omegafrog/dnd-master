@@ -7,8 +7,9 @@ import type {
   BatchRulebookView,
   KnowledgeDocumentView,
   LegacyScenarioMigrationView,
-  ScenarioBundleView,
   RulebookUploadDraft,
+  ScenarioBundleDraft,
+  ScenarioBundleView,
   SetupApi,
   SourcePreviewView,
 } from './SetupApi'
@@ -16,14 +17,16 @@ import type {
 class FakeSetupApi implements SetupApi {
   uploadError = ''
   uploadCalls: Array<{ ownerId: string; documents: string[]; types: string[] }> = []
+  createCalls: ScenarioBundleDraft[][] = []
+  private listCalls = 0
   private knowledgeDocuments: KnowledgeDocumentView[]
   private preview: SourcePreviewView = {
     rulebookId: 'doc-1',
     knowledgeDocumentId: 'doc-1',
-    documentType: 'RULEBOOK',
+    documentType: 'STORYBOOK',
     originalFilename: 'phb.txt',
     format: 'TXT',
-    status: 'EXTRACTED',
+    status: 'INDEXED',
     content: 'alpha\nbeta',
     extractionVersion: 1,
     warnings: [],
@@ -33,37 +36,23 @@ class FakeSetupApi implements SetupApi {
     ],
     assets: [],
   }
-  private results: BatchRulebookView[] = [
-    { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'ACCEPTED' },
-    { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'campaign.md', status: 'VALIDATION_FAILED', failureReason: 'unsupported format' },
-  ]
 
-  private listCalls = 0
-
-  constructor(includeFailedDocument = true, indexedDocuments = false, initialStatus: KnowledgeDocumentView['status'] | null = null) {
-    const documentStatus = initialStatus ?? (indexedDocuments ? 'INDEXED' : 'EXTRACTED')
+  constructor({ includeFailed = true, status = 'INDEXED' as KnowledgeDocumentView['status'] } = {}) {
     this.knowledgeDocuments = [
-      { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'phb.txt', status: documentStatus, format: 'TXT' as const, progress: documentStatus === 'PROCESSING' ? { stage: 'INDEXING' as const, percent: 50 } : undefined },
-      { knowledgeDocumentId: 'doc-3', documentType: 'STORYBOOK', originalFilename: 'castle.pdf', status: indexedDocuments ? 'INDEXED' as const : 'EXTRACTED' as const, format: 'PDF' as const },
-      ...(includeFailedDocument
-        ? [{ knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK' as const, originalFilename: 'campaign.md', status: 'FAILED' as const, format: 'TXT' as const, failureReason: 'indexer timeout' }]
-        : []),
+      { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'phb.txt', status, format: 'TXT', progress: status === 'PROCESSING' ? { stage: 'INDEXING', percent: 50 } : undefined },
+      { knowledgeDocumentId: 'doc-3', documentType: 'STORYBOOK', originalFilename: 'castle.pdf', status: 'INDEXED', format: 'PDF' },
+      ...(includeFailed ? [{ knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK' as const, originalFilename: 'campaign.md', status: 'FAILED' as const, format: 'TXT' as const, failureReason: 'indexer timeout' }] : []),
     ]
   }
 
-  async uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string) {
+  async uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string): Promise<BatchRulebookView[]> {
     this.uploadCalls.push({ ownerId, documents: documents.map(document => document.file.name), types: documents.map(document => document.documentType) })
     if (this.uploadError) throw new Error(this.uploadError)
-    return this.results
+    return documents.map((document, index) => ({ knowledgeDocumentId: index === 0 ? 'doc-1' : null, documentType: 'STORYBOOK', originalFilename: document.file.name, status: index === 0 ? 'ACCEPTED' : 'VALIDATION_FAILED', failureReason: index === 0 ? null : 'unsupported format' }))
   }
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async getRulebookStatus(_rulebookId: string) {
-    return { rulebookId: 'phb', status: 'INDEXED' as const }
-  }
+  async getRulebookStatus(rulebookId: string) { return { rulebookId, status: 'INDEXED' as const } }
   async retryKnowledgeDocument(knowledgeDocumentId: string) {
-    this.knowledgeDocuments = this.knowledgeDocuments.map(document => document.knowledgeDocumentId === knowledgeDocumentId
-      ? { ...document, status: 'QUEUED' as const, failureReason: null }
-      : document)
+    this.knowledgeDocuments = this.knowledgeDocuments.map(document => document.knowledgeDocumentId === knowledgeDocumentId ? { ...document, status: 'QUEUED' as const, failureReason: null } : document)
     return { rulebookId: knowledgeDocumentId, status: 'QUEUED' as const }
   }
   async getSourcePreview(knowledgeDocumentId: string) {
@@ -73,20 +62,20 @@ class FakeSetupApi implements SetupApi {
   async uploadScenario(file: File) { return { id: 'scenario-1', name: file.name } }
   async migrateLegacyScenario(): Promise<LegacyScenarioMigrationView> { throw new Error('not used') }
   async reuploadLegacyScenario(): Promise<LegacyScenarioMigrationView> { throw new Error('not used') }
-  async createScenarioBundle() { return bundle('bundle-1', 1, []) }
+  async createScenarioBundle(_ownerId: string, documents: ScenarioBundleDraft[]) {
+    this.createCalls.push(documents)
+    return bundle('bundle-1', 1, documents.map(document => ({
+      knowledgeDocumentId: document.knowledgeDocumentId,
+      documentType: document.role === 'RULEBOOK' ? 'RULEBOOK' as const : 'STORYBOOK' as const,
+      originalFilename: document.role === 'RULEBOOK' ? 'D&D 5e' : 'phb.txt',
+      status: 'INDEXED' as const,
+      role: document.role,
+      extractionVersion: 1,
+    })))
+  }
   async reviseScenarioBundle() { return bundle('bundle-1', 2, []) }
   async getScenarioBundle() { return bundle('bundle-1', 1, []) }
-  async createCharacterSheet() {
-    return {
-      characterSheetId: 'sheet-1',
-      adventureId: 'adventure-1',
-      edition: 'DND_5E_2024',
-      characterName: 'Aria',
-      level: 1,
-      inspiration: false,
-      version: 0,
-    }
-  }
+  async createCharacterSheet() { return { characterSheetId: 'sheet-1', adventureId: 'adventure-1', edition: 'DND_5E_2024', characterName: 'Aria', level: 1, inspiration: false, version: 0 } }
   async saveRuleSet() {}
   async listKnowledgeDocuments(ownerId: string) {
     void ownerId
@@ -100,157 +89,97 @@ class FakeSetupApi implements SetupApi {
   }
 }
 
-describe('rulebook and adventure setup', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals()
+function stubCatalog() {
+  vi.stubGlobal('fetch', async () => new Response(JSON.stringify([{
+    catalogRevisionId: 'catalog-1',
+    edition: 'DND_5E_2024',
+    displayName: 'D&D 5e 2024',
+    rulebookId: 'rulebook-1',
+    revisionNumber: 3,
+    status: 'READY',
+  }]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+}
+
+describe('new adventure setup', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('uses the same document hierarchy as the adventure workspace', async () => {
+    stubCatalog()
+    render(<RulebookSetup api={new FakeSetupApi({ includeFailed: false })} playerId="p1" />)
+
+    expect(screen.getByRole('heading', { name: '새 모험 준비' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '룰북' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '모험 자료' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '준비 확인' })).toBeInTheDocument()
+    expect(screen.queryByText('저장된 모험 자료')).not.toBeInTheDocument()
+    expect(screen.queryByText('목록 새로고침')).not.toBeInTheDocument()
+    expect(await screen.findByRole('checkbox', { name: 'D&D 5e 2024 선택' })).toBeChecked()
   })
 
-  it('uploads user documents as storybooks only', async () => {
-    const api = new FakeSetupApi()
+  it('uploads new materials as storybooks from a focused dialog', async () => {
+    stubCatalog()
+    const api = new FakeSetupApi({ includeFailed: false })
     const user = userEvent.setup()
     render(<RulebookSetup api={api} playerId="p1" />)
-    fireEvent.change(screen.getByLabelText('자료 파일'), {
-      target: { files: [
-        new File(['rules'], 'phb.pdf', { type: 'application/pdf' }),
-        new File(['story'], 'campaign.md', { type: 'text/markdown' }),
-      ] },
-    })
-    await user.click(screen.getByRole('button', { name: '자료 업로드' }))
+
+    await user.click(screen.getByRole('button', { name: '자료 추가' }))
+    const dialog = screen.getByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('자료 파일'), { target: { files: [
+      new File(['story'], 'campaign.pdf', { type: 'application/pdf' }),
+      new File(['map'], 'map.png', { type: 'image/png' }),
+    ] } })
+    await user.click(within(dialog).getByRole('button', { name: '자료 추가' }))
 
     expect(api.uploadCalls[0].types).toEqual(['STORYBOOK', 'STORYBOOK'])
-    expect(screen.queryByLabelText('phb.pdf 유형')).not.toBeInTheDocument()
-
-    expect(await screen.findByRole('checkbox', { name: 'phb.pdf' })).not.toBeChecked()
-    const uploadStatus = within(screen.getByRole('list', { name: '자료 처리 상태' }))
-    expect(uploadStatus.getByText('phb.pdf')).toBeInTheDocument()
-    expect(uploadStatus.getByText(/검증 실패/)).toBeInTheDocument()
-    expect(uploadStatus.queryByText(/사용 준비 완료/)).not.toBeInTheDocument()
+    expect(await screen.findByText('phb.txt')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'phb.txt 모험 자료 선택' })).toBeChecked()
   })
 
-  it('displays upload error', async () => {
-    const api = new FakeSetupApi()
-    api.uploadError = '지원하지 않거나 손상된 파일입니다.'
+  it('shows processing progress inline and resumes polling', async () => {
+    stubCatalog()
+    render(<RulebookSetup api={new FakeSetupApi({ includeFailed: false, status: 'PROCESSING' })} playerId="p1" />)
+
+    expect(await screen.findByRole('progressbar', { name: 'phb.txt 자료 준비 진행률' })).toHaveAttribute('aria-valuenow', '50')
+    await waitFor(() => expect(screen.queryByRole('progressbar', { name: 'phb.txt 자료 준비 진행률' })).not.toBeInTheDocument(), { timeout: 2500 })
+  })
+
+  it('retries a failed material without exposing backend pipeline controls', async () => {
+    stubCatalog()
     const user = userEvent.setup()
-    render(<RulebookSetup api={api} playerId="p1" />)
-    fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [new File(['bad'], 'bad.pdf')] } })
-    await user.click(screen.getByRole('button', { name: '자료 업로드' }))
-    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(api.uploadError))
+    render(<RulebookSetup api={new FakeSetupApi()} playerId="p1" />)
+
+    await user.click(await screen.findByRole('button', { name: 'campaign.md 다시 처리' }))
+    expect(screen.getByRole('status')).toHaveTextContent('자료를 다시 준비하고 있습니다.')
+    expect(screen.queryByText('Pipeline')).not.toBeInTheDocument()
   })
 
-  it('shows document status and retries only the failed document', async () => {
-    const api = new FakeSetupApi()
+  it('opens source preview in a sheet instead of expanding the setup page', async () => {
+    stubCatalog()
     const user = userEvent.setup()
-    render(<RulebookSetup api={api} playerId="p1" />)
+    render(<RulebookSetup api={new FakeSetupApi({ includeFailed: false })} playerId="p1" />)
 
-    fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [new File(['story'], 'campaign.md')] } })
-    await user.click(screen.getByRole('button', { name: '자료 업로드' }))
-
-    const statusList = await screen.findByRole('list', { name: '문서 상태 목록' })
-    const failedDocument = within(statusList).getByText('campaign.md')
-    expect(within(failedDocument.closest('li')!).getByText(/indexer timeout/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '다시 처리' })).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: '다시 처리' }))
-
-    const retriedDocument = within(screen.getByRole('list', { name: '문서 상태 목록' })).getByText('campaign.md').closest('li')!
-    expect(within(retriedDocument).queryByText(/indexer timeout/)).not.toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('다시 처리했습니다.')
+    await user.click(await screen.findByRole('button', { name: 'phb.txt 미리보기' }))
+    const preview = screen.getByRole('dialog')
+    expect(within(preview).getByRole('heading', { name: 'phb.txt' })).toBeInTheDocument()
+    expect(within(preview).getByRole('list', { name: '원문 줄 미리보기' })).toHaveTextContent('alpha')
   })
 
-  it('renders server progress and resumes polling for a pre-existing processing document', async () => {
-    const api = new FakeSetupApi(false, false, 'PROCESSING')
-    render(<RulebookSetup api={api} playerId="p1" />)
-
-    expect(await screen.findByRole('progressbar', { name: '전체 자료 준비 진행률' })).toHaveAttribute('aria-valuenow', '50')
-    await waitFor(() => expect(screen.getByRole('checkbox', { name: 'phb.txt 모험 자료 선택' })).toBeEnabled(), { timeout: 2500 })
-  })
-
-  it('shows a source preview for an extracted TXT document', async () => {
-    const api = new FakeSetupApi()
+  it('creates a bundle from selected material and its visible role', async () => {
+    stubCatalog()
+    const api = new FakeSetupApi({ includeFailed: false })
     const user = userEvent.setup()
     render(<RulebookSetup api={api} playerId="p1" />)
 
-    fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [new File(['rules'], 'phb.pdf')] } })
-    await user.click(screen.getByRole('button', { name: '자료 업로드' }))
+    await user.click(await screen.findByRole('checkbox', { name: 'phb.txt 모험 자료 선택' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: '모험 만들기' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: '모험 만들기' }))
 
-    const txtRow = within(await screen.findByRole('list', { name: '문서 상태 목록' })).getByText('phb.txt')
-    await user.click(within(txtRow.closest('li')!).getByRole('button', { name: '미리보기' }))
-
-    expect(await screen.findByRole('heading', { name: 'phb.txt 미리보기' })).toBeInTheDocument()
-    expect(screen.getByRole('list', { name: '원문 줄 미리보기' })).toHaveTextContent('LINE · line 1')
-  })
-
-  it('keeps one document visible after the same file is uploaded again', async () => {
-    const api = new FakeSetupApi(false)
-    const user = userEvent.setup()
-    render(<RulebookSetup api={api} playerId="p1" />)
-
-    const file = new File(['rules'], 'phb.pdf', { type: 'application/pdf' })
-    fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [file] } })
-    await user.click(screen.getByRole('button', { name: '자료 업로드' }))
-    expect(await screen.findAllByText('phb.pdf')).toHaveLength(1)
-
-    fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [file] } })
-    await user.click(screen.getByRole('button', { name: '자료 업로드' }))
-
-    expect(api.uploadCalls).toHaveLength(2)
-    expect(screen.getAllByText('phb.pdf')).toHaveLength(1)
-    expect(screen.getAllByRole('checkbox', { name: 'phb.pdf' })).toHaveLength(1)
-  })
-
-  it('saves a scenario bundle', async () => {
-    const api = new FakeSetupApi(false, true)
-    const user = userEvent.setup()
-    vi.stubGlobal('fetch', async () => new Response(JSON.stringify([{
-      catalogRevisionId: 'catalog-1',
-      edition: 'DND_5E_2014',
-      displayName: 'D&D 5e',
-      rulebookId: 'doc-1',
-      revisionNumber: 1,
-      status: 'READY',
-    }]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-    render(<RulebookSetup api={api} playerId="p1" />)
-
-    await user.click(await screen.findByRole('checkbox', { name: 'D&D 5e 선택' }))
-    fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [new File(['story'], 'campaign.md')] } })
-    await user.click(screen.getByRole('button', { name: '자료 업로드' }))
-    await user.click(screen.getByRole('checkbox', { name: 'phb.txt 모험 자료 선택' }))
-    await user.click(screen.getByRole('button', { name: '모험 자료 저장' }))
-    expect(await screen.findByText('이름 없는 모험 자료')).toBeInTheDocument()
-    expect(screen.queryByText('모험 자료 저장 완료: bundle-1 v1')).not.toBeInTheDocument()
-  })
-
-  it('explains how to clean up connected sessions when bundle deletion is blocked', async () => {
-    const api = Object.assign(new FakeSetupApi(false, true), {
-      listScenarioBundles: async () => [bundle('bundle-1', 1, [])],
-      deleteScenarioBundle: vi.fn().mockRejectedValue(Object.assign(new Error('진행 중인 모험이 사용 중인 자료는 삭제할 수 없습니다.'), {
-        status: 409,
-        code: 'ACTIVE_ADVENTURE_REFERENCES_BUNDLE',
-      })),
-    }) as unknown as SetupApi
-    const user = userEvent.setup()
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
-    render(<RulebookSetup api={api} playerId="p1" />)
-
-    const saved = await screen.findByRole('list', { name: '저장된 모험 자료 목록' })
-    await user.click(within(saved).getByRole('button', { name: '삭제' }))
-
-    expect(await screen.findByRole('status')).toHaveTextContent('연결 세션 관리')
-  })
-
-  it('shows a fallback when bundle deletion rejects without an error object', async () => {
-    const api = Object.assign(new FakeSetupApi(false, true), {
-      listScenarioBundles: async () => [bundle('bundle-1', 1, [])],
-      deleteScenarioBundle: vi.fn().mockRejectedValue(null),
-    }) as unknown as SetupApi
-    const user = userEvent.setup()
-    vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
-    render(<RulebookSetup api={api} playerId="p1" />)
-
-    const saved = await screen.findByRole('list', { name: '저장된 모험 자료 목록' })
-    await user.click(within(saved).getByRole('button', { name: '삭제' }))
-
-    expect(await screen.findByRole('status')).toHaveTextContent('모험 자료를 삭제하지 못했습니다.')
+    expect(api.createCalls).toHaveLength(1)
+    expect(api.createCalls[0]).toEqual(expect.arrayContaining([
+      { knowledgeDocumentId: 'doc-1', role: 'MAIN_SCENARIO' },
+      { knowledgeDocumentId: 'rulebook-1', role: 'RULEBOOK' },
+    ]))
+    expect(await screen.findByRole('heading', { name: '모험 준비' })).toBeInTheDocument()
   })
 })
 
