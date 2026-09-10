@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import { CalendarDays, ChevronRight, MoreHorizontal, Play, ScrollText, Trash2 } from 'lucide-react'
+import { Button } from '../../components/ui/button'
+import { Separator } from '../../components/ui/separator'
 import type { AdventurePlayApi, SavedAdventure, SessionKnowledgeSet } from './AdventurePlayApi'
 import type {
   KnowledgeDocumentView,
@@ -94,52 +97,39 @@ export function SavedAdventurePanel({
 
   return (
     <section className="saved-adventure-page" aria-labelledby="saved-heading">
-      <div className="page-heading"><div><p className="eyebrow">ADVENTURE ARCHIVE</p><h1 id="saved-heading">저장한 모험</h1><p>진행 중인 이야기로 돌아가거나 완료한 모험을 관리하세요.</p></div></div>
-      <p role="status">{message}</p>
-      {message && <button type="button" onClick={load}>목록 다시 불러오기</button>}
-      {items.length === 0 && <p>저장된 모험이 없습니다.</p>}
-      <ul className="adventure-list">
+      <div className="page-heading"><div><p className="eyebrow">모험 기록</p><h1 id="saved-heading">모험 목록</h1><p>준비 중인 모험을 열고, 자료와 세션 기록을 확인하세요.</p></div><Button variant="outline" onClick={load}><CalendarDays size={15} aria-hidden="true" />목록 새로고침</Button></div>
+      <p className="workspace-inline-notice" role="status">{message}</p>
+      {items.length === 0 && <div className="workspace-empty"><span className="workspace-empty-icon" aria-hidden="true"><ScrollText size={20} /></span><h2>저장된 모험이 없습니다</h2><p>자료 설정을 마치면 모험이 이곳에 표시됩니다.</p><a className="text-link" href="#/setup">자료 설정으로 이동</a></div>}
+      <ul className="adventure-list" aria-label="저장된 모험 목록">
         {items.map(item => (
-          <li key={item.id}>
-            <strong>{item.title}</strong>
-            <span>{item.statusLabel}</span>
-            {item.resumable && <button onClick={() => void resume(item.id)}>재개</button>}
-            <button onClick={() => void remove(item)}>삭제</button>
-            <button onClick={() => void openSessionKnowledgeSet(item.id)}>자료 설정</button>
+          <li key={item.id} className="adventure-list-row">
+            <span className="adventure-row-mark" aria-hidden="true"><ScrollText size={18} /></span>
+            <span className="adventure-row-main"><strong>{item.title}</strong><small><span className={`file-status file-status-${item.resumable ? 'ready' : 'processing'}`}>{item.resumable ? '진행 중' : '완료됨'}</span>{item.updatedAt ? ` · ${formatDate(item.updatedAt)}` : ''}</small></span>
+            <span className="adventure-row-status">{item.statusLabel}</span>
+            <span className="adventure-row-actions">
+              {item.resumable && <Button onClick={() => void resume(item.id)}><Play size={14} aria-hidden="true" />재개</Button>}
+              <Button variant="ghost" className="adventure-delete-action" aria-label={`${item.title} 삭제`} onClick={() => void remove(item)}><Trash2 size={14} aria-hidden="true" />삭제</Button>
+              <a className="ui-button ui-button-outline" href={`#/adventures/${encodeURIComponent(item.id)}?tab=materials`}>열기<ChevronRight size={14} aria-hidden="true" /></a>
+              <Button variant="ghost" size="icon" aria-label={`${item.title} 더보기`} onClick={() => void openSessionKnowledgeSet(item.id)}><MoreHorizontal size={17} aria-hidden="true" /></Button>
+              <Button variant="ghost" className="adventure-config-action" onClick={() => void openSessionKnowledgeSet(item.id)}>자료 설정</Button>
+            </span>
           </li>
         ))}
       </ul>
       {selectedAdventureId && (
         <section className="session-knowledge-panel" aria-labelledby="session-knowledge-heading">
-          <h3 id="session-knowledge-heading">세션 자료 선택</h3>
+          <div className="tab-panel-heading"><div><p className="eyebrow">세션 자료</p><h2 id="session-knowledge-heading">사용할 자료 선택</h2></div></div>
           <p role="status">{sessionMessage}</p>
-          {documents.length === 0 ? (
-            <p>선택할 수 있는 자료가 없습니다.</p>
-          ) : (
-            <ul aria-label="세션 자료 목록">
-              {documents.map(document => {
-                const available = document.status === 'INDEXED'
-                const checked = selectedDocumentIds.has(document.knowledgeDocumentId)
-                return (
-                  <li key={document.knowledgeDocumentId}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={!available}
-                        onChange={() => toggleDocument(document.knowledgeDocumentId)}
-                      />
-                      {document.originalFilename}
-                    </label>
-                    <span> - {available ? '사용 가능' : '준비 중'}</span>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-          <button type="button" onClick={() => void saveSessionKnowledgeSet()}>세션 자료 저장</button>
+          {documents.length === 0 ? <p>선택할 수 있는 자료가 없습니다.</p> : <ul aria-label="세션 자료 목록" className="session-knowledge-list">{documents.map(document => { const available = ['INDEXED', 'EXTRACTED', 'READY'].includes(document.status); const checked = selectedDocumentIds.has(document.knowledgeDocumentId); return <li key={document.knowledgeDocumentId}><label><input type="checkbox" checked={checked} disabled={!available} onChange={() => toggleDocument(document.knowledgeDocumentId)} />{document.originalFilename}</label><span>{available ? '사용 가능' : '준비 중'}</span></li> })}</ul>}
+          <Separator />
+          <Button type="button" onClick={() => void saveSessionKnowledgeSet()}>세션 자료 저장</Button>
         </section>
       )}
     </section>
   )
+}
+
+function formatDate(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ko-KR')
 }

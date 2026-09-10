@@ -3,6 +3,9 @@ import { useAuth } from '../features/auth/AuthContext'
 import { LoginForm } from '../features/auth/LoginForm'
 import { HttpAdventureApi } from '../features/adventure/AdventureApi'
 import { AdventureStream } from '../features/adventure/AdventureStream'
+import { AdventureWorkspace } from '../features/adventure/AdventureWorkspace'
+import { SessionRuntime } from '../features/adventure/SessionRuntime'
+import { SessionRuntimeRoute } from '../features/adventure/SessionRuntimeRoute'
 import { HttpAdventurePlayApi } from '../features/saved-adventures/AdventurePlayApi'
 import { SavedAdventurePanel } from '../features/saved-adventures/SavedAdventurePanel'
 import { HttpSetupApi } from '../features/rulebooks/SetupApi'
@@ -42,10 +45,10 @@ export function AppShell() {
   }, [])
   useEffect(() => {
     if (!auth.session) return
-    const sessionId = route.page === 'character-blueprint' || route.page === 'character-create' || route.page === 'session' || route.page === 'party'
+    const sessionId = route.page === 'character-blueprint' || route.page === 'character-create' || route.page === 'session' || route.page === 'party' || route.page === 'session-runtime'
       ? route.sessionId
       : null
-    const adventureId = route.page === 'adventure' ? route.adventureId : null
+    const adventureId = route.page === 'adventure' || route.page === 'adventure-workspace' ? route.adventureId : null
     if ((!sessionId && !adventureId) || !rawSetupApi.getScenarioPackage) return
     let active = true
     const packageId = sessionId
@@ -86,7 +89,7 @@ export function AppShell() {
   const [combatFinalSummary, setCombatFinalSummary] = useState<CombatFinalSummary | null>(null)
   const [adventureVersion, setAdventureVersion] = useState<number | null>(null)
   const refreshCombat = useCallback(() => {
-    if (!auth.session || route.page !== 'adventure') return
+    if (!auth.session || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) return
     const summaryRequest = combatApi.readFinalSummary
       ? combatApi.readFinalSummary(route.adventureId)
       : Promise.resolve(null)
@@ -104,7 +107,7 @@ export function AppShell() {
     return () => { active = false }
   }, [auth.session, adventureApi, route])
   useEffect(() => {
-    if (!auth.session || route.page !== 'adventure') {
+    if (!auth.session || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) {
       setCombatSnapshot(null)
       setCombatFinalSummary(null)
       return
@@ -170,7 +173,7 @@ export function AppShell() {
   const creatorRoute = route.page === 'character-blueprint' || route.page === 'character-create'
   const initials = auth.session.playerName.slice(0, 1).toUpperCase()
   return <div className="app-shell">
-    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={route.page === 'setup' ? 'active' : undefined} aria-current={route.page === 'setup' ? 'page' : undefined} href="#/setup">자료 설정</a><a className={route.page === 'adventures' || route.page === 'adventure' ? 'active' : undefined} aria-current={route.page === 'adventures' || route.page === 'adventure' ? 'page' : undefined} href="#/adventures">모험 목록</a>{selectedBundleId && <a className="selected-bundle-toolbar" href={`#/bundles/${selectedBundleId}`} title={`${selectedBundleId} 자료 화면`}>현재 자료 <span>{shortId(selectedBundleId)}</span></a>}<details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 설정</a><a href="#/backoffice">백오피스</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
+    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={route.page === 'setup' ? 'active' : undefined} aria-current={route.page === 'setup' ? 'page' : undefined} href="#/setup">자료 설정</a><a className={route.page === 'adventures' || route.page === 'adventure' || route.page === 'adventure-workspace' ? 'active' : undefined} aria-current={route.page === 'adventures' || route.page === 'adventure' || route.page === 'adventure-workspace' ? 'page' : undefined} href="#/adventures">모험 목록</a>{selectedBundleId && <a className="selected-bundle-toolbar" href={`#/bundles/${selectedBundleId}`} title={`${selectedBundleId} 자료 화면`}>현재 자료 <span>{shortId(selectedBundleId)}</span></a>}<details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 설정</a><a href="#/backoffice">백오피스</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
     <main id="main" className={creatorRoute ? 'creator-main' : `app-content app-page-${route.page}`}>
       <div className="app-notices"><p role="status" aria-live="polite">{auth.message}</p></div>
       {route.page === 'login' && <section className="welcome-card"><p className="eyebrow">ADVENTURE AWAITS</p><h2>모험 준비가 완료되었습니다</h2><a className="text-link" href="#/setup">자료 설정으로 이동</a></section>}
@@ -178,7 +181,8 @@ export function AppShell() {
       {route.page === 'backoffice' && <BackofficePage session={auth.session} />}
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
-      {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}` }} />}
+      {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}?tab=materials` }} />}
+      {route.page === 'adventure-workspace' && <AdventureWorkspace adventureId={route.adventureId} activeTab={route.tab} playApi={playApi} setupApi={setupApi} playerId={playerId} />}
       {route.page === 'adventure' && (combatSnapshot && combatSnapshot.status !== 'ENDED' ? <CombatScreen snapshot={combatSnapshot} api={combatApi} onCommandCommitted={refreshCombat} map={<CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} compact />} /> : <>
         {combatFinalSummary && <section className="combat-final-summary" aria-labelledby="combat-final-summary-title">
           <p className="eyebrow">COMBAT COMPLETE</p>
@@ -186,10 +190,11 @@ export function AppShell() {
           <p>{combatFinalSummary.summary}</p>
           <p>상세 전투 기록은 종료 후 제공되지 않습니다.</p>
         </section>}
-        <div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} expectedVersion={adventureVersion} onTurnCommitted={() => { refreshCombatMap(); refreshCombat() }} /></aside></div>
+        <SessionRuntime adventureId={route.adventureId} adventureApi={adventureApi} expectedVersion={adventureVersion} playApi={playApi} combatSnapshot={combatSnapshot} mapRefreshToken={mapRefreshToken} onTurnCommitted={() => { refreshCombatMap(); refreshCombat() }} />
       </>)}
       {route.page === 'character' && <CharacterSheetView sheetId={route.sheetId} api={playApi} />}
       {(route.page === 'session' || route.page === 'party') && <AdventureSessionPanel api={sessionApi} ownerPlayerId={playerId} sessionId={route.sessionId} playApi={playApi} />}
+      {route.page === 'session-runtime' && <SessionRuntimeRoute sessionId={route.sessionId} sessionApi={sessionApi} adventureApi={adventureApi} playApi={playApi} />}
       {route.page === 'character-blueprint' && <CharacterCreationPage sessionId={route.sessionId} ownerPlayerId={playerId} setupApi={setupApi} sessionApi={sessionApi} />}
       {route.page === 'package-blueprint' && <PackageBlueprintReviewPage packageId={route.packageId} setupApi={setupApi} sessionApi={sessionApi} onSessionCreated={sessionId => { window.location.hash = `#/sessions/${sessionId}/character-blueprint` }} />}
       {route.page === 'character-create' && <CharacterCreationPage sessionId={route.sessionId} ownerPlayerId={playerId} setupApi={setupApi} sessionApi={sessionApi} />}
