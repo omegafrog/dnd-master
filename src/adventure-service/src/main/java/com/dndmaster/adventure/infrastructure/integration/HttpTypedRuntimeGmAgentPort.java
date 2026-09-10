@@ -57,7 +57,7 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                     response.combatEnemies().stream().map(enemy -> new CombatEnemyProposal(
                             enemy.scenarioId(), enemy.enemyKey(), enemy.name(), enemy.count(),
                             combatStartMode(enemy.mode()))).toList(),
-                    response.combatStart());
+                    response.combatStart(), response.mapEntryRequested());
             return new GmPlanResult(plan, provider, model, reasoning, List.of(), List.of(), situation(response.situation()));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -142,7 +142,8 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
     record RuntimeRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults,
                           Map<String, Object> runtimeContext) { }
     record RuntimeResponse(String scene, String judgment, String narration, boolean combatStart,
-                           List<CombatEnemyResponse> combatEnemies, SituationResponse situation) { }
+                           List<CombatEnemyResponse> combatEnemies, SituationResponse situation,
+                           boolean mapEntryRequested) { }
     record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) { }
     record SituationResponse(String kind, String location, String problem, String threat, String goal,
                              String basis, String reference, boolean required) { }

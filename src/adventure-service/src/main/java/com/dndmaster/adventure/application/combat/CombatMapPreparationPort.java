@@ -21,7 +21,7 @@ public interface CombatMapPreparationPort {
         return prepareInitial(adventureId, ownerPlayerId, ruleSetId, mapDefinition, 1, context);
     }
 
-    /** Activates the already reviewed draft when the runtime enters combat. */
+    /** Activates the already reviewed draft when the runtime enters its map-bearing situation. */
     default UUID activatePrepared(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
             int stagePosition, ActivationContext context) {
         throw new UnsupportedOperationException("prepared combat map activation is not configured");

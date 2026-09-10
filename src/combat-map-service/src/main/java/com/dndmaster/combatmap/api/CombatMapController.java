@@ -99,7 +99,7 @@ public class CombatMapController {
         requestGuard.internal(token);
         requireRequest(request, "prepare request is required");
         if (request.stagePosition() != null) {
-            // A combat-entry activation is identified by the missing map
+            // A map-entry activation is identified by the missing map
             // definition. Prefer the reviewed draft even if an older buggy
             // run left a stale active binding behind, and never regenerate a
             // map at that point.

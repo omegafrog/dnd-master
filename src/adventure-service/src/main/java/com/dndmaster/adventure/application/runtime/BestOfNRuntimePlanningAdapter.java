@@ -37,6 +37,7 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
     public RuntimePlanningResult planWithOutcomes(RuntimePlanningRequest request) {
         int count = PlanningContext.boundedCandidateCount(requestedCount, simpleTurn);
         List<RuntimePlan> plans = new ArrayList<>();
+        IllegalStateException lastValidationFailure = null;
         boolean decomposed = delegate instanceof GmAgentRuntimePlanningAdapter;
         for (int i = 0; i < count + retryCount && plans.size() < count; i++) {
             try {
@@ -48,9 +49,15 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
                 // that fails the final safety/grounding gate must not discard
                 // earlier valid candidates from the same bounded selection.
                 if (!decomposed || !isCandidateValidationFailure(invalidCandidate)) throw invalidCandidate;
+                lastValidationFailure = invalidCandidate;
             }
         }
-        if (plans.isEmpty()) throw new IllegalStateException("no valid turn plan candidates");
+        if (plans.isEmpty()) {
+            if (lastValidationFailure != null) {
+                throw new IllegalStateException("no valid turn plan candidates: " + lastValidationFailure.getMessage(), lastValidationFailure);
+            }
+            throw new IllegalStateException("no valid turn plan candidates");
+        }
         Set<String> knownFacts = request.narrativeContext() == null
                 ? Set.of() : request.narrativeContext().factsKnownBy();
         Set<String> allFacts = request.narrativeContext() == null ? Set.of()

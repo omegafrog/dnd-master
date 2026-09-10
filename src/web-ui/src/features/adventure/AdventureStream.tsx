@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
-import type { AdventureApi, AdventureMessageResponse } from './AdventureApi'
+import { AdventureRequestError, type AdventureApi, type AdventureMessageResponse } from './AdventureApi'
 import type { PlayerRollRequest } from './AdventureApi'
 
 type ChatMessageEntry = { speaker: string; text: string }
@@ -125,7 +125,17 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
     setProjectionStatus('processing')
     setMessages(current => [...current, action])
     try {
-      const response = await api.sendMessage(adventureId, text, command, currentVersion)
+      let response: AdventureMessageResponse
+      try {
+        response = await api.sendMessage(adventureId, text, command, currentVersion)
+      } catch (error) {
+        // A provider-side 502 does not advance the adventure version. Retry
+        // once with a fresh idempotency identity so the failed command row
+        // cannot be mistaken for an in-flight duplicate.
+        if (!(error instanceof AdventureRequestError) || error.status !== 502) throw error
+        setNotice('처리가 지연되어 한 번 더 시도합니다.')
+        response = await api.sendMessage(adventureId, text, createRuntimeCommandIdentity(), currentVersion)
+      }
       if (response.rollRequest) {
         setRollRequest(response.rollRequest)
         setProjectionStatus('idle')
@@ -141,9 +151,13 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       setProjectionStatus('idle')
       setMessages(current => [...current, ...responseEntries])
       onTurnCommitted?.()
-    } catch {
+    } catch (error) {
+      localTurn.current = null
+      setMessages(current => current.filter(entry => entry !== action))
       setProjectionStatus('failed')
-      setNotice('메시지를 전송하지 못했습니다.')
+      setNotice(error instanceof AdventureRequestError && error.diagnostic
+        ? error.diagnostic
+        : '메시지를 전송하지 못했습니다.')
     } finally {
       setSending(false)
     }

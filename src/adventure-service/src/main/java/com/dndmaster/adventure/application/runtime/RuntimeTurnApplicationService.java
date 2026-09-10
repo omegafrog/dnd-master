@@ -377,7 +377,7 @@ public class RuntimeTurnApplicationService {
                 plan.proposedActiveSourceContext(), plan.citedEvidence(), plan.warnings(), plan.provider(), plan.model(),
                 plan.reasoning(), false, plan.requestedSelectionId(), plan.requestedSelection(),
                 plan.effectiveSelection(), plan.attemptCount(), plan.citationBindings(), plan.stateDelta(), plan.combatEnemies(),
-                plan.combatStartRequested());
+                plan.combatStartRequested(), plan.mapEntryRequested());
     }
 
     private WriterProse verifyAndRewrite(ResolvedTurnPlan resolvedPlan, WriterProse draft, RuntimeTurn turn,
@@ -778,7 +778,7 @@ public class RuntimeTurnApplicationService {
         return new RuntimePlan(plan.scene(), plan.npcState(), judgment, plan.narration(), plan.proposedActiveSourceContext(),
                 plan.citedEvidence(), warnings, plan.provider(), plan.model(), plan.reasoning(), false,
                 plan.requestedSelectionId(), plan.requestedSelection(), plan.effectiveSelection(), plan.attemptCount(),
-                plan.citationBindings(), plan.stateDelta(), plan.combatEnemies(), plan.combatStartRequested());
+                plan.citationBindings(), plan.stateDelta(), plan.combatEnemies(), plan.combatStartRequested(), plan.mapEntryRequested());
     }
 
     private static boolean matchesPerception(String action) {

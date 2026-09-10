@@ -3,7 +3,7 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { AdventureStream } from './AdventureStream'
-import type { AdventureApi } from './AdventureApi'
+import { AdventureRequestError, type AdventureApi } from './AdventureApi'
 
 it('renders sent conversation and acknowledges delivery', async () => {
   const sent: string[] = []
@@ -137,6 +137,55 @@ it('announces failure when message send fails', async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('메시지를 전송하지 못했습니다')
   expect(screen.getByRole('status')).toHaveTextContent('턴 처리 실패')
   expect(onTurnCommitted).not.toHaveBeenCalled()
+})
+
+it('retries one provider gateway failure without duplicating the player action', async () => {
+  let attempts = 0
+  const api: AdventureApi = {
+    async sendMessage() {
+      attempts += 1
+      if (attempts === 1) throw new AdventureRequestError('provider failed', 502)
+      return { narration: '재시도 응답', judgment: '', currentScene: '', version: 1 }
+    },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} />)
+  await user.type(screen.getByLabelText('무엇을 하시겠어요?'), '문을 연다')
+  await user.click(screen.getByRole('button', { name: '행동 보내기' }))
+
+  await waitFor(() => expect(screen.getByText('재시도 응답')).toBeInTheDocument())
+  expect(attempts).toBe(2)
+  expect(screen.getAllByText('문을 연다')).toHaveLength(1)
+})
+
+it('surfaces the server validation reason after the retry also fails', async () => {
+  let attempts = 0
+  const api: AdventureApi = {
+    async sendMessage() {
+      attempts += 1
+      throw new AdventureRequestError('provider failed', 502, '턴 계획 검증 실패: STORYBOOK_CITATION_REQUIRED')
+    },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} />)
+  await user.type(screen.getByLabelText('무엇을 하시겠어요?'), '문을 연다')
+  await user.click(screen.getByRole('button', { name: '행동 보내기' }))
+
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('STORYBOOK_CITATION_REQUIRED'))
+  expect(attempts).toBe(2)
+})
+
+it('removes an optimistic player action when the final request fails', async () => {
+  const api: AdventureApi = {
+    async sendMessage() { throw new AdventureRequestError('server failed', 500) },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} />)
+  await user.type(screen.getByLabelText('무엇을 하시겠어요?'), '실패 행동')
+  await user.click(screen.getByRole('button', { name: '행동 보내기' }))
+
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('메시지를 전송하지 못했습니다'))
+  expect(screen.queryByText('실패 행동')).not.toBeInTheDocument()
 })
 
 it('notifies after a successful text turn', async () => {

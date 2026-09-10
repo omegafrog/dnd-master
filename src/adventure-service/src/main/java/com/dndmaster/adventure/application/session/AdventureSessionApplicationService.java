@@ -11,7 +11,7 @@ import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
-import com.dndmaster.adventure.application.combat.CombatMapEntryTransitionPolicy;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
 import com.dndmaster.adventure.application.combat.CombatMapEntryContextResolver;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
@@ -200,16 +200,14 @@ public final class AdventureSessionApplicationService {
         });
         if (prepareMapOnly) return session;
         runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(effectiveAdventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
-        String previousScene = adventure.currentContext() == null ? null : adventure.currentContext().currentScene();
-        var previousSituation = adventure.currentSituation();
-        if (runtimeTurnService != null) runtimeTurnService.openSessionTurn(effectiveAdventureId, owner, requestId);
-        if (initialMapDefinition.isPresent()) {
+        RuntimeTurnResult openingResult = runtimeTurnService == null
+                ? null
+                : runtimeTurnService.openSessionTurn(effectiveAdventureId, owner, requestId);
+        if (initialMapDefinition.isPresent() && openingResult != null
+                && openingResult.turn().plan().mapEntryRequested()) {
             Adventure committedAdventure = adventureRepository.findById(effectiveAdventureId).orElse(adventure);
-            boolean enteredMap = CombatMapEntryTransitionPolicy.enteredMap(previousScene, previousSituation, committedAdventure);
-            if (enteredMap || CombatMapEntryTransitionPolicy.isMapBearing(committedAdventure)) {
-                combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
-                        1, activationContext(committedAdventure, session));
-            }
+            combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
+                    1, activationContext(committedAdventure, session));
         }
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();

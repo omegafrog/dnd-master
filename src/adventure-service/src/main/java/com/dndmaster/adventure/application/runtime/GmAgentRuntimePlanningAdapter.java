@@ -246,7 +246,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                         result.plan().stateTransitionRequested(), result.plan().requestedSelectionId(), result.plan().requestedSelection(), result.plan().effectiveSelection(),
                         result.plan().attemptCount(), result.plan().citationBindings(), result.plan().stateDelta(),
                         result.plan().combatEnemies(),
-                        result.plan().combatStartRequested());
+                        result.plan().combatStartRequested(), result.plan().mapEntryRequested());
                 return new ToolMaterialization(new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls(), result.situationProposal()),
                         execution.outcomes().stream().map(GmAgentRuntimePlanningAdapter::toCommandOutcome).toList(),
                         runtimeCommands(request, calls, execution.outcomes()));

@@ -120,9 +120,16 @@ class AdventureSessionStageStartTest {
         when(prepared.openingSituation()).thenReturn(opening);
         when(preparation.prepare(packageId)).thenReturn(prepared);
         RuntimeTurnApplicationService openingRuntime = mock(RuntimeTurnApplicationService.class);
+        UUID requestId = UUID.randomUUID();
+        var openingResult = mock(com.dndmaster.adventure.application.runtime.RuntimeTurnResult.class);
+        var openingTurn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        var openingPlan = mock(com.dndmaster.adventure.application.runtime.RuntimePlan.class);
+        when(openingRuntime.openSessionTurn(adventureId, owner, requestId)).thenReturn(openingResult);
+        when(openingResult.turn()).thenReturn(openingTurn);
+        when(openingTurn.plan()).thenReturn(openingPlan);
+        when(openingPlan.mapEntryRequested()).thenReturn(true);
         CombatMapPreparationPort maps = mock(CombatMapPreparationPort.class);
         when(maps.mapLayoutConfirmed(adventureId, owner.value())).thenReturn(true);
-        UUID requestId = UUID.randomUUID();
 
         AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions,
                 packageRepository(scenarioPackage), adventures, mock(RuntimeBindingApplicationService.class),
