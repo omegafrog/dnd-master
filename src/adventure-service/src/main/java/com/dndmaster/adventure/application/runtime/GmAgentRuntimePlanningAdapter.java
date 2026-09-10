@@ -55,7 +55,8 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                 request.turnId(), existing.size(), candidatePlan.combatStartRequested(), candidatePlan.combatEnemies().size());
         CandidateGeneration validated = new CandidateGeneration(candidateId, generated.context(), generated.hiddenData(), generated.capability(),
                 new GmPlanResult(candidatePlan, generated.result().provider(), generated.result().model(), generated.result().reasoning(),
-                        generated.result().stateDelta(), generated.result().toolCalls(), generated.result().situationProposal()));
+                        generated.result().stateDelta(), generated.result().toolCalls(), generated.result().situationProposal(),
+                        generated.result().runtimeFacts()));
         existing.add(validated);
         return candidatePlan;
     }
@@ -119,11 +120,11 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
             ToolMaterialization materialization = executeToolSaga(request, context, executionCapability, calls, saggedGateway, result);
             result = materialization.result();
             return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, materialization.outcomes()),
-                    materialization.outcomes(), resolutionProposal(result), materialization.commands());
+                    materialization.outcomes(), resolutionProposal(request, result), materialization.commands());
         } else if (capability != null) {
             gateway.revoke(capability);
         }
-            return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, List.of()), List.of(), resolutionProposal(result));
+            return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, List.of()), List.of(), resolutionProposal(request, result));
     }
 
     /** Gate 0 seam: provider candidate generation and semantic validation are isolated from execution. */
@@ -135,7 +136,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         GmContextEnvelope context = new GmContextEnvelope(request.adventureId(), request.ownerPlayerId(), request.sessionId(), request.turnId(), request.scenarioPackageId(),
                 request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(),
                 request.recentTurns(), request.characterSnapshots(), request.scenarioContext(), request.provider(), request.model(), request.reasoning(),
-                requestedSelection(request), request.narrativeContext());
+                requestedSelection(request), request.narrativeContext(), request.runtimeFacts(), request.factLookupResults());
         java.util.Set<String> hiddenData = context.scenarioContext().isBlank() ? java.util.Set.of() : java.util.Set.of(context.scenarioContext());
         TurnCapability capability = issueCapability ? issueCapability(request) : null;
         List<GmToolSpec> modelTools = gateway == null ? List.of() : gateway.modelTools().stream()
@@ -164,7 +165,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         RuntimePlan normalized = candidate.plan().withCitedEvidence(java.util.stream.Stream.concat(
                 candidate.plan().citedEvidence().stream(), evidencePack.storybook().stream().limit(1)).toList());
         return new GmPlanResult(normalized, candidate.provider(), candidate.model(), candidate.reasoning(),
-                candidate.stateDelta(), candidate.toolCalls(), candidate.situationProposal());
+                candidate.stateDelta(), candidate.toolCalls(), candidate.situationProposal(), candidate.runtimeFacts());
     }
 
     /** Gate 0-E/F: final semantic validation and RuntimePlan/state-delta assembly. */
@@ -247,7 +248,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                         result.plan().attemptCount(), result.plan().citationBindings(), result.plan().stateDelta(),
                         result.plan().combatEnemies(),
                         result.plan().combatStartRequested(), result.plan().mapEntryRequested());
-                return new ToolMaterialization(new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls(), result.situationProposal()),
+                return new ToolMaterialization(new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls(), result.situationProposal(), result.runtimeFacts()),
                         execution.outcomes().stream().map(GmAgentRuntimePlanningAdapter::toCommandOutcome).toList(),
                         runtimeCommands(request, calls, execution.outcomes()));
             }
@@ -258,12 +259,29 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         }
     }
 
-    private static RuntimeResolutionProposal resolutionProposal(GmPlanResult result) {
+    private static RuntimeResolutionProposal resolutionProposal(RuntimePlanningRequest request, GmPlanResult result) {
         SituationProposal situation = result.situationProposal();
-        return situation == null ? RuntimeResolutionProposal.unchanged()
+        List<com.dndmaster.adventure.domain.runtime.RuntimeAddedFact> runtimeFacts = result.runtimeFacts().stream()
+                .filter(GmAgentRuntimePlanningAdapter::safeRuntimeFact)
+                .filter(candidate -> request.factLookupResults().isEmpty()
+                        || request.factLookupResults().stream().allMatch(lookup -> lookup.status() == RuntimeFactLookupResult.Status.NOT_FOUND))
+                .filter(candidate -> request.runtimeFacts().stream().noneMatch(existing -> existing.equalsIgnoreCase(candidate.content())))
+                .map(candidate -> new com.dndmaster.adventure.domain.runtime.RuntimeAddedFact(
+                        UUID.randomUUID(), candidate.content(), request.turnId(), candidate.subject()))
+                .toList();
+        if (situation == null && runtimeFacts.isEmpty()) return RuntimeResolutionProposal.unchanged();
+        return situation == null
+                ? new RuntimeResolutionProposal(com.dndmaster.adventure.domain.runtime.GameStateDelta.empty(),
+                        com.dndmaster.adventure.domain.runtime.DisclosureState.empty(), null, runtimeFacts,
+                        CompletionProposal.continueAdventure(), null)
                 : new RuntimeResolutionProposal(com.dndmaster.adventure.domain.runtime.GameStateDelta.empty(),
-                        com.dndmaster.adventure.domain.runtime.DisclosureState.empty(), situation.update(), List.of(),
+                        com.dndmaster.adventure.domain.runtime.DisclosureState.empty(), situation.update(), runtimeFacts,
                         CompletionProposal.continueAdventure(), situation);
+    }
+
+    private static boolean safeRuntimeFact(RuntimeAddedFactCandidate candidate) {
+        String text = (candidate.subject() + " " + candidate.content()).toLowerCase(java.util.Locale.ROOT);
+        return !text.matches(".*(culprit|secret|hidden|cause|clue|solution|범인|비밀|숨겨진|숨은|원인|진상|단서|정답|해답).*");
     }
 
     private static List<RuntimeTurnCommand> runtimeCommands(RuntimePlanningRequest request,

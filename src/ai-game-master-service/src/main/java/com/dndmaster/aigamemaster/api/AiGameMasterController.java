@@ -44,7 +44,8 @@ public class AiGameMasterController {
                 .toList();
         ScenarioRequest scenarioRequest = new ScenarioRequest(
                 request.scenarioId(), request.selectedScenario(),
-                request.currentContext(), request.ruleSetId(), evidence);
+                request.currentContext(), request.ruleSetId(), evidence,
+                request.playerAction(), request.recentActions(), request.runtimeFacts());
         var output = sceneService.generate(scenarioRequest);
         return new SceneResponse(
                 output.scenarioId(), output.ruleSetId(),
@@ -118,7 +119,19 @@ public class AiGameMasterController {
 
     public record SceneRequest(
             UUID scenarioId, String selectedScenario, String currentContext,
-            UUID ruleSetId, List<EvidenceRef> evidence) {}
+            UUID ruleSetId, List<EvidenceRef> evidence, String playerAction,
+            List<String> recentActions, List<String> runtimeFacts) {
+        public SceneRequest(UUID scenarioId, String selectedScenario, String currentContext,
+                UUID ruleSetId, List<EvidenceRef> evidence) {
+            this(scenarioId, selectedScenario, currentContext, ruleSetId, evidence, "", List.of(), List.of());
+        }
+
+        public SceneRequest(UUID scenarioId, String selectedScenario, String currentContext,
+                UUID ruleSetId, List<EvidenceRef> evidence, String playerAction,
+                List<String> recentActions) {
+            this(scenarioId, selectedScenario, currentContext, ruleSetId, evidence, playerAction, recentActions, List.of());
+        }
+    }
 
     public record EvidenceRef(UUID rulebookId, String locator, String excerpt, String citationKey) {
         public EvidenceRef(UUID rulebookId, String locator, String excerpt) {

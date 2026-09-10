@@ -53,6 +53,7 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuntim
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetOwnershipGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
 import com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPort;
+import com.dndmaster.adventure.infrastructure.integration.HttpScenarioModelLookupAgentPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpDiceToolPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpCharacterToolPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -726,6 +727,21 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    ScenarioModelLookupAgentPort scenarioModelLookupAgentPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
+            @Value("${adventure.integration.internal-token:}") String internalToken) {
+        return new HttpScenarioModelLookupAgentPort(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
+    }
+
+    @Bean
+    RuntimeFactLookupService runtimeFactLookupService(ScenarioModelLookupAgentPort scenarioModelLookupAgentPort) {
+        return new RuntimeFactLookupService(scenarioModelLookupAgentPort);
+    }
+
+    @Bean
     OfficialToolPort diceToolPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.dice-roll.base-url:http://127.0.0.1:8080/}") String baseUrl,
@@ -842,7 +858,8 @@ public class AdventureApiConfiguration {
             ExemplarRetrieverPort exemplarRetriever,
             ExemplarRetrievalAuditPort exemplarRetrievalAuditPort,
             RuntimeTurnLockService runtimeTurnLockService,
-            RuntimeTurnCommitOrchestrator commitOrchestrator) {
+            RuntimeTurnCommitOrchestrator commitOrchestrator,
+            RuntimeFactLookupService runtimeFactLookupService) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, providerBindingRepository,
@@ -852,6 +869,7 @@ public class AdventureApiConfiguration {
         service.setApprovedPromptConfigurationReadPort(approvedPromptConfigurationReadPort);
         service.setTurnLockService(runtimeTurnLockService);
         service.setCommitOrchestrator(commitOrchestrator);
+        service.setRuntimeFactLookupService(runtimeFactLookupService);
         return service;
     }
 

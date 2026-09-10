@@ -13,6 +13,7 @@ import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.knowledge.SessionKnowledgeSet;
 import com.dndmaster.adventure.domain.adventure.RuntimeBinding;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
@@ -56,6 +57,7 @@ public class RuntimeTurnApplicationService {
     private NarrativeVerificationAuditPort verificationAuditPort;
     private RuntimeNarrativeStateApplicationService narrativeStateService;
     private RuntimeTurnCommitOrchestrator commitOrchestrator;
+    private RuntimeFactLookupService runtimeFactLookupService;
     private final TriggerDetectionPort triggerDetectionPort = new DefaultTriggerDetection();
     private final CheckSelectionPort checkSelectionPort = CheckSelection::from;
     private final ResolutionPort resolutionPort = new DefaultResolutionPort();
@@ -172,6 +174,12 @@ public class RuntimeTurnApplicationService {
     /** Enables the Scenario Runtime command saga for durable turn commits. */
     public void setCommitOrchestrator(RuntimeTurnCommitOrchestrator commitOrchestrator) {
         this.commitOrchestrator = Objects.requireNonNull(commitOrchestrator, "commit orchestrator must not be null");
+    }
+
+    /** Enables the server-owned Game State → Runtime Fact → Scenario Model lookup before GM generation. */
+    public void setRuntimeFactLookupService(RuntimeFactLookupService runtimeFactLookupService) {
+        this.runtimeFactLookupService = Objects.requireNonNull(runtimeFactLookupService,
+                "runtime fact lookup service must not be null");
     }
 
     /** Client/recovery entry point sharing the same forward-resume orchestrator. */
@@ -512,6 +520,7 @@ public class RuntimeTurnApplicationService {
     private RuntimeTurnResult submitSafeScenarioRuntimeTurn(SubmitRuntimeTurnCommand command, Adventure adventure,
             RuntimeBinding binding, ScenarioPackage scenarioPackage) {
         EvidencePack evidencePack = prefetchEvidence(command, adventure, binding, scenarioPackage);
+        List<RuntimeFactLookupResult> factLookupResults = lookupRuntimeFacts(command, adventure, scenarioPackage, evidencePack);
         NarrativeState narrativeState = narrativeStateService == null ? NarrativeState.empty()
                 : narrativeStateService.load(adventure.sessionId().value());
         NarrativeContext narrativeContext = narrativeState.project(command.ownerPlayerId().value().toString(),
@@ -521,9 +530,13 @@ public class RuntimeTurnApplicationService {
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
                 adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
                 adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList(),
-                "SCENARIO_MODEL=" + scenarioPackage.scenarioModel() + "\nCURRENT_SITUATION=" + adventure.currentSituation(), providerEndpointId(adventure.sessionId().value()),
+                "SCENARIO_MODEL=" + scenarioPackage.scenarioModel()
+                        + "\nCURRENT_SITUATION=" + adventure.currentSituation()
+                        + "\nRUNTIME_ADDED_FACTS=" + adventure.runtimeAddedFacts().stream()
+                                .map(RuntimeAddedFact::content).toList(), providerEndpointId(adventure.sessionId().value()),
                 providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
-                providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value());
+                providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
+                adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults);
         RuntimePlanningResult planningResult = planningPort.planWithOutcomes(planningRequest);
         RuntimePlan plan = planningResult.plan();
         RuntimeResolutionProposal proposal = SituationProposalGroundingPolicy.ground(
@@ -706,15 +719,17 @@ public class RuntimeTurnApplicationService {
                 adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), storybookDocumentIds,
                 binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, RuntimeEvidenceSelector.MAX_EVIDENCE,
                 extractionVersions, "scene:" + adventure.currentContext().currentScene(), actionIntent(command.action()));
-        List<RuntimeEvidence> storybook = scopedSearch(request.forType(RuntimeEvidenceType.STORYBOOK, 5));
+        List<RuntimeEvidence> storybook = bestEffortScopedSearch(request.forType(RuntimeEvidenceType.STORYBOOK, 5));
         List<RuntimeEvidence> rulebook = rulebookDocumentIds.isEmpty() ? List.of()
-                : scopedSearch(request.withDocumentIds(rulebookDocumentIds, RuntimeEvidenceType.RULEBOOK, 5));
+                : bestEffortScopedSearch(request.withDocumentIds(rulebookDocumentIds, RuntimeEvidenceType.RULEBOOK, 5));
         List<RuntimeEvidence> searchedResolution = hasPartialSkillCheck(scenarioPackage)
-                ? scopedSearch(request.withDocumentIds(knowledgeDocumentIds, RuntimeEvidenceType.RESOLUTION, 5))
+                ? bestEffortScopedSearch(request.withDocumentIds(knowledgeDocumentIds, RuntimeEvidenceType.RESOLUTION, 5))
                 : List.of();
         resolution = java.util.stream.Stream.concat(resolution.stream(), searchedResolution.stream()).distinct().toList();
-        if (storybook.isEmpty()) throw new RuntimeEvidenceSelectionException(new RuntimeEvidenceSelectionViolation(
-                "MISSING_STORYBOOK", "storybook evidence is unavailable"));
+        // A missing Storybook match is a normal runtime condition. The GM can
+        // still react in-world using the current situation and established
+        // runtime facts; if a new fact is required, the validated fallback
+        // proposal persists it atomically with the turn.
         List<RuntimeEvidence> boundedStorybook = storybook.stream().limit(RuntimeEvidenceSelector.MAX_EVIDENCE).toList();
         int remaining = Math.max(0, RuntimeEvidenceSelector.MAX_EVIDENCE - boundedStorybook.size());
         List<RuntimeEvidence> boundedRulebook = rulebook.stream().limit(remaining).toList();
@@ -758,6 +773,53 @@ public class RuntimeTurnApplicationService {
                 .filter(Objects::nonNull)
                 .filter(e -> request.knowledgeDocumentIds().contains(e.knowledgeDocumentId().value()))
                 .toList();
+    }
+
+    private List<RuntimeEvidence> bestEffortScopedSearch(RuntimeEvidenceSearchRequest request) {
+        try {
+            return scopedSearch(request);
+        } catch (RuntimeException failure) {
+            if (!isRecoverableLookupFailure(failure)) throw failure;
+            LOGGER.warn("runtime_evidence_search_unavailable type={} actionIntent={}",
+                    request.evidenceType(), request.actionIntent());
+            return List.of();
+        }
+    }
+
+    private static boolean isRecoverableLookupFailure(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            String message = current.getMessage() == null ? "" : current.getMessage().toLowerCase(java.util.Locale.ROOT);
+            if (message.contains("returned 400") || message.contains("returned 401")
+                    || message.contains("returned 403") || message.contains("provenance")
+                    || message.contains("contract") || message.contains("outside the selected")) {
+                return false;
+            }
+            if (current instanceof java.net.http.HttpTimeoutException
+                    || current instanceof java.net.ConnectException
+                    || current instanceof java.io.IOException
+                    || current instanceof java.util.concurrent.TimeoutException) {
+                return true;
+            }
+        }
+        // Unknown failures may indicate a contract, authorization, or data
+        // integrity problem. Fail closed instead of silently turning them into
+        // a missing-evidence result.
+        return false;
+    }
+
+    private List<RuntimeFactLookupResult> lookupRuntimeFacts(SubmitRuntimeTurnCommand command, Adventure adventure,
+            ScenarioPackage scenarioPackage, EvidencePack evidencePack) {
+        if (runtimeFactLookupService == null) return List.of();
+        try {
+            RuntimeFactLookupResult result = runtimeFactLookupService.lookup(
+                    new RuntimeFactLookupRequest(command.action(), adventure.gameState(), adventure.runtimeAddedFacts(),
+                            scenarioPackage.scenarioModel()), evidencePack.storybook());
+            return List.of(result);
+        } catch (RuntimeException failure) {
+            if (!isRecoverableLookupFailure(failure)) throw failure;
+            LOGGER.warn("runtime_fact_lookup_unavailable actionIntent={}", actionIntent(command.action()));
+            return List.of(RuntimeFactLookupResult.notFound());
+        }
     }
 
     private static RuntimePlan preservePendingSkillAdjudication(RuntimePlan plan, String action,
