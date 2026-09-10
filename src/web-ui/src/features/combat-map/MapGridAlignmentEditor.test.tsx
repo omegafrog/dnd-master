@@ -13,6 +13,7 @@ it('keeps the 3×3 alignment draft local until explicit apply', async () => {
   render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={cancel} />)
 
   expect(screen.getByText('3×3 격자 맞추기', { selector: 'strong' })).toBeInTheDocument()
+  expect(screen.getByText(/격자 교차점 하나를 누른 채/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /확대경/ })).not.toBeInTheDocument()
   const canvas = screen.getByAltText('공개된 지도 이미지').parentElement!
   vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)

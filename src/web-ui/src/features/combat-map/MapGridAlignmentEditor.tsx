@@ -113,7 +113,7 @@ export function MapGridAlignmentEditor({ image, initial, crop, gridWidth = 20, g
   const cellPixels = draft.cellSize * view.scale * zoom
 
   return <section className="map-grid-alignment-editor" aria-label="맵 격자 맞추기">
-    <p><strong>3×3 격자 맞추기</strong> — 지도에서 시작점 하나를 누른 채 세 칸 뒤 대각 교차점까지 끌어 격자를 맞추세요.</p>
+    <p><strong>3×3 격자 맞추기</strong> — 지도에 보이는 격자 교차점 하나를 누른 채 세 칸 뒤 대각 교차점까지 끌어 격자를 맞추세요.</p>
     <div className="map-grid-alignment-toolbar">
       <button type="button" onClick={() => changeZoom(.25)}>확대</button>
       <button type="button" onClick={() => changeZoom(-.25)}>축소</button>
