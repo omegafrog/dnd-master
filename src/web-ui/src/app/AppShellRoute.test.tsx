@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { parseRoute } from './route'
 
 describe('AppShell preparation routes', () => {
+  it('keeps the old setup address on the adventure list', () => {
+    expect(parseRoute('#/setup')).toEqual({ page: 'adventures' })
+    expect(parseRoute('#/setup?mode=create')).toEqual({ page: 'setup' })
+  })
+
   it('routes session party preparation to dedicated party page', () => {
     expect(parseRoute('#/sessions/session-1/party')).toEqual({ page: 'party', sessionId: 'session-1' })
   })

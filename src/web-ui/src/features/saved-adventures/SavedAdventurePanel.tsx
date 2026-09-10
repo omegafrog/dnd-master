@@ -97,9 +97,9 @@ export function SavedAdventurePanel({
 
   return (
     <section className="saved-adventure-page" aria-labelledby="saved-heading">
-      <div className="page-heading"><div><p className="eyebrow">모험 기록</p><h1 id="saved-heading">모험 목록</h1><p>준비 중인 모험을 열고, 자료와 세션 기록을 확인하세요.</p></div><Button variant="outline" onClick={load}><CalendarDays size={15} aria-hidden="true" />목록 새로고침</Button></div>
+      <div className="page-heading"><div><p className="eyebrow">모험 기록</p><h1 id="saved-heading">모험 목록</h1><p>준비 중인 모험을 열고, 자료와 세션 기록을 확인하세요.</p></div><span className="page-heading-actions"><a className="ui-button ui-button-outline" href="#/setup?mode=create"><PlusIcon />새 모험</a><Button variant="outline" onClick={load}><CalendarDays size={15} aria-hidden="true" />목록 새로고침</Button></span></div>
       <p className="workspace-inline-notice" role="status">{message}</p>
-      {items.length === 0 && <div className="workspace-empty"><span className="workspace-empty-icon" aria-hidden="true"><ScrollText size={20} /></span><h2>저장된 모험이 없습니다</h2><p>자료 설정을 마치면 모험이 이곳에 표시됩니다.</p><a className="text-link" href="#/setup">자료 설정으로 이동</a></div>}
+      {items.length === 0 && <div className="workspace-empty"><span className="workspace-empty-icon" aria-hidden="true"><ScrollText size={20} /></span><h2>저장된 모험이 없습니다</h2><p>새 모험을 만들고 자료를 추가하면 이곳에 표시됩니다.</p><a className="text-link" href="#/setup?mode=create">새 모험 만들기</a></div>}
       <ul className="adventure-list" aria-label="저장된 모험 목록">
         {items.map(item => (
           <li key={item.id} className="adventure-list-row">
@@ -132,4 +132,8 @@ export function SavedAdventurePanel({
 function formatDate(value: string) {
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ko-KR')
+}
+
+function PlusIcon() {
+  return <span aria-hidden="true">+</span>
 }

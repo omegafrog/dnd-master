@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, BookOpen, CalendarDays, Check, ChevronRight, FileText, Map, MoreHorizontal, Play, Plus, ScrollText, Users } from 'lucide-react'
+import { AlertTriangle, BookOpen, CalendarDays, Check, ChevronRight, FileText, MoreHorizontal, Play, Plus, ScrollText, Users } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog'
 import { Separator } from '../../components/ui/separator'
@@ -75,7 +75,7 @@ export function AdventureWorkspace({ adventureId, activeTab, playApi, setupApi, 
       <TabsList>
         {tabLabels.map(tab => <TabsTrigger key={tab.value} value={tab.value} active={tab.value === activeTab} onClick={() => changeTab(tab.value)}>{tab.label}{tab.value === 'review' && reviewDocuments.length > 0 ? <span className="tab-count">{reviewDocuments.length}</span> : null}</TabsTrigger>)}
       </TabsList>
-      <TabsContent value="materials" active={activeTab === 'materials'}><MaterialsTab documents={documents} readyCount={readyCount} onAdd={() => setMessage('자료 추가는 자료 설정에서 진행할 수 있습니다.')} /></TabsContent>
+      <TabsContent value="materials" active={activeTab === 'materials'}><MaterialsTab documents={documents} readyCount={readyCount} onAdd={() => { window.location.hash = '#/setup?mode=create' }} /></TabsContent>
       <TabsContent value="review" active={activeTab === 'review'}><ReviewTab documents={reviewDocuments} /></TabsContent>
       <TabsContent value="characters" active={activeTab === 'characters'}><CharactersTab onOpen={() => setCharacterOpen(true)} /></TabsContent>
       <TabsContent value="sessions" active={activeTab === 'sessions'}><SessionsTab knowledgeSet={knowledgeSet} title={title} /></TabsContent>
@@ -112,7 +112,7 @@ function ReviewTab({ documents }: { documents: KnowledgeDocumentView[] }) {
   const state = documentStatus(document)
   return <div className="review-workspace">
     <aside className="review-list" aria-label="확인할 항목 목록"><div className="review-list-heading"><p className="eyebrow">검토함</p><h2>확인할 항목 {documents.length}</h2></div><ul>{documents.map((item, index) => <li key={item.knowledgeDocumentId}><button type="button" className={index === selected ? 'review-issue-row review-issue-active' : 'review-issue-row'} onClick={() => setSelected(index)}><span className="review-issue-marker"><AlertTriangle size={14} aria-hidden="true" /></span><span><strong>{item.originalFilename}</strong><small>{stateLabel(documentStatus(item).kind)} · 자료 준비 상태</small></span></button></li>)}</ul></aside>
-    <article className="review-detail"><p className="eyebrow">확인할 내용</p><h2>{document.originalFilename}</h2><p className="review-detail-lead">이 자료를 세션에서 사용하려면 현재 상태를 확인해야 합니다.</p><Separator /><dl className="review-evidence"><div><dt>현재 상태</dt><dd><span className={`file-status file-status-${state.kind}`}><StatusIcon status={state.label} />{state.label}</span></dd></div><div><dt>자료 종류</dt><dd>{document.documentType === 'RULEBOOK' ? '룰북' : '시나리오 자료'}</dd></div><div><dt>파일 형식</dt><dd>{document.format}</dd></div></dl>{document.failureReason && <p className="review-warning"><AlertTriangle size={15} aria-hidden="true" />{document.failureReason}</p>}<div className="review-actions"><Button variant="outline" onClick={() => window.location.hash = '#/setup'}>자료 설정에서 확인</Button></div></article>
+    <article className="review-detail"><p className="eyebrow">확인할 내용</p><h2>{document.originalFilename}</h2><p className="review-detail-lead">이 자료를 세션에서 사용하려면 현재 상태를 확인해야 합니다.</p><Separator /><dl className="review-evidence"><div><dt>현재 상태</dt><dd><span className={`file-status file-status-${state.kind}`}><StatusIcon status={state.label} />{state.label}</span></dd></div><div><dt>자료 종류</dt><dd>{document.documentType === 'RULEBOOK' ? '룰북' : '시나리오 자료'}</dd></div><div><dt>파일 형식</dt><dd>{document.format}</dd></div></dl>{document.failureReason && <p className="review-warning"><AlertTriangle size={15} aria-hidden="true" />{document.failureReason}</p>}<div className="review-actions"><Button variant="outline" onClick={() => window.location.hash = '#/setup?mode=create'}>자료 구성에서 확인</Button></div></article>
   </div>
 }
 

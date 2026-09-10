@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../features/auth/AuthContext'
 import { LoginForm } from '../features/auth/LoginForm'
 import { HttpAdventureApi } from '../features/adventure/AdventureApi'
-import { AdventureStream } from '../features/adventure/AdventureStream'
 import { AdventureWorkspace } from '../features/adventure/AdventureWorkspace'
 import { SessionRuntime } from '../features/adventure/SessionRuntime'
 import { SessionRuntimeRoute } from '../features/adventure/SessionRuntimeRoute'
@@ -38,6 +37,14 @@ export function AppShell() {
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [onHashChange])
+  useEffect(() => {
+    if (auth.session && route.page === 'login') window.location.hash = '#/adventures'
+  }, [auth.session, route.page])
+  useEffect(() => {
+    if (!auth.session || route.page !== 'adventures') return
+    const currentPath = window.location.hash.split('?')[0]
+    if (currentPath === '#/setup') window.location.hash = '#/adventures'
+  }, [auth.session, route.page])
   useEffect(() => {
     const refreshSelectedBundle = () => setSelectedBundleId(window.localStorage.getItem('dnd-selected-bundle-id') ?? '')
     window.addEventListener('dnd-selected-bundle-change', refreshSelectedBundle)
@@ -173,7 +180,7 @@ export function AppShell() {
   const creatorRoute = route.page === 'character-blueprint' || route.page === 'character-create'
   const initials = auth.session.playerName.slice(0, 1).toUpperCase()
   return <div className="app-shell">
-    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={route.page === 'setup' ? 'active' : undefined} aria-current={route.page === 'setup' ? 'page' : undefined} href="#/setup">자료 설정</a><a className={route.page === 'adventures' || route.page === 'adventure' || route.page === 'adventure-workspace' ? 'active' : undefined} aria-current={route.page === 'adventures' || route.page === 'adventure' || route.page === 'adventure-workspace' ? 'page' : undefined} href="#/adventures">모험 목록</a>{selectedBundleId && <a className="selected-bundle-toolbar" href={`#/bundles/${selectedBundleId}`} title={`${selectedBundleId} 자료 화면`}>현재 자료 <span>{shortId(selectedBundleId)}</span></a>}<details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 설정</a><a href="#/backoffice">백오피스</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
+    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={route.page === 'adventures' || route.page === 'adventure' || route.page === 'adventure-workspace' ? 'active' : undefined} aria-current={route.page === 'adventures' || route.page === 'adventure' || route.page === 'adventure-workspace' ? 'page' : undefined} href="#/adventures">모험 목록</a><a className="header-create-adventure" href="#/setup?mode=create">새 모험</a><details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 설정</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
     <main id="main" className={creatorRoute ? 'creator-main' : `app-content app-page-${route.page}`}>
       <div className="app-notices"><p role="status" aria-live="polite">{auth.message}</p></div>
       {route.page === 'login' && <section className="welcome-card"><p className="eyebrow">ADVENTURE AWAITS</p><h2>모험 준비가 완료되었습니다</h2><a className="text-link" href="#/setup">자료 설정으로 이동</a></section>}
@@ -203,11 +210,7 @@ export function AppShell() {
 }
 
 function Brand() {
-  return <a className="app-brand" href="#/setup" aria-label="D&D Master 홈"><img src="/assets/characters/compass.png" alt="" aria-hidden="true" /><span><strong>D&amp;D Master</strong><small>Solo Adventure Studio</small></span></a>
-}
-
-function shortId(value: string) {
-  return value.length > 12 ? `${value.slice(0, 8)}…` : value
+  return <a className="app-brand" href="#/adventures" aria-label="D&D Master 홈"><img src="/assets/characters/compass.png" alt="" aria-hidden="true" /><span><strong>D&amp;D Master</strong><small>Solo Adventure Studio</small></span></a>
 }
 
 function ProfilePage({ session }: { session: NonNullable<ReturnType<typeof useAuth>['session']> }) {
