@@ -9,8 +9,10 @@ test('solo journey exposes labelled controls, landmarks and keyboard navigation'
   await page.getByRole('button', { name: '로그인', exact: true }).click()
 
   await expect(page.getByRole('main')).toHaveCount(1)
-  await expect(page.getByRole('heading', { level: 1, name: '새 모험 준비' })).toBeVisible()
-  const missingControls = await page.locator('input, select, button').evaluateAll(elements => elements.filter(element => {
+  await expect(page.getByRole('heading', { level: 1, name: '새로운 모험을 시작하세요' })).toBeVisible()
+  await page.getByRole('button', { name: '시작하기' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: '모험의 기본 정보를 입력하세요' })).toBeVisible()
+  const missingControls = await page.locator('input, select, textarea, button').evaluateAll(elements => elements.filter(element => {
     if (element instanceof HTMLButtonElement) return !element.textContent?.trim() && !element.getAttribute('aria-label')
     const id = element.id
     return !element.closest('label') && !(id && document.querySelector(`label[for="${id}"]`)) && !element.getAttribute('aria-label')
@@ -19,5 +21,6 @@ test('solo journey exposes labelled controls, landmarks and keyboard navigation'
 
   await page.keyboard.press('Tab')
   const focusedTag = await page.evaluate(() => document.activeElement?.tagName)
-  expect(['INPUT', 'SELECT', 'BUTTON', 'A']).toContain(focusedTag)
+  expect(['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON', 'A']).toContain(focusedTag)
+  await expect(page.getByRole('status').first()).toBeAttached()
 })
