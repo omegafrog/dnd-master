@@ -12,7 +12,7 @@ class MapGridAlignmentServiceTest {
     private final MapId mapId = new MapId(UUID.randomUUID());
 
     @Test
-    void savesDecimalAlignmentIntoThePlayerVisibleMapAndReplaysTheSameCommand() {
+    void savesDecimalAlignmentWithoutChangingTheGameMapAndReplaysTheSameCommand() {
         CombatMap map = map();
         InMemoryMapStore maps = new InMemoryMapStore(map, owner);
         InMemoryAlignmentStore alignments = new InMemoryAlignmentStore();
@@ -26,12 +26,11 @@ class MapGridAlignmentServiceTest {
         assertEquals(1, saved.version());
         assertEquals(saved, replay);
         assertEquals(saved, service.find(mapId, owner));
-        assertNotSame(map, maps.current);
-        assertEquals(1, maps.current.version());
+        assertSame(map, maps.current);
+        assertEquals(0, maps.current.version());
         assertEquals(new GridPosition(2, 3), maps.current.tokens().getFirst().position());
         assertEquals(Set.of(new GridPosition(4, 4)), maps.current.obstacles());
-        assertEquals("12.25,8.5,317.5,317.5,1000,1000", maps.current.layers().stream()
-                .filter(layer -> layer.type().equals("GRID_BOUNDS")).findFirst().orElseThrow().value());
+        assertTrue(maps.current.layers().stream().noneMatch(layer -> layer.type().equals("GRID_BOUNDS")));
     }
 
     @Test

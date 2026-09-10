@@ -64,7 +64,13 @@ describe('AdventureSessionPanel lifecycle', () => {
 
   it('shows runtime preparation progress and ignores repeated starts', async () => {
     let resolveStart!: (value: AdventureSessionView) => void
-    const start = vi.fn<AdventureSessionApi['start']>((_sessionId, _version, _adventureId, _prepareMapOnly) => new Promise<AdventureSessionView>(resolve => { resolveStart = resolve }))
+    const start = vi.fn<AdventureSessionApi['start']>((sessionId, version, adventureId, prepareMapOnly) => {
+      void sessionId
+      void version
+      void adventureId
+      void prepareMapOnly
+      return new Promise<AdventureSessionView>(resolve => { resolveStart = resolve })
+    })
     const api = {
       read: vi.fn().mockResolvedValue({ sessionId: 's', characterLimit: 1, version: 3, status: 'DRAFT', adventureId: null, runtimeConfiguration: { engineId: 'ollama' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT' }] }),
       listOwnedCharacters: vi.fn().mockResolvedValue([]),

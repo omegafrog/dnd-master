@@ -8,6 +8,7 @@ import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
+import com.dndmaster.adventure.domain.adventure.AdventureStatus;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
@@ -21,8 +22,9 @@ import com.dndmaster.adventure.domain.knowledge.SessionKnowledgeSet;
 import java.util.Objects;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.transaction.annotation.Transactional;
 
-public final class AdventureSessionApplicationService {
+public class AdventureSessionApplicationService {
     private final AdventureSessionRepository repository;
     private final ScenarioPackageRepository packageRepository;
     private final AdventureRepository adventureRepository;
@@ -128,6 +130,9 @@ public final class AdventureSessionApplicationService {
      */
     public AdventureSession start(SessionId id, OwnerPlayerId owner, long expectedVersion, java.util.UUID requestId, AdventureId adventureId, boolean prepareMapOnly) {
         AdventureSession session = authorize(load(id), owner);
+        if (session.status() == AdventureSession.Status.DELETED) {
+            throw new IllegalStateException("deleted adventure session cannot be started");
+        }
         if (session.status() == AdventureSession.Status.STARTED) {
             if (adventureId.equals(session.startedAdventureId())) return session;
             throw new IllegalStateException("adventure session is already started with another adventure");
@@ -242,11 +247,22 @@ public final class AdventureSessionApplicationService {
         repository.save(session, expectedVersion);
         return session;
     }
+    @Transactional
     public AdventureSession delete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);
+        retireStartedAdventure(session, owner);
         session.delete();
         repository.save(session, expectedVersion);
         return session;
+    }
+    private void retireStartedAdventure(AdventureSession session, OwnerPlayerId owner) {
+        var adventure = session.startedAdventureId() == null
+                ? adventureRepository.findBySessionId(session.id())
+                : adventureRepository.findById(session.startedAdventureId()).or(() -> adventureRepository.findBySessionId(session.id()));
+        adventure.filter(value -> value.status() != AdventureStatus.DELETED).ifPresent(value -> {
+            value.delete(owner, value.version());
+            adventureRepository.save(value);
+        });
     }
     private AdventureSession load(SessionId id) { return repository.findById(id).orElseThrow(() -> new IllegalArgumentException("adventure session not found")); }
     private static AdventureSession authorize(AdventureSession session, OwnerPlayerId owner) {

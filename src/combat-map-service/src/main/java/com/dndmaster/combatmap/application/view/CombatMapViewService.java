@@ -1,8 +1,10 @@
 package com.dndmaster.combatmap.application.view;
 
 import com.dndmaster.combatmap.domain.*;
+import java.io.ByteArrayInputStream;
 import java.util.*;
 import java.util.stream.Collectors;
+import javax.imageio.ImageIO;
 
 public final class CombatMapViewService {
     private final CombatMapViewStore store;
@@ -208,6 +210,7 @@ public final class CombatMapViewService {
         CombatMap replay = replay(id, owner, commandId, fingerprint);
         if (replay != null) return replay;
         if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
+        MapGridAlignment committedAlignment = null;
         if (alignmentVersion != null || (imageRevision != null && !imageRevision.isBlank())) {
             if (alignments == null) throw new MapGridAlignmentConflictException();
             MapGridAlignment current = alignments.find(id).orElseThrow(MapGridAlignmentConflictException::new);
@@ -215,6 +218,7 @@ public final class CombatMapViewService {
                     || current.version() != alignmentVersion || !current.imageRevision().equals(imageRevision)) {
                 throw new MapGridAlignmentConflictException();
             }
+            committedAlignment = current;
         }
         Set<GridPosition> nextObstacles = Set.copyOf(obstacles == null ? Set.of() : obstacles);
         List<Door> nextDoors = List.copyOf(doors == null ? List.of() : doors);
@@ -229,7 +233,10 @@ public final class CombatMapViewService {
         if (crop != null && !crop.isBlank()) {
             PlayerMapImageService.validateCrop(MapGridAlignmentService.mapImage(state.map()), crop);
         }
-        List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !Set.of("MAP_CROP", "MAP_BOUNDARIES", "MAP_LAYOUT_CONFIRMED", "MAP_BOUNDARY_CANDIDATES").contains(layer.type())).toList());
+        Set<String> replacedLayers = new HashSet<>(Set.of("MAP_CROP", "MAP_BOUNDARIES", "MAP_LAYOUT_CONFIRMED", "MAP_BOUNDARY_CANDIDATES"));
+        if (committedAlignment != null) replacedLayers.add("GRID_BOUNDS");
+        List<MapLayer> layers = new ArrayList<>(state.map().layers().stream().filter(layer -> !replacedLayers.contains(layer.type())).toList());
+        if (committedAlignment != null) layers.add(new MapLayer("GRID_BOUNDS", alignmentBounds(state.map(), committedAlignment), LayerVisibility.PLAYER_VISIBLE));
         if (crop != null && !crop.isBlank()) layers.add(new MapLayer("MAP_CROP", crop.trim(), LayerVisibility.PLAYER_VISIBLE));
         if (!nextBoundaries.isEmpty()) layers.add(new MapLayer("MAP_BOUNDARIES", nextBoundaries.stream().map(MapBoundary::encoded).sorted().collect(java.util.stream.Collectors.joining(";")), LayerVisibility.PLAYER_VISIBLE));
         layers.add(new MapLayer("MAP_LAYOUT_CONFIRMED", layoutConfirmationValue(id), LayerVisibility.PLAYER_VISIBLE));
@@ -317,7 +324,7 @@ public final class CombatMapViewService {
     /** 기존 호출부 호환용. 새 준비 흐름은 후보를 먼저 화면에 보여준다. */
     public CombatMap redraftAfterAlignment(MapId id, MapOwnerId owner, MapGridAlignment alignment) {
         BoundaryDraft draft = proposeBoundaries(id, owner, alignment);
-        return updateLayout(id, owner, draft.mapVersion(), UUID.randomUUID(), draft.obstacles(), draft.doors(), draft.boundaries(), draft.crop());
+        return updateLayout(id, owner, draft.mapVersion(), UUID.randomUUID(), draft.obstacles(), draft.doors(), draft.boundaries(), draft.crop(), draft.alignmentVersion(), draft.imageRevision());
     }
 
     /** 기존 호출부 호환용. 새 흐름에서는 반드시 저장된 정렬을 전달한다. */
@@ -337,6 +344,19 @@ public final class CombatMapViewService {
 
     private static double parseDouble(String value, double fallback) {
         try { return Double.parseDouble(value); } catch (RuntimeException ignored) { return fallback; }
+    }
+
+    private static String alignmentBounds(CombatMap map, MapGridAlignment alignment) {
+        MapImageEvidence image = imageEvidence(map).orElseThrow(MapGridAlignmentImageUnavailableException::new);
+        try (ByteArrayInputStream input = new ByteArrayInputStream(image.content())) {
+            var decoded = ImageIO.read(input);
+            if (decoded == null) throw new MapGridAlignmentImageUnavailableException();
+            return alignment.originX() + "," + alignment.originY() + ","
+                    + map.grid().width() * alignment.cellSize() + "," + map.grid().height() * alignment.cellSize()
+                    + "," + decoded.getWidth() + "," + decoded.getHeight();
+        } catch (java.io.IOException exception) {
+            throw new MapGridAlignmentImageUnavailableException();
+        }
     }
 
     public record BoundaryDraft(long mapVersion, Set<GridPosition> obstacles, List<Door> doors,

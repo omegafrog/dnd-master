@@ -37,7 +37,8 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
     catch (error) { setMessage(error instanceof Error ? error.message : '조작 방식을 변경하지 못했습니다.') }
   }
   async function finish(action: 'complete' | 'delete') {
-    if (!session || session.status !== 'STARTED') return
+    if (!session || session.status === 'COMPLETED' || session.status === 'DELETED') return
+    if (action === 'complete' && session.status !== 'STARTED') return
     try { setSession(await api[action](sessionId, session.version)); setPendingEnd(null); setMessage('세션이 종료되었습니다. 캐릭터 시트 정리를 요청했습니다.') }
     catch (error) { setMessage(error instanceof Error ? error.message : '세션을 종료하지 못했습니다.') }
   }
@@ -121,7 +122,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
 
     {provider && api.switchGmProvider && <details className="party-provider-settings"><summary>GM 연결 설정 <span>{provider.provider} · {provider.model}</span></summary><div><label>연결 방식<select aria-label="GM provider" value={providerForm.provider} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, provider: value })) }}><option value="codex-cli">Codex OAuth</option><option value="openai">OpenAI 호환</option></select></label><label>모델<input aria-label="GM model" value={providerForm.model} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, model: value })) }} /></label><label>Reasoning<select aria-label="GM reasoning" value={providerForm.reasoning} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, reasoning: value })) }}><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label><button type="button" onClick={() => void switchProvider()}>연결 변경</button></div></details>}
     {frozen && <p className="session-frozen-note">시작 후 파티와 제어 방식은 변경할 수 없습니다. 종료된 세션의 시트는 비활성화됩니다.</p>}
-    {session.status === 'STARTED' && <div className="session-end-actions"><button type="button" disabled={pendingEnd !== null} onClick={() => setPendingEnd('complete')}>세션 완료</button><button type="button" disabled={pendingEnd !== null} onClick={() => setPendingEnd('delete')}>세션 삭제</button></div>}
+    {(session.status === 'DRAFT' || session.status === 'STARTING' || session.status === 'STARTED') && <div className="session-end-actions">{session.status === 'STARTED' && <button type="button" disabled={pendingEnd !== null} onClick={() => setPendingEnd('complete')}>세션 완료</button>}<button type="button" disabled={pendingEnd !== null} onClick={() => setPendingEnd('delete')}>세션 삭제</button></div>}
     {pendingEnd && <div className="session-confirmation" role="alert"><p>현재 모험을 종료하면 이후 변경할 수 없습니다. 계속할까요?</p><button type="button" onClick={() => void finish(pendingEnd)}>종료 확인</button><button type="button" onClick={() => setPendingEnd(null)}>취소</button></div>}
     <p role="status">{message}</p>
   </section>

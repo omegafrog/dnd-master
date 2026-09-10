@@ -8,12 +8,9 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
-import java.util.ArrayList;
 import java.util.HexFormat;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
 import javax.imageio.ImageIO;
 
 /** 정렬값만 조회·적용하며 기존 전체 격자 보정 경로를 호출하지 않는다. */
@@ -40,10 +37,7 @@ public final class MapGridAlignmentService {
         if (!imageRevision(map).equals(request.imageRevision())) throw new MapGridAlignmentConflictException();
         requireGridFitsImage(map, request);
         Optional<MapGridAlignment> current = alignments.find(mapId);
-        if (current.isPresent() && sameGeometry(current.get(), request)) {
-            synchronizeGridBounds(mapId, owner, request);
-            return current.get();
-        }
+        if (current.isPresent() && sameGeometry(current.get(), request)) return current.get();
         MapGridAlignment saved;
         try {
             saved = alignments.apply(owner, mapId, request);
@@ -54,7 +48,6 @@ public final class MapGridAlignmentService {
             if (committed.isPresent() && sameGeometry(committed.get(), request)) return committed.get();
             throw conflict;
         }
-        synchronizeGridBounds(mapId, owner, request);
         return saved;
     }
 
@@ -63,41 +56,6 @@ public final class MapGridAlignmentService {
                 && Double.compare(current.originX(), request.originX()) == 0
                 && Double.compare(current.originY(), request.originY()) == 0
                 && Double.compare(current.cellSize(), request.cellSize()) == 0;
-    }
-
-    /** Keeps the player-visible map metadata on the same geometry as the saved alignment. */
-    private void synchronizeGridBounds(MapId mapId, MapOwnerId owner, MapGridAlignmentRequest request) {
-        VersionedOwnedCombatMap state = maps.find(mapId).orElseThrow(CombatMapAccessDeniedException::new);
-        if (!state.owner().equals(owner)) throw new CombatMapAccessDeniedException();
-        CombatMap current = state.map();
-        int[] size = imageSize(mapImage(current));
-        String bounds = request.originX() + "," + request.originY() + ","
-                + current.grid().width() * request.cellSize() + "," + current.grid().height() * request.cellSize()
-                + "," + size[0] + "," + size[1];
-        String existing = current.layers().stream().filter(layer -> "GRID_BOUNDS".equals(layer.type())).map(MapLayer::value).findFirst().orElse("");
-        if (bounds.equals(existing)) return;
-        List<MapLayer> layers = new ArrayList<>(current.layers().stream()
-                .filter(layer -> !"GRID_BOUNDS".equals(layer.type())).toList());
-        layers.add(new MapLayer("GRID_BOUNDS", bounds, com.dndmaster.combatmap.domain.LayerVisibility.PLAYER_VISIBLE));
-        CombatMap updated = new CombatMap(current.id(), current.adventureId(), current.ruleSetId(), current.grid(),
-                current.ownerPlayerId(), current.tokens(), current.obstacles(), layers, state.version() + 1,
-                request.commandId(), "ALIGNMENT|" + request);
-        updated.replaceDoors(current.doors());
-        updated.replaceRuntimeState(current.runtimeState());
-        if (current.visibilitySnapshot() != null) updated.replaceVisibility(current.visibilitySnapshot());
-        maps.update(owner, updated, state.version(), state.version() + 1, request.commandId(), updated.operationFingerprint());
-    }
-
-    private static int[] imageSize(String image) {
-        try {
-            int encodedStart = image.indexOf("base64,");
-            var decoded = ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(image.substring(encodedStart + "base64,".length()))));
-            if (decoded == null) throw new MapGridAlignmentImageUnavailableException();
-            return new int[] { decoded.getWidth(), decoded.getHeight() };
-        } catch (RuntimeException | java.io.IOException exception) {
-            if (exception instanceof MapGridAlignmentImageUnavailableException unavailable) throw unavailable;
-            throw new MapGridAlignmentImageUnavailableException();
-        }
     }
 
     /** 원본은 이 경계 안에서만 읽고, 공개된 칸만 포함한 새 이미지로 바꾼다. */

@@ -492,6 +492,9 @@ function extendBoundaryStroke(stroke: BoundaryGeometry, event: React.PointerEven
   return { ...stroke, to: coordinate }
 }
 
+// This helper is exported for the interaction-flow tests; keep the component
+// module's fast-refresh warning scoped to this intentional non-component export.
+// eslint-disable-next-line react-refresh/only-export-components
 export function boundariesInStroke(stroke: BoundaryGeometry): Array<Pick<MapBoundary, 'x' | 'y' | 'orientation'>> {
   return Array.from({ length: Math.abs(stroke.to - stroke.from) + 1 }, (_, index) => {
     const variable = Math.min(stroke.from, stroke.to) + index

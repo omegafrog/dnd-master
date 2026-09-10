@@ -17,7 +17,7 @@ import javax.sql.DataSource;
 public final class PostgresAdventureSessionRepository implements AdventureSessionRepository {
     private final DataSource dataSource;
     private final ObjectMapper objectMapper = new ObjectMapper();
-    public PostgresAdventureSessionRepository(DataSource dataSource) { this.dataSource = java.util.Objects.requireNonNull(dataSource); }
+    public PostgresAdventureSessionRepository(DataSource dataSource) { this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(java.util.Objects.requireNonNull(dataSource)); }
     @Override public Optional<AdventureSession> findById(SessionId id) {
         try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement("SELECT * FROM adventure_session WHERE session_id=?")) {
             s.setObject(1, id.value()); try (ResultSet row = s.executeQuery()) { return row.next() ? Optional.of(map(c, row)) : Optional.empty(); }
@@ -32,7 +32,8 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
     }
     @Override public void save(AdventureSession session, long expectedVersion) {
         try (Connection c = dataSource.getConnection()) {
-            boolean autoCommit = c.getAutoCommit(); c.setAutoCommit(false);
+            boolean managed = org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive();
+            boolean autoCommit = c.getAutoCommit(); if (!managed) c.setAutoCommit(false);
             try {
                 String sql = expectedVersion == 0 && session.version() == 0
                         ? "INSERT INTO adventure_session(session_id, owner_player_id, scenario_package_id, scenario_package_revision, blueprint_id, blueprint_revision, character_edition, character_limit, runtime_scenario_id, runtime_rule_set_id, runtime_rulebook_ids_json, runtime_engine_id, runtime_tool_ids_json, runtime_initial_scene, status, started_adventure_id, start_request_id, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -47,8 +48,8 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
                     for (AdventurePartyMember m : session.party()) { s.setObject(1, session.id().value()); s.setObject(2, m.characterSheetId().value()); s.setString(3, m.controlMode().name()); s.setBoolean(4, m.nameMutableAfterStart()); s.setBoolean(5, m.raceMutableAfterStart()); s.setBoolean(6, m.characterClassMutableAfterStart()); s.setBoolean(7, m.backgroundMutableAfterStart()); s.setBoolean(8, m.startingAbilitiesMutableAfterStart()); s.setBoolean(9, m.levelMutableAfterStart()); s.addBatch(); }
                     s.executeBatch();
                 }
-                c.commit();
-            } catch (SQLException | RuntimeException e) { c.rollback(); throw e; } finally { c.setAutoCommit(autoCommit); }
+                if (!managed) c.commit();
+            } catch (SQLException | RuntimeException e) { if (!managed) c.rollback(); throw e; } finally { if (!managed) c.setAutoCommit(autoCommit); }
         } catch (SQLException e) { throw new AdventurePersistenceException("could not save adventure session", e); }
     }
     private AdventureSession map(Connection c, ResultSet row) throws SQLException {

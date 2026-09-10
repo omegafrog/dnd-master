@@ -1018,7 +1018,7 @@ export function CharacterSheetCreatorView({
     if (!startingBundle || equipmentBundle === startingBundle.id) return;
     setEquipmentBundle(startingBundle.id);
     setEquipmentItems(equipmentForBundle(startingBundle));
-  }, [effectiveClass]);
+  }, [effectiveClass, equipmentBundle]);
 
   const skillChoiceCount = selectedClass?.skillChoiceCount ?? 0;
   const expertiseChoiceCount = effectiveClass === "로그" ? 2 : 0;
