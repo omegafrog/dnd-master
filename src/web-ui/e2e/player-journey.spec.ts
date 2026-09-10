@@ -5,13 +5,15 @@ test('solo player can upload and inspect storybook materials', async ({ page }) 
   await page.getByLabel('이메일').fill('player@example.com')
   await page.getByLabel('비밀번호').fill('secret-password')
   await page.getByRole('button', { name: '로그인', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '자료와 모험 설정' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '새 모험 준비' })).toBeVisible()
 
-  await page.getByLabel('자료 파일').setInputFiles([
+  await page.getByRole('button', { name: '자료 추가' }).click()
+  const addDialog = page.getByRole('dialog')
+  await addDialog.getByLabel('자료 파일').setInputFiles([
     { name: 'rules.txt', mimeType: 'text/plain', buffer: Buffer.from('Dexterity rules') },
     { name: 'story.txt', mimeType: 'text/plain', buffer: Buffer.from('A campaign journal') },
   ])
-  await page.getByRole('button', { name: '자료 업로드' }).click()
+  await addDialog.getByRole('button', { name: '자료 추가' }).click()
   await expect(page.getByRole('list', { name: '문서 상태 목록' }).getByText('rules.txt', { exact: true })).toBeVisible()
   await expect(page.getByRole('list', { name: '문서 상태 목록' }).getByText('story.txt', { exact: true })).toBeVisible()
 })
@@ -43,37 +45,26 @@ test.skip('document-derived scenario preserves bundle and exposes character blue
     await page.getByLabel('비밀번호').fill('secret-password')
     await page.getByRole('button', { name: '로그인', exact: true }).click()
 
-    await page.getByLabel('자료 파일').setInputFiles([
+    await page.getByRole('button', { name: '자료 추가' }).click()
+    const addDialog = page.getByRole('dialog')
+    await addDialog.getByLabel('자료 파일').setInputFiles([
       { name: 'rules-2014.txt', mimeType: 'text/plain', buffer: Buffer.from('DND 4판 strength tag') },
       { name: 'rules-2024.txt', mimeType: 'text/plain', buffer: Buffer.from('DND 5판 strength tag') },
       { name: 'storybook.txt', mimeType: 'text/plain', buffer: Buffer.from('Storybook elf option priority') },
       { name: 'printer.txt', mimeType: 'text/plain', buffer: Buffer.from('Printer-only material') },
       { name: 'map.txt', mimeType: 'text/plain', buffer: Buffer.from('Map room layout') },
     ])
-    await page.getByRole('button', { name: '자료 업로드' }).click()
+    await addDialog.getByRole('button', { name: '자료 추가' }).click()
 
     await expect(page.getByLabel('map.txt 역할')).toBeVisible()
     await page.getByLabel('map.txt 역할').selectOption('MAP')
-    const scenario = page.locator('section[aria-labelledby="scenario-heading"]')
-    await scenario.getByLabel('printer.txt', { exact: true }).uncheck()
-    await scenario.getByRole('button', { name: '시나리오 번들 저장' }).click()
-    await expect(scenario.getByText('map.txt · MAP')).toBeVisible()
-    await expect(scenario.getByText(/printer.txt ·/)).not.toBeVisible()
+    await page.getByRole('checkbox', { name: 'printer.txt 모험 자료 선택' }).click()
+    await page.getByRole('button', { name: '모험 만들기' }).click()
+    await expect(page.getByRole('heading', { name: '모험 준비' })).toBeVisible()
     await test.info().attach('026-4-bundle.json', {
       body: Buffer.from(await page.evaluate(() => JSON.stringify((window as unknown as { __dndMasterE2E: unknown }).__dndMasterE2E))),
       contentType: 'application/json',
     })
-    await scenario.getByRole('button', { name: '시나리오 패키지 컴파일' }).click()
-    await expect(scenario.getByText('패키지 package-e2e · COMPLETE')).toBeVisible()
-    await expect(scenario.getByText('캐릭터 한도: 1명')).toBeVisible()
-    await expect(scenario.getByRole('button', { name: '캐릭터 생성 시작' })).toBeVisible()
-    await scenario.getByRole('button', { name: '캐릭터 생성 시작' }).click()
-    await expect(page).toHaveURL(/#\/scenario-packages\/package-e2e\/character-blueprint$/)
-    await test.info().attach('026-4-blueprint.json', {
-      body: Buffer.from(await page.evaluate(() => JSON.stringify((window as unknown as { __dndMasterE2E: unknown }).__dndMasterE2E))),
-      contentType: 'application/json',
-    })
-    await page.screenshot({ path: test.info().outputPath('026-4-blueprint.png'), fullPage: true })
   } catch (error) {
     await test.info().attach('026-4-api-failures.json', {
       body: Buffer.from(JSON.stringify(failedResponses)),
