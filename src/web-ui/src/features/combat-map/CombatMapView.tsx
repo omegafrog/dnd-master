@@ -4,7 +4,7 @@ import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
 
-export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, onPreparationComplete }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; onPreparationComplete?: () => void }) {
+export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, onPreparationComplete }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; onPreparationComplete?: () => void | Promise<void> }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [publicMapImage, setPublicMapImage] = useState<string | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
@@ -28,6 +28,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [layoutSaving, setLayoutSaving] = useState(false)
   const [boundaryTool, setBoundaryTool] = useState<'WALL' | 'DOOR' | 'ERASE'>('WALL')
   const [boundaryDetecting, setBoundaryDetecting] = useState(false)
+  const [preparationStarting, setPreparationStarting] = useState(false)
   const boundaryStroke = useRef<BoundaryStroke | null>(null)
   const [boundaryPreview, setBoundaryPreview] = useState<BoundaryStroke | null>(null)
 
@@ -287,6 +288,19 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     })
     setLayoutDirty(false); setLayoutSaved(false)
   }
+  async function completePreparation() {
+    if (!onPreparationComplete || preparationStarting) return
+    setPreparationStarting(true)
+    setMessage('맵 준비가 완료되었습니다. 모험을 시작하는 중입니다…')
+    try {
+      await onPreparationComplete()
+      setMessage('모험 시작 요청이 완료되었습니다. 화면을 여는 중입니다…')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '모험을 시작하지 못했습니다.')
+    } finally {
+      setPreparationStarting(false)
+    }
+  }
   const tacticalMap = map.tokens ? (
     <div className="tactical-map-window">
       {!preparationMode && <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>}
@@ -380,7 +394,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}
       {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p><button type="button" disabled={submitting} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting} onClick={() => { setCandidate(null); setSelectedToken(null) }}>취소</button></div>}
       <p role="status">{message}</p>
-      {preparationMode && <button type="button" disabled={layoutSaving || layoutDirty || !gridConfirmed || !layoutSaved} onClick={onPreparationComplete}>맵 준비 완료, 모험 시작</button>}
+      {preparationMode && <button type="button" disabled={preparationStarting || layoutSaving || layoutDirty || !gridConfirmed || !layoutSaved || !onPreparationComplete} aria-busy={preparationStarting} onClick={() => void completePreparation()}>{preparationStarting ? '모험 시작 요청 중…' : '맵 준비 완료, 모험 시작'}</button>}
     </section>
   )
 }

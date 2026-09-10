@@ -11,6 +11,7 @@ import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.combat.CombatMapEntryTransitionPolicy;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
 import com.dndmaster.adventure.application.combat.CombatMapEntryContextResolver;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
@@ -189,16 +190,27 @@ public final class AdventureSessionApplicationService {
         }
         initializeSessionKnowledgeSetIfMissing(session, scenarioPackage);
         Adventure activeAdventure = adventure;
-        scenarioPackage.initialMapDefinition(configuration.initialScene()).ifPresent(mapDefinition -> {
+        var initialMapDefinition = scenarioPackage.initialMapDefinition(configuration.initialScene());
+        initialMapDefinition.ifPresent(mapDefinition -> {
             var context = activationContext(activeAdventure, session);
             // Starting the adventure only prepares the editable draft. The
-            // player's location is resolved from the situation when combat
-            // actually begins, never from the opening scene.
+            // player's location is resolved from the committed map-bearing
+            // situation, never from the opening scene.
             combatMapPreparationPort.prepareDraft(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, context);
         });
         if (prepareMapOnly) return session;
         runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(effectiveAdventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
+        String previousScene = adventure.currentContext() == null ? null : adventure.currentContext().currentScene();
+        var previousSituation = adventure.currentSituation();
         if (runtimeTurnService != null) runtimeTurnService.openSessionTurn(effectiveAdventureId, owner, requestId);
+        if (initialMapDefinition.isPresent()) {
+            Adventure committedAdventure = adventureRepository.findById(effectiveAdventureId).orElse(adventure);
+            boolean enteredMap = CombatMapEntryTransitionPolicy.enteredMap(previousScene, previousSituation, committedAdventure);
+            if (enteredMap || CombatMapEntryTransitionPolicy.isMapBearing(committedAdventure)) {
+                combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
+                        1, activationContext(committedAdventure, session));
+            }
+        }
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();
             repository.save(session, session.version() - 1);

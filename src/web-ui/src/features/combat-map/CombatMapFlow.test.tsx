@@ -328,6 +328,43 @@ it('does not treat a draft saved for an older grid as ready after reload', async
   expect(ready).toBeDisabled()
 })
 
+it('shows start progress while the adventure start request is pending', async () => {
+  const api = fakeApi()
+  api.getCombatMapPreparation = vi.fn().mockResolvedValue({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 2, height: 2 }, tokens: [],
+  })
+  api.getCombatMapPreparationImage = vi.fn().mockResolvedValue('/preparation-map.png')
+  api.getMapGridAlignment = vi.fn()
+    .mockResolvedValueOnce({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+    .mockResolvedValue({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.applyMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.updateCombatMapLayout = vi.fn().mockResolvedValue(undefined)
+  let resolveStart!: () => void
+  const start = vi.fn(() => new Promise<void>(resolve => { resolveStart = resolve }))
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} preparationMode onPreparationComplete={start} />)
+
+  await confirmCrop(user)
+  await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  await user.click(screen.getByRole('button', { name: '벽·문 편집' }))
+  await user.click(screen.getByRole('button', { name: '맵 초안 저장' }))
+
+  const ready = await screen.findByRole('button', { name: '맵 준비 완료, 모험 시작' })
+  await user.click(ready)
+  expect(start).toHaveBeenCalledTimes(1)
+  const pending = screen.getByRole('button', { name: '모험 시작 요청 중…' })
+  expect(pending).toBeDisabled()
+  expect(screen.getByText('맵 준비가 완료되었습니다. 모험을 시작하는 중입니다…')).toBeInTheDocument()
+
+  await user.click(pending)
+  expect(start).toHaveBeenCalledTimes(1)
+  resolveStart()
+  await waitFor(() => expect(screen.getByRole('button', { name: '맵 준비 완료, 모험 시작' })).toBeInTheDocument())
+  expect(screen.getByText('모험 시작 요청이 완료되었습니다. 화면을 여는 중입니다…')).toBeInTheDocument()
+})
+
 it('releases the replaced public image blob URL', async () => {
   const api = fakeApi()
   api.getPublicMapImage = vi.fn().mockResolvedValueOnce('blob:first-map').mockResolvedValueOnce('blob:second-map')
