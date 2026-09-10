@@ -10,7 +10,7 @@ export function TabsList({ className, children }: { className?: string; children
 }
 
 export function TabsTrigger({ value, active, className, children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { value: string; active?: boolean }) {
-  return <button type="button" role="tab" aria-selected={active} className={cn('ui-tabs-trigger', active && 'ui-tabs-trigger-active', className)} {...props}>{children}</button>
+  return <button type="button" role="tab" aria-selected={active} data-value={value} className={cn('ui-tabs-trigger', active && 'ui-tabs-trigger-active', className)} {...props}>{children}</button>
 }
 
 export function TabsContent({ value, active, className, children }: { value: string; active?: boolean; className?: string; children: ReactNode }) {
