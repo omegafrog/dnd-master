@@ -3,7 +3,7 @@ import { Check, LoaderCircle, TriangleAlert } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Progress } from '../../components/ui/progress'
 import { Select } from '../../components/ui/select'
-import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
+import type { AdventureSessionApi, AdventureSessionView } from '../adventure-session/AdventureSessionApi'
 import type { PlayPreparationView, ScenarioBundleView, ScenarioCompilationView, ScenarioPackageView, SetupApi } from './SetupApi'
 
 const runningStatuses = new Set<ScenarioCompilationView['status']>(['REQUESTED', 'QUEUED', 'RUNNING', 'PROCESSING', 'WAITING_RETRY'])
@@ -26,12 +26,14 @@ export function PreparationFlow({
   bundle,
   sessionApi,
   onError,
+  onAdventureCreated,
 }: {
   api: SetupApi
   playerId: string
   bundle: ScenarioBundleView
   sessionApi?: Pick<AdventureSessionApi, 'create'>
   onError: (message: string) => void
+  onAdventureCreated?: (session: AdventureSessionView) => void
 }) {
   const [compilation, setCompilation] = useState<ScenarioCompilationView | null>(null)
   const [scenarioPackage, setScenarioPackage] = useState<ScenarioPackageView | null>(null)
@@ -82,7 +84,7 @@ export function PreparationFlow({
           const packageView = await api.getScenarioPackage!(current.packageId)
           if (!active) return
           setScenarioPackage(packageView)
-          setPartySize(Math.min(Math.max(1, partySize), packageView.characterLimit.maximumCharacters))
+          setPartySize(currentSize => Math.min(Math.max(1, currentSize), packageView.characterLimit.maximumCharacters))
           return
         }
 
@@ -99,8 +101,6 @@ export function PreparationFlow({
 
     void run()
     return () => { active = false }
-    // partySize is intentionally excluded: changing the desired party size must not restart compilation.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, bundle, onError, playerId, retryNonce])
 
   useEffect(() => {
@@ -132,7 +132,8 @@ export function PreparationFlow({
         blueprintRevision: blueprint.revision,
         partySize: Math.min(partySize, scenarioPackage.characterLimit.maximumCharacters),
       })
-      window.location.hash = `#/sessions/${session.sessionId}/party`
+      if (onAdventureCreated) onAdventureCreated(session)
+      else window.location.hash = `#/sessions/${session.sessionId}/party`
     } catch (error) {
       const message = error instanceof Error ? error.message : '모험을 만들지 못했습니다.'
       setFailure(message)
