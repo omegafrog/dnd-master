@@ -218,8 +218,7 @@ public class AdventureController {
             // A prepared draft is activated once, at the committed map entry.
             // Combat is only one possible reason to enter a map; exploration
             // and investigation must use the same authoritative projection.
-            if (combatMapViewPort.playerView(adventureId, owner).isEmpty()
-                    && combatMapViewPort.preparationView(adventureId, owner).isPresent()) {
+            if (combatMapViewPort.preparationView(adventureId, owner).isPresent()) {
                 activatePreparedMap(committedAdventure);
             }
         }
