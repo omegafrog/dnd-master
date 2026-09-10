@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it } from 'vitest'
 import type { SetupApi } from '../rulebooks/SetupApi'
@@ -11,6 +11,24 @@ it('maps the backend adventureId contract to the UI id contract', () => {
   expect(toSavedAdventure({ adventureId: 'adventure-1', name: '고성의 밤', status: 'SAVED', version: 4 })).toEqual({
     id: 'adventure-1', title: '고성의 밤', statusLabel: '진행 중인 모험', resumable: true, updatedAt: '', version: 4,
   })
+})
+
+it('routes an empty adventure entry directly to creation', async () => {
+  window.location.hash = '#/adventures'
+  const api = { async listSaved() { return [] } } as unknown as AdventurePlayApi
+  const setupApi = { listKnowledgeDocuments: async () => [] } as unknown as SetupApi
+  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" />)
+  await waitFor(() => expect(window.location.hash).toBe('#/setup?mode=create'))
+})
+
+it('routes a single adventure entry directly to its workspace', async () => {
+  window.location.hash = '#/adventures'
+  const api = {
+    async listSaved() { return [{ id: 'solo', title: '고성의 밤', statusLabel: '진행 중인 모험' as const, resumable: true, updatedAt: '', version: 1 }] },
+  } as unknown as AdventurePlayApi
+  const setupApi = { listKnowledgeDocuments: async () => [] } as unknown as SetupApi
+  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" />)
+  await waitFor(() => expect(window.location.hash).toBe('#/adventures/solo?tab=materials'))
 })
 
 it('shows user-facing adventure states and only offers resume for resumable adventures', async () => {
@@ -80,7 +98,7 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
   }
   const user = userEvent.setup()
   const resumed: string[] = []
-  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" onResumed={id => resumed.push(id)} />)
+  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" onResumed={id => resumed.push(id)} forceList />)
   expect(await screen.findByText('Old Keep')).toBeInTheDocument()
   expect(screen.queryByText('레거시 시나리오 마이그레이션')).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '자료 설정' }))
