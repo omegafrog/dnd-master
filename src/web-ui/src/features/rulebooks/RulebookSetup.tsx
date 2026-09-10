@@ -1,6 +1,6 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { Eye, FilePlus2, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
-import { MaterialRow, materialRoleLabels, materialStatus } from '../../components/adventure/material-row'
+import { MaterialRow, materialStatus } from '../../components/adventure/material-row'
 import { Button } from '../../components/ui/button'
 import { Checkbox } from '../../components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog'
@@ -286,7 +286,7 @@ export function RulebookSetup({
         <div className={hasMainScenario ? 'setup-check setup-check-ready' : 'setup-check'}><strong>{hasMainScenario ? '✓' : '○'} 메인 시나리오</strong><span>{hasMainScenario ? '지정됨' : '역할 지정 필요'}</span></div>
         <div className={pendingCount === 0 && issueCount === 0 && selectedDocuments.length > 0 ? 'setup-check setup-check-ready' : 'setup-check'}><strong>{pendingCount === 0 && issueCount === 0 ? '✓' : '○'} 자료 상태</strong><span>{pendingCount > 0 ? `${pendingCount}개 준비 중` : issueCount > 0 ? `${issueCount}개 확인 필요` : selectedDocuments.length > 0 ? '모두 준비됨' : '자료 없음'}</span></div>
       </div>
-      <div className="setup-confirm-footer"><div><p>새 모험 생성에 필요한 정보만 확인합니다.</p><small>Bundle, compilation, package 같은 내부 처리 단계는 화면에 노출하지 않습니다.</small></div><Button disabled={!canCreateBundle || creatingBundle} onClick={() => void createBundleAndPrepare()}>{creatingBundle ? '모험 준비 중…' : '모험 만들기'} </Button></div>
+      <div className="setup-confirm-footer"><div><p>새 모험 생성에 필요한 정보만 확인합니다.</p><small>Bundle, compilation, package 같은 내부 처리 단계는 화면에 노출하지 않습니다.</small></div><Button disabled={!canCreateBundle || creatingBundle} onClick={() => void createBundleAndPrepare()}>{creatingBundle ? '모험 준비 중…' : '모험 만들기'}</Button></div>
     </section>
 
     <Dialog open={addOpen} onOpenChange={setAddOpen}><DialogContent className="setup-upload-dialog"><DialogHeader><p className="eyebrow">ADD MATERIALS</p><DialogTitle>자료 추가</DialogTitle><DialogDescription>PDF, 문서, 이미지 파일을 추가하세요. 업로드한 자료는 같은 목록에서 상태와 역할을 관리합니다.</DialogDescription></DialogHeader><form onSubmit={upload} className="setup-upload-form"><label className="setup-dropzone"><Upload size={24} aria-hidden="true" /><strong>파일을 선택하세요</strong><span>PDF, DOCX, TXT, Markdown, 이미지</span><Input name="rulebooks" aria-label="자료 파일" type="file" accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp" multiple onChange={event => { const files = Array.from(event.currentTarget.files ?? []); setDrafts(files.map((file, index) => ({ file, originalFilename: file.name, documentType: 'STORYBOOK', idempotencyKey: createIdempotencyKey(file, index) }))) }} /></label>{drafts.length ? <ul className="setup-draft-list" aria-label="추가할 파일 목록">{drafts.map(draft => <li key={draft.idempotencyKey}>{draft.originalFilename}</li>)}</ul> : null}{results.some(result => result.status === 'VALIDATION_FAILED') ? <p className="setup-upload-warning">일부 파일은 사용할 수 없습니다. 닫은 뒤 상단 안내를 확인하세요.</p> : null}<DialogFooter><Button type="button" variant="ghost" onClick={() => setAddOpen(false)}>취소</Button><Button type="submit" disabled={uploading || drafts.length === 0}>{uploading ? '추가 중…' : '자료 추가'}</Button></DialogFooter></form></DialogContent></Dialog>
@@ -297,6 +297,6 @@ export function RulebookSetup({
   </Container>
 }
 
-function SectionHeading({ number, title, description, id, action }: { number: string; title: string; description: string; id: string; action?: React.ReactNode }) {
+function SectionHeading({ number, title, description, id, action }: { number: string; title: string; description: string; id: string; action?: ReactNode }) {
   return <div className="setup-section-heading"><div className="setup-section-number">{number}</div><div className="setup-section-copy"><h2 id={id}>{title}</h2><p>{description}</p></div>{action ? <div className="setup-section-action">{action}</div> : null}</div>
 }
