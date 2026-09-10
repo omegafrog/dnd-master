@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, BookOpen, CalendarDays, Check, ChevronRight, FileText, MoreHorizontal, Play, Plus, ScrollText, Users } from 'lucide-react'
+import { AlertTriangle, CalendarDays, Check, ChevronRight, FileText, Play, Plus, ScrollText, Users } from 'lucide-react'
+import { MaterialRow, MaterialStatus, materialStatus } from '../../components/adventure/material-row'
 import { Button } from '../../components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog'
 import { Separator } from '../../components/ui/separator'
@@ -45,9 +46,9 @@ export function AdventureWorkspace({ adventureId, activeTab, playApi, setupApi, 
     return () => { active = false }
   }, [adventureId, playApi, playerId, setupApi])
 
-  const reviewDocuments = useMemo(() => documents.filter(document => ['review', 'failed'].includes(documentStatus(document).kind)), [documents])
+  const reviewDocuments = useMemo(() => documents.filter(document => ['review', 'failed'].includes(materialStatus(document).kind)), [documents])
   const title = adventure?.title ?? '이름 없는 모험'
-  const readyCount = documents.filter(document => documentStatus(document).kind === 'ready').length
+  const readyCount = documents.filter(document => materialStatus(document).kind === 'ready').length
   const status = reviewDocuments.length > 0 ? '확인 필요' : documents.length > 0 && readyCount === documents.length ? '준비 완료' : '준비 중'
 
   function changeTab(tab: WorkspaceTab) {
@@ -90,29 +91,18 @@ export function AdventureWorkspace({ adventureId, activeTab, playApi, setupApi, 
 function MaterialsTab({ documents, readyCount, onAdd }: { documents: KnowledgeDocumentView[]; readyCount: number; onAdd: () => void }) {
   return <div className="workspace-tab-panel">
     <div className="tab-panel-heading"><div><p className="eyebrow">모험 자료</p><h2>이번 모험에 들어있는 자료</h2><p>{documents.length}개 자료 중 {readyCount}개 준비됨</p></div><Button variant="outline" onClick={onAdd}><Plus size={15} aria-hidden="true" />자료 추가</Button></div>
-    {documents.length === 0 ? <EmptyState icon={<FileText size={20} />} title="아직 자료가 없습니다" description="자료 설정에서 시나리오, 지도, 핸드아웃을 추가하세요." /> : <ul className="file-list" aria-label="모험 자료 목록">{documents.map(document => <FileRow key={document.knowledgeDocumentId} document={document} />)}</ul>}
+    {documents.length === 0 ? <EmptyState icon={<FileText size={20} />} title="아직 자료가 없습니다" description="자료 설정에서 시나리오, 지도, 핸드아웃을 추가하세요." /> : <ul className="file-list" aria-label="모험 자료 목록">{documents.map(document => <MaterialRow key={document.knowledgeDocumentId} document={document} />)}</ul>}
   </div>
-}
-
-function FileRow({ document }: { document: KnowledgeDocumentView }) {
-  const state = documentStatus(document)
-  return <li className="file-row">
-    <span className="file-row-icon" aria-hidden="true"><DocumentIcon documentType={document.documentType} /></span>
-    <span className="file-row-main"><strong>{document.originalFilename}</strong><small>{document.documentType === 'RULEBOOK' ? '룰북' : '시나리오 자료'} · {document.format}</small></span>
-    <span className={`file-status file-status-${state.kind}`}><StatusIcon status={state.label} />{state.label}</span>
-    <span className="file-row-date">{document.extractionVersion ? `판본 ${document.extractionVersion}` : '최근 추가'}</span>
-    <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 더보기`}><MoreHorizontal size={17} aria-hidden="true" /></Button>
-  </li>
 }
 
 function ReviewTab({ documents }: { documents: KnowledgeDocumentView[] }) {
   const [selected, setSelected] = useState(0)
   if (documents.length === 0) return <div className="workspace-tab-panel"><EmptyState icon={<Check size={20} />} title="확인할 항목이 없습니다" description="현재 자료는 모두 준비된 상태입니다." /></div>
   const document = documents[Math.min(selected, documents.length - 1)]
-  const state = documentStatus(document)
+  const state = materialStatus(document)
   return <div className="review-workspace">
-    <aside className="review-list" aria-label="확인할 항목 목록"><div className="review-list-heading"><p className="eyebrow">검토함</p><h2>확인할 항목 {documents.length}</h2></div><ul>{documents.map((item, index) => <li key={item.knowledgeDocumentId}><button type="button" className={index === selected ? 'review-issue-row review-issue-active' : 'review-issue-row'} onClick={() => setSelected(index)}><span className="review-issue-marker"><AlertTriangle size={14} aria-hidden="true" /></span><span><strong>{item.originalFilename}</strong><small>{stateLabel(documentStatus(item).kind)} · 자료 준비 상태</small></span></button></li>)}</ul></aside>
-    <article className="review-detail"><p className="eyebrow">확인할 내용</p><h2>{document.originalFilename}</h2><p className="review-detail-lead">이 자료를 세션에서 사용하려면 현재 상태를 확인해야 합니다.</p><Separator /><dl className="review-evidence"><div><dt>현재 상태</dt><dd><span className={`file-status file-status-${state.kind}`}><StatusIcon status={state.label} />{state.label}</span></dd></div><div><dt>자료 종류</dt><dd>{document.documentType === 'RULEBOOK' ? '룰북' : '시나리오 자료'}</dd></div><div><dt>파일 형식</dt><dd>{document.format}</dd></div></dl>{document.failureReason && <p className="review-warning"><AlertTriangle size={15} aria-hidden="true" />{document.failureReason}</p>}<div className="review-actions"><Button variant="outline" onClick={() => window.location.hash = '#/setup?mode=create'}>자료 구성에서 확인</Button></div></article>
+    <aside className="review-list" aria-label="확인할 항목 목록"><div className="review-list-heading"><p className="eyebrow">검토함</p><h2>확인할 항목 {documents.length}</h2></div><ul>{documents.map((item, index) => <li key={item.knowledgeDocumentId}><button type="button" className={index === selected ? 'review-issue-row review-issue-active' : 'review-issue-row'} onClick={() => setSelected(index)}><span className="review-issue-marker"><AlertTriangle size={14} aria-hidden="true" /></span><span><strong>{item.originalFilename}</strong><small>{materialStatus(item).label} · 자료 준비 상태</small></span></button></li>)}</ul></aside>
+    <article className="review-detail"><p className="eyebrow">확인할 내용</p><h2>{document.originalFilename}</h2><p className="review-detail-lead">이 자료를 세션에서 사용하려면 현재 상태를 확인해야 합니다.</p><Separator /><dl className="review-evidence"><div><dt>현재 상태</dt><dd><MaterialStatus document={document} /></dd></div><div><dt>자료 종류</dt><dd>{document.documentType === 'RULEBOOK' ? '룰북' : '시나리오 자료'}</dd></div><div><dt>파일 형식</dt><dd>{document.format}</dd></div></dl>{document.failureReason && <p className="review-warning"><AlertTriangle size={15} aria-hidden="true" />{document.failureReason}</p>}<div className="review-actions"><Button variant="outline" onClick={() => window.location.hash = '#/setup?mode=create'}>자료 구성에서 확인</Button></div></article>
   </div>
 }
 
@@ -132,23 +122,8 @@ function EmptyState({ icon, title, description }: { icon: React.ReactNode; title
   return <div className="workspace-empty"><span className="workspace-empty-icon" aria-hidden="true">{icon}</span><h3>{title}</h3><p>{description}</p></div>
 }
 
-function DocumentIcon({ documentType }: { documentType: KnowledgeDocumentView['documentType'] }) {
-  return documentType === 'RULEBOOK' ? <BookOpen size={18} /> : documentType === 'STORYBOOK' ? <ScrollText size={18} /> : <FileText size={18} />
-}
-
 function StatusIcon({ status }: { status: string }) {
   if (status === '준비 완료' || status === '준비됨' || status === '사용 가능') return <Check size={14} aria-hidden="true" />
   if (status === '확인 필요' || status === '사용 불가') return <AlertTriangle size={14} aria-hidden="true" />
   return <span className="status-dot" aria-hidden="true" />
-}
-
-function documentStatus(document: KnowledgeDocumentView): { kind: 'ready' | 'processing' | 'review' | 'failed'; label: string } {
-  if (['INDEXED', 'EXTRACTED', 'READY', 'PARTIAL_CONFIRMED'].includes(document.status)) return { kind: 'ready', label: '준비됨' }
-  if (['FAILED', 'REJECTED'].includes(document.status)) return { kind: 'failed', label: '사용 불가' }
-  if (['NEEDS_REVIEW', 'NEEDS_INPUT'].includes(document.status)) return { kind: 'review', label: '확인 필요' }
-  return { kind: 'processing', label: '준비 중' }
-}
-
-function stateLabel(kind: ReturnType<typeof documentStatus>['kind']) {
-  return kind === 'ready' ? '준비됨' : kind === 'review' ? '확인 필요' : kind === 'failed' ? '사용 불가' : '준비 중'
 }
