@@ -5,15 +5,17 @@ test('solo player can upload and inspect storybook materials', async ({ page }) 
   await page.getByLabel('이메일').fill('player@example.com')
   await page.getByLabel('비밀번호').fill('secret-password')
   await page.getByRole('button', { name: '로그인', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '새 모험 준비' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '새로운 모험을 시작하세요' })).toBeVisible()
 
-  await page.getByRole('button', { name: '자료 추가' }).click()
-  const addDialog = page.getByRole('dialog')
-  await addDialog.getByLabel('자료 파일').setInputFiles([
+  await page.getByRole('button', { name: '시작하기' }).click()
+  await page.getByLabel('모험 이름').fill('테스트 모험')
+  await page.getByRole('button', { name: '다음 단계' }).click()
+  await expect(page.getByRole('heading', { name: '모험 자료를 추가하세요' })).toBeVisible()
+  await page.getByLabel('자료 파일').setInputFiles([
     { name: 'rules.txt', mimeType: 'text/plain', buffer: Buffer.from('Dexterity rules') },
     { name: 'story.txt', mimeType: 'text/plain', buffer: Buffer.from('A campaign journal') },
   ])
-  await addDialog.getByRole('button', { name: '자료 추가' }).click()
+  await page.getByRole('button', { name: '자료 추가' }).click()
   await expect(page.getByRole('list', { name: '문서 상태 목록' }).getByText('rules.txt', { exact: true })).toBeVisible()
   await expect(page.getByRole('list', { name: '문서 상태 목록' }).getByText('story.txt', { exact: true })).toBeVisible()
 })
@@ -44,23 +46,24 @@ test.skip('document-derived scenario preserves bundle and exposes character blue
     await page.getByLabel('이메일').fill('player@example.com')
     await page.getByLabel('비밀번호').fill('secret-password')
     await page.getByRole('button', { name: '로그인', exact: true }).click()
+    await page.getByRole('button', { name: '시작하기' }).click()
+    await page.getByLabel('모험 이름').fill('문서 기반 모험')
+    await page.getByRole('button', { name: '다음 단계' }).click()
 
-    await page.getByRole('button', { name: '자료 추가' }).click()
-    const addDialog = page.getByRole('dialog')
-    await addDialog.getByLabel('자료 파일').setInputFiles([
+    await page.getByLabel('자료 파일').setInputFiles([
       { name: 'rules-2014.txt', mimeType: 'text/plain', buffer: Buffer.from('DND 4판 strength tag') },
       { name: 'rules-2024.txt', mimeType: 'text/plain', buffer: Buffer.from('DND 5판 strength tag') },
       { name: 'storybook.txt', mimeType: 'text/plain', buffer: Buffer.from('Storybook elf option priority') },
       { name: 'printer.txt', mimeType: 'text/plain', buffer: Buffer.from('Printer-only material') },
       { name: 'map.txt', mimeType: 'text/plain', buffer: Buffer.from('Map room layout') },
     ])
-    await addDialog.getByRole('button', { name: '자료 추가' }).click()
+    await page.getByRole('button', { name: '자료 추가' }).click()
 
     await expect(page.getByLabel('map.txt 역할')).toBeVisible()
     await page.getByLabel('map.txt 역할').selectOption('MAP')
     await page.getByRole('checkbox', { name: 'printer.txt 모험 자료 선택' }).click()
-    await page.getByRole('button', { name: '모험 만들기' }).click()
-    await expect(page.getByRole('heading', { name: '모험 준비' })).toBeVisible()
+    await page.getByRole('button', { name: '모험 준비' }).click()
+    await expect(page.getByRole('heading', { name: '모험을 준비하고 있습니다' })).toBeVisible()
     await test.info().attach('026-4-bundle.json', {
       body: Buffer.from(await page.evaluate(() => JSON.stringify((window as unknown as { __dndMasterE2E: unknown }).__dndMasterE2E))),
       contentType: 'application/json',
