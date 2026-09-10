@@ -19,7 +19,7 @@ export const materialRoleLabels: Record<ScenarioBundleRole, string> = {
 }
 
 export function materialStatus(document: KnowledgeDocumentView): { kind: MaterialStatusKind; label: string } {
-  if (['INDEXED', 'EXTRACTED', 'READY', 'PARTIAL_CONFIRMED'].includes(document.status)) return { kind: 'ready', label: '준비됨' }
+  if (['INDEXED', 'READY', 'PARTIAL_CONFIRMED'].includes(document.status)) return { kind: 'ready', label: '준비됨' }
   if (['FAILED', 'REJECTED'].includes(document.status)) return { kind: 'failed', label: '사용 불가' }
   if (['NEEDS_REVIEW', 'NEEDS_INPUT', 'PARTIAL_AWAITING_CONFIRMATION'].includes(document.status)) return { kind: 'review', label: '확인 필요' }
   return { kind: 'processing', label: '준비 중' }
