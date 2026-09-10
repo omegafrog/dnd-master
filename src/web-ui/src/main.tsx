@@ -5,6 +5,7 @@ import { HttpIdentityApi } from './features/auth/IdentityApi'
 import '@fontsource-variable/noto-sans-kr/wght.css'
 import './app.css'
 import './ui-rework.css'
+import './setup-rework.css'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('root element is required')
