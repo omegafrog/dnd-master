@@ -15,12 +15,11 @@ describe('AppShell preparation routes', () => {
     expect(parseRoute('#/adventures/adventure-1?tab=review')).toEqual({ page: 'adventure-workspace', adventureId: 'adventure-1', tab: 'review' })
   })
 
-  it('keeps the existing adventure play route compatible when no preparation tab is selected', () => {
-    expect(parseRoute('#/adventures/adventure-1')).toEqual({ page: 'adventure', adventureId: 'adventure-1' })
+  it('opens the adventure workspace when no preparation tab is selected', () => {
+    expect(parseRoute('#/adventures/adventure-1')).toEqual({ page: 'adventure-workspace', adventureId: 'adventure-1', tab: 'materials' })
   })
 
   it('routes an explicitly started session to the play screen', () => {
     expect(parseRoute('#/sessions/session-1?mode=play')).toEqual({ page: 'session-runtime', sessionId: 'session-1' })
   })
-
 })
