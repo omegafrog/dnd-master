@@ -1,12 +1,13 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
-import { Eye, FilePlus2, Plus, RefreshCw, Trash2, Upload } from 'lucide-react'
+import { BookOpen, Check, ChevronLeft, Eye, FilePlus2, RefreshCw, ScrollText, Trash2, Upload } from 'lucide-react'
 import { MaterialRow, materialStatus } from '../../components/adventure/material-row'
+import { SetupStepper, type SetupStep } from '../../components/setup/setup-stepper'
 import { Button } from '../../components/ui/button'
-import { Checkbox } from '../../components/ui/checkbox'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog'
 import { Input } from '../../components/ui/input'
+import { Select } from '../../components/ui/select'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '../../components/ui/sheet'
-import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
+import { Textarea } from '../../components/ui/textarea'
+import type { AdventureSessionApi, AdventureSessionView } from '../adventure-session/AdventureSessionApi'
 import { PreparationFlow } from './PreparationFlow'
 import type {
   BatchRulebookView,
@@ -20,6 +21,7 @@ import type {
 
 type PendingDocument = RulebookUploadDraft & { originalFilename: string }
 type CatalogRulebook = { catalogRevisionId: string; edition: string; displayName: string; rulebookId: string | null; revisionNumber: number; status: string }
+type SetupView = 'intro' | 'details' | 'materials' | 'preparing' | 'complete'
 
 const bundleReadyStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'READY', 'PARTIAL_CONFIRMED'])
 
@@ -28,12 +30,14 @@ function createIdempotencyKey(file: File, index: number) {
   return `${file.name}-${index}-${random}`
 }
 
-function filenameTitle(filename: string) {
-  return filename.replace(/\.[^.]+$/, '').trim() || '새 모험'
-}
-
 function rulebookEdition(value: string | undefined): 'DND_5E_2014' | 'DND_5E_2024' | null {
   return value === 'DND_5E_2014' || value === 'DND_5E_2024' ? value : null
+}
+
+function stepForView(view: SetupView): SetupStep {
+  if (view === 'complete') return 'complete'
+  if (view === 'materials' || view === 'preparing') return 'materials'
+  return 'details'
 }
 
 export function RulebookSetup({
@@ -47,6 +51,10 @@ export function RulebookSetup({
   asMain?: boolean
   sessionApi?: Pick<AdventureSessionApi, 'create' | 'listByScenarioPackage'>
 }) {
+  const [view, setView] = useState<SetupView>('intro')
+  const [adventureName, setAdventureName] = useState('')
+  const [subtitle, setSubtitle] = useState('')
+  const [description, setDescription] = useState('')
   const [drafts, setDrafts] = useState<PendingDocument[]>([])
   const [results, setResults] = useState<BatchRulebookView[]>([])
   const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
@@ -58,8 +66,8 @@ export function RulebookSetup({
   const [message, setMessage] = useState('')
   const [uploading, setUploading] = useState(false)
   const [creatingBundle, setCreatingBundle] = useState(false)
-  const [addOpen, setAddOpen] = useState(false)
   const [preparationBundle, setPreparationBundle] = useState<ScenarioBundleView | null>(null)
+  const [createdSession, setCreatedSession] = useState<AdventureSessionView | null>(null)
 
   const refreshDocuments = useCallback(async (): Promise<KnowledgeDocumentView[] | null> => {
     try {
@@ -100,9 +108,14 @@ export function RulebookSetup({
 
   const uploadedDocuments = useMemo(() => documents.filter(document => document.documentType === 'STORYBOOK'), [documents])
   const selectedDocuments = useMemo(() => uploadedDocuments.filter(document => selectedUploadedIds.has(document.knowledgeDocumentId)), [selectedUploadedIds, uploadedDocuments])
+  const selectedRulebook = catalogRulebooks.find(item => item.rulebookId === selectedCatalogRulebookId)
+  const selectedEdition = rulebookEdition(selectedRulebook?.edition)
   const readySelectedCount = selectedDocuments.filter(document => bundleReadyStatuses.has(document.status)).length
   const hasMainScenario = selectedDocuments.some(document => roles[document.knowledgeDocumentId] === 'MAIN_SCENARIO')
-  const canCreateBundle = Boolean(selectedCatalogRulebookId && selectedDocuments.length > 0 && readySelectedCount === selectedDocuments.length && hasMainScenario)
+  const pendingCount = selectedDocuments.filter(document => materialStatus(document).kind === 'processing').length
+  const issueCount = selectedDocuments.filter(document => ['review', 'failed'].includes(materialStatus(document).kind)).length
+  const canContinueDetails = Boolean(adventureName.trim() && selectedCatalogRulebookId && selectedEdition)
+  const canCreateBundle = Boolean(canContinueDetails && selectedDocuments.length > 0 && readySelectedCount === selectedDocuments.length && hasMainScenario)
 
   function assignDefaultRole(documentId: string, selected: boolean) {
     setSelectedUploadedIds(current => {
@@ -155,7 +168,6 @@ export function RulebookSetup({
       await refreshDocuments()
       if (failures.length) setMessage(failures.map(item => `${item.originalFilename}: ${item.failureReason || '파일을 사용할 수 없습니다.'}`).join(' · '))
       setDrafts([])
-      setAddOpen(false)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '자료를 업로드하지 못했습니다.')
     } finally {
@@ -203,10 +215,7 @@ export function RulebookSetup({
   }
 
   async function createBundleAndPrepare() {
-    if (!canCreateBundle || !selectedCatalogRulebookId) return
-    const selectedRulebook = catalogRulebooks.find(item => item.rulebookId === selectedCatalogRulebookId)
-    const primary = selectedDocuments.find(document => roles[document.knowledgeDocumentId] === 'MAIN_SCENARIO') ?? selectedDocuments[0]
-    const edition = rulebookEdition(selectedRulebook?.edition)
+    if (!canCreateBundle || !selectedCatalogRulebookId || !selectedEdition) return
     const bundleDocuments = [
       ...selectedDocuments.map(document => ({ knowledgeDocumentId: document.knowledgeDocumentId, role: roles[document.knowledgeDocumentId] ?? 'HANDOUT' as ScenarioBundleRole })),
       { knowledgeDocumentId: selectedCatalogRulebookId, role: 'RULEBOOK' as ScenarioBundleRole },
@@ -214,14 +223,11 @@ export function RulebookSetup({
     setCreatingBundle(true)
     setMessage('')
     try {
-      const bundle = await api.createScenarioBundle(
-        playerId,
-        bundleDocuments,
-        edition ? { name: filenameTitle(primary.originalFilename), rulebookEdition: edition } : undefined,
-      )
+      const bundle = await api.createScenarioBundle(playerId, bundleDocuments, { name: adventureName.trim(), rulebookEdition: selectedEdition })
       window.localStorage.setItem('dnd-selected-bundle-id', bundle.bundleId)
       window.dispatchEvent(new Event('dnd-selected-bundle-change'))
       setPreparationBundle(bundle)
+      setView('preparing')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '모험 자료를 저장하지 못했습니다.')
     } finally {
@@ -229,74 +235,110 @@ export function RulebookSetup({
     }
   }
 
+  function resetWizard() {
+    setView('intro')
+    setAdventureName('')
+    setSubtitle('')
+    setDescription('')
+    setDrafts([])
+    setResults([])
+    setSelectedUploadedIds(new Set())
+    setRoles({})
+    setPreparationBundle(null)
+    setCreatedSession(null)
+    setMessage('')
+  }
+
   const Container = asMain ? 'main' : 'section'
-  const pendingCount = selectedDocuments.filter(document => materialStatus(document).kind === 'processing').length
-  const issueCount = selectedDocuments.filter(document => ['review', 'failed'].includes(materialStatus(document).kind)).length
+  const commonPreview = <Sheet open={Boolean(sourcePreview)} onOpenChange={open => { if (!open) setSourcePreview(null) }}><SheetContent className="setup-preview-sheet"><SheetHeader><p className="eyebrow">SOURCE PREVIEW</p><SheetTitle>{sourcePreview?.originalFilename ?? '자료 미리보기'}</SheetTitle></SheetHeader>{sourcePreview ? <div className="setup-preview-content"><p className="setup-preview-meta">{sourcePreview.format} · 원문 미리보기</p>{sourcePreview.warnings.length ? <p className="setup-preview-warning">{sourcePreview.warnings.join(', ')}</p> : null}<ol aria-label="원문 줄 미리보기">{sourcePreview.spans.map(span => <li key={`${span.lineNumber}-${span.startInclusive}-${span.endExclusive}`}><small>{span.path.join(' › ')}{span.pageNumber ? ` · p.${span.pageNumber}` : ''}</small><pre>{span.text || ' '}</pre></li>)}</ol></div> : null}</SheetContent></Sheet>
 
-  return <Container className="setup-page new-adventure-setup" aria-labelledby="new-adventure-title">
-    <div className="workspace-breadcrumb setup-breadcrumb"><a href="#/adventures">← 내 모험</a></div>
-    <header className="setup-document-header">
+  if (view === 'intro') return <Container className="setup-page setup-wizard setup-wizard-intro" aria-labelledby="setup-intro-title">
+    <a className="setup-back-link" href="#/adventures">← 내 모험</a>
+    <div className="setup-intro-body">
+      <span className="setup-intro-mark" aria-hidden="true">◇</span>
       <p className="eyebrow">NEW ADVENTURE</p>
-      <h1 id="new-adventure-title">새 모험 준비</h1>
-      <p>플레이에 사용할 룰북과 모험 자료를 한 장의 준비 시트에서 정리합니다.</p>
-    </header>
-    {message ? <p className="workspace-inline-notice setup-notice" role="status" aria-live="polite">{message}</p> : null}
+      <h1 id="setup-intro-title">새로운 모험을 시작하세요</h1>
+      <p className="setup-intro-lead">이야기의 기본 정보를 적고 자료를 더하면, 플레이할 수 있는 모험 공간을 준비합니다.</p>
+      <div className="setup-intro-features" aria-label="새 모험 만들기 안내">
+        <Feature icon={<BookOpen size={20} />} title="기본 정보" description="모험 이름과 사용할 룰북을 정합니다." />
+        <Feature icon={<FilePlus2 size={20} />} title="자료 추가" description="시나리오, 지도와 핸드아웃을 한곳에 모읍니다." />
+        <Feature icon={<Check size={20} />} title="준비 완료" description="필요한 처리가 끝나면 모험 공간으로 이동합니다." />
+      </div>
+      <Button className="setup-intro-primary" onClick={() => setView('details')}>시작하기</Button>
+    </div>
+  </Container>
 
-    <section className="setup-document-section" aria-labelledby="setup-rulebook-heading">
-      <SectionHeading number="01" title="룰북" description="이 모험에서 사용할 규칙 기준을 선택하세요." id="setup-rulebook-heading" />
-      {catalogRulebooks.length === 0 ? <div className="setup-inline-empty"><p>현재 선택할 수 있는 룰북이 없습니다.</p><small>관리자가 룰북을 준비하면 이곳에 표시됩니다.</small></div> : <ul className="setup-rulebook-list" aria-label="룰북 목록">{catalogRulebooks.map(rulebook => {
-        const selected = selectedCatalogRulebookId === rulebook.rulebookId
-        return <li key={rulebook.catalogRevisionId} className={selected ? 'setup-rulebook-row setup-rulebook-row-selected' : 'setup-rulebook-row'}>
-          <label>
-            <Checkbox aria-label={`${rulebook.displayName} 선택`} checked={selected} onCheckedChange={() => setSelectedCatalogRulebookId(rulebook.rulebookId)} />
-            <span><strong>{rulebook.displayName}</strong><small>{rulebook.edition === 'DND_5E_2024' ? 'D&D 5.5판' : rulebook.edition === 'DND_5E_2014' ? 'D&D 5판' : rulebook.edition} · revision {rulebook.revisionNumber}</small></span>
-          </label>
-          {selected ? <span className="setup-rulebook-selected">✓ 선택됨</span> : null}
-        </li>
-      })}</ul>}
-    </section>
+  if (view === 'complete') return <Container className="setup-page setup-wizard setup-wizard-complete" aria-labelledby="setup-complete-title">
+    <SetupStepper step="complete" />
+    <div className="setup-complete-body">
+      <span className="setup-complete-mark" aria-hidden="true"><Check size={28} /></span>
+      <p className="eyebrow">ADVENTURE READY</p>
+      <h1 id="setup-complete-title">모험 준비가 완료되었습니다</h1>
+      <p>{adventureName}의 준비가 끝났습니다. 이제 캐릭터와 세션을 이어서 구성할 수 있습니다.</p>
+      <dl className="setup-complete-summary">
+        <div><dt>모험</dt><dd>{adventureName}</dd></div>
+        {subtitle ? <div><dt>부제</dt><dd>{subtitle}</dd></div> : null}
+        <div><dt>룰북</dt><dd>{selectedRulebook?.displayName ?? '선택한 룰북'}</dd></div>
+        <div><dt>자료</dt><dd>{selectedDocuments.length}개</dd></div>
+      </dl>
+      <div className="setup-complete-actions">
+        <Button variant="outline" onClick={resetWizard}>다른 모험 만들기</Button>
+        <Button onClick={() => {
+          if (createdSession?.adventureId) window.location.hash = `#/adventures/${encodeURIComponent(createdSession.adventureId)}?tab=materials`
+          else if (createdSession) window.location.hash = `#/sessions/${createdSession.sessionId}/party`
+          else window.location.hash = '#/adventures'
+        }}>모험 공간으로 이동</Button>
+      </div>
+    </div>
+  </Container>
 
-    <section className="setup-document-section" aria-labelledby="setup-material-heading">
-      <SectionHeading number="02" title="모험 자료" description="시나리오, 지도, 핸드아웃과 캐릭터 자료를 추가하고 역할을 지정하세요." id="setup-material-heading" action={<Button variant="outline" onClick={() => setAddOpen(true)}><Plus size={15} aria-hidden="true" />자료 추가</Button>} />
-      {uploadedDocuments.length === 0 ? <button type="button" className="setup-material-empty" onClick={() => setAddOpen(true)}><FilePlus2 size={24} aria-hidden="true" /><strong>아직 추가된 모험 자료가 없습니다</strong><span>시나리오나 지도를 추가해 모험을 준비하세요.</span></button> : <ul className="file-list setup-material-list" aria-label="문서 상태 목록">{uploadedDocuments.map(document => {
+  return <Container className="setup-page setup-wizard" aria-labelledby="setup-wizard-title">
+    <a className="setup-back-link" href="#/adventures">← 내 모험</a>
+    <SetupStepper step={stepForView(view)} />
+    {message ? <p className="workspace-inline-notice setup-notice" role="status" aria-live="polite">{message}</p> : <span className="setup-status-anchor" role="status" aria-live="polite" />}
+
+    {view === 'details' ? <section className="setup-wizard-stage" aria-labelledby="setup-wizard-title">
+      <header className="setup-stage-header"><p className="eyebrow">STEP 01</p><h1 id="setup-wizard-title">모험의 기본 정보를 입력하세요</h1><p>플레이 중 계속 보게 될 이름과 규칙 기준을 먼저 정합니다.</p></header>
+      <div className="setup-details-grid">
+        <div className="setup-fields">
+          <label className="setup-field"><span>모험 이름 <strong aria-hidden="true">*</strong></span><Input aria-label="모험 이름" value={adventureName} onChange={event => setAdventureName(event.currentTarget.value)} placeholder="예: 폭풍왕의 천둥" autoFocus /></label>
+          <label className="setup-field"><span>부제 <small>선택</small></span><Input aria-label="부제" value={subtitle} onChange={event => setSubtitle(event.currentTarget.value)} placeholder="예: Storm King's Thunder" /></label>
+          <label className="setup-field"><span>설명 <small>선택</small></span><Textarea aria-label="설명" value={description} onChange={event => setDescription(event.currentTarget.value)} placeholder="이 모험을 기억하기 위한 짧은 설명을 적어두세요." /></label>
+          <div className="setup-field"><span>룰북 <strong aria-hidden="true">*</strong></span>{catalogRulebooks.length === 0 ? <div className="setup-inline-empty"><strong>사용 가능한 룰북이 없습니다</strong><small>룰북이 준비되면 다음 단계로 진행할 수 있습니다.</small></div> : catalogRulebooks.length === 1 ? <div className="setup-fixed-rulebook"><BookOpen size={18} aria-hidden="true" /><span><strong>{catalogRulebooks[0].displayName}</strong><small>{catalogRulebooks[0].edition === 'DND_5E_2024' ? 'D&D 5.5판' : 'D&D 5판'} · revision {catalogRulebooks[0].revisionNumber}</small></span><Check size={16} aria-hidden="true" /></div> : <Select aria-label="룰북" value={selectedCatalogRulebookId ?? ''} onChange={event => setSelectedCatalogRulebookId(event.currentTarget.value || null)}><option value="">룰북을 선택하세요</option>{catalogRulebooks.map(rulebook => <option key={rulebook.catalogRevisionId} value={rulebook.rulebookId ?? ''}>{rulebook.displayName}</option>)}</Select>}</div>
+        </div>
+        <aside className="setup-note-panel"><ScrollText size={20} aria-hidden="true" /><p className="eyebrow">GM NOTE</p><h2>이름은 언제든 다듬을 수 있어요</h2><p>지금은 모험을 구분할 수 있을 정도면 충분합니다. 실제 플레이에 필요한 구조화와 준비 작업은 자료를 추가한 뒤 자동으로 진행됩니다.</p></aside>
+      </div>
+      <StageFooter backLabel="처음으로" onBack={() => setView('intro')} nextLabel="다음 단계" onNext={() => setView('materials')} nextDisabled={!canContinueDetails} />
+    </section> : null}
+
+    {view === 'materials' ? <section className="setup-wizard-stage" aria-labelledby="setup-wizard-title">
+      <header className="setup-stage-header"><p className="eyebrow">STEP 02</p><h1 id="setup-wizard-title">모험 자료를 추가하세요</h1><p>시나리오, 지도, 핸드아웃과 캐릭터 자료를 추가하고 각각의 주 역할을 지정합니다.</p></header>
+      <div className="setup-materials-grid">
+        <form className="setup-inline-upload" onSubmit={upload}>
+          <label className="setup-dropzone"><Upload size={26} aria-hidden="true" /><strong>파일을 선택하거나 끌어오세요</strong><span>PDF, DOCX, TXT, Markdown, 이미지</span><Input name="rulebooks" aria-label="자료 파일" type="file" accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp" multiple onChange={event => { const files = Array.from(event.currentTarget.files ?? []); setDrafts(files.map((file, index) => ({ file, originalFilename: file.name, documentType: 'STORYBOOK', idempotencyKey: createIdempotencyKey(file, index) }))) }} /></label>
+          {drafts.length ? <div className="setup-upload-selection"><span>{drafts.length}개 파일 선택됨</span><Button type="submit" disabled={uploading}>{uploading ? '추가 중…' : '자료 추가'}</Button></div> : null}
+          {results.some(result => result.status === 'VALIDATION_FAILED') ? <small className="setup-upload-warning">일부 파일은 추가하지 못했습니다. 상단 안내를 확인하세요.</small> : null}
+        </form>
+        <aside className="setup-role-guide"><p className="eyebrow">자료 역할</p><h2>가장 중요한 역할을 지정하세요</h2><p>한 파일에 여러 성격의 내용이 있어도 현재 모험에서는 주 역할 하나를 기준으로 정리합니다.</p><dl><div><dt>메인 시나리오</dt><dd>진행의 중심이 되는 이야기 자료</dd></div><div><dt>지도</dt><dd>장소와 전투 공간을 설명하는 자료</dd></div><div><dt>핸드아웃</dt><dd>플레이 중 참고하거나 보여줄 자료</dd></div></dl></aside>
+      </div>
+      {uploadedDocuments.length > 0 ? <div className="setup-material-list-section"><div className="setup-material-list-heading"><div><h2>추가된 자료</h2><p>이 모험에 사용할 자료를 선택하고 주 역할을 확인하세요.</p></div><span>{selectedDocuments.length}개 선택</span></div><ul className="file-list setup-material-list" aria-label="문서 상태 목록">{uploadedDocuments.map(document => {
         const selected = selectedUploadedIds.has(document.knowledgeDocumentId)
         const previewable = ['EXTRACTED', 'INDEXED', 'READY', 'PARTIAL_CONFIRMED'].includes(document.status)
-        return <MaterialRow
-          key={document.knowledgeDocumentId}
-          document={document}
-          selected={selected}
-          selectable={materialStatus(document).kind !== 'failed'}
-          onSelectedChange={checked => assignDefaultRole(document.knowledgeDocumentId, checked)}
-          role={selected ? roles[document.knowledgeDocumentId] ?? 'HANDOUT' : undefined}
-          onRoleChange={selected ? role => updateRole(document.knowledgeDocumentId, role) : undefined}
-          actions={<>
-            {previewable ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 미리보기`} onClick={() => void previewDocument(document.knowledgeDocumentId)}><Eye size={16} aria-hidden="true" /></Button> : null}
-            {document.status === 'FAILED' ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 다시 처리`} onClick={() => void retryDocument(document.knowledgeDocumentId)}><RefreshCw size={16} aria-hidden="true" /></Button> : null}
-            {api.deleteKnowledgeDocument ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 삭제`} onClick={() => void deleteDocument(document)}><Trash2 size={16} aria-hidden="true" /></Button> : null}
-          </>}
-        />
-      })}</ul>}
-    </section>
+        return <MaterialRow key={document.knowledgeDocumentId} document={document} selected={selected} selectable={materialStatus(document).kind !== 'failed'} onSelectedChange={checked => assignDefaultRole(document.knowledgeDocumentId, checked)} role={selected ? roles[document.knowledgeDocumentId] ?? 'HANDOUT' : undefined} onRoleChange={selected ? role => updateRole(document.knowledgeDocumentId, role) : undefined} actions={<>{previewable ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 미리보기`} onClick={() => void previewDocument(document.knowledgeDocumentId)}><Eye size={16} aria-hidden="true" /></Button> : null}{document.status === 'FAILED' ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 다시 처리`} onClick={() => void retryDocument(document.knowledgeDocumentId)}><RefreshCw size={16} aria-hidden="true" /></Button> : null}{api.deleteKnowledgeDocument ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 삭제`} onClick={() => void deleteDocument(document)}><Trash2 size={16} aria-hidden="true" /></Button> : null}</>} />
+      })}</ul></div> : <div className="setup-material-empty"><FilePlus2 size={22} aria-hidden="true" /><strong>아직 추가된 자료가 없습니다</strong><span>위 영역에서 첫 번째 시나리오 자료를 추가하세요.</span></div>}
+      <div className="setup-readiness-line" aria-live="polite"><span>{hasMainScenario ? '✓ 메인 시나리오 지정됨' : '○ 메인 시나리오를 지정하세요'}</span><span>{pendingCount > 0 ? `○ ${pendingCount}개 준비 중` : issueCount > 0 ? `△ ${issueCount}개 확인 필요` : selectedDocuments.length > 0 ? '✓ 선택한 자료 준비됨' : '○ 자료를 선택하세요'}</span></div>
+      <StageFooter backLabel="이전" onBack={() => setView('details')} nextLabel={creatingBundle ? '준비 중…' : '모험 준비'} onNext={() => void createBundleAndPrepare()} nextDisabled={!canCreateBundle || creatingBundle} />
+    </section> : null}
 
-    <section className="setup-document-section setup-confirm-section" aria-labelledby="setup-confirm-heading">
-      <SectionHeading number="03" title="준비 확인" description="필수 항목이 준비되면 내부 처리 과정은 자동으로 진행됩니다." id="setup-confirm-heading" />
-      <div className="setup-confirm-grid">
-        <div className={selectedCatalogRulebookId ? 'setup-check setup-check-ready' : 'setup-check'}><strong>{selectedCatalogRulebookId ? '✓' : '○'} 룰북</strong><span>{selectedCatalogRulebookId ? '선택됨' : '선택 필요'}</span></div>
-        <div className={selectedDocuments.length > 0 ? 'setup-check setup-check-ready' : 'setup-check'}><strong>{selectedDocuments.length > 0 ? '✓' : '○'} 모험 자료</strong><span>{selectedDocuments.length}개 선택</span></div>
-        <div className={hasMainScenario ? 'setup-check setup-check-ready' : 'setup-check'}><strong>{hasMainScenario ? '✓' : '○'} 메인 시나리오</strong><span>{hasMainScenario ? '지정됨' : '역할 지정 필요'}</span></div>
-        <div className={pendingCount === 0 && issueCount === 0 && selectedDocuments.length > 0 ? 'setup-check setup-check-ready' : 'setup-check'}><strong>{pendingCount === 0 && issueCount === 0 ? '✓' : '○'} 자료 상태</strong><span>{pendingCount > 0 ? `${pendingCount}개 준비 중` : issueCount > 0 ? `${issueCount}개 확인 필요` : selectedDocuments.length > 0 ? '모두 준비됨' : '자료 없음'}</span></div>
-      </div>
-      <div className="setup-confirm-footer"><div><p>새 모험 생성에 필요한 정보만 확인합니다.</p><small>Bundle, compilation, package 같은 내부 처리 단계는 화면에 노출하지 않습니다.</small></div><Button disabled={!canCreateBundle || creatingBundle} onClick={() => void createBundleAndPrepare()}>{creatingBundle ? '모험 준비 중…' : '모험 만들기'}</Button></div>
-    </section>
-
-    <Dialog open={addOpen} onOpenChange={setAddOpen}><DialogContent className="setup-upload-dialog"><DialogHeader><p className="eyebrow">ADD MATERIALS</p><DialogTitle>자료 추가</DialogTitle><DialogDescription>PDF, 문서, 이미지 파일을 추가하세요. 업로드한 자료는 같은 목록에서 상태와 역할을 관리합니다.</DialogDescription></DialogHeader><form onSubmit={upload} className="setup-upload-form"><label className="setup-dropzone"><Upload size={24} aria-hidden="true" /><strong>파일을 선택하세요</strong><span>PDF, DOCX, TXT, Markdown, 이미지</span><Input name="rulebooks" aria-label="자료 파일" type="file" accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp" multiple onChange={event => { const files = Array.from(event.currentTarget.files ?? []); setDrafts(files.map((file, index) => ({ file, originalFilename: file.name, documentType: 'STORYBOOK', idempotencyKey: createIdempotencyKey(file, index) }))) }} /></label>{drafts.length ? <ul className="setup-draft-list" aria-label="추가할 파일 목록">{drafts.map(draft => <li key={draft.idempotencyKey}>{draft.originalFilename}</li>)}</ul> : null}{results.some(result => result.status === 'VALIDATION_FAILED') ? <p className="setup-upload-warning">일부 파일은 사용할 수 없습니다. 닫은 뒤 상단 안내를 확인하세요.</p> : null}<DialogFooter><Button type="button" variant="ghost" onClick={() => setAddOpen(false)}>취소</Button><Button type="submit" disabled={uploading || drafts.length === 0}>{uploading ? '추가 중…' : '자료 추가'}</Button></DialogFooter></form></DialogContent></Dialog>
-
-    <Sheet open={Boolean(sourcePreview)} onOpenChange={open => { if (!open) setSourcePreview(null) }}><SheetContent className="setup-preview-sheet"><SheetHeader><p className="eyebrow">SOURCE PREVIEW</p><SheetTitle>{sourcePreview?.originalFilename ?? '자료 미리보기'}</SheetTitle></SheetHeader>{sourcePreview ? <div className="setup-preview-content"><p className="setup-preview-meta">{sourcePreview.format} · 원문 미리보기</p>{sourcePreview.warnings.length ? <p className="setup-preview-warning">{sourcePreview.warnings.join(', ')}</p> : null}<ol aria-label="원문 줄 미리보기">{sourcePreview.spans.map(span => <li key={`${span.lineNumber}-${span.startInclusive}-${span.endExclusive}`}><small>{span.path.join(' › ')}{span.pageNumber ? ` · p.${span.pageNumber}` : ''}</small><pre>{span.text || ' '}</pre></li>)}</ol></div> : null}</SheetContent></Sheet>
-
-    <Dialog open={Boolean(preparationBundle)} onOpenChange={open => { if (!open) setPreparationBundle(null) }}><DialogContent className="setup-preparation-dialog"><DialogHeader><p className="eyebrow">ADVENTURE PREPARATION</p><DialogTitle>모험 준비</DialogTitle><DialogDescription>선택한 자료를 바탕으로 플레이에 필요한 내용을 자동으로 준비합니다.</DialogDescription></DialogHeader>{preparationBundle ? <PreparationFlow api={api} playerId={playerId} bundle={preparationBundle} sessionApi={sessionApi} onError={setMessage} /> : null}<DialogFooter><Button variant="ghost" onClick={() => setPreparationBundle(null)}>닫기</Button></DialogFooter></DialogContent></Dialog>
+    {view === 'preparing' ? <section className="setup-wizard-stage setup-preparing-stage" aria-labelledby="setup-wizard-title"><header className="setup-stage-header setup-stage-header-centered"><p className="eyebrow">PREPARING ADVENTURE</p><h1 id="setup-wizard-title">모험을 준비하고 있습니다</h1><p>{adventureName}의 자료를 정리하고 플레이에 필요한 내용을 준비합니다.</p></header>{preparationBundle ? <PreparationFlow api={api} playerId={playerId} bundle={preparationBundle} sessionApi={sessionApi} onError={setMessage} onAdventureCreated={session => { setCreatedSession(session); setView('complete') }} /> : null}<button type="button" className="setup-preparing-back" onClick={() => setView('materials')}><ChevronLeft size={14} aria-hidden="true" />자료 화면으로 돌아가기</button></section> : null}
+    {commonPreview}
   </Container>
 }
 
-function SectionHeading({ number, title, description, id, action }: { number: string; title: string; description: string; id: string; action?: ReactNode }) {
-  return <div className="setup-section-heading"><div className="setup-section-number">{number}</div><div className="setup-section-copy"><h2 id={id}>{title}</h2><p>{description}</p></div>{action ? <div className="setup-section-action">{action}</div> : null}</div>
+function Feature({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
+  return <div className="setup-intro-feature"><span className="setup-intro-feature-icon" aria-hidden="true">{icon}</span><strong>{title}</strong><p>{description}</p></div>
+}
+
+function StageFooter({ backLabel, onBack, nextLabel, onNext, nextDisabled }: { backLabel: string; onBack: () => void; nextLabel: string; onNext: () => void; nextDisabled?: boolean }) {
+  return <footer className="setup-stage-footer"><Button variant="ghost" onClick={onBack}><ChevronLeft size={15} aria-hidden="true" />{backLabel}</Button><Button onClick={onNext} disabled={nextDisabled}>{nextLabel}</Button></footer>
 }
