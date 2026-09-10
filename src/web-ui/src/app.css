@@ -795,8 +795,10 @@ body .sheet-creator > aside.ui-sidebar.creator-sidebar .ui-sidebar-footer { bord
 .skills-table-scroll { max-height:28rem; overflow:auto; border:1px solid #e4dbce; border-radius:5px; background:#fffdfa; }
 .skills-table-scroll .sheet-table { min-width:34rem; }
 .skills-table-scroll .sheet-table > div { grid-template-columns:minmax(0,1fr) 5rem 4rem 4rem; gap:.35rem; padding-left:.65rem; padding-right:.65rem; }
+.skills-table-scroll .sheet-table.has-expertise > div { grid-template-columns:minmax(0,1fr) 5rem 4rem 4rem 4rem; }
 .skills-table-scroll .sheet-table > div > input[type='checkbox'] { width:.8rem; height:.8rem; margin:0; justify-self:center; accent-color:#1d6257; }
 .sheet-table-legend { display:grid; grid-template-columns:minmax(0,1fr) 5rem 4rem 4rem; align-items:center; gap:.35rem; width:100%; min-width:34rem; box-sizing:border-box; min-height:2.25rem !important; margin:0 !important; padding:.45rem .65rem !important; border:1px solid #e4dbce !important; border-radius:5px; background:#f8f2e6; color:#766b5d; font-size:.68rem; }
+.sheet-table.has-expertise .sheet-table-legend { grid-template-columns:minmax(0,1fr) 5rem 4rem 4rem 4rem; }
 .sheet-table-legend span { overflow:visible; text-align:center; white-space:nowrap; }
 .skill-hover-target { position:relative; display:inline-block; min-width:0; color:#302c27; cursor:help; outline:none; }
 .skill-hover-target:hover, .skill-hover-target:focus-visible { color:#1d6257; }

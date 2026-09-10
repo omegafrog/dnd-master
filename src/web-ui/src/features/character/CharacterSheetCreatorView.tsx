@@ -640,6 +640,8 @@ type CharacterDraftSnapshot = {
   equipmentTab: "owned" | "carried";
   selectedSpells?: string[];
   selectedCantrips?: string[];
+  selectedSkills?: string[];
+  selectedExpertise?: string[];
   equipmentBundle?: string;
   equipmentItems?: EquipmentItem[];
 };
@@ -829,6 +831,12 @@ export function CharacterSheetCreatorView({
   const [selectedCantrips, setSelectedCantrips] = useState<string[]>(
     initialDraft.selectedCantrips ?? [],
   );
+  const [selectedSkills, setSelectedSkills] = useState<string[]>(
+    initialDraft.selectedSkills ?? [],
+  );
+  const [selectedExpertise, setSelectedExpertise] = useState<string[]>(
+    initialDraft.selectedExpertise ?? [],
+  );
   const [equipmentBundle, setEquipmentBundle] = useState(
     initialDraft.equipmentBundle ?? initialEquipmentBundle.id,
   );
@@ -855,6 +863,8 @@ export function CharacterSheetCreatorView({
           equipmentTab,
           selectedSpells,
           selectedCantrips,
+          selectedSkills,
+          selectedExpertise,
           equipmentBundle,
           equipmentItems,
         } satisfies CharacterDraftSnapshot),
@@ -875,6 +885,8 @@ export function CharacterSheetCreatorView({
     equipmentTab,
     selectedSpells,
     selectedCantrips,
+    selectedSkills,
+    selectedExpertise,
     equipmentBundle,
     equipmentItems,
   ]);
@@ -998,12 +1010,41 @@ export function CharacterSheetCreatorView({
       current.filter((spell) => option.cantrips.includes(spell)).slice(0, 3),
     );
   }, [effectiveClass, effectiveLevel, spellAbilityScore]);
+  const previousEquipmentClassRef = useRef(effectiveClass);
   useEffect(() => {
     const startingBundle = equipmentBundles.find((bundle) => bundle.id === startingBundleIdByClass[effectiveClass]);
+    if (!effectiveClass || previousEquipmentClassRef.current === effectiveClass) return;
+    previousEquipmentClassRef.current = effectiveClass;
     if (!startingBundle || equipmentBundle === startingBundle.id) return;
     setEquipmentBundle(startingBundle.id);
     setEquipmentItems(equipmentForBundle(startingBundle));
-  }, [effectiveClass, equipmentBundle]);
+  }, [effectiveClass]);
+
+  const skillChoiceCount = selectedClass?.skillChoiceCount ?? 0;
+  const expertiseChoiceCount = effectiveClass === "로그" ? 2 : 0;
+  useEffect(() => {
+    const backgroundSkills = selectedBackground?.skills ?? [];
+    const classSkills = selectedClass?.skillChoices ?? [];
+    const backgroundSet = new Set(backgroundSkills);
+    const allowed = new Set([...backgroundSkills, ...classSkills]);
+    setSelectedSkills((current) => {
+      const classSelections = current
+        .filter((skill) => allowed.has(skill) && !backgroundSet.has(skill))
+        .slice(0, skillChoiceCount);
+      const next = Array.from(new Set([...backgroundSkills, ...classSelections]));
+      return next.length === current.length && next.every((skill, index) => skill === current[index])
+        ? current
+        : next;
+    });
+    setSelectedExpertise((current) => {
+      const next = current
+        .filter((skill) => allowed.has(skill))
+        .slice(0, expertiseChoiceCount);
+      return next.length === current.length && next.every((skill, index) => skill === current[index])
+        ? current
+        : next;
+    });
+  }, [effectiveClass, effectiveBackground, selectedBackground, selectedClass, skillChoiceCount, expertiseChoiceCount]);
   async function save() {
     if (lockedEdition !== "DND_5E_2014") {
       setMessage("이 세션의 판본 계약은 아직 캐릭터 생성을 지원하지 않습니다.");
@@ -1021,10 +1062,31 @@ export function CharacterSheetCreatorView({
     setMessage("저장 중입니다...");
     try {
       const requiredSkillCount = selectedClass?.skillChoiceCount ?? 0;
-      const skillProficiencies = Array.from(new Set([
-        ...(selectedBackground?.skills ?? []),
-        ...(selectedClass?.skillChoices ?? []).slice(0, requiredSkillCount),
-      ]));
+      const backgroundSkills = selectedBackground?.skills ?? [];
+      const backgroundSet = new Set(backgroundSkills);
+      const classSkillChoices = selectedClass?.skillChoices ?? [];
+      const selectedClassSkills = selectedSkills.filter(
+        (skill) => classSkillChoices.includes(skill) && !backgroundSet.has(skill),
+      );
+      const classSelections = [...selectedClassSkills];
+      for (const skill of classSkillChoices) {
+        if (classSelections.length >= requiredSkillCount) break;
+        if (!backgroundSet.has(skill) && !classSelections.includes(skill)) {
+          classSelections.push(skill);
+        }
+      }
+      const skillProficiencies = Array.from(
+        new Set([...backgroundSkills, ...classSelections]),
+      );
+      const proficientExpertise = selectedExpertise.filter((skill) =>
+        skillProficiencies.includes(skill),
+      );
+      const expertise = effectiveClass === "로그"
+        ? Array.from(new Set([
+            ...proficientExpertise,
+            ...skillProficiencies,
+          ])).slice(0, expertiseChoiceCount)
+        : [];
       const cantripMinimum = ({ 클레릭: 3, 소서러: 4, 워락: 2, 위저드: 3 } as Record<string, number>)[effectiveClass] ?? 0;
       const spellMinimum = ({ 클레릭: 1, 소서러: 2, 워락: 2, 위저드: 6 } as Record<string, number>)[effectiveClass] ?? 0;
       const fillSelections = (selected: string[], options: string[], minimum: number) =>
@@ -1039,6 +1101,26 @@ export function CharacterSheetCreatorView({
         .filter((id): id is string => Boolean(id));
       const mainHandWeaponId = ["longsword", "shortsword", "mace", "quarterstaff", "dagger"]
         .find((weaponId) => ownedWeaponIds.includes(weaponId));
+      const usesClassStartingBundle =
+        equipmentBundle === startingBundleIdByClass[effectiveClass];
+      const equipmentSelections = {
+        equipmentBundle,
+        // 다른 장비 묶음은 직업별 기본 장비 검증 대상이 아니므로
+        // 기본 장비 선택 필드를 보내지 않는다.
+        ...(usesClassStartingBundle
+          ? {
+              armor: equippedArmor,
+              weaponAndShield: effectiveClass === "파이터"
+                ? "롱소드와 방패"
+                : effectiveClass === "클레릭"
+                  ? "메이스와 방패"
+                  : "",
+              rangedWeapon: ownedWeaponIds.includes("light-crossbow")
+                ? "라이트 크로스보우와 볼트 20개"
+                : "",
+            }
+          : {}),
+      };
       await onSave({
         edition: lockedEdition,
         characterName: effectiveName.trim(),
@@ -1054,14 +1136,8 @@ export function CharacterSheetCreatorView({
           schemaVersion: 1,
           subclass: subclassesFor(effectiveClass)[0]?.id ?? "",
           skillProficiencies,
-          expertise: [],
-        equipmentSelections: {
-          equipmentBundle,
-          armor: equippedArmor,
-          weaponAndShield: effectiveClass === "파이터" ? "롱소드와 방패"
-            : effectiveClass === "클레릭" ? "메이스와 방패" : "",
-          rangedWeapon: ownedWeaponIds.includes("light-crossbow") ? "라이트 크로스보우와 볼트 20개" : "",
-        },
+          expertise,
+        equipmentSelections,
         ownedEquipment: equipmentItems.map(([name]) => name),
         ownedWeaponIds,
         equippedItems: { armor: equippedArmor, shield: equippedShield, mainHandWeaponId },
@@ -1328,7 +1404,17 @@ export function CharacterSheetCreatorView({
                 }
                 skillOptions={selectedClass?.skillChoices ?? []}
                 backgroundSkills={selectedBackground?.skills ?? []}
-                skillChoiceCount={selectedClass?.skillChoiceCount ?? 0}
+                skillChoiceCount={skillChoiceCount}
+                selectedSkills={selectedSkills}
+                onSkillsChange={(next) => {
+                  setSelectedSkills(next);
+                  setSelectedExpertise((current) =>
+                    current.filter((skill) => next.includes(skill)),
+                  );
+                }}
+                selectedExpertise={selectedExpertise}
+                expertiseChoiceCount={expertiseChoiceCount}
+                onExpertiseChange={setSelectedExpertise}
               />
             </div>
           )}
@@ -1672,7 +1758,10 @@ function EquipmentPanel({
             총 무게&nbsp;{" "}
             {ownedItems
               .reduce(
-                (total, [, , weight]) => total + Number.parseFloat(weight),
+                (total, [, , weight]) => {
+                  const parsed = Number.parseFloat(weight);
+                  return total + (Number.isFinite(parsed) ? parsed : 0);
+                },
                 0,
               )
               .toFixed(1)}{" "}
@@ -2027,6 +2116,11 @@ function SheetTable({
   skillOptions,
   backgroundSkills,
   skillChoiceCount,
+  selectedSkills,
+  onSkillsChange,
+  selectedExpertise,
+  expertiseChoiceCount,
+  onExpertiseChange,
 }: {
   n: string;
   title: string;
@@ -2036,8 +2130,12 @@ function SheetTable({
   skillOptions?: string[];
   backgroundSkills?: string[];
   skillChoiceCount: number;
+  selectedSkills: string[];
+  onSkillsChange: (skills: string[]) => void;
+  selectedExpertise: string[];
+  expertiseChoiceCount: number;
+  onExpertiseChange: (expertise: string[]) => void;
 }) {
-  const [selected, setSelected] = useState<string[]>(backgroundSkills ?? []);
   const abilityIndex: Record<string, number> = {
     근력: 0,
     민첩: 1,
@@ -2051,31 +2149,41 @@ function SheetTable({
     ...(skillOptions ?? []),
     ...(backgroundSkills ?? []),
   ]);
-  useEffect(() => {
-    setSelected(backgroundSkills ?? []);
-  }, [backgroundSkills]);
+  const classSelectedCount = selectedSkills.filter(
+    (skill) => !background.has(skill),
+  ).length;
+  const proficient = new Set(selectedSkills);
   const toggleSkill = (skill: string, checked: boolean) => {
-    setSelected((current) => {
-      if (background.has(skill)) return current;
-      const classSelectedCount = current.filter(
-        (item) => !background.has(item),
-      ).length;
-      if (!checked) return current.filter((item) => item !== skill);
-      if (
-        !allowed.has(skill) ||
-        current.includes(skill) ||
-        classSelectedCount >= skillChoiceCount
-      )
-        return current;
-      return [...current, skill];
-    });
+    if (background.has(skill)) return;
+    if (!checked) {
+      onSkillsChange(selectedSkills.filter((item) => item !== skill));
+      return;
+    }
+    if (
+      !allowed.has(skill) ||
+      selectedSkills.includes(skill) ||
+      classSelectedCount >= skillChoiceCount
+    ) return;
+    onSkillsChange([...selectedSkills, skill]);
+  };
+  const toggleExpertise = (skill: string, checked: boolean) => {
+    if (!proficient.has(skill)) return;
+    if (!checked) {
+      onExpertiseChange(selectedExpertise.filter((item) => item !== skill));
+      return;
+    }
+    if (
+      selectedExpertise.includes(skill) ||
+      selectedExpertise.length >= expertiseChoiceCount
+    ) return;
+    onExpertiseChange([...selectedExpertise, skill]);
   };
   const formatBonus = (item: SkillDefinition) => {
     const score = abilityScores[abilityIndex[item.ability]];
     if (!Number.isFinite(score) || score <= 0) return "—";
     const value =
       Math.floor((score - 10) / 2) +
-      (selected.includes(item.name.replace(/ \(.+\)$/, ""))
+      (selectedSkills.includes(item.name.replace(/ \(.+\)$/, ""))
         ? proficiencyBonus
         : 0);
     return value >= 0 ? `+${value}` : String(value);
@@ -2083,12 +2191,17 @@ function SheetTable({
   return (
     <section id="skills" className="sheet-box">
       <SheetTitle n={n} title={title} />
+      <p className="skill-selection-status" role="status">
+        기술 숙련 {classSelectedCount}/{skillChoiceCount}개 선택
+        {expertiseChoiceCount > 0 && ` · 숙달 ${selectedExpertise.length}/${expertiseChoiceCount}개 선택`}
+      </p>
       <div className="skills-table-scroll">
-        <div className="sheet-table">
+        <div className={`sheet-table${expertiseChoiceCount > 0 ? " has-expertise" : ""}`}>
           <div className="sheet-table-legend" aria-label="기술 표 범례">
             <span>기술</span>
             <span>능력치</span>
             <span>숙련</span>
+            {expertiseChoiceCount > 0 && <span>숙달</span>}
             <span>보너스</span>
           </div>
           {items.map((item) => {
@@ -2099,13 +2212,33 @@ function SheetTable({
                 <em>{item.ability}</em>
                 <input
                   type="checkbox"
-                  checked={selected.includes(skillId)}
-                  disabled={!allowed.has(skillId) || background.has(skillId)}
+                  checked={selectedSkills.includes(skillId)}
+                  disabled={
+                    !allowed.has(skillId) ||
+                    background.has(skillId) ||
+                    (!selectedSkills.includes(skillId) &&
+                      classSelectedCount >= skillChoiceCount)
+                  }
                   onChange={(event) =>
                     toggleSkill(skillId, event.target.checked)
                   }
                   aria-label={`${item.name} 숙련`}
                 />
+                {expertiseChoiceCount > 0 && (
+                  <input
+                    type="checkbox"
+                    checked={selectedExpertise.includes(skillId)}
+                    disabled={
+                      !proficient.has(skillId) ||
+                      (!selectedExpertise.includes(skillId) &&
+                        selectedExpertise.length >= expertiseChoiceCount)
+                    }
+                    onChange={(event) =>
+                      toggleExpertise(skillId, event.target.checked)
+                    }
+                    aria-label={`${item.name} 숙달`}
+                  />
+                )}
                 <b>{formatBonus(item)}</b>
               </div>
             );
