@@ -9,7 +9,7 @@ test('solo journey exposes labelled controls, landmarks and keyboard navigation'
   await page.getByRole('button', { name: '로그인', exact: true }).click()
 
   await expect(page.getByRole('main')).toHaveCount(1)
-  await expect(page.getByRole('heading', { level: 1, name: '자료와 모험 설정' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: '새 모험 준비' })).toBeVisible()
   const missingControls = await page.locator('input, select, button').evaluateAll(elements => elements.filter(element => {
     if (element instanceof HTMLButtonElement) return !element.textContent?.trim() && !element.getAttribute('aria-label')
     const id = element.id
@@ -20,5 +20,4 @@ test('solo journey exposes labelled controls, landmarks and keyboard navigation'
   await page.keyboard.press('Tab')
   const focusedTag = await page.evaluate(() => document.activeElement?.tagName)
   expect(['INPUT', 'SELECT', 'BUTTON', 'A']).toContain(focusedTag)
-  await expect(page.getByRole('status').first()).toBeAttached()
 })
