@@ -1,0 +1,586 @@
+/* Final mockup-fidelity layer for Adventure Workspace + Session Runtime.
+   Loaded after app.css so legacy global selectors cannot turn these screens
+   back into rounded dashboard cards. */
+
+:root {
+  --rework-canvas: #f1ede3;
+  --rework-paper: #faf7ef;
+  --rework-paper-muted: #eee8dc;
+  --rework-ink: #27221e;
+  --rework-muted: #655e56;
+  --rework-rule: #cec5b7;
+  --rework-rule-strong: #aaa092;
+  --rework-oxblood: #742f36;
+  --rework-oxblood-hover: #64282f;
+}
+
+/* Adventure Workspace is a document, not a dashboard card. */
+.app-page-adventure-workspace > .workspace-page,
+.app-page-adventure-workspace > .workspace-state {
+  width: min(100%, 74rem) !important;
+  max-width: 74rem !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-page-adventure-workspace .workspace-breadcrumb {
+  margin-bottom: 1.75rem;
+}
+
+.app-page-adventure-workspace .workspace-header {
+  min-height: 8.5rem;
+  margin: 0;
+  padding: 0 0 1.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--rework-rule-strong);
+  background: transparent;
+  color: var(--rework-ink);
+}
+
+.app-page-adventure-workspace .workspace-header-copy h1 {
+  max-width: 46rem;
+  font-size: clamp(2.3rem, 5vw, 3.4rem);
+  font-weight: 600;
+  line-height: 1.02;
+}
+
+.app-page-adventure-workspace .workspace-header-copy p:last-child {
+  max-width: 38rem;
+  margin-top: .8rem;
+  font-size: .88rem;
+  line-height: 1.7;
+}
+
+.app-page-adventure-workspace .workspace-tabs > .ui-tabs-list {
+  min-height: 3.35rem;
+  gap: 1.75rem;
+  border-bottom: 1px solid var(--rework-rule);
+}
+
+.app-page-adventure-workspace .ui-tabs-trigger {
+  min-height: 3.35rem;
+  padding: .7rem 0 .65rem;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-page-adventure-workspace .ui-tabs-trigger-active {
+  border-bottom-color: var(--rework-oxblood) !important;
+  color: var(--rework-oxblood) !important;
+}
+
+.app-page-adventure-workspace .workspace-tab-panel {
+  padding-top: 2rem;
+}
+
+.app-page-adventure-workspace .tab-panel-heading {
+  margin-bottom: 1.4rem;
+}
+
+.app-page-adventure-workspace .file-list {
+  border-top-color: var(--rework-rule-strong);
+}
+
+.app-page-adventure-workspace .file-row {
+  min-height: 4.75rem;
+  padding: .85rem .25rem;
+  border-bottom-color: var(--rework-rule);
+  background: transparent;
+}
+
+.app-page-adventure-workspace .file-row:hover {
+  background: color-mix(in srgb, var(--rework-paper-muted) 52%, transparent);
+}
+
+.app-page-adventure-workspace .file-row-icon {
+  width: 2.15rem;
+  height: 2.15rem;
+  border-color: var(--rework-rule-strong);
+  color: var(--rework-oxblood);
+}
+
+.app-page-adventure-workspace .file-row-main strong {
+  color: var(--rework-ink);
+}
+
+.app-page-adventure-workspace .review-workspace {
+  margin-top: 2rem;
+  border-color: var(--rework-rule-strong);
+  background: transparent;
+}
+
+.app-page-adventure-workspace .review-detail {
+  margin: 0 !important;
+  padding: 2rem 2.25rem !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.app-page-adventure-workspace .review-list {
+  background: color-mix(in srgb, var(--rework-paper-muted) 30%, transparent);
+}
+
+.app-page-adventure-workspace .review-issue-row {
+  border-radius: 0 !important;
+}
+
+.app-page-adventure-workspace .review-issue-active {
+  border-left-color: var(--rework-oxblood) !important;
+  background: var(--rework-paper-muted) !important;
+}
+
+/* Runtime is its own full-viewport shell. Hide the normal application chrome. */
+body:has(.app-page-session-runtime) {
+  min-width: 0;
+  overflow: hidden;
+  background: var(--rework-canvas);
+}
+
+body:has(.app-page-session-runtime) > #root > .app-shell > .app-header {
+  display: none !important;
+}
+
+.app-page-session-runtime {
+  width: 100% !important;
+  max-width: none !important;
+  height: 100dvh;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.app-page-session-runtime > .app-notices {
+  display: none !important;
+}
+
+.app-page-session-runtime > .session-runtime,
+.app-page-session-runtime > .workspace-state {
+  margin: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--rework-paper) !important;
+  box-shadow: none !important;
+}
+
+.session-runtime {
+  display: grid !important;
+  grid-template-rows: 3.55rem minmax(0, 1fr);
+  gap: 0 !important;
+  width: 100%;
+  max-width: none !important;
+  height: 100dvh;
+  padding: 0 !important;
+  overflow: hidden;
+  color: var(--rework-ink);
+}
+
+.session-runtime-header {
+  display: grid !important;
+  grid-template-columns: 13rem minmax(0, 1fr) 13rem !important;
+  align-items: center !important;
+  gap: 1rem !important;
+  min-height: 3.55rem;
+  margin: 0 !important;
+  padding: .4rem 1rem !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--rework-rule-strong) !important;
+  background: var(--rework-paper) !important;
+  color: var(--rework-ink) !important;
+}
+
+.session-runtime-exit {
+  display: inline-flex;
+  width: max-content;
+  align-items: center;
+  gap: .35rem;
+  color: var(--rework-muted);
+  font-size: .76rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.session-runtime-exit:hover {
+  color: var(--rework-oxblood);
+}
+
+.session-runtime-title-block {
+  min-width: 0;
+  text-align: center;
+}
+
+.session-runtime-title-block .eyebrow {
+  margin: 0 0 .08rem;
+  color: var(--rework-oxblood);
+  font-size: .58rem;
+  letter-spacing: .16em;
+}
+
+.session-runtime-title-block h1 {
+  margin: 0 !important;
+  overflow: hidden;
+  color: var(--rework-ink) !important;
+  font: 600 1.05rem/1.1 Georgia, 'Times New Roman', serif !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-runtime-title-block p:last-child {
+  margin: .08rem 0 0 !important;
+  color: var(--rework-muted) !important;
+  font-size: .62rem !important;
+}
+
+.session-runtime-settings {
+  justify-self: end;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--rework-muted) !important;
+}
+
+.session-runtime-columns {
+  display: grid !important;
+  grid-template-columns: 15rem minmax(0, 1fr) 17.5rem !important;
+  min-height: 0 !important;
+  height: 100%;
+  border: 0 !important;
+  background: var(--rework-paper) !important;
+  overflow: hidden;
+}
+
+.runtime-party-panel,
+.runtime-feed-panel,
+.runtime-context-panel {
+  min-width: 0;
+  min-height: 0;
+  border-radius: 0 !important;
+  background: var(--rework-paper) !important;
+  box-shadow: none !important;
+}
+
+.runtime-party-panel {
+  padding: 1.15rem 1rem !important;
+  overflow-y: auto;
+  border-right: 1px solid var(--rework-rule) !important;
+}
+
+.runtime-context-panel {
+  padding: 1.15rem 1rem !important;
+  overflow-y: auto;
+  border-left: 1px solid var(--rework-rule) !important;
+}
+
+.runtime-panel-heading h2 {
+  margin: 0 !important;
+  color: var(--rework-ink) !important;
+  font: 600 1rem/1.2 Georgia, 'Times New Roman', serif !important;
+}
+
+.runtime-panel-heading .eyebrow {
+  margin-bottom: .18rem;
+  font-size: .58rem;
+  letter-spacing: .14em;
+}
+
+.runtime-party-list {
+  gap: 0 !important;
+}
+
+.runtime-party-list li {
+  grid-template-columns: 2.35rem minmax(0, 1fr) auto !important;
+  min-height: 4.4rem !important;
+  padding: .7rem 0 !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--rework-rule) !important;
+  background: transparent !important;
+}
+
+.runtime-party-list li.runtime-party-current {
+  margin-inline: -.5rem;
+  padding-inline: .5rem !important;
+  border-left: 2px solid var(--rework-oxblood) !important;
+  background: var(--rework-paper-muted) !important;
+}
+
+.runtime-portrait {
+  width: 2.35rem !important;
+  height: 2.85rem !important;
+  border: 1px solid var(--rework-rule-strong) !important;
+  border-radius: 2px !important;
+  background: var(--rework-paper-muted) !important;
+  color: var(--rework-oxblood) !important;
+}
+
+.runtime-party-list strong {
+  color: var(--rework-ink) !important;
+  font: 600 .82rem/1.25 Georgia, 'Times New Roman', serif;
+}
+
+.runtime-party-list small {
+  margin-top: .2rem;
+  color: var(--rework-muted) !important;
+  font-size: .64rem !important;
+}
+
+.runtime-feed-panel {
+  overflow: hidden;
+}
+
+.runtime-feed-panel .adventure-stream {
+  display: flex !important;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--rework-paper) !important;
+  box-shadow: none !important;
+  overflow: hidden;
+}
+
+.runtime-feed-panel .adventure-stream > h2 {
+  display: none;
+}
+
+.runtime-feed-panel .adventure-stream > p[role='status'] {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: .65rem clamp(1.25rem, 4vw, 3rem);
+  border-bottom: 1px solid var(--rework-rule);
+  color: var(--rework-muted);
+  font-size: .68rem;
+}
+
+.runtime-feed-panel .adventure-stream > p[role='alert']:empty {
+  display: none;
+}
+
+.runtime-feed-panel .adventure-stream > p[role='alert'] {
+  margin: 0;
+  padding: .45rem clamp(1.25rem, 4vw, 3rem);
+  color: #873b36;
+  font-size: .72rem;
+}
+
+.runtime-feed-panel .adventure-stream > ol {
+  display: block !important;
+  flex: 1 1 auto;
+  width: 100%;
+  max-height: none !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 2.25rem clamp(1.25rem, 7vw, 5rem) 3rem !important;
+  overflow-y: auto;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.runtime-feed-panel .adventure-chat-message,
+.runtime-feed-panel .adventure-chat-message.player,
+.runtime-feed-panel .adventure-chat-message.gm {
+  display: block !important;
+  width: 100% !important;
+  max-width: 46rem !important;
+  margin: 0 auto 1.8rem !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  align-self: auto !important;
+  align-items: flex-start !important;
+  text-align: left !important;
+}
+
+.runtime-feed-panel .adventure-chat-speaker {
+  display: block;
+  margin-bottom: .42rem;
+  color: var(--rework-oxblood) !important;
+  font-size: .66rem !important;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.runtime-feed-panel .adventure-chat-message p,
+.runtime-feed-panel .adventure-chat-message.player p {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--rework-ink) !important;
+  font-size: .94rem !important;
+  line-height: 1.75 !important;
+  text-align: left !important;
+}
+
+.runtime-feed-panel .adventure-stream > form:last-child {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 3rem;
+  gap: .6rem !important;
+  flex: 0 0 auto;
+  width: 100% !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: .85rem clamp(1rem, 5vw, 3rem) 1rem !important;
+  border-top: 1px solid var(--rework-rule-strong);
+  background: color-mix(in srgb, var(--rework-paper) 94%, var(--rework-canvas));
+}
+
+.runtime-feed-panel .adventure-stream > form:last-child label {
+  display: block !important;
+  min-width: 0;
+  color: var(--rework-muted);
+  font-size: 0 !important;
+  font-weight: 600;
+}
+
+.runtime-feed-panel .adventure-stream > form:last-child label::before {
+  content: '무엇을 하시겠습니까?';
+  display: block;
+  margin-bottom: .38rem;
+  color: var(--rework-muted);
+  font-size: .68rem;
+  letter-spacing: .01em;
+}
+
+.runtime-feed-panel .adventure-stream > form:last-child input {
+  width: 100%;
+  min-height: 3rem;
+  padding: .65rem .8rem;
+  border: 1px solid var(--rework-rule-strong) !important;
+  border-radius: 3px !important;
+  background: var(--rework-paper) !important;
+  color: var(--rework-ink) !important;
+  font-size: .9rem !important;
+  box-shadow: none !important;
+}
+
+.runtime-feed-panel .adventure-stream > form:last-child input:focus {
+  border-color: var(--rework-oxblood) !important;
+  outline: 2px solid color-mix(in srgb, var(--rework-oxblood) 18%, transparent) !important;
+  outline-offset: 1px;
+}
+
+.runtime-feed-panel .adventure-stream > form:last-child button[type='submit'] {
+  align-self: end;
+  width: 3rem;
+  min-width: 3rem;
+  height: 3rem;
+  padding: 0 !important;
+  border: 1px solid var(--rework-oxblood) !important;
+  border-radius: 3px !important;
+  background: var(--rework-oxblood) !important;
+  color: var(--rework-paper) !important;
+  font-size: 0 !important;
+  box-shadow: none !important;
+}
+
+.runtime-feed-panel .adventure-stream > form:last-child button[type='submit']::after {
+  content: '→';
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.runtime-feed-panel .adventure-stream > form:last-child button[type='submit']:hover:not(:disabled) {
+  background: var(--rework-oxblood-hover) !important;
+  transform: none !important;
+}
+
+.runtime-context-list > div {
+  grid-template-columns: 1fr !important;
+  gap: .18rem !important;
+  padding: .75rem 0 !important;
+  border-bottom: 0 !important;
+}
+
+.runtime-context-list dt {
+  color: var(--rework-muted) !important;
+  font-size: .64rem !important;
+  font-weight: 700;
+}
+
+.runtime-context-list dd {
+  color: var(--rework-ink) !important;
+  font: 600 .84rem/1.3 Georgia, 'Times New Roman', serif;
+  text-align: left !important;
+}
+
+.runtime-quick-actions {
+  gap: .15rem !important;
+}
+
+.runtime-quick-actions .ui-button {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--rework-muted) !important;
+}
+
+.runtime-quick-actions .ui-button:hover {
+  background: var(--rework-paper-muted) !important;
+  color: var(--rework-oxblood) !important;
+}
+
+@media (max-width: 1050px) {
+  body:has(.app-page-session-runtime) {
+    overflow: auto;
+  }
+
+  .app-page-session-runtime {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .session-runtime {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .session-runtime-columns {
+    grid-template-columns: 13rem minmax(0, 1fr) !important;
+    min-height: calc(100dvh - 3.55rem) !important;
+    overflow: visible;
+  }
+
+  .runtime-context-panel {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--rework-rule) !important;
+    border-left: 0 !important;
+  }
+}
+
+@media (max-width: 760px) {
+  .session-runtime-header {
+    grid-template-columns: auto minmax(0, 1fr) auto !important;
+    padding-inline: .65rem !important;
+  }
+
+  .session-runtime-title-block p:last-child {
+    display: none;
+  }
+
+  .session-runtime-columns {
+    grid-template-columns: 1fr !important;
+  }
+
+  .runtime-party-panel {
+    border-right: 0 !important;
+    border-bottom: 1px solid var(--rework-rule) !important;
+  }
+
+  .runtime-feed-panel {
+    min-height: 70dvh;
+  }
+
+  .runtime-context-panel {
+    grid-column: auto;
+  }
+}
