@@ -47,10 +47,10 @@ export function MaterialRow({
   onRoleChange?: (role: ScenarioBundleRole) => void
   actions?: ReactNode
 }) {
-  const showSelection = selected !== undefined && onSelectedChange
-  const showRole = role !== undefined && onRoleChange
+  const showSelection = selected !== undefined && onSelectedChange !== undefined
+  const showRole = role !== undefined && onRoleChange !== undefined
   return <li className={`file-row material-row${selected ? ' material-row-selected' : ''}`}>
-    {showSelection ? <span className="material-row-select"><Checkbox aria-label={`${document.originalFilename} 모험 자료 선택`} checked={selected} disabled={!selectable} onCheckedChange={checked => onSelectedChange(Boolean(checked))} /></span> : null}
+    {showSelection ? <span className="material-row-select"><Checkbox aria-label={`${document.originalFilename} 모험 자료 선택`} checked={selected} disabled={!selectable} onCheckedChange={checked => onSelectedChange?.(Boolean(checked))} /></span> : null}
     <span className="file-row-icon" aria-hidden="true"><DocumentIcon documentType={document.documentType} /></span>
     <span className="file-row-main">
       <strong>{document.originalFilename}</strong>
@@ -58,7 +58,7 @@ export function MaterialRow({
       {document.progress && materialStatus(document).kind === 'processing' ? <span className="material-row-progress"><Progress value={document.progress.percent} aria-label={`${document.originalFilename} 자료 준비 진행률`} /></span> : null}
       {document.failureReason ? <small className="material-row-problem">{document.failureReason}</small> : null}
     </span>
-    {showRole ? <Select className="material-role-select" aria-label={`${document.originalFilename} 역할`} value={role} disabled={!selectable} onChange={event => onRoleChange(event.currentTarget.value as ScenarioBundleRole)}>
+    {showRole ? <Select className="material-role-select" aria-label={`${document.originalFilename} 역할`} value={role} disabled={!selectable} onChange={event => onRoleChange?.(event.currentTarget.value as ScenarioBundleRole)}>
       {Object.entries(materialRoleLabels).filter(([value]) => value !== 'RULEBOOK').map(([value, label]) => <option key={value} value={value}>{label}</option>)}
     </Select> : null}
     <MaterialStatus document={document} />
