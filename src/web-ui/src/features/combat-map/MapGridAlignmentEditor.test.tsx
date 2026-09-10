@@ -6,6 +6,18 @@ import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 
 const initial = { mapId: 'map-1', version: 3, imageRevision: 'image-v1', originX: 12.25, originY: 8.5, cellSize: 31.75 }
 
+it('shows only the map area saved by the previous crop step', () => {
+  render(<MapGridAlignmentEditor image="/public.png" crop={{ x: 100, y: 50, width: 300, height: 200 }} initial={initial} onApply={vi.fn()} onCancel={() => {}} />)
+
+  const image = screen.getByAltText('공개된 지도 이미지')
+  const viewport = image.parentElement!
+  const canvas = viewport.closest('.map-grid-alignment-canvas')!
+  expect(canvas).toHaveStyle({ aspectRatio: '300 / 200' })
+  expect(viewport).toHaveClass('map-grid-alignment-image-viewport')
+  expect(viewport).toHaveStyle({ width: '300px', height: '200px', overflow: 'hidden' })
+  expect(viewport).toHaveAttribute('data-crop', '100,50,300,200')
+})
+
 it('keeps the 3×3 alignment draft local until explicit apply', async () => {
   const apply = vi.fn().mockResolvedValue(undefined)
   const cancel = vi.fn()
@@ -15,7 +27,7 @@ it('keeps the 3×3 alignment draft local until explicit apply', async () => {
   expect(screen.getByText('3×3 격자 맞추기', { selector: 'strong' })).toBeInTheDocument()
   expect(screen.getByText(/격자 교차점 하나를 누른 채/)).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: /확대경/ })).not.toBeInTheDocument()
-  const canvas = screen.getByAltText('공개된 지도 이미지').parentElement!
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
   vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
   Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
   fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 40, clientY: 80 }))
@@ -33,7 +45,7 @@ it('derives the grid origin and cell size from the dragged 3×3 area', async () 
   const apply = vi.fn().mockResolvedValue(undefined)
   render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={() => {}} />)
 
-  const canvas = screen.getByAltText('공개된 지도 이미지').parentElement!
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
   vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
   Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
 
@@ -61,7 +73,7 @@ it('exposes retry after a save error', async () => {
 
 it('can move the zoomed map without changing the alignment drag mode', async () => {
   render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={vi.fn()} onCancel={() => {}} />)
-  const canvas = screen.getByAltText('공개된 지도 이미지').parentElement!
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
   const image = screen.getByAltText('공개된 지도 이미지')
   vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
   Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
@@ -76,13 +88,15 @@ it('can move the zoomed map without changing the alignment drag mode', async () 
   fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 140, clientY: 110 }))
   fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 140, clientY: 110 }))
 
-  expect(image.getAttribute('style')).toContain('translate(37.5px, 25px)')
+  const viewport = image.parentElement!
+  expect(viewport.getAttribute('style')).toContain('left: 37.5px;')
+  expect(viewport.getAttribute('style')).toContain('top: 25px;')
 })
 
 it('converts a grid drag through the zoomed image coordinates', async () => {
   const apply = vi.fn().mockResolvedValue(undefined)
   render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={() => {}} />)
-  const canvas = screen.getByAltText('공개된 지도 이미지').parentElement!
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
   const image = screen.getByAltText('공개된 지도 이미지')
   vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
   Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })

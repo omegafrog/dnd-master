@@ -27,7 +27,12 @@ export function MapGridAlignmentEditor({ image, initial, crop, gridWidth = 20, g
   const layout = () => {
     const rect = canvas.current?.getBoundingClientRect()
     const width = Math.max(1, rect?.width ?? displayCrop.width)
-    const height = Math.max(1, rect?.height ?? displayCrop.height)
+    // The canvas follows the crop's aspect ratio. Use that ratio here too so
+    // the first render after changing the inline aspect ratio cannot briefly
+    // lay the image out using the old canvas height.
+    const height = Math.max(1, crop && crop.width > 0 && crop.height > 0
+      ? width * crop.height / crop.width
+      : rect?.height ?? displayCrop.height)
     const scale = Math.min(width / displayCrop.width, height / displayCrop.height)
     return { scale, offsetX: (width - displayCrop.width * scale) / 2, offsetY: (height - displayCrop.height * scale) / 2 }
   }
@@ -110,7 +115,17 @@ export function MapGridAlignmentEditor({ image, initial, crop, gridWidth = 20, g
   const view = layout()
   const toCanvas = (x: number, y: number) => ({ left: view.offsetX + pan.x + (x - displayCrop.x) * view.scale * zoom, top: view.offsetY + pan.y + (y - displayCrop.y) * view.scale * zoom })
   const origin = toCanvas(draft.originX, draft.originY)
-  const cellPixels = draft.cellSize * view.scale * zoom
+  const imageScale = view.scale * zoom
+  const cellPixels = draft.cellSize * imageScale
+  const cropViewport = {
+    left: view.offsetX + pan.x,
+    top: view.offsetY + pan.y,
+    width: displayCrop.width * imageScale,
+    height: displayCrop.height * imageScale,
+  }
+  const canvasStyle: CSSProperties | undefined = crop && crop.width > 0 && crop.height > 0
+    ? { aspectRatio: `${displayCrop.width} / ${displayCrop.height}` }
+    : undefined
 
   return <section className="map-grid-alignment-editor" aria-label="맵 격자 맞추기">
     <p><strong>3×3 격자 맞추기</strong> — 지도에 보이는 격자 교차점 하나를 누른 채 세 칸 뒤 대각 교차점까지 끌어 격자를 맞추세요.</p>
@@ -120,8 +135,10 @@ export function MapGridAlignmentEditor({ image, initial, crop, gridWidth = 20, g
       <button type="button" aria-pressed={panMode} onClick={() => { setPanMode(true); setMagnifier(null) }}>지도 이동</button>
       <button type="button" aria-pressed={!panMode} onClick={() => setPanMode(false)}>격자 맞추기</button>
     </div>
-    <div ref={canvas} className={`map-grid-alignment-canvas${sizing ? ' is-sizing' : ''}${panMode ? ' is-panning' : ''}`} onPointerDown={event => panMode ? beginPanning(event) : beginGridSizing(event)} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onPointerLeave={() => !drag.current && !panDrag.current && setMagnifier(null)}>
-      <img src={image} alt="공개된 지도 이미지" draggable={false} onLoad={event => { const loadedSize = { width: event.currentTarget.naturalWidth || 1, height: event.currentTarget.naturalHeight || 1 }; setImageSize(loadedSize); setPan(current => clampPan(current, crop && crop.width > 0 && crop.height > 0 ? crop : loadedSize, canvas.current, zoom)) }} style={{ width: imageSize.width, height: imageSize.height, maxWidth: 'none', maxHeight: 'none', transform: `translate(${view.offsetX + pan.x - displayCrop.x * view.scale * zoom}px, ${view.offsetY + pan.y - displayCrop.y * view.scale * zoom}px) scale(${view.scale * zoom})`, transformOrigin: '0 0' }} />
+    <div ref={canvas} style={canvasStyle} className={`map-grid-alignment-canvas${sizing ? ' is-sizing' : ''}${panMode ? ' is-panning' : ''}`} onPointerDown={event => panMode ? beginPanning(event) : beginGridSizing(event)} onPointerMove={move} onPointerUp={finish} onPointerCancel={finish} onPointerLeave={() => !drag.current && !panDrag.current && setMagnifier(null)}>
+      <div className="map-grid-alignment-image-viewport" aria-label="자른 지도 미리보기" data-crop={`${displayCrop.x},${displayCrop.y},${displayCrop.width},${displayCrop.height}`} style={{ ...cropViewport, overflow: 'hidden' }}>
+        <img src={image} alt="공개된 지도 이미지" draggable={false} onLoad={event => { const loadedSize = { width: event.currentTarget.naturalWidth || 1, height: event.currentTarget.naturalHeight || 1 }; setImageSize(loadedSize); setPan(current => clampPan(current, crop && crop.width > 0 && crop.height > 0 ? crop : loadedSize, canvas.current, zoom)) }} style={{ width: imageSize.width, height: imageSize.height, maxWidth: 'none', maxHeight: 'none', transform: `translate(${-displayCrop.x * imageScale}px, ${-displayCrop.y * imageScale}px) scale(${imageScale})`, transformOrigin: '0 0' }} />
+      </div>
       <div className="map-grid-alignment-grid" style={{ left: origin.left, top: origin.top, width: cellPixels * 3, height: cellPixels * 3, '--alignment-origin-x': '0px', '--alignment-origin-y': '0px', '--alignment-cell-size': `${cellPixels}px` } as CSSProperties} />
       {magnifier && <div className="map-grid-magnifier" aria-label="확대경" style={{ left: Math.min(Math.max(toCanvas(magnifier.x, magnifier.y).left + 20, 8), 220), top: Math.min(Math.max(toCanvas(magnifier.x, magnifier.y).top - 120, 8), 180) }}><img src={image} alt="" aria-hidden="true" style={{ width: imageSize.width * MAGNIFIER_SCALE, height: imageSize.height * MAGNIFIER_SCALE, transform: `translate(${50 - magnifier.x * MAGNIFIER_SCALE}px, ${50 - magnifier.y * MAGNIFIER_SCALE}px)` }} /></div>}
     </div>
