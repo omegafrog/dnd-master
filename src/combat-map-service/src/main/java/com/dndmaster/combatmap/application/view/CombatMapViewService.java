@@ -132,7 +132,8 @@ public final class CombatMapViewService {
     public Optional<PlayerCombatMapView> displayForAdventure(AdventureId adventureId, MapOwnerId owner) { return store.findByAdventureId(adventureId, owner).map(state -> { observePublicImage(state.map().id(), owner, state); return projection(state.map(), state.version()); }); }
     public Optional<PlayerCombatMapView> displayForPreparation(AdventureId adventureId, MapOwnerId owner) {
         return store.findPreparedByAdventureId(adventureId, owner).or(() -> store.findByAdventureId(adventureId, owner))
-                .map(state -> new PlayerCombatMapView(state.map().id(), state.map().grid(), state.map().tokens(),
+                .map(state -> new PlayerCombatMapView(state.map().id(), state.map().grid(), state.map().tokens().stream()
+                        .filter(token -> token.type() != TokenType.PLAYER).toList(),
                 state.map().obstacles(), state.map().doors().stream().toList(), playerSafeLayers(state.map()), Set.of(), Set.of(), Set.of(), state.version()));
     }
     public Optional<MapId> preparedMapIdForAdventure(AdventureId adventureId, MapOwnerId owner) {
@@ -152,7 +153,7 @@ public final class CombatMapViewService {
         }
         // A PLAYER token on a prepared draft may be an old AI suggestion (or a
         // legacy map created before situation-based entry was introduced).  It
-        // is not authoritative until the map has actually entered combat.
+        // is not authoritative until the map has actually been entered.
         // Otherwise that stale token would silently override the committed
         // situation's entry side and place the party at an unrelated cell.
         Optional<GridPosition> tactical = state.map().runtimeState().combatEntered()

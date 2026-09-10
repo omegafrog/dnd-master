@@ -315,7 +315,10 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           }} onPointerCancel={() => { const stroke = boundaryStroke.current; if (stroke) restoreBoundaryStroke(stroke); boundaryStroke.current = null; setBoundaryPreview(null); setMessage('선분 드래그를 취소했습니다.') }}>
         {Array.from({ length: displayedColumns * displayedRows }, (_, index) => {
           const cell = { x: (playableWindow?.minX ?? 0) + index % displayedColumns, y: (playableWindow?.minY ?? 0) + Math.floor(index / displayedColumns) }
-          const token = map.tokens?.find(item => item.x === cell.x && item.y === cell.y)
+          // A prepared map may contain an AI-generated or legacy player-start
+          // suggestion. It is not authoritative and must never be shown as a
+          // coordinate the user is expected to confirm.
+          const token = (preparationMode ? map.tokens?.filter(item => item.type !== 'PLAYER') : map.tokens)?.find(item => item.x === cell.x && item.y === cell.y)
           const playable = isPlayableGridCell(map, previewGrid, cell)
           const blocked = !preparationMode && map.obstacles?.some(obstacle => obstacle.x === cell.x && obstacle.y === cell.y)
           const door = !preparationMode && map.doors?.find(item => item.x === cell.x && item.y === cell.y)

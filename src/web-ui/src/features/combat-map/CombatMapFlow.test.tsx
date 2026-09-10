@@ -292,6 +292,28 @@ it('does not show image-analysis candidate controls', async () => {
   expect(screen.queryByRole('button', { name: /후보 승인|후보 제외/ })).not.toBeInTheDocument()
 })
 
+it('does not show a player-start candidate during map preparation', async () => {
+  const api = fakeApi()
+  api.getCombatMapPreparation = vi.fn().mockResolvedValue({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 2, height: 2 },
+    tokens: [{ id: 'suggested-start', type: 'PLAYER', x: 1, y: 1 }],
+  })
+  api.getCombatMapPreparationImage = vi.fn().mockResolvedValue('/preparation-map.png')
+  api.getMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.applyMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 2, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  const user = userEvent.setup()
+
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  await confirmCrop(user)
+  await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  await user.click(await screen.findByRole('button', { name: '벽·문 편집' }))
+  expect(screen.queryByRole('button', { name: /플레이어 시작 위치/ })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '빈 격자 1,1' })).toBeInTheDocument()
+})
+
 it('does not treat a draft saved for an older grid as ready after reload', async () => {
   const api = fakeApi()
   api.getCombatMapPreparation = async () => ({
