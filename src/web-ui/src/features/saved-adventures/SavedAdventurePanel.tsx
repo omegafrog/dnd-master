@@ -13,13 +13,16 @@ export function SavedAdventurePanel({
   setupApi,
   playerId,
   onResumed,
+  forceList = false,
 }: {
   playApi: AdventurePlayApi
   setupApi: SetupApi
   playerId: string
   onResumed?: (adventureId: string) => void
+  forceList?: boolean
 }) {
   const [items, setItems] = useState<SavedAdventure[]>([])
+  const [loaded, setLoaded] = useState(false)
   const [message, setMessage] = useState('')
   const [selectedAdventureId, setSelectedAdventureId] = useState<string | null>(null)
   const [selectedAdventure, setSelectedAdventure] = useState<SessionKnowledgeSet | null>(null)
@@ -29,9 +32,28 @@ export function SavedAdventurePanel({
 
   const load = () => {
     setMessage('')
-    void playApi.listSaved(playerId).then(setItems).catch(() => setMessage('모험 목록을 불러오지 못했습니다. 다시 시도해 주세요.'))
+    setLoaded(false)
+    void playApi.listSaved(playerId).then(nextItems => {
+      setItems(nextItems)
+
+      if (!forceList) {
+        if (nextItems.length === 0) {
+          window.location.hash = '#/setup?mode=create'
+          return
+        }
+        if (nextItems.length === 1) {
+          window.location.hash = `#/adventures/${encodeURIComponent(nextItems[0].id)}?tab=materials`
+          return
+        }
+      }
+
+      setLoaded(true)
+    }).catch(() => {
+      setLoaded(true)
+      setMessage('모험 목록을 불러오지 못했습니다. 다시 시도해 주세요.')
+    })
   }
-  useEffect(load, [playApi, playerId])
+  useEffect(load, [playApi, playerId, forceList])
 
   async function resume(id: string) {
     try {
@@ -93,6 +115,10 @@ export function SavedAdventurePanel({
     } catch {
       setSessionMessage('세션 자료를 저장하지 못했습니다. 다시 시도해 주세요.')
     }
+  }
+
+  if (!loaded) {
+    return <section className="saved-adventure-routing" aria-busy="true"><p role="status">모험을 여는 중입니다.</p></section>
   }
 
   return (
