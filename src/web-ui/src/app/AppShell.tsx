@@ -1,63 +1,124 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../features/auth/AuthContext'
 import { LoginForm } from '../features/auth/LoginForm'
-import { ProfileApi } from '../features/auth/ProfileApi'
-import { RulebookSetup } from '../features/rulebooks/RulebookSetup'
-import { BundleDetailPage } from '../features/rulebooks/BundleDetailPage'
-import { SavedAdventurePanel } from '../features/saved-adventures/SavedAdventurePanel'
-import { HttpAdventurePlayApi } from '../features/saved-adventures/AdventurePlayApi'
+import { HttpAdventureApi } from '../features/adventure/AdventureApi'
 import { AdventureWorkspace } from '../features/adventure/AdventureWorkspace'
 import { SessionRuntime } from '../features/adventure/SessionRuntime'
 import { SessionRuntimeRoute } from '../features/adventure/SessionRuntimeRoute'
-import { CharacterSheetView } from '../features/character-sheet/CharacterSheetView'
-import { AdventureSessionPanel } from '../features/adventure-session/AdventureSessionPanel'
-import { CharacterCreationPage } from '../features/character-creation/CharacterCreationPage'
-import { PackageBlueprintReviewPage } from '../features/character-creation/PackageBlueprintReviewPage'
-import { CombatScreen } from '../features/combat/CombatScreen'
-import { CombatMapView } from '../features/combat/CombatMapView'
+import { HttpAdventurePlayApi } from '../features/saved-adventures/AdventurePlayApi'
+import { SavedAdventurePanel } from '../features/saved-adventures/SavedAdventurePanel'
+import { HttpSetupApi } from '../features/rulebooks/SetupApi'
+import { RulebookSetup } from '../features/rulebooks/RulebookSetup'
 import { BackofficePage } from '../features/backoffice/BackofficePage'
-import { AiEndpointSettings } from '../features/auth/AiEndpointSettings'
-import type { SetupApi } from '../features/rulebooks/SetupApi'
-import type { AdventureApi } from '../features/adventure/AdventureApi'
-import type { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
-import type { CombatApi, CombatSnapshot } from '../features/combat/CombatApi'
-import { parseRoute } from './routes'
+import { BundleDetailPage } from '../features/rulebooks/BundleDetailPage'
+import { CharacterSheetView } from '../features/character/CharacterSheetView'
+import { CharacterCreationPage } from '../features/character/CharacterCreationPage'
+import { PackageBlueprintReviewPage } from '../features/character/PackageBlueprintReviewPage'
+import { CombatMapView } from '../features/combat-map/CombatMapView'
+import { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
+import { AdventureSessionPanel } from '../features/adventure-session/AdventureSessionPanel'
+import { AiEndpointSettings } from '../features/profile/AiEndpointSettings'
+import { CombatScreen } from '../features/combat/CombatScreen'
+import { HttpCombatApi, type CombatFinalSummary, type CombatSnapshot } from '../features/combat/CombatApi'
+import { parseRoute, type Route } from './route'
 
-export function AppShell({
-  setupApi,
-  adventureApi,
-  sessionApi,
-  combatApi,
-}: {
-  setupApi: SetupApi
-  adventureApi: AdventureApi
-  sessionApi: AdventureSessionApi
-  combatApi: CombatApi
-}) {
+export function AppShell() {
   const auth = useAuth()
-  const [route, setRoute] = useState(() => parseRoute(window.location.hash))
-  const [combatSnapshot, setCombatSnapshot] = useState<CombatSnapshot | null>(null)
-  const [combatFinalSummary, setCombatFinalSummary] = useState<{ summary: string } | null>(null)
-  const [adventureVersion, setAdventureVersion] = useState(0)
+  const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash))
+  const [selectedBundleId, setSelectedBundleId] = useState(() => window.localStorage.getItem('dnd-selected-bundle-id') ?? '')
   const [mapRefreshToken, setMapRefreshToken] = useState(0)
-  const refreshCombatRef = useRef(0)
-  const playerId = auth.session?.playerId ?? ''
-  const getToken = useCallback(() => auth.session?.accessToken ?? '', [auth.session?.accessToken])
+  const sessionApi = useMemo(() => new AdventureSessionApi(auth.session?.accessToken ?? ''), [auth.session?.accessToken])
+  const setupApi = useMemo(() => new HttpSetupApi(() => auth.session?.accessToken ?? ''), [auth.session?.accessToken])
+  const rawSetupApi = useMemo(() => new HttpSetupApi(() => auth.session?.accessToken ?? ''), [auth.session?.accessToken])
 
+  const onHashChange = useCallback(() => setRoute(parseRoute(window.location.hash)), [])
+  const refreshCombatMap = useCallback(() => setMapRefreshToken(current => current + 1), [])
   useEffect(() => {
-    const onHashChange = () => setRoute(parseRoute(window.location.hash))
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
+  }, [onHashChange])
+  useEffect(() => {
+    if (auth.session && route.page === 'login') window.location.hash = '#/adventures'
+  }, [auth.session, route.page])
+  useEffect(() => {
+    if (!auth.session || route.page !== 'adventures') return
+    const currentPath = window.location.hash.split('?')[0]
+    if (currentPath === '#/setup') window.location.hash = '#/adventures'
+  }, [auth.session, route.page])
+  useEffect(() => {
+    const refreshSelectedBundle = () => setSelectedBundleId(window.localStorage.getItem('dnd-selected-bundle-id') ?? '')
+    window.addEventListener('dnd-selected-bundle-change', refreshSelectedBundle)
+    return () => window.removeEventListener('dnd-selected-bundle-change', refreshSelectedBundle)
   }, [])
+  useEffect(() => {
+    if (!auth.session) return
+    const sessionId = route.page === 'character-blueprint' || route.page === 'character-create' || route.page === 'session' || route.page === 'party' || route.page === 'session-runtime'
+      ? route.sessionId
+      : null
+    const adventureId = route.page === 'adventure' || route.page === 'adventure-workspace' ? route.adventureId : null
+    if ((!sessionId && !adventureId) || !rawSetupApi.getScenarioPackage) return
+    let active = true
+    const packageId = sessionId
+      ? sessionApi.read(sessionId).then(session => session.scenarioPackageId ?? null)
+      : rawSetupApi.getRuntimeBinding?.(adventureId!, auth.session?.playerId ?? '').then(binding => binding.scenarioPackageId)
+    void packageId
+      ?.then(id => id ? rawSetupApi.getScenarioPackage!(id) : null)
+      .then(scenarioPackage => {
+        if (!active || !scenarioPackage) return
+        window.localStorage.setItem('dnd-selected-bundle-id', scenarioPackage.bundleId)
+        window.dispatchEvent(new Event('dnd-selected-bundle-change'))
+        setSelectedBundleId(scenarioPackage.bundleId)
+      })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [auth.session, rawSetupApi, route, sessionApi])
+  useEffect(() => {
+    if (!auth.session || route.page !== 'adventures' || selectedBundleId || !rawSetupApi.listScenarioBundles) return
+    let active = true
+    void rawSetupApi.listScenarioBundles()
+      .then(bundles => {
+        const bundleId = bundles[0]?.bundleId
+        if (!active || !bundleId) return
+        window.localStorage.setItem('dnd-selected-bundle-id', bundleId)
+        window.dispatchEvent(new Event('dnd-selected-bundle-change'))
+        setSelectedBundleId(bundleId)
+      })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [auth.session, rawSetupApi, route.page, selectedBundleId])
 
+  const token = auth.session?.accessToken ?? ''
+  const playerId = auth.session?.playerId ?? ''
+  const getToken = useCallback(() => token, [token])
+  const adventureApi = useMemo(() => new HttpAdventureApi(getToken), [getToken])
+  const combatApi = useMemo(() => new HttpCombatApi(getToken), [getToken])
+  const [combatSnapshot, setCombatSnapshot] = useState<CombatSnapshot | null>(null)
+  const [combatFinalSummary, setCombatFinalSummary] = useState<CombatFinalSummary | null>(null)
+  const [adventureVersion, setAdventureVersion] = useState<number | null>(null)
   const refreshCombat = useCallback(() => {
-    refreshCombatRef.current += 1
-    setAdventureVersion(value => value + 1)
-  }, [])
-  const refreshCombatMap = useCallback(() => setMapRefreshToken(value => value + 1), [])
-
+    if (!auth.session || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) return
+    const summaryRequest = combatApi.readFinalSummary
+      ? combatApi.readFinalSummary(route.adventureId)
+      : Promise.resolve(null)
+    void Promise.all([combatApi.readSnapshot(route.adventureId), summaryRequest]).then(([snapshot, summary]) => {
+      setCombatSnapshot(snapshot)
+      setCombatFinalSummary(snapshot ? null : summary)
+    }).catch(() => undefined)
+  }, [auth.session, combatApi, route])
   useEffect(() => {
     if (!auth.session || route.page !== 'adventure') return
+    let active = true
+    void adventureApi.readConversation(route.adventureId).then(response => {
+      if (active) setAdventureVersion(response.version)
+    }).catch(() => { if (active) setAdventureVersion(null) })
+    return () => { active = false }
+  }, [auth.session, adventureApi, route])
+  useEffect(() => {
+    if (!auth.session || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) {
+      setCombatSnapshot(null)
+      setCombatFinalSummary(null)
+      return
+    }
     let active = true
     setCombatFinalSummary(null)
     const finalSummary = combatApi.readFinalSummary
@@ -73,8 +134,7 @@ export function AppShell({
         if (active) { setCombatSnapshot(null); setCombatFinalSummary(null) }
       })
     return () => { active = false }
-  }, [auth.session, combatApi, route, adventureVersion])
-
+  }, [auth.session, combatApi, route])
   useEffect(() => {
     if (!auth.session || route.page !== 'adventure' || !combatApi.subscribeEvents || combatSnapshot?.eventCursor == null) return
     const adventureId = route.adventureId
@@ -159,11 +219,5 @@ function Brand() {
 }
 
 function ProfilePage({ session }: { session: NonNullable<ReturnType<typeof useAuth>['session']> }) {
-  const profileApi = useMemo(() => new ProfileApi(() => session.accessToken), [session.accessToken])
-  const [displayName, setDisplayName] = useState(session.playerName)
-  const [message, setMessage] = useState('')
-  return <section aria-labelledby="profile-title" className="profile-page"><div className="page-heading"><div><p className="eyebrow">PLAYER SETTINGS</p><h1 id="profile-title">내 설정</h1></div></div><section className="setup-panel"><h2>내 정보</h2><form onSubmit={event => { event.preventDefault(); void profileApi.updateProfile({ playerName: displayName }).then(() => setMessage('저장했습니다.')).catch(error => setMessage(error instanceof Error ? error.message : '저장하지 못했습니다.')) }}><label>이름<input value={displayName} onChange={event => setDisplayName(event.currentTarget.value)} /></label><button type="submit">저장</button></form><p role="status">{message}</p></section><AiEndpointSettings session={session} /></section>
+  return <section aria-labelledby="profile-title" className="profile-page"><div className="page-heading"><div><p className="eyebrow">PLAYER SETTINGS</p><h1 id="profile-title">내 설정</h1></div></div><section className="setup-panel"><h2>내 정보</h2><dl><dt>이름</dt><dd>{session.playerName}</dd><dt>플레이어 ID</dt><dd>{session.playerId}</dd><dt>인증 만료</dt><dd>{new Date(session.expiresAt).toLocaleString('ko-KR')}</dd></dl></section><AiEndpointSettings session={session} /></section>
 }
-
-function BrandPlaceholder() { return null }
-void BrandPlaceholder
