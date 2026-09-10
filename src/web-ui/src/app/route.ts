@@ -28,7 +28,7 @@ export function parseRoute(hash: string): Route {
   if (segments[0] === 'adventures' && segments[1]) {
     const tab = params.get('tab')
     if (tab === 'materials' || tab === 'review' || tab === 'characters' || tab === 'sessions') return { page: 'adventure-workspace', adventureId: segments[1], tab }
-    return { page: 'adventure', adventureId: segments[1] }
+    return { page: 'adventure-workspace', adventureId: segments[1], tab: 'materials' }
   }
   if (segments[0] === 'adventures') return { page: 'adventures' }
   if (segments[0] === 'sessions' && segments[1] && params.get('mode') === 'play') return { page: 'session-runtime', sessionId: segments[1] }
