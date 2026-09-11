@@ -196,15 +196,15 @@ public final class CombatMapViewService {
         Optional<GridPosition> userConfirmed = context.entryEvidence().isBlank()
                 ? confirmedPlayerStart(prepared)
                 : Optional.empty();
-        Optional<GridPosition> agentProposal = scenarioPlayerStart(prepared);
-        LOGGER.info("map_spawn_placement_candidates mapId={} explicit={} agentProposal={} userConfirmed={} tactical={}",
+        List<PlayerStartCandidate> agentCandidates = scenarioPlayerStartCandidates(prepared);
+        LOGGER.info("map_spawn_placement_candidates mapId={} explicit={} agentCandidates={} userConfirmed={} tactical={}",
                 id.value(), context.placementProposal().map(Object::toString).orElse(""),
-                agentProposal.map(Object::toString).orElse(""),
+                agentCandidates,
                 userConfirmed.map(Object::toString).orElse(""), tactical.map(Object::toString).orElse(""));
         SpawnResolution resolution;
         try {
             resolution = new SpawnResolutionPolicy().resolve(prepared.grid(), prepared.obstacles(), prepared.doors(), occupied, playable,
-                    context, userConfirmed, tactical, agentProposal);
+                    context, userConfirmed, tactical, agentCandidates);
         } catch (MapPlacementRequiredException exception) {
             markPlacementRequired(prepared, owner, state.version(), context);
             LOGGER.info("map_spawn_placement_required mapId={} reason={} entryEvidence={}",
@@ -240,7 +240,8 @@ public final class CombatMapViewService {
                 gridOrigin(map)[0], gridOrigin(map)[1], gridOrigin(map)[2], crop(map), true, "", map.boundaries())
                 .withEntryEvidence(evidenceLine(context.entryEvidence(), "PLAYER_ACTION"),
                         evidenceLine(context.entryEvidence(), "GM_JUDGMENT"),
-                        evidenceLine(context.entryEvidence(), "GM_NARRATION"));
+                        evidenceLine(context.entryEvidence(), "GM_NARRATION"))
+                .withEntryContext(evidenceLine(context.entryEvidence(), "FIRST_NARRATION"), context.location());
         PreparedMapData generated;
         try {
             generated = aiPort.proposeEntryPlacement(request);
@@ -584,23 +585,37 @@ public final class CombatMapViewService {
         return map.layers().stream().filter(layer -> "PLAYER_START_CONFIRMED".equals(layer.type()))
                 .map(MapLayer::value).map(CombatMapViewService::parsePosition).flatMap(Optional::stream).findFirst();
     }
-    private static Optional<GridPosition> scenarioPlayerStart(CombatMap map) {
+    private static List<PlayerStartCandidate> scenarioPlayerStartCandidates(CombatMap map) {
+        List<PlayerStartCandidate> result = new ArrayList<>();
+        boolean hasDedicatedResult = map.layers().stream().anyMatch(layer -> "GM_ENTRY_PLACEMENT_RESULT".equals(layer.type()));
         for (MapLayer layer : map.layers()) {
-            if (!"GM_PLAYER_START_PROPOSAL".equals(layer.type())) continue;
+            if (hasDedicatedResult && !"GM_ENTRY_PLACEMENT_RESULT".equals(layer.type())) continue;
+            if (!hasDedicatedResult && !"GM_PLAYER_START_PROPOSAL".equals(layer.type())) continue;
             try {
                 var node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(layer.value());
-                String position = node.path("position").asText("").trim();
-                Optional<GridPosition> parsed = parsePosition(position);
-                double confidence = node.path("confidence").asDouble(0);
-                String source = node.path("source").asText("").trim();
-                String status = node.path("status").asText("PROPOSED").trim().toUpperCase(Locale.ROOT);
-                if (parsed.isPresent() && "PROPOSED".equals(status) && confidence >= .5d && !source.isBlank()
-                        && node.path("evidence").isArray() && node.path("evidence").size() > 0
-                        && java.util.stream.StreamSupport.stream(node.path("evidence").spliterator(), false)
-                                .map(com.fasterxml.jackson.databind.JsonNode::asText).anyMatch(value -> !value.isBlank())) return parsed;
+                if ("GM_ENTRY_PLACEMENT_RESULT".equals(layer.type())) {
+                    String status = node.path("status").asText("UNRESOLVED").trim().toUpperCase(Locale.ROOT);
+                    if (!"RESOLVED".equals(status)) continue;
+                    if (node.path("candidates").isArray()) {
+                        node.path("candidates").forEach(candidate -> addScenarioCandidate(result, candidate));
+                    }
+                } else {
+                    addScenarioCandidate(result, node);
+                }
             } catch (Exception ignored) { /* malformed optional proposal is treated as unresolved */ }
         }
-        return Optional.empty();
+        return List.copyOf(result);
+    }
+    private static void addScenarioCandidate(List<PlayerStartCandidate> result,
+            com.fasterxml.jackson.databind.JsonNode node) {
+        String position = node.path("position").asText("").trim();
+        Optional<GridPosition> parsed = parsePosition(position);
+        double confidence = node.path("confidence").asDouble(0);
+        String source = node.path("source").asText("").trim();
+        if (parsed.isEmpty() || !Double.isFinite(confidence) || confidence < .5d || confidence > 1d || source.isBlank()) return;
+        List<String> evidence = new ArrayList<>();
+        if (node.path("evidence").isArray()) node.path("evidence").forEach(item -> evidence.add(item.asText()));
+        result.add(new PlayerStartCandidate(parsed.get(), confidence, evidence, source));
     }
     private static String evidenceLine(String evidence, String label) {
         if (evidence == null || evidence.isBlank()) return "";

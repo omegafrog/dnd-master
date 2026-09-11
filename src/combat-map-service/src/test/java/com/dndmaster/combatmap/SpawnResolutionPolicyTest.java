@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.dndmaster.combatmap.application.view.MapActivationContext;
 import com.dndmaster.combatmap.application.view.MapPlacementRequiredException;
+import com.dndmaster.combatmap.application.view.PlayerStartCandidate;
 import com.dndmaster.combatmap.application.view.SpawnResolution;
 import com.dndmaster.combatmap.application.view.SpawnResolutionPolicy;
 import com.dndmaster.combatmap.domain.Door;
@@ -57,6 +58,20 @@ class SpawnResolutionPolicyTest {
         assertFalse(SpawnResolutionPolicy.isValid(grid, Set.of(), List.of(), Set.of(new GridPosition(1, 1)), allCells(), new GridPosition(1, 1)));
         assertFalse(SpawnResolutionPolicy.isValid(grid, Set.of(), List.of(new Door(new GridPosition(1, 1), false)), Set.of(), allCells(), new GridPosition(1, 1)));
         assertTrue(SpawnResolutionPolicy.isValid(grid, Set.of(), List.of(new Door(new GridPosition(1, 1), true)), Set.of(), allCells(), new GridPosition(1, 1)));
+    }
+
+    @Test
+    void checksAllRankedAgentCandidatesUntilTheFirstValidCell() {
+        var candidates = List.of(
+                new PlayerStartCandidate(new GridPosition(1, 1), .92, List.of("stair graphic"), "MAP_IMAGE"),
+                new PlayerStartCandidate(new GridPosition(1, 2), .81, List.of("cell beyond stairs"), "MAP_IMAGE"),
+                new PlayerStartCandidate(new GridPosition(2, 2), .61, List.of("nearby floor"), "MAP_IMAGE"));
+
+        var result = policy.resolve(grid, Set.of(new GridPosition(1, 1)), List.of(), Set.of(), allCells(),
+                MapActivationContext.atStage(1), Optional.empty(), Optional.empty(), candidates);
+
+        assertEquals(new GridPosition(1, 2), result.position());
+        assertEquals(SpawnResolution.Source.AGENT_PROPOSAL, result.source());
     }
 
     private static Set<GridPosition> allCells() {

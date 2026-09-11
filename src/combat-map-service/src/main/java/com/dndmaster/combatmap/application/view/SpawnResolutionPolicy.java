@@ -35,6 +35,15 @@ public final class SpawnResolutionPolicy {
             Collection<GridPosition> occupied, Collection<GridPosition> playable, MapActivationContext context,
             Optional<GridPosition> userConfirmedPlacement, Optional<GridPosition> tacticalPlayerPlacement,
             Optional<GridPosition> agentProposal) {
+        List<PlayerStartCandidate> candidates = agentProposal.map(position ->
+                new PlayerStartCandidate(position, 1, List.of("legacy agent proposal"), "AGENT_PROPOSAL")).stream().toList();
+        return resolve(grid, obstacles, doors, occupied, playable, context, userConfirmedPlacement,
+                tacticalPlayerPlacement, candidates);
+    }
+    public SpawnResolution resolve(GridSpec grid, Set<GridPosition> obstacles, Collection<Door> doors,
+            Collection<GridPosition> occupied, Collection<GridPosition> playable, MapActivationContext context,
+            Optional<GridPosition> userConfirmedPlacement, Optional<GridPosition> tacticalPlayerPlacement,
+            List<PlayerStartCandidate> agentCandidates) {
         Set<GridPosition> blocked = new HashSet<>(obstacles);
         doors.stream().filter(d -> !d.open()).map(Door::position).forEach(blocked::add);
         Set<GridPosition> used = new HashSet<>(occupied);
@@ -48,9 +57,12 @@ public final class SpawnResolutionPolicy {
         Optional<SpawnResolution> activation = evaluateCandidate(grid, blocked, used, allowed, context.placementProposal(),
                 SpawnResolution.Source.ACTIVATION_CANDIDATE);
         if (activation.isPresent()) return activation.get();
-        Optional<SpawnResolution> agent = evaluateCandidate(grid, blocked, used, allowed, agentProposal,
-                SpawnResolution.Source.AGENT_PROPOSAL);
-        if (agent.isPresent()) return agent.get();
+        for (PlayerStartCandidate candidate : agentCandidates == null ? List.<PlayerStartCandidate>of() : agentCandidates) {
+            if (candidate == null || candidate.confidence() < .5d) continue;
+            Optional<SpawnResolution> agent = evaluateCandidate(grid, blocked, used, allowed,
+                    Optional.of(candidate.position()), SpawnResolution.Source.AGENT_PROPOSAL);
+            if (agent.isPresent()) return agent.get();
+        }
         throw new MapPlacementRequiredException();
     }
 
