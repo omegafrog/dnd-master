@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.application.ports.AdjudicationModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapModelPort;
+import com.dndmaster.aigamemaster.application.ports.MapEntryPlacementModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationOutput;
 import com.dndmaster.aigamemaster.application.rule.*;
@@ -138,17 +139,19 @@ public class AiGameMasterApiConfiguration {
             try {
                 raw = java.util.concurrent.CompletableFuture.supplyAsync(() -> adapter.complete(
                 "map-" + UUID.randomUUID(),
-                new GmPrompt("ROLE=MAP_LAYOUT_GM\n"
+                new GmPrompt("ROLE=" + mapRole(input) + "\n"
                         + "SCENARIO=" + input.selectedScenario() + "\n"
                         + "CURRENT_CONTEXT=" + input.currentContext() + "\n"
                         + "MAP_DATA=" + input.mapData() + "\n"
                         + "MAP_IMAGE=" + (input.imageDataUri().isBlank() ? "not provided" : "provided; inspect the attached image") + "\n"
-                        + "OUTPUT_CONTRACT=Return exactly one JSON object with width, height, boundaries, obstacles, doors, playerStart, and rationale. "
+                        + "OUTPUT_CONTRACT=Return exactly one JSON object with width, height, boundaries, obstacles, doors, playerStart, playerStartProposal, and rationale. "
                         + "When MAP_DATA.gridConfirmed is true, MAP_DATA.gridWidth, MAP_DATA.gridHeight, MAP_DATA.gridOriginX, MAP_DATA.gridOriginY, and MAP_DATA.gridCellSize are the user's confirmed image geometry. Preserve width and height exactly, inspect only the rectangle covered by that grid, and never recalculate or move the grid. "
                         + "If MAP_DATA.crop is non-empty, use it as the user's saved image crop while interpreting the same confirmed grid. "
                         + "When MAP_DATA.gridConfirmed is false, treat the dimensions as a rough initial suggestion and preserve them when no image is provided. "
                         + "boundaries must be an array of shared cell sides written x,y,HORIZONTAL,WALL or x,y,VERTICAL,DOOR. A HORIZONTAL side x,y spans above cell x,y; a VERTICAL side x,y spans left of cell x,y. Put visible walls and closed doors in boundaries. obstacles and doors must be empty arrays unless an entire cell is blocked. "
-                        + "playerStart must be one grid cell written as x,y or an empty string. "
+                        + "playerStart is retained only for input compatibility and must not determine runtime placement. playerStartProposal must be an object with status (PROPOSED or UNRESOLVED), position (x,y or empty), evidence (array of concrete scenario/map facts), confidence (0 to 1), and source. "
+                        + "Determine the scenario's actual entry path from CURRENT_CONTEXT, especially FIRST_NARRATION, PLAYER_ACTION, and GM_NARRATION. On map-entry activation these lines are the authoritative evidence for the party's first position. Use FIRST_NARRATION to identify the starting place and PLAYER_ACTION/GM_NARRATION to identify the transition into the map. If they explicitly describe opening/crossing a door, descending stairs, or entering a room, inspect the attached map and MUST return a non-empty playerStartProposal for the cell where the movement ends. For a completed descent, choose the destination floor cell immediately beyond the bottom end of the visible stairs; do not choose the staircase graphic itself, the room center, or the geometric map center. For a completed door crossing, choose the first floor cell immediately beyond the doorway. The proposal evidence must quote the relevant narrative fact and describe the matching map feature. If several cells are possible, choose the closest destination cell and give confidence at least 0.5. Do not return an empty proposal merely because the feature is not aligned to a map edge. Never infer a map side from words such as 지하, cellar, basement, upstairs, downstairs, left, right, upper, or lower, but do use those words as room-entry evidence when paired with a described door, stair, or passage. Only use an empty proposal when CURRENT_CONTEXT contains no explicit map-entry action. "
+                        + "For MAP_ENTRY_PLACEMENT_AGENT, preserve the supplied map geometry and use the response only to provide playerStartProposal; do not redesign the map. "
                         + "Use only the supplied map data and scenario evidence. Do not invent a structure that is not supported by the supplied data. "
                         + "When MAP_IMAGE is provided, inspect the attached image and convert only clearly visible, continuous wall and door lines to boundaries. Be conservative: a dark floor texture, furniture edge, shadow, grid line, or decoration is not a wall. When unsure, omit it. "
                         + "Treat authored obstacle, door, boundary, and player-start coordinates as user-confirmed evidence and preserve them. If the image is unclear, omit the uncertain cell instead of guessing. "
@@ -183,18 +186,79 @@ public class AiGameMasterApiConfiguration {
                 if (parsed.boundaries().isEmpty() && !detection.boundaries().isEmpty()) {
                     return new MapModelPort.MapOutput(parsed.width(), parsed.height(),
                             detection.rationale(), parsed.obstacles(), parsed.doors(),
-                            detection.boundaries(), parsed.playerStart(), candidates);
+                            detection.boundaries(), parsed.playerStart(), candidates, parsed.playerStartProposal());
                 }
                 if (!candidates.equals(parsed.candidates())) {
                     return new MapModelPort.MapOutput(parsed.width(), parsed.height(), parsed.structuredLayers(),
-                            parsed.obstacles(), parsed.doors(), parsed.boundaries(), parsed.playerStart(), candidates);
+                            parsed.obstacles(), parsed.doors(), parsed.boundaries(), parsed.playerStart(), candidates, parsed.playerStartProposal());
                 }
             }
             AuthoredMap authored = authoredMap(input, mapper, parsed.width(), parsed.height());
             List<MapModelPort.MapBoundaryCandidate> candidates = withoutAuthoredCandidates(parsed.candidates(), authored.boundaries());
             return candidates.equals(parsed.candidates()) ? parsed : new MapModelPort.MapOutput(parsed.width(), parsed.height(),
-                    parsed.structuredLayers(), parsed.obstacles(), parsed.doors(), parsed.boundaries(), parsed.playerStart(), candidates);
+                    parsed.structuredLayers(), parsed.obstacles(), parsed.doors(), parsed.boundaries(), parsed.playerStart(), candidates, parsed.playerStartProposal());
         };
+    }
+
+    @Bean
+    MapEntryPlacementModelPort mapEntryPlacementModelPort(GmCompletionAdapter adapter,
+            com.fasterxml.jackson.databind.ObjectMapper mapper) {
+        return input -> {
+            try {
+                MapEntryPlacementModelPort.EntryPlacementOutput output = java.util.concurrent.CompletableFuture.supplyAsync(() -> adapter.complete(
+                    "map-entry-placement-" + UUID.randomUUID(),
+                    new GmPrompt("ROLE=MAP_ENTRY_PLACEMENT_AGENT\n"
+                            + "TARGET_SCENE=" + input.targetScene() + "\n"
+                            + "PLAYER_ACTION=" + input.action() + "\n"
+                            + "GM_JUDGMENT=" + input.judgment() + "\n"
+                            + "GM_NARRATION=" + input.narration() + "\n"
+                            + "MAP_DATA=" + input.mapData() + "\n"
+                            + "MAP_IMAGE=" + (input.imageDataUri().isBlank() ? "not provided" : "provided; inspect the attached image") + "\n"
+                            + "TASK=Interpret the completed entry transition, find the visual entry anchor on the supplied map image, project it to the nearest walkable destination cell, and return ranked candidates. The player has already completed the action. For DESCEND_STAIRS choose the first walkable destination-floor cell immediately beyond the bottom end of the visible stairs. For a door crossing choose the first walkable cell immediately inside the doorway. Use the map data only to validate the projected cell; do not redesign the map or choose the room center. Do not infer a side from words such as north, south, upper, lower, cellar, or basement. Those words are evidence about the transition only when paired with a visible stair, hatch, door, or passage.\n"
+                            + "OUTPUT_CONTRACT=Return exactly one JSON object with status, entryInterpretation, candidates, and reason. status must be RESOLVED, AMBIGUOUS, or UNRESOLVED. entryInterpretation must contain transition, targetScene, anchor, placementRelation, and evidence. candidates must be an array of at most three ranked objects with x, y, confidence, source, anchor, reason, and evidence. x and y are zero-based GRID CELL INDICES, not image pixels, not image coordinates, and not map measurements; with the supplied 20x20 grid every candidate must satisfy 0 <= x < 20 and 0 <= y < 20. evidence must contain concrete quoted narrative facts and a description of the matching map feature. Return UNRESOLVED with an empty candidates array only when the action does not describe a completed map entry or no entry anchor can be localized in the supplied image. If the anchor is visible but several adjacent cells are possible, return them ranked instead of returning an empty array.\n"
+                            + "Do not use markdown, code fences, or any text outside the JSON object.", input.imageDataUri()),
+                    text -> parseEntryPlacement(mapper, text)))
+                        .orTimeout(180, java.util.concurrent.TimeUnit.SECONDS)
+                        .join();
+                return output;
+            } catch (java.util.concurrent.CompletionException | java.util.concurrent.CancellationException failure) {
+                return new MapEntryPlacementModelPort.EntryPlacementOutput("UNRESOLVED",
+                        new MapEntryPlacementModelPort.EntryInterpretation("", input.targetScene(), "", "", ""),
+                        List.of(), "진입 위치 분석 제공자가 응답하지 않았습니다.");
+            }
+        };
+    }
+
+    private static MapEntryPlacementModelPort.EntryPlacementOutput parseEntryPlacement(
+            com.fasterxml.jackson.databind.ObjectMapper mapper, String text) {
+        try {
+            var root = mapper.readTree(text);
+            if (root == null || !root.isObject()) throw new IllegalArgumentException("entry placement response must be an object");
+            String status = root.path("status").asText("UNRESOLVED");
+            var interpretationNode = root.path("entryInterpretation");
+            if (!interpretationNode.isObject()) interpretationNode = root.path("interpretation");
+            MapEntryPlacementModelPort.EntryInterpretation interpretation = new MapEntryPlacementModelPort.EntryInterpretation(
+                    interpretationNode.path("transition").asText(""), interpretationNode.path("targetScene").asText(""),
+                    interpretationNode.path("anchor").asText(""), interpretationNode.path("placementRelation").asText(""),
+                    interpretationNode.path("evidence").asText(""));
+            List<MapEntryPlacementModelPort.Candidate> candidates = new java.util.ArrayList<>();
+            if (root.path("candidates").isArray()) for (var node : root.path("candidates")) {
+                List<String> evidence = new java.util.ArrayList<>();
+                if (node.path("evidence").isArray()) for (var item : node.path("evidence")) evidence.add(item.asText());
+                candidates.add(new MapEntryPlacementModelPort.Candidate(node.path("x").asInt(-1), node.path("y").asInt(-1),
+                        node.path("confidence").asDouble(Double.NaN), node.path("source").asText("MAP_IMAGE"),
+                        node.path("anchor").asText(""), node.path("reason").asText(""), evidence));
+            }
+            return new MapEntryPlacementModelPort.EntryPlacementOutput(status, interpretation, candidates,
+                    root.path("reason").asText(""));
+        } catch (RuntimeException | java.io.IOException exception) {
+            throw new IllegalArgumentException("invalid map entry placement response", exception);
+        }
+    }
+
+    private static String mapRole(MapModelPort.MapInput input) {
+        return "MAP_ENTRY_PLACEMENT_AGENT".equals(input.selectedScenario())
+                ? "MAP_ENTRY_PLACEMENT_AGENT" : "MAP_LAYOUT_GM";
     }
 
     private static MapModelPort.MapOutput deterministicMapFallback(MapModelPort.MapInput input,
@@ -233,7 +297,7 @@ public class AiGameMasterApiConfiguration {
             throw new IllegalArgumentException("player start cannot be blocked");
         }
         return new MapModelPort.MapOutput(parsed.width(), parsed.height(), parsed.structuredLayers(),
-                obstacles, doors, boundaries, playerStart, parsed.candidates());
+                obstacles, doors, boundaries, playerStart, parsed.candidates(), parsed.playerStartProposal());
     }
 
     private static boolean isMapContractViolation(RuntimeException exception) {
@@ -354,7 +418,12 @@ public class AiGameMasterApiConfiguration {
             if (!playerStart.isBlank()) validatePosition(playerStart, width, height, "playerStart");
             if (obstacles.contains(playerStart)) throw new IllegalArgumentException("player start cannot be an obstacle");
             if (doors.contains(playerStart)) throw new IllegalArgumentException("player start cannot be a door");
-            return new MapModelPort.MapOutput(width, height, root.path("rationale").asText(""), obstacles, doors, boundaries, playerStart, candidates);
+            MapModelPort.PlayerStartProposal proposal = playerStartProposal(root.path("playerStartProposal"), width, height);
+            if (proposal != null && !proposal.position().isBlank()
+                    && (obstacles.contains(proposal.position()) || doors.contains(proposal.position()))) {
+                throw new IllegalArgumentException("player start proposal is blocked");
+            }
+            return new MapModelPort.MapOutput(width, height, root.path("rationale").asText(""), obstacles, doors, boundaries, playerStart, candidates, proposal);
         } catch (IllegalArgumentException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -372,6 +441,19 @@ public class AiGameMasterApiConfiguration {
             if (!result.contains(position)) result.add(position);
         }
         return List.copyOf(result);
+    }
+
+    private static MapModelPort.PlayerStartProposal playerStartProposal(com.fasterxml.jackson.databind.JsonNode node,
+            int width, int height) {
+        if (node == null || node.isMissingNode() || node.isNull()) return null;
+        if (!node.isObject()) throw new IllegalArgumentException("playerStartProposal must be an object");
+        String position = node.path("position").asText("").trim();
+        if (position.isBlank()) return null;
+        validatePosition(position, width, height, "playerStartProposal.position");
+        List<String> evidence = new java.util.ArrayList<>();
+        if (node.path("evidence").isArray()) for (var item : node.path("evidence")) evidence.add(item.asText());
+        return new MapModelPort.PlayerStartProposal(position, node.path("confidence").asDouble(Double.NaN), evidence,
+                node.path("source").asText("SCENARIO_ENTRY"), node.path("status").asText("PROPOSED"));
     }
 
     private static List<String> boundaries(com.fasterxml.jackson.databind.JsonNode node, int width, int height) {
@@ -473,8 +555,10 @@ public class AiGameMasterApiConfiguration {
             AdjudicationModelPort adjudicationPort,
             GroundedRuleAnswerService ruleAnswerService,
             MapModelPort mapPort,
-            IntentClassificationModelPort intentClassificationPort) {
-        return new AiGameMasterController(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort);
+            IntentClassificationModelPort intentClassificationPort,
+            MapEntryPlacementModelPort mapEntryPlacementPort) {
+        return new AiGameMasterController(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort,
+                mapEntryPlacementPort);
     }
 
     @Bean

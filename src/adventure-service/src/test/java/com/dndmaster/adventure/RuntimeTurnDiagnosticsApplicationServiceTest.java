@@ -22,6 +22,7 @@ import com.dndmaster.adventure.api.RuntimeTurnDiagnosticsController;
 import com.dndmaster.adventure.api.ScenarioExceptionHandler;
 import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnCompatibilityException;
 import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnPersistenceException;
+import com.dndmaster.adventure.infrastructure.integration.ScenarioLookupFailureException;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import java.util.List;
@@ -120,5 +121,17 @@ class RuntimeTurnDiagnosticsApplicationServiceTest {
         assertEquals(503, storage.getStatusCode().value());
         assertEquals("RUNTIME_TURN_STORAGE_UNAVAILABLE", storage.getBody().get("error"));
         assertFalse(storage.getBody().toString().contains("secret"));
+    }
+
+    @Test
+    void does_not_report_scenario_lookup_failure_as_an_adventure_start_block() {
+        var handler = new ScenarioExceptionHandler();
+        var response = handler.scenarioLookupFailure(new ScenarioLookupFailureException(
+                "scenario lookup failed", new IllegalArgumentException("invalid typed agent response")));
+
+        assertEquals(502, response.getStatusCode().value());
+        assertEquals("SCENARIO_LOOKUP_FAILED", response.getBody().get("error"));
+        assertFalse(response.getBody().containsKey("recovery"));
+        assertFalse(response.getBody().toString().contains("invalid typed agent response"));
     }
 }

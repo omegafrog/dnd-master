@@ -172,10 +172,11 @@ public final class Adventure {
         requireExpectedVersion(expectedVersion);
         this.gameState = Objects.requireNonNull(gameState, "game state must not be null");
         this.disclosureState = Objects.requireNonNull(disclosureState, "disclosure state must not be null");
-        this.currentSituation = Objects.requireNonNull(situation, "current situation must not be null");
+        List<ConversationEntry> validatedConversation = validateConversation(completeConversation);
+        this.currentSituation = situationWithFirstNarration(situation, validatedConversation);
         this.runtimeAddedFacts = validateRuntimeFacts(runtimeFacts);
         this.currentContext = Objects.requireNonNull(playerContext, "player context must not be null");
-        this.conversation = validateConversation(completeConversation);
+        this.conversation = validatedConversation;
         version++;
     }
 
@@ -189,16 +190,30 @@ public final class Adventure {
         Objects.requireNonNull(completion, "completion proposal must not be null");
         gameState = pending.gameStateDelta().apply(gameState);
         disclosureState = disclosureState.merge(pending.disclosureState());
-        currentSituation = Objects.requireNonNull(pending.situation(), "situation must not be null");
+        List<ConversationEntry> validatedConversation = validateConversation(completeConversation);
+        currentSituation = situationWithFirstNarration(pending.situation(), validatedConversation);
         runtimeAddedFacts = mergeRuntimeFacts(pending.runtimeAddedFacts());
         currentContext = Objects.requireNonNull(playerContext, "player context must not be null");
-        conversation = validateConversation(completeConversation);
+        conversation = validatedConversation;
         if (completion.complete()) {
             status = AdventureStatus.COMPLETED;
             currentContext = new AdventureContext(completion.concludingScene(), currentContext.npcState(),
                     currentContext.pendingAction(), currentContext.latestJudgment());
         }
         version++;
+    }
+
+    private CurrentSituation situationWithFirstNarration(CurrentSituation situation,
+            List<ConversationEntry> completeConversation) {
+        CurrentSituation next = Objects.requireNonNull(situation, "situation must not be null");
+        if (next.firstNarration() != null || completeConversation.size() <= conversation.size()) return next;
+        return completeConversation.subList(conversation.size(), completeConversation.size()).stream()
+                .filter(entry -> "AI_GAME_MASTER".equals(entry.speaker()))
+                .map(ConversationEntry::content)
+                .filter(content -> content != null && !content.isBlank())
+                .findFirst()
+                .map(next::withFirstNarration)
+                .orElse(next);
     }
     public void preserveProgress(
             OwnerPlayerId requestingOwner, long expectedVersion,

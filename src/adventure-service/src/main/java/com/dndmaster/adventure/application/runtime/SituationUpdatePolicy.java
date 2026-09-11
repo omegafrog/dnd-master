@@ -14,7 +14,8 @@ public final class SituationUpdatePolicy {
                 || !current.goal().equals(proposal.goal());
         if (proposal.kind() == SituationUpdateProposal.Kind.CONTINUE || !material) {
             return new CurrentSituation(current.situationId(), current.revision() + 1,
-                    current.location(), proposal.problem(), proposal.threat(), proposal.goal());
+                    current.location(), proposal.problem(), proposal.threat(), proposal.goal(),
+                    current.activeCombatScenarioId(), current.firstNarration());
         }
         return new CurrentSituation(java.util.UUID.randomUUID(), 1,
                 proposal.location(), proposal.problem(), proposal.threat(), proposal.goal());

@@ -3,6 +3,7 @@ package com.dndmaster.adventure.api;
 import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
 import com.dndmaster.adventure.application.combat.CombatCommandRejectedException;
 import com.dndmaster.adventure.application.combat.CombatExternalFailureException;
+import com.dndmaster.adventure.application.combat.CombatMapPlacementRequiredException;
 import com.dndmaster.adventure.domain.combat.CombatEndRejectedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleAccessDeniedException;
@@ -15,6 +16,7 @@ import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintPublica
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDeletionConflictException;
 import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnCompatibilityException;
 import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnPersistenceException;
+import com.dndmaster.adventure.infrastructure.integration.ScenarioLookupFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -40,6 +42,12 @@ public final class ScenarioExceptionHandler {
     public ResponseEntity<Map<String, String>> combatExternalFailure(CombatExternalFailureException exception) {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
                 "error", "COMBAT_EXTERNAL_FAILURE", "message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(CombatMapPlacementRequiredException.class)
+    public ResponseEntity<Map<String, String>> combatMapPlacementRequired(CombatMapPlacementRequiredException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "error", "MAP_PLACEMENT_REQUIRED", "message", exception.getMessage()));
     }
 
     @ExceptionHandler(CombatEndRejectedException.class)
@@ -99,6 +107,13 @@ public final class ScenarioExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                 "error", "ACTIVE_ADVENTURE_REFERENCES_BUNDLE",
                 "message", "진행 중인 모험이 사용 중인 자료는 삭제할 수 없습니다."));
+    }
+
+    @ExceptionHandler(ScenarioLookupFailureException.class)
+    public ResponseEntity<Map<String, String>> scenarioLookupFailure(ScenarioLookupFailureException exception) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
+                "error", "SCENARIO_LOOKUP_FAILED",
+                "message", "시나리오 자료를 조회하지 못했습니다. AI 연결 상태를 확인한 뒤 다시 시도하세요."));
     }
 
     @ExceptionHandler(IllegalStateException.class)

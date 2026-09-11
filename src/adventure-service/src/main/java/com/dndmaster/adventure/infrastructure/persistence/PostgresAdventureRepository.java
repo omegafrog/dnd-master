@@ -52,7 +52,7 @@ public final class PostgresAdventureRepository implements AdventureRepository {
 
     @Override
     public List<Adventure> findSavedByOwner(OwnerPlayerId ownerPlayerId) {
-        String sql = "SELECT adventure_id FROM adventure WHERE owner_player_id = ? AND status = 'SAVED' ORDER BY adventure_id";
+        String sql = "SELECT adventure_id FROM adventure WHERE owner_player_id = ? AND status <> 'DELETED' ORDER BY adventure_id";
         List<AdventureId> ids = new ArrayList<>();
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, ownerPlayerId.value());

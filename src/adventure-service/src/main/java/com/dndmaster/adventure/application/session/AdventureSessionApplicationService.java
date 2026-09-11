@@ -14,7 +14,6 @@ import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationServ
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
-import com.dndmaster.adventure.application.combat.CombatMapEntryContextResolver;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationPort;
 import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
@@ -212,7 +211,7 @@ public class AdventureSessionApplicationService {
                 && openingResult.turn().plan().mapEntryRequested()) {
             Adventure committedAdventure = adventureRepository.findById(effectiveAdventureId).orElse(adventure);
             combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
-                    1, activationContext(committedAdventure, session));
+                    1, activationContext(committedAdventure, session, openingResult));
         }
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();
@@ -223,6 +222,11 @@ public class AdventureSessionApplicationService {
     }
 
     private static CombatMapPreparationPort.ActivationContext activationContext(Adventure adventure, AdventureSession session) {
+        return activationContext(adventure, session, null);
+    }
+
+    private static CombatMapPreparationPort.ActivationContext activationContext(Adventure adventure, AdventureSession session,
+            RuntimeTurnResult result) {
         var situation = adventure.currentSituation();
         UUID playerTokenId = session.party().stream().findFirst()
                 .map(AdventurePartyMember::characterSheetId)
@@ -231,8 +235,14 @@ public class AdventureSessionApplicationService {
                 .orElse(null);
         return new CombatMapPreparationPort.ActivationContext(playerTokenId, situation.situationId(),
                 situation.revision(), adventure.turnIndex(), adventure.currentContext().currentScene(),
-                situation.location(), null, null, CombatMapEntryContextResolver.entrySide(adventure, situation));
+                situation.location(), null, null,
+                result == null ? "FIRST_NARRATION=" + blank(situation.firstNarration())
+                        : "FIRST_NARRATION=" + blank(situation.firstNarration())
+                                + "\nPLAYER_ACTION=" + result.turn().action()
+                                + "\nGM_NARRATION=" + result.turn().narration());
     }
+
+    private static String blank(String value) { return value == null ? "" : value; }
 
     public AdventureSession complete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);

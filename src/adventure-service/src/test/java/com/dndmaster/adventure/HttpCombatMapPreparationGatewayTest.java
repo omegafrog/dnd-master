@@ -55,7 +55,7 @@ class HttpCombatMapPreparationGatewayTest {
             assertEquals(situationId.toString(), payload.get("situationId").asText());
             assertEquals(3, payload.get("situationRevision").asInt());
             assertEquals(7, payload.get("turnIndex").asInt());
-            assertTrue(payload.get("entrySide").isNull());
+            assertTrue(payload.get("entryEvidence").isNull() || payload.get("entryEvidence").asText().isBlank());
             assertTrue(payload.hasNonNull("sourceDocumentId"));
             assertEquals("page-1", payload.get("sourceAssetLocator").asText());
         } finally {
@@ -86,7 +86,7 @@ class HttpCombatMapPreparationGatewayTest {
                     Duration.ofSeconds(2), new ObjectMapper(), "secret")
                     .activatePrepared(new AdventureId(adventureId), ownerId, new RuleSetId(rulesId), 1,
                             new CombatMapPreparationPort.ActivationContext(playerTokenId, situationId, 4, 8,
-                                    "cellar-combat", "basement", null, null, "NORTH"));
+                                    "cellar-combat", "basement", null, null, "FIRST_NARRATION=entered the basement"));
 
             JsonNode payload = new ObjectMapper().readTree(requestBody.get());
             assertEquals(1, payload.get("stagePosition").asInt());
@@ -95,7 +95,7 @@ class HttpCombatMapPreparationGatewayTest {
             assertEquals(adventureId.toString(), payload.get("adventureId").asText());
             assertEquals(ownerId.toString(), payload.get("ownerId").asText());
             assertEquals(playerTokenId.toString(), payload.get("playerTokenId").asText());
-            assertEquals("NORTH", payload.get("entrySide").asText());
+            assertEquals("FIRST_NARRATION=entered the basement", payload.get("entryEvidence").asText());
             assertTrue(mapId != null);
         } finally {
             server.stop(0);

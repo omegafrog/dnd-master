@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.application.ports.AdjudicationModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapModelPort;
+import com.dndmaster.aigamemaster.application.ports.MapEntryPlacementModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationModelPort;
 import com.dndmaster.aigamemaster.application.rule.*;
 import com.dndmaster.aigamemaster.application.scene.NpcOutput;
@@ -22,6 +23,7 @@ public class AiGameMasterController {
     private final AdjudicationModelPort adjudicationPort;
     private final GroundedRuleAnswerService ruleAnswerService;
     private final MapModelPort mapPort;
+    private final MapEntryPlacementModelPort mapEntryPlacementPort;
     private final IntentClassificationModelPort intentClassificationPort;
 
     public AiGameMasterController(
@@ -29,12 +31,20 @@ public class AiGameMasterController {
             AdjudicationModelPort adjudicationPort,
             GroundedRuleAnswerService ruleAnswerService,
             MapModelPort mapPort,
-            IntentClassificationModelPort intentClassificationPort) {
+            IntentClassificationModelPort intentClassificationPort,
+            MapEntryPlacementModelPort mapEntryPlacementPort) {
         this.sceneService = sceneService;
         this.adjudicationPort = adjudicationPort;
         this.ruleAnswerService = ruleAnswerService;
         this.mapPort = mapPort;
         this.intentClassificationPort = intentClassificationPort;
+        this.mapEntryPlacementPort = mapEntryPlacementPort;
+    }
+
+    public AiGameMasterController(ScenarioBoundSceneService sceneService,
+            AdjudicationModelPort adjudicationPort, GroundedRuleAnswerService ruleAnswerService,
+            MapModelPort mapPort, IntentClassificationModelPort intentClassificationPort) {
+        this(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort, null);
     }
 
     @PostMapping("/internal/v1/gm/scenes")
@@ -87,7 +97,16 @@ public class AiGameMasterController {
         var input = new MapModelPort.MapInput(request.selectedScenario(), request.currentContext(), request.mapData(), request.imageDataUri());
         var output = mapPort.generate(input);
         return new MapResponse(output.width(), output.height(), output.structuredLayers(),
-                output.obstacles(), output.doors(), output.boundaries(), output.playerStart(), output.candidates());
+                output.obstacles(), output.doors(), output.boundaries(), output.playerStart(), output.candidates(), output.playerStartProposal());
+    }
+
+    @PostMapping("/internal/v1/gm/map-entry-placement")
+    MapEntryPlacementResponse proposeMapEntryPlacement(@RequestBody MapEntryPlacementRequest request) {
+        if (mapEntryPlacementPort == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
+        var output = mapEntryPlacementPort.propose(new MapEntryPlacementModelPort.EntryPlacementInput(
+                request.targetScene(), request.action(), request.judgment(), request.narration(),
+                request.mapData(), request.imageDataUri()));
+        return MapEntryPlacementResponse.from(output);
     }
 
     @PostMapping("/internal/v1/gm/agent-actions")
@@ -177,16 +196,34 @@ public class AiGameMasterController {
 
     public record MapResponse(int width, int height, String structuredLayers,
                               List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart,
-                              List<MapModelPort.MapBoundaryCandidate> candidates) {
+                              List<MapModelPort.MapBoundaryCandidate> candidates,
+                              MapModelPort.PlayerStartProposal playerStartProposal) {
+        public MapResponse(int width, int height, String structuredLayers,
+                           List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart,
+                           List<MapModelPort.MapBoundaryCandidate> candidates) {
+            this(width, height, structuredLayers, obstacles, doors, boundaries, playerStart, candidates, null);
+        }
         public MapResponse(int width, int height, String structuredLayers,
                            List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart) {
-            this(width, height, structuredLayers, obstacles, doors, boundaries, playerStart, List.of());
+            this(width, height, structuredLayers, obstacles, doors, boundaries, playerStart, List.of(), null);
         }
         public MapResponse(int width, int height, String structuredLayers, List<String> obstacles, List<String> doors, String playerStart) {
-            this(width, height, structuredLayers, obstacles, doors, List.of(), playerStart, List.of());
+            this(width, height, structuredLayers, obstacles, doors, List.of(), playerStart, List.of(), null);
         }
         public MapResponse(int width, int height, String structuredLayers) {
             this(width, height, structuredLayers, List.of(), List.of(), "");
+        }
+    }
+
+    public record MapEntryPlacementRequest(String targetScene, String action, String judgment,
+                                           String narration, String mapData, String imageDataUri) {}
+
+    public record MapEntryPlacementResponse(String status,
+                                            MapEntryPlacementModelPort.EntryInterpretation interpretation,
+                                            List<MapEntryPlacementModelPort.Candidate> candidates,
+                                            String reason) {
+        static MapEntryPlacementResponse from(MapEntryPlacementModelPort.EntryPlacementOutput output) {
+            return new MapEntryPlacementResponse(output.status(), output.interpretation(), output.candidates(), output.reason());
         }
     }
 

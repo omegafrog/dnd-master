@@ -1155,9 +1155,10 @@ public class AdventureApiConfiguration {
             org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort,
             org.springframework.beans.factory.ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapPreparationPort> combatMapPreparationPort,
             org.springframework.beans.factory.ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatMapPreparationPort, combatLifecycleService);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatMapPreparationPort, scenarioPackageRepository, combatLifecycleService);
     }
 
     @Bean

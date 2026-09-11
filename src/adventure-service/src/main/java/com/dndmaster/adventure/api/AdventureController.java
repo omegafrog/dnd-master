@@ -37,7 +37,6 @@ import com.dndmaster.adventure.application.combat.CombatStartParticipantFactory;
 import com.dndmaster.adventure.application.combat.CombatStartTransitionPolicy;
 import com.dndmaster.adventure.application.combat.CombatMapPlayerTokenResolver;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
-import com.dndmaster.adventure.application.combat.CombatMapEntryContextResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
@@ -61,6 +60,7 @@ public class AdventureController {
     private final CharacterCombatPort characterCombatPort;
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
     private final CombatMapPreparationPort combatMapPreparationPort;
+    private final com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository;
     private final ObjectMapper objectMapper;
     private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
 
@@ -82,6 +82,7 @@ public class AdventureController {
             ObjectMapper objectMapper,
             ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort,
             ObjectProvider<CombatMapPreparationPort> combatMapPreparationPort,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
@@ -106,6 +107,7 @@ public class AdventureController {
             @Override public UUID prepareInitial(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
                     com.dndmaster.adventure.domain.scenario.MapDefinition mapDefinition, int stagePosition) { return null; }
         });
+        this.scenarioPackageRepository = scenarioPackageRepository;
         this.objectMapper = objectMapper;
         this.combatLifecycleService = combatLifecycleService;
     }
@@ -210,6 +212,9 @@ public class AdventureController {
                 .orElseThrow(() -> new IllegalStateException("adventure disappeared after runtime commit"));
         boolean combatStartRequested = result.turn().plan().combatStartRequested();
         boolean mapEntryRequested = result.turn().plan().mapEntryRequested();
+        LOGGER.info("gm_turn_committed adventureId={} turnId={} scene={} situationLocation={} mapEntryRequested={} combatStart={} action={} narration={}",
+                adventureId, turn.turnId(), result.turn().plan().scene(), committedAdventure.currentSituation().location(),
+                mapEntryRequested, combatStartRequested, turn.input().actionText(), result.turn().plan().narration());
         if (combatStartRequested) {
             CombatStartTransitionPolicy.requireCommittedCombatSituation(committedAdventure.currentSituation(),
                     result.turn().plan().combatEnemies());
@@ -219,7 +224,7 @@ public class AdventureController {
             // Combat is only one possible reason to enter a map; exploration
             // and investigation must use the same authoritative projection.
             if (combatMapViewPort.preparationView(adventureId, owner).isPresent()) {
-                activatePreparedMap(committedAdventure);
+                activatePreparedMap(committedAdventure, result);
             }
         }
         if (combatStartRequested) {
@@ -288,7 +293,7 @@ public class AdventureController {
                 .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), null));
     }
 
-    private void activatePreparedMap(Adventure adventure) {
+    private void activatePreparedMap(Adventure adventure, RuntimeTurnResult result) {
         var situation = adventure.currentSituation();
         UUID playerTokenId = adventure.party().stream().findFirst()
                 .map(AdventurePartyMember::characterSheetId)
@@ -298,10 +303,14 @@ public class AdventureController {
         CombatMapPreparationPort.ActivationContext context = new CombatMapPreparationPort.ActivationContext(
                 playerTokenId, situation.situationId(), situation.revision(), adventure.turnIndex(),
                 adventure.currentContext().currentScene(), situation.location(), null, null,
-                CombatMapEntryContextResolver.entrySide(adventure, situation));
+                "FIRST_NARRATION=" + nullToBlank(situation.firstNarration())
+                        + "\nPLAYER_ACTION=" + result.turn().action()
+                        + "\nGM_NARRATION=" + result.turn().narration());
     combatMapPreparationPort.activatePrepared(adventure.id(), adventure.ownerPlayerId().value(),
                 adventure.ruleSetId(), 1, context);
     }
+
+    private static String nullToBlank(String value) { return value == null ? "" : value; }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map/preparation")
     CombatMapResponse preparationMap(@PathVariable UUID adventureId) {
@@ -332,7 +341,8 @@ public class AdventureController {
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Door> doors = request.doors() == null ? List.of() : request.doors().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Door(p.x(), p.y(), false)).toList();
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary> boundaries = request.boundaries() == null ? List.of() : request.boundaries().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary(p.x(), p.y(), p.orientation(), p.kind(), p.open())).toList();
         combatMapViewPort.updateLayout(mapId, owner, request.expectedVersion(), request.commandId(), obstacles, doors, boundaries,
-                request.crop(), request.alignmentVersion(), request.imageRevision());
+                request.crop(), request.alignmentVersion(), request.imageRevision(), request.playerStart() == null ? null
+                        : new com.dndmaster.adventure.application.combat.CombatMapViewPort.Position(request.playerStart().x(), request.playerStart().y()));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/detect-boundaries")
@@ -369,9 +379,13 @@ public class AdventureController {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
-        UUID mapId = editingMap(adventureId, owner).mapId();
+        var editingMap = editingMap(adventureId, owner);
+        var source = sourceForPreparationImage(adventure);
+        byte[] image = source.map(value -> combatMapViewPort.preparationImage(editingMap.mapId(), owner,
+                        value.documentId(), value.locator()))
+                .orElseGet(() -> combatMapViewPort.preparationImage(editingMap.mapId(), owner));
         return ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
-                .cacheControl(org.springframework.http.CacheControl.noStore()).body(combatMapViewPort.preparationImage(mapId, owner));
+                .cacheControl(org.springframework.http.CacheControl.noStore()).body(image);
     }
 
     @PutMapping("/api/v1/adventures/{adventureId}/combat-map/alignment")
@@ -481,8 +495,14 @@ public class AdventureController {
     @GetMapping("/internal/v1/adventures")
     List<AdventureSummaryResponse> ownedAdventures(@RequestParam UUID ownerId) {
         return savedAdventureService.listSavedAdventures(new OwnerPlayerId(ownerId)).stream()
-                .map(a -> new AdventureSummaryResponse(a.id().value(), a.status().name(), a.version()))
+                .map(a -> new AdventureSummaryResponse(a.id().value(), a.status().name(), a.version(), a.sessionId().value(), scenarioBundleId(a)))
                 .toList();
+    }
+
+    private UUID scenarioBundleId(Adventure adventure) {
+        UUID packageId = adventure.lockedScenarioPackageId();
+        if (packageId == null || scenarioPackageRepository == null) return null;
+        return scenarioPackageRepository.findById(packageId).map(scenarioPackage -> scenarioPackage.bundleId().value()).orElse(null);
     }
 
     @GetMapping("/internal/v1/adventures/{adventureId}/edition")
@@ -625,6 +645,16 @@ public class AdventureController {
                 .orElseThrow();
     }
 
+    private java.util.Optional<MapImageSource> sourceForPreparationImage(Adventure adventure) {
+        UUID packageId = adventure.lockedScenarioPackageId();
+        if (packageId == null || scenarioPackageRepository == null) return java.util.Optional.empty();
+        return scenarioPackageRepository.findById(packageId)
+                .flatMap(packageVersion -> packageVersion.initialMapDefinition(adventure.currentContext().currentScene()))
+                .map(map -> new MapImageSource(map.source().knowledgeDocumentId().value(), map.source().locator()));
+    }
+
+    private record MapImageSource(UUID documentId, String locator) {}
+
     private com.dndmaster.adventure.domain.adventure.AdventurePartyMember characterSheetForToken(
             Adventure adventure, UUID owner, UUID tokenId) {
         return CombatMapPlayerTokenResolver.resolve(adventure, owner, tokenId, combatMapViewPort);
@@ -640,9 +670,20 @@ public class AdventureController {
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Door> doors,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Layer> layers,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> current,
-            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> explored, Long version) {
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> explored, Long version,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.StartCandidate> playerStartCandidates) {
+        public CombatMapResponse(UUID adventureId, String status, long sessionVersion, UUID mapId,
+                com.dndmaster.adventure.application.combat.CombatMapViewPort.Grid grid,
+                List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Token> tokens,
+                List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Obstacle> obstacles,
+                List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Door> doors,
+                List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Layer> layers,
+                List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> current,
+                List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> explored, Long version) {
+            this(adventureId, status, sessionVersion, mapId, grid, tokens, obstacles, doors, layers, current, explored, version, List.of());
+        }
         static CombatMapResponse from(UUID adventureId, long sessionVersion, com.dndmaster.adventure.application.combat.CombatMapViewPort.View view) {
-            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.doors(), view.layers(), view.current(), view.explored(), view.version());
+            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.doors(), view.layers(), view.current(), view.explored(), view.version(), view.playerStartCandidates());
         }
     }
     public record CombatMapCalibrationRequest(UUID mapId, long expectedVersion, int width, int height, int cellSize,
@@ -650,10 +691,10 @@ public class AdventureController {
     public record CombatMapCalibrationResponse(UUID mapId, int width, int height) {}
     public record CombatMapLayoutRequest(UUID commandId, long expectedVersion, List<PositionPayload> obstacles,
                                          List<PositionPayload> doors, List<BoundaryPayload> boundaries, String crop,
-                                         Long alignmentVersion, String imageRevision) {
+                                         Long alignmentVersion, String imageRevision, PositionPayload playerStart) {
         public CombatMapLayoutRequest(UUID commandId, long expectedVersion, List<PositionPayload> obstacles,
                 List<PositionPayload> doors, List<BoundaryPayload> boundaries, String crop) {
-            this(commandId, expectedVersion, obstacles, doors, boundaries, crop, null, "");
+            this(commandId, expectedVersion, obstacles, doors, boundaries, crop, null, "", null);
         }
     }
     public record BoundaryPayload(int x, int y, String orientation, String kind, boolean open) {}
@@ -687,7 +728,7 @@ public class AdventureController {
     public record SaveAdventureRequest(UUID playerId, long expectedVersion, String currentScene) {}
     public record SaveAdventureResponse(UUID adventureId, long newVersion) {}
     public record DeleteAdventureRequest(UUID playerId, long expectedVersion) {}
-    public record AdventureSummaryResponse(UUID adventureId, String status, long version) {}
+    public record AdventureSummaryResponse(UUID adventureId, String status, long version, UUID sessionId, UUID scenarioBundleId) {}
     public record EditionResponse(UUID adventureId, String edition) {}
     public record RollConditionsResponse(UUID adventureId, String conditions) {}
     public record MovementValidationRequest(UUID tokenId, int x, int y) {}

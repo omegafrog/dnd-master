@@ -55,7 +55,12 @@ public final class TypedAgentContractController {
         require(request);
         return adapter.complete("scenario-lookup:" + request.query(),
                 "ROLE=SCENARIO_LOOKUP\nREAD_ONLY_LOCKED_SCENARIO_MODEL=" + write(request.lockedScenarioModel())
-                        + "\nQUERY=" + request.query(),
+                        + "\nQUERY=" + request.query()
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with status, answer, and supportingElementIds. "
+                        + "status must be FOUND or NOT_FOUND. answer must be a concise answer grounded in the locked ScenarioModel; "
+                        + "use an empty answer and an empty supportingElementIds array for NOT_FOUND. "
+                        + "supportingElementIds must contain only element ids present in the locked ScenarioModel. "
+                        + "Do not use markdown, code fences, or any other text.",
                 this::parseLookup);
     }
 
@@ -80,7 +85,7 @@ public final class TypedAgentContractController {
                         + "The next GM turn receives this saved situation, so make it concrete and playable. Decide combat from the saved situation and the evidence, never from a word in the player's action. "
                         + "MANDATORY: if a hostile creature already supported by the saved situation is attacking, has cornered the party, or the player is exchanging attacks with it, return combatStart=true and a SITUATION enemy entry in the same response. "
                         + "Do not narrate a supported hostile creature attacking, closing in to attack, or 'combat ready' while returning combatStart=false. This is an output validity rule, not a discretionary pacing choice. "
-                        + "mapEntryRequested must be a boolean. Set it to true only when the committed situation places the party inside the prepared map area and the player should see that map now; set it to false while the party is still outside, approaching, or when no prepared map applies. Base this on the saved situation and scenario context, not on keyword matching. "
+                        + "mapEntryRequested must be a boolean. Set it to true only when the committed situation places the party inside the prepared map area and the player should see that map now; set it to false while the party is still outside, approaching, or when no prepared map applies. Base this on the saved situation and scenario context, not on keyword matching. If ACTION together with the generated narration completes movement through an entrance or other transition into the destination area, set mapEntryRequested=true even when the scene label still contains the previous area; the completed transition and destination situation are the evidence. Do not decide this from a single word or a fixed list of words. "
                         + "runtimeFacts is optional. Include it only for a newly established playthrough fact created by this turn's compatible NPC reaction, refusal, offer, or negotiation after all authoritative lookup results are NOT_FOUND. Each item must contain subject and content. Never use runtimeFacts for a culprit, secret route, cause, hidden clue, puzzle answer, or other canonical scenario truth. "
                         + "When ACTION is SESSION_OPENING, LANGUAGE_CONTRACT requires all player-visible text in scene, judgment, narration, and situation to be written only in natural Korean. Do not output English or any other foreign-language words, labels, headings, or meta-commentary. Translate common nouns, class names, location names, action prompts, and proper names into Korean. Make the first player-facing narration establish the current location and why the party is here, state the immediate problem or pressure, identify a few observable things the party can respond to, and end with a Korean question inviting the player's action, such as '어떻게 하시겠어요?'. Use only RUNTIME_CONTEXT and COMPOSITE_FACT_LOOKUP_RESULTS; never reveal a puzzle answer or hidden fact. "
                         + "A player action is not evidence that an entity exists. Only enter combat with a combat scenario id present in RUNTIME_CONTEXT or COMPOSITE_FACT_LOOKUP_RESULTS. "
@@ -115,7 +120,7 @@ public final class TypedAgentContractController {
                 ? mapper.convertValue(root.path("supportingElementIds"), mapper.getTypeFactory()
                         .constructCollectionType(List.class, String.class))
                 : List.of();
-        String status = required(root, "status");
+        String status = required(root, "status").toUpperCase(java.util.Locale.ROOT);
         if (!status.equals("FOUND") && !status.equals("NOT_FOUND")) throw new IllegalArgumentException("invalid lookup status");
         return new ScenarioLookupResponse(status, root.path("answer").asText(""), ids);
     }

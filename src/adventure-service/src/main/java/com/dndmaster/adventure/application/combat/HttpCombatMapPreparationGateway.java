@@ -101,8 +101,8 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
             MapDefinition mapDefinition, Integer stagePosition, CombatMapPreparationPort.ActivationContext context) {
         Request payload = new Request(adventureId.value(), ownerPlayerId, ruleSetId.value(), mapDefinition == null ? null : mapDefinition.id(),
                 mapDefinition == null ? null : mapDefinition.assetId(), mapDefinition == null ? null : mapDefinition.assetLocator(), stagePosition,
-                context.spawnCandidateX(), context.spawnCandidateY(), context.playerTokenId(), context.situationId(),
-                context.situationRevision(), context.turnIndex(), context.currentScene(), context.location(), context.entrySide(),
+                context.placementProposalX(), context.placementProposalY(), context.playerTokenId(), context.situationId(),
+                context.situationRevision(), context.turnIndex(), context.currentScene(), context.location(), context.entryEvidence(),
                 mapDefinition == null ? List.of() : mapDefinition.walls(), mapDefinition == null ? List.of() : mapDefinition.doors(), mapDefinition == null ? List.of() : mapDefinition.obstacles(),
                 mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().knowledgeDocumentId().value(),
                 mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().locator());
@@ -115,6 +115,9 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                if (response.body() != null && response.body().contains("MAP_SPAWN_REVIEW_REQUIRED")) {
+                    throw new CombatMapPlacementRequiredException();
+                }
                 throw new IllegalStateException("combat map preparation failed with status " + response.statusCode());
             }
             return mapper.readValue(response.body(), Response.class).mapId();
@@ -129,7 +132,7 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
     private record Request(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId,
             String assetId, String assetLocator, Integer stagePosition, Integer playerSpawnX, Integer playerSpawnY,
             UUID playerTokenId, UUID situationId, long situationRevision, int turnIndex,
-            String currentScene, String location, String entrySide,
+            String currentScene, String location, String entryEvidence,
             List<String> walls, List<String> doors, List<String> obstacles,
             UUID sourceDocumentId, String sourceAssetLocator) {}
     private record Response(UUID mapId) {}

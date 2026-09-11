@@ -41,7 +41,7 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map view failed");
             Payload payload = mapper.readValue(response.body(), Payload.class);
             return Optional.of(new View(payload.mapId(), new Grid(payload.grid().width(), payload.grid().height(), payload.grid().cellSize(), payload.grid().distanceUnit()),
-                    payload.tokens(), payload.obstacles(), payload.doors(), payload.layers(), payload.current(), payload.explored(), payload.version()));
+                    payload.tokens(), payload.obstacles(), payload.doors(), payload.layers(), payload.current(), payload.explored(), payload.version(), startCandidates(payload.playerStartCandidates())));
         } catch (IOException exception) { throw new IllegalStateException("combat map view transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map view interrupted", exception); }
     }
@@ -55,7 +55,7 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             if (response.statusCode() == 404 || response.statusCode() == 403) return Optional.empty();
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map preparation view failed");
             Payload payload = mapper.readValue(response.body(), Payload.class);
-            return Optional.of(new View(payload.mapId(), new Grid(payload.grid().width(), payload.grid().height(), payload.grid().cellSize(), payload.grid().distanceUnit()), payload.tokens(), payload.obstacles(), payload.doors(), payload.layers(), payload.current(), payload.explored(), payload.version()));
+            return Optional.of(new View(payload.mapId(), new Grid(payload.grid().width(), payload.grid().height(), payload.grid().cellSize(), payload.grid().distanceUnit()), payload.tokens(), payload.obstacles(), payload.doors(), payload.layers(), payload.current(), payload.explored(), payload.version(), startCandidates(payload.playerStartCandidates())));
         } catch (IOException exception) { throw new IllegalStateException("combat map preparation view transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map preparation view interrupted", exception); }
     }
@@ -88,10 +88,17 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     @Override
     public void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles,
             List<Door> doors, List<Boundary> boundaries, String crop, Long alignmentVersion, String imageRevision) {
+        updateLayout(mapId, ownerId, expectedVersion, commandId, obstacles, doors, boundaries, crop, alignmentVersion, imageRevision, null);
+    }
+
+    @Override
+    public void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles,
+            List<Door> doors, List<Boundary> boundaries, String crop, Long alignmentVersion, String imageRevision,
+            Position playerStart) {
         Layout payload = new Layout(ownerId, expectedVersion, commandId,
                 obstacles == null ? List.of() : obstacles.stream().map(position -> position.x() + "," + position.y()).toList(),
                 doors == null ? List.of() : doors.stream().map(door -> door.x() + "," + door.y()).toList(),
-                boundaries == null ? List.of() : boundaries.stream().map(boundary -> boundary.x() + "," + boundary.y() + "," + boundary.orientation() + "," + boundary.kind() + "," + boundary.open()).toList(), crop, alignmentVersion, imageRevision);
+                boundaries == null ? List.of() : boundaries.stream().map(boundary -> boundary.x() + "," + boundary.y() + "," + boundary.orientation() + "," + boundary.kind() + "," + boundary.open()).toList(), crop, alignmentVersion, imageRevision, playerStart);
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/layout"))
                 .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                 .PUT(HttpRequest.BodyPublishers.ofString(write(payload))).build();
@@ -167,7 +174,17 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
 
     @Override
     public byte[] preparationImage(UUID mapId, UUID ownerId) {
-        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/preparation-image?ownerId=" + ownerId))
+        return preparationImage(mapId, ownerId, null, null);
+    }
+
+    @Override
+    public byte[] preparationImage(UUID mapId, UUID ownerId, UUID sourceDocumentId, String sourceAssetLocator) {
+        String query = "?ownerId=" + ownerId;
+        if (sourceDocumentId != null && sourceAssetLocator != null && !sourceAssetLocator.isBlank()) {
+            query += "&sourceDocumentId=" + sourceDocumentId + "&sourceAssetLocator="
+                    + URLEncoder.encode(sourceAssetLocator, java.nio.charset.StandardCharsets.UTF_8);
+        }
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/preparation-image" + query))
                 .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
         try {
             HttpResponse<byte[]> response = client.send(request, HttpResponse.BodyHandlers.ofByteArray());
@@ -184,11 +201,16 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
 
     private record Payload(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Door> doors, List<Layer> layers,
-            List<Position> current, List<Position> explored, long version) {}
+            List<Position> current, List<Position> explored, long version, List<StartCandidatePayload> playerStartCandidates) {
+        private Payload { playerStartCandidates = playerStartCandidates == null ? List.of() : List.copyOf(playerStartCandidates); }
+    }
+    private record StartCandidatePayload(int x, int y, double confidence, List<String> evidence, String source) {
+        private StartCandidatePayload { evidence = evidence == null ? List.of() : List.copyOf(evidence); }
+    }
     private record Calibration(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     private record Layout(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors,
-                          List<String> boundaries, String crop, Long alignmentVersion, String imageRevision) {}
+                          List<String> boundaries, String crop, Long alignmentVersion, String imageRevision, Position playerStart) {}
     private record Detection(UUID ownerId) {}
     private record DetectionResult(long mapVersion, List<String> obstacles, List<String> doors, List<String> boundaries, String crop,
                                    List<BoundaryCandidatePayload> candidates, long alignmentVersion, String imageRevision) {
@@ -226,5 +248,8 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     private static Boundary boundary(String value) {
         String[] parts = value.split(",", -1);
         return new Boundary(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]), parts[2], parts[3], parts.length >= 5 && Boolean.parseBoolean(parts[4]));
+    }
+    private static List<StartCandidate> startCandidates(List<StartCandidatePayload> values) {
+        return values == null ? List.of() : values.stream().map(value -> new StartCandidate(value.x(), value.y(), value.confidence(), value.evidence(), value.source())).toList();
     }
 }
