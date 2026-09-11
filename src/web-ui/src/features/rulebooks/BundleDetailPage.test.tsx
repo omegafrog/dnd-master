@@ -105,6 +105,26 @@ describe('BundleDetailPage session cleanup', () => {
     expect(within(sessions).getAllByRole('listitem')).toHaveLength(1)
     expect(await screen.findByRole('status')).toHaveTextContent('1개 자료 버전의 연결 세션을 불러오지 못했습니다')
   })
+
+  it('does not show sessions that were already deleted after reloading the bundle', async () => {
+    const bundle = makeBundle()
+    const packageView = makePackage()
+    const setupApi = {
+      getScenarioBundle: vi.fn().mockResolvedValue(bundle),
+      listKnowledgeDocuments: vi.fn().mockResolvedValue(bundle.documents),
+      listScenarioPackages: vi.fn().mockResolvedValue([packageView]),
+    } as unknown as SetupApi
+    const sessionApi = {
+      create: vi.fn(),
+      listByScenarioPackage: vi.fn().mockResolvedValue([{ ...makeSession(), status: 'DELETED' }]),
+      delete: vi.fn(),
+    } as unknown as Pick<AdventureSessionApi, 'create' | 'listByScenarioPackage' | 'delete'>
+
+    render(<BundleDetailPage bundleId={bundle.bundleId} api={setupApi} playerId="p1" sessionApi={sessionApi} />)
+
+    expect(await screen.findByText('이 자료로 생성된 모험 세션이 없습니다.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '세션 삭제' })).not.toBeInTheDocument()
+  })
 })
 
 function makeBundle(): ScenarioBundleView {

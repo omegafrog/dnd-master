@@ -1,16 +1,84 @@
 import '@testing-library/jest-dom/vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import type { SetupApi } from '../rulebooks/SetupApi'
+import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
 import type { AdventurePlayApi } from './AdventurePlayApi'
 import { SavedAdventurePanel } from './SavedAdventurePanel'
 import { toSavedAdventure } from './AdventurePlayApi'
+
+afterEach(() => vi.restoreAllMocks())
 
 it('maps the backend adventureId contract to the UI id contract', () => {
   expect(toSavedAdventure({ adventureId: 'adventure-1', name: '고성의 밤', status: 'SAVED', version: 4 })).toEqual({
     id: 'adventure-1', title: '고성의 밤', statusLabel: '진행 중인 모험', resumable: true, updatedAt: '', version: 4,
   })
+})
+
+it('keeps an interrupted scenario bundle in the adventure list', async () => {
+  const api = { async listSaved() { return [] } } as unknown as AdventurePlayApi
+  const setupApi = {
+    listKnowledgeDocuments: async () => [],
+    async listScenarioBundles() { return [{ bundleId: 'bundle-1', name: '중단한 모험', currentRevision: 2, documents: [] }] },
+  } as unknown as SetupApi
+  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" forceList />)
+
+  expect(await screen.findByText('중단한 모험')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /준비 이어하기/ })).toHaveAttribute('href', '#/bundles/bundle-1')
+})
+
+it('cleans connected sessions before deleting an interrupted scenario bundle', async () => {
+  const deleteScenarioBundle = vi.fn().mockResolvedValue(undefined)
+  const setupApi = {
+    listKnowledgeDocuments: async () => [],
+    async listScenarioBundles() { return [{ bundleId: 'bundle-1', name: '중단한 모험', currentRevision: 2, documents: [] }] },
+    listScenarioPackages: vi.fn().mockResolvedValue([{ packageId: 'package-1' }]),
+    deleteScenarioBundle,
+  } as unknown as SetupApi
+  const deleteSession = vi.fn().mockResolvedValue({ sessionId: 'session-1', status: 'DELETED', version: 6 })
+  const sessionApi = {
+    listByScenarioPackage: vi.fn().mockResolvedValue([{ sessionId: 'session-1', status: 'STARTING', version: 5 }]),
+    delete: deleteSession,
+  } as unknown as Pick<AdventureSessionApi, 'listByScenarioPackage' | 'delete'>
+  const playApi = { async listSaved() { return [] } } as unknown as AdventurePlayApi
+  const user = userEvent.setup()
+
+  render(<SavedAdventurePanel playApi={playApi} setupApi={setupApi} sessionApi={sessionApi} playerId="p1" forceList />)
+
+  await screen.findByText('중단한 모험')
+  await user.click(screen.getByRole('button', { name: '중단한 모험 삭제' }))
+
+  await waitFor(() => expect(deleteSession).toHaveBeenCalledWith('session-1', 5))
+  await waitFor(() => expect(deleteScenarioBundle).toHaveBeenCalledWith('bundle-1'))
+  expect(screen.queryByText('중단한 모험')).not.toBeInTheDocument()
+})
+
+it('keeps an interrupted bundle visible beside saved adventures', async () => {
+  const api = { async listSaved() { return [{ id: 'saved', title: '이미 저장된 모험', statusLabel: '진행 중인 모험' as const, resumable: true, updatedAt: '', version: 1, scenarioBundleId: 'saved-bundle' }] } } as unknown as AdventurePlayApi
+  const setupApi = {
+    listKnowledgeDocuments: async () => [],
+    async listScenarioBundles() { return [
+      { bundleId: 'saved-bundle', name: '이미 저장된 모험', currentRevision: 1, documents: [] },
+      { bundleId: 'bundle-2', name: '중단한 두 번째 모험', currentRevision: 3, documents: [] },
+    ] },
+  } as unknown as SetupApi
+  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" forceList />)
+
+  expect(await screen.findByText('중단한 두 번째 모험')).toBeInTheDocument()
+  expect(screen.getByRole('link', { name: /준비 이어하기/ })).toHaveAttribute('href', '#/bundles/bundle-2')
+  expect(screen.getAllByRole('listitem')).toHaveLength(2)
+})
+
+it('opens an interrupted runtime through its session page', async () => {
+  const api = {
+    async listSaved() { return [{ id: 'adventure-1', title: '맵 준비 중', statusLabel: '진행 중인 모험' as const, resumable: true, updatedAt: '', version: 1, sessionId: 'session-1' }] },
+  } as unknown as AdventurePlayApi
+  const setupApi = { listKnowledgeDocuments: async () => [] } as unknown as SetupApi
+  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" forceList />)
+
+  await screen.findByText('맵 준비 중')
+  expect(screen.getByRole('link', { name: /열기/ })).toHaveAttribute('href', '#/sessions/session-1/party')
 })
 
 it('routes an empty adventure entry directly to creation', async () => {
@@ -31,6 +99,15 @@ it('routes a single adventure entry directly to its workspace', async () => {
   await waitFor(() => expect(window.location.hash).toBe('#/adventures/solo?tab=materials'))
 })
 
+it('shows the new adventure prompt instead of redirecting from the adventure menu', async () => {
+  window.location.hash = '#/adventures'
+  const api = { async listSaved() { return [] } } as unknown as AdventurePlayApi
+  const setupApi = { listKnowledgeDocuments: async () => [] } as unknown as SetupApi
+  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" forceList />)
+  expect(await screen.findByRole('heading', { name: '새로운 모험을 시작하세요' })).toBeInTheDocument()
+  expect(window.location.hash).toBe('#/adventures')
+})
+
 it('shows user-facing adventure states and only offers resume for resumable adventures', async () => {
   const api = {
     async listSaved() { return [
@@ -49,69 +126,30 @@ it('shows user-facing adventure states and only offers resume for resumable adve
   expect(screen.queryByText('active')).not.toBeInTheDocument()
 })
 
-it('lists, resumes, deletes and configures session knowledge sets', async () => {
+it('lists, resumes, and deletes adventures', async () => {
   const calls: string[] = []
   const api: AdventurePlayApi = {
     async listSaved() { return [{ id: 'old', title: 'Old Keep', statusLabel: '진행 중인 모험' as const, resumable: true, updatedAt: '2026-01-01', version: 4 }] },
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    async save(_adventureId: string, _playerId: string, _expectedVersion: number, _currentScene: string) {
-      calls.push('save')
-      return { adventureId: 'new', newVersion: 1 }
-    },
+    async save() { return { adventureId: 'new', newVersion: 1 } },
     async resume(id) { calls.push(`resume:${id}`) },
     async deleteAdventure(id) { calls.push(`delete:${id}`) },
-    async getSessionKnowledgeSet() { return { adventureId: 'old', sessionId: 'session-1', knowledgeDocumentIds: ['doc-1'] } },
-    async saveSessionKnowledgeSet(adventureId, _playerId, knowledgeDocumentIds) {
-      calls.push(`session:${adventureId}:${knowledgeDocumentIds.join(',')}`)
-      return { adventureId, sessionId: 'session-1', knowledgeDocumentIds }
-    },
+    async getSessionKnowledgeSet() { throw new Error() },
+    async saveSessionKnowledgeSet() { throw new Error() },
     async getCombatMap() { return { adventureId: 'old', status: 'authoritative-map' } },
     async getCharacter() { throw new Error() },
     async rollDice() { throw new Error() },
   }
-  const setupApi: SetupApi = {
-    async uploadRulebooks() { return [] },
-    async getRulebookStatus() { return { rulebookId: 'rulebook-1', status: 'INDEXED' as const } },
-    async retryKnowledgeDocument(knowledgeDocumentId: string) { return { rulebookId: knowledgeDocumentId, status: 'INDEXED' as const } },
-    async getSourcePreview() { throw new Error() },
-    async createScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 1, documents: [] } },
-    async reviseScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 2, documents: [] } },
-    async getScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 1, documents: [] } },
-    async createCharacterSheet() {
-      return {
-        characterSheetId: 'sheet-1',
-        adventureId: 'adventure-1',
-        edition: 'DND_5E_2024',
-        characterName: 'Aria',
-        level: 1,
-        inspiration: false,
-        version: 0,
-      }
-    },
-    async saveRuleSet() {},
-    async listKnowledgeDocuments() {
-      return [
-        { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'INDEXED' as const, format: 'PDF' as const },
-        { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'campaign.md', status: 'UPLOADED' as const, format: 'TXT' as const },
-      ]
-    },
-  }
+  const setupApi = { listKnowledgeDocuments: async () => [] } as unknown as SetupApi
   const user = userEvent.setup()
   const resumed: string[] = []
   render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" onResumed={id => resumed.push(id)} forceList />)
   expect(await screen.findByText('Old Keep')).toBeInTheDocument()
   expect(screen.queryByText('레거시 시나리오 마이그레이션')).not.toBeInTheDocument()
-  await user.click(screen.getByRole('button', { name: '자료 설정' }))
-  expect(await screen.findByRole('checkbox', { name: /phb\.pdf/ })).toBeChecked()
-  const old = screen.getByText('Old Keep').closest('li')!
-  await user.click(old.querySelectorAll('button')[0])
+  await user.click(screen.getByRole('button', { name: '재개' }))
   expect(screen.getByText('모험을 재개했습니다.')).toBeInTheDocument()
   expect(resumed).toEqual(['old'])
-  await user.click(screen.getByRole('button', { name: '자료 설정' }))
-  await user.click(screen.getByRole('button', { name: '세션 자료 저장' }))
-  await user.click(old.querySelectorAll('button')[1])
+  await user.click(screen.getByRole('button', { name: 'Old Keep 삭제' }))
   expect(screen.queryByText('Old Keep')).not.toBeInTheDocument()
   expect(calls).toContain('resume:old')
   expect(calls).toContain('delete:old')
-  expect(calls).toContain('session:old:doc-1')
 })

@@ -101,6 +101,20 @@ describe("CharacterCreationPage", () => {
     expect(screen.queryByLabelText("일행과의 관계")).toBeNull();
   });
 
+  it("uses background and memo examples as placeholders", async () => {
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "배경/성격" }));
+    expect((screen.getByLabelText("성격 특성") as HTMLInputElement).value).toBe("");
+    expect(screen.getByPlaceholderText("지식을 얻는 것을 무엇보다 즐긴다.")).toBeTruthy();
+    expect(screen.getByPlaceholderText("진실은 언젠가 밝혀져야 한다.")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "메모" }));
+    expect((screen.getByLabelText("추가 메모") as HTMLTextAreaElement).value).toBe("");
+    expect(screen.getByPlaceholderText("고대 유적지로 잃어버린 언어에 관심이 많다. 마법 연구를 위해 여정을 떠났다.")).toBeTruthy();
+  });
+
   it("limits subraces to the selected race and disables them for humans", async () => {
     const user = userEvent.setup();
     renderPage();

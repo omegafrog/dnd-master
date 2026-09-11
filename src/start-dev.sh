@@ -22,6 +22,7 @@ require_env() {
 # Local-only defaults keep this developer launcher runnable without exporting
 # production credentials. Deployments must provide their own values.
 export INTERNAL_SERVICE_TOKEN="${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}"
+export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:-/home/jiwoo/workspace/dnd-master/docs/assets}"
 # Keep the repository's local catalog-admin marker and the seeded demo player's
 # actual identity together. The browser Backoffice sends the authenticated
 # player ID, so omitting the seeded ID makes local catalog publication fail
@@ -43,6 +44,11 @@ require_env BACKEND_E2E_URL
 require_env BACKEND_E2E_EMAIL
 require_env BACKEND_E2E_PASSWORD
 require_env BACKEND_E2E_STORYBOOKS_JSON
+
+if [ ! -d "$RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT" ]; then
+    echo "ERROR: RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT directory was not found: $RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT" >&2
+    exit 1
+fi
 
 NVM_BIN="/home/jiwoo/.nvm/versions/node/v24.12.0/bin"
 SDKMAN_JAVA_HOME="/home/jiwoo/.sdkman/candidates/java/current"

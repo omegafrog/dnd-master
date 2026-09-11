@@ -659,6 +659,33 @@ function readCharacterDraft(key: string): Partial<CharacterDraftSnapshot> {
   }
 }
 
+function usesStandardArray(values: number[]) {
+  if (values.length !== STANDARD_ARRAY.length) return false;
+  const sorted = [...values].sort((left, right) => right - left);
+  return sorted.every((value, index) => value === STANDARD_ARRAY[index]);
+}
+
+function restoreDraftScores(values?: number[]) {
+  const candidate = values?.length === STANDARD_ARRAY.length
+    ? values
+    : Array.from({ length: STANDARD_ARRAY.length }, () => 0);
+  const used = new Set<number>();
+  const valid = candidate.every((value) => {
+    if (value === 0) return true;
+    if (
+      !STANDARD_ARRAY.includes(value as (typeof STANDARD_ARRAY)[number]) ||
+      used.has(value)
+    ) {
+      return false;
+    }
+    used.add(value);
+    return true;
+  });
+  return valid
+    ? candidate
+    : Array.from({ length: STANDARD_ARRAY.length }, () => 0);
+}
+
 function useBlueprintFields(blueprint?: BlueprintProps) {
   const [nodes, setNodes] = useState<ReturnType<typeof flattenNodes>>([]);
   const [packageId, setPackageId] = useState<string | null>(null);
@@ -818,9 +845,7 @@ export function CharacterSheetCreatorView({
   const [activeSection, setActiveSection] =
     useState<SheetSection>(restoredSection);
   const [scores, setScores] = useState(
-    initialDraft.scores?.length === 6
-      ? initialDraft.scores
-      : [0, 0, 0, 0, 0, 0],
+    restoreDraftScores(initialDraft.scores),
   );
   const [equipmentTab] = useState<"owned" | "carried">(
     initialDraft.equipmentTab ?? "owned",
@@ -903,8 +928,11 @@ export function CharacterSheetCreatorView({
   const effectiveBackground = background || field(["background"]);
   const effectiveAlignment = alignment || field(["alignment"]);
   const effectiveLevel = field(["level"], "1");
+  const blueprintScores = scoreKeys.map((keys) => Number(field(keys)));
+  const hasStandardBlueprintScores = usesStandardArray(blueprintScores);
   const baseScores = scores.map(
-    (score, index) => score || Number(field(scoreKeys[index])),
+    (score, index) =>
+      score || (hasStandardBlueprintScores ? blueprintScores[index] : 0),
   );
   const raceBonus =
     effectiveRace === "드워프"
@@ -1050,12 +1078,13 @@ export function CharacterSheetCreatorView({
       setMessage("이 세션의 판본 계약은 아직 캐릭터 생성을 지원하지 않습니다.");
       return;
     }
-    if (
-      !effectiveName.trim() ||
-      !effectiveClass ||
-      baseScores.some((value) => !value)
-    ) {
-      setMessage("이름, 직업, 능력치를 먼저 입력하세요.");
+    if (!effectiveName.trim() || !effectiveClass) {
+      setMessage("이름과 직업을 먼저 입력하세요.");
+      return;
+    }
+    if (!usesStandardArray(baseScores)) {
+      setMessage("능력치를 표준 배열 값으로 한 번씩 배정하세요.");
+      setActiveSection("abilities");
       return;
     }
     setSaving(true);
@@ -1337,9 +1366,9 @@ export function CharacterSheetCreatorView({
               <button
                 type="button"
                 className="ability-roll-button"
-                onClick={() => setScores(rollAbilityScores())}
+                onClick={() => setScores(shuffleStandardArray())}
               >
-                4d6 굴림(최저값 제외)
+                표준 배열 무작위 배정
               </button>
               <div className="sheet-abilities">
                 {stats.map((stat, i) => (
@@ -1460,7 +1489,7 @@ export function CharacterSheetCreatorView({
                   <label key={label}>
                     {label}
                     <Input
-                      defaultValue={
+                      placeholder={
                         [
                           "지식을 얻는 것을 무엇보다 즐긴다.",
                           "진실은 언젠가 밝혀져야 한다.",
@@ -1479,7 +1508,7 @@ export function CharacterSheetCreatorView({
               <SheetTitle n="8" title="메모" />
               <label>
                 추가 메모
-                <Textarea defaultValue="고대 유적지로 잃어버린 언어에 관심이 많다. 마법 연구를 위해 여정을 떠났다." />
+                <Textarea placeholder="고대 유적지로 잃어버린 언어에 관심이 많다. 마법 연구를 위해 여정을 떠났다." />
               </label>
             </section>
           )}
@@ -2341,12 +2370,6 @@ function flattenNodes(
     ...flattenNodes(node.children),
   ]);
 }
-function rollAbilityScores(): number[] {
-  return Array.from({ length: 6 }, () => {
-    const rolls = Array.from(
-      { length: 4 },
-      () => Math.floor(Math.random() * 6) + 1,
-    ).sort((a, b) => b - a);
-    return rolls[0] + rolls[1] + rolls[2];
-  });
+function shuffleStandardArray(): number[] {
+  return [...STANDARD_ARRAY].sort(() => Math.random() - 0.5);
 }

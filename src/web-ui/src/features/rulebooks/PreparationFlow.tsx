@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Check, LoaderCircle, TriangleAlert } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Progress } from '../../components/ui/progress'
@@ -18,6 +18,12 @@ function progressValue(status: ScenarioCompilationView['status']) {
 
 function storageKey(bundle: ScenarioBundleView) {
   return `dnd-preparation:${bundle.bundleId}:${bundle.currentRevision}`
+}
+
+function primaryStorybookId(bundle: ScenarioBundleView): string | null {
+  const storybooks = bundle.documents.filter(document => document.documentType === 'STORYBOOK')
+  return storybooks.find(document => document.role === 'MAIN_SCENARIO')?.knowledgeDocumentId
+    ?? (storybooks.length === 1 ? storybooks[0].knowledgeDocumentId : null)
 }
 
 export function PreparationFlow({
@@ -42,6 +48,8 @@ export function PreparationFlow({
   const [partySize, setPartySize] = useState(1)
   const [retryNonce, setRetryNonce] = useState(0)
   const [creating, setCreating] = useState(false)
+  const startRequests = useRef(new Map<string, Promise<ScenarioCompilationView>>())
+  const setupAttemptId = useRef(globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`)
 
   useEffect(() => {
     if (!api.startScenarioCompilation || !api.getScenarioCompilation || !api.getScenarioPackage) {
@@ -66,8 +74,16 @@ export function PreparationFlow({
           }
         }
         if (!current || current.status === 'FAILED' || current.status === 'BLOCKED') {
-          const inputFingerprint = `scenario-bundle:${bundle.bundleId}:revision:${bundle.currentRevision}:setup:${Date.now()}`
-          current = await api.startScenarioCompilation!(bundle.bundleId, playerId, inputFingerprint, {})
+          const requestKey = `${bundle.bundleId}:${bundle.currentRevision}:retry:${retryNonce}`
+          const inputFingerprint = `scenario-bundle:${bundle.bundleId}:revision:${bundle.currentRevision}:setup:${setupAttemptId.current}:retry:${retryNonce}`
+          let request = startRequests.current.get(requestKey)
+          if (!request) {
+            request = api.startScenarioCompilation!(bundle.bundleId, playerId, inputFingerprint, {
+              primaryStorybookId: primaryStorybookId(bundle),
+            })
+            startRequests.current.set(requestKey, request)
+          }
+          current = await request
           window.localStorage.setItem(key, current.compilationId)
         }
         if (!active) return

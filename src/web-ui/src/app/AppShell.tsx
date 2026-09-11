@@ -177,7 +177,7 @@ export function AppShell() {
   if (route.page === 'session-runtime') {
     return <div className="game-shell">
       <main id="main" className="game-shell-main app-page-session-runtime">
-        <SessionRuntimeRoute sessionId={route.sessionId} sessionApi={sessionApi} adventureApi={adventureApi} playApi={playApi} />
+        <SessionRuntimeRoute sessionId={route.sessionId} sessionApi={sessionApi} adventureApi={adventureApi} playApi={playApi} setupApi={setupApi} />
       </main>
     </div>
   }
@@ -194,8 +194,8 @@ export function AppShell() {
       {route.page === 'backoffice' && <BackofficePage session={auth.session} />}
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
-      {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}?tab=materials` }} />}
-      {route.page === 'adventure-workspace' && <AdventureWorkspace adventureId={route.adventureId} activeTab={route.tab} playApi={playApi} setupApi={setupApi} playerId={playerId} />}
+      {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} sessionApi={sessionApi} playerId={playerId} forceList onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}?tab=materials` }} />}
+      {route.page === 'adventure-workspace' && <AdventureWorkspace adventureId={route.adventureId} activeTab={route.tab} playApi={playApi} setupApi={setupApi} sessionApi={sessionApi} playerId={playerId} />}
       {route.page === 'adventure' && (combatSnapshot && combatSnapshot.status !== 'ENDED' ? <CombatScreen snapshot={combatSnapshot} api={combatApi} onCommandCommitted={refreshCombat} map={<CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} compact />} /> : <>
         {combatFinalSummary && <section className="combat-final-summary" aria-labelledby="combat-final-summary-title">
           <p className="eyebrow">COMBAT COMPLETE</p>

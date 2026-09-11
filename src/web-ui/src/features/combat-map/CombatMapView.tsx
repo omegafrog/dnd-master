@@ -29,6 +29,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [boundaryTool, setBoundaryTool] = useState<'WALL' | 'DOOR' | 'ERASE'>('WALL')
   const [boundaryDetecting, setBoundaryDetecting] = useState(false)
   const [preparationStarting, setPreparationStarting] = useState(false)
+  const [selectedPlayerStart, setSelectedPlayerStart] = useState<{ x: number; y: number } | null>(null)
   const boundaryStroke = useRef<BoundaryStroke | null>(null)
   const [boundaryPreview, setBoundaryPreview] = useState<BoundaryStroke | null>(null)
 
@@ -49,6 +50,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         const nextMap = fetchedMap
         if (!active) return
         setMap(nextMap)
+        setSelectedPlayerStart(nextMap.playerStartCandidates?.find(candidate => candidate.source === 'USER_CONFIRMED') ?? null)
         if (preparationMode) setLayoutSaved(false)
         const bounds = nextMap.layers?.find(layer => layer.type === 'GRID_BOUNDS')?.value?.split(',').map(Number)
         const nextGrid = nextMap.grid ?? { width: 20, height: 20 }
@@ -57,9 +59,23 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         }
         try { const current = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable'))); if (active) { setAlignment(current); setAlignmentAvailable(true); if (current.version > 0 && !preparationMode) setGridConfirmed(true); if (preparationMode) setLayoutSaved(layoutConfirmedForAlignment(nextMap, current)) } } catch { if (active) { setAlignmentAvailable(false); setLayoutSaved(false); setGridMessage('저장된 격자 정렬을 불러오지 못했습니다.') } }
         try {
-          let image = preparationMode
-            ? await (api.getCombatMapPreparationImage?.(adventureId) ?? api.getPublicMapImage?.(adventureId) ?? Promise.resolve(null))
-            : await (api.getPublicMapImage?.(adventureId) ?? Promise.resolve(null))
+          let image: string | null = null
+          if (preparationMode) {
+            // A newly prepared map has no public image view yet. If the
+            // owner-only source endpoint is temporarily unavailable, use the
+            // already published image instead of leaving the crop step empty.
+            if (api.getCombatMapPreparationImage) {
+              try { image = await api.getCombatMapPreparationImage(adventureId) }
+              catch { image = null }
+            }
+            if (!image && api.getPublicMapImage) {
+              try { image = await api.getPublicMapImage(adventureId) }
+              catch { image = null }
+            }
+          } else if (api.getPublicMapImage) {
+            try { image = await api.getPublicMapImage(adventureId) }
+            catch { image = null }
+          }
           // The reviewed map can be shown before a combat image view is
           // materialized. In that case the alignment response has no image
           // identifier yet, but the preparation image is still authoritative.
@@ -180,6 +196,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     } : {}),
   } as CSSProperties
   const hasVisibilityMetadata = Array.isArray(map?.current) && Array.isArray(map?.explored)
+  const placementRequired = map?.layers?.some(layer => layer.type === 'MAP_PLACEMENT_STATUS' && layer.value === 'PLACEMENT_REQUIRED') ?? false
   // A combat map is stage-scoped.  The backend returns an empty projection for
   // event/town stages; keep the entire tactical panel out of the player UI in
   // that state instead of showing a permanent "no map" panel.
@@ -192,7 +209,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       await api.updateCombatMapLayout(adventureId, {
         commandId: globalThis.crypto.randomUUID(), expectedVersion: map.version ?? 0,
         obstacles: map.obstacles ?? [], doors: map.doors?.map(door => ({ x: door.x, y: door.y })) ?? [],
-        boundaries: mapBoundaries, crop: localCrop,
+        boundaries: mapBoundaries, crop: localCrop, playerStart: selectedPlayerStart ?? undefined,
       })
       const refreshed = await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId))
       setMap(refreshed); setCropConfirmed(true); setGridConfirmed(false); setCropEditorOpen(false); setLayoutDirty(false); setLayoutSaved(false)
@@ -210,6 +227,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       commandId: globalThis.crypto.randomUUID(), expectedVersion, obstacles: map?.obstacles ?? [],
       doors: map?.doors?.map(door => ({ x: door.x, y: door.y })) ?? [], boundaries: localBoundaries, crop: localCrop,
       alignmentVersion: alignment.version, imageRevision: alignment.imageRevision,
+      playerStart: selectedPlayerStart ?? undefined,
     })
     try {
       await save(map.version ?? 0)
@@ -305,7 +323,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     <div className="tactical-map-window">
       {!preparationMode && <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>}
           <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} className="tactical-map" style={mapStyle} onPointerDown={event => {
-            if (!preparationMode) return
+            if (!preparationMode || !layoutEditing) return
             const stroke = startBoundaryStroke(event, previewGrid.width, previewGrid.height)
             if (!stroke) return
             event.currentTarget.setPointerCapture?.(event.pointerId)
@@ -334,13 +352,16 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           // coordinate the user is expected to confirm.
           const token = (preparationMode ? map.tokens?.filter(item => item.type !== 'PLAYER') : map.tokens)?.find(item => item.x === cell.x && item.y === cell.y)
           const playable = isPlayableGridCell(map, previewGrid, cell)
-          const blocked = !preparationMode && map.obstacles?.some(obstacle => obstacle.x === cell.x && obstacle.y === cell.y)
-          const door = !preparationMode && map.doors?.find(item => item.x === cell.x && item.y === cell.y)
+          const blocked = !preparationMode && (map.obstacles?.some(obstacle => obstacle.x === cell.x && obstacle.y === cell.y)
+            || map.doors?.some(item => item.x === cell.x && item.y === cell.y && !item.open))
+          const startBlocked = map.obstacles?.some(obstacle => obstacle.x === cell.x && obstacle.y === cell.y)
+            || map.doors?.some(item => item.x === cell.x && item.y === cell.y && !item.open)
+          const door = !preparationMode ? map.doors?.find(item => item.x === cell.x && item.y === cell.y) : undefined
           const visible = playable && (preparationMode || (map.current?.some(item => item.x === cell.x && item.y === cell.y)
             ?? (!hasVisibilityMetadata && token?.type === 'PLAYER')))
           const explored = playable && (map.explored?.some(item => item.x === cell.x && item.y === cell.y) ?? false)
           const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
-          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={preparationMode || !playable || blocked || !visible} draggable={!preparationMode && token?.type === 'PLAYER'} onDragStart={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id); else if (!preparationMode) chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
+          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible)} draggable={!preparationMode && token?.type === 'PLAYER'} onDragStart={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id); else if (!preparationMode) chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
             {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
           </button>
           })}
@@ -364,18 +385,19 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       <h2 id="map-heading">{compact ? '전장 지도' : '플레이어 전투 맵'}</h2>
       {!compact && <p>모험 ID: {adventureId}</p>}
       {!compact && <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>}
-      {preparationMode && mapImage && <section aria-label="맵 여백 자르기" className="map-crop-preparation">
+      {preparationMode && <section aria-label="맵 여백 자르기" className="map-crop-preparation">
         <h3>1. 맵 여백 자르기</h3>
-        {cropEditorOpen ? <>
+        {!mapImage ? <p role="status">지도 이미지를 불러오는 중입니다. 이미지가 준비되면 남길 영역을 지정할 수 있습니다.</p> : cropEditorOpen ? <>
           <p>남길 영역을 드래그한 뒤 자르기 적용을 누르세요. 적용해야 다음 단계로 넘어갑니다.</p>
           <MapCropEditor image={mapImage} crop={crop} onChange={next => { setCrop(next); setLayoutDirty(true); setLayoutSaved(false); setCropConfirmed(false) }} />
           <button type="button" disabled={layoutSaving || crop.width <= 0 || crop.height <= 0} onClick={() => void applyCrop()}>자르기 적용</button>
         </> : <button type="button" onClick={() => { setCropEditorOpen(true); setCropConfirmed(false); setGridConfirmed(false); setLayoutDirty(true); setLayoutSaved(false) }}>자르기 다시 수정</button>}
       </section>}
-      {preparationMode && showGridEditor && cropConfirmed ? <section aria-label="맵 격자 맞추기" className="map-grid-editor">
+      {preparationMode && <section aria-label="맵 격자 맞추기" className="map-grid-editor">
         <h3>2. 맵 격자 맞추기</h3>
-        <button type="button" onClick={() => setGridEditor(true)}>격자 맞추기</button>
-        {gridEditor && <MapGridAlignmentEditor key={`${alignment.mapId}-${alignment.version}`} image={mapImage!} initial={alignment} crop={crop} gridWidth={grid.width} gridHeight={grid.height} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {
+        {!cropConfirmed ? <p>1단계에서 여백 자르기를 적용하면 격자를 맞출 수 있습니다.</p> : !showGridEditor ? <p role="status">지도 이미지와 격자 정보를 불러오는 중입니다.</p> : <>
+          <button type="button" onClick={() => setGridEditor(true)}>격자 맞추기</button>
+          {gridEditor && <MapGridAlignmentEditor key={`${alignment.mapId}-${alignment.version}`} image={mapImage!} initial={alignment} crop={crop} gridWidth={grid.width} gridHeight={grid.height} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {
           try {
             const saved = await api.applyMapGridAlignment!(adventureId, value)
             setAlignment(saved); setGridConfirmed(true); setLayoutSaved(false); setGridEditor(false); setGridMessage('격자 정렬을 저장했습니다. 이제 AI 초안을 생성하세요.'); setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId)))
@@ -385,11 +407,13 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             }
             throw error
           }
-        }} />}
+          }} />}
+        </>}
         <p role="status">{gridMessage}</p>
-      </section> : null}
+      </section>}
+      {preparationMode && <section className="map-start-preparation" aria-label="플레이어 시작 위치"><h3>시작 위치 확인</h3>{placementRequired && <p role="alert">맵은 준비됐지만 시작 위치가 확정되지 않았습니다. 시작 위치를 선택해주세요.</p>}<p>AI 제안은 참고용입니다. 지도에서 시작할 칸을 누르거나 후보를 선택한 뒤 맵 초안을 저장하세요.</p>{map.playerStartCandidates?.length ? <ul>{map.playerStartCandidates.map((candidate, index) => <li key={`${candidate.x}-${candidate.y}-${index}`}><button type="button" aria-pressed={selectedPlayerStart?.x === candidate.x && selectedPlayerStart?.y === candidate.y} onClick={() => setSelectedPlayerStart({ x: candidate.x, y: candidate.y })}>({candidate.x},{candidate.y}) 선택</button><span>신뢰도 {Math.round(candidate.confidence * 100)}% · {candidate.evidence.join(', ') || '근거 없음'}</span></li>)}</ul> : <p>확인 가능한 시작 위치 제안이 없습니다. 지도에서 직접 선택하세요.</p>}<p role="status">{selectedPlayerStart ? `선택한 시작 칸: (${selectedPlayerStart.x},${selectedPlayerStart.y})` : '아직 시작 칸을 선택하지 않았습니다.'}</p></section>}
       {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>3. AI 초안 생성 및 검수</h3><p>{!cropConfirmed ? '먼저 1단계에서 여백 자르기를 적용하세요.' : !gridConfirmed ? '먼저 2단계에서 격자를 맞추고 적용하세요.' : '격자 적용 완료. 현재 자른 영역과 격자를 기준으로 AI 초안을 생성합니다.'}</p>{cropConfirmed && gridConfirmed && <><button type="button" disabled={boundaryDetecting || layoutSaving || layoutEditing} onClick={() => void detectBoundaries()}>{boundaryDetecting ? 'AI 벽·문 감지 중…' : 'AI 벽·문 감지'}</button><button type="button" onClick={() => { if (layoutEditing) { setLayoutEditing(false); return }; if (!layoutBeforeEdit) setLayoutBeforeEdit(map); setLayoutSaved(false); setLayoutEditing(true) }}>{layoutEditing ? '검수 닫기' : '벽·문 편집'}</button>{layoutEditing && <div className="map-layout-editor"><ol className="map-layout-guide"><li>선은 칸의 한 면에 붙어 표시됩니다.</li><li>벽 그리기·문 그리기·지우기 중 하나를 고르세요.</li><li>격자선 위를 누른 채 끌면 지나간 선분에 적용됩니다.</li></ol><div className="map-boundary-tools" role="group" aria-label="벽과 문 그리기 도구"><button type="button" aria-pressed={boundaryTool === 'WALL'} onClick={() => setBoundaryTool('WALL')}>벽 그리기</button><button type="button" aria-pressed={boundaryTool === 'DOOR'} onClick={() => setBoundaryTool('DOOR')}>문 그리기</button><button type="button" aria-pressed={boundaryTool === 'ERASE'} onClick={() => setBoundaryTool('ERASE')}>지우기</button></div>{tacticalMap}<p>칸은 이동하거나 선택되지 않습니다.</p><div className="map-layout-actions"><button type="button" disabled={layoutSaving} onClick={() => { boundaryStroke.current = null; setBoundaryPreview(null); const restored = layoutBeforeEdit; setMap(restored); setLayoutSaved(restored?.layers?.some(layer => layer.type === 'MAP_LAYOUT_CONFIRMED') ?? false); setLayoutDirty(false); setLayoutEditing(false); setLayoutBeforeEdit(null) }}>편집 취소</button><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div></div>}</>}</section>}
-      {!preparationMode && tacticalMap}
+      {!layoutEditing && tacticalMap}
       {map?.tokens?.filter(token => token.type !== 'PLAYER' && !token.lastSeen && map.current?.some(cell => cell.x === token.x && cell.y === token.y)).map(token => <button key={`target-${token.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'TARGET', { x: token.x, y: token.y }, token.id)) }}>대상 선택: {token.type}</button>)}
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}
       {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p><button type="button" disabled={submitting} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting} onClick={() => { setCandidate(null); setSelectedToken(null) }}>취소</button></div>}

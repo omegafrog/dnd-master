@@ -83,6 +83,19 @@ it('falls back to the reviewed preparation image when the play image is not read
   expect(map).toHaveStyle({ backgroundImage: 'url(/reviewed-preparation.png)' })
 })
 
+it('falls back to the public image when the preparation image request fails', async () => {
+  const api = fakeApi()
+  api.getCombatMapPreparation = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 2, height: 2 }, tokens: [],
+  })
+  api.getCombatMapPreparationImage = vi.fn().mockRejectedValue(new Error('not ready'))
+  api.getPublicMapImage = async () => '/public-map-fallback.png'
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  expect(await screen.findByAltText('자르기 대상 지도')).toHaveAttribute('src', '/public-map-fallback.png')
+})
+
 it('renders only the reviewed crop in the player map', async () => {
   const api = fakeApi()
   api.getPublicMapImage = async () => '/public-map-image.png'
@@ -184,6 +197,20 @@ it('shows AI wall and door drafts across the full map during preparation', async
   await user.click(within(editor).getByRole('button', { name: '편집 취소' }))
   expect(screen.getByRole('button', { name: '벽·문 편집' })).toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '위치 선택' })).not.toBeInTheDocument()
+})
+
+it('always shows all three map preparation steps while earlier data is loading', async () => {
+  const api = fakeApi()
+  api.getCombatMapPreparation = vi.fn().mockResolvedValue({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 2, height: 2 }, tokens: [],
+  })
+
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  expect(await screen.findByRole('heading', { name: '1. 맵 여백 자르기' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '2. 맵 격자 맞추기' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '3. AI 초안 생성 및 검수' })).toBeInTheDocument()
 })
 
 it('keeps the saved grid scale while reviewing a separately cropped image', async () => {
@@ -312,6 +339,54 @@ it('does not show a player-start candidate during map preparation', async () => 
   await user.click(await screen.findByRole('button', { name: '벽·문 편집' }))
   expect(screen.queryByRole('button', { name: /플레이어 시작 위치/ })).not.toBeInTheDocument()
   expect(screen.getByRole('button', { name: '빈 격자 1,1' })).toBeInTheDocument()
+})
+
+it('allows selecting a start cell directly on the preparation map outside wall editing', async () => {
+  const api = fakeApi()
+  api.getCombatMapPreparation = vi.fn().mockResolvedValue({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 2, height: 2 }, tokens: [],
+  })
+  const user = userEvent.setup()
+
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  await user.click(await screen.findByRole('button', { name: '빈 격자 1,1' }))
+  expect(screen.getByText('선택한 시작 칸: (1,1)')).toBeInTheDocument()
+})
+
+it('saves and restores a directly selected start cell when no candidate was suggested', async () => {
+  const api = fakeApi()
+  let preparationMap: Awaited<ReturnType<NonNullable<AdventurePlayApi['getCombatMapPreparation']>>> = {
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 2, height: 2 }, tokens: [],
+  }
+  api.getCombatMapPreparation = vi.fn(async () => preparationMap)
+  api.getCombatMapPreparationImage = vi.fn().mockResolvedValue('/preparation-map.png')
+  api.getMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.applyMapGridAlignment = vi.fn().mockResolvedValue({ mapId: 'm1', version: 1, imageRevision: 'r1', originX: 0, originY: 0, cellSize: 30 })
+  api.updateCombatMapLayout = vi.fn(async (_adventureId, draft) => {
+    preparationMap = {
+      ...preparationMap,
+      version: (preparationMap.version ?? 0) + 1,
+      playerStartCandidates: draft.playerStart ? [{ ...draft.playerStart, confidence: 1, evidence: ['사용자 확정'], source: 'USER_CONFIRMED' }] : [],
+    }
+  })
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} preparationMode />)
+
+  await confirmCrop(user)
+  await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  await user.click(await screen.findByRole('button', { name: '빈 격자 1,1' }))
+  expect(screen.getByText('선택한 시작 칸: (1,1)')).toBeInTheDocument()
+
+  await user.click(screen.getByRole('button', { name: '벽·문 편집' }))
+  await user.click(screen.getByRole('button', { name: '맵 초안 저장' }))
+
+  await waitFor(() => expect(api.updateCombatMapLayout).toHaveBeenLastCalledWith('a1', expect.objectContaining({ playerStart: { x: 1, y: 1 } })))
+  expect(await screen.findByText('선택한 시작 칸: (1,1)')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '(1,1) 선택' })).toHaveAttribute('aria-pressed', 'true')
 })
 
 it('does not treat a draft saved for an older grid as ready after reload', async () => {

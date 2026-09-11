@@ -199,6 +199,17 @@
   box-shadow: none !important;
 }
 
+/* The base stylesheet styles every <header> as the application bar. These
+   stage headers are document content and must keep the wizard layout. */
+.setup-wizard .setup-stage-header {
+  display: block;
+  min-height: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--rework-ink, #27221e);
+  flex-wrap: initial;
+}
+
 .setup-stage-header {
   max-width: 44rem;
   margin-bottom: 2.6rem;

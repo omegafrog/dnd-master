@@ -528,6 +528,93 @@ body:has(.app-page-session-runtime) > #root > .app-shell > .app-header {
   color: var(--rework-oxblood) !important;
 }
 
+.runtime-handout-panel {
+  margin-top: 1.2rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rework-rule);
+}
+
+.runtime-handout-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: .6rem;
+}
+
+.runtime-handout-heading h2 {
+  margin: 0 !important;
+  color: var(--rework-ink) !important;
+  font: 600 1rem/1.2 Georgia, 'Times New Roman', serif !important;
+}
+
+.runtime-handout-heading > span {
+  color: var(--rework-muted);
+  font-size: .64rem;
+}
+
+.runtime-handout-list {
+  display: grid;
+  gap: .25rem;
+  margin: .75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.runtime-handout-list .ui-button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  width: 100%;
+  min-height: 2.6rem;
+  gap: .45rem;
+  padding: .45rem .35rem;
+  border: 1px solid var(--rework-rule) !important;
+  border-radius: 2px !important;
+  background: var(--rework-paper-muted) !important;
+  color: var(--rework-ink) !important;
+  text-align: left;
+  font-size: .7rem;
+}
+
+.runtime-handout-list .ui-button:hover {
+  border-color: var(--rework-oxblood) !important;
+  color: var(--rework-oxblood) !important;
+}
+
+.runtime-handout-list .ui-button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-handout-empty {
+  margin: .75rem 0 0;
+  color: var(--rework-muted);
+  font-size: .7rem;
+  line-height: 1.5;
+}
+
+.runtime-handout-sheet {
+  width: min(52rem, 92vw);
+}
+
+.runtime-handout-preview {
+  margin-top: 1.25rem;
+}
+
+.runtime-handout-preview pre {
+  max-height: calc(100dvh - 12rem);
+  margin: .75rem 0 0;
+  padding: .9rem;
+  overflow: auto;
+  border: 1px solid var(--rework-rule);
+  background: var(--rework-paper-muted);
+  color: var(--rework-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: .8rem/1.7 Georgia, 'Times New Roman', serif;
+}
+
 @media (max-width: 1050px) {
   body:has(.app-page-session-runtime) {
     overflow: auto;
@@ -554,6 +641,10 @@ body:has(.app-page-session-runtime) > #root > .app-shell > .app-header {
     grid-column: 1 / -1;
     border-top: 1px solid var(--rework-rule) !important;
     border-left: 0 !important;
+  }
+
+  .runtime-handout-panel {
+    grid-column: 1 / -1;
   }
 }
 
