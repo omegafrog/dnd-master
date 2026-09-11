@@ -5,5 +5,5 @@ import java.util.Objects;
 
 public record SpawnResolution(GridPosition position, Source source) {
     public SpawnResolution { Objects.requireNonNull(position); Objects.requireNonNull(source); }
-    public enum Source { EXPLICIT_TACTICAL, ACTIVATION_CANDIDATE, ENTRY_BOUNDARY, SAFE_FALLBACK }
+    public enum Source { EXPLICIT_TACTICAL, USER_CONFIRMED, ACTIVATION_CANDIDATE, AGENT_PROPOSAL }
 }

@@ -53,7 +53,7 @@ class CombatMapApiConfigurationTest {
             assertTrue(data.obstacles().isEmpty());
             assertTrue(data.doors().isEmpty());
             assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("MAP_BOUNDARIES") && layer.value().contains("1,1,VERTICAL,WALL,false")));
-            assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("GM_PLAYER_START") && layer.value().equals("0,0")));
+            assertTrue(data.layers().stream().noneMatch(layer -> layer.type().equals("GM_PLAYER_START")));
             assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("MAP_IMAGE") && layer.value().startsWith("data:image/png;base64,")));
             JsonNode request = new ObjectMapper().readTree(requestBody.get());
             assertEquals("0,0", new ObjectMapper().readTree(request.path("mapData").asText()).path("authoredPlayerStart").asText());

@@ -81,7 +81,7 @@ class GmViewAuthorizationTest {
                 () -> controller.prepare("service-secret", request));
 
         assertEquals(404, error.getStatusCode().value());
-        verify(maps, never()).prepareGenerated(any(), any(), any(), any(MapGenerationRequest.class), anyBoolean());
+        verify(maps, never()).prepareGenerated(any(), any(), any(), any(MapGenerationRequest.class));
     }
 
     @Test

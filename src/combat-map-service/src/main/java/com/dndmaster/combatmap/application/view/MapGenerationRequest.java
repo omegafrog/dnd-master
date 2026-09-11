@@ -25,7 +25,10 @@ public record MapGenerationRequest(
         String crop,
         boolean gridConfirmed,
         String imageRevision,
-        Collection<com.dndmaster.combatmap.domain.MapBoundary> authoredBoundaries) {
+        Collection<com.dndmaster.combatmap.domain.MapBoundary> authoredBoundaries,
+        String entryAction,
+        String entryJudgment,
+        String entryNarration) {
     public MapGenerationRequest {
         selectedScenario = required(selectedScenario, "selected scenario");
         currentContext = currentContext == null ? "" : currentContext.trim();
@@ -56,13 +59,16 @@ public record MapGenerationRequest(
                 throw new IllegalArgumentException("authored boundary is outside the grid");
             }
         });
+        entryAction = clean(entryAction);
+        entryJudgment = clean(entryJudgment);
+        entryNarration = clean(entryNarration);
     }
 
     public MapGenerationRequest(String selectedScenario, String currentContext, int gridWidth, int gridHeight,
             int cellSize, int distanceUnit, Collection<GridPosition> authoredObstacles, Collection<Door> authoredDoors,
             GridPosition authoredPlayerStart, MapImageEvidence mapImage) {
         this(selectedScenario, currentContext, gridWidth, gridHeight, cellSize, distanceUnit,
-                authoredObstacles, authoredDoors, authoredPlayerStart, mapImage, 0, 0, cellSize, "", false, "", List.of());
+                authoredObstacles, authoredDoors, authoredPlayerStart, mapImage, 0, 0, cellSize, "", false, "", List.of(), "", "", "");
     }
 
     /** 요청자가 저장한 지도 격자와 자르기 범위를 고정해 AI에게 전달한다. */
@@ -72,7 +78,7 @@ public record MapGenerationRequest(
             double gridCellSize, String crop) {
         this(selectedScenario, currentContext, gridWidth, gridHeight, cellSize, distanceUnit,
                 authoredObstacles, authoredDoors, authoredPlayerStart, mapImage,
-                gridOriginX, gridOriginY, gridCellSize, crop, true, "", List.of());
+                gridOriginX, gridOriginY, gridCellSize, crop, true, "", List.of(), "", "", "");
     }
 
     /** 이전 호출부가 명시적으로 격자 확정 여부를 전달하던 생성자와의 호환성. */
@@ -82,7 +88,17 @@ public record MapGenerationRequest(
             double gridCellSize, String crop, boolean gridConfirmed) {
         this(selectedScenario, currentContext, gridWidth, gridHeight, cellSize, distanceUnit,
                 authoredObstacles, authoredDoors, authoredPlayerStart, mapImage,
-                gridOriginX, gridOriginY, gridCellSize, crop, gridConfirmed, "", List.of());
+                gridOriginX, gridOriginY, gridCellSize, crop, gridConfirmed, "", List.of(), "", "", "");
+    }
+
+    public MapGenerationRequest(String selectedScenario, String currentContext, int gridWidth, int gridHeight,
+            int cellSize, int distanceUnit, Collection<GridPosition> authoredObstacles, Collection<Door> authoredDoors,
+            GridPosition authoredPlayerStart, MapImageEvidence mapImage, double gridOriginX, double gridOriginY,
+            double gridCellSize, String crop, boolean gridConfirmed, String imageRevision,
+            Collection<com.dndmaster.combatmap.domain.MapBoundary> authoredBoundaries) {
+        this(selectedScenario, currentContext, gridWidth, gridHeight, cellSize, distanceUnit,
+                authoredObstacles, authoredDoors, authoredPlayerStart, mapImage, gridOriginX, gridOriginY,
+                gridCellSize, crop, gridConfirmed, imageRevision, authoredBoundaries, "", "", "");
     }
 
     /** 저장된 이미지 버전과 사용자가 그린 선분을 함께 고정하는 감지 요청이다. */
@@ -93,19 +109,28 @@ public record MapGenerationRequest(
             Collection<com.dndmaster.combatmap.domain.MapBoundary> authoredBoundaries) {
         this(selectedScenario, currentContext, gridWidth, gridHeight, cellSize, distanceUnit,
                 authoredObstacles, authoredDoors, authoredPlayerStart, mapImage,
-                gridOriginX, gridOriginY, gridCellSize, crop, true, imageRevision, authoredBoundaries);
+                gridOriginX, gridOriginY, gridCellSize, crop, true, imageRevision, authoredBoundaries, "", "", "");
     }
 
     public MapGenerationRequest(String selectedScenario, String currentContext) {
         this(selectedScenario, currentContext, 20, 20, 30, 5, List.of(), List.of(), null, null,
-                0, 0, 30, "", false, "", List.of());
+                0, 0, 30, "", false, "", List.of(), "", "", "");
     }
 
     public MapGenerationRequest(String selectedScenario, String currentContext, int gridWidth, int gridHeight,
             int cellSize, int distanceUnit, Collection<GridPosition> authoredObstacles, Collection<Door> authoredDoors) {
         this(selectedScenario, currentContext, gridWidth, gridHeight, cellSize, distanceUnit,
-                authoredObstacles, authoredDoors, null, null, 0, 0, cellSize, "", false, "", List.of());
+                authoredObstacles, authoredDoors, null, null, 0, 0, cellSize, "", false, "", List.of(), "", "", "");
     }
+
+    /** 진입 위치 판단에 사용할 행동 원문·판정·이번 서술을 함께 보존한다. */
+    public MapGenerationRequest withEntryEvidence(String action, String judgment, String narration) {
+        return new MapGenerationRequest(selectedScenario, currentContext, gridWidth, gridHeight, cellSize, distanceUnit,
+                authoredObstacles, authoredDoors, authoredPlayerStart, mapImage, gridOriginX, gridOriginY, gridCellSize,
+                crop, gridConfirmed, imageRevision, authoredBoundaries, action, judgment, narration);
+    }
+
+    private static String clean(String value) { return value == null ? "" : value.trim(); }
 
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " is required");

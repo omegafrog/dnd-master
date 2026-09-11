@@ -8,6 +8,8 @@ import com.dndmaster.combatmap.domain.LayerVisibility;
 import com.dndmaster.combatmap.domain.MapLayer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.ByteArrayInputStream;
@@ -24,8 +26,10 @@ import javax.imageio.ImageIO;
 
 /** Calls the AI Game Master map contract and converts its proposal to map data. */
 public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
+    private static final Logger LOGGER = LoggerFactory.getLogger(HttpAiMapGenerationGateway.class);
     private final HttpClient client;
     private final URI endpoint;
+    private final URI entryPlacementEndpoint;
     private final Duration timeout;
     private final ObjectMapper mapper;
     private final String internalToken;
@@ -34,6 +38,7 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
             ObjectMapper mapper, String internalToken) {
         this.client = client;
         this.endpoint = baseUri.resolve("internal/v1/gm/maps");
+        this.entryPlacementEndpoint = baseUri.resolve("internal/v1/gm/map-entry-placement");
         this.timeout = timeout;
         this.mapper = mapper;
         this.internalToken = internalToken;
@@ -63,6 +68,11 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                     java.util.Map.entry("mapImageAvailable", request.mapImage() != null)));
             String body = mapper.writeValueAsString(new Request(request.selectedScenario(), request.currentContext(), mapData,
                     request.mapImage() == null ? "" : request.mapImage().dataUri()));
+            LOGGER.info("map_placement_agent_request scenario={} currentContext={} grid={}x{} cellSize={} distanceUnit={} origin=({}, {}) gridCellSize={} crop={} imageRevision={} mapImage={} authoredObstacles={} authoredDoors={} authoredBoundaries={}",
+                    request.selectedScenario(), compactLogValue(request.currentContext()), request.gridWidth(), request.gridHeight(),
+                    request.cellSize(), request.distanceUnit(), request.gridOriginX(), request.gridOriginY(), request.gridCellSize(),
+                    compactLogValue(request.crop()), compactLogValue(request.imageRevision()), request.mapImage() != null,
+                    request.authoredObstacles().size(), request.authoredDoors().size(), request.authoredBoundaries().size());
             HttpRequest httpRequest = HttpRequest.newBuilder(endpoint)
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
@@ -73,13 +83,136 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("AI Game Master map proposal failed with status " + response.statusCode());
             }
-            return toPreparedMap(mapper.readTree(response.body()), request, mapper);
+            JsonNode root = mapper.readTree(response.body());
+            LOGGER.info("map_placement_agent_response scenario={} status={} responseChars={} responseBody={} dimensions={}x{} boundaries={} obstacles={} doors={} playerStart={} proposalStatus={} proposalPosition={} proposalConfidence={} proposalEvidence={} proposalSource={} rationale={}",
+                    request.selectedScenario(), response.statusCode(), response.body().length(), compactLogValue(response.body()),
+                    root.path("width").asInt(-1), root.path("height").asInt(-1), root.path("boundaries").size(), root.path("obstacles").size(),
+                    root.path("doors").size(), compactLogValue(root.path("playerStart").asText("")),
+                    compactLogValue(root.path("playerStartProposal").path("status").asText("")),
+                    compactLogValue(root.path("playerStartProposal").path("position").asText("")),
+                    root.path("playerStartProposal").path("confidence").asDouble(-1),
+                    compactLogValue(root.path("playerStartProposal").path("evidence").toString()),
+                    compactLogValue(root.path("playerStartProposal").path("source").asText("")),
+                    compactLogValue(root.path("rationale").asText("")));
+            return toPreparedMap(root, request, mapper);
         } catch (IOException exception) {
             throw new IllegalStateException("AI Game Master map proposal transport failed", exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("AI Game Master map proposal interrupted", exception);
         }
+    }
+
+    @Override
+    public PreparedMapData proposeEntryPlacement(MapGenerationRequest request) {
+        try {
+            String mapData = mapper.writeValueAsString(java.util.Map.ofEntries(
+                    java.util.Map.entry("gridWidth", request.gridWidth()),
+                    java.util.Map.entry("gridHeight", request.gridHeight()),
+                    java.util.Map.entry("gridOriginX", request.gridOriginX()),
+                    java.util.Map.entry("gridOriginY", request.gridOriginY()),
+                    java.util.Map.entry("gridCellSize", request.gridCellSize()),
+                    java.util.Map.entry("gridConfirmed", request.gridConfirmed()),
+                    java.util.Map.entry("crop", request.crop()),
+                    java.util.Map.entry("obstacles", request.authoredObstacles().stream().map(HttpAiMapGenerationGateway::position).toList()),
+                    java.util.Map.entry("doors", request.authoredDoors().stream().map(door -> position(door.position())).toList()),
+                    java.util.Map.entry("boundaries", request.authoredBoundaries().stream().map(com.dndmaster.combatmap.domain.MapBoundary::encoded).toList())));
+            EntryPlacementRequest payload = new EntryPlacementRequest(
+                    entryTargetScene(request.currentContext()), request.entryAction(), request.entryJudgment(), request.entryNarration(),
+                    mapData, request.mapImage() == null ? "" : request.mapImage().dataUri());
+            LOGGER.info("map_entry_localization_request scene={} action={} judgment={} narration={} mapData={} image={}",
+                    compactLogValue(request.currentContext()), compactLogValue(request.entryAction()),
+                    compactLogValue(request.entryJudgment()), compactLogValue(request.entryNarration()),
+                    compactLogValue(mapData), request.mapImage() != null);
+            HttpRequest httpRequest = HttpRequest.newBuilder(entryPlacementEndpoint)
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken == null ? "" : internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(payload))).build();
+            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("AI Game Master entry placement failed with status " + response.statusCode());
+            }
+            JsonNode root = mapper.readTree(response.body());
+            JsonNode interpretation = root.path("entryInterpretation").isObject()
+                    ? root.path("entryInterpretation") : root.path("interpretation");
+            LOGGER.info("map_entry_localization_response status={} responseChars={} responseBody={} placementStatus={} transition={} targetScene={} anchor={} placementRelation={} candidates={} reason={}",
+                    response.statusCode(), response.body().length(), compactLogValue(response.body()),
+                    root.path("status").asText(""), compactLogValue(interpretation.path("transition").asText("")),
+                    compactLogValue(interpretation.path("targetScene").asText("")),
+                    compactLogValue(interpretation.path("anchor").asText("")),
+                    compactLogValue(interpretation.path("placementRelation").asText("")), root.path("candidates").size(),
+                    compactLogValue(root.path("reason").asText("")));
+            return toEntryPlacement(root, request);
+        } catch (IOException exception) {
+            throw new IllegalStateException("AI Game Master entry placement transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("AI Game Master entry placement interrupted", exception);
+        }
+    }
+
+    private PreparedMapData toEntryPlacement(JsonNode root, MapGenerationRequest request) throws IOException {
+        List<MapEntryCandidate> candidates = new ArrayList<>();
+        if (root.path("candidates").isArray()) {
+            for (JsonNode candidate : root.path("candidates")) {
+                if (!candidate.has("x") || !candidate.has("y")) continue;
+                List<String> evidence = new ArrayList<>();
+                if (candidate.path("evidence").isArray()) candidate.path("evidence").forEach(item -> evidence.add(item.asText()));
+                candidates.add(new MapEntryCandidate(candidate.path("x").asInt(-1), candidate.path("y").asInt(-1),
+                        candidate.path("confidence").asDouble(Double.NaN), candidate.path("source").asText("MAP_IMAGE"),
+                        candidate.path("anchor").asText(""), candidate.path("reason").asText(""), evidence));
+            }
+        }
+        List<MapEntryCandidate> valid = candidates.stream()
+                .filter(candidate -> candidate.x() >= 0 && candidate.y() >= 0
+                        && candidate.x() < request.gridWidth() && candidate.y() < request.gridHeight()
+                        && Double.isFinite(candidate.confidence()) && candidate.confidence() >= 0 && candidate.confidence() <= 1)
+                .limit(3).toList();
+        List<MapLayer> layers = new ArrayList<>();
+        if (!valid.isEmpty()) layers.add(new MapLayer("GM_PLAYER_START_PROPOSAL", mapper.writeValueAsString(proposal(valid.getFirst(), root)), LayerVisibility.AI_ONLY));
+        layers.add(new MapLayer("GM_ENTRY_PLACEMENT_RESULT", mapper.writeValueAsString(root), LayerVisibility.AI_ONLY));
+        return new PreparedMapData(new GridSpec(request.gridWidth(), request.gridHeight(), request.cellSize(), request.distanceUnit()),
+                List.of(), Set.of(), layers);
+    }
+
+    private com.fasterxml.jackson.databind.node.ObjectNode proposal(MapEntryCandidate candidate, JsonNode root) {
+        var result = mapper.createObjectNode();
+        result.put("position", candidate.x() + "," + candidate.y());
+        result.put("confidence", candidate.confidence());
+        result.put("source", candidate.source());
+        // The dedicated placement agent uses RESOLVED/AMBIGUOUS for the
+        // overall result. Once a candidate passed the transport-level grid
+        // checks, this layer represents that candidate as a proposal for the
+        // shared deterministic validator.
+        result.put("status", "PROPOSED");
+        List<String> evidence = new ArrayList<>(candidate.evidence());
+        if (evidence.isEmpty()) {
+            JsonNode interpretation = root.path("entryInterpretation").isObject()
+                    ? root.path("entryInterpretation") : root.path("interpretation");
+            JsonNode interpretationEvidence = interpretation.path("evidence");
+            if (interpretationEvidence.isArray()) interpretationEvidence.forEach(item -> {
+                if (!item.asText().isBlank()) evidence.add(item.asText());
+            });
+            else if (!interpretationEvidence.asText("").isBlank()) evidence.add(interpretationEvidence.asText());
+        }
+        if (evidence.isEmpty() && !candidate.reason().isBlank()) evidence.add(candidate.reason());
+        result.set("evidence", mapper.valueToTree(evidence));
+        result.put("anchor", candidate.anchor());
+        result.put("reason", candidate.reason());
+        return result;
+    }
+
+    private record EntryPlacementRequest(String targetScene, String action, String judgment, String narration,
+                                         String mapData, String imageDataUri) {}
+    private record MapEntryCandidate(int x, int y, double confidence, String source, String anchor,
+                                     String reason, List<String> evidence) {}
+
+    private static String entryTargetScene(String context) {
+        if (context == null) return "unknown";
+        for (String part : context.split(";")) {
+            if (part.startsWith("scene=")) return part.substring("scene=".length()).trim();
+        }
+        return context.trim().isBlank() ? "unknown" : context.trim();
     }
 
     private static PreparedMapData toPreparedMap(JsonNode root, MapGenerationRequest request, ObjectMapper mapper) {
@@ -135,7 +268,16 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
             try { layers.add(new MapLayer("MAP_BOUNDARY_CANDIDATES", mapper.writeValueAsString(candidates), LayerVisibility.AI_ONLY)); }
             catch (IOException ignored) { /* candidate explanations are optional; boundary strings remain usable */ }
         }
-        if (!playerStart.isBlank()) layers.add(new MapLayer("GM_PLAYER_START", playerStart, LayerVisibility.AI_ONLY));
+        JsonNode proposal = root.path("playerStartProposal");
+        if (proposal.isObject() && !proposal.path("position").asText("").isBlank()) {
+            String proposalPosition = proposal.path("position").asText("").trim();
+            GridPosition parsedProposal = parsePosition(proposalPosition, width, height, "playerStartProposal.position");
+            if (obstacles.contains(parsedProposal) || doors.stream().anyMatch(door -> door.position().equals(parsedProposal))) {
+                throw new IllegalArgumentException("AI map proposal player start proposal is blocked");
+            }
+            try { layers.add(new MapLayer("GM_PLAYER_START_PROPOSAL", mapper.writeValueAsString(proposal), LayerVisibility.AI_ONLY)); }
+            catch (IOException ignored) { /* optional placement evidence */ }
+        }
         String rationale = root.path("rationale").asText("").trim();
         if (!rationale.isBlank()) layers.add(new MapLayer("GM_MAP_RATIONALE", rationale, LayerVisibility.AI_ONLY));
         return new PreparedMapData(new GridSpec(width, height, request.cellSize(), request.distanceUnit()),
@@ -185,6 +327,12 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                     ? java.util.Optional.of(bounds.x() + "," + bounds.y() + "," + bounds.width() + "," + bounds.height())
                     : java.util.Optional.empty();
         } catch (IOException ignored) { return java.util.Optional.empty(); }
+    }
+
+    private static String compactLogValue(String value) {
+        if (value == null) return "";
+        String compact = value.replace("\r", "").replace("\n", "\\n").trim();
+        return compact.length() <= 2000 ? compact : compact.substring(0, 2000) + "…";
     }
 
     private static Set<GridPosition> parsePositions(JsonNode values, int width, int height, String field) {
