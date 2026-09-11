@@ -75,6 +75,27 @@ class MapModelContractTest {
     }
 
     @Test
+    void sendsFirstNarrationAndLocationToEntryPlacementPrompt() {
+        java.util.concurrent.atomic.AtomicReference<String> prompt = new java.util.concurrent.atomic.AtomicReference<>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operationId, String value, StructuredResponseParser<T> parser) {
+                prompt.set(value);
+                return parser.parse("{\"status\":\"UNRESOLVED\",\"entryInterpretation\":{},\"candidates\":[],\"reason\":\"no anchor\"}");
+            }
+        };
+        MapEntryPlacementModelPort model = new AiGameMasterApiConfiguration().mapEntryPlacementModelPort(adapter, mapper);
+
+        model.propose(new MapEntryPlacementModelPort.EntryPlacementInput("저장고", "지하 저장고",
+                "양조장 뒤편에서 계단을 발견했습니다.", "계단을 내려갑니다", "계단 진입", "나무 계단 끝에 도착합니다", "{\"gridWidth\":12,\"gridHeight\":18}", ""));
+
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("LOCATION=지하 저장고"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("FIRST_NARRATION=양조장 뒤편에서 계단을 발견했습니다."));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("MAP_DATA={\"gridWidth\":12,\"gridHeight\":18}"));
+        org.junit.jupiter.api.Assertions.assertFalse(prompt.get().contains("20x20"));
+    }
+
+    @Test
     void rejectsDoorThatOverlapsObstacle() {
         GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"obstacles\":[\"1,1\"],\"doors\":[\"1,1\"],\"playerStart\":\"0,0\"}");
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(adapter, mapper);

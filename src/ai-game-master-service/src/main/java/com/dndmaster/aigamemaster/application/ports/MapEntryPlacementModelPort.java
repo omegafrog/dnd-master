@@ -7,15 +7,23 @@ import java.util.Objects;
 public interface MapEntryPlacementModelPort {
     EntryPlacementOutput propose(EntryPlacementInput input);
 
-    record EntryPlacementInput(String targetScene, String action, String judgment, String narration,
+    record EntryPlacementInput(String targetScene, String location, String firstNarration,
+                               String action, String judgment, String narration,
                                String mapData, String imageDataUri) {
         public EntryPlacementInput {
             targetScene = required(targetScene, "target scene");
+            location = clean(location);
+            firstNarration = clean(firstNarration);
             action = clean(action);
             judgment = clean(judgment);
             narration = clean(narration);
             mapData = clean(mapData);
             imageDataUri = clean(imageDataUri);
+        }
+
+        public EntryPlacementInput(String targetScene, String action, String judgment, String narration,
+                                   String mapData, String imageDataUri) {
+            this(targetScene, "", "", action, judgment, narration, mapData, imageDataUri);
         }
 
         private static String clean(String value) { return value == null ? "" : value.trim(); }

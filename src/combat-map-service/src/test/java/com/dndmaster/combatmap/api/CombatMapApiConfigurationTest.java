@@ -101,6 +101,41 @@ class CombatMapApiConfigurationTest {
     }
 
     @Test
+    void preservesEntryStatusAndNarrativeContextInsteadOfAutoSelectingAmbiguousCandidates() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/gm/map-entry-placement", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            byte[] response = ("{\"status\":\"AMBIGUOUS\",\"entryInterpretation\":{\"transition\":\"DESCEND_STAIRS\"},"
+                    + "\"candidates\":[{\"x\":2,\"y\":1,\"confidence\":0.71,\"source\":\"MAP_IMAGE\"},"
+                    + "{\"x\":2,\"y\":2,\"confidence\":0.69,\"source\":\"MAP_IMAGE\"}],\"reason\":\"two stairs\"}").getBytes();
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            try (var output = exchange.getResponseBody()) { output.write(response); }
+        });
+        server.start();
+        try {
+            var gateway = new HttpAiMapGenerationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(5), new ObjectMapper(), "token");
+            PreparedMapData generated = gateway.proposeEntryPlacement(new MapGenerationRequest(
+                    "맵 진입", "scene=저장고;location=지하 저장고", 4, 3, 30, 5,
+                    java.util.List.of(), java.util.List.of(), null, null)
+                    .withEntryEvidence("계단을 내려갑니다", "계단 진입", "계단 끝에 도착합니다")
+                    .withEntryContext("양조장 뒤편에서 계단을 발견했습니다", "지하 저장고"));
+
+            JsonNode request = new ObjectMapper().readTree(requestBody.get());
+            assertEquals("지하 저장고", request.path("location").asText());
+            assertEquals("양조장 뒤편에서 계단을 발견했습니다", request.path("firstNarration").asText());
+            assertTrue(generated.layers().stream().noneMatch(layer -> layer.type().equals("GM_PLAYER_START_PROPOSAL")));
+            assertTrue(generated.layers().stream().anyMatch(layer -> layer.type().equals("GM_ENTRY_PLACEMENT_RESULT")
+                    && layer.value().contains("AMBIGUOUS") && layer.value().contains("\"x\":2,\"y\":2")));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void uploadedMapPreparationDelegatesGridGeometryToPreprocessingPort() throws Exception {
         var image = new BufferedImage(32, 40, BufferedImage.TYPE_INT_RGB);
         var bytes = new ByteArrayOutputStream();

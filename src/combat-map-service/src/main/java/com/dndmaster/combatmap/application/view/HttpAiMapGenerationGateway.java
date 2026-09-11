@@ -118,10 +118,12 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                     java.util.Map.entry("doors", request.authoredDoors().stream().map(door -> position(door.position())).toList()),
                     java.util.Map.entry("boundaries", request.authoredBoundaries().stream().map(com.dndmaster.combatmap.domain.MapBoundary::encoded).toList())));
             EntryPlacementRequest payload = new EntryPlacementRequest(
-                    entryTargetScene(request.currentContext()), request.entryAction(), request.entryJudgment(), request.entryNarration(),
+                    entryTargetScene(request.currentContext()), request.entryLocation(), request.entryFirstNarration(),
+                    request.entryAction(), request.entryJudgment(), request.entryNarration(),
                     mapData, request.mapImage() == null ? "" : request.mapImage().dataUri());
-            LOGGER.info("map_entry_localization_request scene={} action={} judgment={} narration={} mapData={} image={}",
-                    compactLogValue(request.currentContext()), compactLogValue(request.entryAction()),
+            LOGGER.info("map_entry_localization_request scene={} location={} firstNarration={} action={} judgment={} narration={} mapData={} image={}",
+                    compactLogValue(request.currentContext()), compactLogValue(request.entryLocation()),
+                    compactLogValue(request.entryFirstNarration()), compactLogValue(request.entryAction()),
                     compactLogValue(request.entryJudgment()), compactLogValue(request.entryNarration()),
                     compactLogValue(mapData), request.mapImage() != null);
             HttpRequest httpRequest = HttpRequest.newBuilder(entryPlacementEndpoint)
@@ -169,7 +171,10 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                         && Double.isFinite(candidate.confidence()) && candidate.confidence() >= 0 && candidate.confidence() <= 1)
                 .limit(3).toList();
         List<MapLayer> layers = new ArrayList<>();
-        if (!valid.isEmpty()) layers.add(new MapLayer("GM_PLAYER_START_PROPOSAL", mapper.writeValueAsString(proposal(valid.getFirst(), root)), LayerVisibility.AI_ONLY));
+        String status = root.path("status").asText("UNRESOLVED").trim().toUpperCase(java.util.Locale.ROOT);
+        if ("RESOLVED".equals(status) && !valid.isEmpty()) {
+            layers.add(new MapLayer("GM_PLAYER_START_PROPOSAL", mapper.writeValueAsString(proposal(valid.getFirst(), root)), LayerVisibility.AI_ONLY));
+        }
         layers.add(new MapLayer("GM_ENTRY_PLACEMENT_RESULT", mapper.writeValueAsString(root), LayerVisibility.AI_ONLY));
         return new PreparedMapData(new GridSpec(request.gridWidth(), request.gridHeight(), request.cellSize(), request.distanceUnit()),
                 List.of(), Set.of(), layers);
@@ -202,7 +207,8 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         return result;
     }
 
-    private record EntryPlacementRequest(String targetScene, String action, String judgment, String narration,
+    private record EntryPlacementRequest(String targetScene, String location, String firstNarration,
+                                         String action, String judgment, String narration,
                                          String mapData, String imageDataUri) {}
     private record MapEntryCandidate(int x, int y, double confidence, String source, String anchor,
                                      String reason, List<String> evidence) {}
