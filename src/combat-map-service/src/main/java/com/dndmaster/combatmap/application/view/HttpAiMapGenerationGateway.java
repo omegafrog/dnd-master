@@ -335,6 +335,13 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
     }
 
     private static String initialGridBounds(MapGenerationRequest request, int gridWidth, int gridHeight) {
+        if (request.gridConfirmed()) {
+            int imageWidth = imageWidth(request.mapImage(), request.gridOriginX() + gridWidth * request.gridCellSize());
+            int imageHeight = imageHeight(request.mapImage(), request.gridOriginY() + gridHeight * request.gridCellSize());
+            return request.gridOriginX() + "," + request.gridOriginY() + ","
+                    + (gridWidth * request.gridCellSize()) + "," + (gridHeight * request.gridCellSize()) + ","
+                    + imageWidth + "," + imageHeight;
+        }
         int imageWidth = gridWidth * request.cellSize();
         int imageHeight = gridHeight * request.cellSize();
         try {
@@ -352,6 +359,22 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         int originX = Math.max(0, (imageWidth - boundsWidth) / 2);
         int originY = Math.max(0, (imageHeight - boundsHeight) / 2);
         return originX + "," + originY + "," + boundsWidth + "," + boundsHeight + "," + imageWidth + "," + imageHeight;
+    }
+
+    private static int imageWidth(MapImageEvidence image, double fallback) {
+        try {
+            var decoded = ImageIO.read(new ByteArrayInputStream(image.content()));
+            if (decoded != null) return decoded.getWidth();
+        } catch (IOException ignored) { /* use the confirmed grid extent */ }
+        return Math.max(1, (int) Math.ceil(fallback));
+    }
+
+    private static int imageHeight(MapImageEvidence image, double fallback) {
+        try {
+            var decoded = ImageIO.read(new ByteArrayInputStream(image.content()));
+            if (decoded != null) return decoded.getHeight();
+        } catch (IOException ignored) { /* use the confirmed grid extent */ }
+        return Math.max(1, (int) Math.ceil(fallback));
     }
 
     private static java.util.Optional<String> detectedContentCrop(MapImageEvidence image) {

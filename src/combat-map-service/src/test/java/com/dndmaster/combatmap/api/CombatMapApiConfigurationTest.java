@@ -93,6 +93,8 @@ class CombatMapApiConfigurationTest {
             assertEquals("revision-1", mapData.path("imageRevision").asText());
             assertEquals("1,1,VERTICAL,WALL,false", mapData.path("authoredBoundaries").get(0).asText());
             assertEquals(1, generated.candidates().size());
+            assertTrue(generated.layers().stream().anyMatch(layer -> layer.type().equals("GRID_BOUNDS")
+                    && layer.value().startsWith("112.5,48.25,127.0,95.25,")));
             assertTrue(generated.layers().stream().anyMatch(layer -> layer.type().equals("MAP_BOUNDARIES")
                     && layer.value().contains("1,1,VERTICAL,WALL,false")));
         } finally {
