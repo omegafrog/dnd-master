@@ -45,10 +45,19 @@ public interface MapEntryPlacementModelPort {
         private static String clean(String value) { return value == null ? "" : value.trim(); }
     }
 
-    record Candidate(int x, int y, double confidence, String source, String anchor,
+    record NormalizedPoint(double xNormalized, double yNormalized) {
+        public NormalizedPoint {
+            if (!Double.isFinite(xNormalized) || !Double.isFinite(yNormalized)
+                    || xNormalized < 0 || xNormalized > 1 || yNormalized < 0 || yNormalized > 1) {
+                throw new IllegalArgumentException("entry anchor coordinates must be normalized between zero and one");
+            }
+        }
+    }
+
+    record Candidate(NormalizedPoint exitPoint, double confidence, String source, String anchor,
                      String reason, List<String> evidence) {
         public Candidate {
-            if (x < 0 || y < 0) throw new IllegalArgumentException("entry candidate coordinates must not be negative");
+            exitPoint = Objects.requireNonNull(exitPoint, "entry exit point must not be null");
             if (!Double.isFinite(confidence) || confidence < 0 || confidence > 1) {
                 throw new IllegalArgumentException("entry candidate confidence must be between 0 and 1");
             }

@@ -1,5 +1,6 @@
 package com.dndmaster.combatmap.application.view;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.dndmaster.combatmap.domain.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -596,7 +597,11 @@ public final class CombatMapViewService {
                 if ("GM_ENTRY_PLACEMENT_RESULT".equals(layer.type())) {
                     String status = node.path("status").asText("UNRESOLVED").trim().toUpperCase(Locale.ROOT);
                     if (!"RESOLVED".equals(status)) continue;
-                    if (node.path("candidates").isArray()) {
+                    JsonNode projectedCandidates = node.path("projectedCandidates");
+                    if (projectedCandidates.isArray()) {
+                        projectedCandidates.forEach(candidate -> addScenarioCandidate(result, candidate));
+                    } else if (node.path("candidates").isArray()) {
+                        // 이전 저장본은 모델이 직접 반환한 격자 좌표를 보관한다.
                         node.path("candidates").forEach(candidate -> addScenarioCandidate(result, candidate));
                     }
                 } else {
@@ -646,7 +651,9 @@ public final class CombatMapViewService {
                     });
                 } else if ("GM_ENTRY_PLACEMENT_RESULT".equals(layer.type())) {
                     var node = new com.fasterxml.jackson.databind.ObjectMapper().readTree(layer.value());
-                    if (node.path("candidates").isArray()) node.path("candidates").forEach(candidate -> {
+                    JsonNode candidates = node.path("projectedCandidates").isArray()
+                            ? node.path("projectedCandidates") : node.path("candidates");
+                    if (candidates.isArray()) candidates.forEach(candidate -> {
                         if (candidate.has("x") && candidate.has("y")) {
                             List<String> evidence = new ArrayList<>();
                             if (candidate.path("evidence").isArray()) candidate.path("evidence").forEach(item -> evidence.add(item.asText()));

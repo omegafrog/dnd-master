@@ -104,7 +104,8 @@ public class AiGameMasterController {
     MapEntryPlacementResponse proposeMapEntryPlacement(@RequestBody MapEntryPlacementRequest request) {
         if (mapEntryPlacementPort == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
         var output = mapEntryPlacementPort.propose(new MapEntryPlacementModelPort.EntryPlacementInput(
-                request.targetScene(), request.action(), request.judgment(), request.narration(),
+                request.targetScene(), request.location(), request.firstNarration(),
+                request.action(), request.judgment(), request.narration(),
                 request.mapData(), request.imageDataUri()));
         return MapEntryPlacementResponse.from(output);
     }
@@ -215,8 +216,14 @@ public class AiGameMasterController {
         }
     }
 
-    public record MapEntryPlacementRequest(String targetScene, String action, String judgment,
-                                           String narration, String mapData, String imageDataUri) {}
+    public record MapEntryPlacementRequest(String targetScene, String location, String firstNarration,
+                                           String action, String judgment, String narration,
+                                           String mapData, String imageDataUri) {
+        public MapEntryPlacementRequest(String targetScene, String action, String judgment,
+                                        String narration, String mapData, String imageDataUri) {
+            this(targetScene, "", "", action, judgment, narration, mapData, imageDataUri);
+        }
+    }
 
     public record MapEntryPlacementResponse(String status,
                                             MapEntryPlacementModelPort.EntryInterpretation interpretation,

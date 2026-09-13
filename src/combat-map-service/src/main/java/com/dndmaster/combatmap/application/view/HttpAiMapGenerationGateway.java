@@ -33,6 +33,7 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
     private final Duration timeout;
     private final ObjectMapper mapper;
     private final String internalToken;
+    private final EntryPlacementProjector placementProjector = new EntryPlacementProjector();
 
     public HttpAiMapGenerationGateway(HttpClient client, URI baseUri, Duration timeout,
             ObjectMapper mapper, String internalToken) {
@@ -155,34 +156,48 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
 
     private PreparedMapData toEntryPlacement(JsonNode root, MapGenerationRequest request) throws IOException {
         List<MapEntryCandidate> candidates = new ArrayList<>();
+        var geometry = placementProjector.geometry(request);
         if (root.path("candidates").isArray()) {
             for (JsonNode candidate : root.path("candidates")) {
-                if (!candidate.has("x") || !candidate.has("y")) continue;
+                JsonNode exitPoint = candidate.path("exitPoint");
+                if (!exitPoint.isObject()) continue;
+                double xNormalized = exitPoint.path("xNormalized").asDouble(Double.NaN);
+                double yNormalized = exitPoint.path("yNormalized").asDouble(Double.NaN);
+                if (!Double.isFinite(xNormalized) || !Double.isFinite(yNormalized)
+                        || xNormalized < 0 || xNormalized > 1 || yNormalized < 0 || yNormalized > 1) continue;
+                var projected = geometry.flatMap(value -> value.project(xNormalized, yNormalized));
+                if (projected.isEmpty()) continue;
                 List<String> evidence = new ArrayList<>();
                 if (candidate.path("evidence").isArray()) candidate.path("evidence").forEach(item -> evidence.add(item.asText()));
-                candidates.add(new MapEntryCandidate(candidate.path("x").asInt(-1), candidate.path("y").asInt(-1),
+                candidates.add(new MapEntryCandidate(projected.get(), xNormalized, yNormalized,
                         candidate.path("confidence").asDouble(Double.NaN), candidate.path("source").asText("MAP_IMAGE"),
                         candidate.path("anchor").asText(""), candidate.path("reason").asText(""), evidence));
             }
         }
         List<MapEntryCandidate> valid = candidates.stream()
-                .filter(candidate -> candidate.x() >= 0 && candidate.y() >= 0
-                        && candidate.x() < request.gridWidth() && candidate.y() < request.gridHeight()
+                .filter(candidate -> candidate.position().x() >= 0 && candidate.position().y() >= 0
+                        && candidate.position().x() < request.gridWidth() && candidate.position().y() < request.gridHeight()
                         && Double.isFinite(candidate.confidence()) && candidate.confidence() >= 0 && candidate.confidence() <= 1)
                 .limit(3).toList();
+        LOGGER.info("map_entry_projection gridConfirmed={} imageGeometry={} rawCandidates={} projectedCandidates={}",
+                request.gridConfirmed(), geometry.isPresent(), root.path("candidates").size(), valid.size());
+        com.fasterxml.jackson.databind.node.ObjectNode projectedResult = root.deepCopy();
+        var projectedCandidates = mapper.createArrayNode();
+        valid.forEach(candidate -> projectedCandidates.add(projectedCandidate(candidate)));
+        projectedResult.set("projectedCandidates", projectedCandidates);
         List<MapLayer> layers = new ArrayList<>();
         String status = root.path("status").asText("UNRESOLVED").trim().toUpperCase(java.util.Locale.ROOT);
         if ("RESOLVED".equals(status) && !valid.isEmpty()) {
             layers.add(new MapLayer("GM_PLAYER_START_PROPOSAL", mapper.writeValueAsString(proposal(valid.getFirst(), root)), LayerVisibility.AI_ONLY));
         }
-        layers.add(new MapLayer("GM_ENTRY_PLACEMENT_RESULT", mapper.writeValueAsString(root), LayerVisibility.AI_ONLY));
+        layers.add(new MapLayer("GM_ENTRY_PLACEMENT_RESULT", mapper.writeValueAsString(projectedResult), LayerVisibility.AI_ONLY));
         return new PreparedMapData(new GridSpec(request.gridWidth(), request.gridHeight(), request.cellSize(), request.distanceUnit()),
                 List.of(), Set.of(), layers);
     }
 
     private com.fasterxml.jackson.databind.node.ObjectNode proposal(MapEntryCandidate candidate, JsonNode root) {
         var result = mapper.createObjectNode();
-        result.put("position", candidate.x() + "," + candidate.y());
+        result.put("position", candidate.position().x() + "," + candidate.position().y());
         result.put("confidence", candidate.confidence());
         result.put("source", candidate.source());
         // The dedicated placement agent uses RESOLVED/AMBIGUOUS for the
@@ -207,11 +222,26 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         return result;
     }
 
+    private com.fasterxml.jackson.databind.node.ObjectNode projectedCandidate(MapEntryCandidate candidate) {
+        var result = mapper.createObjectNode();
+        result.put("x", candidate.position().x());
+        result.put("y", candidate.position().y());
+        result.put("xNormalized", candidate.xNormalized());
+        result.put("yNormalized", candidate.yNormalized());
+        result.put("confidence", candidate.confidence());
+        result.put("source", candidate.source());
+        result.put("anchor", candidate.anchor());
+        result.put("reason", candidate.reason());
+        result.set("evidence", mapper.valueToTree(candidate.evidence()));
+        return result;
+    }
+
     private record EntryPlacementRequest(String targetScene, String location, String firstNarration,
                                          String action, String judgment, String narration,
                                          String mapData, String imageDataUri) {}
-    private record MapEntryCandidate(int x, int y, double confidence, String source, String anchor,
-                                     String reason, List<String> evidence) {}
+    private record MapEntryCandidate(GridPosition position, double xNormalized, double yNormalized,
+                                     double confidence, String source, String anchor, String reason,
+                                     List<String> evidence) {}
 
     private static String entryTargetScene(String context) {
         if (context == null) return "unknown";
