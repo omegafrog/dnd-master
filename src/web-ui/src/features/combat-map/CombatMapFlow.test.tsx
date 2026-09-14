@@ -513,6 +513,22 @@ it('submits exactly one typed map action after confirmation', async () => {
   expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }), undefined, 7)
 })
 
+it('reconciles a committed move when the turn response reports a conflict', async () => {
+  const api = fakeApi()
+  const user = userEvent.setup()
+  const initial = await api.getCombatMap('a1')
+  const moved = { ...initial, tokens: [{ id: 'p1', type: 'PLAYER', x: 2, y: 1 }] }
+  api.getCombatMap = vi.fn().mockResolvedValueOnce(initial).mockResolvedValueOnce(moved)
+  api.submitMapAction = vi.fn().mockRejectedValueOnce(Object.assign(new Error('conflict'), { status: 409 }))
+  render(<CombatMapView adventureId="a1" api={api} />)
+  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await user.click(screen.getByRole('button', { name: '확인' }))
+  expect(await screen.findByRole('button', { name: /PLAYER.*2,1/ })).toBeInTheDocument()
+  expect(screen.getByText('맵 이동이 반영되었습니다.')).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: '맵 행동 확인' })).not.toBeInTheDocument()
+})
+
 it('refetches the map when the parent refresh token changes', async () => {
   const api = fakeApi()
   const getCombatMap = vi.spyOn(api, 'getCombatMap')

@@ -123,6 +123,20 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       const refreshed = await api.getCombatMap(adventureId)
       setMap(refreshed); setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
     } catch (error) {
+      // The runtime can commit the map command before the HTTP request sees
+      // a concurrent-version response. Reconcile that response with the
+      // authoritative map before showing an error to the player.
+      const status = error && typeof error === 'object' && 'status' in error ? (error as { status?: unknown }).status : undefined
+      if (status === 409 && candidate.action === 'MOVE' && candidate.to) {
+        try {
+          const refreshed = await api.getCombatMap(adventureId)
+          const moved = refreshed.tokens?.some(token => token.id === candidate.tokenId && token.x === candidate.to?.x && token.y === candidate.to?.y)
+          if (moved) {
+            setMap(refreshed); setCandidate(null); setSelectedToken(null); setMessage('맵 이동이 반영되었습니다.')
+            return
+          }
+        } catch { /* preserve the original request error */ }
+      }
       setMessage(error instanceof Error ? error.message : '맵 행동을 처리하지 못했습니다.')
     } finally {
       setSubmitting(false)
