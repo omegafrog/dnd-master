@@ -20,6 +20,12 @@ public final class CombatWorkItemScheduler {
 
     public OptionalSchedule scheduleNext(CombatActionCommand template, CombatEncounter encounter,
                                          int completedSteps, AiTacticalInstructionContext instruction) {
+        return scheduleNext(template, encounter, completedSteps, instruction, null);
+    }
+
+    public OptionalSchedule scheduleNext(CombatActionCommand template, CombatEncounter encounter,
+                                         int completedSteps, AiTacticalInstructionContext instruction,
+                                         UUID aiRequestId) {
         if (encounter.status() != CombatEncounter.Status.ACTIVE
                 || encounter.currentParticipant().controller() != CombatParticipant.Controller.AI
                 || completedSteps >= maxSteps) return OptionalSchedule.NOT_SCHEDULED;
@@ -27,11 +33,11 @@ public final class CombatWorkItemScheduler {
         UUID operationId = UUID.randomUUID();
         CombatActionCommand command = new CombatActionCommand(operationId, template.adventureId(), template.sessionId(),
                 template.ruleSetId(), new CharacterSheetId(actorId), template.combatMapId(), CombatActorRole.AI,
-                "AI_TURN", null, null, actorId, encounter.version(), null, null, null, null, false,
+                "AI_TURN", null, template.ownerPlayerId(), actorId, encounter.version(), null, null, null, null, false,
                 null, null, template.mapVersion());
         workItems.enqueue(new CombatWorkItem(UUID.randomUUID(), encounter.encounterId(), operationId,
                 encounter.version(), CombatWorkItem.WorkType.AI_TURN, Instant.now(), 0, instruction, command,
-                completedSteps));
+                completedSteps, aiRequestId));
         return OptionalSchedule.SCHEDULED;
     }
 

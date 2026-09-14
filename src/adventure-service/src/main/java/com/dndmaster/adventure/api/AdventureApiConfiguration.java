@@ -1067,10 +1067,11 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.combat.AiCombatDecisionPort decisions,
             com.dndmaster.adventure.application.combat.CombatActionApplicationService actionService,
             com.dndmaster.adventure.application.combat.CombatWorkItemScheduler scheduler,
+            com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService aiRequestService,
             @Value("${adventure.combat.auto-progression.max-steps:10}") int maxSteps) {
         return new com.dndmaster.adventure.application.combat.CombatAutoProgressionWorker(
                 "adventure-service", workItems, encounters, decisions, actionService::submitAi,
-                actionService::endTurnAi, maxSteps, scheduler);
+                actionService::endTurnAi, maxSteps, scheduler, aiRequestService);
     }
 
     @Bean

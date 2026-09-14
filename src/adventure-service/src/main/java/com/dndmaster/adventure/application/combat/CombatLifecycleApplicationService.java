@@ -75,11 +75,11 @@ public final class CombatLifecycleApplicationService {
                     "{\"encounterId\":\"" + saved.encounterId() + "\",\"round\":1,\"currentParticipantId\":\""
                             + saved.currentParticipantId() + "\"}"));
         }
-        scheduleFirstAiTurn(saved);
+        scheduleFirstAiTurn(saved, gmTurn.commandId());
         return saved;
     }
 
-    private void scheduleFirstAiTurn(CombatEncounter encounter) {
+    private void scheduleFirstAiTurn(CombatEncounter encounter, UUID aiRequestId) {
         if (workItemScheduler == null || adventureRepository == null
                 || encounter.currentParticipant().controller() != CombatParticipant.Controller.AI) return;
         Adventure adventure = adventureRepository.findById(new com.dndmaster.adventure.domain.adventure.AdventureId(encounter.adventureId()))
@@ -88,7 +88,7 @@ public final class CombatLifecycleApplicationService {
         CombatActionCommand template = new CombatActionCommand(UUID.randomUUID(), adventure.id(), adventure.sessionId().value(),
                 adventure.ruleSetId(), new com.dndmaster.adventure.domain.adventure.CharacterSheetId(actorId), null,
                 CombatActorRole.AI, "AI_TURN", null, adventure.ownerPlayerId().value(), actorId, encounter.version());
-        workItemScheduler.scheduleNext(template, encounter, 0, AiTacticalInstructionContext.none());
+        workItemScheduler.scheduleNext(template, encounter, 0, AiTacticalInstructionContext.none(), aiRequestId);
     }
 
     /**

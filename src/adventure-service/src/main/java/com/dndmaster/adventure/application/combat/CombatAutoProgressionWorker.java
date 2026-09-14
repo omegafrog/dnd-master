@@ -1,6 +1,9 @@
 package com.dndmaster.adventure.application.combat;
 
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
+import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.adventure.SessionId;
+import com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService;
 import com.dndmaster.adventure.domain.combat.CombatEncounter;
 import com.dndmaster.adventure.domain.combat.CombatParticipant;
 import java.time.Duration;
@@ -13,6 +16,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 /** Claims durable AI work and advances it only through the combat action boundary. */
 public final class CombatAutoProgressionWorker {
     private static final Duration LEASE = Duration.ofSeconds(30);
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CombatAutoProgressionWorker.class);
 
     private final String workerId;
     private final CombatWorkItemRepository workItems;
@@ -22,12 +26,13 @@ public final class CombatAutoProgressionWorker {
     private final CombatAiTurnEndExecutor turnEndExecutor;
     private final int maxSteps;
     private final CombatWorkItemScheduler scheduler;
+    private final AdventureAiRequestApplicationService aiRequestService;
 
     public CombatAutoProgressionWorker(String workerId, CombatWorkItemRepository workItems,
                                        CombatEncounterRepository encounters, AiCombatDecisionPort decisions,
                                        CombatAiActionExecutor actionExecutor,
                                        CombatAiTurnEndExecutor turnEndExecutor, int maxSteps) {
-        this(workerId, workItems, encounters, decisions, actionExecutor, turnEndExecutor, maxSteps, null);
+        this(workerId, workItems, encounters, decisions, actionExecutor, turnEndExecutor, maxSteps, null, null);
     }
 
     public CombatAutoProgressionWorker(String workerId, CombatWorkItemRepository workItems,
@@ -35,6 +40,15 @@ public final class CombatAutoProgressionWorker {
                                        CombatAiActionExecutor actionExecutor,
                                        CombatAiTurnEndExecutor turnEndExecutor, int maxSteps,
                                        CombatWorkItemScheduler scheduler) {
+        this(workerId, workItems, encounters, decisions, actionExecutor, turnEndExecutor, maxSteps, scheduler, null);
+    }
+
+    public CombatAutoProgressionWorker(String workerId, CombatWorkItemRepository workItems,
+                                       CombatEncounterRepository encounters, AiCombatDecisionPort decisions,
+                                       CombatAiActionExecutor actionExecutor,
+                                       CombatAiTurnEndExecutor turnEndExecutor, int maxSteps,
+                                       CombatWorkItemScheduler scheduler,
+                                       AdventureAiRequestApplicationService aiRequestService) {
         this.workerId = Objects.requireNonNull(workerId);
         this.workItems = Objects.requireNonNull(workItems);
         this.encounters = Objects.requireNonNull(encounters);
@@ -44,6 +58,7 @@ public final class CombatAutoProgressionWorker {
         if (maxSteps < 1) throw new IllegalArgumentException("max steps must be positive");
         this.maxSteps = maxSteps;
         this.scheduler = scheduler;
+        this.aiRequestService = aiRequestService;
     }
 
     @Scheduled(fixedDelayString = "${adventure.combat.auto-progression.poll-delay-ms:250}")
@@ -56,6 +71,7 @@ public final class CombatAutoProgressionWorker {
         CombatEncounter encounter = encounters.findByEncounterId(item.encounterId()).orElse(null);
         if (encounter == null) {
             workItems.save(item.failed(item.leaseToken(), "COMBAT_NOT_FOUND"));
+            releaseInitialRequest(item, "COMBAT_NOT_FOUND");
             return true;
         }
 
@@ -68,6 +84,7 @@ public final class CombatAutoProgressionWorker {
         if (stop != AutoProgressionStopPolicy.Reason.CONTINUE) {
             CombatWorkItem completed = item.completed(item.leaseToken());
             workItems.save(completed);
+            releaseInitialRequest(completed, "AI_FOLLOW_UP_COMPLETE");
             return true;
         }
 
@@ -90,9 +107,15 @@ public final class CombatAutoProgressionWorker {
             if (scheduler != null) {
                 CombatActionCommand nextTemplate = command;
                 AiTacticalInstructionContext nextInstruction = item.tacticalInstruction();
-                encounters.findByEncounterId(item.encounterId()).ifPresent(updated ->
+                var next = encounters.findByEncounterId(item.encounterId()).map(updated ->
                         scheduler.scheduleNext(nextTemplate, updated, completed.completedSteps() + 1,
-                                nextInstruction));
+                                nextInstruction, completed.aiRequestId()))
+                        .orElse(CombatWorkItemScheduler.OptionalSchedule.NOT_SCHEDULED);
+                if (next != CombatWorkItemScheduler.OptionalSchedule.SCHEDULED) {
+                    releaseInitialRequest(completed, "AI_FOLLOW_UP_COMPLETE");
+                }
+            } else {
+                releaseInitialRequest(completed, "AI_FOLLOW_UP_COMPLETE");
             }
         } catch (RuntimeException failure) {
             if (CombatRetryPolicy.shouldRetry(failure, item.attemptCount())) {
@@ -101,6 +124,9 @@ public final class CombatAutoProgressionWorker {
                         failureReason(failure)));
             } else {
                 workItems.save(item.failed(item.leaseToken(), failureReason(failure)));
+                LOGGER.error("combat_ai_follow_up_failed requestId={} operationId={} encounterId={} exceptionClass={}",
+                        item.aiRequestId(), item.operationId(), item.encounterId(), failure.getClass().getName(), failure);
+                releaseInitialRequest(item, "AI_FOLLOW_UP_FAILED");
             }
         }
         return true;
@@ -112,12 +138,21 @@ public final class CombatAutoProgressionWorker {
         var intent = plan.intent();
         return new CombatActionCommand(base.operationId(), base.adventureId(), base.sessionId(), base.ruleSetId(),
                 new CharacterSheetId(actorId), base.combatMapId(), CombatActorRole.AI,
-                plan.endTurn() ? "END_TURN" : intent.action(), base.movementPath(), null, actorId, expectedVersion,
+                plan.endTurn() ? "END_TURN" : intent.action(), base.movementPath(), base.ownerPlayerId(), actorId, expectedVersion,
                 plan.targetArmorClass(), plan.attackModifier(), plan.targetId() == null ? null : new CharacterSheetId(plan.targetId()),
                 plan.damageAmount(), false, base.narrativePosition(), base.movementDistance(), base.mapVersion());
     }
 
     private static String failureReason(Throwable failure) {
         return failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
+    }
+
+    private void releaseInitialRequest(CombatWorkItem item, String outcome) {
+        if (aiRequestService == null || item.aiRequestId() == null || item.command() == null
+                || item.command().ownerPlayerId() == null) return;
+        boolean released = aiRequestService.release(new SessionId(item.command().sessionId()),
+                new OwnerPlayerId(item.command().ownerPlayerId()), item.aiRequestId());
+        LOGGER.info("combat_ai_follow_up_terminal outcome={} requestId={} operationId={} released={}",
+                outcome, item.aiRequestId(), item.operationId(), released);
     }
 }

@@ -79,16 +79,19 @@ public final class CombatController {
             @RequestBody CombatActionRequest request) {
         var adventure = assertOwnerAndLoad(adventureId);
         UUID commandId = uuidHeader(idempotencyKey, "Idempotency-Key");
-        try (AdventureAiRequestApplicationService.Permit ignored = aiRequestService.begin(
+        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
                 adventure.sessionId(), adventure.ownerPlayerId(), commandId)) {
-            return ResponseEntity.accepted().body(actionService.submit(new CombatActionCommand(commandId,
+            CombatActionCommand command = new CombatActionCommand(commandId,
                     adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(),
                     new CharacterSheetId(request.characterSheetId()), request.combatMapId(), CombatActorRole.PLAYER,
                     request.action(), path(request.movementPath()), playerResolver.playerId(), request.tokenId() == null
                             ? request.characterSheetId() : request.tokenId(), expectedVersion,
                     request.targetArmorClass(), request.attackModifier(), request.targetCharacterSheetId() == null
                             ? null : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), false,
-                    request.narrativePosition() == null ? null : request.narrativePosition().toDomain(), request.movementDistance(), request.mapVersion())));
+                    request.narrativePosition() == null ? null : request.narrativePosition().toDomain(), request.movementDistance(), request.mapVersion());
+            CombatActionResponse response = actionService.submit(command);
+            handOffToScheduledAiFollowUp(adventure, command, permit);
+            return ResponseEntity.accepted().body(response);
         }
     }
 
@@ -103,10 +106,12 @@ public final class CombatController {
         var base = new CombatActionCommand(commandId, adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(),
                 actor, null, CombatActorRole.PLAYER, "FREE_FORM", null, playerResolver.playerId(), actor.value(),
                 expectedVersion, null, null, null, null, false);
-        try (AdventureAiRequestApplicationService.Permit ignored = aiRequestService.begin(
+        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
                 adventure.sessionId(), adventure.ownerPlayerId(), commandId)) {
-            return ResponseEntity.accepted().body(actionService.submitFreeForm(new FreeFormCombatCommand(base,
-                    FreeFormInterpretationPolicy.accept(actor.value(), request.declaration()))));
+            CombatActionResponse response = actionService.submitFreeForm(new FreeFormCombatCommand(base,
+                    FreeFormInterpretationPolicy.accept(actor.value(), request.declaration())));
+            handOffToScheduledAiFollowUp(adventure, base, permit);
+            return ResponseEntity.accepted().body(response);
         }
     }
 
@@ -122,10 +127,12 @@ public final class CombatController {
                 new CharacterSheetId(request.characterSheetId()), null, CombatActorRole.PLAYER,
                 "END_TURN", null, playerResolver.playerId(), request.characterSheetId(), expectedVersion,
                 null, null, null, null, false);
-        CombatActionResponse response = actionService.endTurn(command);
-        repository.findActive(adventureId).ifPresent(encounter -> workItemScheduler.scheduleNext(command, encounter, 0,
-                com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none()));
-        return ResponseEntity.accepted().body(response);
+        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
+                adventure.sessionId(), adventure.ownerPlayerId(), commandId)) {
+            CombatActionResponse response = actionService.endTurn(command);
+            handOffToScheduledAiFollowUp(adventure, command, permit);
+            return ResponseEntity.accepted().body(response);
+        }
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/retry")
@@ -159,12 +166,30 @@ public final class CombatController {
                                                 com.dndmaster.adventure.domain.combat.CombatEncounter encounter) {
         if (encounter.currentParticipant().controller() != com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI
                 || workItems.hasPendingForEncounter(encounter.encounterId())) return;
-        UUID actorId = encounter.currentParticipantId();
-        CombatActionCommand template = new CombatActionCommand(UUID.randomUUID(), adventure.id(), adventure.sessionId().value(),
-                adventure.ruleSetId(), new CharacterSheetId(actorId), null, CombatActorRole.AI, "AI_TURN", null,
-                adventure.ownerPlayerId().value(), actorId, encounter.version());
-        workItemScheduler.scheduleNext(template, encounter, 0,
-                com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none());
+        UUID requestId = UUID.randomUUID();
+        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
+                adventure.sessionId(), adventure.ownerPlayerId(), requestId)) {
+            CombatActionCommand template = new CombatActionCommand(requestId, adventure.id(), adventure.sessionId().value(),
+                    adventure.ruleSetId(), new CharacterSheetId(encounter.currentParticipantId()), null, CombatActorRole.AI, "AI_TURN", null,
+                    adventure.ownerPlayerId().value(), encounter.currentParticipantId(), encounter.version());
+            if (workItemScheduler.scheduleNext(template, encounter, 0,
+                    com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none(), requestId)
+                    == com.dndmaster.adventure.application.combat.CombatWorkItemScheduler.OptionalSchedule.SCHEDULED) {
+                permit.handOffToCombatFollowUp();
+            }
+        }
+    }
+
+    private void handOffToScheduledAiFollowUp(com.dndmaster.adventure.domain.adventure.Adventure adventure,
+                                                CombatActionCommand command,
+                                                AdventureAiRequestApplicationService.Permit permit) {
+        repository.findActive(adventure.id().value()).ifPresent(encounter -> {
+            if (workItemScheduler.scheduleNext(command, encounter, 0,
+                    com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none(), command.operationId())
+                    == com.dndmaster.adventure.application.combat.CombatWorkItemScheduler.OptionalSchedule.SCHEDULED) {
+                permit.handOffToCombatFollowUp();
+            }
+        });
     }
 
     private com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot withCharacterNames(
