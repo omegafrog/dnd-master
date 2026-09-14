@@ -71,7 +71,7 @@ export function SavedAdventurePanel({
       setMessage('모험 목록을 불러오지 못했습니다. 다시 시도해 주세요.')
     })
   }
-  useEffect(load, [playApi, playerId, forceList])
+  useEffect(load, [playApi, setupApi, playerId, forceList])
 
   async function resume(id: string) {
     try {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CalendarDays, Check, ChevronRight, FileText, Play, Plus, ScrollText, Users } from 'lucide-react'
-import { MaterialRow, MaterialStatus, materialStatus } from '../../components/adventure/material-row'
+import { MaterialRow, MaterialStatus } from '../../components/adventure/material-row'
+import { materialStatus } from '../../components/adventure/material-row-helpers'
 import { Button } from '../../components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../../components/ui/dialog'
 import { Separator } from '../../components/ui/separator'

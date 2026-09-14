@@ -1,6 +1,7 @@
 import { Fragment, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { BookOpen, Check, ChevronLeft, Eye, FilePlus2, RefreshCw, ScrollText, Trash2, Upload } from 'lucide-react'
-import { MaterialRow, materialStatus } from '../../components/adventure/material-row'
+import { MaterialRow } from '../../components/adventure/material-row'
+import { materialStatus } from '../../components/adventure/material-row-helpers'
 import { SetupStepper, type SetupStep } from '../../components/setup/setup-stepper'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
