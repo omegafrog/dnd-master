@@ -9,6 +9,7 @@ import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicat
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState;
+import com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
@@ -58,13 +59,14 @@ public class RuleKnowledgeController {
     private final GameSystemDefinitionRepository definitionRepository;
     private final String internalToken;
     private final CatalogRulebookRepository catalogRepository;
+    private final PlayerSessionLookupPort playerSessionLookup;
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
             RulebookRegistrationRepository registrationRepository,
             RuleEvidenceSearchApplicationService evidenceSearchService,
             ObjectMapper objectMapper) {
-        this(pipelineService, registrationRepository, evidenceSearchService, null, null, null, objectMapper);
+        this(pipelineService, registrationRepository, evidenceSearchService, null, null, null, objectMapper, null, null, null, null);
     }
 
     public RuleKnowledgeController(
@@ -86,6 +88,7 @@ public class RuleKnowledgeController {
         this.definitionRepository = null;
         this.internalToken = "";
         this.catalogRepository = null;
+        this.playerSessionLookup = null;
     }
 
     public RuleKnowledgeController(
@@ -99,7 +102,7 @@ public class RuleKnowledgeController {
             GameSystemDefinitionRepository definitionRepository,
             String internalToken) {
         this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
-                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, null);
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, null, null);
     }
 
     public RuleKnowledgeController(
@@ -113,6 +116,22 @@ public class RuleKnowledgeController {
             GameSystemDefinitionRepository definitionRepository,
             String internalToken,
             CatalogRulebookRepository catalogRepository) {
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, catalogRepository, null);
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            RulebookIndexRepository indexRepository,
+            ObjectMapper objectMapper,
+            GameSystemDefinitionRepository definitionRepository,
+            String internalToken,
+            CatalogRulebookRepository catalogRepository,
+            PlayerSessionLookupPort playerSessionLookup) {
         this.pipelineService = pipelineService;
         this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
@@ -124,6 +143,7 @@ public class RuleKnowledgeController {
         this.definitionRepository = definitionRepository;
         this.internalToken = internalToken == null ? "" : internalToken;
         this.catalogRepository = catalogRepository;
+        this.playerSessionLookup = playerSessionLookup;
     }
 
     public RuleKnowledgeController(
@@ -188,9 +208,9 @@ public class RuleKnowledgeController {
                         r.originalFilename(),
                         r.failureCode(),
                         r.version(),
-                        warningsFor(r), progressFor(r), r.candidateExtractionVersion(), r.preprocessingPages(), retryabilityFor(r)))
+                        warningsFor(r), progressFor(r), r.candidateExtractionVersion(), r.preprocessingPages(), retryabilityFor(r), reviewQuestionsFor(r)))
                 .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null, null, List.of(),
-                        new RetryabilityView(false, List.of(), List.of("DOCUMENT_NOT_FOUND"))));
+                        new RetryabilityView(false, List.of(), List.of("DOCUMENT_NOT_FOUND")), List.of()));
     }
 
     private DocumentProgressView progressFor(StoredRulebookRegistration registration) {
@@ -316,10 +336,10 @@ public class RuleKnowledgeController {
             @RequestBody RetryPagesRequest request) {
         StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(rulebookId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found"));
-        requireOwner(extractPlayerId(authorization), registration.ownerPlayerId().value());
+        requireOwner(authenticatedPlayerId(authorization), registration.ownerPlayerId().value());
         try {
             pipelineService.retryPages(new RulebookId(rulebookId), request == null ? null : request.requestId(),
-                    request == null ? null : request.pages());
+                    request == null ? null : request.pages(), request == null ? java.util.Map.of() : request.layoutSelections());
             return rulebookStatus(rulebookId);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
@@ -370,7 +390,7 @@ public class RuleKnowledgeController {
                 .map(r -> new RulebookSummary(
                         r.rulebookId().value(), r.knowledgeDocumentId().value(), r.processingStatus().name(),
                         r.format().name(), r.documentType(), r.originalFilename(), r.failureCode(),
-                        r.version(), warningsFor(r), progressFor(r)))
+                        r.version(), warningsFor(r), progressFor(r), reviewQuestionsFor(r), r.preprocessingPages()))
                 .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
         if (catalogRepository != null) {
             catalogRepository.findAll().stream()
@@ -381,7 +401,7 @@ public class RuleKnowledgeController {
                                 .map(StoredRulebookRegistration::version).orElse(0L);
                         if (extractionVersion > 0 && summaries.stream().noneMatch(existing -> existing.knowledgeDocumentId().equals(item.rulebookId()))) {
                             summaries.add(new RulebookSummary(item.rulebookId(), item.rulebookId(), "INDEXED", "PDF", DocumentType.RULEBOOK,
-                                    item.displayName(), null, extractionVersion, List.of(), new DocumentProgressView("READY", 100, null, null, null)));
+                                    item.displayName(), null, extractionVersion, List.of(), new DocumentProgressView("READY", 100, null, null, null), List.of(), List.of()));
                         }
                     });
         }
@@ -571,6 +591,18 @@ public class RuleKnowledgeController {
         }
     }
 
+    private UUID authenticatedPlayerId(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
+        }
+        String token = authorization.substring("Bearer ".length());
+        if (playerSessionLookup != null) {
+            return playerSessionLookup.resolvePlayerId(token)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid"));
+        }
+        return extractPlayerId(authorization);
+    }
+
     private static void requireOwner(UUID authenticatedOwner, UUID requestedOwner) {
         if (!authenticatedOwner.equals(requestedOwner)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "owner does not match authenticated player");
@@ -639,9 +671,15 @@ public class RuleKnowledgeController {
             UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType,
             String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
             DocumentProgressView progress, String candidateExtractionVersion,
-            List<PreprocessingPageState> preprocessingPages, RetryabilityView retryability) {}
+            List<PreprocessingPageState> preprocessingPages, RetryabilityView retryability,
+            List<PreprocessingReviewQuestion> reviewQuestions) {}
     public record RetryabilityView(boolean retryable, List<Integer> pages, List<String> diagnostics) {}
-    public record RetryPagesRequest(String requestId, List<Integer> pages) {}
+    public record RetryPagesRequest(String requestId, List<Integer> pages,
+                                    java.util.Map<Integer, java.util.Map<String, Integer>> layoutSelections) {
+        public RetryPagesRequest(String requestId, List<Integer> pages) {
+            this(requestId, pages, java.util.Map.of());
+        }
+    }
     public record DocumentProgressView(
             String stage, int percent, Integer completedUnits, Integer totalUnits, String error) {}
     public record SourcePreviewResponse(
@@ -651,7 +689,10 @@ public class RuleKnowledgeController {
     public record RulebookSummary(
             UUID rulebookId, UUID knowledgeDocumentId, String status, String format,
             DocumentType documentType, String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
-            DocumentProgressView progress) {}
+            DocumentProgressView progress, List<PreprocessingReviewQuestion> reviewQuestions,
+            List<PreprocessingPageState> preprocessingPages) {}
+    public record PreprocessingReviewQuestion(int pageNumber, String question, List<ReviewChoice> choices) {}
+    public record ReviewChoice(String id, String label) {}
     public record OwnedRulebooksResponse(UUID ownerId, List<RulebookSummary> rulebooks) {}
     public record OwnedIndexesResponse(UUID ownerId, List<?> indexes) {}
     public record OwnershipResponse(UUID rulebookId, UUID playerId, boolean owned) {}
@@ -745,5 +786,15 @@ public class RuleKnowledgeController {
                 .distinct()
                 .toList();
         return new RetryabilityView(registration.processingStatus() == ProcessingStatus.NEEDS_REVIEW && !pages.isEmpty(), pages, diagnostics);
+    }
+
+    private static List<PreprocessingReviewQuestion> reviewQuestionsFor(StoredRulebookRegistration registration) {
+        return registration.preprocessingPages().stream()
+                .filter(page -> "NEEDS_REVIEW".equals(page.status()) && page.attempts() < 3)
+                .map(page -> new PreprocessingReviewQuestion(
+                        page.pageNumber(),
+                        "" + page.pageNumber() + "페이지의 자료를 다시 읽어 준비할까요?",
+                        List.of(new ReviewChoice("RETRY", "다시 읽기"), new ReviewChoice("KEEP_REVIEW", "검토 상태 유지"))))
+                .toList();
     }
 }

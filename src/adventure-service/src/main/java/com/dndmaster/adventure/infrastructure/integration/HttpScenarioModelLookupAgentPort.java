@@ -45,9 +45,11 @@ public final class HttpScenarioModelLookupAgentPort implements ScenarioModelLook
             return ScenarioLookupResult.found(result.answer(), result.supportingElementIds());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("scenario lookup interrupted", exception);
+            throw new ScenarioLookupFailureException("scenario lookup interrupted", exception);
+        } catch (ScenarioLookupFailureException exception) {
+            throw exception;
         } catch (Exception exception) {
-            throw new IllegalStateException("scenario lookup failed", exception);
+            throw new ScenarioLookupFailureException("scenario lookup failed", exception);
         }
     }
 

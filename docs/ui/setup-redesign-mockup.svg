@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1024" viewBox="0 0 1440 1024">
+  <defs>
+    <style>
+      .canvas{fill:#F1EDE3}.paper{fill:#FAF7EF}.ink{fill:#27221E}.muted{fill:#655E56}.faint{fill:#91887E}.accent{fill:#742F36}.rule{stroke:#CEC5B7;stroke-width:1}.ruleStrong{stroke:#AAA092;stroke-width:1}.serif{font-family:Georgia,'Noto Serif KR',serif}.sans{font-family:'Noto Sans KR',Arial,sans-serif}.label{font-size:12px;font-weight:700;letter-spacing:2px}.body{font-size:15px}.meta{font-size:12px}.section{font-size:22px;font-weight:600}.title{font-size:42px;font-weight:600}.btn{fill:#742F36}.btnText{fill:#FAF7EF;font-size:14px;font-weight:700}.outline{fill:none;stroke:#AAA092;stroke-width:1}.soft{fill:#EEE8DC}.success{fill:#596B4C}.warning{fill:#9A6C27}
+    </style>
+  </defs>
+  <rect class="canvas" width="1440" height="1024"/>
+  <rect x="24" y="20" width="1392" height="984" class="paper" stroke="#CEC5B7"/>
+
+  <!-- App header -->
+  <g transform="translate(72 54)">
+    <polygon points="0,12 8,4 16,12 8,20" fill="none" stroke="#742F36" stroke-width="1.4"/>
+    <text x="30" y="13" class="serif ink" font-size="21" font-weight="700">D&amp;D Master</text>
+    <text x="30" y="31" class="sans faint" font-size="8" font-weight="700" letter-spacing="1.8">SOLO ADVENTURE STUDIO</text>
+    <text x="1088" y="18" class="sans muted" font-size="13" font-weight="600">모험</text>
+    <rect x="1160" y="-3" width="34" height="34" rx="3" fill="#742F36"/>
+    <text x="1177" y="19" text-anchor="middle" class="sans" fill="#FAF7EF" font-size="14" font-weight="700">D</text>
+    <text x="1208" y="18" class="sans muted" font-size="13">demo@example.com</text>
+  </g>
+  <line x1="24" y1="108" x2="1416" y2="108" class="ruleStrong"/>
+
+  <!-- page header -->
+  <g transform="translate(158 158)">
+    <text x="0" y="0" class="sans faint" font-size="13">← 내 모험</text>
+    <text x="0" y="48" class="sans accent label">NEW ADVENTURE</text>
+    <text x="0" y="96" class="serif ink title">새 모험 준비</text>
+    <text x="0" y="126" class="sans muted body">플레이에 사용할 룰북과 모험 자료를 한 장의 준비 시트에서 정리합니다.</text>
+    <text x="0" y="151" class="sans faint meta">분석 단계나 내부 컴파일 상태 대신, 사용자가 결정해야 하는 정보만 보여줍니다.</text>
+  </g>
+
+  <!-- section 1 -->
+  <g transform="translate(158 350)">
+    <text x="0" y="0" class="sans accent label">01</text>
+    <text x="40" y="1" class="serif ink section">룰북</text>
+    <text x="40" y="26" class="sans muted meta">이 모험에서 사용할 규칙 기준을 선택하세요.</text>
+    <line x1="0" y1="52" x2="1124" y2="52" class="ruleStrong"/>
+
+    <circle cx="16" cy="92" r="7" fill="#742F36"/>
+    <circle cx="16" cy="92" r="2.5" fill="#FAF7EF"/>
+    <text x="40" y="88" class="sans ink body" font-weight="700">D&amp;D 5e 2024 Player's Handbook</text>
+    <text x="40" y="109" class="sans faint meta">기본 규칙 · revision 3</text>
+    <text x="1060" y="96" class="sans success meta" font-weight="700">✓ 선택됨</text>
+    <line x1="0" y1="128" x2="1124" y2="128" class="rule"/>
+
+    <circle cx="16" cy="164" r="7" fill="none" stroke="#AAA092"/>
+    <text x="40" y="160" class="sans ink body" font-weight="700">D&amp;D 5e 2014 Player's Handbook</text>
+    <text x="40" y="181" class="sans faint meta">이전 규칙 · revision 8</text>
+  </g>
+
+  <!-- section 2 -->
+  <g transform="translate(158 590)">
+    <text x="0" y="0" class="sans accent label">02</text>
+    <text x="40" y="1" class="serif ink section">모험 자료</text>
+    <text x="40" y="26" class="sans muted meta">시나리오, 지도, 핸드아웃과 캐릭터 자료를 추가하고 역할을 확인하세요.</text>
+    <rect x="944" y="-22" width="180" height="40" rx="4" class="btn"/>
+    <text x="1034" y="3" text-anchor="middle" class="sans btnText">+ 자료 추가</text>
+    <line x1="0" y1="52" x2="1124" y2="52" class="ruleStrong"/>
+
+    <g transform="translate(0 76)">
+      <rect x="0" y="0" width="36" height="36" rx="2" class="outline"/>
+      <text x="18" y="24" text-anchor="middle" class="sans accent" font-size="16">◇</text>
+      <text x="56" y="15" class="sans ink body" font-weight="700">Storm King's Thunder.pdf</text>
+      <text x="56" y="36" class="sans faint meta">메인 시나리오 · PDF</text>
+      <text x="1000" y="23" class="sans success meta" font-weight="700">✓ 준비됨</text>
+      <text x="1105" y="23" text-anchor="end" class="sans faint" font-size="20">⋯</text>
+      <line x1="0" y1="56" x2="1124" y2="56" class="rule"/>
+    </g>
+
+    <g transform="translate(0 148)">
+      <rect x="0" y="0" width="36" height="36" rx="2" class="outline"/>
+      <text x="18" y="24" text-anchor="middle" class="sans accent" font-size="16">⌖</text>
+      <text x="56" y="15" class="sans ink body" font-weight="700">Nightstone Map.png</text>
+      <text x="56" y="36" class="sans faint meta">지도 · PNG</text>
+      <text x="1000" y="23" class="sans warning meta" font-weight="700">○ 준비 중</text>
+      <text x="1105" y="23" text-anchor="end" class="sans faint" font-size="20">⋯</text>
+      <line x1="0" y1="56" x2="1124" y2="56" class="rule"/>
+    </g>
+  </g>
+
+  <!-- section 3 / footer -->
+  <g transform="translate(158 840)">
+    <text x="0" y="0" class="sans accent label">03</text>
+    <text x="40" y="1" class="serif ink section">준비 확인</text>
+    <line x1="0" y1="34" x2="1124" y2="34" class="ruleStrong"/>
+    <text x="0" y="72" class="sans success body">✓ 룰북 선택됨</text>
+    <text x="184" y="72" class="sans ink body">자료 2개</text>
+    <text x="276" y="72" class="sans warning body">○ 1개 준비 중</text>
+    <text x="0" y="103" class="sans muted meta">모든 필수 자료가 준비되면 모험을 만들 수 있습니다. 내부 처리 단계는 자동으로 진행됩니다.</text>
+    <rect x="922" y="54" width="202" height="46" rx="4" fill="#D8D1C4"/>
+    <text x="1023" y="82" text-anchor="middle" class="sans" fill="#91887E" font-size="14" font-weight="700">모험 만들기 →</text>
+  </g>
+
+  <text x="720" y="984" text-anchor="middle" class="sans faint" font-size="11">Setup redesign mockup · Digital Character Sheet / Paper / Ink / Oxblood · shadcn/ui composition</text>
+</svg>

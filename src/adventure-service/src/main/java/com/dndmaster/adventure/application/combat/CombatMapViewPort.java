@@ -14,6 +14,9 @@ public interface CombatMapViewPort {
 
     default byte[] alignmentImage(UUID mapId, UUID ownerId, String imageViewId) { throw new UnsupportedOperationException("public map image unavailable"); }
     default byte[] preparationImage(UUID mapId, UUID ownerId) { throw new UnsupportedOperationException("map preparation image unavailable"); }
+    default byte[] preparationImage(UUID mapId, UUID ownerId, UUID sourceDocumentId, String sourceAssetLocator) {
+        return preparationImage(mapId, ownerId);
+    }
     default BoundaryProposal detectMapBoundaries(UUID mapId, UUID ownerId) { throw new UnsupportedOperationException("map boundary detection unavailable"); }
 
     default void calibrate(UUID mapId, UUID ownerId, long expectedVersion, int width, int height, int cellSize,
@@ -30,9 +33,18 @@ public interface CombatMapViewPort {
             List<Door> doors, List<Boundary> boundaries, String crop, Long alignmentVersion, String imageRevision) {
         updateLayout(mapId, ownerId, expectedVersion, commandId, obstacles, doors, boundaries, crop);
     }
+    default void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles,
+            List<Door> doors, List<Boundary> boundaries, String crop, Long alignmentVersion, String imageRevision,
+            Position playerStart) {
+        updateLayout(mapId, ownerId, expectedVersion, commandId, obstacles, doors, boundaries, crop, alignmentVersion, imageRevision);
+    }
 
     record View(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Door> doors, List<Layer> layers,
-            List<Position> current, List<Position> explored, long version) {
+            List<Position> current, List<Position> explored, long version, List<StartCandidate> playerStartCandidates) {
+        public View(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Door> doors, List<Layer> layers,
+                List<Position> current, List<Position> explored, long version) {
+            this(mapId, grid, tokens, obstacles, doors, layers, current, explored, version, List.of());
+        }
         public View(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Layer> layers,
                 List<Position> current, List<Position> explored, long version) {
             this(mapId, grid, tokens, obstacles, List.of(), layers, current, explored, version);
@@ -48,6 +60,9 @@ public interface CombatMapViewPort {
             evidence = evidence == null ? List.of() : List.copyOf(evidence);
             source = source == null || source.isBlank() ? "IMAGE_RULES" : source;
         }
+    }
+    record StartCandidate(int x, int y, double confidence, List<String> evidence, String source) {
+        public StartCandidate { evidence = evidence == null ? List.of() : List.copyOf(evidence); }
     }
     record BoundaryProposal(long mapVersion, List<Position> obstacles, List<Door> doors, List<Boundary> boundaries, String crop,
                             List<BoundaryCandidate> candidates, long alignmentVersion, String imageRevision) {

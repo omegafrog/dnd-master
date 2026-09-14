@@ -2,12 +2,14 @@ package com.dndmaster.ruleknowledge.application.preprocessing;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 
 public record PreprocessingRetryRequest(
         String requestId,
         String versionId,
         Path artifactRoot,
-        List<Integer> pages) {
+        List<Integer> pages,
+        Map<Integer, Map<String, Integer>> layoutSelections) {
 
     public PreprocessingRetryRequest {
         if (requestId == null || requestId.isBlank()) {
@@ -23,5 +25,10 @@ public record PreprocessingRetryRequest(
             throw new IllegalArgumentException("pages must contain positive page numbers");
         }
         pages = List.copyOf(pages);
+        layoutSelections = layoutSelections == null ? Map.of() : Map.copyOf(layoutSelections);
+    }
+
+    public PreprocessingRetryRequest(String requestId, String versionId, Path artifactRoot, List<Integer> pages) {
+        this(requestId, versionId, artifactRoot, pages, Map.of());
     }
 }

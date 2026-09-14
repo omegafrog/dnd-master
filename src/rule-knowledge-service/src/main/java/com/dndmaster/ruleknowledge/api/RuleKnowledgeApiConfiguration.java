@@ -250,9 +250,10 @@ public class RuleKnowledgeApiConfiguration {
             ObjectMapper objectMapper,
             com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository definitionRepository,
             CatalogRulebookRepository catalogRulebookRepository,
+            com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort playerSessionLookup,
             @Value("${rule-knowledge.internal-token:}") String internalToken) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
-                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, catalogRulebookRepository);
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, catalogRulebookRepository, playerSessionLookup);
     }
 }

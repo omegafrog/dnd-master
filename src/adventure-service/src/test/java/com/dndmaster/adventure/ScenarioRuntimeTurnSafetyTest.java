@@ -24,6 +24,7 @@ import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
+import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.adventure.ScenarioId;
@@ -119,6 +120,34 @@ class ScenarioRuntimeTurnSafetyTest {
         assertEquals(next, adventure.currentSituation());
         assertEquals(com.dndmaster.adventure.domain.adventure.AdventureStatus.COMPLETED, adventure.status());
         assertEquals(5, adventure.version());
+    }
+
+    @Test
+    void runtime_commit_records_the_first_game_master_narration_for_the_current_situation() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = Adventure.rehydrateWithRuntimeState(
+                AdventureId.generate(), SessionId.generate(), owner, new ScenarioId(UUID.randomUUID()),
+                new RuleSetId(UUID.randomUUID()), List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                        new CharacterSheetId(UUID.randomUUID()), com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT,
+                        true, true, true, true, true, true)), List.of(),
+                new AdventureContext("맥주 저장고", null, null, null),
+                com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE, 4, 0, null,
+                UUID.randomUUID(), 1, GameState.empty(), DisclosureState.empty(),
+                new CurrentSituation(UUID.randomUUID(), 1, "맥주 저장고", "쥐를 찾는다", "거대 쥐", "저장고를 조사한다"),
+                List.of());
+        CurrentSituation next = new CurrentSituation(UUID.randomUUID(), 1, "맥주 저장고",
+                "쥐를 찾는다", "거대 쥐", "저장고를 조사한다");
+        String firstNarration = "북쪽 문을 지나 저장고 안으로 들어갑니다.";
+
+        adventure.commitRuntimeTurn(owner, 4,
+                new PendingRuntimeState(GameStateDelta.empty(), DisclosureState.empty(), next, List.of()),
+                new AdventureContext("맥주 저장고", null, null, null),
+                List.of(new ConversationEntry(0, "AI_GAME_MASTER", firstNarration),
+                        new ConversationEntry(1, "AI_GAME_MASTER", "거대 쥐가 모습을 드러냅니다.")),
+                CompletionProposal.continueAdventure());
+
+        assertEquals(firstNarration, adventure.currentSituation().firstNarration());
+        assertEquals(2, adventure.conversation().size());
     }
 
     @Test

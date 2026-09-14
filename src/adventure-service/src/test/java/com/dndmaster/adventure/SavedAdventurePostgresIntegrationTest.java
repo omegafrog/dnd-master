@@ -103,6 +103,19 @@ class SavedAdventurePostgresIntegrationTest {
     }
 
     @Test
+    void lists_an_adventure_while_runtime_start_is_waiting_for_map_review() {
+        OwnerPlayerId owner = owner();
+        Adventure pending = Adventure.beginScenarioRuntime(AdventureId.generate(), SessionId.generate(), owner,
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), 1,
+                List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                        new CharacterSheetId(UUID.randomUUID()), com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT,
+                        true, true, true, true, true, true)), context("opening"));
+        repository.save(pending);
+
+        assertEquals(List.of(pending.id()), service.listSavedAdventures(owner).stream().map(Adventure::id).toList());
+    }
+
+    @Test
     void conversationFailureRollsBackContextConversationAndVersionAtomically() throws SQLException {
         OwnerPlayerId owner = owner();
         Adventure created = service.createAdventure(command(owner, context("before")));

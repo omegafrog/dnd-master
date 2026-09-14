@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../features/auth/AuthContext'
 import { LoginForm } from '../features/auth/LoginForm'
 import { HttpAdventureApi } from '../features/adventure/AdventureApi'
-import { AdventureStream } from '../features/adventure/AdventureStream'
+import { AdventureWorkspace } from '../features/adventure/AdventureWorkspace'
+import { SessionRuntime } from '../features/adventure/SessionRuntime'
+import { SessionRuntimeRoute } from '../features/adventure/SessionRuntimeRoute'
 import { HttpAdventurePlayApi } from '../features/saved-adventures/AdventurePlayApi'
 import { SavedAdventurePanel } from '../features/saved-adventures/SavedAdventurePanel'
 import { HttpSetupApi } from '../features/rulebooks/SetupApi'
@@ -36,16 +38,24 @@ export function AppShell() {
     return () => window.removeEventListener('hashchange', onHashChange)
   }, [onHashChange])
   useEffect(() => {
+    if (auth.session && route.page === 'login') window.location.hash = '#/adventures'
+  }, [auth.session, route.page])
+  useEffect(() => {
+    if (!auth.session || route.page !== 'adventures') return
+    const currentPath = window.location.hash.split('?')[0]
+    if (currentPath === '#/setup') window.location.hash = '#/adventures'
+  }, [auth.session, route.page])
+  useEffect(() => {
     const refreshSelectedBundle = () => setSelectedBundleId(window.localStorage.getItem('dnd-selected-bundle-id') ?? '')
     window.addEventListener('dnd-selected-bundle-change', refreshSelectedBundle)
     return () => window.removeEventListener('dnd-selected-bundle-change', refreshSelectedBundle)
   }, [])
   useEffect(() => {
     if (!auth.session) return
-    const sessionId = route.page === 'character-blueprint' || route.page === 'character-create' || route.page === 'session' || route.page === 'party'
+    const sessionId = route.page === 'character-blueprint' || route.page === 'character-create' || route.page === 'session' || route.page === 'party' || route.page === 'session-runtime'
       ? route.sessionId
       : null
-    const adventureId = route.page === 'adventure' ? route.adventureId : null
+    const adventureId = route.page === 'adventure' || route.page === 'adventure-workspace' ? route.adventureId : null
     if ((!sessionId && !adventureId) || !rawSetupApi.getScenarioPackage) return
     let active = true
     const packageId = sessionId
@@ -86,7 +96,7 @@ export function AppShell() {
   const [combatFinalSummary, setCombatFinalSummary] = useState<CombatFinalSummary | null>(null)
   const [adventureVersion, setAdventureVersion] = useState<number | null>(null)
   const refreshCombat = useCallback(() => {
-    if (!auth.session || route.page !== 'adventure') return
+    if (!auth.session || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) return
     const summaryRequest = combatApi.readFinalSummary
       ? combatApi.readFinalSummary(route.adventureId)
       : Promise.resolve(null)
@@ -104,7 +114,7 @@ export function AppShell() {
     return () => { active = false }
   }, [auth.session, adventureApi, route])
   useEffect(() => {
-    if (!auth.session || route.page !== 'adventure') {
+    if (!auth.session || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) {
       setCombatSnapshot(null)
       setCombatFinalSummary(null)
       return
@@ -126,9 +136,6 @@ export function AppShell() {
     return () => { active = false }
   }, [auth.session, combatApi, route])
   useEffect(() => {
-    // 전투가 없는 탐색 장면에서는 전투 이벤트 스트림을 열지 않는다.
-    // 이전에는 모든 모험 화면에서 연결을 시도해 백엔드가 503(전투 없음)을
-    // 반환하고 브라우저 콘솔에 오류가 쌓였다.
     if (!auth.session || route.page !== 'adventure' || !combatApi.subscribeEvents || combatSnapshot?.eventCursor == null) return
     const adventureId = route.adventureId
     let active = true
@@ -167,10 +174,19 @@ export function AppShell() {
   }
 
   const playApi = new HttpAdventurePlayApi(getToken)
+  if (route.page === 'session-runtime') {
+    return <div className="game-shell">
+      <main id="main" className="game-shell-main app-page-session-runtime">
+        <SessionRuntimeRoute sessionId={route.sessionId} sessionApi={sessionApi} adventureApi={adventureApi} playApi={playApi} setupApi={setupApi} />
+      </main>
+    </div>
+  }
+
   const creatorRoute = route.page === 'character-blueprint' || route.page === 'character-create'
   const initials = auth.session.playerName.slice(0, 1).toUpperCase()
+  const adventureNavActive = route.page === 'adventures' || route.page === 'adventure' || route.page === 'adventure-workspace' || route.page === 'setup'
   return <div className="app-shell">
-    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={route.page === 'setup' ? 'active' : undefined} aria-current={route.page === 'setup' ? 'page' : undefined} href="#/setup">자료 설정</a><a className={route.page === 'adventures' || route.page === 'adventure' ? 'active' : undefined} aria-current={route.page === 'adventures' || route.page === 'adventure' ? 'page' : undefined} href="#/adventures">모험 목록</a>{selectedBundleId && <a className="selected-bundle-toolbar" href={`#/bundles/${selectedBundleId}`} title={`${selectedBundleId} 자료 화면`}>현재 자료 <span>{shortId(selectedBundleId)}</span></a>}<details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 설정</a><a href="#/backoffice">백오피스</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
+    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={adventureNavActive ? 'active' : undefined} aria-current={adventureNavActive ? 'page' : undefined} href="#/adventures">모험</a><details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 설정</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
     <main id="main" className={creatorRoute ? 'creator-main' : `app-content app-page-${route.page}`}>
       <div className="app-notices"><p role="status" aria-live="polite">{auth.message}</p></div>
       {route.page === 'login' && <section className="welcome-card"><p className="eyebrow">ADVENTURE AWAITS</p><h2>모험 준비가 완료되었습니다</h2><a className="text-link" href="#/setup">자료 설정으로 이동</a></section>}
@@ -178,7 +194,8 @@ export function AppShell() {
       {route.page === 'backoffice' && <BackofficePage session={auth.session} />}
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
-      {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}` }} />}
+      {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} sessionApi={sessionApi} playerId={playerId} forceList onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}?tab=materials` }} />}
+      {route.page === 'adventure-workspace' && <AdventureWorkspace adventureId={route.adventureId} activeTab={route.tab} playApi={playApi} setupApi={setupApi} sessionApi={sessionApi} playerId={playerId} />}
       {route.page === 'adventure' && (combatSnapshot && combatSnapshot.status !== 'ENDED' ? <CombatScreen snapshot={combatSnapshot} api={combatApi} onCommandCommitted={refreshCombat} map={<CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} compact />} /> : <>
         {combatFinalSummary && <section className="combat-final-summary" aria-labelledby="combat-final-summary-title">
           <p className="eyebrow">COMBAT COMPLETE</p>
@@ -186,7 +203,7 @@ export function AppShell() {
           <p>{combatFinalSummary.summary}</p>
           <p>상세 전투 기록은 종료 후 제공되지 않습니다.</p>
         </section>}
-        <div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} expectedVersion={adventureVersion} onTurnCommitted={() => { refreshCombatMap(); refreshCombat() }} /></aside></div>
+        <SessionRuntime adventureId={route.adventureId} adventureApi={adventureApi} expectedVersion={adventureVersion} playApi={playApi} combatSnapshot={combatSnapshot} mapRefreshToken={mapRefreshToken} onTurnCommitted={() => { refreshCombatMap(); refreshCombat() }} />
       </>)}
       {route.page === 'character' && <CharacterSheetView sheetId={route.sheetId} api={playApi} />}
       {(route.page === 'session' || route.page === 'party') && <AdventureSessionPanel api={sessionApi} ownerPlayerId={playerId} sessionId={route.sessionId} playApi={playApi} />}
@@ -198,11 +215,7 @@ export function AppShell() {
 }
 
 function Brand() {
-  return <a className="app-brand" href="#/setup" aria-label="D&D Master 홈"><img src="/assets/characters/compass.png" alt="" aria-hidden="true" /><span><strong>D&amp;D Master</strong><small>Solo Adventure Studio</small></span></a>
-}
-
-function shortId(value: string) {
-  return value.length > 12 ? `${value.slice(0, 8)}…` : value
+  return <a className="app-brand" href="#/adventures" aria-label="D&D Master 홈"><img src="/assets/characters/compass.png" alt="" aria-hidden="true" /><span><strong>D&amp;D Master</strong><small>Solo Adventure Studio</small></span></a>
 }
 
 function ProfilePage({ session }: { session: NonNullable<ReturnType<typeof useAuth>['session']> }) {

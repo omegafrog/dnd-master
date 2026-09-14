@@ -85,13 +85,15 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
     @Override
     public PreprocessingRunResult retryPages(PreprocessingRetryRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        return invoke(Map.of(
-                "schema_version", "1",
-                "operation", "retry_pages",
-                "request_id", request.requestId(),
-                "version_id", request.versionId(),
-                "artifact_root", request.artifactRoot().toAbsolutePath().normalize().toString(),
-                "pages", request.pages()),
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("schema_version", "1");
+        payload.put("operation", "retry_pages");
+        payload.put("request_id", request.requestId());
+        payload.put("version_id", request.versionId());
+        payload.put("artifact_root", request.artifactRoot().toAbsolutePath().normalize().toString());
+        payload.put("pages", request.pages());
+        payload.put("layout_selections", request.layoutSelections());
+        return invoke(payload,
                 "retry_pages", request.requestId(), null, null, request.versionId());
     }
 
@@ -263,10 +265,42 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
                 }
                 findings.add(item.asText());
             });
-            pages.add(new PreprocessingPageState(number, page.path("status").asText(""), attempts, findings));
+            pages.add(new PreprocessingPageState(number, page.path("status").asText(""), attempts, findings,
+                    parseLayoutReview(page.path("layout_review"))));
             expectedNumber++;
         }
         return List.copyOf(pages);
+    }
+
+    private PreprocessingPageState.LayoutReview parseLayoutReview(JsonNode node) {
+        if (!node.isObject()) return null;
+        List<PreprocessingPageState.LayoutRegionReview> regions = new ArrayList<>();
+        JsonNode layout = node.path("profiles");
+        if (layout.isArray()) {
+            for (JsonNode profile : layout) {
+                List<PreprocessingPageState.LayoutCandidateReview> candidates = new ArrayList<>();
+                JsonNode candidatesNode = profile.path("candidates");
+                for (int index = 0; index < candidatesNode.size(); index++) {
+                    JsonNode candidate = candidatesNode.get(index);
+                    List<List<Double>> columns = new ArrayList<>();
+                    candidate.path("columns").forEach(column -> {
+                        List<Double> values = new ArrayList<>();
+                        column.forEach(value -> values.add(value.asDouble()));
+                        columns.add(values);
+                    });
+                    candidates.add(new PreprocessingPageState.LayoutCandidateReview(index,
+                            candidate.path("column_count").asInt(1), candidate.path("score").asDouble(0), columns));
+                }
+                regions.add(new PreprocessingPageState.LayoutRegionReview(profile.path("region_id").asText(""), candidates));
+            }
+        }
+        List<PreprocessingPageState.LayoutBlockReview> blocks = new ArrayList<>();
+        node.path("blocks").forEach(block -> {
+            List<Double> bbox = new ArrayList<>();
+            block.path("bbox").forEach(value -> bbox.add(value.asDouble()));
+            blocks.add(new PreprocessingPageState.LayoutBlockReview(block.path("block_id").asText(""), block.path("text").asText(""), bbox));
+        });
+        return new PreprocessingPageState.LayoutReview(regions, blocks);
     }
 
     private static void validatePageSummary(JsonNode summary, List<PreprocessingPageState> pages) {

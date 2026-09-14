@@ -25,9 +25,11 @@ export type SavedAdventure = {
   resumable: boolean
   updatedAt: string
   version: number
+  sessionId?: string
+  scenarioBundleId?: string
 }
 
-export type SavedAdventureResponse = { adventureId: string; name?: string | null; title?: string | null; status: string; version: number; updatedAt?: string | null }
+export type SavedAdventureResponse = { adventureId: string; name?: string | null; title?: string | null; status: string; version: number; updatedAt?: string | null; sessionId?: string | null; scenarioBundleId?: string | null }
 
 export function toSavedAdventure(response: SavedAdventureResponse): SavedAdventure {
   const resumable = response.status !== 'COMPLETED' && response.status !== 'DELETED'
@@ -38,6 +40,8 @@ export function toSavedAdventure(response: SavedAdventureResponse): SavedAdventu
     resumable,
     updatedAt: response.updatedAt ?? '',
     version: response.version,
+    ...(response.sessionId ? { sessionId: response.sessionId } : {}),
+    ...(response.scenarioBundleId ? { scenarioBundleId: response.scenarioBundleId } : {}),
   }
 }
 
@@ -61,6 +65,7 @@ export type CombatMapView = {
   grid?: { width: number; height: number }
   obstacles?: Array<{ x: number; y: number }>
   objects?: Array<{ id: string; type: string; x: number; y: number }>
+  playerStartCandidates?: Array<{ x: number; y: number; confidence: number; evidence: string[]; source?: string }>
 }
 
 export type MapGridAlignment = { mapId: string; version: number; imageRevision: string; imageViewId?: string; originX: number; originY: number; cellSize: number }
@@ -68,7 +73,7 @@ export type MapGridAlignmentRequest = { mapId: string; commandId: string; expect
 export type MapBoundary = { x: number; y: number; orientation: 'HORIZONTAL' | 'VERTICAL'; kind: 'WALL' | 'DOOR'; open: boolean }
 export type MapBoundaryCandidate = { x: number; y: number; orientation: 'HORIZONTAL' | 'VERTICAL'; kind: 'WALL' | 'DOOR'; confidence: number; evidence: string[]; source?: string }
 export type MapBoundaryProposal = { mapVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number; open: boolean }>; boundaries: MapBoundary[]; crop?: string; candidates?: MapBoundaryCandidate[]; alignmentVersion?: number; imageRevision?: string }
-export type CombatMapLayoutDraft = { commandId: string; expectedVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number }>; boundaries?: MapBoundary[]; crop?: string; alignmentVersion?: number; imageRevision?: string }
+export type CombatMapLayoutDraft = { commandId: string; expectedVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number }>; boundaries?: MapBoundary[]; crop?: string; alignmentVersion?: number; imageRevision?: string; playerStart?: { x: number; y: number } }
 
 export type MapActionCandidate = {
   mapId: string
@@ -115,6 +120,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const problem = await response.clone().json().catch(() => null) as { error?: string; message?: string } | null
     if (problem?.error === 'ADVENTURE_START_BLOCKED' && problem.message === 'combat map alignment save failed') {
       throw new Error('전체 격자가 지도 밖으로 나갑니다. 시작점을 지도 안쪽으로 옮기고 다시 맞추세요.')
+    }
+    if (problem?.error === 'MAP_PLACEMENT_REQUIRED') {
+      throw new AdventureRequestError('맵은 준비됐지만 시작 위치가 정해지지 않았습니다. 지도에서 시작 위치를 선택해주세요.', response.status)
     }
     throw new AdventureRequestError('적용 규칙상 해당 요청을 처리할 수 없습니다.', response.status)
   }

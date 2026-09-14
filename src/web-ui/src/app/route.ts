@@ -3,9 +3,11 @@ export type Route =
   | { page: 'bundle'; bundleId: string }
   | { page: 'adventures' }
   | { page: 'adventure'; adventureId: string }
+  | { page: 'adventure-workspace'; adventureId: string; tab: 'materials' | 'review' | 'characters' | 'sessions' }
   | { page: 'party'; sessionId: string }
   | { page: 'character'; sheetId: string }
   | { page: 'session'; sessionId: string }
+  | { page: 'session-runtime'; sessionId: string }
   | { page: 'character-create'; sessionId: string }
   | { page: 'character-blueprint'; sessionId: string }
   | { page: 'package-blueprint'; packageId: string }
@@ -15,11 +17,21 @@ export type Route =
 
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '') || '/login'
-  const segments = path.split('/').filter(Boolean)
-  if (segments[0] === 'setup') return { page: 'setup' }
+  const [pathname, query = ''] = path.split('?')
+  const segments = pathname.split('/').filter(Boolean)
+  const params = new URLSearchParams(query)
+  // 자료 구성은 새 모험을 만들 때만 명시적으로 연다.
+  // 기존 기본 진입 주소(#/setup)는 모험 목록으로 호환시킨다.
+  if (segments[0] === 'setup' && params.get('mode') === 'create') return { page: 'setup' }
+  if (segments[0] === 'setup') return { page: 'adventures' }
   if (segments[0] === 'bundles' && segments[1]) return { page: 'bundle', bundleId: segments[1] }
-  if (segments[0] === 'adventures' && segments[1]) return { page: 'adventure', adventureId: segments[1] }
+  if (segments[0] === 'adventures' && segments[1]) {
+    const tab = params.get('tab')
+    if (tab === 'materials' || tab === 'review' || tab === 'characters' || tab === 'sessions') return { page: 'adventure-workspace', adventureId: segments[1], tab }
+    return { page: 'adventure-workspace', adventureId: segments[1], tab: 'materials' }
+  }
   if (segments[0] === 'adventures') return { page: 'adventures' }
+  if (segments[0] === 'sessions' && segments[1] && params.get('mode') === 'play') return { page: 'session-runtime', sessionId: segments[1] }
   if (segments[0] === 'sessions' && segments[1] && segments[2] === 'party') return { page: 'party', sessionId: segments[1] }
   if (segments[0] === 'character' && segments[1]) return { page: 'character', sheetId: segments[1] }
   if (segments[0] === 'scenario-packages' && segments[1] && segments[2] === 'character-blueprint') {

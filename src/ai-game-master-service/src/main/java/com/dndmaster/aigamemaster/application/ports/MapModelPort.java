@@ -42,18 +42,43 @@ public interface MapModelPort {
         }
     }
 
+    /** 시나리오 진입 경로와 지도 출입구를 연결한 시작 칸 제안. */
+    record PlayerStartProposal(String position, double confidence, List<String> evidence,
+                               String source, String status) {
+        public PlayerStartProposal(String position, double confidence, List<String> evidence, String source) {
+            this(position, confidence, evidence, source, "PROPOSED");
+        }
+        public PlayerStartProposal {
+            position = position == null ? "" : position.trim();
+            if (!Double.isFinite(confidence) || confidence < 0 || confidence > 1) {
+                throw new IllegalArgumentException("player start confidence must be between 0 and 1");
+            }
+            evidence = evidence == null ? List.of() : List.copyOf(evidence);
+            source = source == null || source.isBlank() ? "SCENARIO_ENTRY" : source.trim();
+            status = status == null || status.isBlank() ? "PROPOSED" : status.trim().toUpperCase(java.util.Locale.ROOT);
+            if (!status.equals("PROPOSED") && !status.equals("UNRESOLVED")) {
+                throw new IllegalArgumentException("player start proposal status is invalid");
+            }
+        }
+    }
+
     record MapOutput(int width, int height, String structuredLayers,
                      List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart,
-                     List<MapBoundaryCandidate> candidates) {
+                     List<MapBoundaryCandidate> candidates, PlayerStartProposal playerStartProposal) {
+        public MapOutput(int width, int height, String structuredLayers,
+                         List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart,
+                         List<MapBoundaryCandidate> candidates) {
+            this(width, height, structuredLayers, obstacles, doors, boundaries, playerStart, candidates, null);
+        }
         public MapOutput(int width, int height, String structuredLayers,
                          List<String> obstacles, List<String> doors, List<String> boundaries, String playerStart) {
-            this(width, height, structuredLayers, obstacles, doors, boundaries, playerStart, List.of());
+            this(width, height, structuredLayers, obstacles, doors, boundaries, playerStart, List.of(), null);
         }
         public MapOutput(int width, int height, String structuredLayers, List<String> obstacles, List<String> doors, String playerStart) {
-            this(width, height, structuredLayers, obstacles, doors, List.of(), playerStart, List.of());
+            this(width, height, structuredLayers, obstacles, doors, List.of(), playerStart, List.of(), null);
         }
         public MapOutput(int width, int height, String structuredLayers) {
-            this(width, height, structuredLayers, List.of(), List.of(), "");
+            this(width, height, structuredLayers, List.of(), List.of(), List.of(), "", List.of(), null);
         }
 
         public MapOutput {
@@ -64,6 +89,7 @@ public interface MapModelPort {
             boundaries = immutable(boundaries);
             playerStart = playerStart == null ? "" : playerStart.trim();
             candidates = List.copyOf(Objects.requireNonNull(candidates, "map boundary candidates must not be null"));
+            if (playerStartProposal != null && playerStartProposal.position().isBlank()) playerStartProposal = null;
         }
     }
 

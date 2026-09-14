@@ -69,6 +69,7 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
       const sessionsById = new Map(
         sessionResults
           .flatMap(result => result.status === 'fulfilled' ? result.value : [])
+          .filter(session => session.status !== 'DELETED')
           .map(session => [session.sessionId, session]),
       )
       setSessions([...sessionsById.values()])

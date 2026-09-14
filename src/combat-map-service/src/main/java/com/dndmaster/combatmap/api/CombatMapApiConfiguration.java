@@ -103,8 +103,9 @@ public class CombatMapApiConfiguration {
     @Bean
     CombatMapViewService combatMapViewService(
             CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort,
-            PublicMapImageArtifactService publicImages, MapGridAlignmentStore alignments) {
-        return new CombatMapViewService(store, filePort, aiPort, publicImages, alignments);
+            PublicMapImageArtifactService publicImages, MapGridAlignmentStore alignments,
+            MapImageEvidencePort mapImageEvidence) {
+        return new CombatMapViewService(store, filePort, aiPort, publicImages, alignments, mapImageEvidence);
     }
 
     @Bean
@@ -167,7 +168,8 @@ public class CombatMapApiConfiguration {
     CombatMapController combatMapController(
             CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
             MapImageEvidencePort mapImageEvidence, MapGridAlignmentService mapGridAlignmentService,
-            PublicMapImageArtifactService publicMapImages) {
-        return new CombatMapController(mapViewService, movementService, requestGuard, mapImageEvidence, mapGridAlignmentService, publicMapImages);
+            PublicMapImageArtifactService publicMapImages, MapFilePreparationPort mapFilePreparation) {
+        return new CombatMapController(mapViewService, movementService, requestGuard, mapImageEvidence, mapGridAlignmentService,
+                publicMapImages, mapFilePreparation);
     }
 }

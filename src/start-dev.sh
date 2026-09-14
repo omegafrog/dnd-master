@@ -22,6 +22,7 @@ require_env() {
 # Local-only defaults keep this developer launcher runnable without exporting
 # production credentials. Deployments must provide their own values.
 export INTERNAL_SERVICE_TOKEN="${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}"
+export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:-/home/jiwoo/workspace/dnd-master/docs/assets}"
 # Keep the repository's local catalog-admin marker and the seeded demo player's
 # actual identity together. The browser Backoffice sends the authenticated
 # player ID, so omitting the seeded ID makes local catalog publication fail
@@ -29,6 +30,13 @@ export INTERNAL_SERVICE_TOKEN="${INTERNAL_SERVICE_TOKEN:-local-development-inter
 export RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS="${RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS:-local-catalog-admin,00000000-0000-0000-0000-000000000001}"
 export CODEX_EXECUTABLE="${CODEX_EXECUTABLE:-/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex}"
 export RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE="${RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE:-/home/jiwoo/workspace/dnd-master/.venv-docling/bin/python}"
+export RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY="${RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY:-$ROOT/..}"
+# The WSL-local Tesseract installation is linked against libraries kept next
+# to the executable.  Export the path before starting Java/Python so both the
+# source preview extractor and the preprocessing retry process can invoke it.
+export LD_LIBRARY_PATH="/home/jiwoo/.local/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export TESSDATA_PREFIX="${TESSDATA_PREFIX:-/home/jiwoo/.local/usr/share/tesseract-ocr/5/tessdata}"
+export RULE_KNOWLEDGE_OCR_LANGUAGES="${RULE_KNOWLEDGE_OCR_LANGUAGES:-eng}"
 export BACKEND_E2E_URL="${BACKEND_E2E_URL:-http://localhost:8080}"
 export BACKEND_E2E_EMAIL="${BACKEND_E2E_EMAIL:-demo-player@example.com}"
 export BACKEND_E2E_PASSWORD="${BACKEND_E2E_PASSWORD:-secret-password}"
@@ -43,6 +51,11 @@ require_env BACKEND_E2E_URL
 require_env BACKEND_E2E_EMAIL
 require_env BACKEND_E2E_PASSWORD
 require_env BACKEND_E2E_STORYBOOKS_JSON
+
+if [ ! -d "$RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT" ]; then
+    echo "ERROR: RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT directory was not found: $RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT" >&2
+    exit 1
+fi
 
 NVM_BIN="/home/jiwoo/.nvm/versions/node/v24.12.0/bin"
 SDKMAN_JAVA_HOME="/home/jiwoo/.sdkman/candidates/java/current"

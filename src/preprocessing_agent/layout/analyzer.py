@@ -65,7 +65,8 @@ class LayoutAnalyzer:
             regions.append(LayoutRegion("region-1", BoundingBox(page_left, y_min, page_right, y_max), tuple(item[0] for item in entries)))
         return tuple(regions)
 
-    def profile(self, region: LayoutRegion, blocks: Sequence[Any], *, ambiguity_margin: float = .08) -> ColumnProfile:
+    def profile(self, region: LayoutRegion, blocks: Sequence[Any], *, ambiguity_margin: float = .08,
+                selected_candidate: int | None = None) -> ColumnProfile:
         by_id = {_id(block, i): block for i, block in enumerate(blocks)}
         members = [by_id[block_id] for block_id in region.block_ids if block_id in by_id]
         entries = [(_box(block), block) for block in members]
@@ -169,7 +170,14 @@ class LayoutAnalyzer:
             and not (best.column_count > second.column_count and best.score >= .95 and len(entries) >= 12)
         )
         ambiguous = undersampled_high_order_split or weakly_supported_split or close_competing_split
-        return ColumnProfile(region.region_id, tuple(candidates), None if ambiguous else best, best.score if not ambiguous else best.score - (ambiguity_margin / 2), ambiguous, ("AMBIGUOUS_COLUMN_HYPOTHESIS",) if ambiguous else ())
+        if selected_candidate is not None:
+            if selected_candidate < 0 or selected_candidate >= len(candidates):
+                raise ValueError("INVALID_LAYOUT_CANDIDATE")
+            best = candidates[selected_candidate]
+            ambiguous = False
+        return ColumnProfile(region.region_id, tuple(candidates), best if not ambiguous else None,
+                             best.score if not ambiguous else best.score - (ambiguity_margin / 2), ambiguous,
+                             ("AMBIGUOUS_COLUMN_HYPOTHESIS",) if ambiguous else ())
 
     def page_plan(self, blocks: Sequence[Any], page_geometry: Any | None = None) -> ReadingOrderPlan:
         regions = self.analyze(blocks, page_geometry)

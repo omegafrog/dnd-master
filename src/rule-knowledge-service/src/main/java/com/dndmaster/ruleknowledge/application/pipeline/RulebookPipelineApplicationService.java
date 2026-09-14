@@ -42,6 +42,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Map;
 
 public final class RulebookPipelineApplicationService implements RulebookUploadProcessor {
     private static final Duration PROCESSING_LEASE = Duration.ofMinutes(10);
@@ -194,6 +195,11 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     }
 
     public RulebookProcessingResult retryPages(RulebookId rulebookId, String requestId, List<Integer> pages) {
+        return retryPages(rulebookId, requestId, pages, Map.of());
+    }
+
+    public RulebookProcessingResult retryPages(RulebookId rulebookId, String requestId, List<Integer> pages,
+                                               Map<Integer, Map<String, Integer>> layoutSelections) {
         Objects.requireNonNull(rulebookId, "rulebook id must not be null");
         if (requestId == null || requestId.isBlank()) throw new IllegalArgumentException("retry request id must not be blank");
         if (pages == null || pages.isEmpty() || pages.stream().anyMatch(page -> page == null || page < 1)) {
@@ -229,9 +235,25 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             } catch (java.io.IOException exception) {
                 throw new PreprocessingProcessException("PREPROCESSING_ARTIFACT_UNAVAILABLE", exception);
             }
-            PreprocessingRunResult result = preprocessingProcessPort.retryPages(new PreprocessingRetryRequest(
-                    requestId, registration.candidateExtractionVersion(), preprocessingRoot(rulebookId), selected));
-            validateRetryResult(registration, requestId, selected, result);
+            Path artifactRoot = preprocessingRoot(rulebookId);
+            Path candidateVersion = artifactRoot.resolve("generations")
+                    .resolve(registration.candidateExtractionVersion());
+            boolean rebuildMissingCandidate = !Files.isDirectory(candidateVersion);
+            PreprocessingRunResult result;
+            if (rebuildMissingCandidate) {
+                // A previous process may have persisted the review metadata
+                // without retaining its candidate files (for example after a
+                // temporary-directory cleanup). Recreate a fresh candidate
+                // instead of turning a valid user retry into an opaque 500.
+                result = preprocessingProcessPort.preprocess(new PreprocessingRunRequest(
+                        registration.operationKey(), workingRoot.resolve("source.pdf"), registration.contentHash(),
+                        "rag-preprocessing-v1", artifactRoot, null));
+                validatePreprocessingResult(registration, result);
+            } else {
+                result = preprocessingProcessPort.retryPages(new PreprocessingRetryRequest(
+                        requestId, registration.candidateExtractionVersion(), artifactRoot, selected, layoutSelections));
+                validateRetryResult(registration, requestId, selected, result);
+            }
             StoredRulebookRegistration latest = registrationRepository.findById(rulebookId).orElseThrow();
             if (latest.version() != processing.version() || latest.version() < expectedVersion) {
                 retryLeaseRepository.release(rulebookId, requestId, claim.leaseToken());
@@ -286,7 +308,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             }
             return processWithPreprocessing(registration);
         }
-        if (preprocessingProcessPort != null) {
+        if (preprocessingProcessPort != null
+                && registration.format() != com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat.IMAGE) {
             return rejectUnsupportedFormat(registration);
         }
         ExtractionResult extractionResult = null;
@@ -456,7 +479,10 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         if (!registration.contentHash().equals(result.sourceSha256())) throw new PreprocessingProcessException("SOURCE_HASH_MISMATCH");
         if (!"rag-preprocessing-v1".equals(result.policyVersion())) throw new PreprocessingProcessException("POLICY_VERSION_MISMATCH");
         if (result.pages().isEmpty()) throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
-        if (registration.candidateExtractionVersion().equals(result.versionId())) {
+        // A page retry may legitimately remain quarantined as NEEDS_REVIEW. In
+        // that case the preprocessing process keeps the candidate version;
+        // only a READY promotion must produce a new version.
+        if ("READY".equals(result.status()) && registration.candidateExtractionVersion().equals(result.versionId())) {
             throw new PreprocessingProcessException("RETRY_VERSION_NOT_ADVANCED");
         }
         if (result.pages().size() != registration.preprocessingPages().size()) {

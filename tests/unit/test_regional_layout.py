@@ -64,6 +64,23 @@ def test_ambiguous_candidate_is_retained_without_selection():
     assert "AMBIGUOUS_COLUMN_HYPOTHESIS" in profile.findings
 
 
+def test_user_selected_layout_candidate_resolves_ambiguous_page_deterministically():
+    blocks = [
+        block("a", "A", (0, 0, 10, 20)), block("b", "B", (20, 0, 30, 20)),
+        block("c", "C", (70, 0, 80, 20)), block("d", "D", (90, 0, 100, 20)),
+    ]
+    analyzer = LayoutAnalyzer()
+    region = analyzer.analyze(blocks)[0]
+    profile = analyzer.profile(region, blocks)
+    two_column_index = next(index for index, candidate in enumerate(profile.candidates) if candidate.column_count == 2)
+
+    plan = ReadingOrderPlanner().plan(blocks, selections={region.region_id: two_column_index})
+
+    assert plan.ambiguous is False
+    assert plan.profiles[0].selected is not None
+    assert plan.profiles[0].selected.column_count == 2
+
+
 def test_repeated_balanced_columns_beat_a_weak_footer_split():
     blocks = [
         block("toc", "2 목차", (524.464, 733.715, 577.391, 765.042)),

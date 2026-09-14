@@ -13,8 +13,10 @@ import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
+import com.dndmaster.adventure.application.runtime.RuntimeTurn;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
-import com.dndmaster.adventure.application.combat.CombatMapEntryContextResolver;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationPort;
 import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
@@ -212,7 +214,7 @@ public class AdventureSessionApplicationService {
                 && openingResult.turn().plan().mapEntryRequested()) {
             Adventure committedAdventure = adventureRepository.findById(effectiveAdventureId).orElse(adventure);
             combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
-                    1, activationContext(committedAdventure, session));
+                    1, activationContext(committedAdventure, session, openingResult));
         }
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();
@@ -223,6 +225,11 @@ public class AdventureSessionApplicationService {
     }
 
     private static CombatMapPreparationPort.ActivationContext activationContext(Adventure adventure, AdventureSession session) {
+        return activationContext(adventure, session, null);
+    }
+
+    private static CombatMapPreparationPort.ActivationContext activationContext(Adventure adventure, AdventureSession session,
+            RuntimeTurnResult result) {
         var situation = adventure.currentSituation();
         UUID playerTokenId = session.party().stream().findFirst()
                 .map(AdventurePartyMember::characterSheetId)
@@ -231,8 +238,34 @@ public class AdventureSessionApplicationService {
                 .orElse(null);
         return new CombatMapPreparationPort.ActivationContext(playerTokenId, situation.situationId(),
                 situation.revision(), adventure.turnIndex(), adventure.currentContext().currentScene(),
-                situation.location(), null, null, CombatMapEntryContextResolver.entrySide(adventure, situation));
+                situation.location(), null, null,
+                entryEvidence(situation.firstNarration(), result));
     }
+
+    /**
+     * 맵 위치 판정에는 현재 상황의 첫 서술뿐 아니라, 첫 턴을 만들 때 실제로
+     * 사용한 스토리북 근거도 함께 전달한다. 시작 턴에서는 상황에 첫 서술이
+     * 아직 복사되기 전일 수 있으므로 그 턴의 게임 마스터 서술을 임시 첫
+     * 서술로 보존한다.
+     */
+    private static String entryEvidence(String firstNarration, RuntimeTurnResult result) {
+        StringBuilder evidence = new StringBuilder("FIRST_NARRATION=").append(blank(firstNarration));
+        if (result == null) return evidence.toString();
+        RuntimeTurn turn = result.turn();
+        if (blank(firstNarration).isBlank()) evidence.replace("FIRST_NARRATION=".length(), evidence.length(), blank(turn.narration()));
+        evidence.append("\nPLAYER_ACTION=").append(turn.action())
+                .append("\nGM_JUDGMENT=").append(blank(turn.plan().judgment()))
+                .append("\nGM_NARRATION=").append(blank(turn.narration()));
+        turn.plan().citedEvidence().stream()
+                .filter(item -> item.evidenceType() == RuntimeEvidenceType.STORYBOOK)
+                .map(RuntimeEvidence::excerpt)
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .forEach(value -> evidence.append("\nSTORYBOOK_EVIDENCE=").append(value));
+        return evidence.toString();
+    }
+
+    private static String blank(String value) { return value == null ? "" : value; }
 
     public AdventureSession complete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);

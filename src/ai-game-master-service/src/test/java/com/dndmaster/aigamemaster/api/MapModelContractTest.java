@@ -1,6 +1,7 @@
 package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.application.ports.MapModelPort;
+import com.dndmaster.aigamemaster.application.ports.MapEntryPlacementModelPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,6 +30,7 @@ class MapModelContractTest {
         assertEquals(java.util.List.of(), output.doors());
         assertEquals(java.util.List.of("1,1,VERTICAL,WALL,false", "2,1,HORIZONTAL,DOOR,false"), output.boundaries());
         assertEquals("0,0", output.playerStart());
+        assertEquals(null, output.playerStartProposal());
         assertEquals(1, output.candidates().size());
         assertEquals(0.91, output.candidates().getFirst().confidence());
     }
@@ -41,6 +43,56 @@ class MapModelContractTest {
         MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput("map", "room", "grid"));
 
         assertEquals(java.util.List.of(), output.candidates());
+    }
+
+    @Test
+    void parsesScenarioEntryStartProposalWithEvidenceAndConfidence() {
+        GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"boundaries\":[],\"obstacles\":[],\"doors\":[],\"playerStart\":\"\",\"playerStartProposal\":{\"position\":\"1,2\",\"confidence\":0.88,\"evidence\":[\"story says south entrance\",\"open doorway at south edge\"],\"source\":\"SCENARIO_ENTRY\"}}");
+        MapModelPort.MapOutput output = new AiGameMasterApiConfiguration().mapModelPort(adapter, mapper)
+                .generate(new MapModelPort.MapInput("map", "party enters through the south entrance", "grid"));
+
+        assertEquals("1,2", output.playerStartProposal().position());
+        assertEquals(.88, output.playerStartProposal().confidence());
+        assertEquals(2, output.playerStartProposal().evidence().size());
+    }
+
+    @Test
+    void parsesDedicatedEntryPlacementWithTransitionAnchorAndRankedCandidate() {
+        GmCompletionAdapter adapter = fixed("{\"status\":\"RESOLVED\",\"entryInterpretation\":{\"transition\":\"DESCEND_STAIRS\",\"targetScene\":\"맥주 저장고\",\"anchor\":\"STAIRS\",\"placementRelation\":\"ADJACENT_TO_ENTRY_INSIDE_DESTINATION\",\"evidence\":\"나무 계단이 삐걱거리며 지하실로 이어집니다.\"},\"candidates\":[{\"exitPoint\":{\"xNormalized\":0.24,\"yNormalized\":0.81},\"confidence\":0.91,\"source\":\"MAP_IMAGE\",\"anchor\":\"visible staircase\",\"reason\":\"계단 끝 바로 안쪽의 이동 가능한 칸\",\"evidence\":[\"나무 계단\",\"계단 끝의 바닥\"]}],\"reason\":\"계단 끝과 서술이 일치합니다.\"}");
+        MapEntryPlacementModelPort model = new AiGameMasterApiConfiguration().mapEntryPlacementModelPort(adapter, mapper);
+
+        MapEntryPlacementModelPort.EntryPlacementOutput output = model.propose(
+                new MapEntryPlacementModelPort.EntryPlacementInput("맥주 저장고",
+                        "양조장 문을 열고 지하실로 내려갑니다", "지하실 진입", "나무 계단이 삐걱거리며 지하실로 이어집니다.", "{}", ""));
+
+        assertEquals("RESOLVED", output.status());
+        assertEquals("DESCEND_STAIRS", output.interpretation().transition());
+        assertEquals("STAIRS", output.interpretation().anchor());
+        assertEquals(1, output.candidates().size());
+        assertEquals(.24, output.candidates().getFirst().exitPoint().xNormalized());
+        assertEquals(.81, output.candidates().getFirst().exitPoint().yNormalized());
+        assertEquals("visible staircase", output.candidates().getFirst().anchor());
+    }
+
+    @Test
+    void sendsFirstNarrationAndLocationToEntryPlacementPrompt() {
+        java.util.concurrent.atomic.AtomicReference<String> prompt = new java.util.concurrent.atomic.AtomicReference<>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operationId, String value, StructuredResponseParser<T> parser) {
+                prompt.set(value);
+                return parser.parse("{\"status\":\"UNRESOLVED\",\"entryInterpretation\":{},\"candidates\":[],\"reason\":\"no anchor\"}");
+            }
+        };
+        MapEntryPlacementModelPort model = new AiGameMasterApiConfiguration().mapEntryPlacementModelPort(adapter, mapper);
+
+        model.propose(new MapEntryPlacementModelPort.EntryPlacementInput("저장고", "지하 저장고",
+                "양조장 뒤편에서 계단을 발견했습니다.", "계단을 내려갑니다", "계단 진입", "나무 계단 끝에 도착합니다", "{\"gridWidth\":12,\"gridHeight\":18}", ""));
+
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("LOCATION=지하 저장고"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("FIRST_NARRATION=양조장 뒤편에서 계단을 발견했습니다."));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("MAP_DATA={\"gridWidth\":12,\"gridHeight\":18}"));
+        org.junit.jupiter.api.Assertions.assertFalse(prompt.get().contains("20x20"));
     }
 
     @Test
