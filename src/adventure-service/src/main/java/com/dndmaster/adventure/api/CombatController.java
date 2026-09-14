@@ -137,47 +137,32 @@ public final class CombatController {
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/retry")
     public ResponseEntity<CombatActionResponse> retry(@PathVariable UUID adventureId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody RetryRequest request) {
-        assertOwner(adventureId);
+        var adventure = assertOwnerAndLoad(adventureId);
+        UUID requestId = uuidHeader(idempotencyKey, "Idempotency-Key");
         var failed = workItems.findByOperationId(request.operationId())
                 .filter(item -> item.encounterId() != null && item.status() == com.dndmaster.adventure.application.combat.CombatWorkItem.Status.FAILED)
                 .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
                         org.springframework.http.HttpStatus.CONFLICT, "COMBAT_RETRY_NOT_AVAILABLE"));
-        var resumed = failed.manualRetry(Instant.now());
-        workItems.save(resumed);
-        return ResponseEntity.accepted().body(new CombatActionResponse(failed.encounterId(), failed.operationId(),
-                failed.expectedEncounterVersion(), "RETRY_SCHEDULED", null, null, List.of()));
+        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
+                adventure.sessionId(), adventure.ownerPlayerId(), requestId)) {
+            var resumed = failed.manualRetry(Instant.now(), requestId);
+            workItems.save(resumed);
+            permit.handOffToCombatFollowUp();
+            return ResponseEntity.accepted().body(new CombatActionResponse(failed.encounterId(), failed.operationId(),
+                    failed.expectedEncounterVersion(), "RETRY_SCHEDULED", null, null, List.of()));
+        }
     }
     @GetMapping("/api/v1/adventures/{adventureId}/combat")
     public ResponseEntity<?> snapshot(@PathVariable UUID adventureId) {
         var adventure = assertOwnerAndLoad(adventureId);
         return repository.findActive(adventureId)
-                .map(e -> {
-                    ensureCurrentAiTurnIsScheduled(adventure, e);
-                    return ResponseEntity.ok(withCharacterNames(PlayerCombatProjectionPolicy.toSnapshot(e, playerResolver.playerId(),
+                .map(e -> ResponseEntity.ok(withCharacterNames(PlayerCombatProjectionPolicy.toSnapshot(e, playerResolver.playerId(),
                         workItems.findFailedByEncounterId(e.encounterId()).map(item ->
                                 new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot.ProcessingFailure(
-                                        item.operationId(), item.failure(), item.attemptCount())).orElse(null)), adventure));
-                })
+                                        item.operationId(), item.failure(), item.attemptCount())).orElse(null)), adventure)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
-    }
-
-    private void ensureCurrentAiTurnIsScheduled(com.dndmaster.adventure.domain.adventure.Adventure adventure,
-                                                com.dndmaster.adventure.domain.combat.CombatEncounter encounter) {
-        if (encounter.currentParticipant().controller() != com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI
-                || workItems.hasPendingForEncounter(encounter.encounterId())) return;
-        UUID requestId = UUID.randomUUID();
-        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
-                adventure.sessionId(), adventure.ownerPlayerId(), requestId)) {
-            CombatActionCommand template = new CombatActionCommand(requestId, adventure.id(), adventure.sessionId().value(),
-                    adventure.ruleSetId(), new CharacterSheetId(encounter.currentParticipantId()), null, CombatActorRole.AI, "AI_TURN", null,
-                    adventure.ownerPlayerId().value(), encounter.currentParticipantId(), encounter.version());
-            if (workItemScheduler.scheduleNext(template, encounter, 0,
-                    com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none(), requestId)
-                    == com.dndmaster.adventure.application.combat.CombatWorkItemScheduler.OptionalSchedule.SCHEDULED) {
-                permit.handOffToCombatFollowUp();
-            }
-        }
     }
 
     private void handOffToScheduledAiFollowUp(com.dndmaster.adventure.domain.adventure.Adventure adventure,

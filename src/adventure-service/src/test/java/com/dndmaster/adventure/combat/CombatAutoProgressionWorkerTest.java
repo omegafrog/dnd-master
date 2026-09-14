@@ -65,7 +65,7 @@ class CombatAutoProgressionWorkerTest {
     }
 
     @Test
-    void releases_the_initial_request_only_after_terminal_ai_follow_up_failure() {
+    void releases_the_initial_request_after_the_first_ai_follow_up_failure_without_automatic_retry() {
         UUID adventureId = UUID.randomUUID();
         UUID actorId = UUID.randomUUID();
         UUID operationId = UUID.randomUUID();
@@ -94,19 +94,15 @@ class CombatAutoProgressionWorkerTest {
 
         Instant first = Instant.parse("2026-01-01T00:00:00Z");
         worker.processOnce(first);
-        worker.processOnce(first.plusSeconds(1));
-        verify(sessions, org.mockito.Mockito.never()).releaseAiRequest(
-                new com.dndmaster.adventure.domain.adventure.SessionId(sessionId),
-                new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(ownerId), requestId);
-
-        worker.processOnce(first.plusSeconds(3));
 
         verify(sessions).releaseAiRequest(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId),
                 new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(ownerId), requestId);
+        assertEquals(CombatWorkItem.Status.FAILED, workItems.findByOperationId(operationId).orElseThrow().status());
+        assertEquals(1, workItems.findByOperationId(operationId).orElseThrow().attemptCount());
     }
 
     @Test
-    void retries_claimed_ai_command_twice_then_surfaces_failure_without_advancing_encounter() {
+    void surfaces_ai_follow_up_failure_without_automatic_retry_or_advancing_encounter() {
         UUID adventureId = UUID.randomUUID();
         UUID actorId = UUID.randomUUID();
         UUID operationId = UUID.randomUUID();
@@ -133,13 +129,11 @@ class CombatAutoProgressionWorkerTest {
 
         Instant first = Instant.parse("2026-01-01T00:00:00Z");
         worker.processOnce(first);
-        worker.processOnce(first.plusSeconds(1));
-        worker.processOnce(first.plusSeconds(3));
 
         CombatWorkItem failed = workItems.findByOperationId(operationId).orElseThrow();
         assertEquals(CombatWorkItem.Status.FAILED, failed.status());
-        assertEquals(3, failed.attemptCount());
-        assertEquals(3, calls.get());
+        assertEquals(1, failed.attemptCount());
+        assertEquals(1, calls.get());
         assertEquals(encounter.version(), encounters.value.version());
         assertSame(command, failed.command());
     }

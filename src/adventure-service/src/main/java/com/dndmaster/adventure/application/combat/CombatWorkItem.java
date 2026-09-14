@@ -126,9 +126,13 @@ public final class CombatWorkItem {
     }
 
     public CombatWorkItem manualRetry(Instant nextDueAt) {
+        return manualRetry(nextDueAt, aiRequestId);
+    }
+
+    public CombatWorkItem manualRetry(Instant nextDueAt, UUID nextAiRequestId) {
         if (status != Status.FAILED) throw new IllegalStateException("combat work item is not failed");
         return new CombatWorkItem(workItemId, encounterId, operationId, expectedEncounterVersion, workType,
-                nextDueAt, 0, Status.PENDING, null, null, null, tacticalInstruction, command, completedSteps, aiRequestId);
+                nextDueAt, 0, Status.PENDING, null, null, null, tacticalInstruction, command, completedSteps, nextAiRequestId);
     }
 
     public CombatWorkItem failed(UUID token, String reason) {

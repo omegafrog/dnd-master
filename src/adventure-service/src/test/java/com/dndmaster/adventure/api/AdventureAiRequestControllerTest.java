@@ -14,6 +14,7 @@ import com.dndmaster.adventure.application.combat.AdventureCombatApplicationServ
 import com.dndmaster.adventure.application.combat.CombatActionApplicationService;
 import com.dndmaster.adventure.application.combat.CombatWorkItemRepository;
 import com.dndmaster.adventure.application.combat.CombatWorkItemScheduler;
+import com.dndmaster.adventure.application.combat.CombatWorkItem;
 import com.dndmaster.adventure.application.runtime.GmTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
@@ -29,8 +30,6 @@ import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.adventure.ScenarioId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
-import com.dndmaster.adventure.domain.combat.CombatParticipant;
-import com.dndmaster.adventure.domain.combat.CombatStartPolicy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Optional;
 import java.util.UUID;
@@ -84,22 +83,42 @@ class AdventureAiRequestControllerTest {
     }
 
     @Test
-    void combat_snapshot_does_not_schedule_an_ai_turn_while_another_request_is_active() {
+    void combat_snapshot_does_not_create_or_schedule_an_ai_request() {
         Fixture fixture = fixture();
-        UUID requestId = UUID.randomUUID();
         UUID aiActor = UUID.randomUUID();
         when(fixture.encounters().findActive(fixture.adventure().id().value())).thenReturn(Optional.of(
-                CombatStartPolicy.startFromCommittedGmTurn(true, fixture.adventure().id().value(), java.util.List.of(
-                        new CombatParticipant(aiActor, "적", CombatParticipant.Controller.AI, 10, null)))));
+                com.dndmaster.adventure.domain.combat.CombatStartPolicy.startFromCommittedGmTurn(true,
+                        fixture.adventure().id().value(), java.util.List.of(new com.dndmaster.adventure.domain.combat.CombatParticipant(
+                                aiActor, "적", com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI, 10, null)))));
         when(fixture.workItems().hasPendingForEncounter(any())).thenReturn(false);
-        doThrow(new AdventureAiRequestInProgressException()).when(fixture.aiRequests()).begin(
-                org.mockito.ArgumentMatchers.eq(fixture.adventure().sessionId()),
-                org.mockito.ArgumentMatchers.eq(fixture.adventure().ownerPlayerId()), org.mockito.ArgumentMatchers.any());
 
-        assertThrows(AdventureAiRequestInProgressException.class,
-                () -> fixture.combatController().snapshot(fixture.adventure().id().value()));
+        fixture.combatController().snapshot(fixture.adventure().id().value());
 
         verify(fixture.scheduler(), never()).scheduleNext(any(), any(), org.mockito.ArgumentMatchers.anyInt(), any(), any());
+        verify(fixture.aiRequests(), never()).begin(any(), any(), any());
+    }
+
+    @Test
+    void manual_combat_retry_reacquires_the_session_request_with_a_new_request_id() {
+        AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
+        UUID requestId = UUID.randomUUID();
+        when(sessions.tryAcquireAiRequest(any(), any(), org.mockito.ArgumentMatchers.eq(requestId))).thenReturn(true);
+        Fixture fixture = fixture(new AdventureAiRequestApplicationService(sessions));
+        UUID operationId = UUID.randomUUID();
+        UUID priorRequestId = UUID.randomUUID();
+        var failed = CombatWorkItem.restore(UUID.randomUUID(), UUID.randomUUID(), operationId, 1,
+                CombatWorkItem.WorkType.AI_TURN, java.time.Instant.now(), 1, CombatWorkItem.Status.FAILED,
+                null, null, "AI unavailable", com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none(),
+                null, 0, priorRequestId);
+        when(fixture.workItems().findByOperationId(operationId)).thenReturn(Optional.of(failed));
+
+        fixture.combatController().retry(fixture.adventure().id().value(), requestId.toString(),
+                new CombatController.RetryRequest(operationId));
+
+        verify(sessions).tryAcquireAiRequest(fixture.adventure().sessionId(), fixture.adventure().ownerPlayerId(), requestId);
+        verify(sessions, never()).releaseAiRequest(any(), any(), any());
+        verify(fixture.workItems()).save(org.mockito.ArgumentMatchers.argThat(item ->
+                item.aiRequestId().equals(requestId) && item.status() == CombatWorkItem.Status.PENDING));
     }
 
     @Test

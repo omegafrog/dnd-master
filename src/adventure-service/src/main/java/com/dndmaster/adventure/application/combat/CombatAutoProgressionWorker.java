@@ -118,16 +118,10 @@ public final class CombatAutoProgressionWorker {
                 releaseInitialRequest(completed, "AI_FOLLOW_UP_COMPLETE");
             }
         } catch (RuntimeException failure) {
-            if (CombatRetryPolicy.shouldRetry(failure, item.attemptCount())) {
-                workItems.save(item.retry(item.leaseToken(),
-                        now.plus(CombatRetryPolicy.backoffAfterAttempt(item.attemptCount())),
-                        failureReason(failure)));
-            } else {
-                workItems.save(item.failed(item.leaseToken(), failureReason(failure)));
-                LOGGER.error("combat_ai_follow_up_failed requestId={} operationId={} encounterId={} exceptionClass={}",
-                        item.aiRequestId(), item.operationId(), item.encounterId(), failure.getClass().getName(), failure);
-                releaseInitialRequest(item, "AI_FOLLOW_UP_FAILED");
-            }
+            workItems.save(item.failed(item.leaseToken(), failureReason(failure)));
+            LOGGER.error("combat_ai_follow_up_failed requestId={} operationId={} encounterId={} exceptionClass={}",
+                    item.aiRequestId(), item.operationId(), item.encounterId(), failure.getClass().getName(), failure);
+            releaseInitialRequest(item, "AI_FOLLOW_UP_FAILED");
         }
         return true;
     }
