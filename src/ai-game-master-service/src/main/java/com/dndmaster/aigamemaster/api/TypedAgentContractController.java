@@ -268,13 +268,16 @@ public final class TypedAgentContractController {
         }
     }
 
-    public record RuntimeTurnRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults,
+    public record RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
+                                     List<Map<String, Object>> factLookupResults,
                                      Map<String, Object> runtimeContext) {
-        public RuntimeTurnRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults) {
-            this(operationKey, action, factLookupResults, Map.of());
+        public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
+                List<Map<String, Object>> factLookupResults) {
+            this(soloPlayerId, operationKey, action, factLookupResults, Map.of());
         }
 
         public RuntimeTurnRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             operationKey = required(operationKey, "operationKey");
             action = required(action, "action");
             factLookupResults = List.copyOf(Objects.requireNonNull(factLookupResults, "factLookupResults is required"));

@@ -7,9 +7,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class TypedAgentContractControllerTest {
+    private static final UUID SOLO_PLAYER_ID = UUID.fromString("00000000-0000-0000-0000-000000000321");
+
     @Test
     void every_typed_agent_endpoint_requires_the_internal_service_token() {
         TypedAgentContractController controller = new TypedAgentContractController(
@@ -20,7 +23,7 @@ class TypedAgentContractControllerTest {
         assertThrows(ApiRequestGuard.ApiContractException.class,
                 () -> controller.scenarioLookup("wrong", new TypedAgentContractController.ScenarioLookupRequest("door", Map.of())));
         assertThrows(ApiRequestGuard.ApiContractException.class,
-                () -> controller.runtimeTurn("wrong", new TypedAgentContractController.RuntimeTurnRequest("op", "open door", List.of())));
+                () -> controller.runtimeTurn("wrong", new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "open door", List.of())));
         assertThrows(ApiRequestGuard.ApiContractException.class,
                 () -> controller.narrationSafety("wrong", new TypedAgentContractController.NarrationSafetyRequest("A door opens.", List.of())));
     }
@@ -32,6 +35,16 @@ class TypedAgentContractControllerTest {
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> controller.scenarioLookup("service-secret", new TypedAgentContractController.ScenarioLookupRequest(" ", Map.of())));
+    }
+
+    @Test
+    void runtime_turn_requires_the_server_confirmed_solo_player_id() {
+        TypedAgentContractController controller = new TypedAgentContractController(
+                emptyAdapter(), new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        assertThrows(NullPointerException.class,
+                () -> controller.runtimeTurn("service-secret",
+                        new TypedAgentContractController.RuntimeTurnRequest(null, "op", "look around", List.of(), Map.of())));
     }
 
     @Test
@@ -73,7 +86,7 @@ class TypedAgentContractControllerTest {
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
         TypedAgentContractController.RuntimeTurnResponse response = controller.runtimeTurn("service-secret",
-                new TypedAgentContractController.RuntimeTurnRequest("op", "SESSION_OPENING", List.of()));
+                new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "SESSION_OPENING", List.of()));
 
         org.junit.jupiter.api.Assertions.assertTrue(response.combatStart());
         org.junit.jupiter.api.Assertions.assertTrue(response.mapEntryRequested());
@@ -114,7 +127,7 @@ class TypedAgentContractControllerTest {
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
         var response = controller.runtimeTurn("service-secret",
-                new TypedAgentContractController.RuntimeTurnRequest("op", "PLAYER_ACTION", List.of()));
+                new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "PLAYER_ACTION", List.of()));
 
         org.junit.jupiter.api.Assertions.assertEquals(1, response.runtimeFacts().size());
         org.junit.jupiter.api.Assertions.assertEquals("보상", response.runtimeFacts().get(0).subject());
@@ -136,7 +149,7 @@ class TypedAgentContractControllerTest {
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> controller.runtimeTurn("service-secret",
-                        new TypedAgentContractController.RuntimeTurnRequest("op", "SESSION_OPENING", List.of())));
+                        new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "SESSION_OPENING", List.of())));
     }
 
     @Test
@@ -155,7 +168,7 @@ class TypedAgentContractControllerTest {
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> controller.runtimeTurn("service-secret",
-                        new TypedAgentContractController.RuntimeTurnRequest("op", "SESSION_OPENING", List.of())));
+                        new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "SESSION_OPENING", List.of())));
     }
 
     @Test
@@ -172,7 +185,7 @@ class TypedAgentContractControllerTest {
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> controller.runtimeTurn("service-secret",
-                        new TypedAgentContractController.RuntimeTurnRequest("op", "look around", List.of())));
+                        new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "look around", List.of())));
     }
 
     @Test
@@ -189,7 +202,7 @@ class TypedAgentContractControllerTest {
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> controller.runtimeTurn("service-secret",
-                        new TypedAgentContractController.RuntimeTurnRequest("op", "look around", List.of())));
+                        new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "look around", List.of())));
     }
 
     @Test
@@ -208,7 +221,7 @@ class TypedAgentContractControllerTest {
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
         var response = controller.runtimeTurn("service-secret",
-                new TypedAgentContractController.RuntimeTurnRequest("op", "critical failure", List.of()));
+                new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "critical failure", List.of()));
 
         org.junit.jupiter.api.Assertions.assertEquals("INSTANT", response.combatEnemies().get(0).mode());
         org.junit.jupiter.api.Assertions.assertEquals("", response.combatEnemies().get(0).scenarioId());
