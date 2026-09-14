@@ -615,6 +615,10 @@ public final class CombatMapViewService {
             com.fasterxml.jackson.databind.JsonNode node) {
         String position = node.path("position").asText("").trim();
         Optional<GridPosition> parsed = parsePosition(position);
+        if (parsed.isEmpty() && node.has("x") && node.has("y")
+                && node.path("x").canConvertToInt() && node.path("y").canConvertToInt()) {
+            parsed = Optional.of(new GridPosition(node.path("x").asInt(), node.path("y").asInt()));
+        }
         double confidence = node.path("confidence").asDouble(0);
         String source = node.path("source").asText("").trim();
         if (parsed.isEmpty() || !Double.isFinite(confidence) || confidence < .5d || confidence > 1d || source.isBlank()) return;

@@ -36,9 +36,18 @@ public final class EntryPlacementProjector {
                     || xNormalized < 0 || xNormalized > 1 || yNormalized < 0 || yNormalized > 1) return Optional.empty();
             double imageX = Math.min(Math.nextDown((double) imageWidth), xNormalized * imageWidth);
             double imageY = Math.min(Math.nextDown((double) imageHeight), yNormalized * imageHeight);
-            GridPosition position = new GridPosition((int) Math.floor((imageX - originX) / cellSize),
-                    (int) Math.floor((imageY - originY) / cellSize));
-            return grid.contains(position) ? Optional.of(position) : Optional.empty();
+            int projectedX = (int) Math.floor((imageX - originX) / cellSize);
+            int projectedY = (int) Math.floor((imageY - originY) / cellSize);
+            // The model may identify the edge of an entrance graphic just
+            // outside the confirmed grid rectangle. Accept only that small
+            // boundary error and snap it to the nearest edge cell; larger
+            // errors remain unresolved instead of inventing a location.
+            if (projectedX < -1 || projectedX > grid.width()
+                    || projectedY < -1 || projectedY > grid.height()) return Optional.empty();
+            GridPosition position = new GridPosition(
+                    Math.max(0, Math.min(grid.width() - 1, projectedX)),
+                    Math.max(0, Math.min(grid.height() - 1, projectedY)));
+            return Optional.of(position);
         }
     }
 }

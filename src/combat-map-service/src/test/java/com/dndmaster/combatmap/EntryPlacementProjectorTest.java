@@ -32,6 +32,15 @@ class EntryPlacementProjectorTest {
         assertTrue(new EntryPlacementProjector().geometry(request).orElseThrow().project(.99, .99).isEmpty());
     }
 
+    @Test
+    void snapsSmallModelErrorAtGridEdgeToNearestEdgeCell() throws Exception {
+        MapGenerationRequest request = new MapGenerationRequest("entry", "", 4, 3, 30, 5,
+                List.of(), List.of(), null, image(200, 100), 20, 10, 20, "");
+
+        assertEquals(new GridPosition(3, 2),
+                new EntryPlacementProjector().geometry(request).orElseThrow().project(.51, .71).orElseThrow());
+    }
+
     private static MapImageEvidence image(int width, int height) throws Exception {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         ImageIO.write(new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB), "png", bytes);

@@ -352,7 +352,7 @@ it('allows selecting a start cell directly on the preparation map outside wall e
   render(<CombatMapView adventureId="a1" api={api} preparationMode />)
 
   await user.click(await screen.findByRole('button', { name: '빈 격자 1,1' }))
-  expect(screen.getByText('선택한 시작 칸: (1,1)')).toBeInTheDocument()
+  expect(screen.getByText('수동 대안으로 선택한 시작 칸: (1,1)')).toBeInTheDocument()
 })
 
 it('saves and restores a directly selected start cell when no candidate was suggested', async () => {
@@ -379,13 +379,13 @@ it('saves and restores a directly selected start cell when no candidate was sugg
   await user.click(await screen.findByRole('button', { name: '격자 맞추기' }))
   await user.click(screen.getByRole('button', { name: '적용' }))
   await user.click(await screen.findByRole('button', { name: '빈 격자 1,1' }))
-  expect(screen.getByText('선택한 시작 칸: (1,1)')).toBeInTheDocument()
+  expect(screen.getByText('수동 대안으로 선택한 시작 칸: (1,1)')).toBeInTheDocument()
 
   await user.click(screen.getByRole('button', { name: '벽·문 편집' }))
   await user.click(screen.getByRole('button', { name: '맵 초안 저장' }))
 
   await waitFor(() => expect(api.updateCombatMapLayout).toHaveBeenLastCalledWith('a1', expect.objectContaining({ playerStart: { x: 1, y: 1 } })))
-  expect(await screen.findByText('선택한 시작 칸: (1,1)')).toBeInTheDocument()
+  expect(await screen.findByText('수동 대안으로 선택한 시작 칸: (1,1)')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: '(1,1) 선택' })).toHaveAttribute('aria-pressed', 'true')
 })
 
