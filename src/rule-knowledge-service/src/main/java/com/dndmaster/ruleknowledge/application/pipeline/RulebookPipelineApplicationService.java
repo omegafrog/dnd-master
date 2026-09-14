@@ -286,7 +286,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             }
             return processWithPreprocessing(registration);
         }
-        if (preprocessingProcessPort != null) {
+        if (preprocessingProcessPort != null
+                && registration.format() != com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat.IMAGE) {
             return rejectUnsupportedFormat(registration);
         }
         ExtractionResult extractionResult = null;
@@ -456,7 +457,10 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         if (!registration.contentHash().equals(result.sourceSha256())) throw new PreprocessingProcessException("SOURCE_HASH_MISMATCH");
         if (!"rag-preprocessing-v1".equals(result.policyVersion())) throw new PreprocessingProcessException("POLICY_VERSION_MISMATCH");
         if (result.pages().isEmpty()) throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
-        if (registration.candidateExtractionVersion().equals(result.versionId())) {
+        // A page retry may legitimately remain quarantined as NEEDS_REVIEW. In
+        // that case the preprocessing process keeps the candidate version;
+        // only a READY promotion must produce a new version.
+        if ("READY".equals(result.status()) && registration.candidateExtractionVersion().equals(result.versionId())) {
             throw new PreprocessingProcessException("RETRY_VERSION_NOT_ADVANCED");
         }
         if (result.pages().size() != registration.preprocessingPages().size()) {

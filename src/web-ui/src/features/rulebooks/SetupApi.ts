@@ -51,6 +51,13 @@ export type KnowledgeDocumentView = {
   warnings?: string[]
   failureReason?: string | null
   progress?: DocumentPreparationProgress
+  reviewQuestions?: PreprocessingReviewQuestion[]
+}
+
+export type PreprocessingReviewQuestion = {
+  pageNumber: number
+  question: string
+  choices: Array<{ id: 'RETRY' | 'KEEP_REVIEW'; label: string }>
 }
 
 export type ScenarioBundleRole =
@@ -471,6 +478,7 @@ export interface SetupApi {
   uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string): Promise<BatchRulebookView[]>
   getRulebookStatus(rulebookId: string): Promise<RulebookView>
   retryKnowledgeDocument(knowledgeDocumentId: string): Promise<RulebookView>
+  retryReviewedPages?(knowledgeDocumentId: string, pages: number[]): Promise<unknown>
   deleteKnowledgeDocument?(knowledgeDocumentId: string): Promise<void>
   getSourcePreview(knowledgeDocumentId: string): Promise<SourcePreviewView>
   uploadScenario?(file: File): Promise<{
@@ -584,6 +592,14 @@ export class HttpSetupApi implements SetupApi {
       method: 'POST',
       headers: this.authHeaders(),
     })
+  }
+
+  retryReviewedPages(knowledgeDocumentId: string, pages: number[]) {
+    return request<RulebookView>(`/api/v1/rulebooks/${knowledgeDocumentId}/retry-pages`, {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requestId: globalThis.crypto?.randomUUID?.() ?? `review-${Date.now()}`, pages }),
+    }, '선택한 자료를 다시 읽지 못했습니다.')
   }
 
   deleteKnowledgeDocument(knowledgeDocumentId: string) {

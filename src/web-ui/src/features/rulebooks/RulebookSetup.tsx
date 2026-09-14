@@ -1,4 +1,4 @@
-import { type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, type FormEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { BookOpen, Check, ChevronLeft, Eye, FilePlus2, RefreshCw, ScrollText, Trash2, Upload } from 'lucide-react'
 import { MaterialRow, materialStatus } from '../../components/adventure/material-row'
 import { SetupStepper, type SetupStep } from '../../components/setup/setup-stepper'
@@ -66,6 +66,7 @@ export function RulebookSetup({
   const [message, setMessage] = useState('')
   const [uploading, setUploading] = useState(false)
   const [creatingBundle, setCreatingBundle] = useState(false)
+  const [reviewingDocumentId, setReviewingDocumentId] = useState<string | null>(null)
   const [preparationBundle, setPreparationBundle] = useState<ScenarioBundleView | null>(null)
   const [createdSession, setCreatedSession] = useState<AdventureSessionView | null>(null)
 
@@ -182,6 +183,20 @@ export function RulebookSetup({
       setMessage('자료를 다시 준비하고 있습니다.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '다시 처리하지 못했습니다.')
+    }
+  }
+
+  async function answerReview(document: KnowledgeDocumentView, pageNumber: number, choice: 'RETRY' | 'KEEP_REVIEW') {
+    if (choice !== 'RETRY' || !api.retryReviewedPages) return
+    setReviewingDocumentId(document.knowledgeDocumentId)
+    try {
+      await api.retryReviewedPages(document.knowledgeDocumentId, [pageNumber])
+      await refreshDocuments()
+      setMessage(`${pageNumber}페이지를 다시 읽고 있습니다.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '선택한 페이지를 다시 읽지 못했습니다.')
+    } finally {
+      setReviewingDocumentId(null)
     }
   }
 
@@ -324,7 +339,15 @@ export function RulebookSetup({
       {uploadedDocuments.length > 0 ? <div className="setup-material-list-section"><div className="setup-material-list-heading"><div><h2>추가된 자료</h2><p>이 모험에 사용할 자료를 선택하고 주 역할을 확인하세요.</p></div><span>{selectedDocuments.length}개 선택</span></div><ul className="file-list setup-material-list" aria-label="문서 상태 목록">{uploadedDocuments.map(document => {
         const selected = selectedUploadedIds.has(document.knowledgeDocumentId)
         const previewable = ['EXTRACTED', 'INDEXED', 'READY', 'PARTIAL_CONFIRMED'].includes(document.status)
-        return <MaterialRow key={document.knowledgeDocumentId} document={document} selected={selected} selectable={materialStatus(document).kind !== 'failed'} onSelectedChange={checked => assignDefaultRole(document.knowledgeDocumentId, checked)} role={selected ? roles[document.knowledgeDocumentId] ?? 'HANDOUT' : undefined} onRoleChange={selected ? role => updateRole(document.knowledgeDocumentId, role) : undefined} actions={<>{previewable ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 미리보기`} onClick={() => void previewDocument(document.knowledgeDocumentId)}><Eye size={16} aria-hidden="true" /></Button> : null}{document.status === 'FAILED' ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 다시 처리`} onClick={() => void retryDocument(document.knowledgeDocumentId)}><RefreshCw size={16} aria-hidden="true" /></Button> : null}{api.deleteKnowledgeDocument ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 삭제`} onClick={() => void deleteDocument(document)}><Trash2 size={16} aria-hidden="true" /></Button> : null}</>} />
+        return <Fragment key={document.knowledgeDocumentId}>
+          <MaterialRow document={document} selected={selected} selectable={materialStatus(document).kind !== 'failed'} onSelectedChange={checked => assignDefaultRole(document.knowledgeDocumentId, checked)} role={selected ? roles[document.knowledgeDocumentId] ?? 'HANDOUT' : undefined} onRoleChange={selected ? role => updateRole(document.knowledgeDocumentId, role) : undefined} actions={<>{previewable ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 미리보기`} onClick={() => void previewDocument(document.knowledgeDocumentId)}><Eye size={16} aria-hidden="true" /></Button> : null}{document.status === 'FAILED' ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 다시 처리`} onClick={() => void retryDocument(document.knowledgeDocumentId)}><RefreshCw size={16} aria-hidden="true" /></Button> : null}{api.deleteKnowledgeDocument ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 삭제`} onClick={() => void deleteDocument(document)}><Trash2 size={16} aria-hidden="true" /></Button> : null}</>} />
+      {document.status === 'NEEDS_REVIEW' && document.reviewQuestions?.length ? <div className="setup-review-questions" aria-label={`${document.originalFilename} 검토 질문`}>
+        {document.reviewQuestions.map(question => <div className="setup-review-question" key={`${document.knowledgeDocumentId}-${question.pageNumber}`}>
+          <span>{question.question}</span>
+          <span className="setup-review-actions">{question.choices.map(choice => <Button key={choice.id} variant={choice.id === 'RETRY' ? 'default' : 'ghost'} disabled={reviewingDocumentId === document.knowledgeDocumentId} onClick={() => void answerReview(document, question.pageNumber, choice.id)}>{choice.label}</Button>)}</span>
+        </div>)}
+      </div> : null}
+        </Fragment>
       })}</ul></div> : <div className="setup-material-empty"><FilePlus2 size={22} aria-hidden="true" /><strong>아직 추가된 자료가 없습니다</strong><span>위 영역에서 첫 번째 시나리오 자료를 추가하세요.</span></div>}
       <div className="setup-readiness-line" aria-live="polite"><span>{hasMainScenario ? '✓ 메인 시나리오 지정됨' : '○ 메인 시나리오를 지정하세요'}</span><span>{pendingCount > 0 ? `○ ${pendingCount}개 준비 중` : issueCount > 0 ? `△ ${issueCount}개 확인 필요` : selectedDocuments.length > 0 ? '✓ 선택한 자료 준비됨' : '○ 자료를 선택하세요'}</span></div>
       <StageFooter backLabel="이전" onBack={() => setView('details')} nextLabel={creatingBundle ? '준비 중…' : '모험 준비'} onNext={() => void createBundleAndPrepare()} nextDisabled={!canCreateBundle || creatingBundle} />

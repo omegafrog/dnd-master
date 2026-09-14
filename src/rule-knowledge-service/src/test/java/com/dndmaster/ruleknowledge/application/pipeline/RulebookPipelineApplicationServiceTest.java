@@ -259,6 +259,23 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals(0, harness.embeddingPort.calls);
     }
 
+    @Test
+    void configuredPipelineProcessesImageWithoutSendingItToPdfPreprocessing() {
+        RecordingPreprocessingPort preprocessing = new RecordingPreprocessingPort("READY");
+        TestHarness harness = new TestHarness(preprocessing);
+
+        harness.service.process(new UploadRulebookCommand(
+                "map-image", OWNER, DocumentType.STORYBOOK, RulebookFormat.IMAGE,
+                "png bytes".getBytes(StandardCharsets.UTF_8), "cellar-map.png"));
+        RulebookProcessingResult result = harness.service.processPending().get(0);
+
+        assertEquals(ProcessingStatus.INDEXED, result.status());
+        assertEquals(0, preprocessing.preprocessCalls);
+        assertEquals(1, harness.extractor.calls);
+        assertEquals(1, harness.previewExtractor.calls);
+        assertEquals(1, harness.embeddingPort.calls);
+    }
+
     private static UploadRulebookCommand command(String operationKey, String content) {
         return new UploadRulebookCommand(
                 operationKey,

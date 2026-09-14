@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Objects;
 
 public final class ImageRulebookContentExtractor implements CompositeRulebookContentExtractor.FormatExtractor {
+    private static final String IMAGE_WITHOUT_EXTRACTED_TEXT = "이미지 자료(텍스트 추출 없음)";
     private final OcrPort ocrPort;
 
     public ImageRulebookContentExtractor() {
@@ -32,11 +33,9 @@ public final class ImageRulebookContentExtractor implements CompositeRulebookCon
             }
             return ExtractionResult.success(text);
         }
-        return switch (result.failure()) {
-            case MISSING_LANGUAGE_PACK -> ExtractionResult.failed(ExtractionFailure.NEEDS_INPUT);
-            case TIMEOUT -> ExtractionResult.failed(ExtractionFailure.TIMEOUT);
-            case UNAVAILABLE, CORRUPT -> ExtractionResult.failed(ExtractionFailure.UNPROCESSABLE);
-            case NONE -> ExtractionResult.failed(ExtractionFailure.UNPROCESSABLE);
-        };
+        if (result.failure() == OcrFailure.CORRUPT) {
+            return ExtractionResult.failed(ExtractionFailure.UNPROCESSABLE);
+        }
+        return ExtractionResult.success(IMAGE_WITHOUT_EXTRACTED_TEXT);
     }
 }

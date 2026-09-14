@@ -19,6 +19,7 @@ class FakeSetupApi implements SetupApi {
   uploadError = ''
   uploadCalls: Array<{ ownerId: string; documents: string[]; types: string[] }> = []
   createCalls: Array<{ documents: ScenarioBundleDraft[]; contract?: ScenarioBundleContract }> = []
+  reviewCalls: Array<{ documentId: string; pages: number[] }> = []
   private listCalls = 0
   private knowledgeDocuments: KnowledgeDocumentView[]
   private preview: SourcePreviewView = {
@@ -40,7 +41,7 @@ class FakeSetupApi implements SetupApi {
 
   constructor({ includeFailed = true, status = 'INDEXED' as KnowledgeDocumentView['status'] } = {}) {
     this.knowledgeDocuments = [
-      { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'phb.txt', status, format: 'TXT', progress: status === 'PROCESSING' ? { stage: 'INDEXING', percent: 50 } : undefined },
+      { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'phb.txt', status, format: 'TXT', progress: status === 'PROCESSING' ? { stage: 'INDEXING', percent: 50 } : undefined, reviewQuestions: status === 'NEEDS_REVIEW' ? [{ pageNumber: 2, question: '2페이지의 자료를 다시 읽어 준비할까요?', choices: [{ id: 'RETRY', label: '다시 읽기' }, { id: 'KEEP_REVIEW', label: '검토 상태 유지' }] }] : undefined },
       { knowledgeDocumentId: 'doc-3', documentType: 'STORYBOOK', originalFilename: 'castle.pdf', status: 'INDEXED', format: 'PDF' },
       ...(includeFailed ? [{ knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK' as const, originalFilename: 'campaign.md', status: 'FAILED' as const, format: 'TXT' as const, failureReason: 'indexer timeout' }] : []),
     ]
@@ -55,6 +56,10 @@ class FakeSetupApi implements SetupApi {
   async retryKnowledgeDocument(knowledgeDocumentId: string) {
     this.knowledgeDocuments = this.knowledgeDocuments.map(document => document.knowledgeDocumentId === knowledgeDocumentId ? { ...document, status: 'QUEUED' as const, failureReason: null } : document)
     return { rulebookId: knowledgeDocumentId, status: 'QUEUED' as const }
+  }
+  async retryReviewedPages(knowledgeDocumentId: string, pages: number[]) {
+    this.reviewCalls.push({ documentId: knowledgeDocumentId, pages })
+    return { rulebookId: knowledgeDocumentId, status: 'PROCESSING' as const }
   }
   async getSourcePreview(knowledgeDocumentId: string) {
     if (knowledgeDocumentId !== this.preview.knowledgeDocumentId) throw new Error('not found')
@@ -157,6 +162,20 @@ describe('new adventure setup', () => {
 
     expect(await screen.findByRole('progressbar', { name: 'phb.txt 자료 준비 진행률' })).toHaveAttribute('aria-valuenow', '50')
     await waitFor(() => expect(screen.queryByRole('progressbar', { name: 'phb.txt 자료 준비 진행률' })).not.toBeInTheDocument(), { timeout: 2500 })
+  })
+
+  it('asks what to do with a review page and retries only after the user chooses', async () => {
+    stubCatalog()
+    const api = new FakeSetupApi({ includeFailed: false, status: 'NEEDS_REVIEW' })
+    const user = userEvent.setup()
+    render(<RulebookSetup api={api} playerId="p1" />)
+    await enterMaterials(user)
+
+    expect(await screen.findByText('2페이지의 자료를 다시 읽어 준비할까요?')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '검토 상태 유지' }))
+    expect(api.reviewCalls).toHaveLength(0)
+    await user.click(screen.getByRole('button', { name: '다시 읽기' }))
+    expect(api.reviewCalls).toEqual([{ documentId: 'doc-1', pages: [2] }])
   })
 
   it('retries a failed material without exposing backend pipeline controls', async () => {

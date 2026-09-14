@@ -9,7 +9,6 @@ import com.dndmaster.ruleknowledge.application.ocr.OcrPort;
 import com.dndmaster.ruleknowledge.application.ocr.OcrRequest;
 import com.dndmaster.ruleknowledge.application.ocr.OcrResult;
 import com.dndmaster.ruleknowledge.domain.rulebook.BoundingBox;
-import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionFailure;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionResult;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionStatus;
 import com.dndmaster.ruleknowledge.domain.rulebook.SourcePreviewResult;
@@ -31,14 +30,14 @@ class ImageOcrExtractionTest {
     }
 
     @Test
-    void surfacesNeedsInputWhenOcrLanguageMissing() {
+    void acceptsImageWhenOcrCannotExtractText() {
         ImageRulebookContentExtractor extractor = new ImageRulebookContentExtractor(request ->
                 new OcrResult(List.of(), List.of("missing kor"), OcrFailure.MISSING_LANGUAGE_PACK));
 
         ExtractionResult result = extractor.extract(new byte[] {1, 2, 3});
 
-        assertTrue(result.status() == ExtractionStatus.FAILED);
-        assertEquals(ExtractionFailure.NEEDS_INPUT, result.failure().orElseThrow());
+        assertTrue(result.status() == ExtractionStatus.SUCCESS);
+        assertEquals("이미지 자료(텍스트 추출 없음)", result.content().orElseThrow());
     }
 
     @Test
