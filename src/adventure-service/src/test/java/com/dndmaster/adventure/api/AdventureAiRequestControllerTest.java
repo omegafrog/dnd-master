@@ -106,10 +106,15 @@ class AdventureAiRequestControllerTest {
         Fixture fixture = fixture(new AdventureAiRequestApplicationService(sessions));
         UUID operationId = UUID.randomUUID();
         UUID priorRequestId = UUID.randomUUID();
+        var command = new com.dndmaster.adventure.application.combat.CombatActionCommand(operationId,
+                fixture.adventure().id(), fixture.adventure().sessionId().value(), fixture.adventure().ruleSetId(),
+                new CharacterSheetId(UUID.randomUUID()), null,
+                com.dndmaster.adventure.application.combat.CombatActorRole.AI, "AI_TURN", null,
+                fixture.adventure().ownerPlayerId().value(), UUID.randomUUID(), 1);
         var failed = CombatWorkItem.restore(UUID.randomUUID(), UUID.randomUUID(), operationId, 1,
                 CombatWorkItem.WorkType.AI_TURN, java.time.Instant.now(), 1, CombatWorkItem.Status.FAILED,
                 null, null, "AI unavailable", com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none(),
-                null, 0, priorRequestId);
+                command, 0, priorRequestId);
         when(fixture.workItems().findByOperationId(operationId)).thenReturn(Optional.of(failed));
 
         fixture.combatController().retry(fixture.adventure().id().value(), requestId.toString(),
@@ -119,6 +124,28 @@ class AdventureAiRequestControllerTest {
         verify(sessions, never()).releaseAiRequest(any(), any(), any());
         verify(fixture.workItems()).save(org.mockito.ArgumentMatchers.argThat(item ->
                 item.aiRequestId().equals(requestId) && item.status() == CombatWorkItem.Status.PENDING));
+    }
+
+    @Test
+    void manual_combat_retry_rejects_a_failed_work_item_from_another_adventure() {
+        Fixture fixture = fixture();
+        UUID operationId = UUID.randomUUID();
+        var foreignCommand = new com.dndmaster.adventure.application.combat.CombatActionCommand(operationId,
+                AdventureId.generate(), UUID.randomUUID(), new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(UUID.randomUUID()), null,
+                com.dndmaster.adventure.application.combat.CombatActorRole.AI, "AI_TURN", null,
+                UUID.randomUUID(), UUID.randomUUID(), 1);
+        var failed = CombatWorkItem.restore(UUID.randomUUID(), UUID.randomUUID(), operationId, 1,
+                CombatWorkItem.WorkType.AI_TURN, java.time.Instant.now(), 1, CombatWorkItem.Status.FAILED,
+                null, null, "AI unavailable", com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none(),
+                foreignCommand, 0, UUID.randomUUID());
+        when(fixture.workItems().findByOperationId(operationId)).thenReturn(Optional.of(failed));
+
+        assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> fixture.combatController().retry(
+                fixture.adventure().id().value(), UUID.randomUUID().toString(), new CombatController.RetryRequest(operationId)));
+
+        verify(fixture.aiRequests(), never()).begin(any(), any(), any());
+        verify(fixture.workItems(), never()).save(any());
     }
 
     @Test

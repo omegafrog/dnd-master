@@ -236,20 +236,20 @@ public class AdventureController {
                         activatePreparedMap(committedAdventure, result);
                     }
                 }
+                com.dndmaster.adventure.domain.combat.CombatEncounter combat = null;
                 if (combatStartRequested) {
-                    var combat = combatLifecycleService.startFromCommittedGmTurn(adventureId, committedTurn,
+                    combat = combatLifecycleService.startFromCommittedGmTurn(adventureId, committedTurn,
                             new com.dndmaster.adventure.domain.combat.CombatStartProposal(true,
                                     CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, adventure.party(),
                                             result.turn().plan().combatEnemies(), member -> characterCombatPort.displayName(
                                                     member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                     adventure.sessionId().value()))));
-                    if (combat != null && combat.currentParticipant().controller()
-                            == com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI) {
-                        permit.handOffToCombatFollowUp();
-                    }
                 }
                 sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                         result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
+                if (combat != null && combatLifecycleService.scheduleFirstAiTurn(combat, commandId)) {
+                    permit.handOffToCombatFollowUp();
+                }
                 return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
             } catch (RuntimeException exception) {
                 LOGGER.error("gm_turn_result_processing_failed turnId={} commandId={} adventureId={} exceptionClass={} exceptionMessage={}",

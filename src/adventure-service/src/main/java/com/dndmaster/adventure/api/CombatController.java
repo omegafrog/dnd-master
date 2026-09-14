@@ -142,7 +142,12 @@ public final class CombatController {
         var adventure = assertOwnerAndLoad(adventureId);
         UUID requestId = uuidHeader(idempotencyKey, "Idempotency-Key");
         var failed = workItems.findByOperationId(request.operationId())
-                .filter(item -> item.encounterId() != null && item.status() == com.dndmaster.adventure.application.combat.CombatWorkItem.Status.FAILED)
+                .filter(item -> item.encounterId() != null
+                        && item.status() == com.dndmaster.adventure.application.combat.CombatWorkItem.Status.FAILED
+                        && item.command() != null
+                        && adventure.id().equals(item.command().adventureId())
+                        && adventure.sessionId().value().equals(item.command().sessionId())
+                        && adventure.ownerPlayerId().value().equals(item.command().ownerPlayerId()))
                 .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
                         org.springframework.http.HttpStatus.CONFLICT, "COMBAT_RETRY_NOT_AVAILABLE"));
         try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
