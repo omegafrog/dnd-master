@@ -351,10 +351,13 @@ public final class CharacterInputTagController {
         return List.copyOf(result);
     }
 
-    public record Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion,
+    public record Request(UUID soloPlayerId, String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion,
                           String instruction) {
-        public Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {
-            this(operationId, excerpts, schemaVersion, promptVersion, "");
+        public Request(UUID soloPlayerId, String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {
+            this(soloPlayerId, operationId, excerpts, schemaVersion, promptVersion, "");
+        }
+        public Request {
+            soloPlayerId = java.util.Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
         }
     }
 

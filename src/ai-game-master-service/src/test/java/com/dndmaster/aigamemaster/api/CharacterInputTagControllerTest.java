@@ -9,12 +9,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 class CharacterInputTagControllerTest {
+    private static final UUID SOLO_PLAYER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
+
     @Test
     void boundsAndLabelsSourceExcerptsBeforeSendingThemToTheModel() {
         var excerpt = new CharacterInputTagController.Excerpt(
                 UUID.randomUUID(), 2, "page 1", "x".repeat(4000));
         var prompt = CharacterInputTagController.buildPrompt(new CharacterInputTagController.Request(
-                "operation", List.of(excerpt), "character-input-tag-v1", "character-input-tag-prompt-v1"));
+                SOLO_PLAYER_ID, "operation", List.of(excerpt), "character-input-tag-v1", "character-input-tag-prompt-v1"));
 
         assertTrue(prompt.contains("documentId=" + excerpt.documentId()));
         assertTrue(prompt.contains("locator=page 1"));
@@ -28,7 +30,7 @@ class CharacterInputTagControllerTest {
     void addsTaskInstructionOnlyForFocusedFollowUpRequests() {
         var excerpt = new CharacterInputTagController.Excerpt(UUID.randomUUID(), 2, "page 1", "source");
         var prompt = CharacterInputTagController.buildPrompt(new CharacterInputTagController.Request(
-                "operation", List.of(excerpt), "character-input-tag-v1", "character-input-tag-prompt-v1",
+                SOLO_PLAYER_ID, "operation", List.of(excerpt), "character-input-tag-v1", "character-input-tag-prompt-v1",
                 "Refine only field 'race'."));
 
         assertTrue(prompt.contains("Task-specific instruction: Refine only field 'race'."));
@@ -74,7 +76,7 @@ class CharacterInputTagControllerTest {
                 "[{\"key\":\"race\",\"options\":[\"Elf\"],\"sourceQuote\":\"Choose an Elf.\",\"optionDetails\":[{\"value\":\"Elf\",\"evidence\":[]}]}]",
                 new ObjectMapper());
 
-        var result = controller.extract(new CharacterInputTagController.Request("operation", List.of(
+        var result = controller.extract(new CharacterInputTagController.Request(SOLO_PLAYER_ID, "operation", List.of(
                 new CharacterInputTagController.Excerpt(documentId, 12, "page 1", "Choose an Elf.")),
                 "character-input-tag-v1", "character-input-tag-prompt-v1"));
 
@@ -89,7 +91,7 @@ class CharacterInputTagControllerTest {
                 "[{\"key\":\"race\",\"options\":[\"Elf\"],\"optionDetails\":[{\"value\":\"Elf\",\"evidence\":[]}]}]",
                 new ObjectMapper());
 
-        var result = controller.extract(new CharacterInputTagController.Request("operation", List.of(
+        var result = controller.extract(new CharacterInputTagController.Request(SOLO_PLAYER_ID, "operation", List.of(
                 new CharacterInputTagController.Excerpt(documentId, 12, "page 1", "Choose an Elf.")),
                 "character-input-tag-v1", "character-input-tag-prompt-v1"));
 
@@ -102,7 +104,7 @@ class CharacterInputTagControllerTest {
         UUID documentId = UUID.randomUUID();
         var controller = new CharacterInputTagController((operationId, prompt) ->
                 "[{\"key\":\"halfling_subrace\",\"options\":[\"라이트풋\",\"스타우트\"]}]", new ObjectMapper());
-        var result = controller.extract(new CharacterInputTagController.Request("operation", List.of(
+        var result = controller.extract(new CharacterInputTagController.Request(SOLO_PLAYER_ID, "operation", List.of(
                 new CharacterInputTagController.Excerpt(documentId, 12, "page 1",
                         "하플링은 라이트풋과 스타우트라는 두 하위종족으로 나뉘어 있습니다.")),
                 "character-input-tag-v1", "character-input-tag-prompt-v1"));
@@ -119,7 +121,7 @@ class CharacterInputTagControllerTest {
         UUID documentId = UUID.randomUUID();
         var controller = new CharacterInputTagController((operationId, prompt) ->
                 "{\"inputMode\":\"text\",\"label\":\"종족\",\"confidence\":0.95,\"sourceType\":\"document\",\"optionDetails\":{\"options\":[\"라이트풋\",\"스타우트\"]}}", new ObjectMapper());
-        var result = controller.extract(new CharacterInputTagController.Request("operation", List.of(
+        var result = controller.extract(new CharacterInputTagController.Request(SOLO_PLAYER_ID, "operation", List.of(
                 new CharacterInputTagController.Excerpt(documentId, 12, "page 1",
                         "하플링은 라이트풋과 스타우트라는 두 하위종족으로 나뉘어 있습니다.")),
                 "character-input-tag-v1", "character-input-tag-prompt-v1"));
@@ -146,7 +148,7 @@ class CharacterInputTagControllerTest {
         var controller = new CharacterInputTagController((operationId, prompt) ->
                 "[{\"key\":\"race\",\"label\":\"종족\",\"options\":[\"종족\",\"엘프\"]}]", new ObjectMapper());
 
-        var result = controller.extract(new CharacterInputTagController.Request("operation", List.of(
+        var result = controller.extract(new CharacterInputTagController.Request(SOLO_PLAYER_ID, "operation", List.of(
                 new CharacterInputTagController.Excerpt(documentId, 1, "page 1", "종족 선택: 엘프")), "v1", "p1"));
 
         assertEquals(List.of("엘프"), result.candidates().getFirst().options());

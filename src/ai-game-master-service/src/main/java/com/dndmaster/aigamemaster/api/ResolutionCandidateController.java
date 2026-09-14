@@ -360,12 +360,13 @@ public final class ResolutionCandidateController {
         }).toList();
     }
 
-    public record Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion,
+    public record Request(UUID soloPlayerId, String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion,
                            JsonNode failedCandidate, int attempt, List<String> diagnostics) {
-        public Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {
-            this(operationId, excerpts, schemaVersion, promptVersion, null, 0, List.of());
+        public Request(UUID soloPlayerId, String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {
+            this(soloPlayerId, operationId, excerpts, schemaVersion, promptVersion, null, 0, List.of());
         }
         public Request {
+            soloPlayerId = java.util.Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             diagnostics = diagnostics == null ? List.of() : List.copyOf(diagnostics);
         }
     }
