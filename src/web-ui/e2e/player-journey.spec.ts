@@ -9,6 +9,7 @@ test('solo player can upload and inspect storybook materials', async ({ page }) 
 
   await page.getByRole('button', { name: '시작하기' }).click()
   await page.getByLabel('모험 이름').fill('테스트 모험')
+  await page.getByLabel('룰북').selectOption('catalog-rulebook-2024')
   await page.getByRole('button', { name: '다음 단계' }).click()
   await expect(page.getByRole('heading', { name: '모험 자료를 추가하세요' })).toBeVisible()
   await page.getByLabel('자료 파일').setInputFiles([
