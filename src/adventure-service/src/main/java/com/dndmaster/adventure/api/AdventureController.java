@@ -254,6 +254,13 @@ public class AdventureController {
             } catch (RuntimeException exception) {
                 LOGGER.error("gm_turn_result_processing_failed turnId={} commandId={} adventureId={} exceptionClass={} exceptionMessage={}",
                         request.turnId(), commandId, adventureId, exception.getClass().getName(), exception.getMessage(), exception);
+                try {
+                    gmTurnFailureRecorder.recordResultProcessingFailure(result.turn().sessionId(), result.turn().turnId(),
+                            commandId, result.version(), exception);
+                } catch (RuntimeException recordingFailure) {
+                    LOGGER.error("gm_turn_result_processing_failure_recording_failed turnId={} commandId={} adventureId={} exceptionClass={}",
+                            request.turnId(), commandId, adventureId, recordingFailure.getClass().getName(), recordingFailure);
+                }
                 return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY)
                         .body(Map.of("error", "GM_TURN_RESULT_PROCESSING_FAILED",
                                 "message", "최종 결과를 반영하는 중 오류가 발생했습니다. 현재 저장된 모험 상태를 다시 확인해주세요."));

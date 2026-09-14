@@ -149,7 +149,7 @@ class AdventureAiRequestControllerTest {
     }
 
     @Test
-    void result_processing_error_preserves_the_committed_state_returns_an_error_and_releases_its_request() {
+    void result_processing_error_preserves_the_committed_state_records_the_error_returns_it_and_releases_its_request() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
         UUID requestId = UUID.randomUUID();
@@ -165,7 +165,8 @@ class AdventureAiRequestControllerTest {
         when(fixture.runtimeTurns().submitTurn(any())).thenReturn(
                 new com.dndmaster.adventure.application.runtime.RuntimeTurnResult(resultTurn,
                         fixture.adventure().currentContext(), java.util.List.of(), fixture.adventure().version()));
-        doThrow(new IllegalStateException("event store unavailable")).when(fixture.sessionEvents()).append(any());
+        org.mockito.Mockito.doNothing().doNothing().doThrow(new IllegalStateException("committed turn store unavailable"))
+                .when(fixture.gmTurns()).save(any(), org.mockito.ArgumentMatchers.eq(fixture.adventure().id().value()));
 
         var response = fixture.adventureController().submitTypedTurn(
                 fixture.adventure().id().value(), requestId, fixture.adventure().version(),
@@ -175,7 +176,13 @@ class AdventureAiRequestControllerTest {
         assertEquals(org.springframework.http.HttpStatus.BAD_GATEWAY, response.getStatusCode());
         assertEquals("GM_TURN_RESULT_PROCESSING_FAILED", ((java.util.Map<?, ?>) response.getBody()).get("error"));
         verify(sessions).releaseAiRequest(fixture.adventure().sessionId(), fixture.adventure().ownerPlayerId(), requestId);
-        verifyNoInteractions(fixture.gmTurnFailures());
+        UUID resultTurnId = resultTurn.turnId();
+        verify(fixture.gmTurnFailures()).recordResultProcessingFailure(
+                org.mockito.ArgumentMatchers.eq(fixture.adventure().sessionId().value()),
+                org.mockito.ArgumentMatchers.eq(resultTurnId), org.mockito.ArgumentMatchers.eq(requestId),
+                org.mockito.ArgumentMatchers.eq(fixture.adventure().version()), org.mockito.ArgumentMatchers.argThat(failure ->
+                        failure instanceof IllegalStateException
+                                && "committed turn store unavailable".equals(failure.getMessage())));
     }
 
     @SuppressWarnings("unchecked")
