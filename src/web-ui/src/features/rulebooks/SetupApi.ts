@@ -52,7 +52,13 @@ export type KnowledgeDocumentView = {
   failureReason?: string | null
   progress?: DocumentPreparationProgress
   reviewQuestions?: PreprocessingReviewQuestion[]
+  preprocessingPages?: PreprocessingPageView[]
 }
+
+export type LayoutCandidateView = { candidateIndex: number; columnCount: number; score: number; columns: number[][] }
+export type LayoutRegionReviewView = { regionId: string; candidates: LayoutCandidateView[] }
+export type LayoutReviewView = { regions: LayoutRegionReviewView[]; blocks: Array<{ blockId: string; text: string; bbox: number[] }> }
+export type PreprocessingPageView = { pageNumber: number; status: string; attempts: number; findings: string[]; layoutReview?: LayoutReviewView | null }
 
 export type PreprocessingReviewQuestion = {
   pageNumber: number
@@ -380,7 +386,7 @@ export function normalizeScenarioCompilation(view: ScenarioCompilationView): Sce
       ? 'PUBLISHED'
       : raw === 'BLOCKED' || raw.includes('차단')
         ? 'BLOCKED'
-    : raw === 'FAILED' || raw.includes('실패') || raw.includes('TIMEOUT') || view.failureReason
+    : raw === 'FAILED' || raw.includes('실패') || raw.includes('TIMEOUT')
       ? 'FAILED'
       : raw === 'PROCESSING'
         ? 'PROCESSING'
@@ -478,7 +484,7 @@ export interface SetupApi {
   uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string): Promise<BatchRulebookView[]>
   getRulebookStatus(rulebookId: string): Promise<RulebookView>
   retryKnowledgeDocument(knowledgeDocumentId: string): Promise<RulebookView>
-  retryReviewedPages?(knowledgeDocumentId: string, pages: number[]): Promise<unknown>
+  retryReviewedPages?(knowledgeDocumentId: string, pages: number[], layoutSelections?: Record<number, Record<string, number>>): Promise<unknown>
   deleteKnowledgeDocument?(knowledgeDocumentId: string): Promise<void>
   getSourcePreview(knowledgeDocumentId: string): Promise<SourcePreviewView>
   uploadScenario?(file: File): Promise<{
@@ -594,11 +600,11 @@ export class HttpSetupApi implements SetupApi {
     })
   }
 
-  retryReviewedPages(knowledgeDocumentId: string, pages: number[]) {
+  retryReviewedPages(knowledgeDocumentId: string, pages: number[], layoutSelections: Record<number, Record<string, number>> = {}) {
     return request<RulebookView>(`/api/v1/rulebooks/${knowledgeDocumentId}/retry-pages`, {
       method: 'POST',
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestId: globalThis.crypto?.randomUUID?.() ?? `review-${Date.now()}`, pages }),
+      body: JSON.stringify({ requestId: globalThis.crypto?.randomUUID?.() ?? `review-${Date.now()}`, pages, layoutSelections }),
     }, '선택한 자료를 다시 읽지 못했습니다.')
   }
 

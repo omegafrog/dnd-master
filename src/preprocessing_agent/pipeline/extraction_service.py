@@ -248,6 +248,11 @@ def _enforce_root(path: Path, env_name: str) -> None:
         raise ValueError("INVALID_REQUEST") from exc
 
 
+def _layout_review_payload(page: Mapping[str, Any]) -> dict[str, Any]:
+    layout = page.get("layout") if isinstance(page.get("layout"), Mapping) else {}
+    return {**layout, "blocks": page.get("blocks", [])}
+
+
 class ExtractionApplicationService:
     def __init__(self, native_pdf: NativePdfPort | None = None, render: PageRenderPort | None = None, ocr: OcrPort | None = None) -> None:
         self.native_pdf = native_pdf or PyMuPdfNativePdfAdapter()
@@ -343,6 +348,7 @@ class ExtractionApplicationService:
             table_evidence: list[Any] = []
             render_evidence: dict[str, Any] = {"page_number": position, "status": "UNAVAILABLE"}
             layout_validation: Mapping[str, Any] = {}
+            layout_plan = None
             try:
                 if not isinstance(raw, Mapping):
                     raise ValueError("MALFORMED_EXTRACTION_PAYLOAD")
@@ -414,7 +420,13 @@ class ExtractionApplicationService:
                 findings = [item.strip() for item in finding.split(":") if item.strip()]
                 version.record_page(PageExtraction(safe_number, PageStatus.NEEDS_REVIEW, findings))
                 page_artifacts[:] = [item for item in page_artifacts if item.get("page_number") != safe_number]
-                evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[safe_number].findings, "heading_associations": heading_evidence, "tables": table_evidence, "render_evidence": render_evidence, "layout_validation": layout_validation}
+                evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value,
+                            "findings": version.pages[safe_number].findings,
+                            "blocks": raw.get("blocks", []) if isinstance(raw, Mapping) else [],
+                            "geometry": raw.get("geometry", {}) if isinstance(raw, Mapping) else {},
+                            "layout": to_dict(layout_plan) if "layout_plan" in locals() and layout_plan is not None else {},
+                            "heading_associations": heading_evidence, "tables": table_evidence,
+                            "render_evidence": render_evidence, "layout_validation": layout_validation}
                 page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
         present_pages = {item["page_number"] for item in page_artifacts}
         for missing in range(1, version.page_count + 1):
@@ -448,7 +460,7 @@ class ExtractionApplicationService:
                 (temp_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
             version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "page_count": version.page_count, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
-            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": 1, "findings": item.get("findings", []), "attempt_history": [{"attempt": 1, "status": item["status"], "findings": item.get("findings", [])}]} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
+            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": 1, "findings": item.get("findings", []), "layout_review": _layout_review_payload(item) if item["status"] == "NEEDS_REVIEW" else None, "attempt_history": [{"attempt": 1, "status": item["status"], "findings": item.get("findings", [])}]} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
             (temp_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             version_dir = versions / version_id
             if version_dir.exists():
@@ -658,7 +670,8 @@ class ExtractionApplicationService:
                 fcntl.flock(status_lock.fileno(), fcntl.LOCK_UN)
                 status_lock.close()
 
-    def retry_pages(self, version_id: str, artifact_root: str | Path, pages: list[int], *, request_id: str = "retry") -> Mapping[str, Any]:
+    def retry_pages(self, version_id: str, artifact_root: str | Path, pages: list[int], *, request_id: str = "retry",
+                    layout_selections: dict[int, dict[str, int]] | None = None) -> Mapping[str, Any]:
         """Re-extract, render and validate only selected review pages.
 
         The version remains quarantined until every page is validated.  A
@@ -673,6 +686,7 @@ class ExtractionApplicationService:
             if current["status"] == "READY":
                 raise ValueError("PUBLISHED_VERSION_IMMUTABLE")
             wanted = sorted(set(int(p) for p in pages))
+            layout_selections = layout_selections or {}
             by_number = {int(p["page_number"]): p for p in current["pages"]}
             if not wanted or any(p not in by_number for p in wanted):
                 raise ValueError("INVALID_PAGE_SELECTION")
@@ -725,11 +739,20 @@ class ExtractionApplicationService:
                         raw_pages = self.native_pdf.extract(source_path)
                         raw = next((p for p in raw_pages if isinstance(p, Mapping) and p.get("page_number") == item["page_number"]), None)
                         geometry = raw.get("geometry", {}) if isinstance(raw, Mapping) else {}
+                        # Retry must use the same OCR-capable extraction path
+                        # as the first attempt.  Re-running native PDF
+                        # extraction alone cannot recover image-only pages.
+                        if isinstance(raw, Mapping):
+                            raw = self._augment_with_ocr(source_path, raw, item["page_number"])
                         boxes = raw.get("blocks", ()) if isinstance(raw, Mapping) else ()
                         valid = isinstance(raw, Mapping) and float(geometry.get("width", 0)) > 0 and float(geometry.get("height", 0)) > 0 and all(isinstance(b, Mapping) and len(b.get("bbox", ())) == 4 and 0 <= float(b["bbox"][0]) <= float(b["bbox"][2]) <= float(geometry["width"]) and 0 <= float(b["bbox"][1]) <= float(b["bbox"][3]) <= float(geometry["height"]) for b in boxes)
+                        if isinstance(raw, Mapping) and raw.get("capability_error"):
+                            valid = False
+                            item["findings"] = [str(raw["capability_error"])]
                         if valid:
                             page_geometry = PageGeometry(float(geometry["width"]), float(geometry["height"]))
-                            layout_plan = ReadingOrderPlanner().plan(boxes, page_geometry)
+                            layout_plan = ReadingOrderPlanner().plan(boxes, page_geometry,
+                                                                     layout_selections.get(item["page_number"], {}))
                             if layout_plan.ambiguous:
                                 valid = False
                             raw = {**raw, "layout": to_dict(layout_plan)}
@@ -744,7 +767,9 @@ class ExtractionApplicationService:
                             item["status"] = "VALIDATED"; item["findings"] = []
                             history[-1] = {**history[-1], "status": "VALIDATED", "findings": []}
                         else:
-                            item["findings"] = ["RETRY_EXTRACTION_FAILED"]
+                            item["findings"] = item.get("findings") or ["RETRY_EXTRACTION_FAILED"]
+                            if isinstance(raw, Mapping):
+                                item["layout_review"] = _layout_review_payload(raw)
                     except Exception as exc:
                         item["findings"] = [str(exc) or "RETRY_EXTRACTION_FAILED"]
                     item["diagnostics"]["finding_regions"] = item.get("finding_regions", item["diagnostics"].get("regions", []))

@@ -10,6 +10,8 @@ import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService
 import com.dndmaster.adventure.application.runtime.AdventurePlayerProjection;
 import com.dndmaster.adventure.application.runtime.GmTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
@@ -303,14 +305,31 @@ public class AdventureController {
         CombatMapPreparationPort.ActivationContext context = new CombatMapPreparationPort.ActivationContext(
                 playerTokenId, situation.situationId(), situation.revision(), adventure.turnIndex(),
                 adventure.currentContext().currentScene(), situation.location(), null, null,
-                "FIRST_NARRATION=" + nullToBlank(situation.firstNarration())
-                        + "\nPLAYER_ACTION=" + result.turn().action()
-                        + "\nGM_NARRATION=" + result.turn().narration());
+                entryEvidence(situation.firstNarration(), result));
     combatMapPreparationPort.activatePrepared(adventure.id(), adventure.ownerPlayerId().value(),
                 adventure.ruleSetId(), 1, context);
     }
 
     private static String nullToBlank(String value) { return value == null ? "" : value; }
+
+    private static String entryEvidence(String firstNarration, RuntimeTurnResult result) {
+        StringBuilder evidence = new StringBuilder("FIRST_NARRATION=").append(nullToBlank(firstNarration));
+        if (result == null) return evidence.toString();
+        var turn = result.turn();
+        if (nullToBlank(firstNarration).isBlank()) {
+            evidence.replace("FIRST_NARRATION=".length(), evidence.length(), nullToBlank(turn.narration()));
+        }
+        evidence.append("\nPLAYER_ACTION=").append(turn.action())
+                .append("\nGM_JUDGMENT=").append(nullToBlank(turn.plan().judgment()))
+                .append("\nGM_NARRATION=").append(nullToBlank(turn.narration()));
+        turn.plan().citedEvidence().stream()
+                .filter(item -> item.evidenceType() == RuntimeEvidenceType.STORYBOOK)
+                .map(RuntimeEvidence::excerpt)
+                .filter(value -> value != null && !value.isBlank())
+                .distinct()
+                .forEach(value -> evidence.append("\nSTORYBOOK_EVIDENCE=").append(value));
+        return evidence.toString();
+    }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map/preparation")
     CombatMapResponse preparationMap(@PathVariable UUID adventureId) {

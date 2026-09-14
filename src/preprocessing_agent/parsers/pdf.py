@@ -22,8 +22,9 @@ Extractor = Callable[[Path], Iterable[Mapping[str, Any]]]
 
 
 class PdfDocumentParser:
-    def __init__(self, extractor: Extractor | None = None) -> None:
+    def __init__(self, extractor: Extractor | None = None, layout_selections: dict[int, dict[str, int]] | None = None) -> None:
         self._extractor = extractor or _default_extractor
+        self._layout_selections = layout_selections or {}
 
     def parse(self, source: Path) -> ParsedDocument:
         source = Path(source)
@@ -43,7 +44,8 @@ class PdfDocumentParser:
                 for index, raw_block in enumerate(raw_page.get("blocks", ()))
             ))
             missing_geometry = any(raw_block.get("bbox") is None for raw_block in source_blocks)
-            plan = None if missing_geometry else ReadingOrderPlanner().plan(source_blocks)
+            plan = None if missing_geometry else ReadingOrderPlanner().plan(
+                source_blocks, selections=self._layout_selections.get(page_number, {}))
             if missing_geometry:
                 # Text-only callers remain compatible, but the missing
                 # geometry is explicit evidence and cannot be READY-published.

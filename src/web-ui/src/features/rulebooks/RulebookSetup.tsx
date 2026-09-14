@@ -17,6 +17,7 @@ import type {
   ScenarioBundleView,
   SetupApi,
   SourcePreviewView,
+  PreprocessingPageView,
 } from './SetupApi'
 
 type PendingDocument = RulebookUploadDraft & { originalFilename: string }
@@ -38,6 +39,21 @@ function stepForView(view: SetupView): SetupStep {
   if (view === 'complete') return 'complete'
   if (view === 'materials' || view === 'preparing') return 'materials'
   return 'details'
+}
+
+function candidateBlockPreview(page: PreprocessingPageView, candidate: { columns: number[][] }) {
+  const blocks = page.layoutReview?.blocks ?? []
+  return blocks
+    .map(block => ({ block, center: (block.bbox[0] + block.bbox[2]) / 2 }))
+    .sort((left, right) => {
+      const leftColumn = candidate.columns.findIndex(column => left.center >= column[0] && left.center <= column[2])
+      const rightColumn = candidate.columns.findIndex(column => right.center >= column[0] && right.center <= column[2])
+      return (leftColumn < 0 ? candidate.columns.length : leftColumn) - (rightColumn < 0 ? candidate.columns.length : rightColumn)
+        || left.block.bbox[1] - right.block.bbox[1]
+    })
+    .map(item => item.block.text.trim())
+    .filter(Boolean)
+    .slice(0, 5)
 }
 
 export function RulebookSetup({
@@ -200,6 +216,22 @@ export function RulebookSetup({
     }
   }
 
+  async function selectReadingOrder(document: KnowledgeDocumentView, page: PreprocessingPageView, regionId: string, candidateIndex: number) {
+    if (!api.retryReviewedPages) return
+    setReviewingDocumentId(document.knowledgeDocumentId)
+    try {
+      await api.retryReviewedPages(document.knowledgeDocumentId, [page.pageNumber], {
+        [page.pageNumber]: { [regionId]: candidateIndex },
+      })
+      await refreshDocuments()
+      setMessage(`${page.pageNumber}페이지의 선택한 읽기 순서로 본문을 다시 구성하고 있습니다.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '선택한 읽기 순서로 다시 구성하지 못했습니다.')
+    } finally {
+      setReviewingDocumentId(null)
+    }
+  }
+
   async function deleteDocument(document: KnowledgeDocumentView) {
     if (!api.deleteKnowledgeDocument || !window.confirm(`${document.originalFilename}을(를) 삭제할까요?`)) return
     try {
@@ -345,6 +377,18 @@ export function RulebookSetup({
         {document.reviewQuestions.map(question => <div className="setup-review-question" key={`${document.knowledgeDocumentId}-${question.pageNumber}`}>
           <span>{question.question}</span>
           <span className="setup-review-actions">{question.choices.map(choice => <Button key={choice.id} variant={choice.id === 'RETRY' ? 'default' : 'ghost'} disabled={reviewingDocumentId === document.knowledgeDocumentId} onClick={() => void answerReview(document, question.pageNumber, choice.id)}>{choice.label}</Button>)}</span>
+          {document.preprocessingPages?.filter(page => page.pageNumber === question.pageNumber && page.layoutReview?.regions.length).map(page => <div className="setup-layout-review" key={`${document.knowledgeDocumentId}-${page.pageNumber}-layout`}>
+            <strong>읽기 순서를 선택하세요</strong>
+            {page.layoutReview?.regions.map(region => <div className="setup-layout-region" key={region.regionId}>
+              <span>{region.regionId}</span>
+              {region.candidates.map(candidate => <Button key={`${region.regionId}-${candidate.candidateIndex}`} variant="outline" disabled={reviewingDocumentId === document.knowledgeDocumentId} onClick={() => void selectReadingOrder(document, page, region.regionId, candidate.candidateIndex)}>
+                {candidate.columnCount === 1 ? '한 단' : `${candidate.columnCount}단`} · 후보 {candidate.candidateIndex + 1} · 근거 {Math.round(candidate.score * 100)}%
+              </Button>)}
+              {region.candidates.map(candidate => <small key={`${region.regionId}-${candidate.candidateIndex}-preview`} className="setup-layout-candidate-preview">
+                후보 {candidate.candidateIndex + 1} 읽기 예: {candidateBlockPreview(page, candidate).join(' → ') || '본문 블록 없음'}
+              </small>)}
+            </div>)}
+          </div>)}
         </div>)}
       </div> : null}
         </Fragment>

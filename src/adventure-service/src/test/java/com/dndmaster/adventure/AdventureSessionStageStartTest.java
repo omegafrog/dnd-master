@@ -9,6 +9,8 @@ import static org.mockito.Mockito.when;
 
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
@@ -128,6 +130,12 @@ class AdventureSessionStageStartTest {
         when(openingResult.turn()).thenReturn(openingTurn);
         when(openingTurn.plan()).thenReturn(openingPlan);
         when(openingPlan.mapEntryRequested()).thenReturn(true);
+        when(openingTurn.action()).thenReturn("SESSION_OPENING");
+        when(openingTurn.narration()).thenReturn("양조장 문을 열고 나무 계단을 따라 지하 저장고로 내려갑니다.");
+        when(openingPlan.judgment()).thenReturn("스토리북의 시작 장면을 적용");
+        when(openingPlan.citedEvidence()).thenReturn(List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()), 1,
+                "본문 1쪽", "양조장 문 뒤에 지하 저장고로 내려가는 계단이 있다", "storybook-1")));
         CombatMapPreparationPort maps = mock(CombatMapPreparationPort.class);
         when(maps.mapLayoutConfirmed(adventureId, owner.value())).thenReturn(true);
 
@@ -139,9 +147,13 @@ class AdventureSessionStageStartTest {
 
         service.start(session.id(), owner, 0, requestId, adventureId);
 
+        org.mockito.ArgumentCaptor<CombatMapPreparationPort.ActivationContext> activation =
+                org.mockito.ArgumentCaptor.forClass(CombatMapPreparationPort.ActivationContext.class);
         verify(maps).activatePrepared(org.mockito.ArgumentMatchers.eq(adventureId), org.mockito.ArgumentMatchers.eq(owner.value()),
                 org.mockito.ArgumentMatchers.eq(runtimeConfiguration.ruleSetId()), org.mockito.ArgumentMatchers.eq(1),
-                org.mockito.ArgumentMatchers.any(CombatMapPreparationPort.ActivationContext.class));
+                activation.capture());
+        assertEquals(true, activation.getValue().entryEvidence().contains("양조장 문을 열고 나무 계단을 따라"));
+        assertEquals(true, activation.getValue().entryEvidence().contains("STORYBOOK_EVIDENCE=양조장 문 뒤에"));
     }
 
     @Test

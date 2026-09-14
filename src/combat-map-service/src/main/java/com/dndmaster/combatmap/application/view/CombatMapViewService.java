@@ -217,8 +217,14 @@ public final class CombatMapViewService {
                     id.value(), exception.getMessage(), context.entryEvidence());
             throw exception;
         }
-        LOGGER.info("map_spawn_placement_valid mapId={} position={} source={} entryEvidence={}",
-                id.value(), resolution.position(), resolution.source(), context.entryEvidence());
+        Optional<PlayerStartCandidate> selectedAgentCandidate = agentCandidates.stream()
+                .filter(candidate -> candidate.position().equals(resolution.position()))
+                .findFirst();
+        LOGGER.info("map_spawn_placement_valid mapId={} position={} source={} candidateConfidence={} candidateEvidence={} entryEvidence={} apiCandidatesHiddenAfterActivation={}",
+                id.value(), resolution.position(), resolution.source(),
+                selectedAgentCandidate.map(PlayerStartCandidate::confidence).orElse(null),
+                selectedAgentCandidate.map(PlayerStartCandidate::evidence).orElse(List.of()),
+                context.entryEvidence(), true);
         List<CombatToken> tokens = new ArrayList<>(nonPlayers);
         tokens.add(new CombatToken(prepared.tokens().stream().filter(t -> t.type() == TokenType.PLAYER).findFirst().map(CombatToken::id)
                 .orElse(context.playerTokenId().map(TokenId::new).orElse(new TokenId(UUID.randomUUID()))),

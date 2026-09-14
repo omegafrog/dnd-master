@@ -222,7 +222,7 @@ describe('new adventure setup', () => {
   })
 
   it('explains how to clean up connected sessions when bundle deletion is blocked', async () => {
-    const api = Object.assign(new FakeSetupApi(false, true), {
+    const api = Object.assign(new FakeSetupApi({ includeFailed: false }), {
       listScenarioBundles: async () => [bundle('bundle-1', 1, [])],
       deleteScenarioBundle: vi.fn().mockRejectedValue(Object.assign(new Error('진행 중인 모험이 사용 중인 자료는 삭제할 수 없습니다.'), {
         status: 409,
@@ -240,7 +240,7 @@ describe('new adventure setup', () => {
   })
 
   it('shows a fallback when bundle deletion rejects without an error object', async () => {
-    const api = Object.assign(new FakeSetupApi(false, true), {
+    const api = Object.assign(new FakeSetupApi({ includeFailed: false }), {
       listScenarioBundles: async () => [bundle('bundle-1', 1, [])],
       deleteScenarioBundle: vi.fn().mockRejectedValue(null),
     }) as unknown as SetupApi

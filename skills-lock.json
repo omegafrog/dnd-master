@@ -4,17 +4,17 @@
     "architecture-spec": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "8f55ddcfe4a85866db18cc747871b6c292c4217a50827b275b936d3611b0f11b"
+      "computedHash": "384c53d03ceac20f232e3f9f6c553563c3f9a258bcb4497df12c815a4956e659"
     },
     "code-research": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "72af2e51cf6b5e4296e7fb9f3ab8f1bda405f4777c48b8fd98ec50b35c61f07a"
+      "computedHash": "1b271c7921343819cff4f4cb856b34f3732fdcc336e7d671c0eda2c8c94f3834"
     },
     "code-review": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "bf2760a23bb4e52062695eeb688f099b6dbb79a85b7e8c2c89de847630797a45"
+      "computedHash": "6343e3afcf1951be76d060bef88da637c38eba2d4c4f3f4ca08a26da91a5dbaf"
     },
     "codebase-design": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
@@ -49,7 +49,7 @@
     "gh-open-pr": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "324935d3c055db7663ca525d451d28d033661d116905116e8bdc8cf4199bef06"
+      "computedHash": "e7e81b40dae04d45c2144f6e40de63739c0b53967379207ace11649b6ebe6b09"
     },
     "grill-with-docs": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
@@ -64,32 +64,32 @@
     "implement": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "4aeb49784d1b8357e1bf9e0af032aae6939a6f4f0387765bd2b7aa1c4fe7b3dc"
+      "computedHash": "75cc9e14af35625234057f9e707033cfdfff40d82620d577f201b807331c8d61"
     },
     "implement-wrapper": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "044fc256280dc76ffa8807d239abf7c1e1ffb0348d7ce0ce13d74081a0a06791"
+      "computedHash": "63d788d848c6b71f2a3255e9b37cd0f18044d549a49bee3950f92495ff1acc39"
     },
     "plantuml-diagrams": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "e614797e875c349e2f445f0efd3ed50cf24de54449677d2fa29b9689b339c19d"
+      "computedHash": "9ea2d8adc0181f7ec4e5a44c32d69125f978b4c22049da93e1562cb45cef3e4c"
     },
     "product-spec": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "3540a9e098689d3b13d5f86f01962f5f5413498ab704fe551045cda868ae1804"
+      "computedHash": "4065d4d9ea122a7c6b658c89c38a11275d030cdd44a58910c6160dde857be9d4"
     },
     "setup": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "ba6b6010a5fc639f3a4083c1dd496c15b0e936df77930831fe0daeed68f63560"
+      "computedHash": "ffbee6336479ad42d6b45423b554441616feb22a07c8566fbb0e740f09573aad"
     },
     "spec-me": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "b0703f7a19e0a2edf4c7f8aaf03a9be8bc66fc4680eb1106e494a22696e17a63"
+      "computedHash": "7e627ca73a0b6466d1bf22dee8a327902fa9de0b534815b17683e1d2cb43ff08"
     },
     "tdd": {
       "source": "omegafrog/harness-codex",
@@ -100,7 +100,7 @@
     "to-ticket": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "04b8dcdabe204f7af2c46c946c7b456b8255dea63d851cbe4f640f4db761dc4f"
+      "computedHash": "7a489d39b527f440a4576ad595dae4af39bfc6df42728de9bc8a00a99b727f6c"
     }
   }
 }

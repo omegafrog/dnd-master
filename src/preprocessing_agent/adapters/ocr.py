@@ -47,11 +47,25 @@ class TesseractOcrAdapter:
         self.executable, self.language, self.timeout = executable, language, timeout
 
     def available(self) -> bool:
-        if shutil.which(self.executable) is None:
+        executable = shutil.which(self.executable)
+        if executable is None:
             return False
         try:
             import PIL  # type: ignore
-            return True
+            # `which` only proves that a file exists.  In the local
+            # environment the executable can still fail before starting when
+            # its shared libraries are unavailable.  Treat that as an OCR
+            # capability failure so preprocessing records a useful finding
+            # instead of pretending that OCR is available.
+            result = subprocess.run(
+                [executable, "--version"],
+                capture_output=True,
+                timeout=min(self.timeout, 5.0),
+                check=False,
+            )
+            return result.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
         except ImportError:
             return False
 

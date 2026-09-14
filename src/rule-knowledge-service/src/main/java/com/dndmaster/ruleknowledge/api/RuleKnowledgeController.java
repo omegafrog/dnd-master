@@ -339,7 +339,7 @@ public class RuleKnowledgeController {
         requireOwner(authenticatedPlayerId(authorization), registration.ownerPlayerId().value());
         try {
             pipelineService.retryPages(new RulebookId(rulebookId), request == null ? null : request.requestId(),
-                    request == null ? null : request.pages());
+                    request == null ? null : request.pages(), request == null ? java.util.Map.of() : request.layoutSelections());
             return rulebookStatus(rulebookId);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
@@ -390,7 +390,7 @@ public class RuleKnowledgeController {
                 .map(r -> new RulebookSummary(
                         r.rulebookId().value(), r.knowledgeDocumentId().value(), r.processingStatus().name(),
                         r.format().name(), r.documentType(), r.originalFilename(), r.failureCode(),
-                        r.version(), warningsFor(r), progressFor(r), reviewQuestionsFor(r)))
+                        r.version(), warningsFor(r), progressFor(r), reviewQuestionsFor(r), r.preprocessingPages()))
                 .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
         if (catalogRepository != null) {
             catalogRepository.findAll().stream()
@@ -401,7 +401,7 @@ public class RuleKnowledgeController {
                                 .map(StoredRulebookRegistration::version).orElse(0L);
                         if (extractionVersion > 0 && summaries.stream().noneMatch(existing -> existing.knowledgeDocumentId().equals(item.rulebookId()))) {
                             summaries.add(new RulebookSummary(item.rulebookId(), item.rulebookId(), "INDEXED", "PDF", DocumentType.RULEBOOK,
-                                    item.displayName(), null, extractionVersion, List.of(), new DocumentProgressView("READY", 100, null, null, null), List.of()));
+                                    item.displayName(), null, extractionVersion, List.of(), new DocumentProgressView("READY", 100, null, null, null), List.of(), List.of()));
                         }
                     });
         }
@@ -674,7 +674,12 @@ public class RuleKnowledgeController {
             List<PreprocessingPageState> preprocessingPages, RetryabilityView retryability,
             List<PreprocessingReviewQuestion> reviewQuestions) {}
     public record RetryabilityView(boolean retryable, List<Integer> pages, List<String> diagnostics) {}
-    public record RetryPagesRequest(String requestId, List<Integer> pages) {}
+    public record RetryPagesRequest(String requestId, List<Integer> pages,
+                                    java.util.Map<Integer, java.util.Map<String, Integer>> layoutSelections) {
+        public RetryPagesRequest(String requestId, List<Integer> pages) {
+            this(requestId, pages, java.util.Map.of());
+        }
+    }
     public record DocumentProgressView(
             String stage, int percent, Integer completedUnits, Integer totalUnits, String error) {}
     public record SourcePreviewResponse(
@@ -684,7 +689,8 @@ public class RuleKnowledgeController {
     public record RulebookSummary(
             UUID rulebookId, UUID knowledgeDocumentId, String status, String format,
             DocumentType documentType, String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
-            DocumentProgressView progress, List<PreprocessingReviewQuestion> reviewQuestions) {}
+            DocumentProgressView progress, List<PreprocessingReviewQuestion> reviewQuestions,
+            List<PreprocessingPageState> preprocessingPages) {}
     public record PreprocessingReviewQuestion(int pageNumber, String question, List<ReviewChoice> choices) {}
     public record ReviewChoice(String id, String label) {}
     public record OwnedRulebooksResponse(UUID ownerId, List<RulebookSummary> rulebooks) {}

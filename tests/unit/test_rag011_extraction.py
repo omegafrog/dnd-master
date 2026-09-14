@@ -44,6 +44,30 @@ def test_image_only_page_is_blocked_when_ocr_capability_missing(tmp_path):
     assert "chunks" not in result["artifacts"]
 
 
+def test_retry_reuses_ocr_path_and_can_recover_image_only_page(tmp_path):
+    class RecoveringOcr(Ocr):
+        def __init__(self):
+            self.availability_checks = 0
+
+        def available(self):
+            self.availability_checks += 1
+            return self.availability_checks > 1
+
+    source = tmp_path / "retry.pdf"
+    source.write_bytes(b"pdf")
+    digest = hashlib.sha256(b"pdf").hexdigest()
+    output = tmp_path / "retry-out"
+    service = ExtractionApplicationService(Native([]), Render(), RecoveringOcr())
+    request = {"request_id": "retry", "source_path": str(source), "source_sha256": digest,
+               "policy_version": "p1", "output_dir": str(output), "version_id": "retry-v1"}
+
+    first = service.preprocess(request)
+    assert first["status"] == "NEEDS_REVIEW"
+    recovered = service.retry_pages("retry-v1", output, [1], request_id="retry-request")
+    assert recovered["status"] == "READY"
+    assert recovered["pages"][0]["status"] == "VALIDATED"
+
+
 def test_mixed_page_keeps_native_and_adds_targeted_ocr(tmp_path):
     result = ExtractionApplicationService(Native([{"block_id": "n", "text": "native", "bbox": (1, 1, 30, 10)}], image_regions=[(40, 1, 90, 30)]), Render(), Ocr()).preprocess(request(tmp_path, "mixed"))
     assert result["status"] == "READY"
@@ -57,6 +81,12 @@ def test_mixed_page_keeps_native_and_adds_targeted_ocr(tmp_path):
 
 def test_service_wires_optional_tesseract_adapter_by_default():
     assert isinstance(ExtractionApplicationService().ocr, TesseractOcrAdapter)
+
+
+def test_tesseract_availability_requires_a_runnable_binary(monkeypatch):
+    monkeypatch.setattr("preprocessing_agent.adapters.ocr.shutil.which", lambda _name: "/broken/tesseract")
+    monkeypatch.setattr("preprocessing_agent.adapters.ocr.subprocess.run", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("missing shared library")))
+    assert not TesseractOcrAdapter().available()
 
 
 def test_ocr_normalization_rejects_out_of_bounds_and_keeps_confidence():

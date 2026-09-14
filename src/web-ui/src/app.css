@@ -1435,6 +1435,10 @@ body:not(:has(.creator-main)) .ui-button-icon-size { min-width: 2.25rem; padding
 .review-evidence dd { margin: 0; color: var(--color-text); }
 .review-warning { display: flex; align-items: flex-start; gap: .45rem; padding: .75rem; border-left: 2px solid var(--color-warning); background: #f7f0df; color: #70521d; font-size: .78rem; }
 .review-actions { display: flex; gap: .5rem; margin-top: 1.5rem; }
+.setup-layout-review { display:grid; gap:.45rem; margin-top:.65rem; padding:.65rem; border:1px solid #dbc8a9; border-radius:6px; background:#fffaf0; }
+.setup-layout-region { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; }
+.setup-layout-region > span { min-width:4.5rem; color:#806a4d; font-size:.7rem; font-weight:800; }
+.setup-layout-candidate-preview { display:block; margin-left:4.85rem; color:#6f5c44; line-height:1.4; }
 
 .character-sheet-placeholder { width: min(100%, 25rem); }
 .sheet-placeholder-content { display: grid; justify-items: start; gap: .8rem; padding: 1.25rem; color: var(--color-muted); }

@@ -12,12 +12,14 @@ class ReadingOrderPlanner:
     def __init__(self, analyzer: LayoutAnalyzer | None = None) -> None:
         self.analyzer = analyzer or LayoutAnalyzer()
 
-    def plan(self, blocks: Sequence[Any], page_geometry: Any | None = None) -> ReadingOrderPlan:
+    def plan(self, blocks: Sequence[Any], page_geometry: Any | None = None,
+             selections: dict[str, int] | None = None) -> ReadingOrderPlan:
         if not blocks:
             return ReadingOrderPlan((), (), ())  # type: ignore[arg-type]
         regions = self.analyzer.analyze(blocks, page_geometry)
         by_id = {_id(block, i): block for i, block in enumerate(blocks)}
-        profiles = tuple(self.analyzer.profile(region, blocks) for region in regions)
+        selections = selections or {}
+        profiles = tuple(self.analyzer.profile(region, blocks, selected_candidate=selections.get(region.region_id)) for region in regions)
         multi_region = any(profile.selected is not None and profile.selected.column_count > 1 for profile in profiles)
         all_boxes = [_box(block) for block in blocks]
         content_left = min(box.x0 for box in all_boxes)

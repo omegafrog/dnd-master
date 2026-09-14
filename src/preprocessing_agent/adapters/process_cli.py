@@ -42,7 +42,9 @@ def main() -> int:
                 raise ValueError("INVALID_REQUEST")
             if not isinstance(request.get("request_id"), str) or not request["request_id"] or not isinstance(request.get("version_id"), str) or not re.fullmatch(r"[A-Za-z0-9._-]+", request["version_id"]) or not isinstance(request.get("artifact_root"), str) or not request["artifact_root"] or not isinstance(request.get("pages"), list) or not request["pages"] or any(type(page) is not int or page < 1 for page in request["pages"]):
                 raise ValueError("INVALID_REQUEST")
-            response = ExtractionApplicationService().retry_pages(request["version_id"], request["artifact_root"], request["pages"], request_id=request["request_id"])
+            response = ExtractionApplicationService().retry_pages(
+                request["version_id"], request["artifact_root"], request["pages"],
+                request_id=request["request_id"], layout_selections=request.get("layout_selections"))
         else:
             raise ValueError("INVALID_REQUEST")
         print(json.dumps(response, ensure_ascii=False, sort_keys=True))
