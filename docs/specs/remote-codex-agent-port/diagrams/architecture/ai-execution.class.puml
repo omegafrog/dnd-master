@@ -1,0 +1,68 @@
+@startuml
+' UC-01 AI Game Master 요청 실행 — 책임 경계 구조
+title UC-01 AI 실행 포트와 사용자 PC 에이전트 연결 중계 책임 경계
+skinparam shadowing false
+skinparam componentStyle rectangle
+allowmixing
+
+package "Adventure Runtime" {
+  class "Adventure Session" as adventureSession {
+    진행 중 AI 요청 ID : 0 또는 1개
+  }
+}
+
+package "AI Game Master" {
+  component "완성 프롬프트 생성과 최종 결과 해석" as aiGameMaster
+  interface "AI 실행 포트" as aiExecutionPort {
+    execute(AI 실행 요청)
+  }
+  component "원격 AI 실행 구현" as remoteExecutor
+}
+
+package "개발 전용 Gradle 모듈" {
+  component "개발용 로컬 AI 실행 구현" as localExecutor
+  component "기존 CodexAppServerClient" as localCodexClient
+}
+
+package "사용자 PC 에이전트 연결 중계 서비스 (별도 Netty 배포 모듈)" {
+  component "내부 실행 요청 처리" as relayEntry
+  interface "연결 위치 저장소" as connectionDirectory
+  component "Redis 연결 위치 저장소 구현" as redisAdapter
+  component "연결 보유 실행 처리기" as ownerHandler
+  component "연결 보유 인스턴스 C의 웹소켓 세션" as webSocketSession
+}
+
+database "Redis\n연결 위치 임대" as redis
+component "사용자 PC 에이전트" as userAgent
+
+adventureSession --> aiGameMaster : 같은 요청 ID로\n요청 수락·해제
+aiGameMaster --> aiExecutionPort : AI 실행 요청\n(완성 프롬프트)
+localExecutor ..|> aiExecutionPort
+remoteExecutor ..|> aiExecutionPort
+localExecutor --> localCodexClient : 개발 환경만
+remoteExecutor --> relayEntry : 인증된 내부 HTTP\nAI 실행 요청
+
+relayEntry --> connectionDirectory : Solo Player 연결 위치 조회
+redisAdapter ..|> connectionDirectory
+redisAdapter --> redis : 위치 임대만 저장
+relayEntry --> ownerHandler : 연결 보유 인스턴스에\n내부 실행 요청 전달
+ownerHandler --> webSocketSession : 요청 ID로 전달·결과 대기
+webSocketSession --> userAgent : 이후 WebSocket\n(이번 범위 밖)
+
+userAgent --> webSocketSession : 요청 ID + 최종 결과
+webSocketSession --> ownerHandler : 원시 최종 결과 또는 오류
+ownerHandler --> relayEntry : 원시 최종 결과 또는 오류
+relayEntry --> remoteExecutor : 원시 최종 결과 또는 오류
+remoteExecutor --> aiGameMaster : 원시 최종 결과 또는 오류
+
+note right of adventureSession
+세션당 진행 중 AI 요청 ID 하나만 소유한다.
+다른 요청은 저장하거나 대기열에 넣지 않는다.
+end note
+
+note bottom of relayEntry
+중계 서비스는 프롬프트 생성, RAG 조회,
+Codex 실행, 게임 상태 기록을 하지 않는다.
+Redis에는 프롬프트·결과·Codex 로그인 정보를 저장하지 않는다.
+end note
+@enduml
