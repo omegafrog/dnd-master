@@ -48,12 +48,16 @@ public final class CombatMapViewService {
     }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules,
             MapGenerationRequest request) {
+        return prepareGenerated(owner, adventure, rules, request, true);
+    }
+    public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules,
+            MapGenerationRequest request, boolean includeAiPlayerStart) {
         PreparedMapData generated = aiPort.generate(request);
         Set<GridPosition> mergedObstacles = new HashSet<>(generated.obstacles());
         mergedObstacles.addAll(request.authoredObstacles());
         List<Door> mergedDoors = new ArrayList<>(generated.doors());
         mergedDoors.addAll(request.authoredDoors());
-        return saveNew(owner, adventure, rules, new PreparedMapData(generated.grid(), generated.tokens(), mergedObstacles, generated.layers(), mergedDoors));
+        return saveNew(owner, adventure, rules, new PreparedMapData(generated.grid(), generated.tokens(), mergedObstacles, generated.layers(), mergedDoors), null, null, includeAiPlayerStart);
     }
 
     /** 준비 화면을 다시 열었을 때, 이전에 이미지 연결에 실패한 초안을 복구한다. */
@@ -104,8 +108,9 @@ public final class CombatMapViewService {
         return saveNew(owner, adventure, rules, new PreparedMapData(prepared.grid(), tactical.tokens(), tactical.obstacles(),
                 java.util.stream.Stream.concat(prepared.layers().stream(), tactical.layers().stream()).toList()));
     }
-    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) { return saveNew(owner, adventure, rules, data, null, null); }
-    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, Integer spawnX, Integer spawnY) {
+    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) { return saveNew(owner, adventure, rules, data, null, null, true); }
+    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, Integer spawnX, Integer spawnY) { return saveNew(owner, adventure, rules, data, spawnX, spawnY, true); }
+    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, Integer spawnX, Integer spawnY, boolean includeAiPlayerStart) {
         List<CombatToken> tokens = new ArrayList<>(data.tokens());
         if (tokens.stream().noneMatch(token -> token.type() == TokenType.PLAYER) && spawnX != null && spawnY != null) {
             tokens.add(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
