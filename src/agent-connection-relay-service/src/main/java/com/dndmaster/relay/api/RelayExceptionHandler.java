@@ -9,7 +9,8 @@ import org.springframework.web.server.ResponseStatusException;
 public final class RelayExceptionHandler {
     @ExceptionHandler(ResponseStatusException.class)
     ResponseEntity<Map<String, String>> responseStatus(ResponseStatusException failure) {
-        return ResponseEntity.status(failure.getStatusCode()).body(Map.of("code", "UNAUTHORIZED"));
+        return ResponseEntity.status(failure.getStatusCode()).body(Map.of("code",
+                failure.getStatusCode().value() == 403 ? "RELAY_CALLER_REQUIRED" : "UNAUTHORIZED"));
     }
     @ExceptionHandler(IllegalArgumentException.class)
     ResponseEntity<Map<String, String>> invalidRequest(IllegalArgumentException failure) {

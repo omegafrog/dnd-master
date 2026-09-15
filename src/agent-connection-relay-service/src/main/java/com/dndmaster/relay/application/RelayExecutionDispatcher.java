@@ -4,6 +4,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.util.Objects;
 import java.util.concurrent.TimeoutException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
@@ -16,6 +17,7 @@ public final class RelayExecutionDispatcher implements ExecutionService {
     private final OwnedInstanceClient remote;
     private final RelayMetrics metrics;
     private final Duration timeout;
+    private final ObjectMapper objectMapper;
 
     public RelayExecutionDispatcher(String instanceId, ConnectionLocationLookup locations, LocalConnectionExecutor local,
                                     OwnedInstanceClient remote, RelayMetrics metrics, Duration timeout) {
@@ -25,6 +27,7 @@ public final class RelayExecutionDispatcher implements ExecutionService {
         this.remote = Objects.requireNonNull(remote);
         this.metrics = Objects.requireNonNull(metrics);
         this.timeout = Objects.requireNonNull(timeout);
+        this.objectMapper = new ObjectMapper();
     }
 
     @Override public Mono<RelayExecutionResult> execute(RelayExecutionRequest request) {
@@ -37,19 +40,21 @@ public final class RelayExecutionDispatcher implements ExecutionService {
                 .timeout(timeout)
                 .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT)))
                 .onErrorResume(ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE)))
+                .map(result -> request.requestId().equals(result.requestId()) ? result
+                        : RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE))
                 .doOnNext(result -> {
-                    metrics.finished(requestBytes, result.content().getBytes(StandardCharsets.UTF_8).length,
+                    metrics.finished(requestBytes, jsonBytes(result),
                             Duration.ofNanos(System.nanoTime() - started), result.failureType());
                     if (result.success()) log.info("relay execution completed requestId={} routeInstance={}", request.requestId(), instanceId);
                     else log.warn("relay execution failed requestId={} failureType={}", request.requestId(), result.failureType());
                 });
     }
 
-    private static long utf8Bytes(RelayExecutionRequest request) {
-        long total = bytes(request.prompt()) + bytes(request.requestId()) + bytes(request.operationId()) + bytes(request.model())
-                + bytes(request.reasoning()) + bytes(request.outputFormat());
-        for (String image : request.imageInputs()) total += bytes(image);
-        return total;
+    private long utf8Bytes(RelayExecutionRequest request) {
+        return jsonBytes(request);
     }
-    private static int bytes(String value) { return value == null ? 0 : value.getBytes(StandardCharsets.UTF_8).length; }
+    private int jsonBytes(Object value) {
+        try { return objectMapper.writeValueAsBytes(value).length; }
+        catch (Exception failure) { throw new IllegalArgumentException("relay payload cannot be encoded", failure); }
+    }
 }

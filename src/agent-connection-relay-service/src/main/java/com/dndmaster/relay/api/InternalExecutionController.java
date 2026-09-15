@@ -34,8 +34,11 @@ public final class InternalExecutionController {
 
     @PostMapping("/internal/owned-executions")
     Mono<RelayExecutionResult> executeOwned(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+                                            @RequestHeader(value = "X-Relay-Instance-Id", required = false) String relayInstanceId,
                                             @RequestBody RelayExecutionRequest request) {
-        authenticate(token); return local.execute(request);
+        authenticate(token);
+        if (relayInstanceId == null || relayInstanceId.isBlank()) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "relay instance identity is required");
+        return local.execute(request);
     }
 
     private void authenticate(String token) {

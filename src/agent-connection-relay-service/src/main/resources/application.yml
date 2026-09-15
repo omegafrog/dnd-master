@@ -7,6 +7,7 @@ relay:
   instance-id: ${RELAY_INSTANCE_ID:relay-local}
   internal-token: ${INTERNAL_SERVICE_TOKEN:}
   execution-timeout: ${RELAY_EXECUTION_TIMEOUT:PT3M}
+  redis-timeout: ${RELAY_REDIS_TIMEOUT:PT2S}
 management:
   endpoints:
     web:

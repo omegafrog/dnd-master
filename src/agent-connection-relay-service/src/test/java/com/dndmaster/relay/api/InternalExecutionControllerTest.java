@@ -17,5 +17,7 @@ class InternalExecutionControllerTest {
                 .expectStatus().isOk().expectBody().jsonPath("$.requestId").isEqualTo("r1").jsonPath("$.content").isEqualTo("final");
         client.post().uri("/internal/owned-executions").header("X-Internal-Token", "wrong").bodyValue(request).exchange()
                 .expectStatus().isUnauthorized();
+        client.post().uri("/internal/owned-executions").header("X-Internal-Token", "secret").bodyValue(request).exchange()
+                .expectStatus().isForbidden();
     }
 }
