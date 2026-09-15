@@ -7,7 +7,7 @@ import reactor.core.publisher.Mono;
 
 public final class LocalConnectionManager implements LocalConnectionExecutor {
     private final Map<UUID, Connection> connections = new ConcurrentHashMap<>();
-    private final Map<String, UUID> activeRequests = new ConcurrentHashMap<>();
+    private final Map<String, ActiveRequest> activeRequests = new ConcurrentHashMap<>();
     private final ConnectionLeaseService leases;
     private final RequestCompletionRegistry completions;
     private final RelayMetrics metrics;
@@ -27,10 +27,11 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
     public Mono<Boolean> disconnect(UUID soloPlayerId, String connectionId) {
         var current = connections.get(soloPlayerId);
         if (current == null || !current.connectionId().equals(connectionId)) return Mono.just(false);
-        connections.remove(soloPlayerId, current);
+        if (!connections.remove(soloPlayerId, current)) return Mono.just(false);
         metrics.activeConnections(connections.size());
-        activeRequests.forEach((requestId, playerId) -> {
-            if (playerId.equals(soloPlayerId)) completions.fail(requestId, new ConnectionLostException());
+        activeRequests.forEach((requestId, activeRequest) -> {
+            if (activeRequest.soloPlayerId().equals(soloPlayerId)
+                    && activeRequest.connectionId().equals(connectionId)) completions.fail(requestId, new ConnectionLostException());
         });
         return leases.release(soloPlayerId, connectionId);
     }
@@ -39,13 +40,16 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
         if (connection == null) return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.NO_CONNECTION));
         Duration remaining = remaining(request);
         if (remaining.isZero() || remaining.isNegative()) return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT));
-        Mono<String> result = completions.await(request.requestId(), remaining.compareTo(executionTimeout) < 0 ? remaining : executionTimeout);
-        activeRequests.put(request.requestId(), request.soloPlayerId());
+        Duration wait = remaining.compareTo(executionTimeout) < 0 ? remaining : executionTimeout;
+        var pending = completions.open(request.requestId(), wait);
+        if (!pending.accepted()) return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE));
+        Mono<String> result = pending.result();
+        activeRequests.put(request.requestId(), new ActiveRequest(request.soloPlayerId(), connection.connectionId()));
         boolean stillConnected = connections.get(request.soloPlayerId()) == connection;
         if (!stillConnected) completions.fail(request.requestId(), new ConnectionLostException());
         Mono<Void> delivery = stillConnected ? connection.transport().send(request)
                 .doOnError(failure -> completions.fail(request.requestId(), failure)) : Mono.empty();
-        return delivery.then(result)
+        return delivery.then(result).timeout(wait)
                 .map(content -> RelayExecutionResult.success(request.requestId(), content))
                 .onErrorResume(ConnectionLostException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.CONNECTION_LOST)))
                 .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT)))
@@ -59,4 +63,5 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
                 : Duration.ofMillis(request.deadlineEpochMillis() - System.currentTimeMillis());
     }
     private record Connection(String connectionId, AgentConnectionTransport transport) {}
+    private record ActiveRequest(UUID soloPlayerId, String connectionId) {}
 }

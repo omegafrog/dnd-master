@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.dndmaster.relay.infrastructure.InMemoryConnectionLocationRepository;
 import java.time.*;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -46,5 +47,32 @@ class LocalConnectionManagerTest {
         manager.connect(lease, Duration.ofSeconds(30), ignored -> Mono.empty()).block();
         StepVerifier.create(manager.execute(waiting)).then(() -> assertTrue(manager.disconnect(player, "c").block()))
                 .expectNextMatches(result -> result.failureType() == RelayFailureType.CONNECTION_LOST).verifyComplete();
+    }
+
+    @Test void duplicateRequestIsNotSentAndDeliveryIsCoveredByTheDeadline() {
+        var repository = new InMemoryConnectionLocationRepository(Clock.systemUTC());
+        var sends = new AtomicInteger();
+        var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),
+                RelayMetrics.noop(), Duration.ofMillis(30));
+        var player = UUID.randomUUID();
+        var lease = new ConnectionLocationLease(player, "a", "http://a", "s", "c", Instant.now());
+        manager.connect(lease, Duration.ofSeconds(30), ignored -> { sends.incrementAndGet(); return Mono.never(); }).block();
+        var request = new RelayExecutionRequest(player, "duplicate", "w", "prompt", "model", "medium", "text", null, List.of());
+
+        var first = manager.execute(request).subscribe();
+        StepVerifier.create(manager.execute(request))
+                .expectNextMatches(result -> result.failureType() == RelayFailureType.REMOTE_FAILURE)
+                .verifyComplete();
+        assertEquals(1, sends.get());
+        first.dispose();
+
+        var timed = new RelayExecutionRequest(player, "delivery-timeout", "w", "prompt", "model", "medium", "text", null, List.of(),
+                System.currentTimeMillis() + 20);
+        StepVerifier.create(manager.execute(timed)).expectNextMatches(result -> result.failureType() == RelayFailureType.TIMEOUT).verifyComplete();
+    }
+
+    @Test void relayRequestPreservesPromptWhitespace() {
+        var request = new RelayExecutionRequest(UUID.randomUUID(), "r", "w", "  prompt\n", "model", "medium", "text", null, List.of());
+        assertEquals("  prompt\n", request.prompt());
     }
 }

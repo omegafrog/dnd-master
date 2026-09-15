@@ -13,4 +13,14 @@ class RequestCompletionRegistryTest {
         assertFalse(registry.complete("request-1", "second"));
         StepVerifier.create(pending).expectNext("first").verifyComplete();
     }
+
+    @Test void rejectsDuplicateBeforeASecondCompletionSinkIsCreated() {
+        var registry = new RequestCompletionRegistry();
+        assertTrue(registry.open("request-duplicate", Duration.ofSeconds(1)).accepted());
+        var duplicate = registry.open("request-duplicate", Duration.ofSeconds(1));
+
+        assertFalse(duplicate.accepted());
+        assertTrue(registry.complete("request-duplicate", "first"));
+        assertFalse(registry.complete("request-duplicate", "second"));
+    }
 }

@@ -15,7 +15,7 @@ public record RelayExecutionRequest(UUID soloPlayerId, String requestId, String 
         if (soloPlayerId == null) throw new IllegalArgumentException("soloPlayerId is required");
         requestId = required(requestId, "requestId");
         operationId = required(operationId, "operationId");
-        prompt = required(prompt, "prompt");
+        prompt = requiredPreserving(prompt, "prompt");
         model = required(model, "model");
         reasoning = required(reasoning, "reasoning");
         outputFormat = required(outputFormat, "outputFormat");
@@ -29,5 +29,9 @@ public record RelayExecutionRequest(UUID soloPlayerId, String requestId, String 
     private static String required(String value, String field) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " is required");
         return value.trim();
+    }
+    private static String requiredPreserving(String value, String field) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException(field + " is required");
+        return value;
     }
 }
