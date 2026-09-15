@@ -36,7 +36,7 @@ class RelayEndToEndContractTest {
             var template = new ReactiveStringRedisTemplate(connectionFactory, RedisSerializationContext.string());
             var locations = new RedisConnectionLocationRepository(template, Clock.systemUTC(), Duration.ofSeconds(1));
             var player = UUID.randomUUID();
-            locations.renew(new ConnectionLocationLease(player, "relay-c", "http://localhost:" + owner.port(), "s", "c", Instant.now()), Duration.ofSeconds(30)).block();
+            locations.claim(new ConnectionLocationLease(player, "relay-c", "http://localhost:" + owner.port(), "s", "c", Instant.now()), Duration.ofSeconds(30)).block();
             var dispatcher = new RelayExecutionDispatcher("relay-a", locations::find,
                     ignored -> Mono.error(new AssertionError("must use direct HTTP")),
                     new HttpOwnedInstanceClient(WebClient.create(), "secret", "relay-a", Duration.ofSeconds(2)),

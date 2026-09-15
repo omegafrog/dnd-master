@@ -23,4 +23,5 @@ public final class RequestCompletionRegistry {
         var sink = pending.remove(requestId);
         return sink != null && sink.tryEmitError(failure).isSuccess();
     }
+    public boolean cancel(String requestId) { return fail(requestId, new java.util.concurrent.CancellationException("request cancelled")); }
 }

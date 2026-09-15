@@ -19,5 +19,8 @@ class InternalExecutionControllerTest {
                 .expectStatus().isUnauthorized();
         client.post().uri("/internal/owned-executions").header("X-Internal-Token", "secret").bodyValue(request).exchange()
                 .expectStatus().isForbidden();
+        client.post().uri("/internal/owned-executions").header("X-Internal-Token", "secret")
+                .header("X-Internal-Caller", "agent-connection-relay-service").header("X-Relay-Instance-Id", "relay-a")
+                .bodyValue(request).exchange().expectStatus().isOk().expectBody().jsonPath("$.failureType").isEqualTo("NO_CONNECTION");
     }
 }

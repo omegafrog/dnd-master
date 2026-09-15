@@ -19,9 +19,17 @@ public final class InMemoryConnectionLocationRepository implements ConnectionLoc
             return Optional.ofNullable(leases.get(soloPlayerId));
         });
     }
-    @Override public Mono<Void> renew(ConnectionLocationLease lease, Duration ttl) {
+    @Override public Mono<Void> claim(ConnectionLocationLease lease, Duration ttl) {
         return Mono.fromRunnable(() -> leases.put(lease.soloPlayerId(), new ConnectionLocationLease(lease.soloPlayerId(), lease.instanceId(),
                 lease.internalAddress(), lease.sessionId(), lease.connectionId(), clock.instant().plus(ttl))));
+    }
+    @Override public Mono<Boolean> renew(ConnectionLocationLease lease, Duration ttl) {
+        return Mono.fromSupplier(() -> {
+            var current = leases.get(lease.soloPlayerId());
+            if (current == null || !current.connectionId().equals(lease.connectionId())) return false;
+            return leases.replace(lease.soloPlayerId(), current, new ConnectionLocationLease(lease.soloPlayerId(), lease.instanceId(),
+                    lease.internalAddress(), lease.sessionId(), lease.connectionId(), clock.instant().plus(ttl)));
+        });
     }
     @Override public Mono<Boolean> release(UUID soloPlayerId, String connectionId) {
         return Mono.fromSupplier(() -> {

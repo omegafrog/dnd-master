@@ -20,7 +20,8 @@ public final class HttpOwnedInstanceClient implements OwnedInstanceClient {
     }
     @Override public Mono<RelayExecutionResult> execute(String internalAddress, RelayExecutionRequest request) {
         var endpoint = URI.create(internalAddress).resolve("/internal/owned-executions");
-        return client.post().uri(endpoint).header("X-Internal-Token", internalToken).header("X-Relay-Instance-Id", instanceId)
+        return client.post().uri(endpoint).header("X-Internal-Token", internalToken)
+                .header("X-Internal-Caller", "agent-connection-relay-service").header("X-Relay-Instance-Id", instanceId)
                 .bodyValue(request).retrieve().bodyToMono(RelayExecutionResult.class).timeout(timeout)
                 .flatMap(result -> request.requestId().equals(result.requestId()) ? Mono.just(result)
                         : Mono.error(new IllegalStateException("owned instance returned a mismatched requestId")));

@@ -28,4 +28,23 @@ class LocalConnectionManagerTest {
         StepVerifier.create(manager.execute(request)).expectNextMatches(result -> result.success() && result.content().equals("final")).verifyComplete();
         assertEquals("new", repository.find(player).block().orElseThrow().connectionId());
     }
+
+    @Test void sendFailureAndDisconnectCleanPendingRequestForManualRetry() {
+        var clock = Clock.systemUTC();
+        var repository = new InMemoryConnectionLocationRepository(clock);
+        var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(), RelayMetrics.noop(), Duration.ofSeconds(1));
+        var player = UUID.randomUUID();
+        var lease = new ConnectionLocationLease(player, "a", "http://a", "s", "c", clock.instant());
+        manager.connect(lease, Duration.ofSeconds(30), ignored -> Mono.error(new IllegalStateException("send failed"))).block();
+        var request = new RelayExecutionRequest(player, "retryable", "w", "prompt", "model", "medium", "text", null, List.of());
+        StepVerifier.create(manager.execute(request)).expectNextMatches(result -> result.failureType() == RelayFailureType.REMOTE_FAILURE).verifyComplete();
+
+        manager.connect(lease, Duration.ofSeconds(30), sent -> { manager.complete(sent.requestId(), "retried"); return Mono.empty(); }).block();
+        StepVerifier.create(manager.execute(request)).expectNextMatches(result -> result.content().equals("retried")).verifyComplete();
+
+        var waiting = new RelayExecutionRequest(player, "disconnect", "w", "prompt", "model", "medium", "text", null, List.of());
+        manager.connect(lease, Duration.ofSeconds(30), ignored -> Mono.empty()).block();
+        StepVerifier.create(manager.execute(waiting)).then(() -> assertTrue(manager.disconnect(player, "c").block()))
+                .expectNextMatches(result -> result.failureType() == RelayFailureType.REMOTE_FAILURE).verifyComplete();
+    }
 }

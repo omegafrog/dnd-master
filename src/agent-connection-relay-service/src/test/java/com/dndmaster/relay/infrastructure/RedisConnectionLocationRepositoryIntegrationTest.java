@@ -25,10 +25,12 @@ class RedisConnectionLocationRepositoryIntegrationTest {
         var clock = Clock.systemUTC();
         var repository = new RedisConnectionLocationRepository(template, clock);
         var player = UUID.randomUUID();
-        repository.renew(new ConnectionLocationLease(player, "a", "http://relay-a:8080", "s1", "old", clock.instant()), Duration.ofSeconds(30)).block();
-        repository.renew(new ConnectionLocationLease(player, "c", "http://relay-c:8080", "s2", "new", clock.instant()), Duration.ofSeconds(60)).block();
+        var old = new ConnectionLocationLease(player, "a", "http://relay-a:8080", "s1", "old", clock.instant());
+        repository.claim(old, Duration.ofSeconds(30)).block();
+        repository.claim(new ConnectionLocationLease(player, "c", "http://relay-c:8080", "s2", "new", clock.instant()), Duration.ofSeconds(60)).block();
 
         assertFalse(repository.release(player, "old").block());
+        assertFalse(repository.renew(old, Duration.ofSeconds(90)).block());
         assertEquals("new", repository.find(player).block().orElseThrow().connectionId());
         Long ttl = template.getExpire("agent-connection-location:" + player).block().toSeconds();
         assertTrue(ttl > 0 && ttl <= 60);

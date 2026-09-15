@@ -8,9 +8,10 @@ import reactor.core.publisher.Mono;
 public final class ConnectionLeaseService {
     private final ConnectionLocationRepository locations;
     public ConnectionLeaseService(ConnectionLocationRepository locations) { this.locations = locations; }
-    public Mono<Void> renew(ConnectionLocationLease lease, Duration ttl) {
-        return locations.renew(lease, ttl);
+    public Mono<Void> claim(ConnectionLocationLease lease, Duration ttl) {
+        return locations.claim(lease, ttl);
     }
+    public Mono<Boolean> renew(ConnectionLocationLease lease, Duration ttl) { return locations.renew(lease, ttl); }
     public Mono<Boolean> release(UUID soloPlayerId, String connectionId) {
         return locations.release(soloPlayerId, connectionId);
     }

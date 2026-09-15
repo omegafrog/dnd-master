@@ -14,6 +14,10 @@ public final class RedisConnectionLocationRepository implements ConnectionLocati
                     "redis.call('PEXPIRE', KEYS[1], ARGV[6]); return 1", Long.class);
     private static final DefaultRedisScript<Long> RELEASE = new DefaultRedisScript<>(
             "if redis.call('HGET', KEYS[1], 'connectionId') == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end", Long.class);
+    private static final DefaultRedisScript<Long> REFRESH = new DefaultRedisScript<>(
+            "if redis.call('HGET', KEYS[1], 'connectionId') == ARGV[4] then " +
+                    "redis.call('HSET', KEYS[1], 'instanceId', ARGV[1], 'internalAddress', ARGV[2], 'sessionId', ARGV[3], 'expiresAt', ARGV[5]); " +
+                    "redis.call('PEXPIRE', KEYS[1], ARGV[6]); return 1 else return 0 end", Long.class);
     private final ReactiveStringRedisTemplate redis;
     private final Clock clock;
     private final Duration timeout;
@@ -33,11 +37,18 @@ public final class RedisConnectionLocationRepository implements ConnectionLocati
                 .timeout(timeout);
     }
 
-    @Override public Mono<Void> renew(ConnectionLocationLease lease, Duration ttl) {
+    @Override public Mono<Void> claim(ConnectionLocationLease lease, Duration ttl) {
         if (ttl.isZero() || ttl.isNegative()) return Mono.error(new IllegalArgumentException("ttl must be positive"));
         var expiresAt = clock.instant().plus(ttl);
         return redis.execute(RENEW, List.of(key(lease.soloPlayerId())), lease.instanceId(), lease.internalAddress(), lease.sessionId(),
                 lease.connectionId(), expiresAt.toString(), Long.toString(ttl.toMillis())).single().timeout(timeout).then();
+    }
+
+    @Override public Mono<Boolean> renew(ConnectionLocationLease lease, Duration ttl) {
+        if (ttl.isZero() || ttl.isNegative()) return Mono.error(new IllegalArgumentException("ttl must be positive"));
+        var expiresAt = clock.instant().plus(ttl);
+        return redis.execute(REFRESH, List.of(key(lease.soloPlayerId())), lease.instanceId(), lease.internalAddress(), lease.sessionId(),
+                lease.connectionId(), expiresAt.toString(), Long.toString(ttl.toMillis())).single().timeout(timeout).map(updated -> updated == 1L);
     }
 
     @Override public Mono<Boolean> release(UUID soloPlayerId, String connectionId) {

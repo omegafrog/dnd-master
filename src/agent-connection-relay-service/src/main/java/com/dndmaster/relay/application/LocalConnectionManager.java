@@ -7,6 +7,7 @@ import reactor.core.publisher.Mono;
 
 public final class LocalConnectionManager implements LocalConnectionExecutor {
     private final Map<UUID, Connection> connections = new ConcurrentHashMap<>();
+    private final Map<String, UUID> activeRequests = new ConcurrentHashMap<>();
     private final ConnectionLeaseService leases;
     private final RequestCompletionRegistry completions;
     private final RelayMetrics metrics;
@@ -20,7 +21,7 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
         var connection = new Connection(lease.connectionId(), transport);
         connections.put(lease.soloPlayerId(), connection);
         metrics.activeConnections(connections.size());
-        return leases.renew(lease, ttl).doOnError(ignored -> {
+        return leases.claim(lease, ttl).doOnError(ignored -> {
             connections.remove(lease.soloPlayerId(), connection);
             metrics.activeConnections(connections.size());
         });
@@ -30,16 +31,21 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
         if (current == null || !current.connectionId().equals(connectionId)) return Mono.just(false);
         connections.remove(soloPlayerId, current);
         metrics.activeConnections(connections.size());
+        activeRequests.forEach((requestId, playerId) -> {
+            if (playerId.equals(soloPlayerId)) completions.fail(requestId, new IllegalStateException("connection lost"));
+        });
         return leases.release(soloPlayerId, connectionId);
     }
     @Override public Mono<RelayExecutionResult> execute(RelayExecutionRequest request) {
         var connection = connections.get(request.soloPlayerId());
         if (connection == null) return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.NO_CONNECTION));
         Mono<String> result = completions.await(request.requestId(), executionTimeout);
-        return connection.transport().send(request).then(result)
+        activeRequests.put(request.requestId(), request.soloPlayerId());
+        return connection.transport().send(request).doOnError(failure -> completions.fail(request.requestId(), failure)).then(result)
                 .map(content -> RelayExecutionResult.success(request.requestId(), content))
                 .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT)))
-                .onErrorResume(ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE)));
+                .onErrorResume(ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE)))
+                .doFinally(ignored -> { activeRequests.remove(request.requestId()); completions.cancel(request.requestId()); });
     }
     public boolean complete(String requestId, String finalContent) { return completions.complete(requestId, finalContent); }
     public boolean fail(String requestId, Throwable failure) { return completions.fail(requestId, failure); }

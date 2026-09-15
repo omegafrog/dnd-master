@@ -11,10 +11,12 @@ class InMemoryConnectionLocationRepositoryContractTest {
         var clock = Clock.fixed(Instant.parse("2026-09-15T00:00:00Z"), ZoneOffset.UTC);
         var repository = new InMemoryConnectionLocationRepository(clock);
         var player = UUID.randomUUID();
-        repository.renew(new ConnectionLocationLease(player, "a", "http://a", "s1", "old", clock.instant()), Duration.ofSeconds(30)).block();
-        repository.renew(new ConnectionLocationLease(player, "c", "http://c", "s2", "new", clock.instant()), Duration.ofSeconds(60)).block();
+        var old = new ConnectionLocationLease(player, "a", "http://a", "s1", "old", clock.instant());
+        repository.claim(old, Duration.ofSeconds(30)).block();
+        repository.claim(new ConnectionLocationLease(player, "c", "http://c", "s2", "new", clock.instant()), Duration.ofSeconds(60)).block();
 
         assertFalse(repository.release(player, "old").block());
+        assertFalse(repository.renew(old, Duration.ofSeconds(90)).block());
         var current = repository.find(player).block().orElseThrow();
         assertEquals("new", current.connectionId());
         assertEquals(clock.instant().plusSeconds(60), current.expiresAt());

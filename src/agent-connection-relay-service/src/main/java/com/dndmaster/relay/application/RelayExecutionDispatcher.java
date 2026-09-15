@@ -1,8 +1,8 @@
 package com.dndmaster.relay.application;
 
-import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.TimeoutException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -33,9 +33,12 @@ public final class RelayExecutionDispatcher implements ExecutionService {
     @Override public Mono<RelayExecutionResult> execute(RelayExecutionRequest request) {
         long started = System.nanoTime();
         long requestBytes = utf8Bytes(request);
+        var owningInstance = new AtomicReference<>("none");
         return locations.find(request.soloPlayerId())
-                .flatMap(found -> found.<Mono<RelayExecutionResult>>map(lease -> instanceId.equals(lease.instanceId())
-                        ? local.execute(request) : remote.execute(lease.internalAddress(), request))
+                .flatMap(found -> found.<Mono<RelayExecutionResult>>map(lease -> {
+                    owningInstance.set(lease.instanceId());
+                    return instanceId.equals(lease.instanceId()) ? local.execute(request) : remote.execute(lease.internalAddress(), request);
+                })
                         .orElseGet(() -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.NO_CONNECTION))))
                 .timeout(timeout)
                 .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT)))
@@ -43,10 +46,13 @@ public final class RelayExecutionDispatcher implements ExecutionService {
                 .map(result -> request.requestId().equals(result.requestId()) ? result
                         : RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE))
                 .doOnNext(result -> {
-                    metrics.finished(requestBytes, jsonBytes(result),
-                            Duration.ofNanos(System.nanoTime() - started), result.failureType());
-                    if (result.success()) log.info("relay execution completed requestId={} routeInstance={}", request.requestId(), instanceId);
-                    else log.warn("relay execution failed requestId={} failureType={}", request.requestId(), result.failureType());
+                    long responseBytes = jsonBytes(result);
+                    long durationMillis = Duration.ofNanos(System.nanoTime() - started).toMillis();
+                    metrics.finished(requestBytes, responseBytes, Duration.ofMillis(durationMillis), result.failureType());
+                    if (result.success()) log.info("relay execution completed requestId={} fromInstance={} owningInstance={} requestBytes={} responseBytes={} durationMs={}",
+                            request.requestId(), instanceId, owningInstance.get(), requestBytes, responseBytes, durationMillis);
+                    else log.warn("relay execution failed requestId={} fromInstance={} owningInstance={} requestBytes={} responseBytes={} durationMs={} failureType={}",
+                            request.requestId(), instanceId, owningInstance.get(), requestBytes, responseBytes, durationMillis, result.failureType());
                 });
     }
 

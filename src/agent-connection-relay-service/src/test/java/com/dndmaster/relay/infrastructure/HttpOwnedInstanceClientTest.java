@@ -16,10 +16,12 @@ class HttpOwnedInstanceClientTest {
         var token = new AtomicReference<String>();
         var path = new AtomicReference<String>();
         var relayInstance = new AtomicReference<String>();
+        var caller = new AtomicReference<String>();
         DisposableServer server = HttpServer.create().port(0).handle((request, response) -> {
             token.set(request.requestHeaders().get("X-Internal-Token"));
             path.set(request.uri());
             relayInstance.set(request.requestHeaders().get("X-Relay-Instance-Id"));
+            caller.set(request.requestHeaders().get("X-Internal-Caller"));
             return response.header("Content-Type", "application/json")
                     .sendString(Mono.just("{\"requestId\":\"r1\",\"content\":\"final\",\"failureType\":null}"));
         }).bindNow();
@@ -31,6 +33,7 @@ class HttpOwnedInstanceClientTest {
             assertEquals("service-secret", token.get());
             assertEquals("/internal/owned-executions", path.get());
             assertEquals("relay-instance", relayInstance.get());
+            assertEquals("agent-connection-relay-service", caller.get());
         } finally { server.disposeNow(); }
     }
 }
