@@ -2,7 +2,7 @@
 plan_id: 323
 orchestration_state: implementing
 attempt: 1
-last_completed_step: "최종 리뷰 추가 지적 4건과 임대 경합 수정, 전체 집중 검증과 graphify update 완료"
+last_completed_step: "독립 리뷰 지적에 대한 연결 수명·현재 소유권·전송 경합·최종 요청 계측 보강과 전체 집중 검증, graphify update 완료"
 changed_files:
   - docs/plans/.runtime/323/checkpoint.md
   - src/settings.gradle.kts
@@ -37,12 +37,13 @@ tests:
   - "PASS Spec 리뷰 지적 5건 수정 후 relay cleanTest/test/bootJar, BuildModulesTest, ai-game-master 전체 테스트"
   - "PASS 완료 후 재등록 방지, 전송 중 연결 끊김, 응답 UTF-8 크기 제한, 연결 교체 요청 종료 회귀 테스트"
   - "PASS 연결 ID 대상 검증, 임대 완료 전 취소, JSON UTF-8 크기, 동기 전송 예외 정리 회귀 테스트"
+  - "PASS 결과 수신 후 전송 중 연결 끊김 및 다른 인스턴스가 소유한 이전 로컬 연결 거절 회귀 테스트"
   - "PASS graphify update ."
   - "LOAD 200 동시 요청, 65538 UTF-8 bytes, p95 28.736 ms, 126480681 bytes/s, heap/direct delta 0"
   - "BASELINE FAIL 전체 check: 기존 Adventure 도메인 허용 목록 2건과 TransactionBoundaryIntegrationTest 1건"
 blocker: null
 smart_zone: "dispatch fits; 순차 구현 유지"
-next_action: "현재 #323 수정 커밋 후 고정 기준 대비 독립 Standards/Spec 재리뷰 실행"
+next_action: "현재 #323 수정 커밋 후 고정 기준 대비 독립 Standards/Spec 재리뷰 재실행"
 handoff_reason: null
-updated_at: "2026-09-15T17:08:00+09:00"
+updated_at: "2026-09-15T17:32:00+09:00"
 ---

@@ -15,4 +15,10 @@ public final class ConnectionLeaseService {
     public Mono<Boolean> release(UUID soloPlayerId, String connectionId) {
         return locations.release(soloPlayerId, connectionId);
     }
+    public Mono<Boolean> isCurrent(ConnectionLocationLease expected) {
+        return locations.find(expected.soloPlayerId()).map(found -> found
+                .filter(actual -> actual.instanceId().equals(expected.instanceId())
+                        && actual.connectionId().equals(expected.connectionId()))
+                .isPresent());
+    }
 }

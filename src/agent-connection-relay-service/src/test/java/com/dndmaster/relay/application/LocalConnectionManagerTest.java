@@ -128,6 +128,24 @@ class LocalConnectionManagerTest {
         StepVerifier.create(manager.execute(request)).expectNextMatches(result -> result.failureType() == RelayFailureType.REMOTE_FAILURE).verifyComplete();
     }
 
+    @Test void disconnectAfterResultBeforeDeliveryStillReturnsConnectionLost() {
+        var repository = new InMemoryConnectionLocationRepository(Clock.systemUTC());
+        var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),
+                RelayMetrics.noop(), Duration.ofSeconds(5));
+        var player = UUID.randomUUID();
+        var lease = new ConnectionLocationLease(player, "a", "http://a", "s", "c", Instant.now());
+        manager.connect(lease, Duration.ofSeconds(30), request -> {
+            manager.complete(request.requestId(), "early");
+            return Mono.never();
+        }).block();
+        var result = new AtomicReference<RelayExecutionResult>();
+        manager.execute(new RelayExecutionRequest(player, "result-before-delivery", "w", "prompt", "model", "medium", "text", null, List.of()))
+                .subscribe(result::set);
+
+        assertTrue(manager.disconnect(player, "c").block());
+        assertEquals(RelayFailureType.CONNECTION_LOST, result.get().failureType());
+    }
+
     @Test void rejectsRequestForAConnectionThatIsNoLongerActive() {
         var repository = new InMemoryConnectionLocationRepository(Clock.systemUTC());
         var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),
@@ -139,6 +157,24 @@ class LocalConnectionManagerTest {
                 .withConnectionId("replaced");
 
         StepVerifier.create(manager.execute(request)).expectNextMatches(result -> result.failureType() == RelayFailureType.CONNECTION_LOST).verifyComplete();
+    }
+
+    @Test void rejectsLocalConnectionWhenRedisNowPointsToAnotherInstance() {
+        var repository = new InMemoryConnectionLocationRepository(Clock.systemUTC());
+        var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),
+                RelayMetrics.noop(), Duration.ofSeconds(1));
+        var player = UUID.randomUUID();
+        var local = new ConnectionLocationLease(player, "a", "http://a", "s1", "local", Instant.now());
+        manager.connect(local, Duration.ofSeconds(30), ignored -> {
+            fail("stale local connection must not send");
+            return Mono.empty();
+        }).block();
+        var remote = new ConnectionLocationLease(player, "b", "http://b", "s2", "remote", Instant.now());
+        repository.claim(remote, Duration.ofSeconds(30)).block();
+
+        StepVerifier.create(manager.execute(new RelayExecutionRequest(player, "cross-instance-stale", "w", "prompt", "model", "medium", "text", null, List.of())))
+                .expectNextMatches(result -> result.failureType() == RelayFailureType.CONNECTION_LOST)
+                .verifyComplete();
     }
 
     @Test void cancelledConnectionClaimIsNotActivatedAfterLeaseRegistration() {
