@@ -110,38 +110,19 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     }
 
     @Override
-    public <T> GmCompletionResult<T> completeWithSelection(
-            String operationId, String prompt, StructuredResponseParser<T> parser,
-            RequestedGmProviderSelection requested) {
-        if (selectionResolver == null) throw new GmProviderSelectionUnresolvedException(requested);
-        GmProviderSelectionResolver.EndpointResolution resolution = selectionResolver.resolveEndpoint(requested);
-        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
-        if (!requested.provider().equals(effective.provider()) || !requested.model().equals(effective.model())) {
-            LOGGER.warn("gm_provider_selection_mismatch requestedProvider={} requestedModel={} effectiveProvider={} effectiveModel={} endpointId={} endpointVersion={}",
-                    safe(requested.provider()), safe(requested.model()), safe(effective.provider()), safe(effective.model()),
-                    effective.endpointId(), effective.endpointVersion());
-        }
-        T response = completeResolved(operationId, prompt, parser, resolution.endpoint(), effective);
-        return new GmCompletionResult<>(response, effective);
-    }
-
-    @Override
     public <T> GmCompletionResult<T> completeWithSelection(UUID soloPlayerId,
             String operationId, String prompt, StructuredResponseParser<T> parser,
             RequestedGmProviderSelection requested) {
         if (selectionResolver == null) throw new GmProviderSelectionUnresolvedException(requested);
         GmProviderSelectionResolver.EndpointResolution resolution = selectionResolver.resolveEndpoint(requested);
         EffectiveGmProviderSelection effective = resolution.effectiveSelection();
-        T response = "codex-cli".equals(effective.provider())
-                ? parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId, operationId, operationId,
-                        prompt, effective.model(), effective.reasoning(), "TEXT", null, "")).requireFinalText())
-                : completeResolved(operationId, prompt, parser, resolution.endpoint(), effective);
+        T response = completeResolved(soloPlayerId, operationId, prompt, parser, resolution.endpoint(), effective);
         return new GmCompletionResult<>(response, effective);
     }
 
     @Override
     public <T> GmCandidateLifecycleResult<T> completeWithOneRepair(
-            String operationId, String prompt, java.util.function.Function<GmRepairContext, String> repairPrompt,
+            UUID soloPlayerId, String operationId, String prompt, java.util.function.Function<GmRepairContext, String> repairPrompt,
             StructuredResponseParser<T> parser, RequestedGmProviderSelection requested) {
         if (selectionResolver == null) throw new GmProviderSelectionUnresolvedException(requested);
         GmProviderSelectionResolver.EndpointResolution resolution = selectionResolver.resolveEndpoint(requested);
@@ -152,24 +133,24 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
             return parser.parse(json);
         };
         try {
-            T response = completeResolved(operationId, prompt, capturingParser, resolution.endpoint(), effective);
+            T response = completeResolved(soloPlayerId, operationId, prompt, capturingParser, resolution.endpoint(), effective);
             return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(response, effective), 1);
         } catch (ProviderMalformedResponseException malformed) {
             LOGGER.warn("gm_candidate_validation_failed stage=INITIAL_CANDIDATE_VALIDATION code=MALFORMED_JSON message={}", malformed.getMessage());
-            T repaired = completeResolved(operationId + ":repair", repairPrompt.apply(new GmRepairContext(raw.get(), List.of(
+            T repaired = completeResolved(soloPlayerId, operationId + ":repair", repairPrompt.apply(new GmRepairContext(raw.get(), List.of(
                             new GmCandidateViolation("MALFORMED_JSON", "candidate", malformed.getMessage())))),
                     capturingParser, resolution.endpoint(), effective);
             return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(repaired, effective), 2);
         } catch (GmCandidateValidationException invalid) {
             LOGGER.warn("gm_candidate_validation_failed stage=INITIAL_CANDIDATE_VALIDATION violations={}", invalid.violations());
-            T repaired = completeResolved(operationId + ":repair", repairPrompt.apply(new GmRepairContext(raw.get(), invalid.violations())),
+            T repaired = completeResolved(soloPlayerId, operationId + ":repair", repairPrompt.apply(new GmRepairContext(raw.get(), invalid.violations())),
                     capturingParser, resolution.endpoint(), effective);
             return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(repaired, effective), 2);
         }
     }
 
     @Override
-    public <T> GmCandidateLifecycleResult<T> completeWithOneRepair(String operationId, String prompt,
+    public <T> GmCandidateLifecycleResult<T> completeWithOneRepair(UUID soloPlayerId, String operationId, String prompt,
             java.util.function.Function<GmRepairContext, String> repairPrompt,
             StructuredResponseContract<T> contract, RequestedGmProviderSelection requested) {
         if (selectionResolver == null) throw new GmProviderSelectionUnresolvedException(requested);
@@ -177,10 +158,10 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
         var effective = resolution.effectiveSelection();
         java.util.concurrent.atomic.AtomicReference<String> raw = new java.util.concurrent.atomic.AtomicReference<>("");
         StructuredResponseParser<T> parser = json -> { raw.set(json == null ? "" : json); return contract.parser().parse(json); };
-        try { return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(completeResolved(operationId, prompt, parser, resolution.endpoint(), effective, contract.outputSchema()), effective), 1); }
+        try { return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(completeResolved(soloPlayerId, operationId, prompt, parser, resolution.endpoint(), effective, contract.outputSchema()), effective), 1); }
         catch (ProviderMalformedResponseException | GmCandidateValidationException failure) {
             var violations = failure instanceof GmCandidateValidationException v ? v.violations() : java.util.List.of(new GmCandidateViolation("MALFORMED_JSON", "candidate", failure.getMessage()));
-            T repaired = completeResolved(operationId + ":repair", repairPrompt.apply(new GmRepairContext(raw.get(), violations)), parser, resolution.endpoint(), effective, contract.outputSchema());
+            T repaired = completeResolved(soloPlayerId, operationId + ":repair", repairPrompt.apply(new GmRepairContext(raw.get(), violations)), parser, resolution.endpoint(), effective, contract.outputSchema());
             return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(repaired, effective), 2);
         }
     }
@@ -197,10 +178,26 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
             default -> throw new IllegalArgumentException("unsupported GM provider: " + effective.provider());
         };
     }
+    private <T> T completeResolved(UUID soloPlayerId, String operationId, String prompt, StructuredResponseParser<T> parser,
+                                   AgentEndpoint endpoint, EffectiveGmProviderSelection effective) {
+        if ("codex-cli".equals(effective.provider())) {
+            return parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId, operationId, operationId,
+                    prompt, effective.model(), effective.reasoning(), "TEXT", null, "")).requireFinalText());
+        }
+        return completeResolved(operationId, prompt, parser, endpoint, effective);
+    }
     private <T> T completeResolved(String operationId, String prompt, StructuredResponseParser<T> parser,
                                    AgentEndpoint endpoint, EffectiveGmProviderSelection effective, com.fasterxml.jackson.databind.JsonNode schema) {
         if ("codex-cli".equals(effective.provider())) return requiresServerConfirmedIdentity();
         return completeResolved(operationId, prompt, parser, endpoint, effective);
+    }
+    private <T> T completeResolved(UUID soloPlayerId, String operationId, String prompt, StructuredResponseParser<T> parser,
+                                   AgentEndpoint endpoint, EffectiveGmProviderSelection effective, com.fasterxml.jackson.databind.JsonNode schema) {
+        if ("codex-cli".equals(effective.provider())) {
+            return parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId, operationId, operationId,
+                    prompt, effective.model(), effective.reasoning(), "JSON", schema, "")).requireFinalText());
+        }
+        return completeResolved(operationId, prompt, parser, endpoint, effective, schema);
     }
 
     private static String safe(String value) { return value == null ? "" : value.replaceAll("[^A-Za-z0-9._:-]", "_"); }

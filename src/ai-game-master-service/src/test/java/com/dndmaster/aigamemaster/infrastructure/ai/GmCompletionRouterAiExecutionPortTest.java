@@ -5,7 +5,10 @@ import static org.mockito.Mockito.mock;
 
 import com.dndmaster.aigamemaster.application.ai.AiExecutionRequest;
 import com.dndmaster.aigamemaster.application.ai.AiExecutionSuccess;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
 import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
+import com.dndmaster.aigamemaster.infrastructure.endpoint.InMemoryAgentEndpointStore;
 import com.dndmaster.aigamemaster.infrastructure.ai.SafeAiAuditLogger;
 import java.net.URI;
 import java.time.Duration;
@@ -15,6 +18,27 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
 
 class GmCompletionRouterAiExecutionPortTest {
+    @Test
+    void selected_codex_provider_requires_and_forwards_the_server_confirmed_identity() {
+        AtomicReference<AiExecutionRequest> captured = new AtomicReference<>();
+        UUID endpointId = UUID.randomUUID();
+        var registry = new AgentEndpointRegistry(new InMemoryAgentEndpointStore());
+        registry.save(new AgentEndpoint(endpointId, "codex", AgentEndpoint.Provider.CODEX_CLI,
+                URI.create("https://codex.example/"), "gpt-5.6-luna", null, true, java.time.Instant.now()));
+        var router = new GmCompletionRouter(new SpringAiChatAdapter(mock(ChatModel.class), 1,
+                new SafeAiAuditLogger(message -> { })),
+                new GmProviderProperties("ollama", "unused", "medium", URI.create("https://api.openai.com/"), "", Duration.ofSeconds(5)),
+                registry, request -> { captured.set(request); return new AiExecutionSuccess("selected"); });
+        UUID soloPlayerId = UUID.fromString("00000000-0000-0000-0000-000000000323");
+
+        var result = router.completeWithSelection(soloPlayerId, "request-323", "completed prompt", value -> value,
+                new RequestedGmProviderSelection(endpointId, "codex-cli", "gpt-5.6-luna", "medium"));
+
+        assertThat(result.response()).isEqualTo("selected");
+        assertThat(captured.get().soloPlayerId()).isEqualTo(soloPlayerId);
+        assertThat(captured.get().requestId()).isEqualTo("request-323");
+    }
+
     @Test
     void sends_completed_prompt_and_server_confirmed_identity_to_the_common_execution_port_before_parsing() {
         AtomicReference<AiExecutionRequest> captured = new AtomicReference<>();
