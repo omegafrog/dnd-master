@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: agent-connection-relay-service
+  codec:
+    max-in-memory-size: ${RELAY_MAX_PAYLOAD_BYTES:16777216}
+relay:
+  instance-id: ${RELAY_INSTANCE_ID:relay-local}
+  internal-token: ${INTERNAL_SERVICE_TOKEN:}
+  execution-timeout: ${RELAY_EXECUTION_TIMEOUT:PT3M}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
