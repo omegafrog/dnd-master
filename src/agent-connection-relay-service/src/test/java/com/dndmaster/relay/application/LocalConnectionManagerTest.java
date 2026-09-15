@@ -57,7 +57,11 @@ class LocalConnectionManagerTest {
                 RelayMetrics.noop(), Duration.ofMillis(30));
         var player = UUID.randomUUID();
         var lease = new ConnectionLocationLease(player, "a", "http://a", "s", "c", Instant.now());
-        manager.connect(lease, Duration.ofSeconds(30), ignored -> { sends.incrementAndGet(); return Mono.never(); }).block();
+        manager.connect(lease, Duration.ofSeconds(30), sent -> {
+            sends.incrementAndGet();
+            if (sent.requestId().equals("duplicate")) manager.complete(sent.requestId(), "done");
+            return Mono.never();
+        }).block();
         var request = new RelayExecutionRequest(player, "duplicate", "w", "prompt", "model", "medium", "text", null, List.of());
 
         var first = manager.execute(request).subscribe();
@@ -122,5 +126,41 @@ class LocalConnectionManagerTest {
         var request = new RelayExecutionRequest(player, "oversized", "w", "prompt", "model", "medium", "text", null, List.of());
 
         StepVerifier.create(manager.execute(request)).expectNextMatches(result -> result.failureType() == RelayFailureType.REMOTE_FAILURE).verifyComplete();
+    }
+
+    @Test void rejectsRequestForAConnectionThatIsNoLongerActive() {
+        var repository = new InMemoryConnectionLocationRepository(Clock.systemUTC());
+        var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),
+                RelayMetrics.noop(), Duration.ofSeconds(1));
+        var player = UUID.randomUUID();
+        var lease = new ConnectionLocationLease(player, "a", "http://a", "s", "current", Instant.now());
+        manager.connect(lease, Duration.ofSeconds(30), ignored -> { fail("stale connection must not send"); return Mono.empty(); }).block();
+        var request = new RelayExecutionRequest(player, "stale", "w", "prompt", "model", "medium", "text", null, List.of())
+                .withConnectionId("replaced");
+
+        StepVerifier.create(manager.execute(request)).expectNextMatches(result -> result.failureType() == RelayFailureType.CONNECTION_LOST).verifyComplete();
+    }
+
+    @Test void cancelledConnectionClaimIsNotActivatedAfterLeaseRegistration() {
+        reactor.core.publisher.Sinks.Empty<Void> claim = reactor.core.publisher.Sinks.empty();
+        var releases = new AtomicInteger();
+        var repository = new ConnectionLocationRepository() {
+            @Override public Mono<Optional<ConnectionLocationLease>> find(UUID soloPlayerId) { return Mono.just(Optional.empty()); }
+            @Override public Mono<Void> claim(ConnectionLocationLease lease, Duration ttl) { return claim.asMono(); }
+            @Override public Mono<Boolean> renew(ConnectionLocationLease lease, Duration ttl) { return Mono.just(false); }
+            @Override public Mono<Boolean> release(UUID soloPlayerId, String connectionId) { releases.incrementAndGet(); return Mono.just(true); }
+        };
+        var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),
+                RelayMetrics.noop(), Duration.ofSeconds(1));
+        var player = UUID.randomUUID();
+        var lease = new ConnectionLocationLease(player, "a", "http://a", "s", "pending", Instant.now());
+        var connection = manager.connect(lease, Duration.ofSeconds(30), ignored -> Mono.empty()).subscribe();
+
+        assertTrue(manager.disconnect(player, "pending").block());
+        claim.tryEmitEmpty();
+        connection.dispose();
+        assertEquals(1, releases.get());
+        StepVerifier.create(manager.execute(new RelayExecutionRequest(player, "not-active", "w", "prompt", "model", "medium", "text", null, List.of())))
+                .expectNextMatches(result -> result.failureType() == RelayFailureType.NO_CONNECTION).verifyComplete();
     }
 }

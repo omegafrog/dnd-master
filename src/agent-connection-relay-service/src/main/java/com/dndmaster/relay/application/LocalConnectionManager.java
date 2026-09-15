@@ -4,16 +4,19 @@ import java.time.Duration;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import reactor.core.publisher.Mono;
 
 public final class LocalConnectionManager implements LocalConnectionExecutor {
     private final Map<UUID, Connection> connections = new ConcurrentHashMap<>();
+    private final Map<UUID, Connection> connecting = new ConcurrentHashMap<>();
     private final Map<String, ActiveRequest> activeRequests = new ConcurrentHashMap<>();
     private final ConnectionLeaseService leases;
     private final RequestCompletionRegistry completions;
     private final RelayMetrics metrics;
     private final Duration executionTimeout;
     private final int maxPayloadBytes;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public LocalConnectionManager(ConnectionLeaseService leases, RequestCompletionRegistry completions,
                                   RelayMetrics metrics, Duration executionTimeout) {
@@ -27,7 +30,9 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
     }
     public Mono<Void> connect(ConnectionLocationLease lease, Duration ttl, AgentConnectionTransport transport) {
         var connection = new Connection(lease.connectionId(), transport);
-        return leases.claim(lease, ttl).then(Mono.fromRunnable(() -> {
+        connecting.put(lease.soloPlayerId(), connection);
+        return leases.claim(lease, ttl).then(Mono.defer(() -> {
+            if (!connecting.remove(lease.soloPlayerId(), connection)) return leases.release(lease.soloPlayerId(), lease.connectionId()).then();
             var previous = connections.put(lease.soloPlayerId(), connection);
             metrics.activeConnections(connections.size());
             if (previous != null && !previous.connectionId().equals(connection.connectionId())) {
@@ -38,11 +43,16 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
                     }
                 });
             }
-        }));
+            return Mono.empty();
+        })).doOnError(ignored -> connecting.remove(lease.soloPlayerId(), connection));
     }
     public Mono<Boolean> disconnect(UUID soloPlayerId, String connectionId) {
         var current = connections.get(soloPlayerId);
-        if (current == null || !current.connectionId().equals(connectionId)) return Mono.just(false);
+        if (current == null || !current.connectionId().equals(connectionId)) {
+            var pending = connecting.get(soloPlayerId);
+            return pending != null && pending.connectionId().equals(connectionId) && connecting.remove(soloPlayerId, pending)
+                    ? Mono.just(true) : Mono.just(false);
+        }
         if (!connections.remove(soloPlayerId, current)) return Mono.just(false);
         metrics.activeConnections(connections.size());
         activeRequests.forEach((requestId, activeRequest) -> {
@@ -54,6 +64,8 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
     @Override public Mono<RelayExecutionResult> execute(RelayExecutionRequest request) {
         var connection = connections.get(request.soloPlayerId());
         if (connection == null) return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.NO_CONNECTION));
+        if (!request.connectionId().isBlank() && !request.connectionId().equals(connection.connectionId()))
+            return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.CONNECTION_LOST));
         Duration remaining = remaining(request);
         if (remaining.isZero() || remaining.isNegative()) return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT));
         Duration wait = remaining.compareTo(executionTimeout) < 0 ? remaining : executionTimeout;
@@ -63,18 +75,19 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
         activeRequests.put(request.requestId(), new ActiveRequest(request.soloPlayerId(), connection.connectionId()));
         boolean stillConnected = connections.get(request.soloPlayerId()) == connection;
         if (!stillConnected) completions.fail(request.requestId(), new ConnectionLostException());
-        Mono<Void> delivery = stillConnected ? connection.transport().send(request)
+        Mono<Void> delivery = stillConnected ? Mono.defer(() -> connection.transport().send(request))
                 .doOnError(failure -> completions.fail(request.requestId(), failure)) : Mono.empty();
         return Mono.zip(delivery.thenReturn(true), result, (ignored, content) -> content).timeout(wait)
                 .map(content -> {
-                    if (content.getBytes(StandardCharsets.UTF_8).length > maxPayloadBytes) throw new PayloadTooLargeException();
-                    return RelayExecutionResult.success(request.requestId(), content);
+                    var response = RelayExecutionResult.success(request.requestId(), content);
+                    if (jsonBytes(response) > maxPayloadBytes) throw new PayloadTooLargeException();
+                    return response;
                 })
                 .onErrorResume(PayloadTooLargeException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE)))
                 .onErrorResume(ConnectionLostException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.CONNECTION_LOST)))
                 .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT)))
                 .onErrorResume(ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE)))
-                .doFinally(ignored -> { activeRequests.remove(request.requestId()); completions.cancel(request.requestId()); });
+                .doFinally(ignored -> { activeRequests.remove(request.requestId()); completions.cancel(request.requestId()); completions.close(request.requestId()); });
     }
     public boolean complete(String requestId, String finalContent) { return completions.complete(requestId, finalContent); }
     public boolean fail(String requestId, Throwable failure) { return completions.fail(requestId, failure); }
@@ -84,6 +97,10 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
     }
     private final class PayloadTooLargeException extends RuntimeException {
         private PayloadTooLargeException() { super("relay response exceeds configured UTF-8 payload limit"); }
+    }
+    private int jsonBytes(Object value) {
+        try { return objectMapper.writeValueAsBytes(value).length; }
+        catch (Exception failure) { throw new IllegalArgumentException("relay payload cannot be encoded", failure); }
     }
     private record Connection(String connectionId, AgentConnectionTransport transport) {}
     private record ActiveRequest(UUID soloPlayerId, String connectionId) {}

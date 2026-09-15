@@ -48,7 +48,8 @@ public final class RelayExecutionDispatcher implements ExecutionService {
         return locations.find(routedRequest.soloPlayerId())
                 .flatMap(found -> found.<Mono<RelayExecutionResult>>map(lease -> {
                     owningInstance.set(lease.instanceId());
-                    return instanceId.equals(lease.instanceId()) ? local.execute(routedRequest) : remote.execute(lease.internalAddress(), routedRequest);
+                    var targetedRequest = routedRequest.withConnectionId(lease.connectionId());
+                    return instanceId.equals(lease.instanceId()) ? local.execute(targetedRequest) : remote.execute(lease.internalAddress(), targetedRequest);
                 })
                         .orElseGet(() -> Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.NO_CONNECTION))))
                 .timeout(remaining.compareTo(timeout) < 0 ? remaining : timeout)
