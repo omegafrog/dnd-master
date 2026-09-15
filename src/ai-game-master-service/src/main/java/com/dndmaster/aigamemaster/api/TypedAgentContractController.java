@@ -70,7 +70,7 @@ public final class TypedAgentContractController {
             @RequestBody RuntimeTurnRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.complete(request.operationKey(),
+        return adapter.complete(request.soloPlayerId(), request.operationKey(), new com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt(
                         "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=" + write(request.factLookupResults())
                         + "\nRUNTIME_CONTEXT=" + write(request.runtimeContext())
                         + "\nACTION=" + request.action()
@@ -92,7 +92,7 @@ public final class TypedAgentContractController {
                         + "combatEnemies must always be an array of objects with mode (SCENARIO, SITUATION, or INSTANT), scenarioId, enemyKey, name, and positive count; "
                         + "SCENARIO requires a scenarioId from the current ScenarioModel. SITUATION leaves scenarioId empty and requires matching storybook RAG evidence for the current situation. INSTANT leaves scenarioId empty and is reserved for a GM-forced consequence such as noise or a critical failure. "
                         + "Use [] when combatStart is false. Never invent an enemy from the action alone. "
-                        + "Do not use markdown, code fences, or any other text.",
+                        + "Do not use markdown, code fences, or any other text."),
                 json -> parseRuntimeTurn(json, "SESSION_OPENING".equalsIgnoreCase(request.action())));
     }
 

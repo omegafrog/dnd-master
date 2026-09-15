@@ -37,7 +37,7 @@ public final class CharacterInputTagController {
         LOGGER.info("character_tag_extract_started operationId={} focused={} excerpts={} promptChars={} excerptSummaries={}",
                 request.operationId(), focused, request.excerpts().size(), prompt.length(), excerptSummaries(request.excerpts()));
         try {
-            String modelResponse = adapter.complete(request.operationId(), prompt);
+            String modelResponse = adapter.complete(request.soloPlayerId(), request.operationId(), prompt);
             LOGGER.info("character_tag_model_response operationId={} responseChars={} payload={}",
                     request.operationId(), modelResponse == null ? 0 : modelResponse.length(), diagnosticText(modelResponse));
 

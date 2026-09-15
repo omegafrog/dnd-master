@@ -11,7 +11,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionRouter;
-import com.dndmaster.aigamemaster.infrastructure.ai.CodexAppServerClient;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt;
 import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
 import com.dndmaster.aigamemaster.configuration.LocalOllamaProperties;
@@ -50,15 +50,6 @@ public class AiGameMasterApiConfiguration {
                     provider == AgentEndpoint.Provider.OPENAI_COMPATIBLE ? "OPENAI_API_KEY" : null, true, java.time.Instant.now()));
         }
         return registry;
-    }
-
-    @Bean(destroyMethod = "close")
-    CodexAppServerClient codexAppServerClient(
-            @Value("${ai.codex.executable:codex}") String codexExecutable,
-            @Value("${ai.codex.work-directory:/tmp}") String codexWorkDirectory,
-            @Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout,
-            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
-        return CodexAppServerClient.shared(codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout, objectMapper);
     }
 
     @Bean
@@ -542,10 +533,8 @@ public class AiGameMasterApiConfiguration {
             com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter adapter,
             com.fasterxml.jackson.databind.ObjectMapper objectMapper,
             AgentEndpointRegistry endpointRegistry,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
-        return new ResolutionCandidateController(adapter, objectMapper, endpointRegistry, codexExecutable, codexWorkDirectory, codexTimeout);
+            AiExecutionPort aiExecutionPort) {
+        return new ResolutionCandidateController(adapter, objectMapper, endpointRegistry, aiExecutionPort);
     }
 
     @Bean
@@ -568,11 +557,9 @@ public class AiGameMasterApiConfiguration {
     @Bean
     @Primary
     GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties, AgentEndpointRegistry endpointRegistry,
-                                             @Value("${ai.codex.executable:codex}") String codexExecutable,
-                                             @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-                                             @Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
+                                             AiExecutionPort aiExecutionPort) {
         properties.validate();
-        return new GmCompletionRouter(ollama, properties, endpointRegistry, codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout);
+        return new GmCompletionRouter(ollama, properties, endpointRegistry, aiExecutionPort);
     }
 
 }

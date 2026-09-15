@@ -19,6 +19,7 @@ class BuildModulesTest {
             "dice-roll-service",
             "combat-map-service",
             "ai-game-master-service",
+            "ai-game-master-local-codex",
             "gm-eval-service",
             "app-all",
             "architecture-tests",

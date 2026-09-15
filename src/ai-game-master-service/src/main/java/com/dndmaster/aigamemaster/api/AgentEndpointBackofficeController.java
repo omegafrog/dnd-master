@@ -2,7 +2,6 @@ package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
-import com.dndmaster.aigamemaster.infrastructure.ai.CodexAppServerClient;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -17,9 +16,9 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/v1/profile/agent-endpoints")
 public final class AgentEndpointBackofficeController {
-    private final AgentEndpointRegistry registry; private final CodexAppServerClient codexAppServer;
-    public AgentEndpointBackofficeController(AgentEndpointRegistry registry, CodexAppServerClient codexAppServer) {
-        this.registry = registry; this.codexAppServer = codexAppServer;
+    private final AgentEndpointRegistry registry;
+    public AgentEndpointBackofficeController(AgentEndpointRegistry registry) {
+        this.registry = registry;
     }
     @GetMapping List<EndpointView> list(@RequestHeader("Authorization") String authorization) { requireAuthenticated(authorization); return registry.list().stream().map(EndpointView::from).toList(); }
     @PutMapping("/{endpointId}") EndpointView save(@RequestHeader("Authorization") String authorization, @PathVariable UUID endpointId, @RequestBody EndpointRequest request) {
@@ -35,8 +34,7 @@ public final class AgentEndpointBackofficeController {
         AgentEndpoint endpoint = registry.list().stream().filter(value -> value.id().equals(endpointId)).findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         try {
             if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
-                boolean authenticated = codexAppServer.isAuthenticated();
-                return new HealthView(authenticated, null, authenticated ? null : "Codex OAuth session unavailable");
+                return new HealthView(false, null, "local Codex health is available only in the development-only module");
             }
             String path = endpoint.provider() == AgentEndpoint.Provider.OLLAMA ? "/api/tags" : "/v1/models";
             HttpRequest.Builder request = HttpRequest.newBuilder(endpoint.baseUrl().resolve(path)).timeout(Duration.ofSeconds(5)).GET();
@@ -53,7 +51,8 @@ public final class AgentEndpointBackofficeController {
         requireAuthenticated(authorization);
         AgentEndpoint endpoint = registry.list().stream().filter(value -> value.id().equals(endpointId)).findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         if (endpoint.provider() != AgentEndpoint.Provider.CODEX_CLI) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "OAuth login is only available for Codex endpoints");
-        return new LoginView(codexAppServer.startBrowserLogin());
+        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "local Codex login is available only in the development-only module");
     }
     private void requireAuthenticated(String authorization) {
         if (authorization == null || !authorization.startsWith("Bearer ") || authorization.substring(7).isBlank()) {

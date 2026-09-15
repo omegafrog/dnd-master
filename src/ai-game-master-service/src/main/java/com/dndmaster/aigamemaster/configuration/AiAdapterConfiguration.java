@@ -4,8 +4,9 @@ import com.dndmaster.aigamemaster.infrastructure.ai.SafeAiAuditLogger;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.OpenAiResponsesCharacterTagProvider;
-import com.dndmaster.aigamemaster.infrastructure.ai.CodexCliCharacterTagProvider;
 import com.dndmaster.aigamemaster.infrastructure.ai.OllamaThinkingCharacterTagProvider;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionPort;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.http.HttpClient;
 import org.slf4j.LoggerFactory;
@@ -27,7 +28,7 @@ public class AiAdapterConfiguration {
     @Bean
     CharacterTagCompletionPort characterTagCompletionPort(
             SpringAiChatAdapter ollamaAdapter, CharacterTagModelProperties properties,
-            LocalOllamaProperties ollamaProperties, ObjectMapper objectMapper) {
+            LocalOllamaProperties ollamaProperties, ObjectMapper objectMapper, AiExecutionPort aiExecutionPort) {
         if (CharacterTagModelProperties.OLLAMA.equals(properties.provider())) {
             if (ollamaProperties.chatModel().toLowerCase(java.util.Locale.ROOT).contains("thinking")) {
                 OllamaThinkingCharacterTagProvider provider = new OllamaThinkingCharacterTagProvider(HttpClient.newHttpClient(),
@@ -38,9 +39,15 @@ public class AiAdapterConfiguration {
         }
         if (CharacterTagModelProperties.CODEX_CLI.equals(properties.provider())) {
             properties.validateCodexCli();
-            CodexCliCharacterTagProvider provider = new CodexCliCharacterTagProvider(
-                    properties.executable(), properties.model(), properties.workDirectory(), properties.timeout());
-            return provider::complete;
+            return new CharacterTagCompletionPort() {
+                @Override public String complete(String operationId, String prompt) {
+                    throw new IllegalStateException("Codex character tag execution requires a server-confirmed Solo Player ID");
+                }
+                @Override public String complete(java.util.UUID soloPlayerId, String operationId, String prompt) {
+                    return aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId, operationId, operationId, prompt,
+                            properties.model(), "medium", "JSON_ARRAY", null, "")).requireFinalText();
+                }
+            };
         }
         properties.validateOpenAi();
         OpenAiResponsesCharacterTagProvider provider = new OpenAiResponsesCharacterTagProvider(

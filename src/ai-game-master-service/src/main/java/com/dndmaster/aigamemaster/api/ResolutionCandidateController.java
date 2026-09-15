@@ -8,16 +8,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.ArrayList;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
-import com.dndmaster.aigamemaster.infrastructure.ai.CodexCliCompletionAdapter;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionPort;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionRequest;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.beans.factory.annotation.Value;
-import java.time.Duration;
-import java.nio.file.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -35,26 +33,20 @@ public final class ResolutionCandidateController {
     private final SpringAiChatAdapter adapter;
     private final ObjectMapper objectMapper;
     private final AgentEndpointRegistry endpointRegistry;
-    private final String codexExecutable;
-    private final Path codexWorkDirectory;
-    private final Duration codexTimeout;
+    private final AiExecutionPort aiExecutionPort;
 
     /** Backward-compatible constructor for deterministic parser tests. */
     public ResolutionCandidateController(SpringAiChatAdapter adapter, ObjectMapper objectMapper) {
-        this(adapter, objectMapper, null, "codex", ".", Duration.ofMinutes(5));
+        this(adapter, objectMapper, null, new com.dndmaster.aigamemaster.infrastructure.ai.RemoteAiExecutionPort());
     }
 
     public ResolutionCandidateController(SpringAiChatAdapter adapter, ObjectMapper objectMapper,
             AgentEndpointRegistry endpointRegistry,
-            @Value("${ai.codex.executable:codex}") String codexExecutable,
-            @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @Value("${ai.codex.timeout:PT5M}") Duration codexTimeout) {
+            AiExecutionPort aiExecutionPort) {
         this.adapter = adapter;
         this.objectMapper = objectMapper;
         this.endpointRegistry = endpointRegistry;
-        this.codexExecutable = codexExecutable;
-        this.codexWorkDirectory = Path.of(codexWorkDirectory);
-        this.codexTimeout = codexTimeout;
+        this.aiExecutionPort = aiExecutionPort;
     }
 
     @PostMapping("/internal/v1/gm/resolution-candidates")
@@ -77,8 +69,8 @@ public final class ResolutionCandidateController {
         AgentEndpoint endpoint = endpointRegistry.active();
         try {
             if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
-                String response = new CodexCliCompletionAdapter(codexExecutable, endpoint.model(), codexWorkDirectory, codexTimeout)
-                        .complete(request.operationId(), prompt);
+                String response = aiExecutionPort.execute(new AiExecutionRequest(request.soloPlayerId(), request.operationId(),
+                        request.operationId(), prompt, endpoint.model(), "medium", "JSON_ARRAY", null, "")).requireFinalText();
                 candidates = parseModel(response);
             } else {
                 candidates = adapter.complete(request.operationId(), prompt, this::parseModel);

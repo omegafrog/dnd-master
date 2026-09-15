@@ -1,6 +1,7 @@
 package com.dndmaster.aigamemaster.infrastructure.ai;
 
 import java.util.List;
+import java.util.UUID;
 
 @FunctionalInterface
 public interface GmCompletionAdapter {
@@ -8,6 +9,11 @@ public interface GmCompletionAdapter {
 
     default <T> T complete(String operationId, GmPrompt prompt, StructuredResponseParser<T> parser) {
         return complete(operationId, prompt.text(), parser);
+    }
+
+    default <T> T complete(UUID soloPlayerId, String operationId, GmPrompt prompt,
+                           StructuredResponseParser<T> parser) {
+        return complete(operationId, prompt, parser);
     }
 
     default <T> GmCompletionResult<T> completeWithSelection(
