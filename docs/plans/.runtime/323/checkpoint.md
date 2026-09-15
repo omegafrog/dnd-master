@@ -1,8 +1,8 @@
 ---
 plan_id: 323
-orchestration_state: implementing
+orchestration_state: completed
 attempt: 1
-last_completed_step: "독립 리뷰 지적에 대한 연결 수명·현재 소유권·전송 경합·최종 요청 계측 보강과 전체 집중 검증, graphify update 완료"
+last_completed_step: "고정 기준점 대비 독립 Standards/Spec 검토 통과와 완료 상태 검증"
 changed_files:
   - docs/plans/.runtime/323/checkpoint.md
   - src/settings.gradle.kts
@@ -24,6 +24,7 @@ implementation_commits:
   - 7eee1661
   - 9b204f51
   - 2d54e580
+  - ee48f819
 tests:
   - "PASS ./gradlew :agent-connection-relay-service:cleanTest :agent-connection-relay-service:test :agent-connection-relay-service:bootJar"
   - "PASS ./gradlew :architecture-tests:test --tests com.dndmaster.architecture.BuildModulesTest"
@@ -41,9 +42,12 @@ tests:
   - "PASS graphify update ."
   - "LOAD 200 동시 요청, 65538 UTF-8 bytes, p95 28.736 ms, 126480681 bytes/s, heap/direct delta 0"
   - "BASELINE FAIL 전체 check: 기존 Adventure 도메인 허용 목록 2건과 TransactionBoundaryIntegrationTest 1건"
-blocker: null
+reviews:
+  standards_reviewer: PASS
+  spec_reviewer: PASS
+blocker: none
 smart_zone: "dispatch fits; 순차 구현 유지"
-next_action: "현재 #323 수정 커밋 후 고정 기준 대비 독립 Standards/Spec 재리뷰 재실행"
-handoff_reason: null
-updated_at: "2026-09-15T17:32:00+09:00"
+next_action: "#323 의존 계획 재평가; 현재 계획 세트의 마지막 분할 계획이므로 통합 PR 단계 검토"
+handoff_reason: completed
+updated_at: "2026-09-15T17:45:00+09:00"
 ---
