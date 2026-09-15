@@ -41,7 +41,11 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
         if (remaining.isZero() || remaining.isNegative()) return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT));
         Mono<String> result = completions.await(request.requestId(), remaining.compareTo(executionTimeout) < 0 ? remaining : executionTimeout);
         activeRequests.put(request.requestId(), request.soloPlayerId());
-        return connection.transport().send(request).doOnError(failure -> completions.fail(request.requestId(), failure)).then(result)
+        boolean stillConnected = connections.get(request.soloPlayerId()) == connection;
+        if (!stillConnected) completions.fail(request.requestId(), new ConnectionLostException());
+        Mono<Void> delivery = stillConnected ? connection.transport().send(request)
+                .doOnError(failure -> completions.fail(request.requestId(), failure)) : Mono.empty();
+        return delivery.then(result)
                 .map(content -> RelayExecutionResult.success(request.requestId(), content))
                 .onErrorResume(ConnectionLostException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.CONNECTION_LOST)))
                 .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT)))

@@ -10,23 +10,44 @@ import java.net.URI;
 import java.net.http.*;
 import java.time.Duration;
 import java.util.List;
+import io.micrometer.core.instrument.*;
+import org.slf4j.*;
 
 /** Sends the server-completed prompt to the authenticated connection relay API. */
 public final class RemoteAiExecutionPort implements AiExecutionPort {
+    private static final Logger log = LoggerFactory.getLogger(RemoteAiExecutionPort.class);
     private final HttpClient client;
     private final ObjectMapper mapper;
     private final URI endpoint;
     private final String internalToken;
     private final Duration timeout;
+    private final MeterRegistry metrics;
 
     /** Backward-compatible non-runtime constructor used by deterministic component tests. */
-    public RemoteAiExecutionPort() { this(null, new ObjectMapper(), null, "", Duration.ofSeconds(1)); }
+    public RemoteAiExecutionPort() { this(null, new ObjectMapper(), null, "", Duration.ofSeconds(1), null); }
     public RemoteAiExecutionPort(HttpClient client, ObjectMapper mapper, URI relayBaseUri, String internalToken, Duration timeout) {
+        this(client, mapper, relayBaseUri, internalToken, timeout, null);
+    }
+    public RemoteAiExecutionPort(HttpClient client, ObjectMapper mapper, URI relayBaseUri, String internalToken, Duration timeout, MeterRegistry metrics) {
         this.client = client; this.mapper = mapper; this.endpoint = relayBaseUri == null ? null : relayBaseUri.resolve("/internal/executions");
-        this.internalToken = internalToken == null ? "" : internalToken; this.timeout = timeout;
+        this.internalToken = internalToken == null ? "" : internalToken; this.timeout = timeout; this.metrics = metrics;
     }
     @Override
     public AiExecutionResult execute(AiExecutionRequest request) {
+        long started = System.nanoTime();
+        log.info("remote AI execution started requestId={} implementation=remote-relay", AiCallObservability.safe(request.requestId()));
+        AiExecutionResult result = executeInternal(request);
+        String outcome = result instanceof AiExecutionSuccess ? "success" : ((AiExecutionFailure) result).reason().name();
+        Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
+        if (metrics != null) {
+            Counter.builder("ai.execution.count").tag("implementation", "remote-relay").tag("result", outcome).register(metrics).increment();
+            Timer.builder("ai.execution.duration").tag("implementation", "remote-relay").tag("result", outcome).register(metrics).record(elapsed);
+        }
+        log.info("remote AI execution completed requestId={} implementation=remote-relay result={} durationMs={}",
+                AiCallObservability.safe(request.requestId()), outcome, elapsed.toMillis());
+        return result;
+    }
+    private AiExecutionResult executeInternal(AiExecutionRequest request) {
         if (endpoint == null) return failure(AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE);
         try {
             var body = new RelayRequest(request.soloPlayerId(), request.requestId(), request.workId(), request.completedPrompt(),

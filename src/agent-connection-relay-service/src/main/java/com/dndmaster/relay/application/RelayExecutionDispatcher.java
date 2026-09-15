@@ -37,7 +37,14 @@ public final class RelayExecutionDispatcher implements ExecutionService {
         long requestBytes = utf8Bytes(routedRequest);
         var owningInstance = new AtomicReference<>("none");
         Duration remaining = Duration.ofMillis(routedRequest.deadlineEpochMillis() - System.currentTimeMillis());
-        if (remaining.isZero() || remaining.isNegative()) return Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.TIMEOUT));
+        if (remaining.isZero() || remaining.isNegative()) {
+            var result = RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.TIMEOUT);
+            long responseBytes = jsonBytes(result);
+            metrics.finished(requestBytes, responseBytes, Duration.ZERO, RelayFailureType.TIMEOUT);
+            log.warn("relay execution failed requestId={} fromInstance={} owningInstance=none requestBytes={} responseBytes={} durationMs=0 failureType=TIMEOUT",
+                    routedRequest.requestId(), instanceId, requestBytes, responseBytes);
+            return Mono.just(result);
+        }
         return locations.find(routedRequest.soloPlayerId())
                 .flatMap(found -> found.<Mono<RelayExecutionResult>>map(lease -> {
                     owningInstance.set(lease.instanceId());

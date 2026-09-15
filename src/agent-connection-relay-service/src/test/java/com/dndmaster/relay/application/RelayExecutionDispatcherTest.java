@@ -48,4 +48,28 @@ class RelayExecutionDispatcherTest {
                 (address, request) -> Mono.never(), RelayMetrics.noop(), Duration.ofSeconds(1));
         StepVerifier.create(failed.execute(REQUEST)).expectNextMatches(r -> r.failureType() == RelayFailureType.REMOTE_FAILURE).verifyComplete();
     }
+
+    @Test void recordsExpiredRequestAsTimeoutWithoutRouting() {
+        var metrics = new RecordingRelayMetrics();
+        var expired = REQUEST.withDeadline(System.currentTimeMillis() - 1);
+        var dispatcher = new RelayExecutionDispatcher("a", id -> {
+            fail("expired request must not query connection location");
+            return Mono.empty();
+        }, request -> Mono.error(new AssertionError()), (address, request) -> Mono.error(new AssertionError()), metrics, Duration.ofSeconds(1));
+
+        StepVerifier.create(dispatcher.execute(expired))
+                .expectNextMatches(result -> result.failureType() == RelayFailureType.TIMEOUT)
+                .verifyComplete();
+        assertEquals(RelayFailureType.TIMEOUT, metrics.failureType);
+    }
+
+    private static final class RecordingRelayMetrics implements RelayMetrics {
+        private RelayFailureType failureType;
+
+        @Override public void finished(long requestBytes, long responseBytes, Duration duration, RelayFailureType failureType) {
+            this.failureType = failureType;
+        }
+
+        @Override public void activeConnections(int count) { }
+    }
 }

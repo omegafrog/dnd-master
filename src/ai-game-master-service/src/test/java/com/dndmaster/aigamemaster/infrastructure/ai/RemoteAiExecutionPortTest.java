@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class RemoteAiExecutionPortTest {
     @Test
@@ -38,13 +39,16 @@ class RemoteAiExecutionPortTest {
         });
         server.start();
         try {
+            var registry = new SimpleMeterRegistry();
             var port = new RemoteAiExecutionPort(HttpClient.newHttpClient(), new ObjectMapper(),
-                    URI.create("http://localhost:" + server.getAddress().getPort()), "service-token", Duration.ofSeconds(2));
+                    URI.create("http://localhost:" + server.getAddress().getPort()), "service-token", Duration.ofSeconds(2), registry);
             var result = port.execute(new AiExecutionRequest(UUID.randomUUID(), "request-323", "work-323", "completed prompt",
                     "model", "medium", "TEXT", null, ""));
             assertEquals("final", result.requireFinalText());
             assertEquals("service-token", token.get());
             assertTrue(body.get().contains("\"prompt\":\"completed prompt\""));
+            assertEquals(1, registry.get("ai.execution.count").tag("implementation", "remote-relay").tag("result", "success").counter().count());
+            assertEquals(1, registry.get("ai.execution.duration").tag("implementation", "remote-relay").tag("result", "success").timer().count());
         } finally { server.stop(0); }
     }
 }
