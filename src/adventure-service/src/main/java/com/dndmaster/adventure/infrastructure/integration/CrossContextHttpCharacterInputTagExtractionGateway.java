@@ -31,9 +31,7 @@ public final class CrossContextHttpCharacterInputTagExtractionGateway implements
 
     @Override public List<CharacterInputTagCandidate> extract(Request request) {
         try {
-            String body = objectMapper.writeValueAsString(new WireRequest(request.operationId(), request.excerpts().stream()
-                    .map(e -> new Excerpt(e.documentId().value(), e.extractionVersion(), e.locator(), e.text())).toList(),
-                    request.schemaVersion(), request.promptVersion(), request.instruction()));
+            String body = objectMapper.writeValueAsString(wireRequest(request));
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/character-input-tags"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
@@ -59,6 +57,12 @@ public final class CrossContextHttpCharacterInputTagExtractionGateway implements
                                 && reference.locator().equals(excerpt.locator()))));
     }
 
+    static WireRequest wireRequest(Request request) {
+        return new WireRequest(request.soloPlayerId(), request.operationId(), request.excerpts().stream()
+                .map(e -> new Excerpt(e.documentId().value(), e.extractionVersion(), e.locator(), e.text())).toList(),
+                request.schemaVersion(), request.promptVersion(), request.instruction());
+    }
+
     private static CharacterInputTagCandidate toCandidate(Candidate c) {
         List<ScenarioSourceReference> evidence = c.evidence() == null ? List.of() : c.evidence().stream()
                 .filter(Objects::nonNull).map(e -> new ScenarioSourceReference(new KnowledgeDocumentId(e.documentId()), e.extractionVersion(), e.locator())).toList();
@@ -73,7 +77,7 @@ public final class CrossContextHttpCharacterInputTagExtractionGateway implements
     }
 
     public static final class CharacterInputTagExtractionException extends RuntimeException { public CharacterInputTagExtractionException(String message) { super(message); } public CharacterInputTagExtractionException(String message, Throwable cause) { super(message, cause); } }
-    record WireRequest(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion,
+    record WireRequest(java.util.UUID soloPlayerId, String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion,
                        String instruction) {}
     record Excerpt(java.util.UUID documentId, long extractionVersion, String locator, String text) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<Candidate> candidates) {}

@@ -49,7 +49,7 @@ class CombatStartCommitWiringTest {
     }
 
     @Test
-    void schedules_the_first_ai_turn_when_an_enemy_wins_initiative() {
+    void schedules_the_first_ai_turn_only_after_result_processing_has_committed() {
         UUID adventureId = UUID.randomUUID();
         UUID playerId = UUID.randomUUID();
         UUID enemyId = UUID.randomUUID();
@@ -64,7 +64,11 @@ class CombatStartCommitWiringTest {
                 new CombatParticipant(enemyId, "적", CombatParticipant.Controller.AI, 20, null),
                 new CombatParticipant(playerId, "영웅", CombatParticipant.Controller.PLAYER, 10, null)));
 
-        var encounter = service.startFromCommittedGmTurn(adventureId, committedTurn(), proposal);
+        var turn = committedTurn();
+        var encounter = service.startFromCommittedGmTurn(adventureId, turn, proposal);
+
+        assertTrue(workItems.claim("test-worker", Duration.ofSeconds(10), Instant.now()).isEmpty());
+        assertTrue(service.scheduleFirstAiTurn(encounter, turn.commandId()));
 
         assertTrue(workItems.claim("test-worker", Duration.ofSeconds(10), Instant.now()).isPresent());
     }

@@ -8,6 +8,8 @@ include(
     ":dice-roll-service",
     ":combat-map-service",
     ":ai-game-master-service",
+    ":ai-game-master-local-codex",
+    ":agent-connection-relay-service",
     ":gm-eval-service",
     ":app-all",
     ":architecture-tests",

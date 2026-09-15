@@ -64,17 +64,17 @@
     "implement": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "75cc9e14af35625234057f9e707033cfdfff40d82620d577f201b807331c8d61"
+      "computedHash": "3fc9a3dbb1e5eb9acb5d98d115c53bde0c6eb7143b7c9350fe14bd70bacbe892"
     },
     "implement-wrapper": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "63d788d848c6b71f2a3255e9b37cd0f18044d549a49bee3950f92495ff1acc39"
+      "computedHash": "21ec4c7b4792c44e2caff966cd54ae5630eeaa9b239136877e462feb87a9eb80"
     },
     "plantuml-diagrams": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "9ea2d8adc0181f7ec4e5a44c32d69125f978b4c22049da93e1562cb45cef3e4c"
+      "computedHash": "deb5090de85326118d913895fb569c3bdd6b2c24c78afbd3c4d08d310666e694"
     },
     "product-spec": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
@@ -89,7 +89,7 @@
     "spec-me": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "7e627ca73a0b6466d1bf22dee8a327902fa9de0b534815b17683e1d2cb43ff08"
+      "computedHash": "c96234054d3efbb060ee972d73c821d55075c83c376c6f37aea2bebeede3cbc8"
     },
     "tdd": {
       "source": "omegafrog/harness-codex",

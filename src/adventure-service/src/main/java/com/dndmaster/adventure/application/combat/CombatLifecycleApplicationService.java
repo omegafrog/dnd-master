@@ -75,20 +75,20 @@ public final class CombatLifecycleApplicationService {
                     "{\"encounterId\":\"" + saved.encounterId() + "\",\"round\":1,\"currentParticipantId\":\""
                             + saved.currentParticipantId() + "\"}"));
         }
-        scheduleFirstAiTurn(saved);
         return saved;
     }
 
-    private void scheduleFirstAiTurn(CombatEncounter encounter) {
+    public boolean scheduleFirstAiTurn(CombatEncounter encounter, UUID aiRequestId) {
         if (workItemScheduler == null || adventureRepository == null
-                || encounter.currentParticipant().controller() != CombatParticipant.Controller.AI) return;
+                || encounter.currentParticipant().controller() != CombatParticipant.Controller.AI) return false;
         Adventure adventure = adventureRepository.findById(new com.dndmaster.adventure.domain.adventure.AdventureId(encounter.adventureId()))
                 .orElseThrow(() -> new IllegalStateException("adventure disappeared after combat start"));
         UUID actorId = encounter.currentParticipantId();
         CombatActionCommand template = new CombatActionCommand(UUID.randomUUID(), adventure.id(), adventure.sessionId().value(),
                 adventure.ruleSetId(), new com.dndmaster.adventure.domain.adventure.CharacterSheetId(actorId), null,
                 CombatActorRole.AI, "AI_TURN", null, adventure.ownerPlayerId().value(), actorId, encounter.version());
-        workItemScheduler.scheduleNext(template, encounter, 0, AiTacticalInstructionContext.none());
+        return workItemScheduler.scheduleNext(template, encounter, 0, AiTacticalInstructionContext.none(), aiRequestId)
+                == CombatWorkItemScheduler.OptionalSchedule.SCHEDULED;
     }
 
     /**

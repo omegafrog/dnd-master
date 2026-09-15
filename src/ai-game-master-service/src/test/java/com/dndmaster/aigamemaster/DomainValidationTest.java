@@ -14,8 +14,8 @@ class DomainValidationTest {
     void ruleAnswerRequestRequiresASituationAndCopiesEvidence() {
         UUID ruleSetId = UUID.randomUUID();
         assertThrows(IllegalArgumentException.class,
-                () -> new RuleAnswerRequest(ruleSetId, " ", EvidenceStatus.SUFFICIENT, List.of()));
+                () -> new RuleAnswerRequest(UUID.randomUUID(), ruleSetId, " ", EvidenceStatus.SUFFICIENT, List.of()));
         assertEquals("grapple",
-                new RuleAnswerRequest(ruleSetId, "grapple", EvidenceStatus.SUFFICIENT, List.of()).situation());
+                new RuleAnswerRequest(UUID.randomUUID(), ruleSetId, "grapple", EvidenceStatus.SUFFICIENT, List.of()).situation());
     }
 }

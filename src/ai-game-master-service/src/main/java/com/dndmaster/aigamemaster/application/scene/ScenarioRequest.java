@@ -7,6 +7,7 @@ import java.util.UUID;
 
 /** Inputs for one grounded scene, including the action that has already happened. */
 public record ScenarioRequest(
+        UUID soloPlayerId,
         UUID scenarioId,
         String selectedScenario,
         String currentContext,
@@ -16,6 +17,7 @@ public record ScenarioRequest(
         List<String> recentActions,
         List<String> runtimeFacts) {
     public ScenarioRequest {
+        soloPlayerId = Objects.requireNonNull(soloPlayerId, "solo player id must not be null");
         scenarioId = Objects.requireNonNull(scenarioId, "scenario id must not be null");
         selectedScenario = required(selectedScenario, "scenario");
         currentContext = required(currentContext, "context");
@@ -28,15 +30,15 @@ public record ScenarioRequest(
                 .stream().map(ScenarioRequest::optional).filter(value -> !value.isBlank()).toList();
     }
 
-    public ScenarioRequest(UUID scenarioId, String selectedScenario, String currentContext,
+    public ScenarioRequest(UUID soloPlayerId, UUID scenarioId, String selectedScenario, String currentContext,
             UUID ruleSetId, List<SourceEvidence> evidence, String playerAction,
             List<String> recentActions) {
-        this(scenarioId, selectedScenario, currentContext, ruleSetId, evidence, playerAction, recentActions, List.of());
+        this(soloPlayerId, scenarioId, selectedScenario, currentContext, ruleSetId, evidence, playerAction, recentActions, List.of());
     }
 
-    public ScenarioRequest(UUID scenarioId, String selectedScenario, String currentContext,
+    public ScenarioRequest(UUID soloPlayerId, UUID scenarioId, String selectedScenario, String currentContext,
             UUID ruleSetId, List<SourceEvidence> evidence) {
-        this(scenarioId, selectedScenario, currentContext, ruleSetId, evidence, "", List.of(), List.of());
+        this(soloPlayerId, scenarioId, selectedScenario, currentContext, ruleSetId, evidence, "", List.of(), List.of());
     }
 
     private static String required(String value, String name) {

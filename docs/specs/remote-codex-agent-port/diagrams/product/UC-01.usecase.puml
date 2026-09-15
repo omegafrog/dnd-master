@@ -1,0 +1,47 @@
+@startuml
+' UC-01 AI Game Master 요청 실행
+left to right direction
+skinparam shadowing false
+
+actor "Solo Player" as player
+actor "사용자 PC 에이전트" as agent
+
+rectangle "D&D Master 서버" {
+  usecase "AI Game Master\n요청 시작" as start
+  usecase "진행 중 AI 요청\n확인" as pending
+  usecase "새 요청 거절" as reject
+  usecase "AI 실행 요청 창구로\n요청 전달" as boundary
+  usecase "개발 전용 로컬 Codex\n실행" as local
+  usecase "요청 Solo Player의\n활성 사용자 PC 에이전트로 전달" as remote
+  usecase "최종 결과 한 건 반환" as result
+  usecase "오류 표시 및\n수동 재시도 가능" as failure
+}
+
+player --> start
+start --> pending
+pending --> reject : 진행 중 요청 있음
+pending --> boundary : 진행 중 요청 없음
+boundary --> local : 개발 환경
+boundary --> remote : 배포 환경
+remote --> agent
+local --> result
+remote --> result : 성공
+remote --> failure : 에이전트 없음, 실패,\n시간 초과, 연결 끊김
+result --> player
+failure --> player
+
+note bottom of boundary
+  모든 서버 Codex 실행은
+  이 요청 창구를 거친다.
+end note
+
+note bottom of failure
+  게임 상태 유지
+  자동 재시도 없음
+end note
+
+note bottom of reject
+  새 요청을 저장하거나
+  대기열에 넣지 않는다.
+end note
+@enduml

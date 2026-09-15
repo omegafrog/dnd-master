@@ -42,7 +42,7 @@ public final class TypedAgentContractController {
             @RequestBody ScenarioCompilationRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.complete(request.operationKey(),
+        return adapter.complete(request.soloPlayerId(), request.operationKey(),
                 "ROLE=SCENARIO_COMPILATION\nSTORYBOOK_CONTEXT=" + request.storybookContext(),
                 json -> parseCompilation(json));
     }
@@ -53,7 +53,7 @@ public final class TypedAgentContractController {
             @RequestBody ScenarioLookupRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.complete("scenario-lookup:" + request.query(),
+        return adapter.complete(request.soloPlayerId(), "scenario-lookup:" + request.query(),
                 "ROLE=SCENARIO_LOOKUP\nREAD_ONLY_LOCKED_SCENARIO_MODEL=" + write(request.lockedScenarioModel())
                         + "\nQUERY=" + request.query()
                         + "\nOUTPUT_CONTRACT=Return exactly one JSON object with status, answer, and supportingElementIds. "
@@ -70,7 +70,7 @@ public final class TypedAgentContractController {
             @RequestBody RuntimeTurnRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.complete(request.operationKey(),
+        return adapter.complete(request.soloPlayerId(), request.operationKey(), new com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt(
                         "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=" + write(request.factLookupResults())
                         + "\nRUNTIME_CONTEXT=" + write(request.runtimeContext())
                         + "\nACTION=" + request.action()
@@ -92,7 +92,7 @@ public final class TypedAgentContractController {
                         + "combatEnemies must always be an array of objects with mode (SCENARIO, SITUATION, or INSTANT), scenarioId, enemyKey, name, and positive count; "
                         + "SCENARIO requires a scenarioId from the current ScenarioModel. SITUATION leaves scenarioId empty and requires matching storybook RAG evidence for the current situation. INSTANT leaves scenarioId empty and is reserved for a GM-forced consequence such as noise or a critical failure. "
                         + "Use [] when combatStart is false. Never invent an enemy from the action alone. "
-                        + "Do not use markdown, code fences, or any other text.",
+                        + "Do not use markdown, code fences, or any other text."),
                 json -> parseRuntimeTurn(json, "SESSION_OPENING".equalsIgnoreCase(request.action())));
     }
 
@@ -102,7 +102,7 @@ public final class TypedAgentContractController {
             @RequestBody NarrationSafetyRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.complete("narration-safety", "ROLE=NARRATION_SAFETY\nNARRATION=" + request.narration()
+        return adapter.complete(request.soloPlayerId(), "narration-safety", "ROLE=NARRATION_SAFETY\nNARRATION=" + request.narration()
                         + "\nDISCLOSED_FACT_IDS=" + write(request.disclosedFactIds()), this::parseSafety);
     }
 
@@ -254,27 +254,32 @@ public final class TypedAgentContractController {
         if (request == null) throw new IllegalArgumentException("typed agent request is required");
     }
 
-    public record ScenarioCompilationRequest(String operationKey, String storybookContext) {
+    public record ScenarioCompilationRequest(java.util.UUID soloPlayerId, String operationKey, String storybookContext) {
         public ScenarioCompilationRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             operationKey = required(operationKey, "operationKey");
             storybookContext = required(storybookContext, "storybookContext");
         }
     }
 
-    public record ScenarioLookupRequest(String query, Map<String, Object> lockedScenarioModel) {
+    public record ScenarioLookupRequest(java.util.UUID soloPlayerId, String query, Map<String, Object> lockedScenarioModel) {
         public ScenarioLookupRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             query = required(query, "query");
             lockedScenarioModel = Map.copyOf(Objects.requireNonNull(lockedScenarioModel, "lockedScenarioModel is required"));
         }
     }
 
-    public record RuntimeTurnRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults,
+    public record RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
+                                     List<Map<String, Object>> factLookupResults,
                                      Map<String, Object> runtimeContext) {
-        public RuntimeTurnRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults) {
-            this(operationKey, action, factLookupResults, Map.of());
+        public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
+                List<Map<String, Object>> factLookupResults) {
+            this(soloPlayerId, operationKey, action, factLookupResults, Map.of());
         }
 
         public RuntimeTurnRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             operationKey = required(operationKey, "operationKey");
             action = required(action, "action");
             factLookupResults = List.copyOf(Objects.requireNonNull(factLookupResults, "factLookupResults is required"));
@@ -282,8 +287,9 @@ public final class TypedAgentContractController {
         }
     }
 
-    public record NarrationSafetyRequest(String narration, List<String> disclosedFactIds) {
+    public record NarrationSafetyRequest(java.util.UUID soloPlayerId, String narration, List<String> disclosedFactIds) {
         public NarrationSafetyRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             narration = required(narration, "narration");
             disclosedFactIds = List.copyOf(Objects.requireNonNull(disclosedFactIds, "disclosedFactIds is required"));
         }

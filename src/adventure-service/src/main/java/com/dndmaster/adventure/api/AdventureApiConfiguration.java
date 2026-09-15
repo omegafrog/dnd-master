@@ -138,6 +138,12 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService adventureAiRequestApplicationService(
+            AdventureSessionRepository repository) {
+        return new com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService(repository);
+    }
+
+    @Bean
     GmProviderBindingRepository gmProviderBindingRepository(DataSource dataSource) {
         return new com.dndmaster.adventure.infrastructure.persistence.PostgresGmProviderBindingRepository(dataSource);
     }
@@ -1061,10 +1067,11 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.combat.AiCombatDecisionPort decisions,
             com.dndmaster.adventure.application.combat.CombatActionApplicationService actionService,
             com.dndmaster.adventure.application.combat.CombatWorkItemScheduler scheduler,
+            com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService aiRequestService,
             @Value("${adventure.combat.auto-progression.max-steps:10}") int maxSteps) {
         return new com.dndmaster.adventure.application.combat.CombatAutoProgressionWorker(
                 "adventure-service", workItems, encounters, decisions, actionService::submitAi,
-                actionService::endTurnAi, maxSteps, scheduler);
+                actionService::endTurnAi, maxSteps, scheduler, aiRequestService);
     }
 
     @Bean
@@ -1156,9 +1163,10 @@ public class AdventureApiConfiguration {
             org.springframework.beans.factory.ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapPreparationPort> combatMapPreparationPort,
             org.springframework.beans.factory.ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository,
-            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService,
+            com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService aiRequestService) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatMapPreparationPort, scenarioPackageRepository, combatLifecycleService);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatMapPreparationPort, scenarioPackageRepository, combatLifecycleService, aiRequestService);
     }
 
     @Bean

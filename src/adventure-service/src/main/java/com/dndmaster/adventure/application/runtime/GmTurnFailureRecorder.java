@@ -26,6 +26,12 @@ public class GmTurnFailureRecorder {
         events.append(new SessionEvent(sessionId, UUID.randomUUID(), version + 1, "GM_TURN_FAILED", safeFailure));
     }
 
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordResultProcessingFailure(UUID sessionId, UUID turnId, UUID commandId, long version, Throwable failure) {
+        events.append(new SessionEvent(sessionId, UUID.randomUUID(), version, "GM_TURN_RESULT_PROCESSING_FAILED",
+                "turnId=" + turnId + ";commandId=" + commandId + ";reason=" + safeFailure(failure)));
+    }
+
     private static String safeFailure(Throwable failure) {
         if (failure instanceof ToolAuthorizationException || hasCause(failure, ToolAuthorizationException.class)) {
             return "GM_TOOL_CAPABILITY_DENIED";

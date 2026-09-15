@@ -99,6 +99,7 @@ class DomainResponsibilityContractTest {
         services.put("dice-roll-service", "com.dndmaster.diceroll");
         services.put("combat-map-service", "com.dndmaster.combatmap");
         services.put("ai-game-master-service", "com.dndmaster.aigamemaster");
+        services.put("agent-connection-relay-service", "com.dndmaster.relay");
         return Map.copyOf(services);
     }
 }
