@@ -22,7 +22,7 @@ public class RelayConfiguration {
         return new LocalConnectionManager(leases, completions, metrics, timeout);
     }
     @Bean OwnedInstanceClient ownedInstanceClient(WebClient.Builder builder,
-            @Value("${relay.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token,
+            @Value("${relay.peer-token:${RELAY_INTERNAL_SERVICE_TOKEN:${INTERNAL_SERVICE_TOKEN:}}}") String token,
             @Value("${relay.execution-timeout:PT3M}") Duration timeout,
             @Value("${relay.instance-id}") String instanceId) { return new HttpOwnedInstanceClient(builder.build(), token, instanceId, timeout); }
     @Bean ExecutionService relayExecutionService(@Value("${relay.instance-id}") String instanceId, ConnectionLocationRepository locations,

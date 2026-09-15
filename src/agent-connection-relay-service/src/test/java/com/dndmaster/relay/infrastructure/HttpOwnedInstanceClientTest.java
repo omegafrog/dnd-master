@@ -12,6 +12,13 @@ import reactor.netty.DisposableServer;
 import reactor.netty.http.server.HttpServer;
 
 class HttpOwnedInstanceClientTest {
+    @Test void expiredRequestDoesNotOpenAnInternalHttpHop() {
+        var client = new HttpOwnedInstanceClient(WebClient.create(), "secret", "relay-a", Duration.ofSeconds(2));
+        var request = new RelayExecutionRequest(UUID.randomUUID(), "expired", "w", "prompt", "model", "medium", "text", null,
+                List.of(), System.currentTimeMillis() - 1);
+        assertEquals(RelayFailureType.TIMEOUT, client.execute("http://127.0.0.1:1", request).block().failureType());
+    }
+
     @Test void sendsOneAuthenticatedDirectHttpRequestToOwningInstance() {
         var token = new AtomicReference<String>();
         var path = new AtomicReference<String>();

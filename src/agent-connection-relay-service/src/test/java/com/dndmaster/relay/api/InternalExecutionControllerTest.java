@@ -8,7 +8,8 @@ import reactor.core.publisher.Mono;
 
 class InternalExecutionControllerTest {
     @Test void rejectsMissingTokenAndReturnsFinalResultForAuthenticatedRequest() {
-        var controller = new InternalExecutionController(request -> Mono.just(RelayExecutionResult.success(request.requestId(), "final")), "secret");
+        var controller = new InternalExecutionController(request -> Mono.just(RelayExecutionResult.success(request.requestId(), "final")),
+                request -> Mono.just(RelayExecutionResult.success(request.requestId(), "owned")), "secret", "relay-peer-secret");
         var client = bindToController(controller).controllerAdvice(new RelayExceptionHandler()).build();
         var request = new RelayExecutionRequest(UUID.randomUUID(), "r1", "w1", "private prompt", "model", "medium", "text", null, List.of());
 
@@ -18,9 +19,11 @@ class InternalExecutionControllerTest {
         client.post().uri("/internal/owned-executions").header("X-Internal-Token", "wrong").bodyValue(request).exchange()
                 .expectStatus().isUnauthorized();
         client.post().uri("/internal/owned-executions").header("X-Internal-Token", "secret").bodyValue(request).exchange()
+                .expectStatus().isUnauthorized();
+        client.post().uri("/internal/owned-executions").header("X-Internal-Token", "relay-peer-secret").bodyValue(request).exchange()
                 .expectStatus().isForbidden();
-        client.post().uri("/internal/owned-executions").header("X-Internal-Token", "secret")
+        client.post().uri("/internal/owned-executions").header("X-Internal-Token", "relay-peer-secret")
                 .header("X-Internal-Caller", "agent-connection-relay-service").header("X-Relay-Instance-Id", "relay-a")
-                .bodyValue(request).exchange().expectStatus().isOk().expectBody().jsonPath("$.failureType").isEqualTo("NO_CONNECTION");
+                .bodyValue(request).exchange().expectStatus().isOk().expectBody().jsonPath("$.content").isEqualTo("owned");
     }
 }

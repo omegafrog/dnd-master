@@ -19,12 +19,10 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
     }
     public Mono<Void> connect(ConnectionLocationLease lease, Duration ttl, AgentConnectionTransport transport) {
         var connection = new Connection(lease.connectionId(), transport);
-        connections.put(lease.soloPlayerId(), connection);
-        metrics.activeConnections(connections.size());
-        return leases.claim(lease, ttl).doOnError(ignored -> {
-            connections.remove(lease.soloPlayerId(), connection);
+        return leases.claim(lease, ttl).then(Mono.fromRunnable(() -> {
+            connections.put(lease.soloPlayerId(), connection);
             metrics.activeConnections(connections.size());
-        });
+        }));
     }
     public Mono<Boolean> disconnect(UUID soloPlayerId, String connectionId) {
         var current = connections.get(soloPlayerId);
@@ -32,22 +30,29 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
         connections.remove(soloPlayerId, current);
         metrics.activeConnections(connections.size());
         activeRequests.forEach((requestId, playerId) -> {
-            if (playerId.equals(soloPlayerId)) completions.fail(requestId, new IllegalStateException("connection lost"));
+            if (playerId.equals(soloPlayerId)) completions.fail(requestId, new ConnectionLostException());
         });
         return leases.release(soloPlayerId, connectionId);
     }
     @Override public Mono<RelayExecutionResult> execute(RelayExecutionRequest request) {
         var connection = connections.get(request.soloPlayerId());
         if (connection == null) return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.NO_CONNECTION));
-        Mono<String> result = completions.await(request.requestId(), executionTimeout);
+        Duration remaining = remaining(request);
+        if (remaining.isZero() || remaining.isNegative()) return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT));
+        Mono<String> result = completions.await(request.requestId(), remaining.compareTo(executionTimeout) < 0 ? remaining : executionTimeout);
         activeRequests.put(request.requestId(), request.soloPlayerId());
         return connection.transport().send(request).doOnError(failure -> completions.fail(request.requestId(), failure)).then(result)
                 .map(content -> RelayExecutionResult.success(request.requestId(), content))
+                .onErrorResume(ConnectionLostException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.CONNECTION_LOST)))
                 .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT)))
                 .onErrorResume(ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE)))
                 .doFinally(ignored -> { activeRequests.remove(request.requestId()); completions.cancel(request.requestId()); });
     }
     public boolean complete(String requestId, String finalContent) { return completions.complete(requestId, finalContent); }
     public boolean fail(String requestId, Throwable failure) { return completions.fail(requestId, failure); }
+    private static Duration remaining(RelayExecutionRequest request) {
+        return request.deadlineEpochMillis() == 0 ? Duration.ofDays(1)
+                : Duration.ofMillis(request.deadlineEpochMillis() - System.currentTimeMillis());
+    }
     private record Connection(String connectionId, AgentConnectionTransport transport) {}
 }

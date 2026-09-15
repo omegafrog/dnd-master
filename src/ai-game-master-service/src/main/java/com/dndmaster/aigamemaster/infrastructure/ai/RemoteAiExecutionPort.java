@@ -31,7 +31,8 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
         try {
             var body = new RelayRequest(request.soloPlayerId(), request.requestId(), request.workId(), request.completedPrompt(),
                     request.model(), request.reasoning(), request.outputFormat(), request.outputSchema(),
-                    request.imageDataUri().isBlank() ? List.of() : List.of(request.imageDataUri()));
+                    request.imageDataUri().isBlank() ? List.of() : List.of(request.imageDataUri()),
+                    System.currentTimeMillis() + timeout.toMillis());
             var httpRequest = HttpRequest.newBuilder(endpoint).timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken).POST(HttpRequest.BodyPublishers.ofByteArray(mapper.writeValueAsBytes(body))).build();
             var response = client.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
@@ -41,6 +42,7 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
             if (result.failureType() == null) return new AiExecutionSuccess(result.content());
             return failure(switch (result.failureType()) {
                 case "NO_CONNECTION" -> AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE;
+                case "CONNECTION_LOST" -> AiExecutionFailure.Reason.CONNECTION_LOST;
                 case "TIMEOUT" -> AiExecutionFailure.Reason.TIMEOUT;
                 default -> AiExecutionFailure.Reason.DELIVERY_FAILED;
             });
@@ -52,6 +54,7 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
     }
     private static AiExecutionFailure failure(AiExecutionFailure.Reason reason) { return new AiExecutionFailure(reason, reason.name()); }
     private record RelayRequest(java.util.UUID soloPlayerId, String requestId, String operationId, String prompt, String model,
-                                String reasoning, String outputFormat, JsonNode outputSchema, List<String> imageInputs) {}
+                                String reasoning, String outputFormat, JsonNode outputSchema, List<String> imageInputs,
+                                long deadlineEpochMillis) {}
     private record RelayResult(String requestId, String content, String failureType) {}
 }

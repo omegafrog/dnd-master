@@ -1,3 +1,3 @@
 package com.dndmaster.relay.application;
 
-public enum RelayFailureType { NO_CONNECTION, TIMEOUT, REMOTE_FAILURE }
+public enum RelayFailureType { NO_CONNECTION, CONNECTION_LOST, TIMEOUT, REMOTE_FAILURE }

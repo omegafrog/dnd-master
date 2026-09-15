@@ -6,6 +6,7 @@ spring:
 relay:
   instance-id: ${RELAY_INSTANCE_ID:relay-local}
   internal-token: ${INTERNAL_SERVICE_TOKEN:}
+  peer-token: ${RELAY_INTERNAL_SERVICE_TOKEN:${INTERNAL_SERVICE_TOKEN:}}
   execution-timeout: ${RELAY_EXECUTION_TIMEOUT:PT3M}
   redis-timeout: ${RELAY_REDIS_TIMEOUT:PT2S}
 management:

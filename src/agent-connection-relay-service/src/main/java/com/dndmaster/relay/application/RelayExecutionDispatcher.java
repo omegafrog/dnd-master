@@ -31,28 +31,32 @@ public final class RelayExecutionDispatcher implements ExecutionService {
     }
 
     @Override public Mono<RelayExecutionResult> execute(RelayExecutionRequest request) {
+        final RelayExecutionRequest routedRequest = request.deadlineEpochMillis() == 0
+                ? request.withDeadline(System.currentTimeMillis() + timeout.toMillis()) : request;
         long started = System.nanoTime();
-        long requestBytes = utf8Bytes(request);
+        long requestBytes = utf8Bytes(routedRequest);
         var owningInstance = new AtomicReference<>("none");
-        return locations.find(request.soloPlayerId())
+        Duration remaining = Duration.ofMillis(routedRequest.deadlineEpochMillis() - System.currentTimeMillis());
+        if (remaining.isZero() || remaining.isNegative()) return Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.TIMEOUT));
+        return locations.find(routedRequest.soloPlayerId())
                 .flatMap(found -> found.<Mono<RelayExecutionResult>>map(lease -> {
                     owningInstance.set(lease.instanceId());
-                    return instanceId.equals(lease.instanceId()) ? local.execute(request) : remote.execute(lease.internalAddress(), request);
+                    return instanceId.equals(lease.instanceId()) ? local.execute(routedRequest) : remote.execute(lease.internalAddress(), routedRequest);
                 })
-                        .orElseGet(() -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.NO_CONNECTION))))
-                .timeout(timeout)
-                .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT)))
-                .onErrorResume(ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE)))
-                .map(result -> request.requestId().equals(result.requestId()) ? result
-                        : RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE))
+                        .orElseGet(() -> Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.NO_CONNECTION))))
+                .timeout(remaining.compareTo(timeout) < 0 ? remaining : timeout)
+                .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.TIMEOUT)))
+                .onErrorResume(ignored -> Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.REMOTE_FAILURE)))
+                .map(result -> routedRequest.requestId().equals(result.requestId()) ? result
+                        : RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.REMOTE_FAILURE))
                 .doOnNext(result -> {
                     long responseBytes = jsonBytes(result);
                     long durationMillis = Duration.ofNanos(System.nanoTime() - started).toMillis();
                     metrics.finished(requestBytes, responseBytes, Duration.ofMillis(durationMillis), result.failureType());
                     if (result.success()) log.info("relay execution completed requestId={} fromInstance={} owningInstance={} requestBytes={} responseBytes={} durationMs={}",
-                            request.requestId(), instanceId, owningInstance.get(), requestBytes, responseBytes, durationMillis);
+                            routedRequest.requestId(), instanceId, owningInstance.get(), requestBytes, responseBytes, durationMillis);
                     else log.warn("relay execution failed requestId={} fromInstance={} owningInstance={} requestBytes={} responseBytes={} durationMs={} failureType={}",
-                            request.requestId(), instanceId, owningInstance.get(), requestBytes, responseBytes, durationMillis, result.failureType());
+                            routedRequest.requestId(), instanceId, owningInstance.get(), requestBytes, responseBytes, durationMillis, result.failureType());
                 });
     }
 

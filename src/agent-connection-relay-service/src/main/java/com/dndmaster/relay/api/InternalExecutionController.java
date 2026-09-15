@@ -14,16 +14,20 @@ public final class InternalExecutionController {
     private final ExecutionService dispatcher;
     private final LocalConnectionExecutor local;
     private final byte[] internalToken;
+    private final byte[] relayPeerToken;
 
     public InternalExecutionController(ExecutionService dispatcher, String internalToken) {
-        this(dispatcher, request -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.NO_CONNECTION)), internalToken);
+        this(dispatcher, request -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.NO_CONNECTION)), internalToken, internalToken);
     }
     @Autowired
     public InternalExecutionController(ExecutionService dispatcher, LocalConnectionExecutor local,
-            @Value("${relay.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+            @Value("${relay.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            @Value("${relay.peer-token:${RELAY_INTERNAL_SERVICE_TOKEN:${INTERNAL_SERVICE_TOKEN:}}}") String relayPeerToken) {
         this.dispatcher = dispatcher; this.local = local;
         if (internalToken == null || internalToken.isBlank()) throw new IllegalStateException("INTERNAL_SERVICE_TOKEN is required");
+        if (relayPeerToken == null || relayPeerToken.isBlank()) throw new IllegalStateException("RELAY_INTERNAL_SERVICE_TOKEN is required");
         this.internalToken = internalToken.getBytes(StandardCharsets.UTF_8);
+        this.relayPeerToken = relayPeerToken.getBytes(StandardCharsets.UTF_8);
     }
 
     @PostMapping("/internal/executions")
@@ -37,7 +41,7 @@ public final class InternalExecutionController {
                                             @RequestHeader(value = "X-Relay-Instance-Id", required = false) String relayInstanceId,
                                             @RequestHeader(value = "X-Internal-Caller", required = false) String internalCaller,
                                             @RequestBody RelayExecutionRequest request) {
-        authenticate(token);
+        authenticateRelay(token);
         if (!"agent-connection-relay-service".equals(internalCaller) || relayInstanceId == null || relayInstanceId.isBlank())
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "relay caller identity is required");
         return local.execute(request);
@@ -46,5 +50,9 @@ public final class InternalExecutionController {
     private void authenticate(String token) {
         byte[] supplied = token == null ? new byte[0] : token.getBytes(StandardCharsets.UTF_8);
         if (!MessageDigest.isEqual(internalToken, supplied)) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid internal token");
+    }
+    private void authenticateRelay(String token) {
+        byte[] supplied = token == null ? new byte[0] : token.getBytes(StandardCharsets.UTF_8);
+        if (!MessageDigest.isEqual(relayPeerToken, supplied)) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid relay peer token");
     }
 }

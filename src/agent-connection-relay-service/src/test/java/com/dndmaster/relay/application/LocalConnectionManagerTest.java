@@ -45,6 +45,6 @@ class LocalConnectionManagerTest {
         var waiting = new RelayExecutionRequest(player, "disconnect", "w", "prompt", "model", "medium", "text", null, List.of());
         manager.connect(lease, Duration.ofSeconds(30), ignored -> Mono.empty()).block();
         StepVerifier.create(manager.execute(waiting)).then(() -> assertTrue(manager.disconnect(player, "c").block()))
-                .expectNextMatches(result -> result.failureType() == RelayFailureType.REMOTE_FAILURE).verifyComplete();
+                .expectNextMatches(result -> result.failureType() == RelayFailureType.CONNECTION_LOST).verifyComplete();
     }
 }
