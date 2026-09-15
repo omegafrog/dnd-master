@@ -21,12 +21,12 @@ public final class RequestCompletionRegistry {
     }
 
     public boolean complete(String requestId, String finalContent) {
-        var sink = pending.remove(requestId);
+        var sink = pending.get(requestId);
         return sink != null && sink.tryEmitValue(finalContent).isSuccess();
     }
 
     public boolean fail(String requestId, Throwable failure) {
-        var sink = pending.remove(requestId);
+        var sink = pending.get(requestId);
         return sink != null && sink.tryEmitError(failure).isSuccess();
     }
     public boolean cancel(String requestId) { return fail(requestId, new java.util.concurrent.CancellationException("request cancelled")); }

@@ -5,6 +5,7 @@ import com.dndmaster.relay.infrastructure.InMemoryConnectionLocationRepository;
 import java.time.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
@@ -74,5 +75,52 @@ class LocalConnectionManagerTest {
     @Test void relayRequestPreservesPromptWhitespace() {
         var request = new RelayExecutionRequest(UUID.randomUUID(), "r", "w", "  prompt\n", "model", "medium", "text", null, List.of());
         assertEquals("  prompt\n", request.prompt());
+    }
+
+    @Test void replacingConnectionFailsRequestsOwnedByThePreviousConnection() {
+        var repository = new InMemoryConnectionLocationRepository(Clock.systemUTC());
+        var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),
+                RelayMetrics.noop(), Duration.ofSeconds(1));
+        var player = UUID.randomUUID();
+        var old = new ConnectionLocationLease(player, "a", "http://a", "s1", "old", Instant.now());
+        var replacement = new ConnectionLocationLease(player, "a", "http://a", "s2", "new", Instant.now());
+        manager.connect(old, Duration.ofSeconds(30), ignored -> Mono.never()).block();
+        var result = new AtomicReference<RelayExecutionResult>();
+        manager.execute(new RelayExecutionRequest(player, "old-request", "w", "prompt", "model", "medium", "text", null, List.of()))
+                .subscribe(result::set);
+
+        manager.connect(replacement, Duration.ofSeconds(30), ignored -> Mono.never()).block();
+
+        assertEquals(RelayFailureType.CONNECTION_LOST, result.get().failureType());
+    }
+
+    @Test void disconnectDuringDeliveryReturnsConnectionLostBeforeTimeout() {
+        var repository = new InMemoryConnectionLocationRepository(Clock.systemUTC());
+        var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),
+                RelayMetrics.noop(), Duration.ofSeconds(5));
+        var player = UUID.randomUUID();
+        var lease = new ConnectionLocationLease(player, "a", "http://a", "s", "c", Instant.now());
+        manager.connect(lease, Duration.ofSeconds(30), ignored -> Mono.never()).block();
+        var result = new AtomicReference<RelayExecutionResult>();
+        manager.execute(new RelayExecutionRequest(player, "disconnect-during-delivery", "w", "prompt", "model", "medium", "text", null, List.of()))
+                .subscribe(result::set);
+
+        assertTrue(manager.disconnect(player, "c").block());
+        assertEquals(RelayFailureType.CONNECTION_LOST, result.get().failureType());
+    }
+
+    @Test void rejectsFinalResponseOverUtf8PayloadLimit() {
+        var repository = new InMemoryConnectionLocationRepository(Clock.systemUTC());
+        var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),
+                RelayMetrics.noop(), Duration.ofSeconds(1), 4);
+        var player = UUID.randomUUID();
+        var lease = new ConnectionLocationLease(player, "a", "http://a", "s", "c", Instant.now());
+        manager.connect(lease, Duration.ofSeconds(30), request -> {
+            manager.complete(request.requestId(), "가가");
+            return Mono.empty();
+        }).block();
+        var request = new RelayExecutionRequest(player, "oversized", "w", "prompt", "model", "medium", "text", null, List.of());
+
+        StepVerifier.create(manager.execute(request)).expectNextMatches(result -> result.failureType() == RelayFailureType.REMOTE_FAILURE).verifyComplete();
     }
 }

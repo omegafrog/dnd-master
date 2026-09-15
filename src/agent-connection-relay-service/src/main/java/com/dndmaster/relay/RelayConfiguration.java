@@ -18,8 +18,9 @@ public class RelayConfiguration {
     @Bean ConnectionLeaseService connectionLeaseService(ConnectionLocationRepository locations) { return new ConnectionLeaseService(locations); }
     @Bean RequestCompletionRegistry requestCompletionRegistry() { return new RequestCompletionRegistry(); }
     @Bean LocalConnectionManager localConnectionExecutor(ConnectionLeaseService leases, RequestCompletionRegistry completions,
-            RelayMetrics metrics, @Value("${relay.execution-timeout:PT3M}") Duration timeout) {
-        return new LocalConnectionManager(leases, completions, metrics, timeout);
+            RelayMetrics metrics, @Value("${relay.execution-timeout:PT3M}") Duration timeout,
+            @Value("${relay.max-payload-bytes:16777216}") int maxPayloadBytes) {
+        return new LocalConnectionManager(leases, completions, metrics, timeout, maxPayloadBytes);
     }
     @Bean OwnedInstanceClient ownedInstanceClient(WebClient.Builder builder,
             @Value("${relay.peer-token:${RELAY_INTERNAL_SERVICE_TOKEN:${INTERNAL_SERVICE_TOKEN:}}}") String token,

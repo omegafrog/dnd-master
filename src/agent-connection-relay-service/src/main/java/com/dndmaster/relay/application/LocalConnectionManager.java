@@ -1,6 +1,7 @@
 package com.dndmaster.relay.application;
 
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
 import reactor.core.publisher.Mono;
@@ -12,16 +13,31 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
     private final RequestCompletionRegistry completions;
     private final RelayMetrics metrics;
     private final Duration executionTimeout;
+    private final int maxPayloadBytes;
 
     public LocalConnectionManager(ConnectionLeaseService leases, RequestCompletionRegistry completions,
                                   RelayMetrics metrics, Duration executionTimeout) {
-        this.leases = leases; this.completions = completions; this.metrics = metrics; this.executionTimeout = executionTimeout;
+        this(leases, completions, metrics, executionTimeout, 16_777_216);
+    }
+    public LocalConnectionManager(ConnectionLeaseService leases, RequestCompletionRegistry completions,
+                                  RelayMetrics metrics, Duration executionTimeout, int maxPayloadBytes) {
+        if (maxPayloadBytes <= 0) throw new IllegalArgumentException("maxPayloadBytes must be positive");
+        this.leases = leases; this.completions = completions; this.metrics = metrics;
+        this.executionTimeout = executionTimeout; this.maxPayloadBytes = maxPayloadBytes;
     }
     public Mono<Void> connect(ConnectionLocationLease lease, Duration ttl, AgentConnectionTransport transport) {
         var connection = new Connection(lease.connectionId(), transport);
         return leases.claim(lease, ttl).then(Mono.fromRunnable(() -> {
-            connections.put(lease.soloPlayerId(), connection);
+            var previous = connections.put(lease.soloPlayerId(), connection);
             metrics.activeConnections(connections.size());
+            if (previous != null && !previous.connectionId().equals(connection.connectionId())) {
+                activeRequests.forEach((requestId, activeRequest) -> {
+                    if (activeRequest.soloPlayerId().equals(lease.soloPlayerId())
+                            && activeRequest.connectionId().equals(previous.connectionId())) {
+                        completions.fail(requestId, new ConnectionLostException());
+                    }
+                });
+            }
         }));
     }
     public Mono<Boolean> disconnect(UUID soloPlayerId, String connectionId) {
@@ -49,8 +65,12 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
         if (!stillConnected) completions.fail(request.requestId(), new ConnectionLostException());
         Mono<Void> delivery = stillConnected ? connection.transport().send(request)
                 .doOnError(failure -> completions.fail(request.requestId(), failure)) : Mono.empty();
-        return delivery.then(result).timeout(wait)
-                .map(content -> RelayExecutionResult.success(request.requestId(), content))
+        return Mono.zip(delivery.thenReturn(true), result, (ignored, content) -> content).timeout(wait)
+                .map(content -> {
+                    if (content.getBytes(StandardCharsets.UTF_8).length > maxPayloadBytes) throw new PayloadTooLargeException();
+                    return RelayExecutionResult.success(request.requestId(), content);
+                })
+                .onErrorResume(PayloadTooLargeException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE)))
                 .onErrorResume(ConnectionLostException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.CONNECTION_LOST)))
                 .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT)))
                 .onErrorResume(ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE)))
@@ -61,6 +81,9 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
     private static Duration remaining(RelayExecutionRequest request) {
         return request.deadlineEpochMillis() == 0 ? Duration.ofDays(1)
                 : Duration.ofMillis(request.deadlineEpochMillis() - System.currentTimeMillis());
+    }
+    private final class PayloadTooLargeException extends RuntimeException {
+        private PayloadTooLargeException() { super("relay response exceeds configured UTF-8 payload limit"); }
     }
     private record Connection(String connectionId, AgentConnectionTransport transport) {}
     private record ActiveRequest(UUID soloPlayerId, String connectionId) {}

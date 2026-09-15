@@ -2,7 +2,7 @@
 plan_id: 323
 orchestration_state: implementing
 attempt: 1
-last_completed_step: "Spec 리뷰 지적 5건 수정, 전체 집중 검증과 graphify update 완료"
+last_completed_step: "Spec 리뷰 추가 지적 3건 수정, 전체 집중 검증과 graphify update 완료"
 changed_files:
   - docs/plans/.runtime/323/checkpoint.md
   - src/settings.gradle.kts
@@ -32,6 +32,7 @@ tests:
   - "PASS 만료 요청 즉시 TIMEOUT 계측, relay/AI 실행 메트릭 implementation 태그 회귀 테스트"
   - "PASS 중복 요청 선등록 거절, 전송 포함 마감, 교체 연결 보호, 프롬프트 원문 보존, 소유 인스턴스 계측 회귀 테스트"
   - "PASS Spec 리뷰 지적 5건 수정 후 relay cleanTest/test/bootJar, BuildModulesTest, ai-game-master 전체 테스트"
+  - "PASS 완료 후 재등록 방지, 전송 중 연결 끊김, 응답 UTF-8 크기 제한, 연결 교체 요청 종료 회귀 테스트"
   - "PASS graphify update ."
   - "LOAD 200 동시 요청, 65538 UTF-8 bytes, p95 28.736 ms, 126480681 bytes/s, heap/direct delta 0"
   - "BASELINE FAIL 전체 check: 기존 Adventure 도메인 허용 목록 2건과 TransactionBoundaryIntegrationTest 1건"
