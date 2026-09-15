@@ -11,6 +11,7 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.util.Base64;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -23,7 +24,7 @@ class MapModelContractTest {
         GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"boundaries\":[\"1,1,VERTICAL,WALL\",\"2,1,HORIZONTAL,DOOR\"],\"obstacles\":[],\"doors\":[],\"playerStart\":\"0,0\",\"rationale\":\"visible room boundary\",\"candidates\":[{\"x\":1,\"y\":1,\"orientation\":\"VERTICAL\",\"kind\":\"WALL\",\"confidence\":0.91,\"evidence\":[\"continuous-edge\",\"room-contrast\"],\"source\":\"IMAGE_RULES\"}]}");
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(adapter, mapper);
 
-        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput("map", "room", "grid"));
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(UUID.randomUUID(), "map", "room", "grid"));
 
         assertEquals(4, output.width());
         assertEquals(java.util.List.of(), output.obstacles());
@@ -40,7 +41,7 @@ class MapModelContractTest {
         GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"boundaries\":[],\"obstacles\":[],\"doors\":[],\"playerStart\":\"\",\"candidates\":[{\"x\":1,\"y\":1,\"orientation\":\"VERTICAL\",\"kind\":\"WALL\",\"confidence\":0.55,\"evidence\":[\"dark-line\"],\"source\":\"IMAGE_RULES\"}]}");
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(adapter, mapper);
 
-        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput("map", "room", "grid"));
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(UUID.randomUUID(), "map", "room", "grid"));
 
         assertEquals(java.util.List.of(), output.candidates());
     }
@@ -49,7 +50,7 @@ class MapModelContractTest {
     void parsesScenarioEntryStartProposalWithEvidenceAndConfidence() {
         GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"boundaries\":[],\"obstacles\":[],\"doors\":[],\"playerStart\":\"\",\"playerStartProposal\":{\"position\":\"1,2\",\"confidence\":0.88,\"evidence\":[\"story says south entrance\",\"open doorway at south edge\"],\"source\":\"SCENARIO_ENTRY\"}}");
         MapModelPort.MapOutput output = new AiGameMasterApiConfiguration().mapModelPort(adapter, mapper)
-                .generate(new MapModelPort.MapInput("map", "party enters through the south entrance", "grid"));
+                .generate(new MapModelPort.MapInput(UUID.randomUUID(), "map", "party enters through the south entrance", "grid"));
 
         assertEquals("1,2", output.playerStartProposal().position());
         assertEquals(.88, output.playerStartProposal().confidence());
@@ -62,7 +63,7 @@ class MapModelContractTest {
         MapEntryPlacementModelPort model = new AiGameMasterApiConfiguration().mapEntryPlacementModelPort(adapter, mapper);
 
         MapEntryPlacementModelPort.EntryPlacementOutput output = model.propose(
-                new MapEntryPlacementModelPort.EntryPlacementInput("맥주 저장고",
+                new MapEntryPlacementModelPort.EntryPlacementInput(UUID.randomUUID(), "맥주 저장고",
                         "양조장 문을 열고 지하실로 내려갑니다", "지하실 진입", "나무 계단이 삐걱거리며 지하실로 이어집니다.", "{}", ""));
 
         assertEquals("RESOLVED", output.status());
@@ -86,7 +87,7 @@ class MapModelContractTest {
         };
         MapEntryPlacementModelPort model = new AiGameMasterApiConfiguration().mapEntryPlacementModelPort(adapter, mapper);
 
-        model.propose(new MapEntryPlacementModelPort.EntryPlacementInput("저장고", "지하 저장고",
+        model.propose(new MapEntryPlacementModelPort.EntryPlacementInput(UUID.randomUUID(), "저장고", "지하 저장고",
                 "양조장 뒤편에서 계단을 발견했습니다.", "계단을 내려갑니다", "계단 진입", "나무 계단 끝에 도착합니다", "{\"gridWidth\":12,\"gridHeight\":18}", ""));
 
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("LOCATION=지하 저장고"));
@@ -101,7 +102,7 @@ class MapModelContractTest {
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(adapter, mapper);
 
         assertThrows(IllegalArgumentException.class,
-                () -> model.generate(new MapModelPort.MapInput("map", "room", "grid")));
+                () -> model.generate(new MapModelPort.MapInput(UUID.randomUUID(), "map", "room", "grid")));
     }
 
     @Test
@@ -115,7 +116,7 @@ class MapModelContractTest {
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(failing, mapper);
 
         MapModelPort.MapOutput output = model.generate(
-                new MapModelPort.MapInput("map", "room", "{\"gridWidth\":7,\"gridHeight\":6}"));
+                new MapModelPort.MapInput(UUID.randomUUID(), "map", "room", "{\"gridWidth\":7,\"gridHeight\":6}"));
 
         assertEquals(7, output.width());
         assertEquals(6, output.height());
@@ -130,7 +131,7 @@ class MapModelContractTest {
             graphics.fillRect(10, 9, 10, 3);
         });
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(fixed("not json"), mapper);
-        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(UUID.randomUUID(),
                 "map", "room", "{\"gridWidth\":3,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":true}", image));
         org.junit.jupiter.api.Assertions.assertTrue(output.boundaries().contains("1,1,HORIZONTAL,WALL,false"));
     }
@@ -138,7 +139,7 @@ class MapModelContractTest {
     @Test
     void keepsAuthoredLinesWhenTheImageDraftIsRegenerated() throws Exception {
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(fixed("not json"), mapper);
-        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput("map", "room",
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(UUID.randomUUID(), "map", "room",
                 "{\"gridWidth\":3,\"gridHeight\":3,\"gridConfirmed\":true,\"authoredBoundaries\":[\"0,0,VERTICAL,DOOR,false\"],\"authoredObstacles\":[\"2,2\"],\"authoredDoors\":[\"1,2\"],\"authoredPlayerStart\":\"0,1\"}"));
         assertEquals(java.util.List.of("2,2"), output.obstacles());
         assertEquals(java.util.List.of("1,2"), output.doors());
@@ -168,7 +169,7 @@ class MapModelContractTest {
         };
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(failing, mapper);
 
-        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(UUID.randomUUID(),
                 "map", "room",
                 "{\"gridWidth\":4,\"gridHeight\":3,\"gridOriginX\":5,\"gridOriginY\":5,\"gridCellSize\":10,\"gridConfirmed\":true}",
                 dataUri));
@@ -191,11 +192,11 @@ class MapModelContractTest {
         });
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(unavailableProvider(), mapper);
 
-        MapModelPort.MapOutput unconfirmed = model.generate(new MapModelPort.MapInput(
+        MapModelPort.MapOutput unconfirmed = model.generate(new MapModelPort.MapInput(UUID.randomUUID(),
                 "map", "room", "{\"gridWidth\":3,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":false}", image));
         assertEquals(java.util.List.of(), unconfirmed.boundaries());
 
-        MapModelPort.MapOutput stale = model.generate(new MapModelPort.MapInput(
+        MapModelPort.MapOutput stale = model.generate(new MapModelPort.MapInput(UUID.randomUUID(),
                 "map", "room", "{\"gridWidth\":3,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":true,\"imageRevision\":\"stale\"}", image));
         assertEquals(java.util.List.of(), stale.boundaries());
     }
@@ -210,7 +211,7 @@ class MapModelContractTest {
             graphics.fillRect(20, 14, 10, 3);
         });
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(unavailableProvider(), mapper);
-        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(UUID.randomUUID(),
                 "map", "room", "{\"gridWidth\":4,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":true}", image));
 
         org.junit.jupiter.api.Assertions.assertTrue(output.boundaries().stream().noneMatch(value -> value.startsWith("1,1,HORIZONTAL,WALL")));
@@ -225,7 +226,7 @@ class MapModelContractTest {
         });
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(unavailableProvider(), mapper);
 
-        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(UUID.randomUUID(),
                 "map", "room", "{\"gridWidth\":4,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":true}", image));
 
         assertEquals(java.util.List.of(), output.boundaries());
@@ -244,7 +245,7 @@ class MapModelContractTest {
         });
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(unavailableProvider(), mapper);
 
-        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(
+        MapModelPort.MapOutput output = model.generate(new MapModelPort.MapInput(UUID.randomUUID(),
                 "map", "room", "{\"gridWidth\":3,\"gridHeight\":3,\"gridOriginX\":0,\"gridOriginY\":0,\"gridCellSize\":10,\"gridConfirmed\":true}", image));
 
         assertEquals(java.util.List.of(), output.boundaries());

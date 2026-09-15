@@ -19,13 +19,13 @@ class TypedAgentContractControllerTest {
                 emptyAdapter(), new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
         assertThrows(ApiRequestGuard.ApiContractException.class,
-                () -> controller.scenarioCompilation("wrong", new TypedAgentContractController.ScenarioCompilationRequest("op", "storybook")));
+                () -> controller.scenarioCompilation("wrong", new TypedAgentContractController.ScenarioCompilationRequest(SOLO_PLAYER_ID, "op", "storybook")));
         assertThrows(ApiRequestGuard.ApiContractException.class,
-                () -> controller.scenarioLookup("wrong", new TypedAgentContractController.ScenarioLookupRequest("door", Map.of())));
+                () -> controller.scenarioLookup("wrong", new TypedAgentContractController.ScenarioLookupRequest(SOLO_PLAYER_ID, "door", Map.of())));
         assertThrows(ApiRequestGuard.ApiContractException.class,
                 () -> controller.runtimeTurn("wrong", new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "open door", List.of())));
         assertThrows(ApiRequestGuard.ApiContractException.class,
-                () -> controller.narrationSafety("wrong", new TypedAgentContractController.NarrationSafetyRequest("A door opens.", List.of())));
+                () -> controller.narrationSafety("wrong", new TypedAgentContractController.NarrationSafetyRequest(SOLO_PLAYER_ID, "A door opens.", List.of())));
     }
 
     @Test
@@ -34,7 +34,7 @@ class TypedAgentContractControllerTest {
                 emptyAdapter(), new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
-                () -> controller.scenarioLookup("service-secret", new TypedAgentContractController.ScenarioLookupRequest(" ", Map.of())));
+                () -> controller.scenarioLookup("service-secret", new TypedAgentContractController.ScenarioLookupRequest(SOLO_PLAYER_ID, " ", Map.of())));
     }
 
     @Test
@@ -45,6 +45,32 @@ class TypedAgentContractControllerTest {
         assertThrows(NullPointerException.class,
                 () -> controller.runtimeTurn("service-secret",
                         new TypedAgentContractController.RuntimeTurnRequest(null, "op", "look around", List.of(), Map.of())));
+    }
+
+    @Test
+    void typed_lookup_compilation_and_safety_forward_the_server_confirmed_solo_player_id() {
+        var seen = new java.util.ArrayList<UUID>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{}");
+            }
+            @Override public <T> T complete(UUID owner, String operation, String prompt,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                seen.add(owner);
+                String response = operation.startsWith("scenario-compilation") ? "{\"status\":\"READY\",\"scenarioModel\":{}}"
+                        : operation.startsWith("scenario-lookup") ? "{\"status\":\"NOT_FOUND\",\"answer\":\"\",\"supportingElementIds\":[]}"
+                        : "{\"approved\":true}";
+                return parser.parse(response);
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        controller.scenarioCompilation("service-secret", new TypedAgentContractController.ScenarioCompilationRequest(SOLO_PLAYER_ID, "scenario-compilation:op", "storybook"));
+        controller.scenarioLookup("service-secret", new TypedAgentContractController.ScenarioLookupRequest(SOLO_PLAYER_ID, "door", Map.of()));
+        controller.narrationSafety("service-secret", new TypedAgentContractController.NarrationSafetyRequest(SOLO_PLAYER_ID, "문이 열린다.", List.of()));
+
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(SOLO_PLAYER_ID, SOLO_PLAYER_ID, SOLO_PLAYER_ID), seen);
     }
 
     @Test
@@ -62,7 +88,7 @@ class TypedAgentContractControllerTest {
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
         var response = controller.scenarioLookup("service-secret",
-                new TypedAgentContractController.ScenarioLookupRequest("opening", Map.of()));
+                new TypedAgentContractController.ScenarioLookupRequest(SOLO_PLAYER_ID, "opening", Map.of()));
 
         org.junit.jupiter.api.Assertions.assertEquals("NOT_FOUND", response.status());
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("OUTPUT_CONTRACT"));

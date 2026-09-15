@@ -16,10 +16,21 @@ public interface GmCompletionAdapter {
         return complete(operationId, prompt, parser);
     }
 
+    default <T> T complete(UUID soloPlayerId, String operationId, String prompt,
+                           StructuredResponseParser<T> parser) {
+        return complete(soloPlayerId, operationId, new GmPrompt(prompt), parser);
+    }
+
     default <T> GmCompletionResult<T> completeWithSelection(
             String operationId, String prompt, StructuredResponseParser<T> parser,
             RequestedGmProviderSelection requested) {
         throw new UnsupportedOperationException("provider selection is not supported by this adapter");
+    }
+
+    default <T> GmCompletionResult<T> completeWithSelection(UUID soloPlayerId,
+            String operationId, String prompt, StructuredResponseParser<T> parser,
+            RequestedGmProviderSelection requested) {
+        return completeWithSelection(operationId, prompt, parser, requested);
     }
 
     /** Runs one initial completion and, only for a malformed candidate, one repair. */

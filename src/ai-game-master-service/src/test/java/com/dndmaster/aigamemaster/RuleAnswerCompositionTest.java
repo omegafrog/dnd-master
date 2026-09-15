@@ -9,7 +9,7 @@ class RuleAnswerCompositionTest{
  @Test void modelCannotHideEvidenceStatus(){RuleAnswerRequest request=request(EvidenceStatus.INSUFFICIENT);assertThrows(GroundingViolationException.class,()->new GroundedRuleAnswerService(r->new RuleAnswerOutput(EvidenceStatus.SUFFICIENT,"answer",List.of(evidence.citation()),List.of(),false)).compose(request));}
  @Test void preserves_server_owned_citation_key_and_requires_claim_support(){
   SourceEvidence keyed=new SourceEvidence(book,"p. 10","잡기 판정은 서로 겨루는 판정입니다.","rule-grapple");
-  RuleAnswerRequest request=new RuleAnswerRequest(UUID.randomUUID(),"잡기",EvidenceStatus.SUFFICIENT,List.of(keyed));
+  RuleAnswerRequest request=new RuleAnswerRequest(UUID.randomUUID(),UUID.randomUUID(),"잡기",EvidenceStatus.SUFFICIENT,List.of(keyed));
   RuleAnswerOutput output=new RuleAnswerOutput(EvidenceStatus.SUFFICIENT,"잡기 판정을 사용합니다.",List.of(keyed.citation()),List.of(),false,
           List.of(new GmCitationBinding("잡기 판정을 사용합니다.","conclusion","rule-grapple")));
   assertEquals(output,new GroundedRuleAnswerService(r->output).compose(request));
@@ -17,11 +17,11 @@ class RuleAnswerCompositionTest{
  }
  @Test void rejects_member_citation_when_bound_claim_is_unrelated(){
   SourceEvidence keyed=new SourceEvidence(book,"p. 10","잡기 판정은 서로 겨루는 판정입니다.","rule-grapple");
-  RuleAnswerRequest request=new RuleAnswerRequest(UUID.randomUUID(),"잡기",EvidenceStatus.SUFFICIENT,List.of(keyed));
+  RuleAnswerRequest request=new RuleAnswerRequest(UUID.randomUUID(),UUID.randomUUID(),"잡기",EvidenceStatus.SUFFICIENT,List.of(keyed));
   RuleAnswerOutput output=new RuleAnswerOutput(EvidenceStatus.SUFFICIENT,"항구에 폭풍이 옵니다.",List.of(keyed.citation()),List.of(),false,
           List.of(new GmCitationBinding("항구에 폭풍이 옵니다.","conclusion","rule-grapple")));
   GroundingViolationException failure=assertThrows(GroundingViolationException.class,()->new GroundedRuleAnswerService(r->output).compose(request));
   assertTrue(failure.getMessage().contains("UNSUPPORTED_CLAIM_CITATION"));
  }
- private RuleAnswerRequest request(EvidenceStatus status){return new RuleAnswerRequest(UUID.randomUUID(),"grapple",status,List.of(evidence));}
+ private RuleAnswerRequest request(EvidenceStatus status){return new RuleAnswerRequest(UUID.randomUUID(),UUID.randomUUID(),"grapple",status,List.of(evidence));}
 }

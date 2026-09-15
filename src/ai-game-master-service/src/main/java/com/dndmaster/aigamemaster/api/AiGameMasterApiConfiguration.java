@@ -55,7 +55,7 @@ public class AiGameMasterApiConfiguration {
     @Bean
     SceneModelPort sceneModelPort(GmCompletionAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper mapper) {
         return prompt -> {
-            String grounded = adapter.complete("scene-" + UUID.randomUUID(), prompt.value(),
+            String grounded = adapter.complete(prompt.soloPlayerId(), "scene-" + UUID.randomUUID(), prompt.value(),
                     text -> groundedScene(mapper, text, evidenceCount(prompt.value())));
             ScenarioAlignment alignment = grounded.lines().anyMatch(line -> line.startsWith("[RUNTIME_FACT]"))
                     ? ScenarioAlignment.RUNTIME_INTERACTION : ScenarioAlignment.WITHIN_SELECTED_SCENARIO;
@@ -108,7 +108,7 @@ public class AiGameMasterApiConfiguration {
     @Bean
     RuleAnswerModelPort ruleAnswerModelPort(GmCompletionAdapter adapter) {
         return request -> adapter.complete(
-                "rule-" + UUID.randomUUID(), request.situation(), text -> {
+                request.soloPlayerId(), "rule-" + UUID.randomUUID(), request.situation(), text -> {
                     // TODO: implement real JSON parsing from AI response
                     return new RuleAnswerOutput(EvidenceStatus.INSUFFICIENT, null, List.of(), List.of(), true);
                 });
@@ -117,7 +117,7 @@ public class AiGameMasterApiConfiguration {
     @Bean
     AdjudicationModelPort adjudicationModelPort(GmCompletionAdapter adapter) {
         return input -> adapter.complete(
-                "adjudicate-" + UUID.randomUUID(), input.toString(), text -> {
+                input.soloPlayerId(), "adjudicate-" + UUID.randomUUID(), input.toString(), text -> {
                     // TODO: implement real JSON parsing from AI response
                     return new AdjudicationModelPort.AdjudicationOutput(text, "parsed-rule-basis");
                 });
@@ -129,7 +129,7 @@ public class AiGameMasterApiConfiguration {
             String raw;
             try {
                 raw = java.util.concurrent.CompletableFuture.supplyAsync(() -> adapter.complete(
-                "map-" + UUID.randomUUID(),
+                input.soloPlayerId(), "map-" + UUID.randomUUID(),
                 new GmPrompt("ROLE=" + mapRole(input) + "\n"
                         + "SCENARIO=" + input.selectedScenario() + "\n"
                         + "CURRENT_CONTEXT=" + input.currentContext() + "\n"
@@ -197,7 +197,7 @@ public class AiGameMasterApiConfiguration {
         return input -> {
             try {
                 MapEntryPlacementModelPort.EntryPlacementOutput output = java.util.concurrent.CompletableFuture.supplyAsync(() -> adapter.complete(
-                    "map-entry-placement-" + UUID.randomUUID(),
+                    input.soloPlayerId(), "map-entry-placement-" + UUID.randomUUID(),
                             new GmPrompt("ROLE=MAP_ENTRY_PLACEMENT_AGENT\n"
                             + "TARGET_SCENE=" + input.targetScene() + "\n"
                             + "LOCATION=" + input.location() + "\n"
@@ -509,7 +509,7 @@ public class AiGameMasterApiConfiguration {
     @Bean
     IntentClassificationModelPort intentClassificationModelPort(GmCompletionAdapter adapter) {
         return input -> adapter.complete(
-                "intent-" + UUID.randomUUID(), input.question(), IntentClassificationOutput::fromModelText);
+                input.soloPlayerId(), "intent-" + UUID.randomUUID(), input.question(), IntentClassificationOutput::fromModelText);
     }
 
     @Bean

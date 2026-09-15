@@ -48,7 +48,7 @@ public final class ScenarioPromptFactory {
                 <selected-evidence>%s</selected-evidence>
                 """.formatted(request.scenarioId(), request.ruleSetId(), escape(request.selectedScenario()),
                 escape(request.currentContext()), escape(playerAction), recentActions, runtimeFacts, evidence),
-                request.scenarioId(), request.ruleSetId());
+                request.soloPlayerId(), request.scenarioId(), request.ruleSetId());
     }
 
     private static String escape(String value) {

@@ -104,6 +104,12 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     }
 
     @Override
+    public <T> T complete(UUID soloPlayerId, String operationId, String prompt,
+                           StructuredResponseParser<T> parser) {
+        return complete(soloPlayerId, operationId, new GmPrompt(prompt), parser);
+    }
+
+    @Override
     public <T> GmCompletionResult<T> completeWithSelection(
             String operationId, String prompt, StructuredResponseParser<T> parser,
             RequestedGmProviderSelection requested) {
@@ -116,6 +122,20 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
                     effective.endpointId(), effective.endpointVersion());
         }
         T response = completeResolved(operationId, prompt, parser, resolution.endpoint(), effective);
+        return new GmCompletionResult<>(response, effective);
+    }
+
+    @Override
+    public <T> GmCompletionResult<T> completeWithSelection(UUID soloPlayerId,
+            String operationId, String prompt, StructuredResponseParser<T> parser,
+            RequestedGmProviderSelection requested) {
+        if (selectionResolver == null) throw new GmProviderSelectionUnresolvedException(requested);
+        GmProviderSelectionResolver.EndpointResolution resolution = selectionResolver.resolveEndpoint(requested);
+        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
+        T response = "codex-cli".equals(effective.provider())
+                ? parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId, operationId, operationId,
+                        prompt, effective.model(), effective.reasoning(), "TEXT", null, "")).requireFinalText())
+                : completeResolved(operationId, prompt, parser, resolution.endpoint(), effective);
         return new GmCompletionResult<>(response, effective);
     }
 

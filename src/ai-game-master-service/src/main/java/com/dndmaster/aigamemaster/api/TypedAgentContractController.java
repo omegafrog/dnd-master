@@ -42,7 +42,7 @@ public final class TypedAgentContractController {
             @RequestBody ScenarioCompilationRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.complete(request.operationKey(),
+        return adapter.complete(request.soloPlayerId(), request.operationKey(),
                 "ROLE=SCENARIO_COMPILATION\nSTORYBOOK_CONTEXT=" + request.storybookContext(),
                 json -> parseCompilation(json));
     }
@@ -53,7 +53,7 @@ public final class TypedAgentContractController {
             @RequestBody ScenarioLookupRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.complete("scenario-lookup:" + request.query(),
+        return adapter.complete(request.soloPlayerId(), "scenario-lookup:" + request.query(),
                 "ROLE=SCENARIO_LOOKUP\nREAD_ONLY_LOCKED_SCENARIO_MODEL=" + write(request.lockedScenarioModel())
                         + "\nQUERY=" + request.query()
                         + "\nOUTPUT_CONTRACT=Return exactly one JSON object with status, answer, and supportingElementIds. "
@@ -102,7 +102,7 @@ public final class TypedAgentContractController {
             @RequestBody NarrationSafetyRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.complete("narration-safety", "ROLE=NARRATION_SAFETY\nNARRATION=" + request.narration()
+        return adapter.complete(request.soloPlayerId(), "narration-safety", "ROLE=NARRATION_SAFETY\nNARRATION=" + request.narration()
                         + "\nDISCLOSED_FACT_IDS=" + write(request.disclosedFactIds()), this::parseSafety);
     }
 
@@ -254,15 +254,17 @@ public final class TypedAgentContractController {
         if (request == null) throw new IllegalArgumentException("typed agent request is required");
     }
 
-    public record ScenarioCompilationRequest(String operationKey, String storybookContext) {
+    public record ScenarioCompilationRequest(java.util.UUID soloPlayerId, String operationKey, String storybookContext) {
         public ScenarioCompilationRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             operationKey = required(operationKey, "operationKey");
             storybookContext = required(storybookContext, "storybookContext");
         }
     }
 
-    public record ScenarioLookupRequest(String query, Map<String, Object> lockedScenarioModel) {
+    public record ScenarioLookupRequest(java.util.UUID soloPlayerId, String query, Map<String, Object> lockedScenarioModel) {
         public ScenarioLookupRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             query = required(query, "query");
             lockedScenarioModel = Map.copyOf(Objects.requireNonNull(lockedScenarioModel, "lockedScenarioModel is required"));
         }
@@ -285,8 +287,9 @@ public final class TypedAgentContractController {
         }
     }
 
-    public record NarrationSafetyRequest(String narration, List<String> disclosedFactIds) {
+    public record NarrationSafetyRequest(java.util.UUID soloPlayerId, String narration, List<String> disclosedFactIds) {
         public NarrationSafetyRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             narration = required(narration, "narration");
             disclosedFactIds = List.copyOf(Objects.requireNonNull(disclosedFactIds, "disclosedFactIds is required"));
         }
