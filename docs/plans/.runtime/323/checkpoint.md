@@ -21,6 +21,8 @@ implementation_commits:
   - 90940d43
   - 861591b3
   - 29343620
+  - 7eee1661
+  - 9b204f51
 tests:
   - "PASS ./gradlew :agent-connection-relay-service:cleanTest :agent-connection-relay-service:test :agent-connection-relay-service:bootJar"
   - "PASS ./gradlew :architecture-tests:test --tests com.dndmaster.architecture.BuildModulesTest"
