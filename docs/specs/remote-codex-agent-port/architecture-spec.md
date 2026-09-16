@@ -7,7 +7,7 @@
 | 항목 | 대상 |
 | --- | --- |
 | Product Spec | `docs/specs/remote-codex-agent-port/product-spec.md` |
-| Use Cases | UC-01 AI Game Master 요청 실행 |
+| Use Cases | UC-01 AI Game Master 요청 실행, UC-02 사용자 PC 에이전트 연결 유지 |
 | Domain | 모험 진행 중 AI 실행 요청 |
 | Bounded Contexts | Adventure Runtime, AI Game Master |
 | Existing Services | `adventure-service`, `ai-game-master-service` |
@@ -271,6 +271,19 @@ start
 if (기록 성공?) then (예)
   :AI Game Master가 RAG·게임 상태로 완성 프롬프트 생성;
   :AI 실행 포트 호출;
+  if (개발 환경인가?) then (예)
+    :개발 전용 로컬 Codex 구현 실행;
+  else (아니오)
+    :중계 서비스 내부 실행 API 호출;
+    :Redis에서 연결 보유 인스턴스 조회;
+    if (요청 인스턴스가 소유자인가?) then (예)
+      :웹소켓으로 직접 전달;
+    else (아니오)
+      :소유 인스턴스에 내부 HTTP 전달;
+      :소유 인스턴스가 웹소켓으로 전달;
+    endif
+    :requestId로 결과 대기;
+  endif
   if (최종 결과?) then (예)
     :기존 파서로 결과 해석;
     :게임 상태 처리;
@@ -448,13 +461,17 @@ component "중계 C\n연결 보유" as c
 component "사용자 PC 에이전트" as agent
 player --> adventure
 adventure --> gm
-gm --> a : 내부 실행 요청
+gm --> a : POST /internal/executions
 a --> redis : Solo Player 연결 위치 조회
-a --> c : 내부 HTTP (A != C)
-c --> agent : 이후 WebSocket 실행 요청
-agent --> c : 최종 결과
-c --> a
-a --> gm
+a --> c : 내부 HTTP, A≠C
+a --> agent : 웹소켓, A=C의 소유 세션
+agent --> c : RelayExecutionResult
+c --> a : 최종 결과·failureType
+a --> gm : 내부 HTTP 응답
+note right of a
+A: 요청을 받은 중계 인스턴스
+C: 연결을 보유한 중계 인스턴스
+end note
 @enduml
 ```
 
