@@ -8,7 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
-public final class LocalConnectionManager implements LocalConnectionExecutor {
+public final class LocalConnectionManager implements LocalConnectionExecutor, LocalConnectionRegistry {
     private final Map<UUID, Connection> connections = new ConcurrentHashMap<>();
     private final Map<UUID, Connection> connecting = new ConcurrentHashMap<>();
     private final Map<UUID, Object> lifecycleLocks = new ConcurrentHashMap<>();
@@ -30,6 +30,7 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
         this.leases = leases; this.completions = completions; this.metrics = metrics;
         this.executionTimeout = executionTimeout; this.maxPayloadBytes = maxPayloadBytes;
     }
+    @Override
     public Mono<Void> connect(ConnectionLocationLease lease, Duration ttl, AgentConnectionTransport transport) {
         var connection = new Connection(lease.connectionId(), lease, transport);
         var lifecycleLock = lifecycleLock(lease.soloPlayerId());
@@ -54,6 +55,7 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
             synchronized (lifecycleLock) { connecting.remove(lease.soloPlayerId(), connection); }
         });
     }
+    @Override
     public Mono<Boolean> disconnect(UUID soloPlayerId, String connectionId) {
         var lifecycleLock = lifecycleLock(soloPlayerId);
         synchronized (lifecycleLock) {
@@ -117,7 +119,9 @@ public final class LocalConnectionManager implements LocalConnectionExecutor {
                 .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.TIMEOUT)))
                 .onErrorResume(ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE)));
     }
+    @Override
     public boolean complete(String requestId, String finalContent) { return completions.complete(requestId, finalContent); }
+    @Override
     public boolean fail(String requestId, Throwable failure) { return completions.fail(requestId, failure); }
     private static Duration remaining(RelayExecutionRequest request) {
         return request.deadlineEpochMillis() == 0 ? Duration.ofDays(1)
