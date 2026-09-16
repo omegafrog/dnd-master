@@ -7,6 +7,7 @@
 - base SHA: `a882ccb0d573dfffbcc8335b26182f0b18a66c76`
 - plan branch: `plan/remote-codex-agent-port`
 - 상태 정본: GitHub Project `omegafrog/5`
+- 구현 상태: 완료된 코드 기준으로 문서·다이어그램을 갱신함
 
 ## 실행 순서
 
@@ -24,3 +25,15 @@
 - [UC-01 유스케이스](../../specs/remote-codex-agent-port/diagrams/product/UC-01.usecase.svg)
 - [UC-01 활동](../../specs/remote-codex-agent-port/diagrams/product/UC-01.activity.svg)
 - [UC-01 AI 실행 구조](../../specs/remote-codex-agent-port/diagrams/architecture/ai-execution.class.svg)
+- [UC-02 연결·실행 상태](../../specs/remote-codex-agent-port/diagrams/architecture/agent-connection.state.svg)
+- [UC-02 연결 유지 활동](../../specs/remote-codex-agent-port/diagrams/product/UC-02.activity.svg)
+
+## 현재 구현 검증 범위
+
+- `/ws/agent` Bearer 인증과 identity-access 식별자 확인.
+- Redis 연결 위치 임대 등록·교체·60초 만료·20초 갱신.
+- A=C 로컬 전달, A≠C `/internal/owned-executions` 직접 전달.
+- 웹소켓 `RelayExecutionRequest`와 `RelayExecutionResult`의 `requestId` 상관관계.
+- 연결 없음·연결 끊김·시간 초과·전달 실패 분류와 민감 원문 비로그.
+
+세부 구현 근거는 `product-spec.md` 11절과 `architecture-spec.md` 11절을 따른다.

@@ -5,6 +5,7 @@ skinparam shadowing false
 
 actor "Solo Player" as player
 actor "사용자 PC 에이전트" as agent
+actor "identity-access" as identity
 
 rectangle "D&D Master 서버" {
   usecase "AI Game Master\n요청 시작" as start
@@ -15,6 +16,9 @@ rectangle "D&D Master 서버" {
   usecase "요청 Solo Player의\n활성 사용자 PC 에이전트로 전달" as remote
   usecase "최종 결과 한 건 반환" as result
   usecase "오류 표시 및\n수동 재시도 가능" as failure
+  usecase "사용자 PC 에이전트\n연결 유지" as keepAlive
+  usecase "Bearer 토큰 확인과\nSolo Player 식별" as authenticate
+  usecase "연결 위치 임대\n등록·갱신·삭제" as lease
 }
 
 player --> start
@@ -29,6 +33,10 @@ remote --> result : 성공
 remote --> failure : 에이전트 없음, 실패,\n시간 초과, 연결 끊김
 result --> player
 failure --> player
+agent --> keepAlive
+keepAlive --> authenticate
+authenticate --> identity
+keepAlive --> lease
 
 note bottom of boundary
   모든 서버 Codex 실행은
@@ -43,5 +51,10 @@ end note
 note bottom of reject
   새 요청을 저장하거나
   대기열에 넣지 않는다.
+end note
+
+note bottom of keepAlive
+요청마다 연결하지 않는다.
+장기 연결을 유지한다.
 end note
 @enduml

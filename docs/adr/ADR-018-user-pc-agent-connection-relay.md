@@ -24,4 +24,7 @@ AI Game Master는 서버의 RAG와 모험 상태로 완성한 프롬프트를 �
 - 장기 연결의 수평 확장과 장애 격리를 AI Game Master 배포와 분리한다.
 - 내부 HTTP, Redis, 서비스 배포·관찰 비용이 추가된다.
 - 중계 서비스 재시작이나 사용자 PC 연결 끊김 중의 결과는 유실될 수 있다. 사용자 PC 에이전트 재연결 뒤 사용자가 수동 재시도한다.
-- 공개 웹소켓 등록, pairing, 사용자 PC 에이전트 인증, 기기 키, 연결 복구, 심장 신호는 후속 결정이다.
+- 사용자 PC 에이전트는 `/ws/agent`에 Bearer 토큰으로 연결하고, identity-access가 확인한 Solo Player ID로 등록한다.
+- 연결 위치는 Redis 임대로 저장하며 60초 만료·20초 주기 갱신을 사용한다. 새 연결은 기존 연결을 대체하고, 종료 시 연결 ID가 일치할 때만 임대를 삭제한다.
+- 웹소켓 실행 메시지와 결과 메시지는 `RelayExecutionRequest`·`RelayExecutionResult` JSON 계약을 사용하고 `requestId`로 내부 HTTP 응답과 연결한다.
+- pairing, 기기 키, 자동 연결 복구, 영속 실행 보존은 후속 결정이다.
