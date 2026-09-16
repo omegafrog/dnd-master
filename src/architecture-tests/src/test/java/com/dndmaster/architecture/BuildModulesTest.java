@@ -20,6 +20,7 @@ class BuildModulesTest {
             "combat-map-service",
             "ai-game-master-service",
             "ai-game-master-local-codex",
+            "user-pc-agent",
             "agent-connection-relay-service",
             "gm-eval-service",
             "app-all",

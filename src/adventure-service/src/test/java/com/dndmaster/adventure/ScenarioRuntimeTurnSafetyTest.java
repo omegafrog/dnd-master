@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.dndmaster.adventure.application.runtime.CompletionProposal;
-import com.dndmaster.adventure.application.runtime.PendingRuntimeState;
+import com.dndmaster.adventure.domain.runtime.CompletionProposal;
+import com.dndmaster.adventure.domain.runtime.PendingRuntimeState;
 import com.dndmaster.adventure.application.runtime.RuntimeAddedFactCandidate;
 import com.dndmaster.adventure.application.runtime.RuntimeFallbackFactPolicy;
 import com.dndmaster.adventure.application.runtime.RuntimeFactLookupResult;

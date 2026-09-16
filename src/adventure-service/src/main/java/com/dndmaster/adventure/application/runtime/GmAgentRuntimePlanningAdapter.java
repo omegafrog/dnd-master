@@ -6,6 +6,7 @@ import java.util.Set;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import com.dndmaster.adventure.domain.runtime.RequestedGmProviderSelection;
+import com.dndmaster.adventure.domain.runtime.CompletionProposal;
 
 public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(GmAgentRuntimePlanningAdapter.class);

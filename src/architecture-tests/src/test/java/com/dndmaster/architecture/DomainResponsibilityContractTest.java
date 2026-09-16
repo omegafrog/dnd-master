@@ -17,7 +17,19 @@ class DomainResponsibilityContractTest {
             "RulebookIndexingPolicy.java",
             "VisibilityPolicy.java",
             "GameTimePolicy.java",
-            "InformationPolicy.java");
+            "InformationPolicy.java",
+            "FutureSuffixReplanningPolicy.java",
+            "PremiseInvalidationPolicy.java",
+            "CombatResumePolicy.java",
+            "CombatMovementPolicy.java",
+            "PlayerCombatProjectionPolicy.java",
+            "InitiativeOrderPolicy.java",
+            "FreeFormInterpretationPolicy.java",
+            "CombatEndProposalPolicy.java",
+            "PostCombatProjectionPolicy.java",
+            "CombatStartPolicy.java",
+            "CompilationOutcomePolicy.java",
+            "ScenarioModelCompilationPolicy.java");
 
     @Test
     void domainAndApplicationDependenciesPointInward() throws Exception {
