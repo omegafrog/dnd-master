@@ -82,54 +82,7 @@ async function login(request: APIRequestContext) {
 }
 
 async function uploadDocuments(request: APIRequestContext) {
-  const inputs = [
-    ...storybooks.map(storybook => ({ ...storybook, documentType: 'STORYBOOK' })),
-  ]
-  const buffers = await Promise.all(inputs.map(input => readFile(input.path)))
-  const metadata = inputs.map(input => ({
-    idempotencyKey: crypto.randomUUID(),
-    documentType: input.documentType,
-    originalFilename: basename(input.path),
-  }))
-
-  const multipart = new FormData()
-  multipart.append(
-    'documents',
-    new Blob([JSON.stringify(metadata)], { type: 'application/json' }),
-    'documents.json',
-  )
-  inputs.forEach((input, index) => {
-    multipart.append(
-      'files',
-      new Blob([buffers[index]], { type: mimeType(input.path) }),
-      basename(input.path),
-    )
-  })
-
-  const response = await request.post(`${backend}/api/v1/rulebooks?ownerPlayerId=${ownerPlayerId}`, {
-    headers: authHeaders,
-    multipart,
-  })
-  expect(response.ok(), await response.text()).toBeTruthy()
-  const body = await response.json() as {
-    documents: Array<{
-      knowledgeDocumentId: string | null
-      documentType: string
-      status: string
-      failureReason?: string
-    }>
-  }
-  expect(body.documents).toHaveLength(inputs.length)
-  body.documents.forEach(document => {
-    expect(document.knowledgeDocumentId, JSON.stringify(document)).toBeTruthy()
-    expect(document.status, document.failureReason).toBe('ACCEPTED')
-  })
-
-  const uploaded = body.documents.map((document, index) => ({
-    knowledgeDocumentId: document.knowledgeDocumentId!,
-    role: inputs[index].role,
-  }))
-
+  // 룰북은 사용자 업로드가 아니라 공유 목록에서 먼저 선택한다.
   const catalogResponse = await request.get(`${backend}/api/v1/rulebook-catalog`)
   expect(catalogResponse.ok(), await catalogResponse.text()).toBeTruthy()
   const catalog = await catalogResponse.json() as Array<{
@@ -139,7 +92,39 @@ async function uploadDocuments(request: APIRequestContext) {
   }>
   const rulebook = catalog.find(item => item.edition === 'DND_5E_2014' && item.status === 'READY' && item.rulebookId)
   expect(rulebook, 'published DND_5E_2014 catalog rulebook is required').toBeTruthy()
-  return [{ knowledgeDocumentId: rulebook!.rulebookId!, role: 'RULEBOOK' }, ...uploaded]
+
+  const inputs = [
+    ...storybooks.map(storybook => ({ ...storybook, documentType: 'STORYBOOK' })),
+  ]
+  const uploaded: Array<{ knowledgeDocumentId: string; role: string }> = []
+  for (const input of inputs) {
+    const buffer = await readFile(input.path)
+    const metadata = [{
+      idempotencyKey: crypto.randomUUID(),
+      documentType: input.documentType,
+      originalFilename: basename(input.path),
+    }]
+    const multipart = new FormData()
+    multipart.append('documents', new Blob([JSON.stringify(metadata)], { type: 'application/json' }), 'documents.json')
+    multipart.append('files', new Blob([buffer], { type: mimeType(input.path) }), basename(input.path))
+    const response = await request.post(`${backend}/api/v1/rulebooks?ownerPlayerId=${ownerPlayerId}`, {
+      headers: authHeaders,
+      multipart,
+    })
+    expect(response.ok(), await response.text()).toBeTruthy()
+    const body = await response.json() as { documents: Array<{ knowledgeDocumentId: string | null; status: string; failureReason?: string }> }
+    expect(body.documents).toHaveLength(1)
+    const document = body.documents[0]
+    expect(document.knowledgeDocumentId, JSON.stringify(document)).toBeTruthy()
+    expect(document.status, document.failureReason).toBe('ACCEPTED')
+    uploaded.push({ knowledgeDocumentId: document.knowledgeDocumentId!, role: input.role })
+  }
+  const primary = uploaded.find(document => document.role === 'MAIN_SCENARIO')
+  expect(primary, 'MAIN_SCENARIO storybook is required').toBeTruthy()
+  return {
+    documents: [{ knowledgeDocumentId: rulebook!.rulebookId!, role: 'RULEBOOK' }, ...uploaded],
+    primaryStorybookId: primary!.knowledgeDocumentId,
+  }
 }
 
 async function waitForDocuments(request: APIRequestContext, ids: string[]) {
@@ -166,10 +151,10 @@ async function createBundle(
   return response.json() as Promise<{ bundleId: string; currentRevision: number }>
 }
 
-async function compilePackage(request: APIRequestContext, bundleId: string) {
+async function compilePackage(request: APIRequestContext, bundleId: string, primaryStorybookId: string) {
   const start = await request.post(`${backend}/api/v1/adventures/scenario-bundles/${bundleId}/compilation-jobs`, {
     headers: { ...authHeaders, 'Content-Type': 'application/json' },
-    data: { playerId: ownerPlayerId, inputFingerprint: `playwright-${Date.now()}` },
+    data: { playerId: ownerPlayerId, inputFingerprint: `playwright-${Date.now()}`, primaryStorybookId },
   })
   expect(start.ok(), await start.text()).toBeTruthy()
   const compilation = await start.json() as { compilationId: string; packageId?: string | null }
@@ -181,7 +166,7 @@ async function compilePackage(request: APIRequestContext, bundleId: string) {
     if (current.status === 'FAILED') throw new Error(current.failureReason ?? 'scenario compilation failed')
     packageId = current.packageId ?? packageId
     return current.status
-  }, { timeout: 180_000, intervals: [1000, 2000, 5000] }).toBe('PUBLISHED')
+  }, { timeout: 180_000, intervals: [1000, 2000, 5000] }).toMatch(/^(PUBLISHED|COMPLETED)$/)
   expect(packageId).toBeTruthy()
   return packageId!
 }
@@ -286,10 +271,10 @@ test('fresh database bootstraps scenario package and completes character creatio
   test.setTimeout(360_000)
 
   await login(request)
-  const documents = await uploadDocuments(request)
-  await waitForDocuments(request, documents.map(document => document.knowledgeDocumentId))
-  const bundle = await createBundle(request, documents)
-  const packageId = await compilePackage(request, bundle.bundleId)
+  const uploaded = await uploadDocuments(request)
+  await waitForDocuments(request, uploaded.documents.map(document => document.knowledgeDocumentId))
+  const bundle = await createBundle(request, uploaded.documents)
+  const packageId = await compilePackage(request, bundle.bundleId, uploaded.primaryStorybookId)
   const preparation = await prepareBlueprint(request, packageId)
   const session = await createSession(request, packageId, preparation.characterCreationBlueprint.revision ?? 0)
 

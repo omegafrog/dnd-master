@@ -15,5 +15,4 @@ dependencies {
     implementation(project(":dice-roll-service"))
     implementation(project(":combat-map-service"))
     implementation(project(":ai-game-master-service"))
-    developmentOnly(project(":ai-game-master-local-codex"))
 }

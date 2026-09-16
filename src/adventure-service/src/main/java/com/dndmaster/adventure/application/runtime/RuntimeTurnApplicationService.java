@@ -811,7 +811,7 @@ public class RuntimeTurnApplicationService {
             ScenarioPackage scenarioPackage, EvidencePack evidencePack) {
         if (runtimeFactLookupService == null) return List.of();
         try {
-            RuntimeFactLookupResult result = runtimeFactLookupService.lookup(
+            RuntimeFactLookupResult result = runtimeFactLookupService.lookup(adventure.ownerPlayerId().value(),
                     new RuntimeFactLookupRequest(command.action(), adventure.gameState(), adventure.runtimeAddedFacts(),
                             scenarioPackage.scenarioModel()), evidencePack.storybook());
             return List.of(result);

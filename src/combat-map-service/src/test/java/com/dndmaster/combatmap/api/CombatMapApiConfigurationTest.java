@@ -46,9 +46,11 @@ class CombatMapApiConfigurationTest {
             var gateway = new HttpAiMapGenerationGateway(HttpClient.newHttpClient(),
                     java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
                     Duration.ofSeconds(5), new ObjectMapper(), "token");
+            var soloPlayerId = java.util.UUID.fromString("00000000-0000-0000-0000-000000000001");
             PreparedMapData data = gateway.generate(new MapGenerationRequest("map", "context", 4, 3, 30, 5,
                     java.util.List.of(), java.util.List.of(), new com.dndmaster.combatmap.domain.GridPosition(0, 0),
-                    new com.dndmaster.combatmap.application.view.MapImageEvidence("image/png", new byte[] {1, 2, 3})));
+                    new com.dndmaster.combatmap.application.view.MapImageEvidence("image/png", new byte[] {1, 2, 3}))
+                    .withSoloPlayerId(soloPlayerId));
             assertEquals(new GridSpec(4, 3, 30, 5), data.grid());
             assertTrue(data.obstacles().isEmpty());
             assertTrue(data.doors().isEmpty());
@@ -56,8 +58,36 @@ class CombatMapApiConfigurationTest {
             assertTrue(data.layers().stream().noneMatch(layer -> layer.type().equals("GM_PLAYER_START")));
             assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("MAP_IMAGE") && layer.value().startsWith("data:image/png;base64,")));
             JsonNode request = new ObjectMapper().readTree(requestBody.get());
+            assertEquals(soloPlayerId.toString(), request.path("soloPlayerId").asText());
             assertEquals("0,0", new ObjectMapper().readTree(request.path("mapData").asText()).path("authoredPlayerStart").asText());
             assertTrue(request.path("imageDataUri").asText().startsWith("data:image/png;base64,"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aiProposalFailureStillProducesAReviewableMapDraft() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/gm/maps", exchange -> {
+            byte[] response = "{\"error\":\"provider unavailable\"}".getBytes();
+            exchange.sendResponseHeaders(500, response.length);
+            try (var output = exchange.getResponseBody()) { output.write(response); }
+        });
+        server.start();
+        try {
+            var gateway = new HttpAiMapGenerationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(5), new ObjectMapper(), "token");
+            var image = png(32, 40);
+            PreparedMapData data = gateway.generate(new MapGenerationRequest("map", "context", 4, 3, 30, 5,
+                    java.util.List.of(), java.util.List.of(), null, image));
+
+            assertEquals(new GridSpec(4, 3, 30, 5), data.grid());
+            assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("MAP_IMAGE")));
+            assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("GRID_BOUNDS")));
+            assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("GRID_SOURCE")
+                    && layer.value().equals("GM_UNAVAILABLE")));
         } finally {
             server.stop(0);
         }
