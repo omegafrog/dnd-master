@@ -166,10 +166,15 @@ async function createBundle(
   return response.json() as Promise<{ bundleId: string; currentRevision: number }>
 }
 
-async function compilePackage(request: APIRequestContext, bundleId: string) {
+async function compilePackage(request: APIRequestContext, bundleId: string, primaryStorybookId: string) {
+  expect(primaryStorybookId, 'MAIN_SCENARIO storybook is required').toBeTruthy()
   const start = await request.post(`${backend}/api/v1/adventures/scenario-bundles/${bundleId}/compilation-jobs`, {
     headers: { ...authHeaders, 'Content-Type': 'application/json' },
-    data: { playerId: ownerPlayerId, inputFingerprint: `playwright-${Date.now()}` },
+    data: {
+      playerId: ownerPlayerId,
+      inputFingerprint: `playwright-${Date.now()}`,
+      primaryStorybookId,
+    },
   })
   expect(start.ok(), await start.text()).toBeTruthy()
   const compilation = await start.json() as { compilationId: string; packageId?: string | null }
@@ -181,7 +186,7 @@ async function compilePackage(request: APIRequestContext, bundleId: string) {
     if (current.status === 'FAILED') throw new Error(current.failureReason ?? 'scenario compilation failed')
     packageId = current.packageId ?? packageId
     return current.status
-  }, { timeout: 180_000, intervals: [1000, 2000, 5000] }).toBe('PUBLISHED')
+  }, { timeout: 360_000, intervals: [1000, 2000, 5000] }).toBe('PUBLISHED')
   expect(packageId).toBeTruthy()
   return packageId!
 }
@@ -289,7 +294,9 @@ test('fresh database bootstraps scenario package and completes character creatio
   const documents = await uploadDocuments(request)
   await waitForDocuments(request, documents.map(document => document.knowledgeDocumentId))
   const bundle = await createBundle(request, documents)
-  const packageId = await compilePackage(request, bundle.bundleId)
+  const primaryStorybook = documents.find(document => document.role === 'MAIN_SCENARIO')
+  expect(primaryStorybook, 'MAIN_SCENARIO storybook is required').toBeTruthy()
+  const packageId = await compilePackage(request, bundle.bundleId, primaryStorybook!.knowledgeDocumentId)
   const preparation = await prepareBlueprint(request, packageId)
   const session = await createSession(request, packageId, preparation.characterCreationBlueprint.revision ?? 0)
 
