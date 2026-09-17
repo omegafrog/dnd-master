@@ -3,7 +3,7 @@
 skinparam shadowing false
 start
 
-:Solo Player가 AI Game Master 요청을 시작;
+:Solo Player가 채팅·행동·모험 시작 요청;
 :진행 중 AI 요청 확인;
 
 if (같은 모험 진행에\n진행 중 AI 요청이 있는가?) then (예)
@@ -15,11 +15,15 @@ else (아니오)
   :진행 중 AI 요청 등록;
 endif
 
-:D&D Master 서버가 AI 실행 요청 창구로 요청 전달;
+:Adventure Runtime이 요청 ID를 원자적으로 기록;
+:AI Game Master가 룰북·스토리북·상태로
+완성 프롬프트 생성;
+:AI 실행 포트 호출;
 
 if (개발 환경인가?) then (예)
   :개발 전용 로컬 Codex 실행;
   if (실행 성공?) then (예)
+    :기존 결과 처리와 게임 상태 반영;
     :진행 중 AI 요청 해제;
     :최종 결과 한 건 반환;
     stop
@@ -30,21 +34,33 @@ if (개발 환경인가?) then (예)
     :같은 행동 수동 재시도 가능;
     stop
   endif
-else (아니오, 배포 환경)
-  if (요청 Solo Player의 활성 사용자 PC 에이전트가 있는가?) then (예)
-    :그 사용자 PC 에이전트에만 요청 전달;
+else (아니오: 배포 환경)
+  :중계 서비스가 Redis에서
+  요청 Solo Player 연결 위치 조회;
+  if (활성 연결이 있는가?) then (예)
+    if (요청 인스턴스가 소유 인스턴스인가?) then (예)
+      :소유 인스턴스가 웹소켓으로
+      사용자 PC 에이전트에 전달;
+    else (아니오)
+      :소유 인스턴스에
+      내부 HTTP로 전달;
+      :소유 인스턴스가 웹소켓으로
+      사용자 PC 에이전트에 전달;
+    endif
+    :같은 requestId의 최종 결과 대기;
     if (최종 결과 수신?) then (예)
+      :기존 결과 처리와 게임 상태 반영;
       :진행 중 AI 요청 해제;
       :최종 결과 한 건 반환;
       stop
-    else (아니오: 실패, 시간 초과, 연결 끊김)
+    else (아니오: 실패·시간 초과·연결 끊김)
       :진행 중 AI 요청 해제;
       :오류 표시;
       :게임 상태 유지;
       :같은 행동 수동 재시도 가능;
       stop
     endif
-  else (아니오)
+  else (아니오: 연결 없음)
     :진행 중 AI 요청 해제;
     :오류 표시;
     :게임 상태 유지;

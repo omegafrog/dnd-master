@@ -7,7 +7,7 @@
 | 항목 | 대상 |
 | --- | --- |
 | Product Spec | `docs/specs/remote-codex-agent-port/product-spec.md` |
-| Use Cases | UC-01 AI Game Master 요청 실행 |
+| Use Cases | UC-01 AI Game Master 요청 실행, UC-02 사용자 PC 에이전트 연결 유지 |
 | Domain | 모험 진행 중 AI 실행 요청 |
 | Bounded Contexts | Adventure Runtime, AI Game Master |
 | Existing Services | `adventure-service`, `ai-game-master-service` |
@@ -25,6 +25,8 @@
 | 최종 결과만 반환 | 원격 실행 포트의 단일 최종 텍스트 또는 오류 계약 |
 | 연결 없음·끊김·시간 초과 | 중계 서비스 오류 분류, 요청 ID 해제, 수동 재시도 |
 | 배포 산출물에 로컬 Codex 없음 | 개발 전용 Gradle 모듈과 개발 프로필 조립 |
+| 사용자 PC 에이전트 장기 연결 | `/ws/agent`, identity-access 토큰 확인, Redis 임대와 갱신 |
+| 중계 결과 상관관계 | `requestId`별 대기 객체와 `RelayExecutionResult` |
 
 ---
 
@@ -43,8 +45,21 @@ if (Adventure Session에 진행 중 요청?) then (예)
 else (아니오)
   :진행 중 AI 요청 ID 원자 기록;
   :AI Game Master가 완성 프롬프트 생성;
-  :AI 실행 포트 호출;
-  if (최종 결과 수신?) then (예)
+:AI 실행 포트 호출;
+if (개발 환경인가?) then (예)
+  :개발 전용 로컬 Codex 구현 실행;
+else (아니오)
+  :중계 서비스 내부 실행 API 호출;
+  :Redis에서 연결 보유 인스턴스 조회;
+  if (요청 인스턴스가 소유자인가?) then (예)
+    :웹소켓으로 직접 전달;
+  else (아니오)
+    :소유 인스턴스에 내부 HTTP 전달;
+    :소유 인스턴스가 웹소켓으로 전달;
+  endif
+  :requestId로 최종 결과 대기;
+endif
+if (최종 결과 수신?) then (예)
     :기존 결과 해석;
     :게임 상태 변경;
     :같은 요청 ID 해제;
@@ -137,7 +152,7 @@ rectangle "사용자 PC 에이전트 연결 중계 서비스\n(기술 전달)" a
 rectangle "사용자 PC 에이전트" as agent
 adventure --> gm : 내부 AI 요청 계약
 gm --> relay : 내부 실행 요청 계약
-relay --> agent : 이후 웹소켓 전달
+relay --> agent : 인증된 /ws/agent 웹소켓 전달
 @enduml
 ```
 
@@ -145,7 +160,7 @@ relay --> agent : 이후 웹소켓 전달
 | --- | --- | --- | --- | --- |
 | Adventure Runtime | AI Game Master | Customer/Supplier | 기존 내부 AI 요청 | 기존 변환 |
 | AI Game Master | 사용자 PC 에이전트 연결 중계 서비스 | Customer/Supplier | 내부 실행 요청·최종 결과 또는 오류 | 포트 구현체 |
-| 사용자 PC 에이전트 연결 중계 서비스 | 사용자 PC 에이전트 | Published Language 예정 | 공개 웹소켓 계약 | 이번 범위 밖 |
+| 사용자 PC 에이전트 연결 중계 서비스 | 사용자 PC 에이전트 | Published Language | `RelayExecutionRequest` / `RelayExecutionResult` | JSON 직렬화 |
 
 ## 3.3 Aggregates
 
@@ -198,7 +213,10 @@ SVG: [AI 실행 구조](diagrams/architecture/ai-execution.class.svg)
 
 ## 3.8.1 State Diagram
 
-해당 없음 — Product Spec의 Adventure Session 업무 상태 전이와 같은 목적이므로 중복 다이어그램을 만들지 않는다.
+원본: `docs/specs/remote-codex-agent-port/diagrams/architecture/agent-connection.state.puml`<br>
+SVG: [사용자 PC 에이전트 연결·실행 상태](diagrams/architecture/agent-connection.state.svg)
+
+연결 수명과 AI 실행 요청 수명을 분리한다. 연결 종료는 현재 `connectionId`가 일치할 때만 Redis 임대를 삭제하며, 진행 중 요청은 `CONNECTION_LOST`로 완료한다.
 
 ## 3.9 Repository Boundaries
 
@@ -215,15 +233,21 @@ SVG: [AI 실행 구조](diagrams/architecture/ai-execution.class.svg)
 ```plantuml
 @startuml
 title Program Structure
+component "Adventure Runtime" as adventure
 component "AI Game Master" as gm
-interface "AI 실행 포트" as port
-component "개발용 로컬 구현" as local
-component "원격 구현" as remote
-component "사용자 PC 에이전트 연결 중계 서비스" as relay
-gm --> port
+interface "AiExecutionPort" as port
+component "개발 전용 로컬 Codex 모듈" as local
+component "원격 AI 실행 구현" as remote
+component "agent-connection-relay-service" as relay
+component "사용자 PC 에이전트" as agent
+database "Redis 연결 위치 임대" as redis
+adventure --> gm : HTTP
+gm --> port : AiExecutionRequest
 local ..|> port
 remote ..|> port
-remote --> relay : 내부 HTTP
+remote --> relay : POST /internal/executions
+relay --> redis : 연결 위치 조회
+relay --> agent : /ws/agent
 @enduml
 ```
 
@@ -234,7 +258,7 @@ remote --> relay : 내부 HTTP
 | AI 실행 포트 | 모든 서버 Codex 실행의 공통 호출 계약 | AI 실행 요청 | 최종 텍스트 또는 유형화한 오류 | 없음 | 프롬프트 생성·결과 해석을 소유하지 않음 |
 | 개발용 로컬 구현 | 기존 로컬 `CodexAppServerClient` 경로 호환 | AI 실행 요청 | 기존 의미의 결과/오류 | 개발 전용 Codex 클라이언트 | 운영 산출물에 포함되지 않음 |
 | 원격 구현 | 중계 서비스 내부 API 호출 | AI 실행 요청 | 최종 텍스트 또는 오류 | 중계 서비스 클라이언트 | Codex·RAG·웹소켓 세션을 직접 다루지 않음 |
-| 사용자 PC 에이전트 연결 중계 서비스 | 위치 조회, 연결 보유 인스턴스 전달, 요청 ID 상관관계 | 이미 완성된 실행 요청 | 최종 텍스트 또는 오류 | Redis, 내부 HTTP, 이후 웹소켓 | 프롬프트 생성, RAG 조회, Codex 실행, 게임 상태 기록, 비밀값 저장 |
+| 사용자 PC 에이전트 연결 중계 서비스 | 인증 연결 보유, 위치 조회, A=C/A≠C 전달, 요청 ID 상관관계, 임대 갱신 | 이미 완성된 실행 요청 | 최종 텍스트 또는 `RelayExecutionResult` 오류 | Redis, 내부 HTTP, WebSocket, identity-access | 프롬프트 생성, RAG 조회, Codex 실행, 게임 상태 기록, 비밀값 저장 |
 | AI Game Master 결과 해석 | 원시 최종 텍스트를 기존 결과로 해석 | 최종 텍스트 | 기존 응답 | 기존 파서 | 중계 세부사항 인식 |
 
 ## 4.3 Application Flow
@@ -247,6 +271,19 @@ start
 if (기록 성공?) then (예)
   :AI Game Master가 RAG·게임 상태로 완성 프롬프트 생성;
   :AI 실행 포트 호출;
+  if (개발 환경인가?) then (예)
+    :개발 전용 로컬 Codex 구현 실행;
+  else (아니오)
+    :중계 서비스 내부 실행 API 호출;
+    :Redis에서 연결 보유 인스턴스 조회;
+    if (요청 인스턴스가 소유자인가?) then (예)
+      :웹소켓으로 직접 전달;
+    else (아니오)
+      :소유 인스턴스에 내부 HTTP 전달;
+      :소유 인스턴스가 웹소켓으로 전달;
+    endif
+    :requestId로 결과 대기;
+  endif
   if (최종 결과?) then (예)
     :기존 파서로 결과 해석;
     :게임 상태 처리;
@@ -280,7 +317,7 @@ stop
 | 개발용 로컬 AI 실행 구현 | Adapter | 기존 로컬 Codex 실행 호환 | 기존 app-server 수명주기 | `CodexAppServerClient` |
 | 원격 AI 실행 구현 | Adapter | 중계 서비스 내부 호출 | 없음 | 내부 HTTP 클라이언트 |
 | 연결 위치 저장소 | Port | Solo Player의 현재 연결 보유 인스턴스 조회·임대 갱신 | 휘발성 임대 | Redis 구현 |
-| 연결 보유 실행 처리기 | Application Service | 로컬 웹소켓 세션으로 전달하고 요청 ID 결과 대기 | 요청 ID별 대기 상태 | 세션 저장소 |
+| 연결 보유 실행 처리기 | Application Service | 로컬 웹소켓 세션으로 전달하고 요청 ID 결과 대기 | 요청 ID별 한 번 완료 대기 상태 | 웹소켓 세션, 완료 대기 저장소 |
 
 ## 4.6 Type Design
 
@@ -424,13 +461,17 @@ component "중계 C\n연결 보유" as c
 component "사용자 PC 에이전트" as agent
 player --> adventure
 adventure --> gm
-gm --> a : 내부 실행 요청
+gm --> a : POST /internal/executions
 a --> redis : Solo Player 연결 위치 조회
-a --> c : 내부 HTTP (A != C)
-c --> agent : 이후 WebSocket 실행 요청
-agent --> c : 최종 결과
-c --> a
-a --> gm
+a --> c : 내부 HTTP, A≠C
+a --> agent : 웹소켓, A=C의 소유 세션
+agent --> c : RelayExecutionResult
+c --> a : 최종 결과·failureType
+a --> gm : 내부 HTTP 응답
+note right of a
+A: 요청을 받은 중계 인스턴스
+C: 연결을 보유한 중계 인스턴스
+end note
 @enduml
 ```
 
@@ -444,9 +485,13 @@ a --> gm
 
 ## 5.5 API Contracts
 
-### `POST /internal/executions` 및 소유 연결 인스턴스의 내부 실행 endpoint
+### `POST /internal/executions`
 
-공개 API가 아니다. 정확한 경로·JSON 필드명은 구현에서 정하되 계약 의미는 고정한다.
+AI Game Master의 원격 구현이 호출하는 인증된 내부 API다. 공개 API가 아니다. `X-Internal-Token`이 일치해야 하며, 요청은 연결 위치를 가진 중계 인스턴스까지 동기적으로 전달된다.
+
+### `POST /internal/owned-executions`
+
+중계 A가 연결 보유 중계 C에 호출하는 인증된 내부 API다. `X-Internal-Token`, `X-Relay-Instance-Id`, `X-Internal-Caller: agent-connection-relay-service`를 요구한다. C는 자기 웹소켓 연결에만 요청을 전달한다.
 
 #### Request
 
@@ -458,8 +503,10 @@ a --> gm
   "prompt": "서버가 완성한 프롬프트",
   "model": "선택 모델",
   "reasoning": "추론 설정",
-  "outputSchema": "출력 형식",
-  "imageInputs": "기존 이미지 입력"
+  "outputSchema": "선택 출력 구조",
+  "imageInputs": ["기존 이미지 입력"],
+  "deadlineEpochMillis": 0,
+  "connectionId": "선택 연결 식별자"
 }
 ```
 
@@ -468,18 +515,21 @@ a --> gm
 ```json
 {
   "requestId": "요청 상관관계 식별자",
-  "content": "최종 텍스트 또는 유형화한 오류"
+  "content": "성공한 최종 텍스트 또는 빈 문자열",
+  "failureType": null
 }
 ```
+
+웹소켓 요청은 `RelayExecutionRequest`, 웹소켓 결과와 내부 HTTP 응답은 `RelayExecutionResult`로 같은 필드 의미를 사용한다. 성공 시 `failureType`은 `null`, 실패 시 `content`는 빈 문자열이다.
 
 #### Errors
 
 | Condition | Status / Code | Response |
 | --- | --- | --- |
 | 내부 토큰 없음·불일치 | 인증 오류 | 실행하지 않음 |
-| 연결 위치 임대 없음 | 활성 사용자 PC 에이전트 없음 | 요청 ID와 실패 종류 |
-| C 도달 실패·세션 없음 | 전달 실패 | 요청 ID와 실패 종류 |
-| 사용자 PC 결과 시간 초과·연결 끊김 | 원격 실행 실패 | 요청 ID와 실패 종류 |
+| 연결 위치 임대 없음 | 활성 사용자 PC 에이전트 없음 | `requestId`, `failureType=NO_CONNECTION` |
+| C 도달 실패·세션 없음 | 전달 실패 | `requestId`, `failureType=REMOTE_FAILURE` |
+| 사용자 PC 결과 시간 초과·연결 끊김 | 원격 실행 실패 | `requestId`, `failureType=TIMEOUT` 또는 `CONNECTION_LOST` |
 
 #### Properties
 
@@ -499,7 +549,22 @@ a --> gm
 
 ## 5.7 Message Contracts
 
-공개 웹소켓 `HELLO`, 실행, 결과, 오류 메시지 계약은 해당 없음 — 연결 등록·인증과 함께 다음 작업에서 정한다. 이번 티켓은 공개 웹소켓 endpoint를 열지 않는다.
+공개 사용자 화면용 웹소켓은 아니다. 사용자 PC 에이전트가 인증된 `/ws/agent`에 장기 연결하고, 다음 JSON 메시지를 주고받는다.
+
+| 방향 | 메시지 | 의미 |
+| --- | --- | --- |
+| 중계 → 사용자 PC 에이전트 | `RelayExecutionRequest` | 완성 프롬프트와 실행 옵션, `requestId` 전달 |
+| 사용자 PC 에이전트 → 중계 | `RelayExecutionResult` | 같은 `requestId`의 최종 결과 또는 `failureType` 전달 |
+
+```json
+{
+  "requestId": "request-1",
+  "content": "최종 텍스트",
+  "failureType": null
+}
+```
+
+중간 생성 내용은 전송하지 않는다. 연결 등록 시 `Authorization: Bearer <토큰>`을 identity-access에서 확인한다. pairing, 기기 키, 자동 재연결은 이 구현에 없다.
 
 ## 5.8 Data Ownership
 
@@ -735,13 +800,13 @@ stop
 | --- | --- | --- | --- |
 | AI Game Master → 중계 내부 실행 API | 기존 Internal Service Token | 내부 서비스 호출자만 | 실행하지 않음 |
 | 중계 A → C 내부 API | 기존 Internal Service Token | 중계 인스턴스만 | 실행하지 않음 |
-| 공개 사용자 PC 웹소켓 | 해당 없음 — 이번 범위 밖 | 해당 없음 | endpoint를 열지 않음 |
+| 사용자 PC 에이전트 `/ws/agent` | Bearer 토큰을 identity-access에 확인 | 확인된 Solo Player ID로 연결 임대 등록 | 인증 실패 시 연결 등록 안 함 |
 
 ## 8.2 Input Validation
 
 | Input | Validation | Sanitization | Size Limit |
 | --- | --- | --- | --- |
-| 내부 AI 실행 요청 | 서버 확정 Solo Player ID·요청 ID 필수, 요청 형식 검증 | 프롬프트 해석·재작성 안 함 | 구현 시 UTF-8 요청·응답 상한을 명시·계측 |
+| 내부 AI 실행 요청 | 서버 확정 Solo Player ID·요청 ID 필수, 요청 형식 검증 | 프롬프트 해석·재작성 안 함 | `RELAY_MAX_PAYLOAD_BYTES` 기본 16 MiB, UTF-8 바이트 계측 |
 | Redis 연결 위치 | 인스턴스·연결 ID·만료 형식 | 직접 사용자 입력 아님 | TTL 임대 |
 
 ## 8.3 Sensitive Data
@@ -808,7 +873,7 @@ stop
 | AI Game Master | 모든 직접 Codex 경로를 AI 실행 포트로 변경 |
 | 개발 빌드 | 개발 전용 로컬 Codex Gradle 모듈 추가·조립 |
 | Adventure Runtime | Adventure Session의 진행 중 요청 ID 원자 제어 |
-| 새 중계 모듈 | WebFlux + Netty runtime, Redis 위치 저장소, 인증된 내부 API 뼈대 |
+| 새 중계 모듈 | WebFlux + Netty runtime, `/ws/agent`, Redis 위치 저장소, 인증된 내부 API, 임대 갱신 |
 | 관찰 | 민감 원문 없이 크기·기간·실패 계측 |
 
 ## 10.2 Forbidden Changes
@@ -825,8 +890,8 @@ stop
 
 | Target | Condition | Required Decision |
 | --- | --- | --- |
-| 공개 웹소켓 계약 | pairing·인증·기기 소유자 분리 설계 완료 | 메시지 규약·권한·키 관리 결정 |
-| 연결 복구·심장 신호 | 실제 연결 구현 시작 | 시간 초과·재연결·상태 규칙 결정 |
+| pairing·기기 키 | 별도 기기 등록 요구 발생 | 기기 소유권·키 관리 설계 결정 |
+| 자동 연결 복구 | 연결 안정성 요구 발생 | 재연결·중단 요청 복구 규칙 결정 |
 | 메시지 큐·작업 DB | 재시작 후 요청 보존 또는 자동 재시도 필요 | 전달 보장·중복·만료·보상 규칙 결정 |
 
 ---
@@ -856,8 +921,9 @@ stop
 | Contract | Test Level | Verification |
 | --- | --- | --- |
 | 운영 artifact에서 로컬 Codex 제외 | 빌드 경계 | production artifact에 개발 모듈 클래스·의존성이 없음을 검증 |
-| 내부 실행 API | Integration / Contract | 요청 ID·Solo Player ID·최종 결과·오류 계약과 Internal Service Token 검증 |
-| Redis 연결 임대 | Integration | 새 연결 뒤 이전 연결 종료가 일치하지 않으면 임대를 지우지 않음 |
+| 내부 실행 API | Integration / Contract | 요청 ID·Solo Player ID·최종 결과·오류 계약과 내부 토큰 검증 |
+| 사용자 PC 웹소켓 | Integration | Bearer 인증, `/ws/agent`, 요청·결과 JSON, HTTP 응답 연결 |
+| Redis 연결 임대 | Integration | 새 연결 뒤 이전 연결 종료 보호와 TTL 갱신 |
 
 ## 11.4 Runtime Verification
 
@@ -905,18 +971,19 @@ stop
 
 ### Scope
 
-* [ ] 공개 웹소켓·pairing·인증·기기 키·연결 복구·심장 신호를 구현하지 않는다.
+* [ ] 사용자 PC 웹소켓은 Bearer 인증·임대 등록·갱신·결과 반환 계약을 지킨다.
+* [ ] pairing·기기 키·자동 연결 복구·영속 실행 보존은 구현하지 않는다.
 * [ ] 민감 원문 로그를 추가하지 않는다.
 
 ### Evidence
 
-* 실행 명령: 구현 후 Gradle 단위·통합 테스트, artifact 검사, Redis 통합 테스트, 부하 시험
-* 테스트 결과: 명세 작성 시점에는 미실행
-* 변경 파일: `docs/specs/remote-codex-agent-port/architecture-spec.md`
+* 실행 명령: 중계 서비스 Gradle 단위·통합 테스트, artifact 검사, Redis 통합 테스트, 부하 시험
+* 테스트 결과: 구현 테스트 목록은 Product Spec 11절과 중계 서비스 테스트에 반영
+* 변경 파일: `docs/specs/remote-codex-agent-port/` 명세·다이어그램 및 구현 모듈
 * Architecture 위반: 없음
 * Contract 위반: 없음
-* 미검증 항목: 실제 구현·부하 시험
-* Human Review 항목: 내부 API 세부 경로/직렬화, 운영 크기·시간 초과 기준
+* 미검증 항목: 실제 운영 부하 기준과 자동 연결 복구 요구
+* Human Review 항목: 운영 토큰 관리, 내부 네트워크 경계, 부하 기준
 
 ---
 
@@ -950,6 +1017,6 @@ stop
 
 | Question | Blocking | Resolution |
 | --- | --- | --- |
-| 내부 API의 정확한 URL·JSON 필드명 | No | 구현 시 의미 계약을 보존해 결정 |
-| 공개 웹소켓 메시지·pairing·인증·기기 키 | No | 다음 연결 구현 티켓에서 결정 |
+| pairing·기기 키·자동 연결 복구 | No | 별도 보안·연결 안정화 요구가 생기면 결정 |
+| pairing·기기 키·자동 연결 복구 | No | 별도 보안·연결 안정화 요구가 생기면 결정 |
 | 자동 재시도·영속 보존 요구 | No | 제품 요구 변경 시 메시지 큐·작업 DB 설계 티켓 생성 |
