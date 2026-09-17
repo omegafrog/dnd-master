@@ -19,8 +19,8 @@ import java.util.regex.Pattern;
 final class MapDefinitionCompiler {
     private static final Pattern VALUE = Pattern.compile("(?i)([a-z]+)=(?:\"([^\"]+)\"|([^\\s]+))");
     private static final Pattern SPATIAL_FEATURE = Pattern.compile(
-            "(?i)\\bFEATURE\\s+id=([^\\s]+)\\s+type=([^\\s]+)\\s+required=(true|false)(?:\\s+(?:cells|rule|difficulty|mode|triggers|duration|removal|overlap)=[^\\s]+)*");
-    private static final Pattern FEATURE_ATTRIBUTE = Pattern.compile("(?i)(cells|rule|difficulty|mode|triggers|duration|removal|overlap)=([^\\s]+)");
+            "(?i)\\bFEATURE\\s+id=([^\\s]+)\\s+type=([^\\s]+)\\s+required=(true|false)(?:\\s+(?:cells|resolutionUnitId|rule|difficulty|mode|triggers|duration|removal|overlap|repeatable)=[^\\s]+)*");
+    private static final Pattern FEATURE_ATTRIBUTE = Pattern.compile("(?i)(cells|resolutionUnitId|rule|difficulty|mode|triggers|duration|removal|overlap|repeatable)=([^\\s]+)");
 
     Compilation compile(ScenarioSourceBundle bundle, List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
         List<MapDefinition> result = new ArrayList<>();
@@ -40,7 +40,8 @@ final class MapDefinitionCompiler {
                 String asset = value(text, "asset", document.originalFilename());
                 double confidence = decimal(value(text, "confidence", "0"));
                 MapSafetyStatus safety = safety(value(text, "safety", "UNSAFE"));
-                MapSourceReference source = new MapSourceReference(document.knowledgeDocumentId(), document.extractionVersion(), excerpt.locator());
+                MapSourceReference source = new MapSourceReference(document.knowledgeDocumentId(), document.extractionVersion(), excerpt.locator(),
+                        Long.toString(bundle.currentRevision().revision()));
                 result.add(new MapDefinition(UUID.nameUUIDFromBytes((document.knowledgeDocumentId().value() + ":" + document.extractionVersion() + ":" + excerpt.locator()).getBytes()),
                         asset, value(text, "image", asset), new MapDefinition.MapGrid(decimal(value(text, "originx", "0")), decimal(value(text, "originy", "0")),
                                 decimal(value(text, "grid", "1")), decimal(value(text, "rotation", "0")), value(text, "distance", "5ft")),
@@ -87,10 +88,12 @@ final class MapDefinitionCompiler {
                     ? List.of() : List.of(attributes.get("triggers").split("[|,]"));
             int duration = attributes.containsKey("duration") ? integer(attributes.get("duration")) : -1;
             boolean overlap = Boolean.parseBoolean(attributes.getOrDefault("overlap", "false"));
+            boolean repeatable = Boolean.parseBoolean(attributes.getOrDefault("repeatable", "false"));
             requirements.add(new MapDefinition.SpatialFeatureRequirement(
                     UUID.fromString(features.group(1)), features.group(2), Boolean.parseBoolean(features.group(3)),
-                    List.of(evidenceReference), splitValues(attributes.getOrDefault("cells", "")), attributes.getOrDefault("rule", ""), difficulty,
-                    attributes.getOrDefault("mode", ""), triggers, duration, attributes.getOrDefault("removal", ""), overlap));
+                    List.of(evidenceReference), splitValues(attributes.getOrDefault("cells", "")),
+                    attributes.getOrDefault("resolutionunitid", ""), attributes.getOrDefault("rule", ""), difficulty,
+                    attributes.getOrDefault("mode", ""), triggers, duration, attributes.getOrDefault("removal", ""), overlap, repeatable));
         }
         return List.copyOf(requirements);
     }

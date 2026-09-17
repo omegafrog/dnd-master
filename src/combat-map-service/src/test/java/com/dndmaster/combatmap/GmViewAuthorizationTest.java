@@ -14,6 +14,9 @@ import static org.mockito.Mockito.*;
 import com.dndmaster.combatmap.api.CombatMapController;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
 import com.dndmaster.combatmap.application.view.*;
+import com.dndmaster.combatmap.application.spatial.SpatialFeatureApplicationService;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementBatch;
+import com.dndmaster.combatmap.application.spatial.SpatialPreparationCommand;
 import com.dndmaster.combatmap.domain.*;
 import java.util.List;
 import java.util.Set;
@@ -88,11 +91,32 @@ class GmViewAuthorizationTest {
     }
 
     @Test
+    void replays_a_preparation_command_before_attempting_map_generation() {
+        var maps = mock(CombatMapViewService.class);
+        var controller = new CombatMapController(maps, mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        UUID adventureId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        var request = new CombatMapController.PrepareRequest(adventureId, ownerId, UUID.randomUUID(), UUID.randomUUID(),
+                "asset", "locator", null, null);
+        var replay = new SpatialFeatureApplicationService.Result(new MapId(UUID.randomUUID()), 0,
+                SpatialFeatureApplicationService.Status.READY, 0);
+        when(maps.replaySpatialPreparation(eq(new AdventureId(adventureId)), eq(new MapOwnerId(ownerId)),
+                any())).thenReturn(Optional.of(replay));
+
+        var response = controller.prepare("service-secret", request);
+
+        assertEquals(replay.mapId().value(), response.mapId());
+        verify(maps).replaySpatialPreparation(eq(new AdventureId(adventureId)), eq(new MapOwnerId(ownerId)), any());
+        verify(maps, never()).prepareGenerated(any(), any(), any(), any(MapGenerationRequest.class));
+    }
+
+    @Test
     void mapPreparationUsesGeometryDetectedFromTheSourceImageInsteadOfAFixedTwentyByTwentyGrid() {
         var maps = mock(CombatMapViewService.class);
-        var preparedMap = mock(CombatMap.class);
-        when(preparedMap.id()).thenReturn(new MapId(UUID.randomUUID()));
-        when(maps.prepareGenerated(any(), any(), any(), any(MapGenerationRequest.class))).thenReturn(preparedMap);
+        var preparedMap = new SpatialFeatureApplicationService.Result(new MapId(UUID.randomUUID()), 0,
+                SpatialFeatureApplicationService.Status.READY, 0);
+        when(maps.prepareGenerated(any(), any(), any(), any(MapGenerationRequest.class), anyBoolean(),
+                any(SpatialFeaturePlacementBatch.class), anyLong(), any(SpatialPreparationCommand.class))).thenReturn(preparedMap);
         MapFilePreparationPort preparation = ignored -> new PreparedMapData(new GridSpec(13, 9, 16, 5), List.of(), Set.of(), List.of(
                 new MapLayer("MAP_IMAGE", "data:image/png;base64,AAECAw==", LayerVisibility.PLAYER_VISIBLE),
                 new MapLayer("GRID_BOUNDS", "7,11,208,144,240,180", LayerVisibility.PLAYER_VISIBLE)));
@@ -106,7 +130,8 @@ class GmViewAuthorizationTest {
         controller.prepare("service-secret", request);
 
         var captured = ArgumentCaptor.forClass(MapGenerationRequest.class);
-        verify(maps).prepareGenerated(any(), any(), any(), captured.capture());
+        verify(maps).prepareGenerated(any(), any(), any(), captured.capture(), eq(true),
+                any(SpatialFeaturePlacementBatch.class), eq(0L), any(SpatialPreparationCommand.class));
         assertEquals(13, captured.getValue().gridWidth());
         assertEquals(9, captured.getValue().gridHeight());
         assertEquals(7, captured.getValue().gridOriginX());

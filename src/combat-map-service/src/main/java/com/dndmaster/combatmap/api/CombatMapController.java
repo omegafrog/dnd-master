@@ -120,34 +120,35 @@ public class CombatMapController {
             }
             return activatePreparedMap(request);
         }
+        SpatialPreparationCommand preparationCommand = new SpatialPreparationCommand(
+                request.commandId(), request.operationFingerprint(), request.expectedVersion());
+        var preparationOwner = new MapOwnerId(request.ownerId());
+        var preparationAdventure = new AdventureId(request.adventureId());
+        var replay = mapViewService.replaySpatialPreparation(preparationAdventure, preparationOwner, preparationCommand);
+        if (replay.isPresent()) return prepareResponse(replay.get());
+        SpatialFeaturePlacementBatch preparationBatch = spatialBatch(request);
         Set<GridPosition> authoredObstacles = authoredPositions(request.obstacles(), "obstacles");
         authoredObstacles.addAll(authoredPositions(request.walls(), "walls"));
         List<Door> authoredDoors = authoredPositions(request.doors(), "doors").stream()
                 .map(position -> new Door(position, false)).toList();
         var mapImage = request.sourceDocumentId() == null ? java.util.Optional.<com.dndmaster.combatmap.application.view.MapImageEvidence>empty()
                 : mapImageEvidence.load(request.sourceDocumentId(), request.sourceAssetLocator());
-        CombatMap map = request.tacticalScene() == null
-                ? mapViewService.prepareGenerated(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
-                        new RuleSetId(request.ruleSetId()), generationRequest(request, authoredObstacles, authoredDoors, mapImage))
+        SpatialFeatureApplicationService.Result preparationResult = request.tacticalScene() == null
+                ? mapViewService.prepareGenerated(preparationOwner, preparationAdventure,
+                        new RuleSetId(request.ruleSetId()), generationRequest(request, authoredObstacles, authoredDoors, mapImage), true,
+                        preparationBatch, request.turnIndex(), preparationCommand)
                 : request.sourceImage() != null && !request.sourceImage().isBlank()
-                ? mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
+                ? mapViewService.prepareTactical(preparationOwner, preparationAdventure,
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(),
                         new UploadedMapSource(request.assetId() + (request.sourceImageContentType() != null && request.sourceImageContentType().contains("jpeg") ? ".jpg" : ".png"),
-                                Base64.getDecoder().decode(request.sourceImage())), request.tacticalScene())
-                : mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
-                        new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.tacticalScene());
-        PrepareResponse preparationResponse = new PrepareResponse(map.id().value(), PrepareStatus.READY, 0);
-        long preparedVersion = 0;
-        if (request.spatialPreparationBlocked() || !request.spatialPlacements().isEmpty()) {
-            SpatialFeatureApplicationService.Result result = mapViewService.prepareSpatialFeatures(map.id(),
-                    new MapOwnerId(request.ownerId()), spatialBatch(request), request.turnIndex(),
-                    new SpatialPreparationCommand(request.commandId(), request.operationFingerprint(), request.expectedVersion()));
-            preparationResponse = new PrepareResponse(result.mapId().value(),
-                    result.status() == SpatialFeatureApplicationService.Status.BLOCKED ? PrepareStatus.BLOCKED : PrepareStatus.READY,
-                    result.warningCount());
-            preparedVersion = result.version();
-            if (!result.activationAllowed()) return preparationResponse;
-        }
+                                Base64.getDecoder().decode(request.sourceImage())), request.tacticalScene(),
+                        preparationBatch, request.turnIndex(), preparationCommand)
+                : mapViewService.prepareTactical(preparationOwner, preparationAdventure,
+                        new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.tacticalScene(),
+                        preparationBatch, request.turnIndex(), preparationCommand);
+        PrepareResponse preparationResponse = prepareResponse(preparationResult);
+        long preparedVersion = preparationResult.version();
+        if (!preparationResult.activationAllowed()) return preparationResponse;
         if (request.stagePosition() != null) {
             java.util.Optional<GridPosition> candidate = request.playerSpawnX() == null || request.playerSpawnY() == null
                     ? java.util.Optional.empty()
@@ -160,6 +161,12 @@ public class CombatMapController {
             if (!activation.activationAllowed()) return new PrepareResponse(activation.mapId().value(), PrepareStatus.BLOCKED, 0);
         }
         return preparationResponse;
+    }
+
+    private static PrepareResponse prepareResponse(SpatialFeatureApplicationService.Result result) {
+        return new PrepareResponse(result.mapId().value(),
+                result.status() == SpatialFeatureApplicationService.Status.BLOCKED ? PrepareStatus.BLOCKED : PrepareStatus.READY,
+                result.warningCount());
     }
 
     private static SpatialPreparationCommand activationCommand(PrepareRequest request, long expectedVersion) {
@@ -618,7 +625,7 @@ public class CombatMapController {
                     new SpatialFeaturePlacementBatch.Evidence(evidence.sourceDocumentId(), evidence.sourceExtractionVersion(),
                             evidence.sourceLocator(), evidence.resolutionUnitId(), evidence.scenarioPackageVersion(),
                             authoredPositions(evidence.allowedCells(), "allowed spatial feature")), detection, triggers,
-                    item.durationTurns(), item.removalPolicy(), item.overlapAllowed());
+                    item.durationTurns(), item.removalPolicy(), item.overlapAllowed(), item.repeatable());
         }).toList();
         return new SpatialFeaturePlacementBatch(request.spatialPreparationReference(), request.spatialPreparationBlocked(),
                 placements, request.spatialWarnings(), request.spatialFailures());
@@ -645,7 +652,7 @@ public class CombatMapController {
     public record SpatialFeaturePlacementRequest(UUID featureId, String type, boolean required, List<String> cells,
             SpatialEvidenceRequest evidence, String detectionRuleReference, Integer detectionDifficulty,
             String detectionMode, List<String> triggers, int durationTurns, String removalPolicy,
-            boolean overlapAllowed) {
+            boolean overlapAllowed, boolean repeatable) {
         public SpatialFeaturePlacementRequest {
             cells = cells == null ? List.of() : List.copyOf(cells);
             triggers = triggers == null ? List.of() : List.copyOf(triggers);
@@ -655,7 +662,7 @@ public class CombatMapController {
                 SpatialEvidenceRequest evidence, String detectionRuleReference, Integer detectionDifficulty,
                 String detectionMode, List<String> triggers) {
             this(featureId, type, required, cells, evidence, detectionRuleReference, detectionDifficulty,
-                    detectionMode, triggers, -1, "", false);
+                    detectionMode, triggers, -1, "", false, false);
         }
     }
 

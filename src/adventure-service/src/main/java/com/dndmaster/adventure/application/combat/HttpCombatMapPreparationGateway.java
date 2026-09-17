@@ -28,8 +28,7 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
 
     public HttpCombatMapPreparationGateway(HttpClient client, URI baseUri, Duration timeout,
             ObjectMapper mapper, String internalToken) {
-        this(client, baseUri, timeout, mapper, internalToken,
-                new ScenarioSpatialFeaturePreparationService(context -> new com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePlacementModelPort.Proposal(List.of())));
+        this(client, baseUri, timeout, mapper, internalToken, null);
     }
 
     public HttpCombatMapPreparationGateway(HttpClient client, URI baseUri, Duration timeout,
@@ -39,7 +38,7 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
         this.timeout = timeout;
         this.mapper = mapper;
         this.internalToken = internalToken;
-        this.spatialPreparation = java.util.Objects.requireNonNull(spatialPreparation);
+        this.spatialPreparation = spatialPreparation;
     }
 
     @Override
@@ -110,9 +109,7 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
 
     private UUID sendPrepare(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
             MapDefinition mapDefinition, Integer stagePosition, CombatMapPreparationPort.ActivationContext context) {
-        ScenarioSpatialFeaturePreparationResult spatial = mapDefinition == null
-                ? new ScenarioSpatialFeaturePreparationResult(true, List.of(), List.of(), List.of(), 0)
-                : spatialPreparation.prepare(mapDefinition);
+        ScenarioSpatialFeaturePreparationResult spatial = prepareSpatialFeatures(mapDefinition);
         Request payload = new Request(adventureId.value(), ownerPlayerId, ruleSetId.value(), mapDefinition == null ? null : mapDefinition.id(),
                 mapDefinition == null ? null : mapDefinition.assetId(), mapDefinition == null ? null : mapDefinition.assetLocator(), stagePosition,
                 context.placementProposalX(), context.placementProposalY(), context.playerTokenId(), context.situationId(),
@@ -120,9 +117,7 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
                 mapDefinition == null ? List.of() : mapDefinition.walls(), mapDefinition == null ? List.of() : mapDefinition.doors(), mapDefinition == null ? List.of() : mapDefinition.obstacles(),
                 mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().knowledgeDocumentId().value(),
                 mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().locator(),
-                mapDefinition == null || mapDefinition.source() == null ? "story-plan:unknown" : "story-plan:"
-                        + mapDefinition.source().knowledgeDocumentId().value() + ":" + mapDefinition.source().extractionVersion()
-                        + ":" + mapDefinition.source().locator(),
+                mapDefinition == null || mapDefinition.source() == null ? "story-plan:unknown" : mapDefinition.source().scenarioPackageVersion(),
                 spatial.placements(), spatial.activationAllowed() ? false : true, spatial.warnings(), spatial.failures(), null, 0, "unassigned");
         try {
             String identity = phase(mapDefinition, stagePosition) + "|"
@@ -157,6 +152,16 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
             Thread.currentThread().interrupt();
             throw new IllegalStateException("combat map preparation interrupted", exception);
         }
+    }
+
+    private ScenarioSpatialFeaturePreparationResult prepareSpatialFeatures(MapDefinition mapDefinition) {
+        if (mapDefinition == null || mapDefinition.spatialFeatures().isEmpty()) {
+            return new ScenarioSpatialFeaturePreparationResult(true, List.of(), List.of(), List.of(), 0);
+        }
+        if (spatialPreparation == null) {
+            throw new IllegalStateException("spatial feature preparation service is required for maps with spatial features");
+        }
+        return spatialPreparation.prepare(mapDefinition);
     }
 
     private long preparationVersion(AdventureId adventureId, UUID ownerPlayerId) {

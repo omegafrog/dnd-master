@@ -29,7 +29,14 @@ public record SpatialFeaturePlacementBatch(String scenarioPackageVersion, boolea
     public record Placement(UUID featureId, SpatialFeatureType type, boolean required,
             List<GridPosition> cells, Evidence evidence, DetectionSpec detectionSpec,
             Set<SpatialTrigger> triggers, int durationTurns, String removalPolicy,
-            boolean overlapAllowed) {
+            boolean overlapAllowed, boolean repeatable) {
+        public Placement(UUID featureId, SpatialFeatureType type, boolean required,
+                List<GridPosition> cells, Evidence evidence, DetectionSpec detectionSpec,
+                Set<SpatialTrigger> triggers, int durationTurns, String removalPolicy,
+                boolean overlapAllowed) {
+            this(featureId, type, required, cells, evidence, detectionSpec, triggers, durationTurns,
+                    removalPolicy, overlapAllowed, false);
+        }
         public Placement {
             featureId = Objects.requireNonNull(featureId, "feature id must not be null");
             type = Objects.requireNonNull(type, "feature type must not be null");

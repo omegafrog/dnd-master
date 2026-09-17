@@ -75,11 +75,19 @@ public final class SpatialFeature {
             DetectionSpec detectionSpec, Collection<SpatialTrigger> triggers,
             SpatialFeatureProvenance provenance, int durationTurns, String removalPolicy,
             boolean overlapAllowed) {
+        return prepared(id, type, cells, detectionSpec, triggers, provenance, durationTurns, removalPolicy,
+                overlapAllowed, false);
+    }
+
+    public static SpatialFeature prepared(UUID id, SpatialFeatureType type, Collection<GridPosition> cells,
+            DetectionSpec detectionSpec, Collection<SpatialTrigger> triggers,
+            SpatialFeatureProvenance provenance, int durationTurns, String removalPolicy,
+            boolean overlapAllowed, boolean repeatable) {
         boolean magical = type == SpatialFeatureType.MAGICAL_AREA_EFFECT;
         SpatialFeatureVisibility visibility = magical ? SpatialFeatureVisibility.REVEALED : SpatialFeatureVisibility.HIDDEN;
         State state = magical ? State.ACTIVE : State.HIDDEN;
         return new SpatialFeature(id, type, cells, visibility, state, detectionSpec, triggers, provenance,
-                false, magical ? durationTurns : -1, removalPolicy, overlapAllowed);
+                repeatable, durationTurns, removalPolicy, overlapAllowed);
     }
 
     public static SpatialFeature legacy(UUID id, SpatialFeatureType type, GridPosition cell,

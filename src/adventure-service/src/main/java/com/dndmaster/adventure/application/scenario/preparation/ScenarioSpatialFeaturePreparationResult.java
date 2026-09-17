@@ -18,7 +18,14 @@ public record ScenarioSpatialFeaturePreparationResult(boolean activationAllowed,
     public record Placement(UUID featureId, String type, boolean required, List<String> cells,
             Evidence evidence, String detectionRuleReference, Integer detectionDifficulty,
             String detectionMode, List<String> triggers, int durationTurns,
-            String removalPolicy, boolean overlapAllowed) {
+            String removalPolicy, boolean overlapAllowed, boolean repeatable) {
+        public Placement(UUID featureId, String type, boolean required, List<String> cells,
+                Evidence evidence, String detectionRuleReference, Integer detectionDifficulty,
+                String detectionMode, List<String> triggers, int durationTurns,
+                String removalPolicy, boolean overlapAllowed) {
+            this(featureId, type, required, cells, evidence, detectionRuleReference, detectionDifficulty,
+                    detectionMode, triggers, durationTurns, removalPolicy, overlapAllowed, false);
+        }
         public Placement {
             featureId = Objects.requireNonNull(featureId);
             type = ScenarioSpatialFeaturePreparationResult.required(type, "feature type");

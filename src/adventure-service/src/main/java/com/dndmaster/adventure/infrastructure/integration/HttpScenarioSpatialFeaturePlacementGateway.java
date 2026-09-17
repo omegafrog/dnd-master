@@ -35,8 +35,7 @@ public final class HttpScenarioSpatialFeaturePlacementGateway implements Scenari
     @Override
     public ScenarioSpatialFeaturePlacementModelPort.Proposal propose(ScenarioSpatialFeaturePlacementModelPort.Context context) {
         MapDefinition map = context.map();
-        Request payload = new Request("story-plan:" + map.source().knowledgeDocumentId().value() + ":"
-                + map.source().extractionVersion() + ":" + map.source().locator(), context.attempt(),
+        Request payload = new Request(map.source().scenarioPackageVersion(), context.attempt(),
                 context.previousFailureReasons(), map.spatialFeatures().stream().map(MapDefinition.SpatialFeatureRequirement::featureId).toList(),
                 map.spatialFeatures().stream().map(requirement -> new Requirement(requirement.featureId(), requirement.type(),
                         requirement.required(), requirement.evidenceReferences(), requirement.authoritativeCells())).toList());

@@ -67,6 +67,9 @@ public final class ScenarioSpatialFeaturePreparationService {
     private static String validate(ScenarioSpatialFeaturePlacementModelPort.Candidate candidate,
             MapDefinition.SpatialFeatureRequirement requirement, MapDefinition map, Set<UUID> seen) {
         if (requirement == null) return "candidate is not in the locked Story Plan";
+        if (map.source().scenarioPackageVersion().isBlank() || requirement.resolutionUnitId().isBlank()) {
+            return "structured spatial evidence is incomplete";
+        }
         if (!seen.add(candidate.featureId())) return "duplicate feature candidate";
         if (!requirement.type().equalsIgnoreCase(candidate.type())) return "candidate type is not locked by the Story Plan";
         if (requirement.required() != candidate.required()) return "candidate required policy is not locked by the Story Plan";
@@ -81,13 +84,13 @@ public final class ScenarioSpatialFeaturePreparationService {
     private static ScenarioSpatialFeaturePreparationResult.Placement toPlacement(MapDefinition map,
             MapDefinition.SpatialFeatureRequirement requirement, ScenarioSpatialFeaturePlacementModelPort.Candidate candidate) {
         MapDefinition.SpatialFeatureEvidence evidence = MapDefinition.SpatialFeatureEvidence.from(
-                map.source(), requirement.featureId(), requirement.evidenceReferences().getFirst(), requirement.authoritativeCells());
+                map.source(), requirement.resolutionUnitId(), requirement.evidenceReferences().getFirst(), requirement.authoritativeCells());
         return new ScenarioSpatialFeaturePreparationResult.Placement(requirement.featureId(), requirement.type().toUpperCase(Locale.ROOT),
                 requirement.required(), candidate.cells(), new ScenarioSpatialFeaturePreparationResult.Evidence(
                         evidence.sourceDocumentId(), evidence.sourceExtractionVersion(), evidence.sourceLocator(),
                         evidence.resolutionUnitId(), evidence.scenarioPackageVersion(), evidence.allowedCells()),
                 requirement.detectionRuleReference(), requirement.detectionDifficulty(), requirement.detectionMode(),
-                requirement.triggers(), requirement.durationTurns(), requirement.removalPolicy(), requirement.overlapAllowed());
+                requirement.triggers(), requirement.durationTurns(), requirement.removalPolicy(), requirement.overlapAllowed(), requirement.repeatable());
     }
 
     private record Validation(List<ScenarioSpatialFeaturePreparationResult.Placement> placements,

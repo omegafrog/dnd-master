@@ -65,6 +65,21 @@ public final class CombatMapViewService {
         return saveNew(owner, adventure, rules, new PreparedMapData(generated.grid(), generated.tokens(), mergedObstacles, generated.layers(), mergedDoors), null, null, includeAiPlayerStart);
     }
 
+    /** Creates the map and materializes validated spatial preparation in one store operation. */
+    public SpatialFeatureApplicationService.Result prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules,
+            MapGenerationRequest request, boolean includeAiPlayerStart,
+            SpatialFeaturePlacementBatch batch, long createdTurn, SpatialPreparationCommand command) {
+        PreparedMapData generated = aiPort.generate(request);
+        Set<GridPosition> mergedObstacles = new HashSet<>(generated.obstacles());
+        mergedObstacles.addAll(request.authoredObstacles());
+        List<Door> mergedDoors = new ArrayList<>(generated.doors());
+        mergedDoors.addAll(request.authoredDoors());
+        PreparedMapData data = new PreparedMapData(generated.grid(), generated.tokens(), mergedObstacles,
+                generated.layers(), mergedDoors, generated.candidates(), generated.spatialFeatures());
+        return saveNewWithSpatialPreparation(owner, adventure, rules, data, null, null, includeAiPlayerStart,
+                batch, createdTurn, command);
+    }
+
     /** 준비 화면을 다시 열었을 때, 이전에 이미지 연결에 실패한 초안을 복구한다. */
     public void ensureSourceImage(MapId id, MapOwnerId owner, UUID sourceDocumentId, String sourceAssetLocator) {
         if (sourceDocumentId == null || sourceAssetLocator == null || sourceAssetLocator.isBlank() || mapImageEvidence == null) return;
@@ -105,6 +120,16 @@ public final class CombatMapViewService {
         PreparedMapData tactical = scene.materialize(source.grid(), owner.value());
         return saveNew(owner, adventure, rules, tactical);
     }
+
+    public SpatialFeatureApplicationService.Result prepareTactical(MapOwnerId owner, AdventureId adventure, RuleSetId rules,
+            String description, TacticalSceneMaterialization scene, SpatialFeaturePlacementBatch batch,
+            long createdTurn, SpatialPreparationCommand command) {
+        if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
+        PreparedMapData source = aiPort.generate(description.trim());
+        PreparedMapData tactical = scene.materialize(source.grid(), owner.value());
+        return saveNewWithSpatialPreparation(owner, adventure, rules, tactical, null, null, true,
+                batch, createdTurn, command);
+    }
     public CombatMap prepareTactical(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description,
             UploadedMapSource source, TacticalSceneMaterialization scene) {
         if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
@@ -112,6 +137,19 @@ public final class CombatMapViewService {
         PreparedMapData tactical = scene.materialize(prepared.grid(), owner.value());
         return saveNew(owner, adventure, rules, new PreparedMapData(prepared.grid(), tactical.tokens(), tactical.obstacles(),
                 java.util.stream.Stream.concat(prepared.layers().stream(), tactical.layers().stream()).toList()));
+    }
+
+    public SpatialFeatureApplicationService.Result prepareTactical(MapOwnerId owner, AdventureId adventure, RuleSetId rules,
+            String description, UploadedMapSource source, TacticalSceneMaterialization scene,
+            SpatialFeaturePlacementBatch batch, long createdTurn, SpatialPreparationCommand command) {
+        if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
+        PreparedMapData prepared = filePort.prepare(source);
+        PreparedMapData tactical = scene.materialize(prepared.grid(), owner.value());
+        return saveNewWithSpatialPreparation(owner, adventure, rules,
+                new PreparedMapData(prepared.grid(), tactical.tokens(), tactical.obstacles(),
+                        java.util.stream.Stream.concat(prepared.layers().stream(), tactical.layers().stream()).toList(),
+                        tactical.doors(), tactical.candidates(), tactical.spatialFeatures()),
+                null, null, true, batch, createdTurn, command);
     }
     private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) { return saveNew(owner, adventure, rules, data, null, null, true); }
     private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, Integer spawnX, Integer spawnY) { return saveNew(owner, adventure, rules, data, spawnX, spawnY, true); }
@@ -125,6 +163,21 @@ public final class CombatMapViewService {
         map.replaceDoors(data.doors());
         map.refreshVisibility(0);
         store.insert(owner, map); return map;
+    }
+
+    private SpatialFeatureApplicationService.Result saveNewWithSpatialPreparation(MapOwnerId owner, AdventureId adventure,
+            RuleSetId rules, PreparedMapData data, Integer spawnX, Integer spawnY, boolean includeAiPlayerStart,
+            SpatialFeaturePlacementBatch batch, long createdTurn, SpatialPreparationCommand command) {
+        List<CombatToken> tokens = new ArrayList<>(data.tokens());
+        if (tokens.stream().noneMatch(token -> token.type() == TokenType.PLAYER) && spawnX != null && spawnY != null) {
+            tokens.add(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
+                    new GridPosition(spawnX, spawnY), TokenController.PLAYER, new PlayerId(owner.value())));
+        }
+        CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), adventure, rules, data.grid(), new PlayerId(owner.value()),
+                tokens, data.obstacles(), data.layers(), 0, null, null, data.spatialFeatures());
+        map.replaceDoors(data.doors());
+        map.refreshVisibility(0);
+        return spatialFeatureApplication.prepareNew(owner, map, batch, createdTurn, command);
     }
 
     private static Optional<GridPosition> parsePosition(String value) {
@@ -177,6 +230,11 @@ public final class CombatMapViewService {
             SpatialFeaturePlacementBatch batch, long createdTurn, SpatialPreparationCommand command) {
         Objects.requireNonNull(batch, "validated spatial placement batch must not be null");
         return spatialFeatureApplication.prepare(id, owner, batch, createdTurn, command);
+    }
+
+    public Optional<SpatialFeatureApplicationService.Result> replaySpatialPreparation(AdventureId adventureId,
+            MapOwnerId owner, SpatialPreparationCommand command) {
+        return spatialFeatureApplication.replay(adventureId, owner, command);
     }
     public void activateForAdventure(MapId id, MapOwnerId owner, int stagePosition) {
         activateForAdventure(id, owner, MapActivationContext.atStage(stagePosition));

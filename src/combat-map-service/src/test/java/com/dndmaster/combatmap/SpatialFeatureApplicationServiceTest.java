@@ -1,6 +1,7 @@
 package com.dndmaster.combatmap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.combatmap.application.spatial.SpatialFeatureApplicationService;
@@ -49,13 +50,49 @@ class SpatialFeatureApplicationServiceTest {
                         new SpatialPreparationCommand(UUID.randomUUID(), "fingerprint-3", 0)));
     }
 
+    @Test
+    void materializes_a_new_map_and_preparation_result_in_one_store_insert() {
+        MapId mapId = new MapId(UUID.randomUUID());
+        MapOwnerId owner = new MapOwnerId(UUID.randomUUID());
+        InMemoryStore store = new InMemoryStore(owner, map(mapId, owner));
+        SpatialFeatureApplicationService application = new SpatialFeatureApplicationService(store);
+        SpatialPreparationCommand command = new SpatialPreparationCommand(UUID.randomUUID(), "new-map", 0);
+
+        var result = application.prepareNew(owner, map(mapId, owner), batch(), 1, command);
+
+        assertEquals(1, store.insertCount);
+        assertEquals(0, result.version());
+        assertTrue(result.activationAllowed());
+        assertEquals(FEATURE_ID, store.map.spatialFeatures().getFirst().id());
+        assertEquals(command.commandId(), store.map.operationKey());
+        assertEquals(command.fingerprint(), store.map.operationFingerprint());
+    }
+
+    @Test
+    void rejects_evidence_that_does_not_belong_to_the_batch_version() {
+        MapId mapId = new MapId(UUID.randomUUID());
+        MapOwnerId owner = new MapOwnerId(UUID.randomUUID());
+        InMemoryStore store = new InMemoryStore(owner, map(mapId, owner));
+        SpatialFeatureApplicationService application = new SpatialFeatureApplicationService(store);
+        SpatialFeaturePlacementBatch mismatched = new SpatialFeaturePlacementBatch("story-plan:opening", false,
+                List.of(new SpatialFeaturePlacementBatch.Placement(FEATURE_ID, SpatialFeatureType.TRAP, true,
+                        List.of(new GridPosition(2, 2)), new SpatialFeaturePlacementBatch.Evidence(
+                                UUID.randomUUID(), 1, "asset:map-1", "resolution-unit-1", "story-plan:other",
+                                java.util.Set.of(new GridPosition(2, 2))), null,
+                        java.util.Set.of(SpatialTrigger.ENTER_CELL), -1, "", false)), List.of(), List.of());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> application.prepare(mapId, owner, mismatched, 1,
+                        new SpatialPreparationCommand(UUID.randomUUID(), "fingerprint", 0)));
+    }
+
     private static final UUID FEATURE_ID = UUID.randomUUID();
 
     private static SpatialFeaturePlacementBatch batch() {
         return new SpatialFeaturePlacementBatch("story-plan:opening", false, List.of(
                 new SpatialFeaturePlacementBatch.Placement(FEATURE_ID, SpatialFeatureType.TRAP, true,
                         List.of(new GridPosition(2, 2)), new SpatialFeaturePlacementBatch.Evidence(
-                                UUID.randomUUID(), 1, "asset:map-1", FEATURE_ID.toString(), "1",
+                                UUID.randomUUID(), 1, "asset:map-1", "resolution-unit-1", "story-plan:opening",
                                 java.util.Set.of(new GridPosition(2, 2))), null,
                         java.util.Set.of(SpatialTrigger.ENTER_CELL), -1, "", false)), List.of(), List.of());
     }
@@ -69,10 +106,11 @@ class SpatialFeatureApplicationServiceTest {
     private static final class InMemoryStore implements CombatMapViewStore {
         private final MapOwnerId owner;
         private CombatMap map;
+        private int insertCount;
         private final java.util.Map<UUID, VersionedOwnedCombatMap> history = new java.util.HashMap<>();
 
         private InMemoryStore(MapOwnerId owner, CombatMap map) { this.owner = owner; this.map = map; }
-        @Override public void insert(MapOwnerId owner, CombatMap map) { this.map = map; }
+        @Override public void insert(MapOwnerId owner, CombatMap map) { insertCount++; this.map = map; }
         @Override public Optional<VersionedOwnedCombatMap> find(MapId id) { return Optional.of(new VersionedOwnedCombatMap(map, owner, map.version())); }
         @Override public Optional<VersionedOwnedCombatMap> findByAdventureId(AdventureId id, MapOwnerId owner) { return find(map.id()); }
         @Override public Optional<VersionedOwnedCombatMap> findByCommandId(UUID id) { return Optional.ofNullable(history.get(id)); }

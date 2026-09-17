@@ -128,10 +128,11 @@ class HttpCombatMapPreparationGatewayTest {
             UUID documentId = UUID.randomUUID();
             MapDefinition definition = new MapDefinition(UUID.randomUUID(), "map", "page-1",
                     new MapGrid(0, 0, 50, 0, "5 ft"), List.of(), List.of(), List.of(),
-                    new MapSourceReference(new KnowledgeDocumentId(documentId), 4, "page-1"),
+                    new MapSourceReference(new KnowledgeDocumentId(documentId), 4, "page-1", "9"),
                     .9, MapSafetyStatus.SAFE,
                     List.of(new MapDefinition.SpatialFeatureRequirement(featureId, "TRAP", true,
-                            List.of("storybook:page-4"), List.of("2,2"), "rulebook:perception", 15, "PASSIVE", List.of("ENTER_CELL"))));
+                            List.of("storybook:page-4"), List.of("2,2"), "resolution-unit-1",
+                            "rulebook:perception", 15, "PASSIVE", List.of("ENTER_CELL"))));
             new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
                     java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
                     Duration.ofSeconds(2), new ObjectMapper(), "secret",
@@ -145,7 +146,9 @@ class HttpCombatMapPreparationGatewayTest {
             assertEquals(featureId.toString(), payload.get("spatialPlacements").get(0).get("featureId").asText());
             assertEquals(documentId.toString(), payload.get("spatialPlacements").get(0).get("evidence").get("sourceDocumentId").asText());
             assertEquals("2,2", payload.get("spatialPlacements").get(0).get("evidence").get("allowedCells").get(0).asText());
-            assertTrue(payload.get("spatialPreparationReference").asText().contains("story-plan:"));
+            assertEquals("9", payload.get("spatialPreparationReference").asText());
+            assertEquals("resolution-unit-1", payload.get("spatialPlacements").get(0).get("evidence").get("resolutionUnitId").asText());
+            assertEquals("9", payload.get("spatialPlacements").get(0).get("evidence").get("scenarioPackageVersion").asText());
         } finally {
             server.stop(0);
         }

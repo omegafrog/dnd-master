@@ -29,6 +29,8 @@ class ScenarioSpatialFeaturePreparationServiceTest {
         assertEquals(1, result.placements().size());
         var placement = result.placements().getFirst();
         assertEquals(map.source().knowledgeDocumentId().value(), placement.evidence().sourceDocumentId());
+        assertEquals("resolution-unit-1", placement.evidence().resolutionUnitId());
+        assertEquals("4", placement.evidence().scenarioPackageVersion());
         assertEquals(List.of("2,2"), placement.evidence().allowedCells());
         assertEquals(3, placement.durationTurns());
         assertEquals("EXPIRE", placement.removalPolicy());
@@ -55,10 +57,10 @@ class ScenarioSpatialFeaturePreparationServiceTest {
             int duration, String removal, boolean overlap) {
         return new MapDefinition(UUID.randomUUID(), "map", "page-1",
                 new MapDefinition.MapGrid(0, 0, 50, 0, "5 ft"), List.of(), List.of(), List.of(),
-                new MapSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 7, "asset:map-1"),
+                new MapSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 7, "asset:map-1", "4"),
                 .95, MapSafetyStatus.SAFE,
                 List.of(new MapDefinition.SpatialFeatureRequirement(featureId, type, required,
-                        List.of("source-section:trap"), cells, "rulebook:perception", 15, "PASSIVE",
-                        List.of("ENTER_CELL"), duration, removal, overlap)));
+                        List.of("source-section:trap"), cells, "resolution-unit-1", "rulebook:perception", 15, "PASSIVE",
+                        List.of("ENTER_CELL"), duration, removal, overlap, true)));
     }
 }
