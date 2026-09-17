@@ -237,7 +237,7 @@ public class AiGameMasterApiConfiguration {
             com.fasterxml.jackson.databind.ObjectMapper mapper) {
         return input -> adapter.complete("spatial-feature-placement-" + UUID.randomUUID(),
                 "ROLE=SPATIAL_FEATURE_PLACEMENT_AGENT\n"
-                        + "STORY_PLAN_REFERENCE=" + input.storyPlanReference() + "\n"
+                        + "STORY_PLAN_REFERENCE=" + input.scenarioPackageVersion() + "\n"
                         + "ATTEMPT=" + input.attempt() + "\n"
                         + "PREVIOUS_FAILURES=" + input.previousFailureReasons() + "\n"
                         + "GRID=" + input.gridWidth() + "x" + input.gridHeight() + "\n"

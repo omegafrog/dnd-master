@@ -20,6 +20,8 @@ public final class SpatialFeature {
     private final Set<SpatialTrigger> triggers;
     private final SpatialFeatureProvenance provenance;
     private final boolean repeatable;
+    private final String removalPolicy;
+    private final boolean overlapAllowed;
     private int remainingDurationTurns;
     private SpatialFeatureVisibility visibility;
     private State state;
@@ -28,6 +30,14 @@ public final class SpatialFeature {
             SpatialFeatureVisibility visibility, State state, DetectionSpec detectionSpec,
             Collection<SpatialTrigger> triggers, SpatialFeatureProvenance provenance,
             boolean repeatable, int remainingDurationTurns) {
+        this(id, type, cells, visibility, state, detectionSpec, triggers, provenance,
+                repeatable, remainingDurationTurns, "", type == SpatialFeatureType.MAGICAL_AREA_EFFECT);
+    }
+
+    public SpatialFeature(UUID id, SpatialFeatureType type, Collection<GridPosition> cells,
+            SpatialFeatureVisibility visibility, State state, DetectionSpec detectionSpec,
+            Collection<SpatialTrigger> triggers, SpatialFeatureProvenance provenance,
+            boolean repeatable, int remainingDurationTurns, String removalPolicy, boolean overlapAllowed) {
         this.id = Objects.requireNonNull(id, "feature id must not be null");
         this.type = Objects.requireNonNull(type, "feature type must not be null");
         this.cells = immutableCells(cells);
@@ -37,6 +47,8 @@ public final class SpatialFeature {
         this.triggers = Set.copyOf(Objects.requireNonNull(triggers, "feature triggers must not be null"));
         this.provenance = Objects.requireNonNull(provenance, "feature provenance must not be null");
         this.repeatable = repeatable;
+        this.removalPolicy = removalPolicy == null ? "" : removalPolicy.trim();
+        this.overlapAllowed = overlapAllowed;
         if (remainingDurationTurns < -1) throw new IllegalArgumentException("feature duration must be -1 or non-negative");
         this.remainingDurationTurns = remainingDurationTurns;
         if (type == SpatialFeatureType.MAGICAL_AREA_EFFECT && cells.isEmpty()) {
@@ -57,6 +69,17 @@ public final class SpatialFeature {
             SpatialFeatureProvenance provenance, int durationTurns) {
         return new SpatialFeature(id, type, cells, SpatialFeatureVisibility.REVEALED, State.ACTIVE,
                 null, Set.of(), provenance, false, durationTurns);
+    }
+
+    public static SpatialFeature prepared(UUID id, SpatialFeatureType type, Collection<GridPosition> cells,
+            DetectionSpec detectionSpec, Collection<SpatialTrigger> triggers,
+            SpatialFeatureProvenance provenance, int durationTurns, String removalPolicy,
+            boolean overlapAllowed) {
+        boolean magical = type == SpatialFeatureType.MAGICAL_AREA_EFFECT;
+        SpatialFeatureVisibility visibility = magical ? SpatialFeatureVisibility.REVEALED : SpatialFeatureVisibility.HIDDEN;
+        State state = magical ? State.ACTIVE : State.HIDDEN;
+        return new SpatialFeature(id, type, cells, visibility, state, detectionSpec, triggers, provenance,
+                false, magical ? durationTurns : -1, removalPolicy, overlapAllowed);
     }
 
     public static SpatialFeature legacy(UUID id, SpatialFeatureType type, GridPosition cell,
@@ -117,6 +140,8 @@ public final class SpatialFeature {
     public Set<SpatialTrigger> triggers() { return triggers; }
     public SpatialFeatureProvenance provenance() { return provenance; }
     public boolean repeatable() { return repeatable; }
+    public String removalPolicy() { return removalPolicy; }
+    public boolean overlapAllowed() { return overlapAllowed; }
     public int remainingDurationTurns() { return remainingDurationTurns; }
 
     private void requireType(SpatialFeatureType expected) {

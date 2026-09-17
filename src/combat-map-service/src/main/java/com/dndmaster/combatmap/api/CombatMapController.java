@@ -11,7 +11,7 @@ import com.dndmaster.combatmap.application.view.MapGenerationRequest;
 import com.dndmaster.combatmap.application.view.UploadedMapSource;
 import com.dndmaster.combatmap.application.view.TacticalSceneMaterialization;
 import com.dndmaster.combatmap.application.view.TacticalTriggerEffect;
-import com.dndmaster.combatmap.application.spatial.SpatialFeaturePreparationInput;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementBatch;
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationCommand;
 import com.dndmaster.combatmap.application.spatial.SpatialFeatureApplicationService;
 import com.dndmaster.combatmap.domain.*;
@@ -113,30 +113,12 @@ public class CombatMapController {
         requestGuard.internal(token);
         requireRequest(request, "prepare request is required");
         requireIdempotencyKey(idempotencyKey, request.commandId());
-        if (request.stagePosition() != null) {
-            // A map-entry activation is identified by the missing map
-            // definition. Prefer the reviewed draft even if an older buggy
-            // run left a stale active binding behind, and never regenerate a
-            // map at that point.
-            if (request.mapDefinitionId() == null) {
-                var prepared = mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
-                if (prepared.isEmpty()) {
-                    throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,
-                            "reviewed combat map draft not found");
-                }
-                activatePreparedMap(request, prepared.get());
-                return new PrepareResponse(prepared.get().value(), PrepareStatus.READY, 0);
+        if (request.stagePosition() != null && request.mapDefinitionId() == null) {
+            if (mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId())).isEmpty()) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,
+                        "reviewed combat map draft not found");
             }
-            var existing = mapViewService.displayForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
-            if (existing.isPresent()) return new PrepareResponse(existing.get().mapId().value(), PrepareStatus.READY, 0);
-            var prepared = mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
-            if (prepared.isPresent()) {
-                activatePreparedMap(request, prepared.get());
-                return new PrepareResponse(prepared.get().value(), PrepareStatus.READY, 0);
-            }
-        } else {
-            var prepared = mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
-            if (prepared.isPresent()) return new PrepareResponse(prepared.get().value(), PrepareStatus.READY, 0);
+            return activatePreparedMap(request);
         }
         Set<GridPosition> authoredObstacles = authoredPositions(request.obstacles(), "obstacles");
         authoredObstacles.addAll(authoredPositions(request.walls(), "walls"));
@@ -155,25 +137,35 @@ public class CombatMapController {
                 : mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.tacticalScene());
         PrepareResponse preparationResponse = new PrepareResponse(map.id().value(), PrepareStatus.READY, 0);
-        if (!request.spatialRequirements().isEmpty()) {
+        long preparedVersion = 0;
+        if (request.spatialPreparationBlocked() || !request.spatialPlacements().isEmpty()) {
             SpatialFeatureApplicationService.Result result = mapViewService.prepareSpatialFeatures(map.id(),
-                    new MapOwnerId(request.ownerId()), spatialInput(request), request.turnIndex(),
+                    new MapOwnerId(request.ownerId()), spatialBatch(request), request.turnIndex(),
                     new SpatialPreparationCommand(request.commandId(), request.operationFingerprint(), request.expectedVersion()));
             preparationResponse = new PrepareResponse(result.mapId().value(),
                     result.status() == SpatialFeatureApplicationService.Status.BLOCKED ? PrepareStatus.BLOCKED : PrepareStatus.READY,
                     result.warningCount());
+            preparedVersion = result.version();
             if (!result.activationAllowed()) return preparationResponse;
         }
         if (request.stagePosition() != null) {
             java.util.Optional<GridPosition> candidate = request.playerSpawnX() == null || request.playerSpawnY() == null
                     ? java.util.Optional.empty()
                     : java.util.Optional.of(new GridPosition(request.playerSpawnX(), request.playerSpawnY()));
-            mapViewService.activateForAdventure(map.id(), new MapOwnerId(request.ownerId()),
+            var activation = mapViewService.activatePreparedForAdventure(new AdventureId(request.adventureId()),
+                    new MapOwnerId(request.ownerId()), preparedVersion, activationCommand(request, preparedVersion),
                     MapActivationContext.from(request.stagePosition(), candidate,
                             java.util.Optional.ofNullable(request.playerTokenId()), request.situationId(), request.situationRevision(),
                             request.turnIndex(), request.currentScene(), request.location(), request.entryEvidence()));
+            if (!activation.activationAllowed()) return new PrepareResponse(activation.mapId().value(), PrepareStatus.BLOCKED, 0);
         }
         return preparationResponse;
+    }
+
+    private static SpatialPreparationCommand activationCommand(PrepareRequest request, long expectedVersion) {
+        UUID commandId = UUID.nameUUIDFromBytes((request.commandId() + ":activation")
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return new SpatialPreparationCommand(commandId, request.operationFingerprint() + "|activation", expectedVersion);
     }
 
     /** Compatibility overload for direct unit callers; the HTTP contract requires the header. */
@@ -229,12 +221,16 @@ public class CombatMapController {
         }
     }
 
-    private void activatePreparedMap(PrepareRequest request, MapId mapId) {
+    private PrepareResponse activatePreparedMap(PrepareRequest request) {
         java.util.Optional<GridPosition> candidate = request.playerSpawnX() == null || request.playerSpawnY() == null
                 ? java.util.Optional.empty() : java.util.Optional.of(new GridPosition(request.playerSpawnX(), request.playerSpawnY()));
-        mapViewService.activateForAdventure(mapId, new MapOwnerId(request.ownerId()), MapActivationContext.from(
+        var result = mapViewService.activatePreparedForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()),
+                request.expectedVersion(), new SpatialPreparationCommand(request.commandId(), request.operationFingerprint(), request.expectedVersion()),
+                MapActivationContext.from(
                 request.stagePosition(), candidate, java.util.Optional.ofNullable(request.playerTokenId()),
                 request.situationId(), request.situationRevision(), request.turnIndex(), request.currentScene(), request.location(), request.entryEvidence()));
+        return new PrepareResponse(result.mapId().value(), result.status() == CombatMapViewService.PreparationStatus.BLOCKED
+                ? PrepareStatus.BLOCKED : PrepareStatus.READY, 0);
     }
 
     @PostMapping(value = "/internal/v1/combat-maps/prepare-upload", consumes = "multipart/form-data")
@@ -548,7 +544,8 @@ public class CombatMapController {
                                  List<String> walls, List<String> doors, List<String> obstacles,
                                  UUID sourceDocumentId, String sourceAssetLocator,
                                  String spatialPreparationReference,
-                                 List<SpatialFeatureRequirementRequest> spatialRequirements,
+                                 List<SpatialFeaturePlacementRequest> spatialPlacements,
+                                 boolean spatialPreparationBlocked, List<String> spatialWarnings, List<String> spatialFailures,
                                  UUID commandId, long expectedVersion, String operationFingerprint) {
         public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId,
                 UUID mapDefinitionId, String assetId, String assetLocator,
@@ -560,7 +557,7 @@ public class CombatMapController {
             this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
                     sourceImage, sourceImageContentType, tacticalScene, stagePosition, playerTokenId, situationId,
                     situationRevision, turnIndex, currentScene, location, entryEvidence, walls, doors, obstacles,
-                    sourceDocumentId, sourceAssetLocator, "story-plan:unknown", List.of(), UUID.randomUUID(), 0,
+                    sourceDocumentId, sourceAssetLocator, "story-plan:unknown", List.of(), false, List.of(), List.of(), UUID.randomUUID(), 0,
                     "legacy-preparation-command");
         }
 
@@ -568,7 +565,7 @@ public class CombatMapController {
                 String assetLocator, Integer playerSpawnX, Integer playerSpawnY) {
             this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
                     null, null, null, null, null, UUID.randomUUID(), 1L, 0, "unknown", "unknown", "",
-                    List.of(), List.of(), List.of(), null, null, "story-plan:unknown", List.of(), UUID.randomUUID(), 0,
+                    List.of(), List.of(), List.of(), null, null, "story-plan:unknown", List.of(), false, List.of(), List.of(), UUID.randomUUID(), 0,
                     "legacy-preparation-command");
         }
         public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId, String assetId,
@@ -576,7 +573,7 @@ public class CombatMapController {
                 String sourceImageContentType, TacticalSceneMaterialization tacticalScene, Integer stagePosition) {
             this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
                     sourceImage, sourceImageContentType, tacticalScene, stagePosition, null, UUID.randomUUID(), 1L, 0,
-                    "unknown", "unknown", "", List.of(), List.of(), List.of(), null, null, "story-plan:unknown", List.of(), UUID.randomUUID(), 0,
+                    "unknown", "unknown", "", List.of(), List.of(), List.of(), null, null, "story-plan:unknown", List.of(), false, List.of(), List.of(), UUID.randomUUID(), 0,
                     "legacy-preparation-command");
         }
         public PrepareRequest {
@@ -595,7 +592,9 @@ public class CombatMapController {
             sourceAssetLocator = sourceAssetLocator == null ? "" : sourceAssetLocator.trim();
             spatialPreparationReference = spatialPreparationReference == null || spatialPreparationReference.isBlank()
                     ? "story-plan:unknown" : spatialPreparationReference.trim();
-            spatialRequirements = spatialRequirements == null ? List.of() : List.copyOf(spatialRequirements);
+            spatialPlacements = spatialPlacements == null ? List.of() : List.copyOf(spatialPlacements);
+            spatialWarnings = spatialWarnings == null ? List.of() : List.copyOf(spatialWarnings);
+            spatialFailures = spatialFailures == null ? List.of() : List.copyOf(spatialFailures);
             if (commandId == null) throw new IllegalArgumentException("preparation command id must be present");
             if (expectedVersion < 0) throw new IllegalArgumentException("preparation expected version must not be negative");
             operationFingerprint = operationFingerprint == null || operationFingerprint.isBlank()
@@ -603,8 +602,8 @@ public class CombatMapController {
         }
     }
 
-    private static SpatialFeaturePreparationInput spatialInput(PrepareRequest request) {
-        List<SpatialFeaturePreparationInput.Requirement> requirements = request.spatialRequirements().stream().map(item -> {
+    private static SpatialFeaturePlacementBatch spatialBatch(PrepareRequest request) {
+        List<SpatialFeaturePlacementBatch.Placement> placements = request.spatialPlacements().stream().map(item -> {
             SpatialFeatureType type;
             try { type = SpatialFeatureType.valueOf(item.type()); }
             catch (RuntimeException exception) { throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid spatial feature type", exception); }
@@ -612,11 +611,17 @@ public class CombatMapController {
             DetectionSpec detection = item.detectionRuleReference() == null || item.detectionRuleReference().isBlank()
                     || item.detectionMode() == null || item.detectionMode().isBlank()
                     ? null : new DetectionSpec(item.detectionRuleReference(), item.detectionDifficulty(), item.detectionMode());
-            return new SpatialFeaturePreparationInput.Requirement(item.featureId(), type, item.required(),
-                    Set.copyOf(item.evidenceReferences() == null ? List.of() : item.evidenceReferences()),
-                    authoredPositions(item.authoritativeCells(), "authoritative spatial feature"), detection, triggers);
+            var evidence = item.evidence();
+            if (evidence == null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "structured spatial evidence is required");
+            return new SpatialFeaturePlacementBatch.Placement(item.featureId(), type, item.required(),
+                    authoredPositions(item.cells(), "spatial feature").stream().toList(),
+                    new SpatialFeaturePlacementBatch.Evidence(evidence.sourceDocumentId(), evidence.sourceExtractionVersion(),
+                            evidence.sourceLocator(), evidence.resolutionUnitId(), evidence.scenarioPackageVersion(),
+                            authoredPositions(evidence.allowedCells(), "allowed spatial feature")), detection, triggers,
+                    item.durationTurns(), item.removalPolicy(), item.overlapAllowed());
         }).toList();
-        return new SpatialFeaturePreparationInput(request.spatialPreparationReference(), requirements);
+        return new SpatialFeaturePlacementBatch(request.spatialPreparationReference(), request.spatialPreparationBlocked(),
+                placements, request.spatialWarnings(), request.spatialFailures());
     }
 
     private static Set<SpatialTrigger> requestTriggers(List<String> values) {
@@ -637,16 +642,25 @@ public class CombatMapController {
         }
         return result;
     }
-    public record SpatialFeatureRequirementRequest(UUID featureId, String type, boolean required,
-            List<String> evidenceReferences, String detectionRuleReference, Integer detectionDifficulty,
-            String detectionMode, List<String> triggers, List<String> authoritativeCells) {
-        public SpatialFeatureRequirementRequest(UUID featureId, String type, boolean required,
-                List<String> evidenceReferences, String detectionRuleReference, Integer detectionDifficulty,
+    public record SpatialFeaturePlacementRequest(UUID featureId, String type, boolean required, List<String> cells,
+            SpatialEvidenceRequest evidence, String detectionRuleReference, Integer detectionDifficulty,
+            String detectionMode, List<String> triggers, int durationTurns, String removalPolicy,
+            boolean overlapAllowed) {
+        public SpatialFeaturePlacementRequest {
+            cells = cells == null ? List.of() : List.copyOf(cells);
+            triggers = triggers == null ? List.of() : List.copyOf(triggers);
+            removalPolicy = removalPolicy == null ? "" : removalPolicy;
+        }
+        public SpatialFeaturePlacementRequest(UUID featureId, String type, boolean required, List<String> cells,
+                SpatialEvidenceRequest evidence, String detectionRuleReference, Integer detectionDifficulty,
                 String detectionMode, List<String> triggers) {
-            this(featureId, type, required, evidenceReferences, detectionRuleReference, detectionDifficulty,
-                    detectionMode, triggers, List.of());
+            this(featureId, type, required, cells, evidence, detectionRuleReference, detectionDifficulty,
+                    detectionMode, triggers, -1, "", false);
         }
     }
+
+    public record SpatialEvidenceRequest(UUID sourceDocumentId, long sourceExtractionVersion, String sourceLocator,
+            String resolutionUnitId, String scenarioPackageVersion, List<String> allowedCells) {}
 
     public enum PrepareStatus { READY, BLOCKED }
 

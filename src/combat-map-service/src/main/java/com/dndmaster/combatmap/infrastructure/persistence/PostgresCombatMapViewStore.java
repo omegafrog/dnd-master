@@ -369,7 +369,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     private static void writeFeatures(Connection connection, CombatMap map, UUID mapId, String featureTable,
             String cellTable, String triggerTable) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO " + featureTable + " (map_id,feature_id,feature_type,visibility,state,detection_rule_reference,detection_difficulty,detection_mode,origin,source_reference,created_turn,created_map_version,repeatable,remaining_duration_turns) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                "INSERT INTO " + featureTable + " (map_id,feature_id,feature_type,visibility,state,detection_rule_reference,detection_difficulty,detection_mode,origin,source_reference,created_turn,created_map_version,repeatable,remaining_duration_turns,removal_policy,overlap_allowed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
             for (SpatialFeature feature : map.spatialFeatures()) {
                 statement.setObject(1, mapId); statement.setObject(2, feature.id()); statement.setString(3, feature.type().name());
                 statement.setString(4, feature.visibility().name()); statement.setString(5, feature.state().name());
@@ -379,7 +379,8 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 statement.setString(8, detection == null ? null : detection.mode()); statement.setString(9, feature.provenance().origin().name());
                 statement.setString(10, feature.provenance().sourceReference()); statement.setLong(11, feature.provenance().createdTurn());
                 statement.setLong(12, feature.provenance().createdMapVersion()); statement.setBoolean(13, feature.repeatable());
-                statement.setInt(14, feature.remainingDurationTurns()); statement.addBatch();
+                statement.setInt(14, feature.remainingDurationTurns()); statement.setString(15, feature.removalPolicy());
+                statement.setBoolean(16, feature.overlapAllowed()); statement.addBatch();
             }
             statement.executeBatch();
         }
@@ -506,7 +507,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             }
         }
         try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO " + HISTORY_FEATURE_TABLE + " (command_id,sequence,feature_id,feature_type,visibility,state,detection_rule_reference,detection_difficulty,detection_mode,origin,source_reference,created_turn,created_map_version,repeatable,remaining_duration_turns) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                "INSERT INTO " + HISTORY_FEATURE_TABLE + " (command_id,sequence,feature_id,feature_type,visibility,state,detection_rule_reference,detection_difficulty,detection_mode,origin,source_reference,created_turn,created_map_version,repeatable,remaining_duration_turns,removal_policy,overlap_allowed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
             int sequence = 0;
             for (SpatialFeature feature : map.spatialFeatures()) {
                 DetectionSpec detection = feature.detectionSpec();
@@ -517,7 +518,8 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 statement.setString(9, detection == null ? null : detection.mode()); statement.setString(10, feature.provenance().origin().name());
                 statement.setString(11, feature.provenance().sourceReference()); statement.setLong(12, feature.provenance().createdTurn());
                 statement.setLong(13, feature.provenance().createdMapVersion()); statement.setBoolean(14, feature.repeatable());
-                statement.setInt(15, feature.remainingDurationTurns()); statement.addBatch();
+                statement.setInt(15, feature.remainingDurationTurns()); statement.setString(16, feature.removalPolicy());
+                statement.setBoolean(17, feature.overlapAllowed()); statement.addBatch();
             }
             statement.executeBatch();
         }
@@ -658,7 +660,8 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                             rows.getLong("created_turn"), rows.getLong("created_map_version"));
                     features.add(new SpatialFeature(featureId, SpatialFeatureType.valueOf(rows.getString("feature_type")), cells,
                             SpatialFeatureVisibility.valueOf(rows.getString("visibility")), SpatialFeature.State.valueOf(rows.getString("state")),
-                            detection, triggers, provenance, rows.getBoolean("repeatable"), rows.getInt("remaining_duration_turns")));
+                            detection, triggers, provenance, rows.getBoolean("repeatable"), rows.getInt("remaining_duration_turns"),
+                            rows.getString("removal_policy"), rows.getBoolean("overlap_allowed")));
                 }
             }
         }

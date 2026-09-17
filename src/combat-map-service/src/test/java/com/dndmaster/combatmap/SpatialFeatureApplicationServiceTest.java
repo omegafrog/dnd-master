@@ -4,9 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.combatmap.application.spatial.SpatialFeatureApplicationService;
-import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementProposal;
-import com.dndmaster.combatmap.application.spatial.SpatialFeaturePreparationInput;
-import com.dndmaster.combatmap.application.spatial.SpatialFeaturePreparationService;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementBatch;
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationCommand;
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationCommandConflictException;
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationVersionConflictException;
@@ -33,35 +31,33 @@ class SpatialFeatureApplicationServiceTest {
         MapId mapId = new MapId(UUID.randomUUID());
         MapOwnerId owner = new MapOwnerId(UUID.randomUUID());
         InMemoryStore store = new InMemoryStore(owner, map(mapId, owner));
-        SpatialFeaturePreparationService preparation = new SpatialFeaturePreparationService(context ->
-                new SpatialFeaturePlacementProposal(List.of(new SpatialFeaturePlacementProposal.Candidate(
-                        FEATURE_ID, SpatialFeatureType.TRAP, List.of(new GridPosition(2, 2)), true,
-                        "storybook:page-4"))));
-        SpatialFeatureApplicationService application = new SpatialFeatureApplicationService(store, preparation);
-        SpatialFeaturePreparationInput input = input();
+        SpatialFeatureApplicationService application = new SpatialFeatureApplicationService(store);
+        SpatialFeaturePlacementBatch batch = batch();
         UUID commandId = UUID.randomUUID();
         SpatialPreparationCommand command = new SpatialPreparationCommand(commandId, "fingerprint-1", 0);
 
-        var first = application.prepare(mapId, owner, input, 1, command);
-        var replay = application.prepare(mapId, owner, input, 1, command);
+        var first = application.prepare(mapId, owner, batch, 1, command);
+        var replay = application.prepare(mapId, owner, batch, 1, command);
 
         assertEquals(1, first.version());
         assertEquals(first, replay);
         assertThrows(SpatialPreparationCommandConflictException.class,
-                () -> application.prepare(mapId, owner, input, 1,
+                () -> application.prepare(mapId, owner, batch, 1,
                         new SpatialPreparationCommand(commandId, "fingerprint-2", 0)));
         assertThrows(SpatialPreparationVersionConflictException.class,
-                () -> application.prepare(mapId, owner, input, 1,
+                () -> application.prepare(mapId, owner, batch, 1,
                         new SpatialPreparationCommand(UUID.randomUUID(), "fingerprint-3", 0)));
     }
 
     private static final UUID FEATURE_ID = UUID.randomUUID();
 
-    private static SpatialFeaturePreparationInput input() {
-        return new SpatialFeaturePreparationInput("story-plan:opening", List.of(
-                new SpatialFeaturePreparationInput.Requirement(FEATURE_ID, SpatialFeatureType.TRAP, true,
-                        java.util.Set.of("storybook:page-4"), java.util.Set.of(new GridPosition(2, 2)), null,
-                        java.util.Set.of(SpatialTrigger.ENTER_CELL))));
+    private static SpatialFeaturePlacementBatch batch() {
+        return new SpatialFeaturePlacementBatch("story-plan:opening", false, List.of(
+                new SpatialFeaturePlacementBatch.Placement(FEATURE_ID, SpatialFeatureType.TRAP, true,
+                        List.of(new GridPosition(2, 2)), new SpatialFeaturePlacementBatch.Evidence(
+                                UUID.randomUUID(), 1, "asset:map-1", FEATURE_ID.toString(), "1",
+                                java.util.Set.of(new GridPosition(2, 2))), null,
+                        java.util.Set.of(SpatialTrigger.ENTER_CELL), -1, "", false)), List.of(), List.of());
     }
 
     private static CombatMap map(MapId id, MapOwnerId owner) {

@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationBlockedException;
 import com.dndmaster.adventure.application.combat.HttpCombatMapPreparationGateway;
+import com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePlacementModelPort;
+import com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationService;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.scenario.MapDefinition;
@@ -123,23 +125,26 @@ class HttpCombatMapPreparationGatewayTest {
         server.start();
         try {
             UUID featureId = UUID.randomUUID();
+            UUID documentId = UUID.randomUUID();
             MapDefinition definition = new MapDefinition(UUID.randomUUID(), "map", "page-1",
                     new MapGrid(0, 0, 50, 0, "5 ft"), List.of(), List.of(), List.of(),
-                    new MapSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 4, "page-1"),
+                    new MapSourceReference(new KnowledgeDocumentId(documentId), 4, "page-1"),
                     .9, MapSafetyStatus.SAFE,
                     List.of(new MapDefinition.SpatialFeatureRequirement(featureId, "TRAP", true,
                             List.of("storybook:page-4"), List.of("2,2"), "rulebook:perception", 15, "PASSIVE", List.of("ENTER_CELL"))));
             new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
                     java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
-                    Duration.ofSeconds(2), new ObjectMapper(), "secret")
+                    Duration.ofSeconds(2), new ObjectMapper(), "secret",
+                    new ScenarioSpatialFeaturePreparationService(context -> new ScenarioSpatialFeaturePlacementModelPort.Proposal(List.of(
+                            new ScenarioSpatialFeaturePlacementModelPort.Candidate(featureId, "TRAP", List.of("2,2"), true)))))
                     .prepareInitial(new AdventureId(UUID.randomUUID()), UUID.randomUUID(), new RuleSetId(UUID.randomUUID()),
                             definition, 1);
 
             JsonNode payload = new ObjectMapper().readTree(requestBody.get());
-            assertEquals("TRAP", payload.get("spatialRequirements").get(0).get("type").asText());
-            assertEquals(featureId.toString(), payload.get("spatialRequirements").get(0).get("featureId").asText());
-            assertEquals("storybook:page-4", payload.get("spatialRequirements").get(0).get("evidenceReferences").get(0).asText());
-            assertEquals("2,2", payload.get("spatialRequirements").get(0).get("authoritativeCells").get(0).asText());
+            assertEquals("TRAP", payload.get("spatialPlacements").get(0).get("type").asText());
+            assertEquals(featureId.toString(), payload.get("spatialPlacements").get(0).get("featureId").asText());
+            assertEquals(documentId.toString(), payload.get("spatialPlacements").get(0).get("evidence").get("sourceDocumentId").asText());
+            assertEquals("2,2", payload.get("spatialPlacements").get(0).get("evidence").get("allowedCells").get(0).asText());
             assertTrue(payload.get("spatialPreparationReference").asText().contains("story-plan:"));
         } finally {
             server.stop(0);

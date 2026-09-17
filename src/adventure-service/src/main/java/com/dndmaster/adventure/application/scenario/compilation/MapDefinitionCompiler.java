@@ -19,8 +19,8 @@ import java.util.regex.Pattern;
 final class MapDefinitionCompiler {
     private static final Pattern VALUE = Pattern.compile("(?i)([a-z]+)=(?:\"([^\"]+)\"|([^\\s]+))");
     private static final Pattern SPATIAL_FEATURE = Pattern.compile(
-            "(?i)\\bFEATURE\\s+id=([^\\s]+)\\s+type=([^\\s]+)\\s+required=(true|false)(?:\\s+(?:cells|rule|difficulty|mode|triggers)=[^\\s]+)*");
-    private static final Pattern FEATURE_ATTRIBUTE = Pattern.compile("(?i)(cells|rule|difficulty|mode|triggers)=([^\\s]+)");
+            "(?i)\\bFEATURE\\s+id=([^\\s]+)\\s+type=([^\\s]+)\\s+required=(true|false)(?:\\s+(?:cells|rule|difficulty|mode|triggers|duration|removal|overlap)=[^\\s]+)*");
+    private static final Pattern FEATURE_ATTRIBUTE = Pattern.compile("(?i)(cells|rule|difficulty|mode|triggers|duration|removal|overlap)=([^\\s]+)");
 
     Compilation compile(ScenarioSourceBundle bundle, List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
         List<MapDefinition> result = new ArrayList<>();
@@ -85,10 +85,12 @@ final class MapDefinitionCompiler {
             Integer difficulty = attributes.containsKey("difficulty") ? integer(attributes.get("difficulty")) : null;
             List<String> triggers = attributes.getOrDefault("triggers", "").isBlank()
                     ? List.of() : List.of(attributes.get("triggers").split("[|,]"));
+            int duration = attributes.containsKey("duration") ? integer(attributes.get("duration")) : -1;
+            boolean overlap = Boolean.parseBoolean(attributes.getOrDefault("overlap", "false"));
             requirements.add(new MapDefinition.SpatialFeatureRequirement(
                     UUID.fromString(features.group(1)), features.group(2), Boolean.parseBoolean(features.group(3)),
                     List.of(evidenceReference), splitValues(attributes.getOrDefault("cells", "")), attributes.getOrDefault("rule", ""), difficulty,
-                    attributes.getOrDefault("mode", ""), triggers));
+                    attributes.getOrDefault("mode", ""), triggers, duration, attributes.getOrDefault("removal", ""), overlap));
         }
         return List.copyOf(requirements);
     }

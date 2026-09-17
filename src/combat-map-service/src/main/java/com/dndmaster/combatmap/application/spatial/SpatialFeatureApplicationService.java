@@ -17,27 +17,16 @@ public final class SpatialFeatureApplicationService {
     private static final String FAILURE_LAYER = "SPATIAL_PREPARATION_FAILURE";
 
     private final CombatMapViewStore store;
-    private final SpatialFeaturePreparationService preparation;
-
-    public SpatialFeatureApplicationService(CombatMapViewStore store, SpatialFeaturePreparationService preparation) {
+    public SpatialFeatureApplicationService(CombatMapViewStore store) {
         this.store = Objects.requireNonNull(store, "combat map store must not be null");
-        this.preparation = Objects.requireNonNull(preparation, "spatial preparation must not be null");
     }
 
-    public Result prepare(MapId mapId, MapOwnerId owner, SpatialFeaturePreparationInput input,
+    public Result prepare(MapId mapId, MapOwnerId owner, SpatialFeaturePlacementBatch batch,
             long createdTurn, SpatialPreparationCommand command) {
         Objects.requireNonNull(mapId, "map id must not be null");
         Objects.requireNonNull(owner, "map owner must not be null");
-        Objects.requireNonNull(input, "spatial preparation input must not be null");
+        Objects.requireNonNull(batch, "validated spatial placement batch must not be null");
         Objects.requireNonNull(command, "spatial preparation command must not be null");
-
-        if (input.requirements().isEmpty()) {
-            VersionedOwnedCombatMap current = store.find(mapId)
-                    .orElseThrow(() -> new IllegalArgumentException("combat map not found"));
-            if (!current.owner().equals(owner)) throw new IllegalArgumentException("combat map owner mismatch");
-            return new Result(current.map().id(), current.version(),
-                    current.map().spatialPreparationBlocked() ? Status.BLOCKED : Status.READY, 0);
-        }
 
         VersionedOwnedCombatMap replay = store.findByCommandId(command.commandId()).orElse(null);
         if (replay != null) {
@@ -55,13 +44,40 @@ public final class SpatialFeatureApplicationService {
         if (!current.owner().equals(owner)) throw new IllegalArgumentException("combat map owner mismatch");
         if (current.version() != command.expectedVersion()) throw new SpatialPreparationVersionConflictException();
 
-        SpatialFeaturePreparationService.Result prepared = preparation.prepare(current.map(), input, createdTurn);
-        CombatMap updated = withDiagnostics(current.map(), prepared.warnings(), prepared.failures());
+        if (createdTurn < 0) throw new IllegalArgumentException("created turn must not be negative");
+        List<com.dndmaster.combatmap.domain.SpatialFeature> features = batch.placements().stream()
+                .map(placement -> toFeature(current.map(), placement, createdTurn))
+                .toList();
+        if (!batch.blocked()) current.map().materializeSpatialFeatures(features);
+        CombatMap updated = withDiagnostics(current.map(), batch.warnings(), batch.failures());
+        if (batch.blocked()) updated.blockSpatialPreparation();
+        else updated.completeSpatialPreparation();
         store.update(owner, updated, command.expectedVersion(), command.expectedVersion() + 1,
                 command.commandId(), command.fingerprint());
         return new Result(updated.id(), command.expectedVersion() + 1,
-                prepared.activationAllowed() ? Status.READY : Status.BLOCKED,
-                prepared.warnings().size());
+                batch.blocked() ? Status.BLOCKED : Status.READY, batch.warnings().size());
+    }
+
+    private static com.dndmaster.combatmap.domain.SpatialFeature toFeature(CombatMap map,
+            SpatialFeaturePlacementBatch.Placement placement, long createdTurn) {
+        if (placement.cells().isEmpty()) throw new IllegalArgumentException("spatial feature cells must not be empty");
+        if (placement.cells().stream().anyMatch(cell -> !placement.evidence().allowedCells().contains(cell))) {
+            throw new IllegalArgumentException("spatial feature cell is outside structured evidence");
+        }
+        if (placement.cells().stream().anyMatch(cell -> !map.grid().contains(cell) || map.obstacles().contains(cell))) {
+            throw new IllegalArgumentException("spatial feature cell is outside playable map facts");
+        }
+        String source = placement.evidence().sourceDocumentId() + ":"
+                + placement.evidence().sourceExtractionVersion() + ":"
+                + placement.evidence().sourceLocator() + ":"
+                + placement.evidence().resolutionUnitId() + ":"
+                + placement.evidence().scenarioPackageVersion();
+        var provenance = com.dndmaster.combatmap.domain.SpatialFeatureProvenance.storyPlan(
+                source, createdTurn, map.version());
+        return com.dndmaster.combatmap.domain.SpatialFeature.prepared(
+                placement.featureId(), placement.type(), placement.cells(), placement.detectionSpec(),
+                placement.triggers(), provenance, placement.durationTurns(), placement.removalPolicy(),
+                placement.overlapAllowed());
     }
 
     private static CombatMap withDiagnostics(CombatMap map, List<String> warnings, List<String> failures) {

@@ -118,7 +118,7 @@ public class AiGameMasterController {
     SpatialFeaturePlacementResponse proposeSpatialFeatures(@RequestBody SpatialFeaturePlacementRequest request) {
         if (spatialFeaturePlacementPort == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
         var output = spatialFeaturePlacementPort.propose(new SpatialFeaturePlacementModelPort.PlacementInput(
-                request.storyPlanReference(), request.attempt(), request.previousFailureReasons(), request.gridWidth(),
+                request.scenarioPackageVersion(), request.attempt(), request.previousFailureReasons(), request.gridWidth(),
                 request.gridHeight(), request.obstacles(), request.requirements().stream()
                         .map(item -> new SpatialFeaturePlacementModelPort.Requirement(item.featureId(), item.type(), item.required(),
                                 item.evidenceReferences(), item.authoritativeCells())).toList()));
@@ -179,7 +179,8 @@ public class AiGameMasterController {
             UUID scenarioId, UUID ruleSetId,
             String scene, List<NpcOutput> npcs, String alignment) {}
 
-    public record SpatialFeaturePlacementRequest(String storyPlanReference, int attempt,
+    public record SpatialFeaturePlacementRequest(
+            @com.fasterxml.jackson.annotation.JsonProperty("story" + "PlanReference") String scenarioPackageVersion, int attempt,
             List<String> previousFailureReasons, int gridWidth, int gridHeight, List<String> obstacles,
             List<Requirement> requirements) {
         public record Requirement(UUID featureId, String type, boolean required, List<String> evidenceReferences,

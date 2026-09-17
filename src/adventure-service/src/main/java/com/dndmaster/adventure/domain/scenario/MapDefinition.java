@@ -46,28 +46,66 @@ public record MapDefinition(
     /** Story Plan이 지도와 함께 잠그는 공간 요소 요구사항과 지도 근거 사실이다. */
     public record SpatialFeatureRequirement(UUID featureId, String type, boolean required,
             List<String> evidenceReferences, List<String> authoritativeCells, String detectionRuleReference, Integer detectionDifficulty,
-            String detectionMode, List<String> triggers) {
+            String detectionMode, List<String> triggers, int durationTurns, String removalPolicy,
+            boolean overlapAllowed) {
         public SpatialFeatureRequirement(UUID featureId, String type, boolean required,
                 List<String> evidenceReferences, String detectionRuleReference, Integer detectionDifficulty,
                 String detectionMode, List<String> triggers) {
             this(featureId, type, required, evidenceReferences, List.of(), detectionRuleReference,
-                    detectionDifficulty, detectionMode, triggers);
+                    detectionDifficulty, detectionMode, triggers, -1, "", "MAGICAL_AREA_EFFECT".equalsIgnoreCase(type));
         }
 
-        public SpatialFeatureRequirement {
-            featureId = Objects.requireNonNull(featureId, "spatial feature id must not be null");
-            type = MapDefinition.required(type, "spatial feature type");
-            evidenceReferences = List.copyOf(Objects.requireNonNull(evidenceReferences, "evidence references must not be null"));
-            if (evidenceReferences.isEmpty() || evidenceReferences.stream().anyMatch(value -> value == null || value.isBlank())) {
+        public SpatialFeatureRequirement(UUID featureId, String type, boolean required,
+                List<String> evidenceReferences, List<String> authoritativeCells, String detectionRuleReference,
+                Integer detectionDifficulty, String detectionMode, List<String> triggers) {
+            this(featureId, type, required, evidenceReferences, authoritativeCells, detectionRuleReference,
+                    detectionDifficulty, detectionMode, triggers, -1, "", "MAGICAL_AREA_EFFECT".equalsIgnoreCase(type));
+        }
+
+        public SpatialFeatureRequirement(UUID featureId, String type, boolean required,
+                List<String> evidenceReferences, List<String> authoritativeCells, String detectionRuleReference,
+                Integer detectionDifficulty, String detectionMode, List<String> triggers,
+                int durationTurns, String removalPolicy, boolean overlapAllowed) {
+            this.featureId = Objects.requireNonNull(featureId, "spatial feature id must not be null");
+            this.required = required;
+            this.type = MapDefinition.required(type, "spatial feature type");
+            this.evidenceReferences = List.copyOf(Objects.requireNonNull(evidenceReferences, "evidence references must not be null"));
+            if (this.evidenceReferences.isEmpty() || this.evidenceReferences.stream().anyMatch(value -> value == null || value.isBlank())) {
                 throw new IllegalArgumentException("published evidence reference is required");
             }
-            authoritativeCells = List.copyOf(Objects.requireNonNull(authoritativeCells, "authoritative cells must not be null"));
-            if (authoritativeCells.stream().anyMatch(value -> value == null || value.isBlank())) {
+            this.authoritativeCells = List.copyOf(Objects.requireNonNull(authoritativeCells, "authoritative cells must not be null"));
+            if (this.authoritativeCells.stream().anyMatch(value -> value == null || value.isBlank())) {
                 throw new IllegalArgumentException("authoritative cells must not be blank");
             }
-            detectionRuleReference = detectionRuleReference == null ? "" : detectionRuleReference.trim();
-            detectionMode = detectionMode == null ? "" : detectionMode.trim();
-            triggers = triggers == null ? List.of() : List.copyOf(triggers);
+            this.detectionRuleReference = detectionRuleReference == null ? "" : detectionRuleReference.trim();
+            this.detectionDifficulty = detectionDifficulty;
+            this.detectionMode = detectionMode == null ? "" : detectionMode.trim();
+            this.triggers = triggers == null ? List.of() : List.copyOf(triggers);
+            if (durationTurns < -1) throw new IllegalArgumentException("duration must be -1 or non-negative");
+            this.durationTurns = durationTurns;
+            this.removalPolicy = removalPolicy == null ? "" : removalPolicy.trim();
+            this.overlapAllowed = overlapAllowed;
+        }
+
+    }
+
+    /** Structured source facts used when a placement crosses into Combat Map. */
+    public record SpatialFeatureEvidence(UUID sourceDocumentId, long sourceExtractionVersion,
+            String sourceLocator, String resolutionUnitId, String scenarioPackageVersion,
+            List<String> allowedCells) {
+        public SpatialFeatureEvidence {
+            sourceDocumentId = Objects.requireNonNull(sourceDocumentId);
+            if (sourceExtractionVersion <= 0) throw new IllegalArgumentException("source extraction version must be positive");
+            sourceLocator = required(sourceLocator, "source locator");
+            resolutionUnitId = required(resolutionUnitId, "resolution unit id");
+            scenarioPackageVersion = required(scenarioPackageVersion, "scenario package version");
+            allowedCells = List.copyOf(Objects.requireNonNull(allowedCells));
+        }
+
+        public static SpatialFeatureEvidence from(MapSourceReference source, UUID featureId,
+                String sourceLocator, List<String> allowedCells) {
+            return new SpatialFeatureEvidence(source.knowledgeDocumentId().value(), source.extractionVersion(),
+                    sourceLocator, featureId.toString(), Long.toString(source.extractionVersion()), allowedCells);
         }
     }
 }

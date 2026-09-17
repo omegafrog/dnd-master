@@ -3,6 +3,8 @@ package com.dndmaster.adventure.application.combat;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.scenario.MapDefinition;
+import com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationResult;
+import com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
@@ -22,14 +24,22 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
     private final Duration timeout;
     private final ObjectMapper mapper;
     private final String internalToken;
+    private final ScenarioSpatialFeaturePreparationService spatialPreparation;
 
     public HttpCombatMapPreparationGateway(HttpClient client, URI baseUri, Duration timeout,
             ObjectMapper mapper, String internalToken) {
+        this(client, baseUri, timeout, mapper, internalToken,
+                new ScenarioSpatialFeaturePreparationService(context -> new com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePlacementModelPort.Proposal(List.of())));
+    }
+
+    public HttpCombatMapPreparationGateway(HttpClient client, URI baseUri, Duration timeout,
+            ObjectMapper mapper, String internalToken, ScenarioSpatialFeaturePreparationService spatialPreparation) {
         this.client = client;
         this.baseUri = baseUri;
         this.timeout = timeout;
         this.mapper = mapper;
         this.internalToken = internalToken;
+        this.spatialPreparation = java.util.Objects.requireNonNull(spatialPreparation);
     }
 
     @Override
@@ -100,6 +110,9 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
 
     private UUID sendPrepare(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
             MapDefinition mapDefinition, Integer stagePosition, CombatMapPreparationPort.ActivationContext context) {
+        ScenarioSpatialFeaturePreparationResult spatial = mapDefinition == null
+                ? new ScenarioSpatialFeaturePreparationResult(true, List.of(), List.of(), List.of(), 0)
+                : spatialPreparation.prepare(mapDefinition);
         Request payload = new Request(adventureId.value(), ownerPlayerId, ruleSetId.value(), mapDefinition == null ? null : mapDefinition.id(),
                 mapDefinition == null ? null : mapDefinition.assetId(), mapDefinition == null ? null : mapDefinition.assetLocator(), stagePosition,
                 context.placementProposalX(), context.placementProposalY(), context.playerTokenId(), context.situationId(),
@@ -110,7 +123,7 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
                 mapDefinition == null || mapDefinition.source() == null ? "story-plan:unknown" : "story-plan:"
                         + mapDefinition.source().knowledgeDocumentId().value() + ":" + mapDefinition.source().extractionVersion()
                         + ":" + mapDefinition.source().locator(),
-                mapDefinition == null ? List.of() : mapDefinition.spatialFeatures(), null, 0, "unassigned");
+                spatial.placements(), spatial.activationAllowed() ? false : true, spatial.warnings(), spatial.failures(), null, 0, "unassigned");
         try {
             String identity = phase(mapDefinition, stagePosition) + "|"
                     + adventureId.value() + "|" + (mapDefinition == null ? "prepared"
@@ -177,13 +190,15 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
             String currentScene, String location, String entryEvidence,
             List<String> walls, List<String> doors, List<String> obstacles,
             UUID sourceDocumentId, String sourceAssetLocator, String spatialPreparationReference,
-            List<MapDefinition.SpatialFeatureRequirement> spatialRequirements,
+            List<ScenarioSpatialFeaturePreparationResult.Placement> spatialPlacements, boolean spatialPreparationBlocked,
+            List<String> spatialWarnings, List<String> spatialFailures,
             UUID commandId, long expectedVersion, String operationFingerprint) {
         Request withCommand(UUID commandId, long expectedVersion, String operationFingerprint) {
             return new Request(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, stagePosition,
                     playerSpawnX, playerSpawnY, playerTokenId, situationId, situationRevision, turnIndex, currentScene,
                     location, entryEvidence, walls, doors, obstacles, sourceDocumentId, sourceAssetLocator,
-                    spatialPreparationReference, spatialRequirements, commandId, expectedVersion, operationFingerprint);
+                    spatialPreparationReference, spatialPlacements, spatialPreparationBlocked, spatialWarnings, spatialFailures,
+                    commandId, expectedVersion, operationFingerprint);
         }
     }
     private enum Status { READY, BLOCKED }

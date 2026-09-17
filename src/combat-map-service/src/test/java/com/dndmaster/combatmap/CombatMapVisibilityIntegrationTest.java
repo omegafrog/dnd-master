@@ -114,36 +114,28 @@ class CombatMapVisibilityIntegrationTest{
  }
  @Test void spatialPreparationServicePersistsValidatedBatchAndBlockedState(){
   UUID featureId=UUID.randomUUID();
-  SpatialFeaturePreparationInput input=new SpatialFeaturePreparationInput("story-plan:opening",List.of(
-          new SpatialFeaturePreparationInput.Requirement(featureId,SpatialFeatureType.TRAP,true,Set.of("storybook:page-4"),
-                  Set.of(new GridPosition(6,6)),DetectionSpec.passive("rulebook:perception",15),Set.of(SpatialTrigger.ENTER_CELL))));
-  SpatialFeaturePreparationService preparation=new SpatialFeaturePreparationService(context->new SpatialFeaturePlacementProposal(List.of(
-          new SpatialFeaturePlacementProposal.Candidate(featureId,SpatialFeatureType.TRAP,List.of(new GridPosition(6,6)),true,"storybook:page-4"))));
-  CombatMapViewService service=new CombatMapViewService(store,source->data(),description->data(),null,null,null,preparation);
+  SpatialFeaturePlacementBatch batch=validatedBatch(featureId,new GridPosition(6,6));
+  CombatMapViewService service=service(data());
   CombatMap map=service.prepareGenerated(owner,adventure(),rules(),"opening");
-  service.prepareSpatialFeatures(map.id(),owner,input,2);
+  service.prepareSpatialFeatures(map.id(),owner,batch,2,new SpatialPreparationCommand(UUID.randomUUID(),"spatial-fingerprint",0));
   CombatMap restored=store.find(map.id()).orElseThrow().map();
   assertFalse(restored.spatialPreparationBlocked());
   assertEquals(Set.of(featureId),restored.spatialFeatures().stream().map(SpatialFeature::id).collect(java.util.stream.Collectors.toSet()));
  }
  @Test void spatialPreparationCommandReplaysFromPostgresHistoryAndRejectsConflicts(){
   UUID featureId=UUID.randomUUID();
-  SpatialFeaturePreparationInput input=new SpatialFeaturePreparationInput("story-plan:opening",List.of(
-          new SpatialFeaturePreparationInput.Requirement(featureId,SpatialFeatureType.TRAP,true,Set.of("storybook:page-4"),
-                  Set.of(new GridPosition(6,6)),DetectionSpec.passive("rulebook:perception",15),Set.of(SpatialTrigger.ENTER_CELL))));
-  SpatialFeaturePreparationService preparation=new SpatialFeaturePreparationService(context->new SpatialFeaturePlacementProposal(List.of(
-          new SpatialFeaturePlacementProposal.Candidate(featureId,SpatialFeatureType.TRAP,List.of(new GridPosition(6,6)),true,"storybook:page-4"))));
-  CombatMapViewService service=new CombatMapViewService(store,source->data(),description->data(),null,null,null,preparation);
+  SpatialFeaturePlacementBatch batch=validatedBatch(featureId,new GridPosition(6,6));
+  CombatMapViewService service=service(data());
   CombatMap map=service.prepareGenerated(owner,adventure(),rules(),"opening");
   UUID commandId=UUID.randomUUID();
   SpatialPreparationCommand command=new SpatialPreparationCommand(commandId,"spatial-fingerprint",0);
-  var first=service.prepareSpatialFeatures(map.id(),owner,input,2,command);
-  var replay=service.prepareSpatialFeatures(map.id(),owner,input,2,command);
+  var first=service.prepareSpatialFeatures(map.id(),owner,batch,2,command);
+  var replay=service.prepareSpatialFeatures(map.id(),owner,batch,2,command);
   assertEquals(first,replay);
   assertEquals(first.version(),store.findByCommandId(commandId).orElseThrow().version());
-  assertThrows(SpatialPreparationCommandConflictException.class,()->service.prepareSpatialFeatures(map.id(),owner,input,2,
+  assertThrows(SpatialPreparationCommandConflictException.class,()->service.prepareSpatialFeatures(map.id(),owner,batch,2,
           new SpatialPreparationCommand(commandId,"different-fingerprint",0)));
-  assertThrows(SpatialPreparationVersionConflictException.class,()->service.prepareSpatialFeatures(map.id(),owner,input,2,
+  assertThrows(SpatialPreparationVersionConflictException.class,()->service.prepareSpatialFeatures(map.id(),owner,batch,2,
           new SpatialPreparationCommand(UUID.randomUUID(),"stale-fingerprint",0)));
   assertEquals(1,store.find(map.id()).orElseThrow().version());
  }
@@ -157,6 +149,12 @@ class CombatMapVisibilityIntegrationTest{
   CombatMap restored=store.find(map.id()).orElseThrow().map();
   assertEquals(current.version(),restored.version());
   assertTrue(restored.tokens().stream().noneMatch(token->token.type()==TokenType.TRAP));
+ }
+ private static SpatialFeaturePlacementBatch validatedBatch(UUID featureId, GridPosition cell){
+  return new SpatialFeaturePlacementBatch("story-plan:opening",false,List.of(
+          new SpatialFeaturePlacementBatch.Placement(featureId,SpatialFeatureType.TRAP,true,List.of(cell),
+                  new SpatialFeaturePlacementBatch.Evidence(UUID.randomUUID(),1,"asset:map-1",featureId.toString(),"1",Set.of(cell)),
+                  DetectionSpec.passive("rulebook:perception",15),Set.of(SpatialTrigger.ENTER_CELL),-1,"",false)),List.of(),List.of());
  }
  private CombatMapViewService service(PreparedMapData data){return new CombatMapViewService(store,source->data,description->data);}
  private static PreparedMapData data(){PlayerId player=new PlayerId(UUID.randomUUID());return new PreparedMapData(new GridSpec(10,10,50,5),List.of(new CombatToken(new TokenId(UUID.randomUUID()),TokenType.PLAYER,new GridPosition(1,1),TokenController.PLAYER,player),new CombatToken(new TokenId(UUID.randomUUID()),TokenType.ENEMY,new GridPosition(4,4),TokenController.AI_GAME_MASTER,null)),Set.of(new GridPosition(3,3),new GridPosition(9,9)),List.of(new MapLayer("FLOOR","stone",LayerVisibility.PLAYER_VISIBLE),new MapLayer("SECRET","door",LayerVisibility.AI_ONLY)));}

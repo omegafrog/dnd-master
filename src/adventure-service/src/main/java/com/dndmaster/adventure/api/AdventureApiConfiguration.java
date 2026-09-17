@@ -964,9 +964,21 @@ public class AdventureApiConfiguration {
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             ObjectMapper objectMapper,
-            @Value("${adventure.integration.combat-map.prepare-timeout:300s}") Duration timeout) {
+            @Value("${adventure.integration.combat-map.prepare-timeout:300s}") Duration timeout,
+            com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationService spatialPreparation) {
         return new com.dndmaster.adventure.application.combat.HttpCombatMapPreparationGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken);
+                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken, spatialPreparation);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationService scenarioSpatialFeaturePreparationService(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            @Value("${adventure.integration.ai-game-master.map-generation-timeout:300s}") Duration timeout) {
+        return new com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationService(
+                new com.dndmaster.adventure.infrastructure.integration.HttpScenarioSpatialFeaturePlacementGateway(
+                        HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken));
     }
 
     @Bean

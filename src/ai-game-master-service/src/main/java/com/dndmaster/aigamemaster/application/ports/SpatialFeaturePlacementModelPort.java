@@ -8,10 +8,10 @@ import java.util.UUID;
 public interface SpatialFeaturePlacementModelPort {
     PlacementOutput propose(PlacementInput input);
 
-    record PlacementInput(String storyPlanReference, int attempt, List<String> previousFailureReasons,
+    record PlacementInput(String scenarioPackageVersion, int attempt, List<String> previousFailureReasons,
             int gridWidth, int gridHeight, List<String> obstacles, List<Requirement> requirements) {
         public PlacementInput {
-            storyPlanReference = SpatialFeaturePlacementModelPort.required(storyPlanReference, "story plan reference");
+            scenarioPackageVersion = SpatialFeaturePlacementModelPort.required(scenarioPackageVersion, "scenario package version");
             if (attempt < 1 || attempt > 3) throw new IllegalArgumentException("placement attempt must be between 1 and 3");
             previousFailureReasons = List.copyOf(Objects.requireNonNull(previousFailureReasons));
             if (gridWidth < 1 || gridHeight < 1) throw new IllegalArgumentException("grid dimensions must be positive");
