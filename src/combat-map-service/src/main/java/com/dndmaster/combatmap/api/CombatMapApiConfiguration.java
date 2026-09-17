@@ -4,6 +4,9 @@ import com.dndmaster.combatmap.application.movement.AppliedEditionMovementPort;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
 import com.dndmaster.combatmap.application.movement.CombatMapRepository;
 import com.dndmaster.combatmap.application.view.*;
+import com.dndmaster.combatmap.application.spatial.HttpSpatialFeaturePlacementGateway;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementModelPort;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePreparationService;
 import com.dndmaster.combatmap.domain.*;
 import com.dndmaster.combatmap.infrastructure.persistence.PostgresCombatMapViewStore;
 import com.dndmaster.combatmap.infrastructure.persistence.PostgresMapGridAlignmentStore;
@@ -104,8 +107,23 @@ public class CombatMapApiConfiguration {
     CombatMapViewService combatMapViewService(
             CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort,
             PublicMapImageArtifactService publicImages, MapGridAlignmentStore alignments,
-            MapImageEvidencePort mapImageEvidence) {
-        return new CombatMapViewService(store, filePort, aiPort, publicImages, alignments, mapImageEvidence);
+            MapImageEvidencePort mapImageEvidence, SpatialFeaturePreparationService spatialPreparation) {
+        return new CombatMapViewService(store, filePort, aiPort, publicImages, alignments, mapImageEvidence, spatialPreparation);
+    }
+
+    @Bean
+    SpatialFeaturePlacementModelPort spatialFeaturePlacementModelPort(
+            @Value("${combat-map.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${combat-map.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            @Value("${combat-map.integration.ai-game-master.map-generation-timeout:300s}") java.time.Duration timeout) {
+        return new HttpSpatialFeaturePlacementGateway(java.net.http.HttpClient.newHttpClient(), java.net.URI.create(baseUrl), timeout,
+                objectMapper, internalToken);
+    }
+
+    @Bean
+    SpatialFeaturePreparationService spatialFeaturePreparationService(SpatialFeaturePlacementModelPort model) {
+        return new SpatialFeaturePreparationService(model);
     }
 
     @Bean

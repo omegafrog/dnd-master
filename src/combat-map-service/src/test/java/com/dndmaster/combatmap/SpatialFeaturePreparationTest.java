@@ -3,6 +3,7 @@ package com.dndmaster.combatmap;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementModelPort;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePreparationInput;
 import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementProposal;
 import com.dndmaster.combatmap.application.spatial.SpatialFeaturePreparationService;
 import com.dndmaster.combatmap.domain.*;
@@ -100,6 +101,28 @@ class SpatialFeaturePreparationTest {
         assertEquals(1, result.attempts());
         assertEquals(Set.of(FEATURE_ID), result.map().spatialFeatures().stream().map(SpatialFeature::id).collect(java.util.stream.Collectors.toSet()));
         assertEquals(SpatialFeatureOrigin.STORY_PLAN, result.map().spatialFeatures().getFirst().provenance().origin());
+    }
+
+    @Test
+    void validates_ai_cells_and_evidence_against_authoritative_preparation_input() {
+        CombatMap map = map();
+        SpatialFeaturePreparationInput input = new SpatialFeaturePreparationInput(
+                "story-plan:published-1",
+                List.of(new SpatialFeaturePreparationInput.Requirement(
+                        FEATURE_ID, SpatialFeatureType.TRAP, true, Set.of("storybook:page-4"),
+                        DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.ENTER_CELL))));
+        SpatialFeaturePlacementModelPort model = context -> new SpatialFeaturePlacementProposal(List.of(
+                new SpatialFeaturePlacementProposal.Candidate(
+                        FEATURE_ID, SpatialFeatureType.TRAP, List.of(new GridPosition(2, 2)), true,
+                        "invented-coordinate-evidence")));
+
+        SpatialFeaturePreparationService.Result result = new SpatialFeaturePreparationService(model)
+                .prepare(map, input, 1);
+
+        assertFalse(result.activationAllowed());
+        assertTrue(result.map().spatialPreparationBlocked());
+        assertTrue(result.failures().stream().anyMatch(message -> message.contains("evidence")));
+        assertTrue(result.map().spatialFeatures().isEmpty());
     }
 
     private static CombatMap map() {

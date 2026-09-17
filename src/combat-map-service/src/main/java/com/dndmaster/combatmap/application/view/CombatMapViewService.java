@@ -2,6 +2,10 @@ package com.dndmaster.combatmap.application.view;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.dndmaster.combatmap.domain.*;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementModelPort;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementProposal;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePreparationInput;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePreparationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
@@ -17,6 +21,7 @@ public final class CombatMapViewService {
     private final PublicMapImageArtifactService publicImages;
     private final MapGridAlignmentStore alignments;
     private final MapImageEvidencePort mapImageEvidence;
+    private final SpatialFeaturePreparationService spatialPreparation;
 
     public CombatMapViewService(CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort) {
         this(store, filePort, aiPort, null, null, null);
@@ -31,7 +36,14 @@ public final class CombatMapViewService {
     }
     public CombatMapViewService(CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort,
             PublicMapImageArtifactService publicImages, MapGridAlignmentStore alignments, MapImageEvidencePort mapImageEvidence) {
+        this(store, filePort, aiPort, publicImages, alignments, mapImageEvidence,
+                new SpatialFeaturePreparationService(context -> new SpatialFeaturePlacementProposal(List.of())));
+    }
+    public CombatMapViewService(CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort,
+            PublicMapImageArtifactService publicImages, MapGridAlignmentStore alignments, MapImageEvidencePort mapImageEvidence,
+            SpatialFeaturePreparationService spatialPreparation) {
         this.store = Objects.requireNonNull(store); this.filePort = Objects.requireNonNull(filePort); this.aiPort = Objects.requireNonNull(aiPort); this.publicImages = publicImages; this.alignments = alignments; this.mapImageEvidence = mapImageEvidence;
+        this.spatialPreparation = Objects.requireNonNull(spatialPreparation);
     }
     public CombatMap prepareUploaded(MapOwnerId owner, AdventureId adventure, RuleSetId rules, UploadedMapSource source) { return saveNew(owner, adventure, rules, filePort.prepare(source)); }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description) {
@@ -165,6 +177,18 @@ public final class CombatMapViewService {
     }
     public Optional<MapId> preparedMapIdForAdventure(AdventureId adventureId, MapOwnerId owner) {
         return store.findPreparedByAdventureId(adventureId, owner).map(state -> state.map().id());
+    }
+
+    /** Scenario Preparation의 정본 요구사항을 AI 제안과 대조한 뒤 지도에 원자적으로 반영한다. */
+    public CombatMap prepareSpatialFeatures(MapId id, MapOwnerId owner, SpatialFeaturePreparationInput input, long createdTurn) {
+        Objects.requireNonNull(input, "spatial preparation input must not be null");
+        VersionedOwnedCombatMap state = owned(id, owner);
+        if (input.requirements().isEmpty()) return state.map();
+        spatialPreparation.prepare(state.map(), input, createdTurn);
+        UUID operationKey = UUID.randomUUID();
+        store.update(owner, state.map(), state.version(), state.version() + 1, operationKey,
+                "SPATIAL_PREPARATION|" + input.storyPlanReference() + "|" + input.requirements().stream().map(item -> item.featureId().toString()).sorted().toList());
+        return state.map();
     }
     public void activateForAdventure(MapId id, MapOwnerId owner, int stagePosition) {
         activateForAdventure(id, owner, MapActivationContext.atStage(stagePosition));

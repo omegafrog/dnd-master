@@ -3,6 +3,7 @@ package com.dndmaster.aigamemaster.api;
 import com.dndmaster.aigamemaster.application.ports.AdjudicationModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapEntryPlacementModelPort;
+import com.dndmaster.aigamemaster.application.ports.SpatialFeaturePlacementModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationOutput;
 import com.dndmaster.aigamemaster.application.rule.*;
@@ -229,6 +230,42 @@ public class AiGameMasterApiConfiguration {
                         List.of(), "진입 위치 분석 제공자가 응답하지 않았습니다.");
             }
         };
+    }
+
+    @Bean
+    SpatialFeaturePlacementModelPort spatialFeaturePlacementModelPort(GmCompletionAdapter adapter,
+            com.fasterxml.jackson.databind.ObjectMapper mapper) {
+        return input -> adapter.complete("spatial-feature-placement-" + UUID.randomUUID(),
+                "ROLE=SPATIAL_FEATURE_PLACEMENT_AGENT\n"
+                        + "STORY_PLAN_REFERENCE=" + input.storyPlanReference() + "\n"
+                        + "ATTEMPT=" + input.attempt() + "\n"
+                        + "PREVIOUS_FAILURES=" + input.previousFailureReasons() + "\n"
+                        + "GRID=" + input.gridWidth() + "x" + input.gridHeight() + "\n"
+                        + "OBSTACLES=" + input.obstacles() + "\n"
+                        + "REQUIREMENTS=" + input.requirements() + "\n"
+                        + "TASK=Return only evidence-grounded occupied cells for the supplied requirements. Never invent a feature id, type, or evidence reference.\n"
+                        + "OUTPUT_CONTRACT={\"candidates\":[{\"featureId\":\"uuid\",\"type\":\"TRAP\",\"cells\":[\"x,y\"],\"required\":true,\"evidenceReference\":\"exact supplied reference\"}]}\n"
+                        + "Do not use markdown or text outside the JSON object.",
+                text -> parseSpatialFeaturePlacement(mapper, text));
+    }
+
+    private static SpatialFeaturePlacementModelPort.PlacementOutput parseSpatialFeaturePlacement(
+            com.fasterxml.jackson.databind.ObjectMapper mapper, String text) {
+        try {
+            var root = mapper.readTree(text);
+            if (root == null || !root.path("candidates").isArray()) throw new IllegalArgumentException("candidates are required");
+            List<SpatialFeaturePlacementModelPort.PlacementCandidate> candidates = new java.util.ArrayList<>();
+            for (var item : root.path("candidates")) {
+                List<String> cells = new java.util.ArrayList<>();
+                if (item.path("cells").isArray()) item.path("cells").forEach(cell -> cells.add(cell.asText()));
+                candidates.add(new SpatialFeaturePlacementModelPort.PlacementCandidate(
+                        UUID.fromString(item.path("featureId").asText()), item.path("type").asText(), cells,
+                        item.path("required").asBoolean(), item.path("evidenceReference").asText("")));
+            }
+            return new SpatialFeaturePlacementModelPort.PlacementOutput(candidates);
+        } catch (RuntimeException | java.io.IOException exception) {
+            throw new IllegalArgumentException("invalid spatial feature placement response", exception);
+        }
     }
 
     private static MapEntryPlacementModelPort.EntryPlacementOutput parseEntryPlacement(
@@ -560,9 +597,10 @@ public class AiGameMasterApiConfiguration {
             GroundedRuleAnswerService ruleAnswerService,
             MapModelPort mapPort,
             IntentClassificationModelPort intentClassificationPort,
-            MapEntryPlacementModelPort mapEntryPlacementPort) {
+            MapEntryPlacementModelPort mapEntryPlacementPort,
+            SpatialFeaturePlacementModelPort spatialFeaturePlacementPort) {
         return new AiGameMasterController(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort,
-                mapEntryPlacementPort);
+                mapEntryPlacementPort, spatialFeaturePlacementPort);
     }
 
     @Bean

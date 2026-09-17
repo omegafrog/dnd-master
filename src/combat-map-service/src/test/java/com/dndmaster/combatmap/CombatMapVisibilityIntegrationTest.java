@@ -1,6 +1,6 @@
 package com.dndmaster.combatmap;
 import static org.junit.jupiter.api.Assertions.*;
-import com.dndmaster.combatmap.api.PlayerCombatMapResponse; import com.dndmaster.combatmap.application.view.*; import com.dndmaster.combatmap.domain.*; import com.dndmaster.combatmap.infrastructure.persistence.PostgresCombatMapViewStore; import java.sql.*; import java.util.*; import javax.sql.DataSource; import org.flywaydb.core.Flyway; import org.junit.jupiter.api.*; import org.testcontainers.containers.PostgreSQLContainer;
+import com.dndmaster.combatmap.api.PlayerCombatMapResponse; import com.dndmaster.combatmap.application.spatial.*; import com.dndmaster.combatmap.application.view.*; import com.dndmaster.combatmap.domain.*; import com.dndmaster.combatmap.infrastructure.persistence.PostgresCombatMapViewStore; import java.sql.*; import java.util.*; import javax.sql.DataSource; import org.flywaydb.core.Flyway; import org.junit.jupiter.api.*; import org.testcontainers.containers.PostgreSQLContainer;
 class CombatMapVisibilityIntegrationTest{
  static final PostgreSQLContainer<?> PG=new PostgreSQLContainer<>("postgres:16-alpine").withDatabaseName("combat_map").withUsername("combat_map").withPassword("combat_map"); static DataSource ds; PostgresCombatMapViewStore store; MapOwnerId owner;
  @BeforeAll static void start(){PG.start();ds=new DriverManagerDataSource(PG.getJdbcUrl(),PG.getUsername(),PG.getPassword());Flyway.configure().dataSource(ds).load().migrate();}
@@ -98,6 +98,34 @@ class CombatMapVisibilityIntegrationTest{
  @Test void persistsLatestCommandMetadataWhenAiControlUpdatesTheMap(){PreparedMapData data=data();CombatMapViewService service=service(data);CombatMap map=service.prepareGenerated(owner,adventure(),rules(),"arena");CombatToken enemy=map.tokens().stream().filter(t->t.type()==TokenType.ENEMY).findFirst().orElseThrow();UUID commandId=UUID.randomUUID();GridPosition position=new GridPosition(6,6);List<MapLayer> layers=List.of(new MapLayer("FOG","secret",LayerVisibility.AI_ONLY));service.controlAiState(map.id(),owner,0,commandId,enemy.id(),position,layers);CombatMap restored=store.find(map.id()).orElseThrow().map();assertEquals(commandId,restored.operationKey());assertEquals(commandId+"|"+owner+"|"+enemy.id()+"|"+position+"|"+layers,restored.operationFingerprint());assertEquals(1L,restored.version());}
  @Test void replays_an_older_ai_command_from_history_even_after_a_later_update(){PreparedMapData data=data();CombatMapViewService service=service(data);CombatMap map=service.prepareGenerated(owner,adventure(),rules(),"arena");CombatToken enemy=map.tokens().stream().filter(t->t.type()==TokenType.ENEMY).findFirst().orElseThrow();UUID firstCommandId=UUID.randomUUID();GridPosition firstPosition=new GridPosition(6,6);List<MapLayer> firstLayers=List.of(new MapLayer("FOG","secret",LayerVisibility.AI_ONLY));CombatMap first=service.controlAiState(map.id(),owner,0,firstCommandId,enemy.id(),firstPosition,firstLayers);service.controlAiState(map.id(),owner,1,UUID.randomUUID(),enemy.id(),new GridPosition(7,7),List.of());CombatMap replay=service.controlAiState(map.id(),owner,1,firstCommandId,enemy.id(),firstPosition,firstLayers);assertEquals(new GridPosition(6,6),first.tokens().stream().filter(t->t.id().equals(enemy.id())).findFirst().orElseThrow().position());assertEquals(new GridPosition(6,6),replay.tokens().stream().filter(t->t.id().equals(enemy.id())).findFirst().orElseThrow().position());assertNotNull(replay.visibilitySnapshot());assertEquals(1L,replay.version());assertEquals(firstCommandId,replay.operationKey());}
  @Test void fileAndAiPortFailuresNeverPersistMap()throws Exception{CombatMapViewService fileFailure=new CombatMapViewService(store,source->{throw new IllegalStateException("file failure");},description->data());assertThrows(IllegalStateException.class,()->fileFailure.prepareUploaded(owner,adventure(),rules(),new UploadedMapSource("bad",new byte[]{1})));CombatMapViewService aiFailure=new CombatMapViewService(store,source->data(),description->{throw new IllegalStateException("AI failure");});assertThrows(IllegalStateException.class,()->aiFailure.prepareGenerated(owner,adventure(),rules(),"bad"));try(Connection c=ds.getConnection();Statement s=c.createStatement();ResultSet r=s.executeQuery("SELECT count(*) FROM combat_map")){r.next();assertEquals(0,r.getInt(1));}}
+ @Test void spatialPreparationStateAndFeatureRoundTripThroughPostgres(){
+  UUID featureId=UUID.randomUUID();
+  SpatialFeature feature=SpatialFeature.hidden(featureId,SpatialFeatureType.TRAP,List.of(new GridPosition(2,2)),DetectionSpec.passive("rulebook:perception",15),Set.of(SpatialTrigger.ENTER_CELL),SpatialFeatureProvenance.storyPlan("story-plan:page-4",3,0));
+  CombatMap map=new CombatMap(new MapId(UUID.randomUUID()),adventure(),rules(),new GridSpec(10,10,50,5),new PlayerId(owner.value()),List.of(),Set.of(),List.of(),0,null,null,List.of(feature),true);
+  store.insert(owner,map);
+  CombatMap restored=store.find(map.id()).orElseThrow().map();
+  SpatialFeature restoredFeature=restored.spatialFeatures().stream().filter(candidate->candidate.id().equals(featureId)).findFirst().orElseThrow();
+  assertTrue(restored.spatialPreparationBlocked());
+  assertEquals(feature.type(),restoredFeature.type());
+  assertEquals(feature.cells(),restoredFeature.cells());
+  assertEquals(feature.detectionSpec(),restoredFeature.detectionSpec());
+  assertEquals(feature.triggers(),restoredFeature.triggers());
+  assertEquals(feature.provenance(),restoredFeature.provenance());
+ }
+ @Test void spatialPreparationServicePersistsValidatedBatchAndBlockedState(){
+  UUID featureId=UUID.randomUUID();
+  SpatialFeaturePreparationInput input=new SpatialFeaturePreparationInput("story-plan:opening",List.of(
+          new SpatialFeaturePreparationInput.Requirement(featureId,SpatialFeatureType.TRAP,true,Set.of("storybook:page-4"),
+                  DetectionSpec.passive("rulebook:perception",15),Set.of(SpatialTrigger.ENTER_CELL))));
+  SpatialFeaturePreparationService preparation=new SpatialFeaturePreparationService(context->new SpatialFeaturePlacementProposal(List.of(
+          new SpatialFeaturePlacementProposal.Candidate(featureId,SpatialFeatureType.TRAP,List.of(new GridPosition(6,6)),true,"storybook:page-4"))));
+  CombatMapViewService service=new CombatMapViewService(store,source->data(),description->data(),null,null,null,preparation);
+  CombatMap map=service.prepareGenerated(owner,adventure(),rules(),"opening");
+  service.prepareSpatialFeatures(map.id(),owner,input,2);
+  CombatMap restored=store.find(map.id()).orElseThrow().map();
+  assertFalse(restored.spatialPreparationBlocked());
+  assertEquals(Set.of(featureId),restored.spatialFeatures().stream().map(SpatialFeature::id).collect(java.util.stream.Collectors.toSet()));
+ }
  private CombatMapViewService service(PreparedMapData data){return new CombatMapViewService(store,source->data,description->data);}
  private static PreparedMapData data(){PlayerId player=new PlayerId(UUID.randomUUID());return new PreparedMapData(new GridSpec(10,10,50,5),List.of(new CombatToken(new TokenId(UUID.randomUUID()),TokenType.PLAYER,new GridPosition(1,1),TokenController.PLAYER,player),new CombatToken(new TokenId(UUID.randomUUID()),TokenType.ENEMY,new GridPosition(4,4),TokenController.AI_GAME_MASTER,null)),Set.of(new GridPosition(3,3),new GridPosition(9,9)),List.of(new MapLayer("FLOOR","stone",LayerVisibility.PLAYER_VISIBLE),new MapLayer("SECRET","door",LayerVisibility.AI_ONLY)));}
  private static AdventureId adventure(){return new AdventureId(UUID.randomUUID());}private static RuleSetId rules(){return new RuleSetId(UUID.randomUUID());}

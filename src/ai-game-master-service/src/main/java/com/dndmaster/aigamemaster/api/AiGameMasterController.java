@@ -3,6 +3,7 @@ package com.dndmaster.aigamemaster.api;
 import com.dndmaster.aigamemaster.application.ports.AdjudicationModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapEntryPlacementModelPort;
+import com.dndmaster.aigamemaster.application.ports.SpatialFeaturePlacementModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationModelPort;
 import com.dndmaster.aigamemaster.application.rule.*;
 import com.dndmaster.aigamemaster.application.scene.NpcOutput;
@@ -24,6 +25,7 @@ public class AiGameMasterController {
     private final GroundedRuleAnswerService ruleAnswerService;
     private final MapModelPort mapPort;
     private final MapEntryPlacementModelPort mapEntryPlacementPort;
+    private final SpatialFeaturePlacementModelPort spatialFeaturePlacementPort;
     private final IntentClassificationModelPort intentClassificationPort;
 
     public AiGameMasterController(
@@ -32,19 +34,21 @@ public class AiGameMasterController {
             GroundedRuleAnswerService ruleAnswerService,
             MapModelPort mapPort,
             IntentClassificationModelPort intentClassificationPort,
-            MapEntryPlacementModelPort mapEntryPlacementPort) {
+            MapEntryPlacementModelPort mapEntryPlacementPort,
+            SpatialFeaturePlacementModelPort spatialFeaturePlacementPort) {
         this.sceneService = sceneService;
         this.adjudicationPort = adjudicationPort;
         this.ruleAnswerService = ruleAnswerService;
         this.mapPort = mapPort;
         this.intentClassificationPort = intentClassificationPort;
         this.mapEntryPlacementPort = mapEntryPlacementPort;
+        this.spatialFeaturePlacementPort = spatialFeaturePlacementPort;
     }
 
     public AiGameMasterController(ScenarioBoundSceneService sceneService,
             AdjudicationModelPort adjudicationPort, GroundedRuleAnswerService ruleAnswerService,
             MapModelPort mapPort, IntentClassificationModelPort intentClassificationPort) {
-        this(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort, null);
+        this(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort, null, null);
     }
 
     @PostMapping("/internal/v1/gm/scenes")
@@ -110,6 +114,17 @@ public class AiGameMasterController {
         return MapEntryPlacementResponse.from(output);
     }
 
+    @PostMapping("/internal/v1/gm/spatial-features")
+    SpatialFeaturePlacementResponse proposeSpatialFeatures(@RequestBody SpatialFeaturePlacementRequest request) {
+        if (spatialFeaturePlacementPort == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
+        var output = spatialFeaturePlacementPort.propose(new SpatialFeaturePlacementModelPort.PlacementInput(
+                request.storyPlanReference(), request.attempt(), request.previousFailureReasons(), request.gridWidth(),
+                request.gridHeight(), request.obstacles(), request.requirements().stream()
+                        .map(item -> new SpatialFeaturePlacementModelPort.Requirement(item.featureId(), item.type(), item.required(), item.evidenceReferences())).toList()));
+        return new SpatialFeaturePlacementResponse(output.candidates().stream()
+                .map(item -> new Candidate(item.featureId(), item.type(), item.cells(), item.required(), item.evidenceReference())).toList());
+    }
+
     @PostMapping("/internal/v1/gm/agent-actions")
     AgentActionResponse proposeAgentAction(@RequestBody AgentActionRequest request) {
         if (request == null || request.characterSheetId() == null) {
@@ -162,6 +177,15 @@ public class AiGameMasterController {
     public record SceneResponse(
             UUID scenarioId, UUID ruleSetId,
             String scene, List<NpcOutput> npcs, String alignment) {}
+
+    public record SpatialFeaturePlacementRequest(String storyPlanReference, int attempt,
+            List<String> previousFailureReasons, int gridWidth, int gridHeight, List<String> obstacles,
+            List<Requirement> requirements) {
+        public record Requirement(UUID featureId, String type, boolean required, List<String> evidenceReferences) {}
+    }
+
+    public record SpatialFeaturePlacementResponse(List<Candidate> candidates) {}
+    public record Candidate(UUID featureId, String type, List<String> cells, boolean required, String evidenceReference) {}
 
     public record JudgmentRequest(String action, String context, String ruleSetId) {}
 

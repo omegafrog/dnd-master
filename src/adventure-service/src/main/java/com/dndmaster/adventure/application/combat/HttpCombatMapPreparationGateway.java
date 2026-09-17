@@ -105,7 +105,11 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
                 context.situationRevision(), context.turnIndex(), context.currentScene(), context.location(), context.entryEvidence(),
                 mapDefinition == null ? List.of() : mapDefinition.walls(), mapDefinition == null ? List.of() : mapDefinition.doors(), mapDefinition == null ? List.of() : mapDefinition.obstacles(),
                 mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().knowledgeDocumentId().value(),
-                mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().locator());
+                mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().locator(),
+                mapDefinition == null || mapDefinition.source() == null ? "story-plan:unknown" : "story-plan:"
+                        + mapDefinition.source().knowledgeDocumentId().value() + ":" + mapDefinition.source().extractionVersion()
+                        + ":" + mapDefinition.source().locator(),
+                mapDefinition == null ? List.of() : mapDefinition.spatialFeatures());
         try {
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/prepare"))
                     .timeout(timeout)
@@ -134,6 +138,7 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
             UUID playerTokenId, UUID situationId, long situationRevision, int turnIndex,
             String currentScene, String location, String entryEvidence,
             List<String> walls, List<String> doors, List<String> obstacles,
-            UUID sourceDocumentId, String sourceAssetLocator) {}
+            UUID sourceDocumentId, String sourceAssetLocator, String spatialPreparationReference,
+            List<MapDefinition.SpatialFeatureRequirement> spatialRequirements) {}
     private record Response(UUID mapId) {}
 }

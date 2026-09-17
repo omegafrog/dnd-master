@@ -76,10 +76,10 @@ CREATE TABLE IF NOT EXISTS combat_map_command_spatial_feature_trigger_history (
 INSERT INTO combat_map_spatial_feature(
     map_id, feature_id, feature_type, visibility, state, origin, source_reference,
     created_turn, created_map_version, repeatable, remaining_duration_turns)
-SELECT map_id, token_id,
-       CASE token_type WHEN 'TRAP' THEN 'TRAP' ELSE 'INTERACTIVE_OBJECT' END,
-       CASE discovery WHEN 'HIDDEN' THEN 'HIDDEN' ELSE 'REVEALED' END,
-       CASE discovery WHEN 'HIDDEN' THEN 'HIDDEN' ELSE 'REVEALED' END,
+SELECT token.map_id, token.token_id,
+       CASE token.token_type WHEN 'TRAP' THEN 'TRAP' ELSE 'INTERACTIVE_OBJECT' END,
+       CASE token.discovery WHEN 'HIDDEN' THEN 'HIDDEN' ELSE 'REVEALED' END,
+       CASE token.discovery WHEN 'HIDDEN' THEN 'HIDDEN' ELSE 'REVEALED' END,
        'SYSTEM', 'legacy-token', 0, map.version, FALSE, -1
 FROM combat_map_token token
 JOIN combat_map map ON map.map_id = token.map_id
@@ -87,9 +87,9 @@ WHERE token.token_type IN ('TRAP', 'OBJECT')
 ON CONFLICT (map_id, feature_id) DO NOTHING;
 
 INSERT INTO combat_map_spatial_feature_cell(map_id, feature_id, x, y)
-SELECT map_id, token_id, x, y
-FROM combat_map_token
-WHERE token_type IN ('TRAP', 'OBJECT')
+SELECT token.map_id, token.token_id, token.x, token.y
+FROM combat_map_token token
+WHERE token.token_type IN ('TRAP', 'OBJECT')
 ON CONFLICT DO NOTHING;
 
 DELETE FROM combat_map_token WHERE token_type IN ('TRAP', 'OBJECT');

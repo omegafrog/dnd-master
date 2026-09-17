@@ -11,6 +11,7 @@ import com.dndmaster.combatmap.application.view.MapGenerationRequest;
 import com.dndmaster.combatmap.application.view.UploadedMapSource;
 import com.dndmaster.combatmap.application.view.TacticalSceneMaterialization;
 import com.dndmaster.combatmap.application.view.TacticalTriggerEffect;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePreparationInput;
 import com.dndmaster.combatmap.domain.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -149,6 +150,9 @@ public class CombatMapController {
                                 Base64.getDecoder().decode(request.sourceImage())), request.tacticalScene())
                 : mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.tacticalScene());
+        if (!request.spatialRequirements().isEmpty()) {
+            map = mapViewService.prepareSpatialFeatures(map.id(), new MapOwnerId(request.ownerId()), spatialInput(request), request.turnIndex());
+        }
         if (request.stagePosition() != null) {
             java.util.Optional<GridPosition> candidate = request.playerSpawnX() == null || request.playerSpawnY() == null
                     ? java.util.Optional.empty()
@@ -526,19 +530,34 @@ public class CombatMapController {
                                  UUID playerTokenId, UUID situationId, Long situationRevision, Integer turnIndex,
                                  String currentScene, String location, String entryEvidence,
                                  List<String> walls, List<String> doors, List<String> obstacles,
-                                 UUID sourceDocumentId, String sourceAssetLocator) {
+                                 UUID sourceDocumentId, String sourceAssetLocator,
+                                 String spatialPreparationReference,
+                                 List<SpatialFeatureRequirementRequest> spatialRequirements) {
+        public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId,
+                UUID mapDefinitionId, String assetId, String assetLocator,
+                Integer playerSpawnX, Integer playerSpawnY, String sourceImage, String sourceImageContentType,
+                TacticalSceneMaterialization tacticalScene, Integer stagePosition, UUID playerTokenId,
+                UUID situationId, Long situationRevision, Integer turnIndex, String currentScene, String location,
+                String entryEvidence, List<String> walls, List<String> doors, List<String> obstacles,
+                UUID sourceDocumentId, String sourceAssetLocator) {
+            this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
+                    sourceImage, sourceImageContentType, tacticalScene, stagePosition, playerTokenId, situationId,
+                    situationRevision, turnIndex, currentScene, location, entryEvidence, walls, doors, obstacles,
+                    sourceDocumentId, sourceAssetLocator, "story-plan:unknown", List.of());
+        }
+
         public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId, String assetId,
                 String assetLocator, Integer playerSpawnX, Integer playerSpawnY) {
             this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
                     null, null, null, null, null, UUID.randomUUID(), 1L, 0, "unknown", "unknown", "",
-                    List.of(), List.of(), List.of(), null, null);
+                    List.of(), List.of(), List.of(), null, null, "story-plan:unknown", List.of());
         }
         public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId, String assetId,
                 String assetLocator, Integer playerSpawnX, Integer playerSpawnY, String sourceImage,
                 String sourceImageContentType, TacticalSceneMaterialization tacticalScene, Integer stagePosition) {
             this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
                     sourceImage, sourceImageContentType, tacticalScene, stagePosition, null, UUID.randomUUID(), 1L, 0,
-                    "unknown", "unknown", "", List.of(), List.of(), List.of(), null, null);
+                    "unknown", "unknown", "", List.of(), List.of(), List.of(), null, null, "story-plan:unknown", List.of());
         }
         public PrepareRequest {
             if (stagePosition != null && stagePosition < 1) throw new IllegalArgumentException("stage position must be positive");
@@ -554,7 +573,32 @@ public class CombatMapController {
             doors = doors == null ? List.of() : List.copyOf(doors);
             obstacles = obstacles == null ? List.of() : List.copyOf(obstacles);
             sourceAssetLocator = sourceAssetLocator == null ? "" : sourceAssetLocator.trim();
+            spatialPreparationReference = spatialPreparationReference == null || spatialPreparationReference.isBlank()
+                    ? "story-plan:unknown" : spatialPreparationReference.trim();
+            spatialRequirements = spatialRequirements == null ? List.of() : List.copyOf(spatialRequirements);
         }
+    }
+
+    private static SpatialFeaturePreparationInput spatialInput(PrepareRequest request) {
+        List<SpatialFeaturePreparationInput.Requirement> requirements = request.spatialRequirements().stream().map(item -> {
+            SpatialFeatureType type;
+            try { type = SpatialFeatureType.valueOf(item.type()); }
+            catch (RuntimeException exception) { throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid spatial feature type", exception); }
+            Set<SpatialTrigger> triggers = requestTriggers(item.triggers());
+            DetectionSpec detection = item.detectionRuleReference() == null || item.detectionRuleReference().isBlank()
+                    || item.detectionMode() == null || item.detectionMode().isBlank()
+                    ? null : new DetectionSpec(item.detectionRuleReference(), item.detectionDifficulty(), item.detectionMode());
+            return new SpatialFeaturePreparationInput.Requirement(item.featureId(), type, item.required(),
+                    Set.copyOf(item.evidenceReferences() == null ? List.of() : item.evidenceReferences()), detection, triggers);
+        }).toList();
+        return new SpatialFeaturePreparationInput(request.spatialPreparationReference(), requirements);
+    }
+
+    private static Set<SpatialTrigger> requestTriggers(List<String> values) {
+        return (values == null ? List.<String>of() : values).stream().map(value -> {
+            try { return SpatialTrigger.valueOf(value); }
+            catch (RuntimeException exception) { throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid spatial trigger", exception); }
+        }).collect(java.util.stream.Collectors.toSet());
     }
 
     private static Set<GridPosition> authoredPositions(List<String> values, String label) {
@@ -568,5 +612,9 @@ public class CombatMapController {
         }
         return result;
     }
+    public record SpatialFeatureRequirementRequest(UUID featureId, String type, boolean required,
+            List<String> evidenceReferences, String detectionRuleReference, Integer detectionDifficulty,
+            String detectionMode, List<String> triggers) {}
+
     public record PrepareResponse(UUID mapId) {}
 }
