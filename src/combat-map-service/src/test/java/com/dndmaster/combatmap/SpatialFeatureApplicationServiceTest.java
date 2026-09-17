@@ -69,6 +69,22 @@ class SpatialFeatureApplicationServiceTest {
     }
 
     @Test
+    void response_replay_requires_the_matching_stable_request_identity() {
+        MapId mapId = new MapId(UUID.randomUUID());
+        MapOwnerId owner = new MapOwnerId(UUID.randomUUID());
+        InMemoryStore store = new InMemoryStore(owner, map(mapId, owner));
+        SpatialFeatureApplicationService application = new SpatialFeatureApplicationService(store);
+        UUID commandId = UUID.randomUUID();
+        SpatialPreparationCommand command = new SpatialPreparationCommand(commandId, "request-1|spatial=[]", 0);
+
+        application.prepare(mapId, owner, batch(), 1, command);
+
+        assertTrue(application.replayByCommandId(store.map.adventureId(), owner, commandId, "request-1").isPresent());
+        assertThrows(SpatialPreparationCommandConflictException.class,
+                () -> application.replayByCommandId(store.map.adventureId(), owner, commandId, "request-2"));
+    }
+
+    @Test
     void rejects_evidence_that_does_not_belong_to_the_batch_version() {
         MapId mapId = new MapId(UUID.randomUUID());
         MapOwnerId owner = new MapOwnerId(UUID.randomUUID());

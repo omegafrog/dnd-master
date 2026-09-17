@@ -115,9 +115,11 @@ class HttpCombatMapPreparationGatewayTest {
     @Test
     void replays_before_requiring_a_second_spatial_model_proposal() throws Exception {
         AtomicBoolean prepareCalled = new AtomicBoolean();
+        AtomicReference<String> replayRequestBody = new AtomicReference<>();
         UUID replayedMapId = UUID.randomUUID();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/v1/combat-maps/preparation-replay", exchange -> {
+            replayRequestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
             byte[] response = ("{\"mapId\":\"" + replayedMapId + "\",\"status\":\"READY\",\"warningCount\":0}")
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, response.length);
@@ -138,6 +140,7 @@ class HttpCombatMapPreparationGatewayTest {
                             spatialMapDefinition(), 1);
             assertEquals(replayedMapId, result);
             assertTrue(!prepareCalled.get());
+            assertTrue(replayRequestBody.get().contains("\"commandFingerprint\":\""));
         } finally {
             server.stop(0);
         }

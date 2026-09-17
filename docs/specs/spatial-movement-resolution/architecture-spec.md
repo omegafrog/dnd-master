@@ -542,7 +542,7 @@ PostgreSQL은 Combat Map local transaction과 operation recovery를 담당한다
 | --- | --- | --- | --- |
 | 지도 mutation | 장기 예약 중 다른 write | map당 활성 reservation unique partial index; `MAP_MUTATION_IN_PROGRESS` | Combat Map |
 | final commit | 예약 이후 version 변경 | optimistic expected map version | Combat Map transaction |
-| 같은 command | 중복 또는 다른 payload | commandId lookup + fingerprint equality | operation repository |
+| 같은 command | 중복 또는 다른 payload | 최종 저장·재처리는 전체 fingerprint equality; AI 호출 전 잃어버린 응답 복구는 안정적인 요청 식별 정보 접두사 검증 | operation repository |
 | pending confirmation | reconnect/중복 확인 | turn/owner/version 검증 | Adventure Runtime |
 
 플레이어 굴림 대기에는 자동 expiry가 없으며 시간 기반 자동 확인/취소도 없다.
@@ -561,7 +561,7 @@ PostgreSQL은 Combat Map local transaction과 operation recovery를 담당한다
 
 ## 6.6 Idempotency
 
-start/resume/final commit은 commandId 및 operation identity로 중복을 감지한다. 같은 command와 같은 fingerprint는 저장된 상태/결과를 반환하고, 다른 fingerprint는 거부한다. restart는 저장 cursor와 pending check/result로 이어간다.
+start/resume/final commit은 commandId 및 operation identity로 중복을 감지한다. 같은 command와 같은 전체 fingerprint는 저장된 상태/결과를 반환하고, 다른 fingerprint는 거부한다. 공간 요소 준비의 응답이 유실된 경우에는 AI 결과를 다시 만들기 전에 안정적인 요청 식별 정보를 조회한다. 이때 저장된 전체 fingerprint가 그 식별 정보 접두사로 시작할 때만 저장된 결과를 재생하며, 이는 새 배치를 승인하는 경로가 아니다. 배치를 알고 있는 실제 저장·재처리는 계속 전체 fingerprint 완전 일치를 요구한다. restart는 저장 cursor와 pending check/result로 이어간다.
 
 ## 6.7 Partial Failure
 
