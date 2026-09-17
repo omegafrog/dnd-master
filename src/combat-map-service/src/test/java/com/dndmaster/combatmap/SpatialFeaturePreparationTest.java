@@ -88,19 +88,55 @@ class SpatialFeaturePreparationTest {
     @Test
     void materializes_a_valid_batch_after_one_evidence_based_attempt() {
         CombatMap map = map();
+        SpatialFeaturePreparationInput input = new SpatialFeaturePreparationInput(
+                "story-plan:published-1",
+                List.of(new SpatialFeaturePreparationInput.Requirement(
+                        FEATURE_ID, SpatialFeatureType.HAZARD_AREA, true, Set.of("published-story-plan:hazard-1"),
+                        null, Set.of())));
         SpatialFeaturePlacementModelPort model = context -> new SpatialFeaturePlacementProposal(List.of(
                 new SpatialFeaturePlacementProposal.Candidate(
                         FEATURE_ID, SpatialFeatureType.HAZARD_AREA,
                         List.of(new GridPosition(2, 2)), true, "published-story-plan:hazard-1")));
 
         SpatialFeaturePreparationService.Result result = new SpatialFeaturePreparationService(model)
-                .prepare(map, "story-plan-1", 1);
+                .prepare(map, input, 1);
 
         assertTrue(result.activationAllowed());
         assertFalse(result.map().spatialPreparationBlocked());
         assertEquals(1, result.attempts());
         assertEquals(Set.of(FEATURE_ID), result.map().spatialFeatures().stream().map(SpatialFeature::id).collect(java.util.stream.Collectors.toSet()));
         assertEquals(SpatialFeatureOrigin.STORY_PLAN, result.map().spatialFeatures().getFirst().provenance().origin());
+    }
+
+    @Test
+    void rejects_ai_candidates_when_authoritative_preparation_input_is_missing() {
+        CombatMap map = map();
+        SpatialFeaturePreparationService.Result result = new SpatialFeaturePreparationService(context ->
+                new SpatialFeaturePlacementProposal(List.of(new SpatialFeaturePlacementProposal.Candidate(
+                        FEATURE_ID, SpatialFeatureType.TRAP, List.of(new GridPosition(2, 2)), true, "invented-source"))))
+                .prepare(map, "story-plan:missing-input", 1);
+
+        assertFalse(result.activationAllowed());
+        assertTrue(result.map().spatialPreparationBlocked());
+        assertTrue(result.map().spatialFeatures().isEmpty());
+        assertTrue(result.failures().stream().anyMatch(message -> message.contains("authoritative preparation input")));
+    }
+
+    @Test
+    void gm_projection_keeps_spatial_features_and_preparation_blocked_status() {
+        SpatialFeature feature = SpatialFeature.hidden(FEATURE_ID, SpatialFeatureType.TRAP,
+                Set.of(new GridPosition(2, 2)), DetectionSpec.passive("perception", 12),
+                Set.of(SpatialTrigger.ENTER_CELL), SpatialFeatureProvenance.storyPlan("document:source:7:asset:map-1", 1, 0));
+        CombatMap map = map();
+        map.materializeSpatialFeatures(List.of(feature));
+        map.blockSpatialPreparation();
+
+        var projection = com.dndmaster.combatmap.api.GmCombatMapResponse.from(map);
+
+        assertTrue(projection.spatialPreparationBlocked());
+        assertEquals(FEATURE_ID, projection.spatialFeatures().getFirst().id());
+        assertEquals(List.of(new com.dndmaster.combatmap.api.GmCombatMapResponse.PositionResponse(2, 2)),
+                projection.spatialFeatures().getFirst().cells());
     }
 
     @Test

@@ -10,6 +10,7 @@ import com.dndmaster.adventure.domain.scenario.StoryMapBinding;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -17,6 +18,9 @@ import java.util.regex.Pattern;
 
 final class MapDefinitionCompiler {
     private static final Pattern VALUE = Pattern.compile("(?i)([a-z]+)=(?:\"([^\"]+)\"|([^\\s]+))");
+    private static final Pattern SPATIAL_FEATURE = Pattern.compile(
+            "(?i)\\bFEATURE\\s+id=([^\\s]+)\\s+type=([^\\s]+)\\s+required=(true|false)(?:\\s+(?:rule|difficulty|mode|triggers)=[^\\s]+)*");
+    private static final Pattern FEATURE_ATTRIBUTE = Pattern.compile("(?i)(rule|difficulty|mode|triggers)=([^\\s]+)");
 
     Compilation compile(ScenarioSourceBundle bundle, List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
         List<MapDefinition> result = new ArrayList<>();
@@ -36,11 +40,12 @@ final class MapDefinitionCompiler {
                 String asset = value(text, "asset", document.originalFilename());
                 double confidence = decimal(value(text, "confidence", "0"));
                 MapSafetyStatus safety = safety(value(text, "safety", "UNSAFE"));
+                MapSourceReference source = new MapSourceReference(document.knowledgeDocumentId(), document.extractionVersion(), excerpt.locator());
                 result.add(new MapDefinition(UUID.nameUUIDFromBytes((document.knowledgeDocumentId().value() + ":" + document.extractionVersion() + ":" + excerpt.locator()).getBytes()),
                         asset, value(text, "image", asset), new MapDefinition.MapGrid(decimal(value(text, "originx", "0")), decimal(value(text, "originy", "0")),
                                 decimal(value(text, "grid", "1")), decimal(value(text, "rotation", "0")), value(text, "distance", "5ft")),
                         values(text, "walls"), values(text, "doors"), values(text, "obstacles"),
-                        new MapSourceReference(document.knowledgeDocumentId(), document.extractionVersion(), excerpt.locator()), confidence, safety));
+                        source, confidence, safety, spatialFeatures(text, source)));
             }
         }
         List<StoryMapBinding> bindings = new ArrayList<>();
@@ -62,6 +67,34 @@ final class MapDefinitionCompiler {
     private static List<String> values(String text, String key) {
         String value = value(text, key, "");
         return value.isBlank() ? List.of() : List.of(value.split("\\|"));
+    }
+
+    private static List<MapDefinition.SpatialFeatureRequirement> spatialFeatures(String text, MapSourceReference source) {
+        List<MapDefinition.SpatialFeatureRequirement> requirements = new ArrayList<>();
+        Matcher features = SPATIAL_FEATURE.matcher(text);
+        String evidenceReference = "document:" + source.knowledgeDocumentId().value() + ":"
+                + source.extractionVersion() + ":" + source.locator();
+        while (features.find()) {
+            Map<String, String> attributes = new java.util.HashMap<>();
+            Matcher values = FEATURE_ATTRIBUTE.matcher(features.group());
+            while (values.find()) attributes.put(values.group(1).toLowerCase(Locale.ROOT), values.group(2));
+            Integer difficulty = attributes.containsKey("difficulty") ? integer(attributes.get("difficulty")) : null;
+            List<String> triggers = attributes.getOrDefault("triggers", "").isBlank()
+                    ? List.of() : List.of(attributes.get("triggers").split("[|,]"));
+            requirements.add(new MapDefinition.SpatialFeatureRequirement(
+                    UUID.fromString(features.group(1)), features.group(2), Boolean.parseBoolean(features.group(3)),
+                    List.of(evidenceReference), attributes.getOrDefault("rule", ""), difficulty,
+                    attributes.getOrDefault("mode", ""), triggers));
+        }
+        return List.copyOf(requirements);
+    }
+
+    private static Integer integer(String value) {
+        try {
+            return Integer.valueOf(value);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException("spatial feature difficulty must be an integer", exception);
+        }
     }
     private static double decimal(String value) { try { return Double.parseDouble(value.replace(",", ".")); } catch (NumberFormatException e) { return 0; } }
     private static MapSafetyStatus safety(String value) { try { return MapSafetyStatus.valueOf(value.toUpperCase(Locale.ROOT)); } catch (IllegalArgumentException e) { return MapSafetyStatus.UNSAFE; } }

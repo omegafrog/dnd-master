@@ -79,14 +79,9 @@ public final class SpatialFeaturePreparationService {
         for (SpatialFeaturePlacementProposal.Candidate candidate : proposal.candidates()) {
             SpatialFeaturePreparationInput.Requirement requirement = requirements.stream()
                     .filter(item -> item.featureId().equals(candidate.featureId())).findFirst().orElse(null);
-            if (requirements.isEmpty()) {
-                requirement = new SpatialFeaturePreparationInput.Requirement(candidate.featureId(), candidate.type(),
-                        candidate.required(), candidate.evidenceReference().isBlank() ? Set.of("legacy-proposal") : Set.of(candidate.evidenceReference()),
-                        candidate.detectionSpec(), candidate.triggers());
-            }
             String failure = validateCandidate(map, candidate, requirement, ids);
             if (failure == null) valid.add(new ValidCandidate(candidate, requirement));
-            else if (requirement != null && requirement.required()) requiredFailures.add(candidate.featureId() + ": " + failure);
+            else if (candidate.required() || (requirement != null && requirement.required())) requiredFailures.add(candidate.featureId() + ": " + failure);
             else optionalFailures.add(candidate.featureId() + ": " + failure);
         }
         for (SpatialFeaturePreparationInput.Requirement requirement : requirements) {
@@ -107,6 +102,7 @@ public final class SpatialFeaturePreparationService {
         if (requirement == null && !candidate.evidenceReference().isBlank()) return "feature is not part of authoritative preparation input";
         if (requirement == null) return "feature is not part of authoritative preparation input";
         if (candidate.type() != requirement.type()) return "feature type does not match authoritative input";
+        if (candidate.required() != requirement.required()) return "required policy does not match authoritative input";
         if (candidate.cells().isEmpty()) return "no evidence-based occupied cell was proposed";
         if (candidate.evidenceReference().isBlank()
                 || !requirement.evidenceReferences().contains(candidate.evidenceReference())) {
