@@ -1,0 +1,58 @@
+@startuml
+title MovementResolutionOperation 설계 상태\nUC-02~07 · BR-01~19 · ADR-018
+hide empty description
+
+[*] --> PREPARING : 예약 시작
+
+state PREPARING
+state CHECK_PENDING
+state RETRY_WAIT
+state READY_TO_COMMIT
+state COMMITTED
+state CANCELLED
+
+PREPARING --> CHECK_PENDING : MOVEMENT_CHECK_REQUIRED / pendingCheck 저장
+CHECK_PENDING --> PREPARING : typed 판정 결과 수신 / cursor로 재개
+PREPARING --> RETRY_WAIT : 일시적 HTTP·DB·provider 실패
+CHECK_PENDING --> RETRY_WAIT : 저장 실패 등 일시적 실패
+READY_TO_COMMIT --> RETRY_WAIT : commit 전 일시적 실패
+RETRY_WAIT --> PREPARING : prior active state가 PREPARING
+RETRY_WAIT --> CHECK_PENDING : prior active state가 CHECK_PENDING
+RETRY_WAIT --> READY_TO_COMMIT : prior active state가 READY_TO_COMMIT
+PREPARING --> READY_TO_COMMIT : 목적지 도달 또는 게임 진행 중단 결과 준비
+READY_TO_COMMIT --> COMMITTED : expected version 일치 / 단일 로컬 transaction
+PREPARING --> CANCELLED : terminal 실패·검증 실패·retry 소진
+CHECK_PENDING --> CANCELLED : terminal 실패·retry 소진
+RETRY_WAIT --> CANCELLED : retry 소진 또는 terminal 분류
+READY_TO_COMMIT --> CANCELLED : 최종 반영 전 terminal 실패
+COMMITTED --> [*]
+CANCELLED --> [*]
+
+note right of PREPARING
+  경로·version·cursor 검증 후
+  다음 칸 탐지·전진·시야·trigger·인지 평가
+end note
+note right of RETRY_WAIT
+  일시적 실패와 retry metadata 저장
+end note
+note right of READY_TO_COMMIT
+  모든 필수 판정과 결과 준비
+end note
+note right of CANCELLED
+  최종 반영 전 terminal 실패 또는 retry 소진
+  공개 지도 상태 불변
+end note
+
+note right of CHECK_PENDING
+  플레이어 굴림은 retry가 아니라 무기한 대기.
+  재접속·재시작 뒤 operation과 pending check로 resume.
+end note
+note bottom of COMMITTED
+  확정된 이동·정상 중단은 되돌리지 않음.
+  후속 HP·상태·자원 변경은 Character Management의 기존 Saga로 재시도.
+end note
+note bottom
+  추적성: UC-02~07 · BR-01~19 · ADR-018
+  이 상태는 공간 요소 업무 상태가 아니라 durable application 작업 기록 상태임.
+end note
+@enduml

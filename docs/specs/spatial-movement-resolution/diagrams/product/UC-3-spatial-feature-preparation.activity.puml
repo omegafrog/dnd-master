@@ -1,0 +1,42 @@
+@startuml
+' 관련 요구사항: G-05, UC-06, BR-18, BR-19, AC-12, AC-13, EX-09~EX-11
+title UC-06 — Story Plan 근거 기반 공간 요소 준비
+
+start
+:Adventure Story Plan과 시나리오·룰북 근거 확인;
+:숨겨진 공간 요소의 필수 여부 확인;
+:시도 횟수를 1로 설정;
+
+repeat
+  :AI Game Master가 근거에 따른 위치 후보 제안;
+  note right
+  좌표를 추측하지 않는다.
+  숨겨진 배치와 검수 과정은
+  Solo Player에게 노출하지 않는다.
+  end note
+  :Scenario Preparation이 근거와 지도 조건으로 검증;
+  if (배치가 유효한가?) then (예)
+    :검증된 위치를 초기 배치에 반영;
+    :공간 요소 준비 완료;
+    stop
+  else (아니요)
+    :검증 실패 이유 기록;
+  endif
+  if (시도 횟수가 3 미만인가?) then (예)
+    :실패 이유를 다음 제안에 제공;
+    :시도 횟수 1 증가;
+  else (아니요)
+    break
+  endif
+repeat while (보정 제안을 계속함?) is (예)
+
+if (필수 공간 요소인가?) then (예)
+  :내부 준비 실패 기록;
+  :지도 활성화 차단;
+else (아니요)
+  :선택 공간 요소 생략;
+  :내부 경고 기록;
+  :나머지 준비로 계속;
+endif
+stop
+@enduml
