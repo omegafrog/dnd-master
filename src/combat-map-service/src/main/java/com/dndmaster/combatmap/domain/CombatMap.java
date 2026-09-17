@@ -3,7 +3,9 @@ import java.util.*;
 public final class CombatMap {
     private final MapId id; private final AdventureId adventureId; private final RuleSetId ruleSetId; private final GridSpec grid;
     private final PlayerId ownerPlayerId;
-    private final List<CombatToken> tokens; private final Set<GridPosition> obstacles; private final List<MapLayer> layers; private Set<Door> doors = Set.of();
+    private final List<CombatToken> tokens; private final Set<GridPosition> obstacles; private final List<MapLayer> layers;
+    private List<SpatialFeature> spatialFeatures = List.of(); private Set<Door> doors = Set.of();
+    private boolean spatialPreparationBlocked;
     private long version; private UUID operationKey; private String operationFingerprint; private VisibilitySnapshot visibilitySnapshot;
     private TacticalRuntimeState runtimeState = TacticalRuntimeState.initial();
     public CombatMap(MapId id, AdventureId adventureId, RuleSetId ruleSetId, GridSpec grid, List<CombatToken> tokens, Collection<GridPosition> obstacles, List<MapLayer> layers) {
@@ -13,12 +15,20 @@ public final class CombatMap {
         this(id, adventureId, ruleSetId, grid, ownerPlayerId, tokens, obstacles, layers, version, operationKey, null);
     }
     public CombatMap(MapId id, AdventureId adventureId, RuleSetId ruleSetId, GridSpec grid, PlayerId ownerPlayerId, List<CombatToken> tokens, Collection<GridPosition> obstacles, List<MapLayer> layers, long version, UUID operationKey, String operationFingerprint) {
+        this(id, adventureId, ruleSetId, grid, ownerPlayerId, tokens, obstacles, layers, version, operationKey, operationFingerprint, List.of());
+    }
+    public CombatMap(MapId id, AdventureId adventureId, RuleSetId ruleSetId, GridSpec grid, PlayerId ownerPlayerId, List<CombatToken> tokens, Collection<GridPosition> obstacles, List<MapLayer> layers, long version, UUID operationKey, String operationFingerprint, Collection<SpatialFeature> spatialFeatures) {
+        this(id, adventureId, ruleSetId, grid, ownerPlayerId, tokens, obstacles, layers, version, operationKey, operationFingerprint, spatialFeatures, false);
+    }
+    public CombatMap(MapId id, AdventureId adventureId, RuleSetId ruleSetId, GridSpec grid, PlayerId ownerPlayerId, List<CombatToken> tokens, Collection<GridPosition> obstacles, List<MapLayer> layers, long version, UUID operationKey, String operationFingerprint, Collection<SpatialFeature> spatialFeatures, boolean spatialPreparationBlocked) {
         this.id=Objects.requireNonNull(id); this.adventureId=Objects.requireNonNull(adventureId); this.ruleSetId=Objects.requireNonNull(ruleSetId); this.grid=Objects.requireNonNull(grid);
         this.ownerPlayerId = ownerPlayerId;
         this.tokens=List.copyOf(Objects.requireNonNull(tokens)); this.obstacles=Set.copyOf(Objects.requireNonNull(obstacles)); this.layers=List.copyOf(Objects.requireNonNull(layers));
         if (tokens.stream().anyMatch(Objects::isNull)) throw new IllegalArgumentException("combat map tokens must not be null");
         Set<TokenId> ids=new HashSet<>(); if(tokens.stream().anyMatch(t->!ids.add(t.id()) || !grid.contains(t.position()))) throw new IllegalArgumentException("tokens must be unique and inside grid");
         if(this.obstacles.stream().anyMatch(p->!grid.contains(p))) throw new IllegalArgumentException("obstacles must be inside grid");
+        materializeSpatialFeatures(spatialFeatures);
+        this.spatialPreparationBlocked = spatialPreparationBlocked;
         if (version < 0) throw new IllegalArgumentException("version must not be negative");
         this.version = version;
         this.operationKey = operationKey;
@@ -49,7 +59,10 @@ public final class CombatMap {
         this.operationFingerprint = operationFingerprint;
     }
     public MapId id(){return id;} public AdventureId adventureId(){return adventureId;} public RuleSetId ruleSetId(){return ruleSetId;}
-    public GridSpec grid(){return grid;} public PlayerId ownerPlayerId(){return ownerPlayerId;} public List<CombatToken> tokens(){return tokens;} public Set<GridPosition> obstacles(){return obstacles;} public List<MapLayer> layers(){return layers;}
+    public GridSpec grid(){return grid;} public PlayerId ownerPlayerId(){return ownerPlayerId;} public List<CombatToken> tokens(){return tokens;} public Set<GridPosition> obstacles(){return obstacles;} public List<MapLayer> layers(){return layers;} public List<SpatialFeature> spatialFeatures(){return spatialFeatures;}
+    public boolean spatialPreparationBlocked(){return spatialPreparationBlocked;}
+    public void blockSpatialPreparation(){spatialPreparationBlocked = true;}
+    public void completeSpatialPreparation(){spatialPreparationBlocked = false;}
     public long version(){return version;} public UUID operationKey(){return operationKey;} public String operationFingerprint(){return operationFingerprint;}
     public VisibilitySnapshot visibilitySnapshot(){return visibilitySnapshot;}
     public TacticalRuntimeState runtimeState(){return runtimeState;}
@@ -66,6 +79,28 @@ public final class CombatMap {
         Objects.requireNonNull(nextDoors);
         if(nextDoors.stream().anyMatch(door -> !grid.contains(door.position()))) throw new IllegalArgumentException("doors must be inside grid");
         doors=Set.copyOf(nextDoors);
+    }
+    /** Validate the complete batch before changing the aggregate. */
+    public void materializeSpatialFeatures(Collection<SpatialFeature> features) {
+        Objects.requireNonNull(features, "spatial features must not be null");
+        List<SpatialFeature> candidate = List.copyOf(features);
+        Set<UUID> ids = new HashSet<>();
+        Set<GridPosition> explored = visibilitySnapshot == null ? Set.of() : visibilitySnapshot.explored();
+        for (SpatialFeature feature : candidate) {
+            if (feature == null || !ids.add(feature.id())) throw new IllegalArgumentException("spatial feature ids must be unique");
+            if (feature.cells().stream().anyMatch(cell -> !grid.contains(cell))) throw new IllegalArgumentException("spatial feature cell is outside grid");
+            if (feature.provenance().origin() == SpatialFeatureOrigin.STORY_PLAN
+                    && feature.visibility() == SpatialFeatureVisibility.HIDDEN
+                    && feature.cells().stream().anyMatch(explored::contains)) {
+                throw new IllegalArgumentException("hidden story-plan feature cannot be added to an explored cell");
+            }
+        }
+        spatialFeatures = List.copyOf(candidate);
+    }
+    public void addRuntimeSpatialFeature(SpatialFeature feature) {
+        Objects.requireNonNull(feature, "spatial feature must not be null");
+        if (feature.provenance().origin() == SpatialFeatureOrigin.STORY_PLAN) throw new IllegalArgumentException("runtime additions require runtime provenance");
+        List<SpatialFeature> next = new ArrayList<>(spatialFeatures); next.add(feature); materializeSpatialFeatures(next);
     }
     public void refreshVisibility(long ruleTurn){
         Set<GridPosition> origins=tokens.stream().filter(t->t.type()==TokenType.PLAYER).map(CombatToken::position).collect(java.util.stream.Collectors.toSet());
@@ -114,7 +149,7 @@ public final class CombatMap {
         if (!effect.transitionId().isBlank()) nextLayers.add(new MapLayer("TACTICAL_TRANSITION", effect.transitionId(), LayerVisibility.PLAYER_VISIBLE));
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.SUCCESS || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FAILURE || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.EXIT)
             nextLayers.add(new MapLayer("TACTICAL_OUTCOME", effect.kind().name(), LayerVisibility.PLAYER_VISIBLE));
-        CombatMap next = new CombatMap(id, adventureId, ruleSetId, grid, ownerPlayerId, nextTokens, obstacles, nextLayers, version + 1, null, null);
+        CombatMap next = new CombatMap(id, adventureId, ruleSetId, grid, ownerPlayerId, nextTokens, obstacles, nextLayers, version + 1, null, null, spatialFeatures);
         TacticalRuntimeState state = runtimeState;
         state = switch (effect.kind()) {
             case COMBAT_ENTRY -> new TacticalRuntimeState(true, state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), state.outcome(), state.transitionId());
@@ -127,6 +162,7 @@ public final class CombatMap {
         };
         if (!effect.transitionId().isBlank() && !state.transitionId().equals(effect.transitionId())) state = new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), state.outcome(), effect.transitionId());
         next.replaceRuntimeState(state);
+        if (spatialPreparationBlocked) next.blockSpatialPreparation();
         next.replaceDoors(doors); next.refreshVisibility(visibilitySnapshot == null ? 0 : visibilitySnapshot.ruleTurn());
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL) {
             next.revealCells(fogRevealPositions(effect.targetIds(), tokens));

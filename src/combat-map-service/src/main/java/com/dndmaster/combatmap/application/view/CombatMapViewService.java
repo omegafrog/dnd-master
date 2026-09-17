@@ -83,7 +83,7 @@ public final class CombatMapViewService {
         UUID operationKey = UUID.randomUUID();
         CombatMap repaired = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(),
                 state.map().ownerPlayerId(), state.map().tokens(), state.map().obstacles(), layers, state.version() + 1,
-                operationKey, "ATTACH_SOURCE_IMAGE|" + sourceDocumentId + "|" + sourceAssetLocator);
+                operationKey, "ATTACH_SOURCE_IMAGE|" + sourceDocumentId + "|" + sourceAssetLocator, state.map().spatialFeatures(), state.map().spatialPreparationBlocked());
         repaired.replaceDoors(state.map().doors());
         repaired.replaceRuntimeState(state.map().runtimeState());
         repaired.refreshVisibility(state.map().visibilitySnapshot() == null ? 0 : state.map().visibilitySnapshot().ruleTurn());
@@ -116,7 +116,7 @@ public final class CombatMapViewService {
             tokens.add(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
                     new GridPosition(spawnX, spawnY), TokenController.PLAYER, new PlayerId(owner.value())));
         }
-        CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), adventure, rules, data.grid(), new PlayerId(owner.value()), tokens, data.obstacles(), data.layers(), 0, null);
+        CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), adventure, rules, data.grid(), new PlayerId(owner.value()), tokens, data.obstacles(), data.layers(), 0, null, null, data.spatialFeatures());
         map.replaceDoors(data.doors());
         map.refreshVisibility(0);
         store.insert(owner, map); return map;
@@ -147,7 +147,7 @@ public final class CombatMapViewService {
             return copy(t, position);
         }).toList();
         if (tokens.stream().noneMatch(t -> t.id().equals(tokenId))) throw new CombatMapAccessDeniedException();
-        CombatMap updated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(), state.map().ownerPlayerId(), tokens, state.map().obstacles(), layers, expectedVersion + 1, commandId, fingerprint);
+        CombatMap updated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(), state.map().ownerPlayerId(), tokens, state.map().obstacles(), layers, expectedVersion + 1, commandId, fingerprint, state.map().spatialFeatures(), state.map().spatialPreparationBlocked());
         updated.replaceRuntimeState(state.map().runtimeState());
         VisibilitySnapshot prior = state.map().visibilitySnapshot();
         updated.replaceDoors(state.map().doors());
@@ -171,6 +171,9 @@ public final class CombatMapViewService {
     }
     public CombatMap activateForAdventure(MapId id, MapOwnerId owner, MapActivationContext context) {
         VersionedOwnedCombatMap state = owned(id, owner);
+        if (state.map().spatialPreparationBlocked()) {
+            throw new IllegalStateException("combat map activation is blocked by spatial feature preparation");
+        }
         LOGGER.info("map_spawn_placement_started mapId={} adventureId={} scene={} location={} entryEvidence={}",
                 id.value(), state.map().adventureId().value(), context.currentScene(), context.location(),
                 context.entryEvidence());
@@ -231,7 +234,7 @@ public final class CombatMapViewService {
                 TokenType.PLAYER, resolution.position(), TokenController.PLAYER, new PlayerId(owner.value())));
         List<MapLayer> activatedLayers = prepared.layers().stream()
                 .filter(layer -> !"MAP_PLACEMENT_STATUS".equals(layer.type())).toList();
-        CombatMap activated = new CombatMap(prepared.id(), prepared.adventureId(), prepared.ruleSetId(), prepared.grid(), prepared.ownerPlayerId(), tokens, prepared.obstacles(), activatedLayers, state.version() + 1, UUID.randomUUID(), "ACTIVATE|" + context + "|" + resolution);
+        CombatMap activated = new CombatMap(prepared.id(), prepared.adventureId(), prepared.ruleSetId(), prepared.grid(), prepared.ownerPlayerId(), tokens, prepared.obstacles(), activatedLayers, state.version() + 1, UUID.randomUUID(), "ACTIVATE|" + context + "|" + resolution, prepared.spatialFeatures(), prepared.spatialPreparationBlocked());
         activated.replaceDoors(prepared.doors());
         activated.replaceRuntimeState(prepared.runtimeState());
         activated.refreshVisibility(0);
@@ -276,7 +279,7 @@ public final class CombatMapViewService {
                 .filter(layer -> Set.of("GM_PLAYER_START_PROPOSAL", "GM_ENTRY_PLACEMENT_RESULT").contains(layer.type()))
                 .forEach(layers::add);
         CombatMap refreshed = new CombatMap(map.id(), map.adventureId(), map.ruleSetId(), map.grid(), map.ownerPlayerId(),
-                map.tokens(), map.obstacles(), layers, map.version(), map.operationKey(), map.operationFingerprint());
+                map.tokens(), map.obstacles(), layers, map.version(), map.operationKey(), map.operationFingerprint(), map.spatialFeatures(), map.spatialPreparationBlocked());
         refreshed.replaceDoors(map.doors());
         refreshed.replaceRuntimeState(map.runtimeState());
         return refreshed;
@@ -291,7 +294,7 @@ public final class CombatMapViewService {
         UUID operationKey = UUID.randomUUID();
         CombatMap updated = new CombatMap(map.id(), map.adventureId(), map.ruleSetId(), map.grid(), map.ownerPlayerId(),
                 map.tokens().stream().filter(token -> token.type() != TokenType.PLAYER).toList(), map.obstacles(), layers,
-                expectedVersion + 1, operationKey, "PLACEMENT_REQUIRED|" + context);
+                expectedVersion + 1, operationKey, "PLACEMENT_REQUIRED|" + context, map.spatialFeatures(), map.spatialPreparationBlocked());
         updated.replaceDoors(map.doors());
         updated.replaceRuntimeState(map.runtimeState());
         updated.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
@@ -401,7 +404,7 @@ public final class CombatMapViewService {
         if (confirmedPlayerStart != null) layers.add(new MapLayer("PLAYER_START_CONFIRMED",
                 confirmedPlayerStart.x() + "," + confirmedPlayerStart.y(), LayerVisibility.PLAYER_VISIBLE));
         CombatMap updated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(),
-                state.map().ownerPlayerId(), state.map().tokens(), nextObstacles, layers, expectedVersion + 1, commandId, fingerprint);
+                state.map().ownerPlayerId(), state.map().tokens(), nextObstacles, layers, expectedVersion + 1, commandId, fingerprint, state.map().spatialFeatures(), state.map().spatialPreparationBlocked());
         updated.replaceDoors(nextDoors);
         updated.replaceRuntimeState(state.map().runtimeState());
         updated.refreshVisibility(state.map().visibilitySnapshot() == null ? 0 : state.map().visibilitySnapshot().ruleTurn());
@@ -443,7 +446,7 @@ public final class CombatMapViewService {
         layers.add(new MapLayer("GRID_META", "source=MANUAL;origin=" + request.originX() + "," + request.originY(), LayerVisibility.AI_ONLY));
         CombatMap calibrated = new CombatMap(current.id(), current.adventureId(), current.ruleSetId(), nextGrid,
                 current.ownerPlayerId(), tokens, obstacles, layers, expectedVersion + 1, UUID.randomUUID(),
-                "CALIBRATE|" + request);
+                "CALIBRATE|" + request, current.spatialFeatures(), current.spatialPreparationBlocked());
         calibrated.replaceDoors(doors);
         calibrated.replaceRuntimeState(current.runtimeState());
         calibrated.refreshVisibility(current.visibilitySnapshot() == null ? 0 : current.visibilitySnapshot().ruleTurn());
