@@ -163,6 +163,20 @@ public class CombatMapController {
         return preparationResponse;
     }
 
+    @PostMapping("/internal/v1/combat-maps/preparation-replay")
+    public PrepareResponse replayPreparation(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) ReplayRequest request) {
+        requestGuard.internal(token);
+        if (request == null || request.commandId() == null || request.adventureId() == null || request.ownerId() == null) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "replay request is incomplete");
+        }
+        return mapViewService.replaySpatialPreparationByCommandId(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()), request.commandId())
+                .map(CombatMapController::prepareResponse)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,
+                        "preparation replay not found"));
+    }
+
     private static PrepareResponse prepareResponse(SpatialFeatureApplicationService.Result result) {
         return new PrepareResponse(result.mapId().value(),
                 result.status() == SpatialFeatureApplicationService.Status.BLOCKED ? PrepareStatus.BLOCKED : PrepareStatus.READY,
@@ -674,4 +688,6 @@ public class CombatMapController {
     public record PrepareResponse(UUID mapId, PrepareStatus status, int warningCount) {
         public PrepareResponse(UUID mapId) { this(mapId, PrepareStatus.READY, 0); }
     }
+
+    public record ReplayRequest(UUID adventureId, UUID ownerId, UUID commandId) {}
 }

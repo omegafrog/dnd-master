@@ -68,7 +68,6 @@ public final class SpatialFeatureApplicationService {
         Objects.requireNonNull(map, "combat map must not be null");
         Objects.requireNonNull(batch, "validated spatial placement batch must not be null");
         Objects.requireNonNull(command, "spatial preparation command must not be null");
-        if (command.expectedVersion() != 0) throw new SpatialPreparationVersionConflictException();
         VersionedOwnedCombatMap replay = store.findByCommandId(command.commandId()).orElse(null);
         if (replay != null) {
             if (!replay.map().adventureId().equals(map.adventureId()) || !replay.owner().equals(owner)
@@ -77,6 +76,7 @@ public final class SpatialFeatureApplicationService {
             }
             return resultFrom(replay.map());
         }
+        if (command.expectedVersion() != 0) throw new SpatialPreparationVersionConflictException();
         if (createdTurn < 0) throw new IllegalArgumentException("created turn must not be negative");
         List<com.dndmaster.combatmap.domain.SpatialFeature> features = batch.blocked() ? List.of()
                 : batch.placements().stream().map(placement -> toFeature(map, placement, createdTurn)).toList();
@@ -99,6 +99,18 @@ public final class SpatialFeatureApplicationService {
         if (replay == null) return Optional.empty();
         if (!replay.map().adventureId().equals(adventureId) || !replay.owner().equals(owner)
                 || !command.fingerprint().equals(replay.map().operationFingerprint())) {
+            throw new SpatialPreparationCommandConflictException();
+        }
+        return Optional.of(resultFrom(replay.map()));
+    }
+
+    public Optional<Result> replayByCommandId(AdventureId adventureId, MapOwnerId owner, java.util.UUID commandId) {
+        Objects.requireNonNull(adventureId, "adventure id must not be null");
+        Objects.requireNonNull(owner, "map owner must not be null");
+        Objects.requireNonNull(commandId, "command id must not be null");
+        VersionedOwnedCombatMap replay = store.findByCommandId(commandId).orElse(null);
+        if (replay == null) return Optional.empty();
+        if (!replay.map().adventureId().equals(adventureId) || !replay.owner().equals(owner)) {
             throw new SpatialPreparationCommandConflictException();
         }
         return Optional.of(resultFrom(replay.map()));

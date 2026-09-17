@@ -236,6 +236,11 @@ public final class CombatMapViewService {
             MapOwnerId owner, SpatialPreparationCommand command) {
         return spatialFeatureApplication.replay(adventureId, owner, command);
     }
+
+    public Optional<SpatialFeatureApplicationService.Result> replaySpatialPreparationByCommandId(AdventureId adventureId,
+            MapOwnerId owner, UUID commandId) {
+        return spatialFeatureApplication.replayByCommandId(adventureId, owner, commandId);
+    }
     public void activateForAdventure(MapId id, MapOwnerId owner, int stagePosition) {
         activateForAdventure(id, owner, MapActivationContext.atStage(stagePosition));
     }
