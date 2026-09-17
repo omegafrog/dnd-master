@@ -36,7 +36,7 @@ public final class CombatMapViewService {
     public CombatMap prepareUploaded(MapOwnerId owner, AdventureId adventure, RuleSetId rules, UploadedMapSource source) { return saveNew(owner, adventure, rules, filePort.prepare(source)); }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description) {
         if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
-        return saveNew(owner, adventure, rules, aiPort.generate(description.trim()));
+        return saveNew(owner, adventure, rules, aiPort.generate(new MapGenerationRequest(description.trim(), "").withSoloPlayerId(owner.value())));
     }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description,
             Collection<GridPosition> obstacles, Collection<Door> doors) {
@@ -52,7 +52,7 @@ public final class CombatMapViewService {
     }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules,
             MapGenerationRequest request, boolean includeAiPlayerStart) {
-        PreparedMapData generated = aiPort.generate(request);
+        PreparedMapData generated = aiPort.generate(request.withSoloPlayerId(owner.value()));
         Set<GridPosition> mergedObstacles = new HashSet<>(generated.obstacles());
         mergedObstacles.addAll(request.authoredObstacles());
         List<Door> mergedDoors = new ArrayList<>(generated.doors());
@@ -91,12 +91,12 @@ public final class CombatMapViewService {
     }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description, int spawnX, int spawnY) {
         if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
-        return saveNew(owner, adventure, rules, aiPort.generate(description.trim()), spawnX, spawnY);
+        return saveNew(owner, adventure, rules, aiPort.generate(new MapGenerationRequest(description.trim(), "").withSoloPlayerId(owner.value())), spawnX, spawnY);
     }
     public CombatMap prepareTactical(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description,
             TacticalSceneMaterialization scene) {
         if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
-        PreparedMapData source = aiPort.generate(description.trim());
+        PreparedMapData source = aiPort.generate(new MapGenerationRequest(description.trim(), "").withSoloPlayerId(owner.value()));
         PreparedMapData tactical = scene.materialize(source.grid(), owner.value());
         return saveNew(owner, adventure, rules, tactical);
     }
@@ -253,7 +253,8 @@ public final class CombatMapViewService {
                 .withEntryEvidence(evidenceLine(context.entryEvidence(), "PLAYER_ACTION"),
                         evidenceLine(context.entryEvidence(), "GM_JUDGMENT"),
                         evidenceLine(context.entryEvidence(), "GM_NARRATION"))
-                .withEntryContext(evidenceLine(context.entryEvidence(), "FIRST_NARRATION"), context.location());
+                .withEntryContext(evidenceLine(context.entryEvidence(), "FIRST_NARRATION"), context.location())
+                .withSoloPlayerId(map.ownerPlayerId().value());
         PreparedMapData generated;
         try {
             generated = aiPort.proposeEntryPlacement(request);
@@ -464,7 +465,7 @@ public final class CombatMapViewService {
                 state.map().grid().width(), state.map().grid().height(), state.map().grid().cellSize(),
                 state.map().grid().distanceUnit(), state.map().obstacles(), state.map().doors().stream().toList(), player, image.get(),
                 alignment.originX(), alignment.originY(), alignment.cellSize(), crop(state.map()),
-                alignment.imageRevision(), state.map().boundaries()));
+                alignment.imageRevision(), state.map().boundaries()).withSoloPlayerId(owner.value()));
         if (alignments != null) {
             MapGridAlignment current = alignments.find(id).orElse(alignment);
             if (current.version() != alignment.version() || !current.imageRevision().equals(alignment.imageRevision())

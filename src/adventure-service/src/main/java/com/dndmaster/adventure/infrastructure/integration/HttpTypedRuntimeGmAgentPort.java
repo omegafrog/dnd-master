@@ -90,7 +90,7 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         runtimeContext.put("recentTurns", context.recentTurns());
         runtimeContext.put("characterSnapshots", context.characterSnapshots());
         runtimeContext.put("narrativeContext", context.narrativeContext());
-        String body = mapper.writeValueAsString(new RuntimeRequest(context.operationKey(), context.action(),
+        String body = mapper.writeValueAsString(new RuntimeRequest(context.ownerPlayerId().value(), context.operationKey(), context.action(),
                 compositeResults(context), Map.copyOf(runtimeContext)));
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/gm/runtime-turn"))
                 .timeout(timeout)
@@ -152,7 +152,8 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         return List.copyOf(results);
     }
 
-    record RuntimeRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults,
+    record RuntimeRequest(java.util.UUID soloPlayerId, String operationKey, String action,
+                          List<Map<String, Object>> factLookupResults,
                           Map<String, Object> runtimeContext) { }
     record RuntimeResponse(String scene, String judgment, String narration, boolean combatStart,
                            List<CombatEnemyResponse> combatEnemies, SituationResponse situation,

@@ -14,6 +14,8 @@ import com.dndmaster.adventure.domain.knowledge.SessionKnowledgeSet;
 import com.dndmaster.adventure.domain.adventure.RuntimeBinding;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
+import com.dndmaster.adventure.domain.runtime.CompletionProposal;
+import com.dndmaster.adventure.domain.runtime.PendingRuntimeState;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
@@ -811,7 +813,7 @@ public class RuntimeTurnApplicationService {
             ScenarioPackage scenarioPackage, EvidencePack evidencePack) {
         if (runtimeFactLookupService == null) return List.of();
         try {
-            RuntimeFactLookupResult result = runtimeFactLookupService.lookup(
+            RuntimeFactLookupResult result = runtimeFactLookupService.lookup(adventure.ownerPlayerId().value(),
                     new RuntimeFactLookupRequest(command.action(), adventure.gameState(), adventure.runtimeAddedFacts(),
                             scenarioPackage.scenarioModel()), evidencePack.storybook());
             return List.of(result);

@@ -17,7 +17,19 @@ class DomainResponsibilityContractTest {
             "RulebookIndexingPolicy.java",
             "VisibilityPolicy.java",
             "GameTimePolicy.java",
-            "InformationPolicy.java");
+            "InformationPolicy.java",
+            "FutureSuffixReplanningPolicy.java",
+            "PremiseInvalidationPolicy.java",
+            "CombatResumePolicy.java",
+            "CombatMovementPolicy.java",
+            "PlayerCombatProjectionPolicy.java",
+            "InitiativeOrderPolicy.java",
+            "FreeFormInterpretationPolicy.java",
+            "CombatEndProposalPolicy.java",
+            "PostCombatProjectionPolicy.java",
+            "CombatStartPolicy.java",
+            "CompilationOutcomePolicy.java",
+            "ScenarioModelCompilationPolicy.java");
 
     @Test
     void domainAndApplicationDependenciesPointInward() throws Exception {
@@ -99,6 +111,7 @@ class DomainResponsibilityContractTest {
         services.put("dice-roll-service", "com.dndmaster.diceroll");
         services.put("combat-map-service", "com.dndmaster.combatmap");
         services.put("ai-game-master-service", "com.dndmaster.aigamemaster");
+        services.put("agent-connection-relay-service", "com.dndmaster.relay");
         return Map.copyOf(services);
     }
 }

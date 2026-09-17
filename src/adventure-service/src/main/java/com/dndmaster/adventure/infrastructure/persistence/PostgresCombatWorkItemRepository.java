@@ -19,7 +19,7 @@ import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 public final class PostgresCombatWorkItemRepository implements CombatWorkItemRepository {
-    private static final String COLUMNS = "work_item_id, encounter_id, operation_id, expected_encounter_version, work_type, due_at, attempt_count, status, lease_token, lease_until, failure, tactical_instruction, tactical_constraints::text, command_json::text, completed_steps";
+    private static final String COLUMNS = "work_item_id, encounter_id, operation_id, ai_request_id, expected_encounter_version, work_type, due_at, attempt_count, status, lease_token, lease_until, failure, tactical_instruction, tactical_constraints::text, command_json::text, completed_steps";
     private final DataSource dataSource;
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -66,9 +66,9 @@ public final class PostgresCombatWorkItemRepository implements CombatWorkItemRep
     @Override public void save(CombatWorkItem item) {
         try {
             jdbc.update("INSERT INTO combat_work_item(" + COLUMNS.replace("::text", "")
-                    + ", worker_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, NULL)"
-                    + " ON CONFLICT(work_item_id) DO UPDATE SET operation_id = EXCLUDED.operation_id, expected_encounter_version = EXCLUDED.expected_encounter_version, work_type = EXCLUDED.work_type, due_at = EXCLUDED.due_at, attempt_count = EXCLUDED.attempt_count, status = EXCLUDED.status, lease_token = EXCLUDED.lease_token, lease_until = EXCLUDED.lease_until, failure = EXCLUDED.failure, tactical_instruction = EXCLUDED.tactical_instruction, tactical_constraints = EXCLUDED.tactical_constraints, command_json = EXCLUDED.command_json, completed_steps = EXCLUDED.completed_steps",
-                    item.workItemId(), item.encounterId(), item.operationId(), item.expectedEncounterVersion(), item.workType().name(),
+                    + ", worker_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, NULL)"
+                    + " ON CONFLICT(work_item_id) DO UPDATE SET operation_id = EXCLUDED.operation_id, ai_request_id = EXCLUDED.ai_request_id, expected_encounter_version = EXCLUDED.expected_encounter_version, work_type = EXCLUDED.work_type, due_at = EXCLUDED.due_at, attempt_count = EXCLUDED.attempt_count, status = EXCLUDED.status, lease_token = EXCLUDED.lease_token, lease_until = EXCLUDED.lease_until, failure = EXCLUDED.failure, tactical_instruction = EXCLUDED.tactical_instruction, tactical_constraints = EXCLUDED.tactical_constraints, command_json = EXCLUDED.command_json, completed_steps = EXCLUDED.completed_steps",
+                    item.workItemId(), item.encounterId(), item.operationId(), item.aiRequestId(), item.expectedEncounterVersion(), item.workType().name(),
                     OffsetDateTime.ofInstant(item.dueAt(), ZoneOffset.UTC), item.attemptCount(), item.status().name(), item.leaseToken(),
                     item.leaseUntil() == null ? null : OffsetDateTime.ofInstant(item.leaseUntil(), ZoneOffset.UTC), item.failure(),
                     item.tacticalInstruction().instruction(), objectMapper.writeValueAsString(item.tacticalInstruction().constraints()),
@@ -120,7 +120,7 @@ public final class PostgresCombatWorkItemRepository implements CombatWorkItemRep
                         CombatWorkItem.Status.valueOf(rs.getString("status")), rs.getObject("lease_token", UUID.class),
                         leaseUntil == null ? null : ((OffsetDateTime) leaseUntil).toInstant(), rs.getString("failure"),
                         new AiTacticalInstructionContext(rs.getString("tactical_instruction"), constraints), command,
-                        rs.getInt("completed_steps"));
+                        rs.getInt("completed_steps"), rs.getObject("ai_request_id", UUID.class));
             } catch (SQLException exception) { throw new IllegalStateException(exception); }
         }
     }

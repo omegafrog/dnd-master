@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.runtime;
 import com.dndmaster.adventure.domain.runtime.DisclosureState;
 import com.dndmaster.adventure.domain.runtime.GameStateDelta;
 import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
+import com.dndmaster.adventure.domain.runtime.CompletionProposal;
 import java.util.List;
 import java.util.Objects;
 

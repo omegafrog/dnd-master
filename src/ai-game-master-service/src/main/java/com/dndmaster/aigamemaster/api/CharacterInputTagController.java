@@ -37,7 +37,7 @@ public final class CharacterInputTagController {
         LOGGER.info("character_tag_extract_started operationId={} focused={} excerpts={} promptChars={} excerptSummaries={}",
                 request.operationId(), focused, request.excerpts().size(), prompt.length(), excerptSummaries(request.excerpts()));
         try {
-            String modelResponse = adapter.complete(request.operationId(), prompt);
+            String modelResponse = adapter.complete(request.soloPlayerId(), request.operationId(), prompt);
             LOGGER.info("character_tag_model_response operationId={} responseChars={} payload={}",
                     request.operationId(), modelResponse == null ? 0 : modelResponse.length(), diagnosticText(modelResponse));
 
@@ -351,10 +351,13 @@ public final class CharacterInputTagController {
         return List.copyOf(result);
     }
 
-    public record Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion,
+    public record Request(UUID soloPlayerId, String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion,
                           String instruction) {
-        public Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {
-            this(operationId, excerpts, schemaVersion, promptVersion, "");
+        public Request(UUID soloPlayerId, String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {
+            this(soloPlayerId, operationId, excerpts, schemaVersion, promptVersion, "");
+        }
+        public Request {
+            soloPlayerId = java.util.Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
         }
     }
 

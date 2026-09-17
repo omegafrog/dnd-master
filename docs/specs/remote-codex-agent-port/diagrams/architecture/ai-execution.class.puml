@@ -1,0 +1,84 @@
+@startuml
+' UC-01/UC-02 — 현재 구현 책임 경계와 전달 계약
+title AI 실행·웹소켓 연결 중계 책임 경계
+skinparam shadowing false
+skinparam componentStyle rectangle
+allowmixing
+
+package "Adventure Runtime" {
+  class "Adventure Session" as adventureSession {
+    진행 중 AI 요청 ID : 0 또는 1개
+    요청 ID 조건부 기록·해제
+  }
+}
+
+package "AI Game Master" {
+  component "완성 프롬프트 생성과\n최종 결과 해석" as aiGameMaster
+  interface "AI 실행 포트" as aiExecutionPort {
+    execute(AiExecutionRequest)
+  }
+  component "원격 AI 실행 구현" as remoteExecutor
+}
+
+package "개발 전용 Gradle 모듈" {
+  component "개발용 로컬 AI 실행 구현" as localExecutor
+  component "Codex app-server 연결" as localCodexClient
+}
+
+package "agent-connection-relay-service" {
+  component "POST /internal/executions\n인증된 내부 실행 API" as relayEntry
+  component "RelayExecutionDispatcher\n위치 조회·A=C/A≠C 분기" as dispatcher
+  component "LocalConnectionManager\n웹소켓 전달·결과 대기" as ownerManager
+  component "AgentWebSocketHandler\n/ws/agent 인증·수명 관리" as webSocketHandler
+  component "WebSocketConnectionTransport\n요청 송신" as webSocketTransport
+  component "RequestCompletionRegistry\nrequestId별 1회 완료" as completionRegistry
+  component "ConnectionLeaseHeartbeat\n20초마다 갱신" as heartbeat
+  component "POST /internal/owned-executions\n중계 인스턴스 간 전달" as ownedEntry
+  interface "ConnectionLocationRepository" as locationPort
+  component "RedisConnectionLocationRepository" as redisAdapter
+}
+
+database "Redis\n연결 위치·만료 정보" as redis
+component "사용자 PC 에이전트\nCodexWebSocketAgent" as userAgent
+component "identity-access\n토큰 → Solo Player ID" as identity
+
+adventureSession --> aiGameMaster : 요청 수락·결과 반영 후 해제
+aiGameMaster --> aiExecutionPort : 서버 확정 식별자·requestId·\n완성 프롬프트·실행 옵션
+localExecutor ..|> aiExecutionPort
+remoteExecutor ..|> aiExecutionPort
+localExecutor --> localCodexClient : 개발 환경만
+remoteExecutor --> relayEntry : X-Internal-Token\n내부 HTTP
+
+relayEntry --> dispatcher
+dispatcher --> locationPort : soloPlayerId 조회
+redisAdapter ..|> locationPort
+redisAdapter --> redis : 임대 조회
+dispatcher --> ownerEntry : A≠C, X-Relay-Instance-Id
+dispatcher --> ownerManager : A=C, 내부 hop 없음
+ownedEntry --> ownerManager : 소유 연결 실행
+ownerManager --> completionRegistry : requestId 대기·완료·실패
+ownerManager --> webSocketTransport : 실행 요청
+webSocketTransport --> webSocketHandler
+webSocketHandler --> userAgent : /ws/agent 웹소켓\nRelayExecutionRequest
+userAgent --> webSocketHandler : RelayExecutionResult\nrequestId·content·failureType
+webSocketHandler --> completionRegistry : 결과 상관관계 연결
+webSocketHandler --> identity : Bearer 토큰 확인
+webSocketHandler --> heartbeat : 연결 동안 실행
+heartbeat --> redis : 60초 임대\n20초 주기 갱신
+webSocketHandler --> redis : 연결 종료 시\nconnectionId 일치 삭제
+completionRegistry --> ownerManager : 최종 텍스트 또는 실패
+ownerManager --> ownedEntry : 소유 인스턴스 결과
+ownedEntry --> relayEntry : 내부 HTTP 응답
+relayEntry --> remoteExecutor : RelayExecutionResult
+remoteExecutor --> aiGameMaster : 최종 텍스트 또는 유형화 오류
+
+note right of userAgent
+요청마다 연결하지 않는다.
+에이전트가 장기 연결을 유지하고
+받은 요청을 순차 실행한다.
+end note
+
+note bottom of redis
+프롬프트·응답·RAG 자료·Codex 로그인 정보는 저장하지 않는다.
+end note
+@enduml

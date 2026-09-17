@@ -2,6 +2,8 @@ package com.dndmaster.adventure.application.runtime;
 
 import java.util.Objects;
 import java.util.function.Supplier;
+import com.dndmaster.adventure.domain.runtime.CompletionProposal;
+import com.dndmaster.adventure.domain.runtime.PendingRuntimeState;
 
 /** Runs fixed resolution, narration, and safety without ever re-running resolution on retry. */
 public final class RuntimeTurnSafetyOrchestrator {

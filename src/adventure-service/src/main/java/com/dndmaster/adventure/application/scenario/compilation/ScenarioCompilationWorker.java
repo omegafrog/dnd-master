@@ -139,7 +139,7 @@ public final class ScenarioCompilationWorker {
             List<ResolutionExtractionPort.SourceExcerpt> resolutionExcerpts = selectResolutionExcerpts(excerpts, bundleSources);
             List<ResolutionCandidate> candidates = extractionPort.extract(
                     new ResolutionExtractionPort.ResolutionExtractionRequest(
-                            claimed.id().toString(), excerpts == null ? List.of() : excerpts.stream()
+                            bundle.ownerPlayerId().value(), claimed.id().toString(), excerpts == null ? List.of() : excerpts.stream()
                                     .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
                                     .filter(excerpt -> resolutionExcerpts.contains(excerpt))
                                     .toList(),
@@ -157,7 +157,7 @@ public final class ScenarioCompilationWorker {
                     .toList();
             List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> characterCandidates = tagExcerpts.isEmpty()
                     ? List.of()
-                    : extractCharacterTags(claimed.id().toString(), tagExcerpts);
+                    : extractCharacterTags(bundle.ownerPlayerId().value(), claimed.id().toString(), tagExcerpts);
             characterCandidates = refineCharacterTags(claimed.id().toString(), bundle, characterCandidates);
 
             ScenarioPackage scenarioPackage;
@@ -255,7 +255,7 @@ public final class ScenarioCompilationWorker {
             List<ResolutionExtractionPort.SourceExcerpt> targets = excerpts.stream()
                     .filter(excerpt -> references(failed, excerpt)).distinct().toList();
             ResolutionCandidate replacement = extractionPort.retryCandidate(new ResolutionExtractionPort.CandidateRetryRequest(
-                    operationId + ":candidate-repair-" + index, failed, targets,
+                    bundle.ownerPlayerId().value(), operationId + ":candidate-repair-" + index, failed, targets,
                     "resolution-candidate-v2", "resolution-repair-prompt-v2", 1, unit.validationMessages()));
             if (replacement != null && compiler.validateResolutionCandidates(bundle, List.of(replacement), excerpts).getFirst().status()
                     == com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE) {
@@ -328,10 +328,10 @@ public final class ScenarioCompilationWorker {
     }
 
     private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> extractCharacterTags(
-            String operationId, List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts) {
+            UUID soloPlayerId, String operationId, List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts) {
         try {
             return characterTagPort.extract(new CharacterInputTagExtractionPort.Request(
-                    operationId + ":character-story-overlays", excerpts,
+                    soloPlayerId, operationId + ":character-story-overlays", excerpts,
                     "character-input-tag-v1", "character-story-overlay-prompt-v1",
                     "Extract only scenario-specific changes to character creation. Return constraints, defaults, fixed values, or additional fields supported by the storybook or handout. Never return base edition fields merely because the rulebook defines them, and never turn example character names into options."));
         } catch (RuntimeException exception) {
@@ -373,7 +373,7 @@ public final class ScenarioCompilationWorker {
                 }
                 List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refined = characterTagPort.extract(
                         new CharacterInputTagExtractionPort.Request(
-                                operationId + ":character-overlay-refine:" + candidate.key() + ":" + UUID.randomUUID(), excerpts,
+                                bundle.ownerPlayerId().value(), operationId + ":character-overlay-refine:" + candidate.key() + ":" + UUID.randomUUID(), excerpts,
                                 "character-input-tag-v1", "character-story-overlay-prompt-v1",
                                 "Refine only scenario-specific changes for field '" + candidate.key()
                                         + "'. Keep its key exactly. Do not add edition base options. If the story does not change this field, return no candidate."));
