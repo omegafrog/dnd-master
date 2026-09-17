@@ -104,13 +104,21 @@ public final class SpatialFeatureApplicationService {
         return Optional.of(resultFrom(replay.map()));
     }
 
-    public Optional<Result> replayByCommandId(AdventureId adventureId, MapOwnerId owner, java.util.UUID commandId) {
+    /**
+     * Recovers a lost response before the caller can rebuild an AI proposal.
+     * The stored operation fingerprint must retain this stable command prefix;
+     * the normal prepare path still compares the complete batch fingerprint.
+     */
+    public Optional<Result> replayByCommandId(AdventureId adventureId, MapOwnerId owner, java.util.UUID commandId,
+            String commandFingerprint) {
         Objects.requireNonNull(adventureId, "adventure id must not be null");
         Objects.requireNonNull(owner, "map owner must not be null");
         Objects.requireNonNull(commandId, "command id must not be null");
+        Objects.requireNonNull(commandFingerprint, "command fingerprint must not be null");
         VersionedOwnedCombatMap replay = store.findByCommandId(commandId).orElse(null);
         if (replay == null) return Optional.empty();
-        if (!replay.map().adventureId().equals(adventureId) || !replay.owner().equals(owner)) {
+        if (!replay.map().adventureId().equals(adventureId) || !replay.owner().equals(owner)
+                || !replay.map().operationFingerprint().startsWith(commandFingerprint + "|spatial=")) {
             throw new SpatialPreparationCommandConflictException();
         }
         return Optional.of(resultFrom(replay.map()));

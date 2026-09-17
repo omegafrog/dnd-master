@@ -24,6 +24,7 @@ import java.net.http.HttpClient;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -112,6 +113,37 @@ class HttpCombatMapPreparationGatewayTest {
     }
 
     @Test
+    void replays_before_requiring_a_second_spatial_model_proposal() throws Exception {
+        AtomicBoolean prepareCalled = new AtomicBoolean();
+        UUID replayedMapId = UUID.randomUUID();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/combat-maps/preparation-replay", exchange -> {
+            byte[] response = ("{\"mapId\":\"" + replayedMapId + "\",\"status\":\"READY\",\"warningCount\":0}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
+        server.createContext("/internal/v1/combat-maps/prepare", exchange -> {
+            prepareCalled.set(true);
+            exchange.sendResponseHeaders(500, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            UUID result = new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(2), new ObjectMapper(), "secret")
+                    .prepareInitial(new AdventureId(UUID.randomUUID()), UUID.randomUUID(), new RuleSetId(UUID.randomUUID()),
+                            spatialMapDefinition(), 1);
+            assertEquals(replayedMapId, result);
+            assertTrue(!prepareCalled.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void sends_authoritative_spatial_requirements_to_combat_map_preparation() throws Exception {
         AtomicReference<String> requestBody = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -183,5 +215,16 @@ class HttpCombatMapPreparationGatewayTest {
         return new MapDefinition(UUID.randomUUID(), "map", "page-1", new MapGrid(0, 0, 50, 0, "5 ft"),
                 List.of(), List.of(), List.of(), new MapSourceReference(new KnowledgeDocumentId(documentId), 1, "page-1"),
                 .9, MapSafetyStatus.SAFE);
+    }
+
+    private static MapDefinition spatialMapDefinition() {
+        UUID featureId = UUID.randomUUID();
+        UUID documentId = UUID.randomUUID();
+        return new MapDefinition(UUID.randomUUID(), "map", "page-1", new MapGrid(0, 0, 50, 0, "5 ft"),
+                List.of(), List.of(), List.of(), new MapSourceReference(new KnowledgeDocumentId(documentId), 1, "page-1", "9"),
+                .9, MapSafetyStatus.SAFE,
+                List.of(new MapDefinition.SpatialFeatureRequirement(featureId, "TRAP", true,
+                        List.of("source:page-1"), List.of("2,2"), "resolution-unit-1",
+                        "rulebook:perception", 15, "PASSIVE", List.of("ENTER_CELL"))));
     }
 }

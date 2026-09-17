@@ -111,7 +111,7 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
             MapDefinition mapDefinition, Integer stagePosition, CombatMapPreparationPort.ActivationContext context) {
         String identity = commandIdentity(adventureId, mapDefinition, stagePosition, context);
         UUID commandId = UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8));
-        Response replayed = replayPrepare(adventureId, ownerPlayerId, commandId);
+        Response replayed = replayPrepare(adventureId, ownerPlayerId, commandId, identity);
         if (replayed != null) {
             if (replayed.status() == Status.BLOCKED) throw new CombatMapPreparationBlockedException();
             return replayed.mapId();
@@ -156,10 +156,10 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
         }
     }
 
-    private Response replayPrepare(AdventureId adventureId, UUID ownerPlayerId, UUID commandId) {
+    private Response replayPrepare(AdventureId adventureId, UUID ownerPlayerId, UUID commandId, String commandFingerprint) {
         URI uri = baseUri.resolve("internal/v1/combat-maps/preparation-replay");
         try {
-            String body = mapper.writeValueAsString(new ReplayRequest(adventureId.value(), ownerPlayerId, commandId));
+            String body = mapper.writeValueAsString(new ReplayRequest(adventureId.value(), ownerPlayerId, commandId, commandFingerprint));
             HttpRequest request = HttpRequest.newBuilder(uri).timeout(timeout)
                     .header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
@@ -237,7 +237,8 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
                     commandId, expectedVersion, operationFingerprint);
         }
     }
-    private record ReplayRequest(UUID adventureId, UUID ownerId, UUID commandId) {}
+    /** Response-recovery request; the stored operation still contains the complete batch fingerprint. */
+    private record ReplayRequest(UUID adventureId, UUID ownerId, UUID commandId, String commandFingerprint) {}
     private enum Status { READY, BLOCKED }
     private record Response(UUID mapId, Status status, int warningCount) {
         Response(UUID mapId) { this(mapId, Status.READY, 0); }

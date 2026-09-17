@@ -167,11 +167,12 @@ public class CombatMapController {
     public PrepareResponse replayPreparation(@RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody(required = false) ReplayRequest request) {
         requestGuard.internal(token);
-        if (request == null || request.commandId() == null || request.adventureId() == null || request.ownerId() == null) {
+        if (request == null || request.commandId() == null || request.adventureId() == null || request.ownerId() == null
+                || request.commandFingerprint() == null || request.commandFingerprint().isBlank()) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
                     "replay request is incomplete");
         }
-        return mapViewService.replaySpatialPreparationByCommandId(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()), request.commandId())
+        return mapViewService.replaySpatialPreparationByCommandId(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()), request.commandId(), request.commandFingerprint())
                 .map(CombatMapController::prepareResponse)
                 .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,
                         "preparation replay not found"));
@@ -689,5 +690,5 @@ public class CombatMapController {
         public PrepareResponse(UUID mapId) { this(mapId, PrepareStatus.READY, 0); }
     }
 
-    public record ReplayRequest(UUID adventureId, UUID ownerId, UUID commandId) {}
+    public record ReplayRequest(UUID adventureId, UUID ownerId, UUID commandId, String commandFingerprint) {}
 }
