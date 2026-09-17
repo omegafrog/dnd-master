@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
+import com.dndmaster.adventure.application.combat.CombatMapPreparationBlockedException;
 import com.dndmaster.adventure.application.combat.HttpCombatMapPreparationGateway;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
@@ -66,6 +67,7 @@ class HttpCombatMapPreparationGatewayTest {
     @Test
     void activates_only_an_existing_reviewed_draft_without_sending_a_new_map_definition() throws Exception {
         AtomicReference<String> requestBody = new AtomicReference<>();
+        UUID adventureId = UUID.randomUUID();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/v1/combat-maps/prepare", exchange -> {
             requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
@@ -74,9 +76,14 @@ class HttpCombatMapPreparationGatewayTest {
             exchange.getResponseBody().write(response);
             exchange.getResponseBody().close();
         });
+        server.createContext("/internal/v1/adventures/" + adventureId + "/combat-map/preparation-view", exchange -> {
+            byte[] response = "{\"version\":0}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
         server.start();
         try {
-            UUID adventureId = UUID.randomUUID();
             UUID ownerId = UUID.randomUUID();
             UUID rulesId = UUID.randomUUID();
             UUID situationId = UUID.randomUUID();
@@ -121,7 +128,7 @@ class HttpCombatMapPreparationGatewayTest {
                     new MapSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 4, "page-1"),
                     .9, MapSafetyStatus.SAFE,
                     List.of(new MapDefinition.SpatialFeatureRequirement(featureId, "TRAP", true,
-                            List.of("storybook:page-4"), "rulebook:perception", 15, "PASSIVE", List.of("ENTER_CELL"))));
+                            List.of("storybook:page-4"), List.of("2,2"), "rulebook:perception", 15, "PASSIVE", List.of("ENTER_CELL"))));
             new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
                     java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
                     Duration.ofSeconds(2), new ObjectMapper(), "secret")
@@ -132,7 +139,32 @@ class HttpCombatMapPreparationGatewayTest {
             assertEquals("TRAP", payload.get("spatialRequirements").get(0).get("type").asText());
             assertEquals(featureId.toString(), payload.get("spatialRequirements").get(0).get("featureId").asText());
             assertEquals("storybook:page-4", payload.get("spatialRequirements").get(0).get("evidenceReferences").get(0).asText());
+            assertEquals("2,2", payload.get("spatialRequirements").get(0).get("authoritativeCells").get(0).asText());
             assertTrue(payload.get("spatialPreparationReference").asText().contains("story-plan:"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void maps_required_preparation_failure_to_a_safe_typed_result() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/combat-maps/prepare", exchange -> {
+            byte[] response = ("{\"mapId\":\"" + UUID.randomUUID()
+                    + "\",\"status\":\"BLOCKED\",\"warningCount\":0}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            var exception = org.junit.jupiter.api.Assertions.assertThrows(CombatMapPreparationBlockedException.class,
+                    () -> new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
+                            java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                            Duration.ofSeconds(2), new ObjectMapper(), "secret")
+                            .prepareInitial(new AdventureId(UUID.randomUUID()), UUID.randomUUID(), new RuleSetId(UUID.randomUUID()),
+                                    mapDefinition(), 1));
+            assertEquals("combat map preparation is blocked", exception.getMessage());
         } finally {
             server.stop(0);
         }

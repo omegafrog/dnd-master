@@ -43,16 +43,27 @@ public record MapDefinition(
         public MapGrid { if (cellSize <= 0) throw new IllegalArgumentException("cell size must be positive"); distance = required(distance, "distance"); }
     }
 
-    /** Story Plan이 지도와 함께 잠그는 공간 요소 요구사항이다. 좌표는 포함하지 않는다. */
+    /** Story Plan이 지도와 함께 잠그는 공간 요소 요구사항과 지도 근거 사실이다. */
     public record SpatialFeatureRequirement(UUID featureId, String type, boolean required,
-            List<String> evidenceReferences, String detectionRuleReference, Integer detectionDifficulty,
+            List<String> evidenceReferences, List<String> authoritativeCells, String detectionRuleReference, Integer detectionDifficulty,
             String detectionMode, List<String> triggers) {
+        public SpatialFeatureRequirement(UUID featureId, String type, boolean required,
+                List<String> evidenceReferences, String detectionRuleReference, Integer detectionDifficulty,
+                String detectionMode, List<String> triggers) {
+            this(featureId, type, required, evidenceReferences, List.of(), detectionRuleReference,
+                    detectionDifficulty, detectionMode, triggers);
+        }
+
         public SpatialFeatureRequirement {
             featureId = Objects.requireNonNull(featureId, "spatial feature id must not be null");
             type = MapDefinition.required(type, "spatial feature type");
             evidenceReferences = List.copyOf(Objects.requireNonNull(evidenceReferences, "evidence references must not be null"));
             if (evidenceReferences.isEmpty() || evidenceReferences.stream().anyMatch(value -> value == null || value.isBlank())) {
                 throw new IllegalArgumentException("published evidence reference is required");
+            }
+            authoritativeCells = List.copyOf(Objects.requireNonNull(authoritativeCells, "authoritative cells must not be null"));
+            if (authoritativeCells.stream().anyMatch(value -> value == null || value.isBlank())) {
+                throw new IllegalArgumentException("authoritative cells must not be blank");
             }
             detectionRuleReference = detectionRuleReference == null ? "" : detectionRuleReference.trim();
             detectionMode = detectionMode == null ? "" : detectionMode.trim();

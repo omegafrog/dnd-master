@@ -92,7 +92,7 @@ class SpatialFeaturePreparationTest {
                 "story-plan:published-1",
                 List.of(new SpatialFeaturePreparationInput.Requirement(
                         FEATURE_ID, SpatialFeatureType.HAZARD_AREA, true, Set.of("published-story-plan:hazard-1"),
-                        null, Set.of())));
+                        Set.of(new GridPosition(2, 2)), null, Set.of())));
         SpatialFeaturePlacementModelPort model = context -> new SpatialFeaturePlacementProposal(List.of(
                 new SpatialFeaturePlacementProposal.Candidate(
                         FEATURE_ID, SpatialFeatureType.HAZARD_AREA,
@@ -146,7 +146,7 @@ class SpatialFeaturePreparationTest {
                 "story-plan:published-1",
                 List.of(new SpatialFeaturePreparationInput.Requirement(
                         FEATURE_ID, SpatialFeatureType.TRAP, true, Set.of("storybook:page-4"),
-                        DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.ENTER_CELL))));
+                        Set.of(new GridPosition(2, 2)), DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.ENTER_CELL))));
         SpatialFeaturePlacementModelPort model = context -> new SpatialFeaturePlacementProposal(List.of(
                 new SpatialFeaturePlacementProposal.Candidate(
                         FEATURE_ID, SpatialFeatureType.TRAP, List.of(new GridPosition(2, 2)), true,
@@ -158,6 +158,73 @@ class SpatialFeaturePreparationTest {
         assertFalse(result.activationAllowed());
         assertTrue(result.map().spatialPreparationBlocked());
         assertTrue(result.failures().stream().anyMatch(message -> message.contains("evidence")));
+        assertTrue(result.map().spatialFeatures().isEmpty());
+    }
+
+    @Test
+    void rejects_a_coordinate_that_is_not_in_authoritative_preparation_facts_even_when_evidence_matches() {
+        CombatMap map = map();
+        SpatialFeaturePreparationInput input = new SpatialFeaturePreparationInput(
+                "story-plan:published-1",
+                List.of(new SpatialFeaturePreparationInput.Requirement(
+                        FEATURE_ID, SpatialFeatureType.TRAP, true, Set.of("storybook:page-4"),
+                        Set.of(new GridPosition(2, 2)), DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.ENTER_CELL))));
+        SpatialFeaturePlacementModelPort model = context -> new SpatialFeaturePlacementProposal(List.of(
+                new SpatialFeaturePlacementProposal.Candidate(
+                        FEATURE_ID, SpatialFeatureType.TRAP, List.of(new GridPosition(3, 3)), true,
+                        "storybook:page-4")));
+
+        SpatialFeaturePreparationService.Result result = new SpatialFeaturePreparationService(model)
+                .prepare(map, input, 1);
+
+        assertFalse(result.activationAllowed());
+        assertEquals(3, result.attempts());
+        assertTrue(result.failures().stream().anyMatch(message -> message.contains("authoritative placement")));
+        assertTrue(result.map().spatialFeatures().isEmpty());
+    }
+
+    @Test
+    void materializes_authoritative_detection_and_trigger_rules_not_ai_metadata() {
+        CombatMap map = map();
+        DetectionSpec authoritativeDetection = DetectionSpec.passive("rulebook:investigation", 14);
+        SpatialFeaturePreparationInput input = new SpatialFeaturePreparationInput(
+                "story-plan:published-1",
+                List.of(new SpatialFeaturePreparationInput.Requirement(
+                        FEATURE_ID, SpatialFeatureType.SECRET_DOOR, true, Set.of("storybook:page-7"),
+                        Set.of(new GridPosition(2, 2)), authoritativeDetection, Set.of(SpatialTrigger.OBSERVE))));
+        SpatialFeaturePlacementModelPort model = context -> new SpatialFeaturePlacementProposal(List.of(
+                new SpatialFeaturePlacementProposal.Candidate(
+                        FEATURE_ID, SpatialFeatureType.SECRET_DOOR, List.of(new GridPosition(2, 2)), true,
+                        "storybook:page-7", DetectionSpec.passive("ai-invented-rule", 30), Set.of(SpatialTrigger.ENTER_CELL))));
+
+        SpatialFeaturePreparationService.Result result = new SpatialFeaturePreparationService(model)
+                .prepare(map, input, 1);
+
+        assertTrue(result.activationAllowed());
+        SpatialFeature feature = result.map().spatialFeatures().getFirst();
+        assertEquals(authoritativeDetection, feature.detectionSpec());
+        assertEquals(Set.of(SpatialTrigger.OBSERVE), feature.triggers());
+    }
+
+    @Test
+    void keeps_optional_placement_warning_when_required_features_are_ready() {
+        CombatMap map = map();
+        UUID optionalId = UUID.randomUUID();
+        SpatialFeaturePreparationInput input = new SpatialFeaturePreparationInput(
+                "story-plan:published-1",
+                List.of(new SpatialFeaturePreparationInput.Requirement(
+                        optionalId, SpatialFeatureType.SECRET_DOOR, false, Set.of("storybook:page-8"),
+                        Set.of(new GridPosition(1, 1)), null, Set.of(SpatialTrigger.OBSERVE))));
+        SpatialFeaturePlacementModelPort model = context -> new SpatialFeaturePlacementProposal(List.of(
+                new SpatialFeaturePlacementProposal.Candidate(
+                        optionalId, SpatialFeatureType.SECRET_DOOR, List.of(new GridPosition(4, 4)), false,
+                        "storybook:page-8")));
+
+        SpatialFeaturePreparationService.Result result = new SpatialFeaturePreparationService(model)
+                .prepare(map, input, 1);
+
+        assertTrue(result.activationAllowed());
+        assertTrue(result.warnings().stream().anyMatch(message -> message.contains(optionalId.toString())));
         assertTrue(result.map().spatialFeatures().isEmpty());
     }
 

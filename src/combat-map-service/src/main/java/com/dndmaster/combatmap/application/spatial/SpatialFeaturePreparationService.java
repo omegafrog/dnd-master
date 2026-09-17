@@ -104,6 +104,10 @@ public final class SpatialFeaturePreparationService {
         if (candidate.type() != requirement.type()) return "feature type does not match authoritative input";
         if (candidate.required() != requirement.required()) return "required policy does not match authoritative input";
         if (candidate.cells().isEmpty()) return "no evidence-based occupied cell was proposed";
+        if (requirement.authoritativeCells().isEmpty()) return "authoritative placement facts are missing";
+        if (candidate.cells().stream().anyMatch(cell -> !requirement.authoritativeCells().contains(cell))) {
+            return "occupied cell is outside authoritative placement facts";
+        }
         if (candidate.evidenceReference().isBlank()
                 || !requirement.evidenceReferences().contains(candidate.evidenceReference())) {
             return "placement evidence does not match authoritative source";

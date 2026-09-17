@@ -20,11 +20,17 @@ public interface SpatialFeaturePlacementModelPort {
         }
     }
 
-    record Requirement(UUID featureId, String type, boolean required, List<String> evidenceReferences) {
+    record Requirement(UUID featureId, String type, boolean required, List<String> evidenceReferences,
+            List<String> authoritativeCells) {
+        public Requirement(UUID featureId, String type, boolean required, List<String> evidenceReferences) {
+            this(featureId, type, required, evidenceReferences, List.of());
+        }
+
         public Requirement {
             featureId = Objects.requireNonNull(featureId);
             type = SpatialFeaturePlacementModelPort.required(type, "feature type");
             evidenceReferences = List.copyOf(Objects.requireNonNull(evidenceReferences));
+            authoritativeCells = List.copyOf(Objects.requireNonNull(authoritativeCells));
         }
     }
 

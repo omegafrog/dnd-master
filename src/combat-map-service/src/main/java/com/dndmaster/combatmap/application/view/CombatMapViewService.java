@@ -6,6 +6,8 @@ import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementModelP
 import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementProposal;
 import com.dndmaster.combatmap.application.spatial.SpatialFeaturePreparationInput;
 import com.dndmaster.combatmap.application.spatial.SpatialFeaturePreparationService;
+import com.dndmaster.combatmap.application.spatial.SpatialFeatureApplicationService;
+import com.dndmaster.combatmap.application.spatial.SpatialPreparationCommand;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import java.io.ByteArrayInputStream;
@@ -22,6 +24,7 @@ public final class CombatMapViewService {
     private final MapGridAlignmentStore alignments;
     private final MapImageEvidencePort mapImageEvidence;
     private final SpatialFeaturePreparationService spatialPreparation;
+    private final SpatialFeatureApplicationService spatialFeatureApplication;
 
     public CombatMapViewService(CombatMapViewStore store, MapFilePreparationPort filePort, AiMapGenerationPort aiPort) {
         this(store, filePort, aiPort, null, null, null);
@@ -44,6 +47,7 @@ public final class CombatMapViewService {
             SpatialFeaturePreparationService spatialPreparation) {
         this.store = Objects.requireNonNull(store); this.filePort = Objects.requireNonNull(filePort); this.aiPort = Objects.requireNonNull(aiPort); this.publicImages = publicImages; this.alignments = alignments; this.mapImageEvidence = mapImageEvidence;
         this.spatialPreparation = Objects.requireNonNull(spatialPreparation);
+        this.spatialFeatureApplication = new SpatialFeatureApplicationService(store, spatialPreparation);
     }
     public CombatMap prepareUploaded(MapOwnerId owner, AdventureId adventure, RuleSetId rules, UploadedMapSource source) { return saveNew(owner, adventure, rules, filePort.prepare(source)); }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description) {
@@ -180,15 +184,21 @@ public final class CombatMapViewService {
     }
 
     /** Scenario Preparation의 정본 요구사항을 AI 제안과 대조한 뒤 지도에 원자적으로 반영한다. */
-    public CombatMap prepareSpatialFeatures(MapId id, MapOwnerId owner, SpatialFeaturePreparationInput input, long createdTurn) {
+    public SpatialFeatureApplicationService.Result prepareSpatialFeatures(MapId id, MapOwnerId owner,
+            SpatialFeaturePreparationInput input, long createdTurn, SpatialPreparationCommand command) {
         Objects.requireNonNull(input, "spatial preparation input must not be null");
+        return spatialFeatureApplication.prepare(id, owner, input, createdTurn, command);
+    }
+
+    /** Compatibility entry point for non-HTTP callers; new preparation flows provide an explicit command. */
+    public SpatialFeatureApplicationService.Result prepareSpatialFeatures(MapId id, MapOwnerId owner,
+            SpatialFeaturePreparationInput input, long createdTurn) {
         VersionedOwnedCombatMap state = owned(id, owner);
-        if (input.requirements().isEmpty()) return state.map();
-        spatialPreparation.prepare(state.map(), input, createdTurn);
-        UUID operationKey = UUID.randomUUID();
-        store.update(owner, state.map(), state.version(), state.version() + 1, operationKey,
-                "SPATIAL_PREPARATION|" + input.storyPlanReference() + "|" + input.requirements().stream().map(item -> item.featureId().toString()).sorted().toList());
-        return state.map();
+        return prepareSpatialFeatures(id, owner, input, createdTurn,
+                new SpatialPreparationCommand(UUID.randomUUID(),
+                        "SPATIAL_PREPARATION|" + input.storyPlanReference() + "|"
+                                + input.requirements().stream().map(item -> item.featureId().toString()).sorted().toList(),
+                        state.version()));
     }
     public void activateForAdventure(MapId id, MapOwnerId owner, int stagePosition) {
         activateForAdventure(id, owner, MapActivationContext.atStage(stagePosition));

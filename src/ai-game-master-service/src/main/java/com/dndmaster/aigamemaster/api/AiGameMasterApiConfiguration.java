@@ -243,7 +243,7 @@ public class AiGameMasterApiConfiguration {
                         + "GRID=" + input.gridWidth() + "x" + input.gridHeight() + "\n"
                         + "OBSTACLES=" + input.obstacles() + "\n"
                         + "REQUIREMENTS=" + input.requirements() + "\n"
-                        + "TASK=Return only evidence-grounded occupied cells for the supplied requirements. Never invent a feature id, type, or evidence reference.\n"
+                        + "TASK=Return only occupied cells from each requirement's authoritativeCells. Never invent a feature id, type, evidence reference, or coordinate.\n"
                         + "OUTPUT_CONTRACT={\"candidates\":[{\"featureId\":\"uuid\",\"type\":\"TRAP\",\"cells\":[\"x,y\"],\"required\":true,\"evidenceReference\":\"exact supplied reference\"}]}\n"
                         + "Do not use markdown or text outside the JSON object.",
                 text -> parseSpatialFeaturePlacement(mapper, text));

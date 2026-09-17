@@ -92,7 +92,7 @@ class BundleMapCompilationTest {
     }
 
     @Test
-    void compilesEvidenceBoundSpatialFeatureRequirementsWithoutCoordinates() {
+    void compilesEvidenceBoundSpatialFeatureRequirementsWithAuthoritativeCells() {
         var documentId = new KnowledgeDocumentId(UUID.randomUUID());
         UUID featureId = UUID.randomUUID();
         var bundle = ScenarioSourceBundle.create(new ScenarioBundleId(UUID.randomUUID()),
@@ -104,13 +104,14 @@ class BundleMapCompilationTest {
         var result = new ScenarioPackageCompilationService(new PackageRepository()).compile(bundle, List.of(),
                 List.of(new ResolutionExtractionPort.SourceExcerpt(documentId, 7, "asset:map-1",
                         "MAP asset=map-1 image=crypt.png grid=1 confidence=0.98 safety=SAFE "
-                                + "FEATURE id=" + featureId + " type=TRAP required=true "
+                                + "FEATURE id=" + featureId + " type=TRAP required=true cells=2,2 "
                                 + "rule=rulebook:perception difficulty=15 mode=PASSIVE triggers=ENTER_CELL")));
 
         var requirement = result.mapDefinitions().getFirst().spatialFeatures().getFirst();
         assertEquals(featureId, requirement.featureId());
         assertEquals("TRAP", requirement.type());
         assertEquals(List.of("document:" + documentId.value() + ":7:asset:map-1"), requirement.evidenceReferences());
+        assertEquals(List.of("2,2"), requirement.authoritativeCells());
         assertEquals("rulebook:perception", requirement.detectionRuleReference());
         assertEquals(15, requirement.detectionDifficulty());
         assertEquals("PASSIVE", requirement.detectionMode());

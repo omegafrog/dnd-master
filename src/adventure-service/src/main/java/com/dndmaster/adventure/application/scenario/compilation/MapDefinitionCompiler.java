@@ -19,8 +19,8 @@ import java.util.regex.Pattern;
 final class MapDefinitionCompiler {
     private static final Pattern VALUE = Pattern.compile("(?i)([a-z]+)=(?:\"([^\"]+)\"|([^\\s]+))");
     private static final Pattern SPATIAL_FEATURE = Pattern.compile(
-            "(?i)\\bFEATURE\\s+id=([^\\s]+)\\s+type=([^\\s]+)\\s+required=(true|false)(?:\\s+(?:rule|difficulty|mode|triggers)=[^\\s]+)*");
-    private static final Pattern FEATURE_ATTRIBUTE = Pattern.compile("(?i)(rule|difficulty|mode|triggers)=([^\\s]+)");
+            "(?i)\\bFEATURE\\s+id=([^\\s]+)\\s+type=([^\\s]+)\\s+required=(true|false)(?:\\s+(?:cells|rule|difficulty|mode|triggers)=[^\\s]+)*");
+    private static final Pattern FEATURE_ATTRIBUTE = Pattern.compile("(?i)(cells|rule|difficulty|mode|triggers)=([^\\s]+)");
 
     Compilation compile(ScenarioSourceBundle bundle, List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
         List<MapDefinition> result = new ArrayList<>();
@@ -66,7 +66,11 @@ final class MapDefinitionCompiler {
     }
     private static List<String> values(String text, String key) {
         String value = value(text, key, "");
-        return value.isBlank() ? List.of() : List.of(value.split("\\|"));
+        return splitValues(value);
+    }
+
+    private static List<String> splitValues(String value) {
+        return value == null || value.isBlank() ? List.of() : List.of(value.split("\\|"));
     }
 
     private static List<MapDefinition.SpatialFeatureRequirement> spatialFeatures(String text, MapSourceReference source) {
@@ -83,7 +87,7 @@ final class MapDefinitionCompiler {
                     ? List.of() : List.of(attributes.get("triggers").split("[|,]"));
             requirements.add(new MapDefinition.SpatialFeatureRequirement(
                     UUID.fromString(features.group(1)), features.group(2), Boolean.parseBoolean(features.group(3)),
-                    List.of(evidenceReference), attributes.getOrDefault("rule", ""), difficulty,
+                    List.of(evidenceReference), splitValues(attributes.getOrDefault("cells", "")), attributes.getOrDefault("rule", ""), difficulty,
                     attributes.getOrDefault("mode", ""), triggers));
         }
         return List.copyOf(requirements);

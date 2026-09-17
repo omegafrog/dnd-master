@@ -1,6 +1,7 @@
 package com.dndmaster.combatmap.application.spatial;
 
 import com.dndmaster.combatmap.domain.DetectionSpec;
+import com.dndmaster.combatmap.domain.GridPosition;
 import com.dndmaster.combatmap.domain.SpatialFeatureType;
 import com.dndmaster.combatmap.domain.SpatialTrigger;
 import java.util.List;
@@ -24,7 +25,13 @@ public record SpatialFeaturePreparationInput(String storyPlanReference, List<Req
     }
 
     public record Requirement(UUID featureId, SpatialFeatureType type, boolean required,
-            Set<String> evidenceReferences, DetectionSpec detectionSpec, Set<SpatialTrigger> triggers) {
+            Set<String> evidenceReferences, Set<GridPosition> authoritativeCells,
+            DetectionSpec detectionSpec, Set<SpatialTrigger> triggers) {
+        public Requirement(UUID featureId, SpatialFeatureType type, boolean required,
+                Set<String> evidenceReferences, DetectionSpec detectionSpec, Set<SpatialTrigger> triggers) {
+            this(featureId, type, required, evidenceReferences, Set.of(), detectionSpec, triggers);
+        }
+
         public Requirement {
             featureId = Objects.requireNonNull(featureId, "spatial requirement id must not be null");
             type = Objects.requireNonNull(type, "spatial requirement type must not be null");
@@ -32,6 +39,7 @@ public record SpatialFeaturePreparationInput(String storyPlanReference, List<Req
             if (evidenceReferences.stream().anyMatch(value -> value == null || value.isBlank())) {
                 throw new IllegalArgumentException("evidence references must not be blank");
             }
+            authoritativeCells = Set.copyOf(Objects.requireNonNull(authoritativeCells, "authoritative cells must not be null"));
             triggers = Set.copyOf(Objects.requireNonNull(triggers, "spatial requirement triggers must not be null"));
         }
     }

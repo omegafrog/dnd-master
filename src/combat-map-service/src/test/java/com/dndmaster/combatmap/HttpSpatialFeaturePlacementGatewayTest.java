@@ -46,7 +46,7 @@ class HttpSpatialFeaturePlacementGatewayTest {
         try {
             SpatialFeaturePreparationInput.Requirement requirement = new SpatialFeaturePreparationInput.Requirement(
                     featureId, SpatialFeatureType.TRAP, true, Set.of("document:source:7:asset:map-1"),
-                    DetectionSpec.passive("rulebook:perception", 15), Set.of(SpatialTrigger.ENTER_CELL));
+                    Set.of(new GridPosition(2, 3)), DetectionSpec.passive("rulebook:perception", 15), Set.of(SpatialTrigger.ENTER_CELL));
             CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()),
                     new RuleSetId(UUID.randomUUID()), new GridSpec(8, 8, 50, 5), List.of(), Set.of(), List.of());
             var proposal = new HttpSpatialFeaturePlacementGateway(HttpClient.newHttpClient(),
@@ -59,6 +59,7 @@ class HttpSpatialFeaturePlacementGatewayTest {
             assertEquals(featureId.toString(), request.path("requirements").get(0).path("featureId").asText());
             assertEquals("document:source:7:asset:map-1",
                     request.path("requirements").get(0).path("evidenceReferences").get(0).asText());
+            assertEquals("2,3", request.path("requirements").get(0).path("authoritativeCells").get(0).asText());
             assertEquals(featureId, proposal.candidates().getFirst().featureId());
             assertEquals(new GridPosition(2, 3), proposal.candidates().getFirst().cells().getFirst());
         } finally {

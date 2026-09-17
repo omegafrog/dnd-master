@@ -120,7 +120,8 @@ public class AiGameMasterController {
         var output = spatialFeaturePlacementPort.propose(new SpatialFeaturePlacementModelPort.PlacementInput(
                 request.storyPlanReference(), request.attempt(), request.previousFailureReasons(), request.gridWidth(),
                 request.gridHeight(), request.obstacles(), request.requirements().stream()
-                        .map(item -> new SpatialFeaturePlacementModelPort.Requirement(item.featureId(), item.type(), item.required(), item.evidenceReferences())).toList()));
+                        .map(item -> new SpatialFeaturePlacementModelPort.Requirement(item.featureId(), item.type(), item.required(),
+                                item.evidenceReferences(), item.authoritativeCells())).toList()));
         return new SpatialFeaturePlacementResponse(output.candidates().stream()
                 .map(item -> new Candidate(item.featureId(), item.type(), item.cells(), item.required(), item.evidenceReference())).toList());
     }
@@ -181,7 +182,8 @@ public class AiGameMasterController {
     public record SpatialFeaturePlacementRequest(String storyPlanReference, int attempt,
             List<String> previousFailureReasons, int gridWidth, int gridHeight, List<String> obstacles,
             List<Requirement> requirements) {
-        public record Requirement(UUID featureId, String type, boolean required, List<String> evidenceReferences) {}
+        public record Requirement(UUID featureId, String type, boolean required, List<String> evidenceReferences,
+                List<String> authoritativeCells) {}
     }
 
     public record SpatialFeaturePlacementResponse(List<Candidate> candidates) {}

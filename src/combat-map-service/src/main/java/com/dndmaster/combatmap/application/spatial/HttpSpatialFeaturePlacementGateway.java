@@ -86,9 +86,11 @@ public final class HttpSpatialFeaturePlacementGateway implements SpatialFeatureP
     private record Request(String storyPlanReference, int attempt, List<String> previousFailureReasons,
             int gridWidth, int gridHeight, List<String> obstacles, List<Requirement> requirements) {}
 
-    private record Requirement(UUID featureId, String type, boolean required, List<String> evidenceReferences) {
+    private record Requirement(UUID featureId, String type, boolean required, List<String> evidenceReferences,
+            List<String> authoritativeCells) {
         static Requirement from(SpatialFeaturePreparationInput.Requirement value) {
-            return new Requirement(value.featureId(), value.type().name(), value.required(), value.evidenceReferences().stream().toList());
+            return new Requirement(value.featureId(), value.type().name(), value.required(), value.evidenceReferences().stream().toList(),
+                    value.authoritativeCells().stream().map(cell -> cell.x() + "," + cell.y()).toList());
         }
     }
 }
