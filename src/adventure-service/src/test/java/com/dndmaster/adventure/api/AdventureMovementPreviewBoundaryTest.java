@@ -137,6 +137,25 @@ class AdventureMovementPreviewBoundaryTest {
         });
     }
 
+    @Test
+    void rejects_confirmed_move_with_a_malformed_path_before_preview() throws Exception {
+        AdventureController controller = controller(mock(AdventureRepository.class), mock(CombatMapPort.class),
+                mock(CombatMapViewPort.class), mock(AuthenticatedPlayerResolver.class));
+        var method = AdventureController.class.getDeclaredMethod("validateConfirmedMapPreview", Adventure.class,
+                UUID.class, AdventureController.MapActionPayload.class);
+        method.setAccessible(true);
+
+        InvocationTargetException thrown = assertThrows(InvocationTargetException.class, () -> method.invoke(controller,
+                mock(Adventure.class), UUID.randomUUID(), new AdventureController.MapActionPayload(
+                        UUID.randomUUID(), 0, UUID.randomUUID(), "MOVE", java.util.Arrays.asList(
+                                new AdventureController.PositionPayload(0, 0), null),
+                        null, null, List.of(), "preview")));
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> {
+            throw (ApiRequestGuard.ApiContractException) thrown.getCause();
+        });
+    }
+
     private static AdventureController controller(AdventureRepository adventures, CombatMapPort combatMap,
             CombatMapViewPort mapViews, AuthenticatedPlayerResolver playerResolver) {
         return new AdventureController(

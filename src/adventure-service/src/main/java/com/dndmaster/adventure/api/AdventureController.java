@@ -768,7 +768,9 @@ public class AdventureController {
         if (payload.fingerprint() == null || payload.fingerprint().isBlank()) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }
-        if (payload.path() == null || payload.path().size() < 2 || payload.tokenId() == null) {
+        if (payload.path() == null || payload.path().size() < 2 || payload.tokenId() == null
+                || payload.path().stream().anyMatch(AdventureController::invalidPreviewPosition)
+                || payload.location() != null && invalidPreviewPosition(payload.location())) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }
         PositionPayload destination = payload.location() == null ? payload.path().getLast() : payload.location();
