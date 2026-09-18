@@ -103,6 +103,16 @@ export type MapMovementPreview = {
   fingerprint: string
 }
 
+export type MapMovementResult = {
+  version: number
+  operationId?: string
+  status: 'PREPARING' | 'RETRY_WAIT' | 'READY_TO_COMMIT' | 'COMMITTED' | 'CANCELLED'
+  traversedPath: Array<{ x: number; y: number }>
+  finalPosition?: { x: number; y: number }
+  publicEvents: string[]
+  interruptionReason?: string
+}
+
 export type CombatResolutionStatus = 'RESOLVED' | 'PENDING_RULE_INPUT'
 export type DiceRollResponse = {
   rollId: string
@@ -130,7 +140,7 @@ export interface AdventurePlayApi {
   applyMapGridAlignment?(adventureId: string, alignment: MapGridAlignmentRequest): Promise<MapGridAlignment>
   updateCombatMapLayout?(adventureId: string, draft: CombatMapLayoutDraft): Promise<void>
   previewMapMovement?(adventureId: string, request: MapMovementPreviewRequest): Promise<MapMovementPreview>
-  submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number }>
+  submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -303,7 +313,7 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   }
 
   submitMapAction(adventureId: string, candidate: MapActionCandidate, command = createMapCommandIdentity(), expectedVersion = candidate.mapVersion) {
-    return request<{ turnId: string; version: number }>(`/api/v1/adventures/${adventureId}/turns`, {
+    return request<{ turnId: string; version: number; movementResult?: MapMovementResult }>(`/api/v1/adventures/${adventureId}/turns`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json', ...this.authHeaders(),
@@ -313,7 +323,7 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
         type: 'MAP_ACTION', mapId: candidate.mapId, mapVersion: candidate.mapVersion,
         action: JSON.stringify(candidate),
       } }),
-    }).then(result => ({ turnId: result.turnId, version: result.version }))
+    }).then(result => ({ turnId: result.turnId, version: result.version, movementResult: result.movementResult }))
   }
 }
 

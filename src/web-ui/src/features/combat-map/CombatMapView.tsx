@@ -161,7 +161,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     setSubmitting(true)
     try {
       if (!api.submitMapAction) throw new Error('맵 행동 API를 사용할 수 없습니다.')
-      await api.submitMapAction(adventureId, {
+      const turn = await api.submitMapAction(adventureId, {
         mapId: candidate.mapId, mapVersion: candidate.mapVersion, tokenId: candidate.tokenId,
         action: candidate.action, path: candidate.action === 'MOVE' ? (candidate.path ?? (candidate.from && candidate.to ? gridPath(candidate.from, candidate.to) : undefined)) : undefined,
         targetId: candidate.targetId, location: candidate.location ?? candidate.to,
@@ -169,7 +169,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         fingerprint: candidate.action === 'MOVE' ? candidate.fingerprint : undefined,
       }, undefined, map?.sessionVersion ?? map?.version ?? 0)
       const refreshed = await api.getCombatMap(adventureId)
-      if (candidate.action === 'MOVE' && map) await animateCommittedMovement(setMap, map, refreshed, candidate)
+      if (candidate.action === 'MOVE' && map && turn.movementResult?.status === 'COMMITTED') {
+        await animateCommittedMovement(setMap, map, refreshed, candidate.tokenId, turn.movementResult.traversedPath)
+      }
       else setMap(refreshed)
       setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
     } catch (error) {
@@ -503,15 +505,14 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
  * committed path in its fixed order, so a player never sees the final token or
  * fog state jump ahead of the traversed cells.
  */
-async function animateCommittedMovement(
+export async function animateCommittedMovement(
   apply: (next: CombatMapState | null | ((current: CombatMapState | null) => CombatMapState | null)) => void,
-  before: CombatMapState, committed: CombatMapState, candidate: MapInteractionCandidate,
+  before: CombatMapState, committed: CombatMapState, tokenId: string, traversedPath: Array<{ x: number; y: number }>,
 ) {
-  const path = candidate.path ?? []
-  if (path.length < 2) return
+  if (traversedPath.length < 2) { apply(committed); return }
   apply(before)
-  for (const cell of path.slice(1)) {
-    const committedToken = committed.tokens?.find(token => token.id === candidate.tokenId)
+  for (const cell of traversedPath.slice(1)) {
+    const committedToken = committed.tokens?.find(token => token.id === tokenId)
     if (!committedToken) break
     const visible = committed.current?.some(position => position.x === cell.x && position.y === cell.y)
     const explored = committed.explored?.some(position => position.x === cell.x && position.y === cell.y)
@@ -521,7 +522,7 @@ async function animateCommittedMovement(
       const exploredCells = current.explored ?? []
       return {
         ...current,
-        tokens: current.tokens?.map(token => token.id === candidate.tokenId ? { ...token, x: cell.x, y: cell.y } : token),
+        tokens: current.tokens?.map(token => token.id === tokenId ? { ...token, x: cell.x, y: cell.y } : token),
         current: visible && !currentCells.some(position => position.x === cell.x && position.y === cell.y)
           ? [...currentCells, cell] : currentCells,
         explored: explored && !exploredCells.some(position => position.x === cell.x && position.y === cell.y)

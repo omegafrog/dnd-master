@@ -4,8 +4,28 @@ import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { CharacterSheetView } from '../character/CharacterSheetView'
 import { RoleDiceRoller } from '../dice/RoleDiceRoller'
-import { HttpAdventurePlayApi, type AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
-import { boundariesInStroke, CombatMapView } from './CombatMapView'
+import { HttpAdventurePlayApi, type AdventurePlayApi, type CombatMapView as CombatMapState } from '../saved-adventures/AdventurePlayApi'
+import { animateCommittedMovement, boundariesInStroke, CombatMapView } from './CombatMapView'
+
+it('animates only the server committed traversed path', async () => {
+  vi.useFakeTimers()
+  const before: CombatMapState = { adventureId: 'a1', status: 'map', mapId: 'm1', version: 0,
+    tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }], current: [], explored: [] }
+  const committed = { ...before, version: 1, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 0 }] }
+  let current: CombatMapState = before
+  const frames: Array<{ x: number; y: number }> = []
+  const animation = animateCommittedMovement(next => {
+    current = typeof next === 'function' ? next(current) ?? current : next ?? current
+    const token = current.tokens?.find(value => value.id === 'p1')
+    if (token) frames.push({ x: token.x, y: token.y })
+  }, before, committed, 'p1', [{ x: 1, y: 1 }, { x: 1, y: 0 }])
+  await vi.runAllTimersAsync()
+  await animation
+
+  expect(frames).toContainEqual({ x: 1, y: 0 })
+  expect(frames).not.toContainEqual({ x: 2, y: 1 })
+  vi.useRealTimers()
+})
 
 function fakeApi(): AdventurePlayApi {
   const submitMapAction = vi.fn(async () => ({ turnId: 't1', version: 1 }))
