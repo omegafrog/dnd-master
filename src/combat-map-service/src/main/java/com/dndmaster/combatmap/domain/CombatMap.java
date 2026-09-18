@@ -52,6 +52,25 @@ public final class CombatMap {
         }
         token.moveTo(path.orderedPositions().getLast());
     }
+    public GridPosition playerTokenPosition(PlayerId playerId, TokenId tokenId) {
+        CombatToken token = tokens.stream().filter(candidate -> candidate.id().equals(tokenId)).findFirst()
+                .orElseThrow(() -> new CombatMapMovementDeniedException("token not found"));
+        if (token.type() != TokenType.PLAYER || token.controller() != TokenController.PLAYER
+                || !token.ownerPlayerId().orElseThrow().equals(playerId)) {
+            throw new CombatMapMovementDeniedException("player may move only own PLAYER token");
+        }
+        return token.position();
+    }
+    public boolean isPublicTraversable(GridPosition position) {
+        boolean known = visibilitySnapshot == null
+                || visibilitySnapshot.current().contains(position) || visibilitySnapshot.explored().contains(position);
+        return known && grid.contains(position) && isPlayable(position) && !obstacles.contains(position)
+                && doors.stream().noneMatch(door -> door.position().equals(position) && !door.open());
+    }
+    public boolean publiclyTraversableBetween(GridPosition from, GridPosition to) {
+        return isPublicTraversable(from) && isPublicTraversable(to)
+                && boundaries().stream().noneMatch(boundary -> boundary.blocks(from, to));
+    }
     public void markPersisted(long version, UUID operationKey, String operationFingerprint) {
         if (version < 0) throw new IllegalArgumentException("version must not be negative");
         this.version = version;

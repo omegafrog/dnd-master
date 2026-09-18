@@ -85,6 +85,22 @@ export type MapActionCandidate = {
   location?: { x: number; y: number }
 }
 
+export type MapMovementPreviewRequest = {
+  mapId: string
+  mapVersion: number
+  tokenId: string
+  destination: { x: number; y: number }
+  waypoints?: Array<{ x: number; y: number }>
+}
+
+export type MapMovementPreview = {
+  mapId: string
+  orderedPositions: Array<{ x: number; y: number }>
+  distance: number
+  baseMapVersion: number
+  fingerprint: string
+}
+
 export type CombatResolutionStatus = 'RESOLVED' | 'PENDING_RULE_INPUT'
 export type DiceRollResponse = {
   rollId: string
@@ -111,6 +127,7 @@ export interface AdventurePlayApi {
   getMapGridAlignment?(adventureId: string): Promise<MapGridAlignment>
   applyMapGridAlignment?(adventureId: string, alignment: MapGridAlignmentRequest): Promise<MapGridAlignment>
   updateCombatMapLayout?(adventureId: string, draft: CombatMapLayoutDraft): Promise<void>
+  previewMapMovement?(adventureId: string, request: MapMovementPreviewRequest): Promise<MapMovementPreview>
   submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number }>
 }
 
@@ -274,6 +291,12 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   updateCombatMapLayout(adventureId: string, draft: CombatMapLayoutDraft) {
     return request<void>(`/api/v1/adventures/${adventureId}/combat-map/layout`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(draft),
+    })
+  }
+
+  previewMapMovement(adventureId: string, preview: MapMovementPreviewRequest) {
+    return request<MapMovementPreview>(`/api/v1/adventures/${adventureId}/combat-map/movement-preview`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(preview),
     })
   }
 

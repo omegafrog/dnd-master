@@ -947,6 +947,12 @@ public class AdventureApiConfiguration {
             public CombatMapMoveResult move(CombatMapMoveCommand command) {
                 return gateway.move(command);
             }
+
+            @Override
+            public com.dndmaster.adventure.application.combat.CombatMapPreviewResult preview(
+                    com.dndmaster.adventure.application.combat.CombatMapPreviewCommand command) {
+                return gateway.preview(command);
+            }
         };
     }
 

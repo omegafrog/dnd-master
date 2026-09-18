@@ -513,6 +513,28 @@ it('submits exactly one typed map action after confirmation', async () => {
   expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }), undefined, 7)
 })
 
+it('shows the server preview path and ghost destination before confirmation', async () => {
+  const api = fakeApi()
+  api.previewMapMovement = vi.fn().mockResolvedValue({
+    mapId: 'm1', orderedPositions: [{ x: 1, y: 1 }, { x: 1, y: 0 }, { x: 2, y: 1 }],
+    distance: 10, baseMapVersion: 0, fingerprint: 'preview-1',
+  })
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} />)
+  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+
+  await waitFor(() => expect(document.querySelector('[data-ghost-token="true"]')).toBeTruthy())
+  expect(document.querySelectorAll('[data-movement-preview="true"]').length).toBe(3)
+  expect(api.previewMapMovement).toHaveBeenCalledWith('a1', expect.objectContaining({
+    mapId: 'm1', mapVersion: 0, tokenId: 'p1', destination: { x: 2, y: 1 }, waypoints: [],
+  }))
+  await user.click(screen.getByRole('button', { name: '확인' }))
+  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({
+    path: [{ x: 1, y: 1 }, { x: 1, y: 0 }, { x: 2, y: 1 }],
+  }), undefined, 7)
+})
+
 it('reconciles a committed move when the turn response reports a conflict', async () => {
   const api = fakeApi()
   const user = userEvent.setup()

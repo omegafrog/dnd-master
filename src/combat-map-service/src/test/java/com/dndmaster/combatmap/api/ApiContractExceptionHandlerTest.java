@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationCommandConflictException;
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationVersionConflictException;
+import com.dndmaster.combatmap.application.movement.CombatMapMovementStaleException;
 import org.junit.jupiter.api.Test;
 
 class ApiContractExceptionHandlerTest {
@@ -27,5 +28,13 @@ class ApiContractExceptionHandlerTest {
         assertEquals("SPATIAL_PREPARATION_COMMAND_CONFLICT", command.getBody().code());
         assertEquals(409, version.getStatusCode().value());
         assertEquals("SPATIAL_PREPARATION_VERSION_CONFLICT", version.getBody().code());
+    }
+
+    @Test
+    void maps_stale_movement_preview_to_a_typed_conflict() {
+        var response = new ApiContractExceptionHandler().handle(new CombatMapMovementStaleException());
+
+        assertEquals(409, response.getStatusCode().value());
+        assertEquals("STALE_MOVEMENT_PROPOSAL", response.getBody().code());
     }
 }

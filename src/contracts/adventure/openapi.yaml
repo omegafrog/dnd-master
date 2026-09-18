@@ -136,3 +136,22 @@ paths:
     get: { operationId: rollConditions, responses: { '200': { description: conditions } } }
   /internal/v1/adventures/{adventureId}/movement-validations:
     post: { operationId: validateMovement, responses: { '200': { description: validation } } }
+  /api/v1/adventures/{adventureId}/combat-map/movement-preview:
+    post:
+      operationId: previewAdventureMapMovement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mapId, mapVersion, tokenId, destination]
+              properties:
+                mapId: { type: string, format: uuid }
+                mapVersion: { type: integer, format: int64, minimum: 0 }
+                tokenId: { type: string, format: uuid }
+                destination: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } }
+                waypoints: { type: array, items: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } } }
+      responses:
+        '200': { description: public deterministic movement preview }
+        '409': { description: stale map version or invalid movement }

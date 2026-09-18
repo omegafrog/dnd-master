@@ -7,10 +7,13 @@ import com.dndmaster.adventure.application.combat.AiCombatPort;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
+import com.dndmaster.adventure.application.combat.CombatMapPreviewCommand;
+import com.dndmaster.adventure.application.combat.CombatMapPreviewPosition;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import java.util.UUID;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 import com.sun.net.httpserver.HttpServer;
@@ -93,6 +96,45 @@ class AdventureApiConfigurationTest {
 
             assertEquals("/internal/v1/combat-maps/" + mapId + "/moves", requestPath.get());
             assertEquals("test-token", requestToken.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void wires_player_public_movement_preview_to_combat_map_gateway() throws Exception {
+        AtomicReference<String> requestPath = new AtomicReference<>();
+        AtomicReference<String> requestToken = new AtomicReference<>();
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        UUID mapId = UUID.randomUUID();
+        server.createContext("/", exchange -> {
+            requestPath.set(exchange.getRequestURI().getPath());
+            requestToken.set(exchange.getRequestHeaders().getFirst("X-Internal-Token"));
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            byte[] response = ("{\"orderedPositions\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}],\"distance\":5,\"baseMapVersion\":3,\"fingerprint\":\"fp\"}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
+            UUID ownerId = UUID.randomUUID();
+            UUID tokenId = UUID.randomUUID();
+            var result = configured.preview(new CombatMapPreviewCommand(mapId, ownerId, tokenId,
+                    new CombatMapPreviewPosition(2, 1), List.of(new CombatMapPreviewPosition(1, 1)),
+                    "DND_5E_2024", 3));
+
+            assertEquals("/internal/v1/combat-maps/" + mapId + "/movement-previews", requestPath.get());
+            assertEquals("test-token", requestToken.get());
+            assertTrue(requestBody.get().contains(ownerId.toString()));
+            assertTrue(requestBody.get().contains("\"waypoints\":[{\"x\":1,\"y\":1}]"));
+            assertEquals(5, result.distance());
+            assertEquals(3, result.baseMapVersion());
+            assertEquals("fp", result.fingerprint());
         } finally {
             server.stop(0);
         }

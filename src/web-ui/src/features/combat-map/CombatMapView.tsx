@@ -11,6 +11,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [candidate, setCandidate] = useState<MapInteractionCandidate | null>(null)
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
+  const [waypointMode, setWaypointMode] = useState(false)
   const [locationMode, setLocationMode] = useState(false)
   const [gridEditor, setGridEditor] = useState(false)
   const [gridMessage, setGridMessage] = useState('')
@@ -97,7 +99,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     return () => { active = false }
   }, [adventureId, api, preparationMode, refreshToken])
 
-  function chooseCell(cell: { x: number; y: number }) {
+  async function chooseCell(cell: { x: number; y: number }) {
     if (!map || !selectedToken) return
     const token = map.tokens?.find(item => item.id === selectedToken)
     if (!token || (token.x === cell.x && token.y === cell.y)) {
@@ -106,18 +108,48 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       }
       return
     }
-    setCandidate(moveCandidate(map.mapId ?? '', map.version ?? 0, token.id, { x: token.x, y: token.y }, cell))
+    const current = candidate?.action === 'MOVE' && candidate.tokenId === token.id ? candidate : null
+    if (current && waypointMode) {
+      const waypoints = [...(current.waypoints ?? []), cell]
+      if (current.to) await previewMovement(token.id, current.to, waypoints, current)
+      return
+    }
+    const next = moveCandidate(map.mapId ?? '', map.version ?? 0, token.id, { x: token.x, y: token.y }, cell)
+    setCandidate(next)
+    await previewMovement(token.id, cell, [], next)
+  }
+
+  async function previewMovement(tokenId: string, destination: { x: number; y: number }, waypoints: { x: number; y: number }[], base: MapInteractionCandidate, sourceMap = map) {
+    if (!sourceMap?.mapId) return
+    setPreviewing(true)
+    try {
+      const preview = api.previewMapMovement
+        ? await api.previewMapMovement(adventureId, { mapId: sourceMap.mapId, mapVersion: sourceMap.version ?? 0, tokenId, destination, waypoints })
+        : { mapId: sourceMap.mapId, orderedPositions: fallbackMovementPath(base.from ?? destination, waypoints, destination), distance: (fallbackMovementPath(base.from ?? destination, waypoints, destination).length - 1) * 5, baseMapVersion: sourceMap.version ?? 0, fingerprint: 'local-preview' }
+      setCandidate(current => current === base || (current?.tokenId === tokenId && current?.action === 'MOVE')
+        ? { ...base, mapVersion: preview.baseMapVersion, path: preview.orderedPositions, distance: preview.distance, fingerprint: preview.fingerprint, waypoints }
+        : current)
+      setMessage(`이동 경로를 미리 보았습니다. 거리: ${preview.distance}`)
+    } catch (error) {
+      setCandidate(current => current === base ? null : current)
+      setMessage(error instanceof Error ? error.message : '이동 경로를 미리 보지 못했습니다.')
+    } finally { setPreviewing(false) }
   }
 
   async function confirm() {
     if (!candidate) return
     if (submitting) return
+    if (candidate.action === 'MOVE' && candidate.mapVersion !== (map?.version ?? candidate.mapVersion)) {
+      if (candidate.to) await previewMovement(candidate.tokenId, candidate.to, candidate.waypoints ?? [], candidate)
+      setMessage('지도 상태가 바뀌었습니다. 최신 이동 경로를 다시 확인해주세요.')
+      return
+    }
     setSubmitting(true)
     try {
       if (!api.submitMapAction) throw new Error('맵 행동 API를 사용할 수 없습니다.')
       await api.submitMapAction(adventureId, {
         mapId: candidate.mapId, mapVersion: candidate.mapVersion, tokenId: candidate.tokenId,
-        action: candidate.action, path: candidate.from && candidate.to ? gridPath(candidate.from, candidate.to) : undefined,
+        action: candidate.action, path: candidate.action === 'MOVE' ? (candidate.path ?? (candidate.from && candidate.to ? gridPath(candidate.from, candidate.to) : undefined)) : undefined,
         targetId: candidate.targetId, location: candidate.location ?? candidate.to,
       }, undefined, map?.sessionVersion ?? map?.version ?? 0)
       const refreshed = await api.getCombatMap(adventureId)
@@ -127,6 +159,15 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       // a concurrent-version response. Reconcile that response with the
       // authoritative map before showing an error to the player.
       const status = error && typeof error === 'object' && 'status' in error ? (error as { status?: unknown }).status : undefined
+      if (status === 409 && candidate.action === 'MOVE' && candidate.to && api.previewMapMovement) {
+        try {
+          const refreshed = await api.getCombatMap(adventureId)
+          setMap(refreshed)
+          await previewMovement(candidate.tokenId, candidate.to, candidate.waypoints ?? [], { ...candidate, mapVersion: refreshed.version ?? 0 }, refreshed)
+          setMessage('지도 상태가 바뀌었습니다. 최신 이동 경로를 다시 확인하고 확인해주세요.')
+          return
+        } catch { /* preserve the original request error */ }
+      }
       if (status === 409 && candidate.action === 'MOVE' && candidate.to) {
         try {
           const refreshed = await api.getCombatMap(adventureId)
@@ -374,9 +415,11 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           const visible = playable && (preparationMode || (map.current?.some(item => item.x === cell.x && item.y === cell.y)
             ?? (!hasVisibilityMetadata && token?.type === 'PLAYER')))
           const explored = playable && (map.explored?.some(item => item.x === cell.x && item.y === cell.y) ?? false)
+          const movementPreview = !preparationMode && candidate?.action === 'MOVE' && candidate.path?.some(position => position.x === cell.x && position.y === cell.y)
+          const ghostDestination = movementPreview && candidate?.to?.x === cell.x && candidate.to.y === cell.y
           const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
-          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible)} draggable={!preparationMode && token?.type === 'PLAYER'} onDragStart={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id); else if (!preparationMode) chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
-            {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
+          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-movement-preview={movementPreview ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible)} draggable={!preparationMode && token?.type === 'PLAYER'} onDragStart={() => { if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && token?.type === 'PLAYER') setSelectedToken(token.id); else if (!preparationMode) void chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => { void chooseCell(cell) }}>
+            {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : ghostDestination ? '유령 토큰' : visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
           </button>
           })}
           {mapBoundaries.map(boundary => <span key={`boundary-${boundary.x}-${boundary.y}-${boundary.orientation}`} aria-hidden="true" className={`map-boundary map-boundary-${boundary.kind.toLowerCase()}`} data-boundary={`${boundary.orientation}:${boundary.x}:${boundary.y}`} style={boundaryStyle(boundary, previewGrid.width, previewGrid.height)} />)}
@@ -430,7 +473,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {!layoutEditing && tacticalMap}
       {map?.tokens?.filter(token => token.type !== 'PLAYER' && !token.lastSeen && map.current?.some(cell => cell.x === token.x && cell.y === token.y)).map(token => <button key={`target-${token.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'TARGET', { x: token.x, y: token.y }, token.id)) }}>대상 선택: {token.type}</button>)}
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}
-      {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p><button type="button" disabled={submitting} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting} onClick={() => { setCandidate(null); setSelectedToken(null) }}>취소</button></div>}
+      {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p>{candidate.action === 'MOVE' && <><p>경로 칸: {candidate.path?.length ?? 0} · 거리: {candidate.distance ?? 0}</p><button type="button" disabled={submitting || previewing} onClick={() => setWaypointMode(current => !current)}>{waypointMode ? '경유 지점 조정 끝내기' : '경유 지점 추가'}</button>{waypointMode && <p>지도에서 경유할 칸을 눌러 경로를 조정하세요.</p>}</>}<button type="button" disabled={submitting || previewing} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting || previewing} onClick={() => { setCandidate(null); setSelectedToken(null); setWaypointMode(false) }}>취소</button></div>}
       <p role="status">{message}</p>
       {preparationMode && <button type="button" disabled={preparationStarting || layoutSaving || layoutDirty || !gridConfirmed || !layoutSaved || !onPreparationComplete} aria-busy={preparationStarting} onClick={() => void completePreparation()}>{preparationStarting ? '모험 시작 요청 중…' : '맵 준비 완료, 모험 시작'}</button>}
     </section>
@@ -445,6 +488,11 @@ function gridPath(from: { x: number; y: number }, to: { x: number; y: number }) 
     path.push({ ...current })
   }
   return path
+}
+
+function fallbackMovementPath(from: { x: number; y: number }, waypoints: { x: number; y: number }[], to: { x: number; y: number }) {
+  const stops = [...waypoints, to]
+  return stops.reduce((path, stop) => [...path, ...gridPath(path[path.length - 1], stop).slice(1)], [{ ...from }])
 }
 
 function isPlayableGridCell(map: CombatMapState | null, grid: { originX?: number; originY?: number; cellSize?: number }, cell: { x: number; y: number }) {

@@ -3,6 +3,8 @@ package com.dndmaster.combatmap.api;
 import com.dndmaster.combatmap.application.view.MapPlacementRequiredException;
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationCommandConflictException;
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationVersionConflictException;
+import com.dndmaster.combatmap.domain.CombatMapMovementDeniedException;
+import com.dndmaster.combatmap.application.movement.CombatMapMovementStaleException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -29,6 +31,16 @@ public final class ApiContractExceptionHandler {
     @ExceptionHandler(SpatialPreparationVersionConflictException.class)
     ResponseEntity<ErrorResponse> handle(SpatialPreparationVersionConflictException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("SPATIAL_PREPARATION_VERSION_CONFLICT"));
+    }
+
+    @ExceptionHandler(CombatMapMovementDeniedException.class)
+    ResponseEntity<ErrorResponse> handle(CombatMapMovementDeniedException exception) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(new ErrorResponse("MOVEMENT_NOT_ALLOWED"));
+    }
+
+    @ExceptionHandler(CombatMapMovementStaleException.class)
+    ResponseEntity<ErrorResponse> handle(CombatMapMovementStaleException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("STALE_MOVEMENT_PROPOSAL"));
     }
 
     record ErrorResponse(String code) {}

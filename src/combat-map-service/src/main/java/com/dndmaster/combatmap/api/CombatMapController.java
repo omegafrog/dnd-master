@@ -2,6 +2,8 @@ package com.dndmaster.combatmap.api;
 
 import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
 import com.dndmaster.combatmap.application.movement.MovePlayerTokenCommand;
+import com.dndmaster.combatmap.application.movement.MovementPreview;
+import com.dndmaster.combatmap.application.movement.MovementPreviewRequest;
 import com.dndmaster.combatmap.application.view.CombatMapViewService;
 import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.PlayerCombatMapView;
@@ -359,6 +361,25 @@ public class CombatMapController {
         }
     }
 
+    @PostMapping("/internal/v1/combat-maps/{mapId}/movement-previews")
+    public MovementPreviewResponse previewMovement(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) MovementPreviewRequestBody request) {
+        requestGuard.internal(token);
+        requireRequest(request, "movement preview request is required");
+        if (request.playerId() == null || request.tokenId() == null || request.destination() == null
+                || request.appliedEdition() == null || request.appliedEdition().isBlank()) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "movement preview request is incomplete");
+        }
+        MovementPreview preview = movementService.preview(new MovementPreviewRequest(
+                new MapId(mapId), new PlayerId(request.playerId()), new TokenId(request.tokenId()),
+                new GridPosition(request.destination().x(), request.destination().y()),
+                request.waypoints() == null ? List.of() : request.waypoints().stream().map(position -> new GridPosition(position.x(), position.y())).toList(),
+                request.appliedEdition(), request.expectedVersion()));
+        return MovementPreviewResponse.from(mapId, preview);
+    }
+
     public CombatMapMoveResponse movePlayer(UUID mapId, String token, MoveRequest request) {
         return movePlayerInternal(mapId, token, request == null ? null : request.commandId().toString(), request);
     }
@@ -471,6 +492,9 @@ public class CombatMapController {
             List<PositionRequest> positions, int distance,
             String appliedEdition, UUID commandId, long expectedVersion) {}
 
+    public record MovementPreviewRequestBody(UUID playerId, UUID tokenId, PositionRequest destination,
+            List<PositionRequest> waypoints, String appliedEdition, long expectedVersion) {}
+
     public record PositionRequest(int x, int y) {}
 
     public record AiStateRequest(
@@ -553,6 +577,15 @@ public class CombatMapController {
 
     public record CombatMapMoveResponse(UUID mapId, long version) {
         public CombatMapMoveResponse(UUID mapId) { this(mapId, 0); }
+    }
+
+    public record MovementPreviewResponse(UUID mapId, List<PositionRequest> orderedPositions,
+            int distance, long baseMapVersion, String fingerprint) {
+        static MovementPreviewResponse from(UUID mapId, MovementPreview preview) {
+            return new MovementPreviewResponse(mapId, preview.orderedPositions().stream()
+                    .map(position -> new PositionRequest(position.x(), position.y())).toList(),
+                    preview.distance(), preview.baseMapVersion(), preview.fingerprint());
+        }
     }
 
     public record CombatMapAiStateResponse(UUID mapId) {}

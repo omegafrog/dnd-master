@@ -187,6 +187,38 @@ paths:
                   mapId: { type: string, format: uuid }
                   version: { type: integer, format: int64, minimum: 0 }
         '422': { description: movement denied }
+  /internal/v1/combat-maps/{mapId}/movement-previews:
+    post:
+      operationId: previewPlayerMovement
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [playerId, tokenId, destination, appliedEdition, expectedVersion]
+              properties:
+                playerId: { type: string, format: uuid }
+                tokenId: { type: string, format: uuid }
+                destination:
+                  type: object
+                  required: [x, y]
+                  properties:
+                    x: { type: integer, minimum: 0 }
+                    y: { type: integer, minimum: 0 }
+                waypoints: { type: array, items: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } } }
+                appliedEdition: { type: string, minLength: 1 }
+                expectedVersion: { type: integer, format: int64, minimum: 0 }
+      responses:
+        '200': { description: deterministic public movement preview }
+        '401': { description: internal service authorization required }
+        '409': { description: stale map version }
+        '422': { description: movement destination or path is not allowed }
   /internal/v1/combat-maps/{mapId}/ai-state:
     post:
       operationId: controlAiState

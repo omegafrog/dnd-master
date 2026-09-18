@@ -204,6 +204,34 @@ public final class CrossContextHttpCombatGateway
         return new CombatMapMoveResult(mapVersion(response, moveCommand.expectedVersion()));
     }
 
+    @Override
+    public CombatMapPreviewResult preview(CombatMapPreviewCommand previewCommand) {
+        PreviewRequest request = new PreviewRequest(previewCommand.ownerPlayerId(), previewCommand.tokenId(),
+                new PositionRequest(previewCommand.destination().x(), previewCommand.destination().y()),
+                previewCommand.waypoints().stream().map(position -> new PositionRequest(position.x(), position.y())).toList(),
+                previewCommand.appliedEdition(), previewCommand.expectedVersion());
+        try {
+            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve(
+                            "internal/v1/combat-maps/" + previewCommand.mapId() + "/movement-previews"))
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request))).build();
+            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("combat map movement preview failed with status " + response.statusCode());
+            }
+            PreviewResponse result = objectMapper.readValue(response.body(), PreviewResponse.class);
+            return new CombatMapPreviewResult(previewCommand.mapId(), result.orderedPositions().stream()
+                    .map(position -> new CombatMapPreviewPosition(position.x(), position.y())).toList(),
+                    result.distance(), result.baseMapVersion(), result.fingerprint());
+        } catch (IOException exception) {
+            throw new CrossContextCallException("combat map movement preview transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("combat map movement preview interrupted", exception);
+        }
+    }
+
     private static int movementDistance(CombatActionCommand command) {
         return command.movementPath() == null ? 0 : Math.max(0, movementPositions(command.movementPath()).size() - 1) * GRID_DISTANCE_UNIT;
     }
@@ -343,6 +371,9 @@ public final class CrossContextHttpCombatGateway
     private record MoveRequest(
             java.util.UUID playerId, java.util.UUID tokenId, List<PositionRequest> positions, int distance,
             String appliedEdition, java.util.UUID commandId, long expectedVersion) {}
+    private record PreviewRequest(java.util.UUID playerId, java.util.UUID tokenId, PositionRequest destination,
+            List<PositionRequest> waypoints, String appliedEdition, long expectedVersion) {}
+    private record PreviewResponse(List<PositionRequest> orderedPositions, int distance, long baseMapVersion, String fingerprint) {}
     private record PositionRequest(int x, int y) {}
     private record AiStateRequest(
             java.util.UUID ownerId, java.util.UUID tokenId, int x, int y, java.util.UUID commandId,

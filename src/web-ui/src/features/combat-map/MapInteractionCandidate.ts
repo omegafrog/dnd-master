@@ -9,6 +9,10 @@ export type MapInteractionCandidate = {
   action: 'MOVE' | 'INTERACT' | 'TARGET' | 'LOCATION'
   targetId?: string
   location?: GridCell
+  path?: GridCell[]
+  distance?: number
+  fingerprint?: string
+  waypoints?: GridCell[]
 }
 
 export function actionCandidate(mapId: string, mapVersion: number, tokenId: string, action: MapInteractionCandidate['action'], location?: GridCell, targetId?: string): MapInteractionCandidate {
@@ -16,5 +20,5 @@ export function actionCandidate(mapId: string, mapVersion: number, tokenId: stri
 }
 
 export function moveCandidate(mapId: string, mapVersion: number, tokenId: string, from: GridCell, to: GridCell): MapInteractionCandidate {
-  return { mapId, mapVersion, tokenId, from, to, action: 'MOVE' }
+  return { mapId, mapVersion, tokenId, from, to, action: 'MOVE', waypoints: [] }
 }

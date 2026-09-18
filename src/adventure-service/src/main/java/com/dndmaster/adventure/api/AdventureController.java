@@ -32,6 +32,9 @@ import java.util.Objects;
 import java.util.UUID;
 import com.dndmaster.adventure.domain.runtime.GmTurn;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
+import com.dndmaster.adventure.application.combat.CombatMapPreviewCommand;
+import com.dndmaster.adventure.application.combat.CombatMapPreviewPosition;
+import com.dndmaster.adventure.application.combat.CombatMapPreviewResult;
 import com.dndmaster.adventure.application.combat.CharacterCombatPort;
 import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
 import com.dndmaster.adventure.application.combat.CombatActionApplicationService;
@@ -295,6 +298,24 @@ public class AdventureController {
                 .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), null));
     }
 
+    @PostMapping("/api/v1/adventures/{adventureId}/combat-map/movement-preview")
+    CombatMapMovementPreviewResponse previewMovement(@PathVariable UUID adventureId,
+            @RequestBody CombatMapMovementPreviewRequest request) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        }
+        if (request == null || request.mapId() == null || request.tokenId() == null || request.destination() == null) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_PREVIEW");
+        }
+        CombatMapPreviewResult preview = combatMapPort.preview(new CombatMapPreviewCommand(
+                request.mapId(), owner, request.tokenId(), toPreviewPosition(request.destination()),
+                request.waypoints() == null ? List.of() : request.waypoints().stream().map(AdventureController::toPreviewPosition).toList(),
+                "DND_5E_2024", request.mapVersion()));
+        return CombatMapMovementPreviewResponse.from(preview);
+    }
+
     private void activatePreparedMap(Adventure adventure, RuntimeTurnResult result) {
         var situation = adventure.currentSituation();
         UUID playerTokenId = adventure.party().stream().findFirst()
@@ -537,7 +558,24 @@ public class AdventureController {
     @PostMapping("/internal/v1/adventures/{adventureId}/movement-validations")
     MovementValidationResponse validateMovement(
             @PathVariable UUID adventureId, @RequestBody MovementValidationRequest request) {
-        return new MovementValidationResponse(adventureId, true, "valid");
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (request == null || request.tokenId() == null) return new MovementValidationResponse(adventureId, false, "invalid");
+        try {
+            var view = combatMapViewPort.playerView(adventureId, adventure.ownerPlayerId().value()).orElseThrow();
+            UUID mapId = request.mapId() == null ? view.mapId() : request.mapId();
+            long mapVersion = request.mapVersion() == null ? view.version() : request.mapVersion();
+            combatMapPort.preview(new CombatMapPreviewCommand(mapId, adventure.ownerPlayerId().value(), request.tokenId(),
+                    new CombatMapPreviewPosition(request.x(), request.y()),
+                    request.waypoints() == null ? List.of() : request.waypoints().stream().map(AdventureController::toPreviewPosition).toList(),
+                    "DND_5E_2024", mapVersion));
+            return new MovementValidationResponse(adventureId, true, "valid");
+        } catch (RuntimeException invalid) {
+            return new MovementValidationResponse(adventureId, false, "invalid");
+        }
+    }
+
+    private static CombatMapPreviewPosition toPreviewPosition(PositionPayload position) {
+        return new CombatMapPreviewPosition(position.x(), position.y());
     }
 
     public record GmTurnRequest(UUID turnId, GmInputRequest input) {}
@@ -750,6 +788,21 @@ public class AdventureController {
     public record AdventureSummaryResponse(UUID adventureId, String status, long version, UUID sessionId, UUID scenarioBundleId) {}
     public record EditionResponse(UUID adventureId, String edition) {}
     public record RollConditionsResponse(UUID adventureId, String conditions) {}
-    public record MovementValidationRequest(UUID tokenId, int x, int y) {}
+    public record CombatMapMovementPreviewRequest(UUID mapId, long mapVersion, UUID tokenId,
+            PositionPayload destination, List<PositionPayload> waypoints) {}
+    public record CombatMapMovementPreviewResponse(UUID mapId, List<PositionPayload> orderedPositions,
+            int distance, long baseMapVersion, String fingerprint) {
+        static CombatMapMovementPreviewResponse from(CombatMapPreviewResult preview) {
+            return new CombatMapMovementPreviewResponse(preview.mapId(), preview.orderedPositions().stream()
+                    .map(position -> new PositionPayload(position.x(), position.y())).toList(),
+                    preview.distance(), preview.baseMapVersion(), preview.fingerprint());
+        }
+    }
+    public record MovementValidationRequest(UUID tokenId, int x, int y, UUID mapId, Long mapVersion,
+            List<PositionPayload> waypoints) {
+        public MovementValidationRequest(UUID tokenId, int x, int y) {
+            this(tokenId, x, y, null, null, List.of());
+        }
+    }
     public record MovementValidationResponse(UUID adventureId, boolean valid, String reason) {}
 }

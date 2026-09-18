@@ -10,6 +10,11 @@ public interface CombatMapPort {
         return new CombatMapMoveResult(command.action().expectedVersion() + 1);
     }
 
+    /** Validates a player destination without changing Combat Map state. */
+    default CombatMapPreviewResult preview(CombatMapPreviewCommand command) {
+        throw new UnsupportedOperationException("combat map movement preview is unavailable");
+    }
+
     /** Terminal map-owner boundary; map state remains owned by Combat Map. */
     default void commitFinalState(CombatFinalizationCommand command) {}
 }
