@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.combat.AiCombatPort;
@@ -9,6 +10,7 @@ import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewPosition;
+import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
@@ -135,6 +137,30 @@ class AdventureApiConfigurationTest {
             assertEquals(5, result.distance());
             assertEquals(3, result.baseMapVersion());
             assertEquals("fp", result.fingerprint());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void preserves_stale_preview_status_for_the_adventure_boundary() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/", exchange -> {
+            byte[] response = "{\"code\":\"STALE_MOVEMENT_PROPOSAL\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(409, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
+            var exception = assertThrows(CombatMapMovementPreviewRejectedException.class, () -> configured.preview(
+                    new CombatMapPreviewCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                            new CombatMapPreviewPosition(1, 1), List.of(), "DND_5E_2024", 3)));
+
+            assertEquals(409, exception.status());
+            assertEquals("STALE_MOVEMENT_PROPOSAL", exception.code());
         } finally {
             server.stop(0);
         }

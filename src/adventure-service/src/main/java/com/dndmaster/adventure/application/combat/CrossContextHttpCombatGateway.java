@@ -218,6 +218,9 @@ public final class CrossContextHttpCombatGateway
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request))).build();
             HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                if (response.statusCode() == 409 || response.statusCode() == 422) {
+                    throw new CombatMapMovementPreviewRejectedException(response.statusCode(), previewErrorCode(response.body()));
+                }
                 throw new CrossContextCallException("combat map movement preview failed with status " + response.statusCode());
             }
             PreviewResponse result = objectMapper.readValue(response.body(), PreviewResponse.class);
@@ -229,6 +232,16 @@ public final class CrossContextHttpCombatGateway
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new CrossContextCallException("combat map movement preview interrupted", exception);
+        }
+    }
+
+    private String previewErrorCode(String responseBody) {
+        try {
+            JsonNode body = objectMapper.readTree(responseBody == null ? "" : responseBody);
+            String code = body == null ? "" : body.path("code").asText();
+            return code.isBlank() ? "MOVEMENT_PREVIEW_REJECTED" : code;
+        } catch (IOException ignored) {
+            return "MOVEMENT_PREVIEW_REJECTED";
         }
     }
 

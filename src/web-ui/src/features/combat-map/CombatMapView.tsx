@@ -33,6 +33,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [preparationStarting, setPreparationStarting] = useState(false)
   const [selectedPlayerStart, setSelectedPlayerStart] = useState<{ x: number; y: number } | null>(null)
   const boundaryStroke = useRef<BoundaryStroke | null>(null)
+  const previewSequence = useRef(0)
   const [boundaryPreview, setBoundaryPreview] = useState<BoundaryStroke | null>(null)
 
   useEffect(() => () => {
@@ -121,19 +122,23 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
 
   async function previewMovement(tokenId: string, destination: { x: number; y: number }, waypoints: { x: number; y: number }[], base: MapInteractionCandidate, sourceMap = map) {
     if (!sourceMap?.mapId) return
+    const sequence = previewSequence.current + 1
+    previewSequence.current = sequence
     setPreviewing(true)
     try {
       const preview = api.previewMapMovement
         ? await api.previewMapMovement(adventureId, { mapId: sourceMap.mapId, mapVersion: sourceMap.version ?? 0, tokenId, destination, waypoints })
         : { mapId: sourceMap.mapId, orderedPositions: fallbackMovementPath(base.from ?? destination, waypoints, destination), distance: (fallbackMovementPath(base.from ?? destination, waypoints, destination).length - 1) * 5, baseMapVersion: sourceMap.version ?? 0, fingerprint: 'local-preview' }
+      if (sequence !== previewSequence.current) return
       setCandidate(current => current === base || (current?.tokenId === tokenId && current?.action === 'MOVE')
         ? { ...base, mapVersion: preview.baseMapVersion, path: preview.orderedPositions, distance: preview.distance, fingerprint: preview.fingerprint, waypoints }
         : current)
       setMessage(`이동 경로를 미리 보았습니다. 거리: ${preview.distance}`)
     } catch (error) {
+      if (sequence !== previewSequence.current) return
       setCandidate(current => current === base ? null : current)
       setMessage(error instanceof Error ? error.message : '이동 경로를 미리 보지 못했습니다.')
-    } finally { setPreviewing(false) }
+    } finally { if (sequence === previewSequence.current) setPreviewing(false) }
   }
 
   async function confirm() {
@@ -473,7 +478,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {!layoutEditing && tacticalMap}
       {map?.tokens?.filter(token => token.type !== 'PLAYER' && !token.lastSeen && map.current?.some(cell => cell.x === token.x && cell.y === token.y)).map(token => <button key={`target-${token.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'TARGET', { x: token.x, y: token.y }, token.id)) }}>대상 선택: {token.type}</button>)}
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}
-      {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p>{candidate.action === 'MOVE' && <><p>경로 칸: {candidate.path?.length ?? 0} · 거리: {candidate.distance ?? 0}</p><button type="button" disabled={submitting || previewing} onClick={() => setWaypointMode(current => !current)}>{waypointMode ? '경유 지점 조정 끝내기' : '경유 지점 추가'}</button>{waypointMode && <p>지도에서 경유할 칸을 눌러 경로를 조정하세요.</p>}</>}<button type="button" disabled={submitting || previewing} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting || previewing} onClick={() => { setCandidate(null); setSelectedToken(null); setWaypointMode(false) }}>취소</button></div>}
+      {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p>{candidate.action === 'MOVE' && <><p>경로 칸: {candidate.path?.length ?? 0} · 거리: {candidate.distance ?? 0}</p><button type="button" disabled={submitting || previewing} onClick={() => setWaypointMode(current => !current)}>{waypointMode ? '경유 지점 조정 끝내기' : '경유 지점 추가'}</button>{waypointMode && <p>지도에서 경유할 칸을 눌러 경로를 조정하세요.</p>}</>}<button type="button" disabled={submitting || previewing} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting || previewing} onClick={() => { previewSequence.current += 1; setCandidate(null); setSelectedToken(null); setWaypointMode(false) }}>취소</button></div>}
       <p role="status">{message}</p>
       {preparationMode && <button type="button" disabled={preparationStarting || layoutSaving || layoutDirty || !gridConfirmed || !layoutSaved || !onPreparationComplete} aria-busy={preparationStarting} onClick={() => void completePreparation()}>{preparationStarting ? '모험 시작 요청 중…' : '맵 준비 완료, 모험 시작'}</button>}
     </section>

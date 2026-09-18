@@ -4,6 +4,7 @@ import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionExceptio
 import com.dndmaster.adventure.application.combat.CombatCommandRejectedException;
 import com.dndmaster.adventure.application.combat.CombatExternalFailureException;
 import com.dndmaster.adventure.application.combat.CombatMapPlacementRequiredException;
+import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
 import com.dndmaster.adventure.domain.combat.CombatEndRejectedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleAccessDeniedException;
@@ -48,6 +49,11 @@ public final class ScenarioExceptionHandler {
     public ResponseEntity<Map<String, String>> combatMapPlacementRequired(CombatMapPlacementRequiredException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                 "error", "MAP_PLACEMENT_REQUIRED", "message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(CombatMapMovementPreviewRejectedException.class)
+    public ResponseEntity<Map<String, String>> combatMapMovementPreviewRejected(CombatMapMovementPreviewRejectedException exception) {
+        return ResponseEntity.status(exception.status()).body(Map.of("error", exception.code()));
     }
 
     @ExceptionHandler(CombatEndRejectedException.class)

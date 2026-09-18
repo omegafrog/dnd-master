@@ -535,6 +535,32 @@ it('shows the server preview path and ghost destination before confirmation', as
   }), undefined, 7)
 })
 
+it('keeps the latest destination when previews finish out of order', async () => {
+  const api = fakeApi()
+  api.getCombatMap = vi.fn().mockResolvedValue({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, sessionVersion: 7,
+    grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }],
+    current: [{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }], explored: [{ x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+  })
+  let resolveFirst!: (value: { mapId: string; orderedPositions: Array<{ x: number; y: number }>; distance: number; baseMapVersion: number; fingerprint: string }) => void
+  let resolveSecond!: (value: { mapId: string; orderedPositions: Array<{ x: number; y: number }>; distance: number; baseMapVersion: number; fingerprint: string }) => void
+  api.previewMapMovement = vi.fn()
+    .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve }))
+    .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve }))
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} />)
+  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await user.click(screen.getByRole('button', { name: '격자 0,1' }))
+
+  resolveSecond({ mapId: 'm1', orderedPositions: [{ x: 1, y: 1 }, { x: 0, y: 1 }], distance: 5, baseMapVersion: 0, fingerprint: 'second' })
+  await waitFor(() => expect(screen.getByText('이동: (1,1) → (0,1)')).toBeInTheDocument())
+  resolveFirst({ mapId: 'm1', orderedPositions: [{ x: 1, y: 1 }, { x: 2, y: 1 }], distance: 5, baseMapVersion: 0, fingerprint: 'first' })
+  await user.click(screen.getByRole('button', { name: '확인' }))
+
+  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ location: { x: 0, y: 1 }, path: [{ x: 1, y: 1 }, { x: 0, y: 1 }] }), undefined, 7)
+})
+
 it('reconciles a committed move when the turn response reports a conflict', async () => {
   const api = fakeApi()
   const user = userEvent.setup()
