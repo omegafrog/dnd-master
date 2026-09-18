@@ -672,7 +672,7 @@ public class AdventureController {
                 throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
             }
             if (payload.action() == null || payload.action().isBlank()) {
-                throw new IllegalArgumentException("map action type required");
+                throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
             }
             if (!"MOVE".equals(payload.action())) {
                 throw new ApiRequestGuard.ApiContractException(400, "UNSUPPORTED_MAP_ACTION");
@@ -694,7 +694,7 @@ public class AdventureController {
             combatMapPort.move(new CombatMapMoveCommand(command, confirmedPreview.distance(), payload.mapVersion(),
                     appliedEdition(adventure).edition(), payload.fingerprint(), previewWaypoints(payload.waypoints())));
         } catch (java.io.IOException exception) {
-            throw new IllegalArgumentException("invalid map action", exception);
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }
     }
 
@@ -710,7 +710,7 @@ public class AdventureController {
                 throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
             }
             if (payload.action() == null || payload.action().isBlank()) {
-                throw new IllegalArgumentException("map action type required");
+                throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
             }
             if (!"MOVE".equals(payload.action())) {
                 throw new ApiRequestGuard.ApiContractException(400, "UNSUPPORTED_MAP_ACTION");
@@ -747,7 +747,7 @@ public class AdventureController {
                     adventure.id().value(), adventure.sessionId().value(), owner, targetContext.toString(),
                     "combat-map.move", input.action(), 0);
         } catch (java.io.IOException exception) {
-            throw new IllegalArgumentException("invalid map action", exception);
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }
     }
 
