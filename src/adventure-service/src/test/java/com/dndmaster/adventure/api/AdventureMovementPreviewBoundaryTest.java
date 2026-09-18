@@ -156,6 +156,27 @@ class AdventureMovementPreviewBoundaryTest {
         });
     }
 
+    @Test
+    void rejects_confirmed_move_without_a_token_before_resolving_party_ownership() throws Exception {
+        AdventureController controller = controller(mock(AdventureRepository.class), mock(CombatMapPort.class),
+                mock(CombatMapViewPort.class), mock(AuthenticatedPlayerResolver.class));
+        var method = AdventureController.class.getDeclaredMethod("applyMapAction", Adventure.class, UUID.class,
+                UUID.class, com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput.class);
+        method.setAccessible(true);
+
+        UUID mapId = UUID.randomUUID();
+        var input = new com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput(
+                mapId, 0, "{\"mapId\":\"" + mapId
+                        + "\",\"mapVersion\":0,\"action\":\"MOVE\",\"path\":[{\"x\":0,\"y\":0},{\"x\":1,\"y\":0}],\"fingerprint\":\"preview\"}");
+
+        InvocationTargetException thrown = assertThrows(InvocationTargetException.class, () -> method.invoke(controller,
+                mock(Adventure.class), UUID.randomUUID(), UUID.randomUUID(), input));
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> {
+            throw (ApiRequestGuard.ApiContractException) thrown.getCause();
+        });
+    }
+
     private static AdventureController controller(AdventureRepository adventures, CombatMapPort combatMap,
             CombatMapViewPort mapViews, AuthenticatedPlayerResolver playerResolver) {
         return new AdventureController(

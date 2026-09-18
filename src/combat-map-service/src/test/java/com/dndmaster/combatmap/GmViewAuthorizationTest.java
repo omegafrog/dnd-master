@@ -191,4 +191,15 @@ class GmViewAuthorizationTest {
         assertEquals(400, assertThrows(org.springframework.web.server.ResponseStatusException.class,
                 () -> controller.gameTime(mapId, "service-secret", null)).getStatusCode().value());
     }
+
+    @Test
+    void rejects_a_move_without_command_id_before_dereferencing_the_request() {
+        var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        var request = new CombatMapController.MoveRequest(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
+                1, "DND_5E_2024", null, 0, "preview", List.of());
+
+        assertEquals(400, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.movePlayer(UUID.randomUUID(), "service-secret", request)).getStatusCode().value());
+    }
 }

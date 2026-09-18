@@ -387,7 +387,8 @@ public class CombatMapController {
     }
 
     public CombatMapMoveResponse movePlayer(UUID mapId, String token, MoveRequest request) {
-        return movePlayerInternal(mapId, token, request == null ? null : request.commandId().toString(), request);
+        return movePlayerInternal(mapId, token,
+                request == null || request.commandId() == null ? null : request.commandId().toString(), request);
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/moves")

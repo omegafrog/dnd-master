@@ -668,6 +668,9 @@ public class AdventureController {
             if (!"MOVE".equals(payload.action())) {
                 throw new ApiRequestGuard.ApiContractException(400, "UNSUPPORTED_MAP_ACTION");
             }
+            if (payload.tokenId() == null) {
+                throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
+            }
             var member = characterSheetForToken(adventure, owner, payload.tokenId());
             if (payload.path() == null || payload.path().size() < 2) {
                 throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PATH");
@@ -699,6 +702,9 @@ public class AdventureController {
             }
             if (!"MOVE".equals(payload.action())) {
                 throw new ApiRequestGuard.ApiContractException(400, "UNSUPPORTED_MAP_ACTION");
+            }
+            if (payload.tokenId() == null) {
+                throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
             }
             var member = characterSheetForToken(adventure, owner, payload.tokenId());
             if (payload.path() == null || payload.path().size() < 2) {
