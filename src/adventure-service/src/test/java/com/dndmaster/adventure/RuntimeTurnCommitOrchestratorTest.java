@@ -87,6 +87,27 @@ class RuntimeTurnCommitOrchestratorTest {
         assertEquals(RuntimeTurnCommitOrchestrator.Status.REPAIR_REQUIRED, resumed.status());
     }
 
+    @Test
+    void preservesTypedMovementRetryResultInTheDurableCommand() {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        UUID operationId = UUID.randomUUID();
+        var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(3, operationId,
+                com.dndmaster.adventure.application.combat.CombatMapMovementStatus.RETRY_WAIT,
+                List.of(new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1)),
+                new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1), List.of(), null);
+        String outcome = "{\"operationId\":\"" + operationId + "\",\"status\":\"RETRY_WAIT\"}";
+        RuntimeTurnCommand command = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
+        RuntimeTurnCommitOrchestrator orchestrator = fixture.orchestrator(ignored ->
+                RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, outcome, movement));
+
+        RuntimeTurnCommitOrchestrator.Result result = orchestrator.commit(
+                fixture.readyTurn(), List.of(command), () -> {});
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED, result.status());
+        assertEquals(movement, result.movementResult());
+        assertEquals(outcome, fixture.commands.findByCommandId(command.commandId()).orElseThrow().outcomeJson());
+    }
+
     private static final class RuntimeTurnFixture {
         private final UUID turnId = UUID.randomUUID();
         private final InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();

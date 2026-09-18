@@ -6,6 +6,8 @@ import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
 import com.dndmaster.adventure.application.combat.CombatMapMoveCommand;
 import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
+import com.dndmaster.adventure.application.combat.CombatMapMovementStatus;
+import com.dndmaster.adventure.application.combat.CombatMapPreviewPosition;
 import com.dndmaster.adventure.application.runtime.CombatMapRuntimeTurnCommandAdapter;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution;
@@ -74,6 +76,41 @@ class CombatMapRuntimeTurnCommandAdapterTest {
 
         assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
         assertEquals("STALE_MOVEMENT_PROPOSAL", result.value());
+        assertEquals(409, result.movementConflict().httpStatus());
+        assertEquals("STALE_MOVEMENT_PROPOSAL", result.movementConflict().code());
+    }
+
+    @Test
+    void preserves_a_retry_wait_result_as_typed_durable_runtime_outcome() {
+        UUID operationId = UUID.randomUUID();
+        List<CombatMapPreviewPosition> traversed = List.of(
+                new CombatMapPreviewPosition(1, 1), new CombatMapPreviewPosition(2, 1));
+        CombatMapPort mapPort = new CombatMapPort() {
+            @Override public void validateAndMove(CombatActionCommand command) {}
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult move(CombatMapMoveCommand command) {
+                return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
+                        CombatMapMovementStatus.RETRY_WAIT, traversed, traversed.getLast(), List.of(), null);
+            }
+        };
+
+        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper())
+                .execute(validCommand());
+
+        assertEquals(RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, result.status());
+        assertEquals(CombatMapMovementStatus.RETRY_WAIT, result.movementResult().status());
+        assertEquals(traversed, result.movementResult().traversedPath());
+        org.junit.jupiter.api.Assertions.assertTrue(result.value().contains("\"status\":\"RETRY_WAIT\""));
+        org.junit.jupiter.api.Assertions.assertTrue(result.value().contains(operationId.toString()));
+    }
+
+    private static RuntimeTurnCommand validCommand() {
+        return RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "{\"ruleSetId\":\"" + UUID.randomUUID()
+                        + "\",\"characterSheetId\":\"" + UUID.randomUUID()
+                        + "\",\"combatMapId\":\"" + UUID.randomUUID()
+                        + "\",\"tokenId\":\"" + UUID.randomUUID()
+                        + "\",\"expectedVersion\":3,\"distance\":5,\"appliedEdition\":\"DND_5E_2024\",\"fingerprint\":\"preview-1\",\"waypoints\":[]}",
+                "combat-map.move", "{\"action\":\"MOVE\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}", 0);
     }
 
     @Test

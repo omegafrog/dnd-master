@@ -73,7 +73,7 @@ public class AdventureController {
     private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
     private final AppliedRuleSetApplicationService appliedRuleSetService;
 
-    public record AdventureMovementOperationResponse(UUID operationId, String status, long mapVersion,
+    public record AdventureMovementOperationResponse(UUID operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus status, long mapVersion,
             List<CombatMapPreviewPosition> traversedPath, CombatMapPreviewPosition finalPosition,
             List<String> publicEvents, String interruptionReason) {
         static AdventureMovementOperationResponse from(com.dndmaster.adventure.application.combat.CombatMapMoveResult result) {
@@ -678,7 +678,8 @@ public class AdventureController {
             String currentScene,
             List<String> visibleFacts,
             long version,
-            com.dndmaster.adventure.application.runtime.PlayerRollRequest rollRequest) {
+            com.dndmaster.adventure.application.runtime.PlayerRollRequest rollRequest,
+            com.dndmaster.adventure.application.combat.CombatMapMoveResult movementResult) {
         static RuntimeTurnResponse from(RuntimeTurnResult result) {
             return new RuntimeTurnResponse(
                     result.turn().turnId(),
@@ -688,7 +689,8 @@ public class AdventureController {
                     result.turn().plan().narration(),
                     result.context().currentScene(),
                     result.visibleTurn() == null ? List.of() : result.visibleTurn().visibleFacts(),
-                    result.version(), result.visibleTurn() == null ? null : result.visibleTurn().rollRequest());
+                    result.version(), result.visibleTurn() == null ? null : result.visibleTurn().rollRequest(),
+                    result.movementResult());
         }
     }
     public record RuleInquiryRequest(UUID inquiryId, UUID ruleSetId, UUID playerId, String situation) {}

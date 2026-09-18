@@ -45,6 +45,7 @@ public final class RuntimeTurnCommitOrchestrator {
             throw new IllegalStateException("turn is not committing: " + turn.lifecycle());
         }
 
+        com.dndmaster.adventure.application.combat.CombatMapMoveResult movementResult = null;
         for (RuntimeTurnCommand command : commandRepository.findByTurnId(turnId).stream()
                 .sorted(Comparator.comparingInt(RuntimeTurnCommand::executionOrder)
                         .thenComparing(RuntimeTurnCommand::commandId)).toList()) {
@@ -55,19 +56,22 @@ public final class RuntimeTurnCommitOrchestrator {
             } catch (RuntimeException failure) {
                 execution = RuntimeTurnCommandExecution.transientFailure(failure.getMessage());
             }
+            if (execution.movementResult() != null) movementResult = execution.movementResult();
             if (execution.status() == RuntimeTurnCommandExecution.Status.DONE) {
                 commandRepository.save(command.done(execution.value()));
                 continue;
             }
-            RuntimeTurnCommand failed = command.failed(execution.value());
+            RuntimeTurnCommand failed = command.failed(
+                    execution.movementResult() == null ? execution.value() : execution.movementResult().status().name(),
+                    execution.value());
             commandRepository.save(failed);
             if (execution.status() == RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE) {
                 RuntimeTurn repaired = turnRepository.findByTurnId(turnId).orElse(turn)
                         .markCommitRepairRequired();
                 turnRepository.save(repaired);
-                return new Result(Status.REPAIR_REQUIRED, repaired, failed);
+                return new Result(Status.REPAIR_REQUIRED, repaired, failed, movementResult);
             }
-            return new Result(Status.RETRY_REQUIRED, turnRepository.findByTurnId(turnId).orElse(turn), failed);
+            return new Result(Status.RETRY_REQUIRED, turnRepository.findByTurnId(turnId).orElse(turn), failed, movementResult);
         }
 
         // The callback is deliberately last. If it fails, the turn remains
@@ -75,7 +79,7 @@ public final class RuntimeTurnCommitOrchestrator {
         localAdventureCommit.run();
         RuntimeTurn committed = turnRepository.findByTurnId(turnId).orElse(turn).markSafeCommitted();
         turnRepository.save(committed);
-        return new Result(Status.COMMITTED, committed, null);
+        return new Result(Status.COMMITTED, committed, null, movementResult);
     }
 
     private void validateCommands(UUID turnId, List<RuntimeTurnCommand> commands) {
@@ -95,5 +99,10 @@ public final class RuntimeTurnCommitOrchestrator {
     }
 
     public enum Status { COMMITTED, RETRY_REQUIRED, REPAIR_REQUIRED }
-    public record Result(Status status, RuntimeTurn turn, RuntimeTurnCommand failedCommand) { }
+    public record Result(Status status, RuntimeTurn turn, RuntimeTurnCommand failedCommand,
+            com.dndmaster.adventure.application.combat.CombatMapMoveResult movementResult) {
+        public Result(Status status, RuntimeTurn turn, RuntimeTurnCommand failedCommand) {
+            this(status, turn, failedCommand, null);
+        }
+    }
 }

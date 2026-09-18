@@ -618,7 +618,8 @@ public class RuntimeTurnApplicationService {
         }
         RuntimeTurn committed = commitResult.turn();
         PlayerVisibleTurn visible = new PlayerVisibleTurn(ready.narration(), plan.scene(), List.of(), visibleInput.stateDelta(), narrativeContext);
-        return new RuntimeTurnResult(committed, adventure.currentContext(), adventure.conversation(), adventure.version(), visible);
+        return new RuntimeTurnResult(committed, adventure.currentContext(), adventure.conversation(), adventure.version(), visible,
+                commitResult.movementResult());
     }
 
     public static StateDelta deltaFor(NarrativeState state, SubmitRuntimeTurnCommand command, RuntimePlan plan) {

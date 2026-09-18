@@ -63,16 +63,23 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
                 waypoints.add(new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(
                         Integer.parseInt(values[0]), Integer.parseInt(values[1])));
             }
-            movementCoordinator.resolve(new com.dndmaster.adventure.application.combat.CombatMapMoveCommand(
+            var movement = movementCoordinator.resolve(new com.dndmaster.adventure.application.combat.CombatMapMoveCommand(
                     mapCommand, distance, requiredNonNegativeLong(context, "expectedVersion"), appliedEdition,
                     previewFingerprint, waypoints));
-            return RuntimeTurnCommandExecution.done("combat map move applied");
+            String outcome = mapper.writeValueAsString(movement);
+            return switch (movement.status()) {
+                case COMMITTED -> RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, outcome, movement);
+                case PREPARING, RETRY_WAIT, READY_TO_COMMIT -> RuntimeTurnCommandExecution.movement(
+                        RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, outcome, movement);
+                case CANCELLED -> RuntimeTurnCommandExecution.movement(
+                        RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, outcome, movement);
+            };
         } catch (java.io.IOException malformed) {
             return RuntimeTurnCommandExecution.permanentFailure(malformed.getMessage());
         } catch (IllegalArgumentException malformed) {
             return RuntimeTurnCommandExecution.permanentFailure(malformed.getMessage());
         } catch (CombatMapMovementPreviewRejectedException rejected) {
-            return RuntimeTurnCommandExecution.permanentFailure(rejected.code());
+            return RuntimeTurnCommandExecution.movementConflict(rejected.status(), rejected.code());
         } catch (RuntimeException transientFailure) {
             return RuntimeTurnCommandExecution.transientFailure(transientFailure.getMessage());
         }

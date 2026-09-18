@@ -309,7 +309,7 @@ public final class CrossContextHttpCombatGateway
     private CombatMapMoveResult movementResult(String response, long fallback) {
         try {
             JsonNode body = objectMapper.readTree(response);
-            String status = body.path("status").asText("RETRY_WAIT");
+            CombatMapMovementStatus status = CombatMapMovementStatus.valueOf(body.path("status").asText("RETRY_WAIT"));
             long version = body.hasNonNull("mapVersion") ? body.path("mapVersion").asLong() : fallback;
             java.util.UUID operationId = body.hasNonNull("operationId") ? java.util.UUID.fromString(body.path("operationId").asText()) : null;
             java.util.List<CombatMapPreviewPosition> traversed = new java.util.ArrayList<>();
