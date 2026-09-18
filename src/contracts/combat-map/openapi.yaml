@@ -313,10 +313,59 @@ paths:
           in: header
           required: true
           schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MovementCheckResultSubmission' }
       responses:
         '200': { description: resumed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/MovementOperationResponse' } } } }
         '401': { description: internal service authorization required }
         '409': { description: typed operation conflict }
+  /internal/v1/combat-maps/{mapId}/spatial/observe:
+    post:
+      operationId: observeSpatialFeature
+      parameters:
+        - { name: X-Internal-Token, in: header, required: true, schema: { type: string } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SpatialActionRequest' } } } }
+      responses:
+        '200': { description: owner-scoped spatial observation, content: { application/json: { schema: { $ref: '#/components/schemas/SpatialRuntimeResponse' } } } }
+        '400': { description: invalid spatial action }
+        '401': { description: internal service authorization required }
+        '403': { description: map, token, visibility, or line-of-sight ownership denied }
+  /internal/v1/combat-maps/{mapId}/spatial/interact:
+    post:
+      operationId: interactSpatialFeature
+      parameters:
+        - { name: X-Internal-Token, in: header, required: true, schema: { type: string } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SpatialActionRequest' } } } }
+      responses:
+        '200': { description: owner-scoped spatial interaction, content: { application/json: { schema: { $ref: '#/components/schemas/SpatialRuntimeResponse' } } } }
+        '400': { description: invalid spatial action }
+        '401': { description: internal service authorization required }
+        '403': { description: map, token, visibility, or line-of-sight ownership denied }
+  /internal/v1/combat-maps/{mapId}/spatial/combat-turn-start:
+    post:
+      operationId: startSpatialCombatTurn
+      parameters:
+        - { name: X-Internal-Token, in: header, required: true, schema: { type: string } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SpatialTurnRequest' } } } }
+      responses:
+        '200': { description: spatial combat-turn triggers, content: { application/json: { schema: { $ref: '#/components/schemas/SpatialRuntimeResponse' } } } }
+        '401': { description: internal service authorization required }
+  /internal/v1/combat-maps/{mapId}/spatial/advance-durations:
+    post:
+      operationId: advanceSpatialDurations
+      parameters:
+        - { name: X-Internal-Token, in: header, required: true, schema: { type: string } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SpatialTurnRequest' } } } }
+      responses:
+        '200': { description: advanced spatial durations, content: { application/json: { schema: { $ref: '#/components/schemas/SpatialRuntimeResponse' } } } }
+        '401': { description: internal service authorization required }
   /internal/v1/combat-maps/{mapId}/ai-state:
     post:
       operationId: controlAiState
@@ -444,7 +493,7 @@ components:
       required: [operationId, status, outcomeStatus, requestedPath, traversedPath, finalPosition, publicEvents]
       properties:
         operationId: { type: string, format: uuid }
-        status: { type: string, enum: [PREPARING, RETRY_WAIT, READY_TO_COMMIT, COMMITTED, CANCELLED] }
+        status: { type: string, enum: [PREPARING, CHECK_PENDING, RETRY_WAIT, READY_TO_COMMIT, COMMITTED, CANCELLED] }
         outcomeStatus: { type: string, enum: [COMMITTED, INTERRUPTED, CHECK_REQUIRED, RETRY_REQUIRED, CANCELLED] }
         requestedPath: { type: array, items: { $ref: '#/components/schemas/GridPosition' } }
         traversedPath: { type: array, items: { $ref: '#/components/schemas/GridPosition' } }
@@ -452,3 +501,47 @@ components:
         mapVersion: { type: integer, format: int64, minimum: 0 }
         publicEvents: { type: array, items: { type: string } }
         interruptionReason: { type: [string, 'null'] }
+        pendingCheck: { oneOf: [{ $ref: '#/components/schemas/MovementCheckPending' }, { type: 'null' }] }
+    MovementCheckResultSubmission:
+      type: object
+      required: [operationId, checkId, success, ownerPlayerId, actor]
+      properties:
+        operationId: { type: string, format: uuid }
+        checkId: { type: string, format: uuid }
+        success: { type: boolean }
+        ownerPlayerId: { type: string, format: uuid }
+        actor: { type: string, enum: [PLAYER] }
+    MovementCheckPending:
+      type: object
+      required: [checkId, operationId, label, diceExpression, ownerPlayerId, actor]
+      properties:
+        checkId: { type: string, format: uuid }
+        operationId: { type: string, format: uuid }
+        label: { type: string }
+        diceExpression: { type: string }
+        ownerPlayerId: { type: string, format: uuid }
+        actor: { type: string, enum: [PLAYER] }
+    SpatialActionRequest:
+      type: object
+      required: [ownerId, tokenId, x, y, expectedVersion, commandId]
+      properties:
+        ownerId: { type: string, format: uuid }
+        tokenId: { type: string, format: uuid }
+        x: { type: integer, minimum: 0 }
+        y: { type: integer, minimum: 0 }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+        commandId: { type: string, format: uuid }
+    SpatialTurnRequest:
+      type: object
+      required: [ownerId, expectedVersion, commandId]
+      properties:
+        ownerId: { type: string, format: uuid }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+        commandId: { type: string, format: uuid }
+    SpatialRuntimeResponse:
+      type: object
+      required: [mapId, mapVersion, publicEvents]
+      properties:
+        mapId: { type: string, format: uuid }
+        mapVersion: { type: integer, format: int64, minimum: 0 }
+        publicEvents: { type: array, items: { type: string } }

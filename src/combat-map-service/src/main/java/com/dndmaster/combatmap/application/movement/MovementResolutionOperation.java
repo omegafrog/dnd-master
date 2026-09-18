@@ -71,7 +71,8 @@ public final class MovementResolutionOperation {
         if (status != MovementOperationStatus.CHECK_PENDING || pendingCheck == null) {
             throw new IllegalStateException("movement operation is not waiting for a check");
         }
-        if (!operationId.equals(result.operationId()) || !pendingCheck.checkId().equals(result.checkId())) {
+        if (!operationId.equals(result.operationId()) || !pendingCheck.checkId().equals(result.checkId())
+                || !pendingCheck.owner().equals(result.owner())) {
             throw new IllegalArgumentException("check result does not belong to this movement operation");
         }
         checkOutcomes.add(new MovementCheckOutcome(pendingCheck.featureId(), result.success()));

@@ -594,7 +594,7 @@ it('restores a safe pending check projection without exposing hidden feature det
     version: 0, operationId: 'operation-check-1', status: 'CHECK_REQUIRED' as const,
     requestedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }], traversedPath: [{ x: 1, y: 1 }],
     finalPosition: { x: 1, y: 1 }, publicEvents: [],
-    pendingCheck: { checkId: 'check-1', operationId: 'operation-check-1', label: '지각 판정', diceExpression: 'd20', ownership: 'PLAYER' },
+    pendingCheck: { checkId: 'check-1', operationId: 'operation-check-1', label: '지각 판정', diceExpression: 'd20', ownerPlayerId: 'player-1', actor: 'PLAYER' as const },
   }
   api.submitMapAction = vi.fn(async () => ({ turnId: 't1', version: 0, movementResult: result }))
   const user = userEvent.setup()
@@ -607,6 +607,12 @@ it('restores a safe pending check projection without exposing hidden feature det
   expect(screen.getByText('지각 판정 · d20')).toBeInTheDocument()
   expect(screen.queryByText('check-1', { exact: true })).not.toBeInTheDocument()
   expect(screen.queryByText(/DC/i)).not.toBeInTheDocument()
+  const resume = vi.fn(async () => result)
+  api.resumeMovementOperation = resume
+  await user.click(screen.getByRole('button', { name: '성공 결과 제출' }))
+  await waitFor(() => expect(resume).toHaveBeenCalledWith('a1', 'm1', 'operation-check-1', {
+    operationId: 'operation-check-1', checkId: 'check-1', success: true, ownerPlayerId: 'player-1', actor: 'PLAYER',
+  }))
 })
 
 it('restores a durable movement operation when local storage has no waiting state', async () => {

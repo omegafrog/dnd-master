@@ -8,7 +8,7 @@ import java.util.UUID;
 /** 내부 판정 요청. feature id와 난이도는 플레이어 투영으로 복사하지 않는다. */
 public record MovementCheckRequest(UUID checkId, UUID operationId, UUID featureId,
         SpatialFeatureType featureType, SpatialTrigger trigger, String ruleReference,
-        Integer difficulty, String mode, String ownership) {
+        Integer difficulty, String mode, MovementCheckOwner owner) {
     public MovementCheckRequest {
         Objects.requireNonNull(checkId, "check id must not be null");
         Objects.requireNonNull(operationId, "operation id must not be null");
@@ -18,11 +18,11 @@ public record MovementCheckRequest(UUID checkId, UUID operationId, UUID featureI
         if (ruleReference == null || ruleReference.isBlank()) throw new IllegalArgumentException("rule reference must not be blank");
         if (difficulty != null && difficulty < 0) throw new IllegalArgumentException("difficulty must not be negative");
         mode = mode == null || mode.isBlank() ? "SYSTEM" : mode.trim();
-        ownership = ownership == null || ownership.isBlank() ? "SYSTEM" : ownership.trim();
+        owner = Objects.requireNonNull(owner, "check owner must not be null");
     }
 
     public PendingMovementCheck playerView() {
         String label = "지각 판정";
-        return new PendingMovementCheck(checkId, operationId, label, "d20", ownership);
+        return new PendingMovementCheck(checkId, operationId, label, "d20", owner);
     }
 }

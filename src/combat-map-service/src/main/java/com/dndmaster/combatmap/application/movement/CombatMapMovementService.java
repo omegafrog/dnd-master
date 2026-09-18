@@ -164,6 +164,14 @@ public final class CombatMapMovementService {
             List<String> publicEvents = new ArrayList<>();
             while (operation.cursor() < operation.requestedPath().orderedPositions().size() - 1) {
                 int next = operation.cursor() + 1;
+                for (MovementCheckOutcome outcome : operation.checkOutcomes()) {
+                    if (!outcome.success()) continue;
+                    java.util.Optional<SpatialFeature> discovered = map.spatialFeatures().stream()
+                            .filter(feature -> feature.id().equals(outcome.featureId()))
+                            .filter(feature -> feature.cells().contains(operation.requestedPath().orderedPositions().get(next)))
+                            .findFirst();
+                    if (discovered.isPresent()) return commitDetection(map, operation, discovered.get(), next);
+                }
                 for (SpatialFeature feature : detectionPolicy.candidates(map, operation.playerId(), operation.tokenId())) {
                     java.util.Optional<Boolean> previousCheck = operation.checkOutcome(feature.id());
                     if (previousCheck.isPresent()) {
@@ -172,7 +180,8 @@ public final class CombatMapMovementService {
                     }
                     MovementCheckRequest request = new MovementCheckRequest(UUID.randomUUID(), operation.operationId(), feature.id(),
                             feature.type(), SpatialTrigger.BECOME_VISIBLE, feature.detectionSpec().ruleReference(),
-                            feature.detectionSpec().difficulty(), feature.detectionSpec().mode(), feature.detectionSpec().mode());
+                            feature.detectionSpec().difficulty(), feature.detectionSpec().mode(),
+                            MovementCheckOwner.player(operation.playerId()));
                     java.util.Optional<MovementCheckResult> resolved = checkResolver.resolve(request);
                     if (resolved.isEmpty()) {
                         operation.requestCheck(request);
@@ -199,8 +208,7 @@ public final class CombatMapMovementService {
                 map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
                 publicEvents.addAll(triggerResolver.resolve(map, SpatialTrigger.ENTER_CELL,
                         operation.requestedPath().orderedPositions().get(next)));
-                publicEvents.addAll(triggerResolver.resolve(map, SpatialTrigger.BECOME_VISIBLE,
-                        operation.requestedPath().orderedPositions().get(next)));
+                publicEvents.addAll(triggerResolver.resolveVisible(map, operation.requestedPath().orderedPositions().get(next)));
                 operation.advanceTo(next, map.playerTokenPosition(operation.playerId(), operation.tokenId()));
                 operations.save(operation);
                 if (!publicEvents.isEmpty()) {
@@ -276,13 +284,20 @@ public final class CombatMapMovementService {
     }
     private static void rebuildStagedMap(CombatMap map, MovementResolutionOperation operation) {
         map.validatePlayerMovement(operation.playerId(), operation.tokenId(), operation.requestedPath(), Integer.MAX_VALUE);
+        for (MovementCheckOutcome outcome : operation.checkOutcomes()) {
+            if (!outcome.success()) continue;
+            map.spatialFeatures().stream().filter(feature -> feature.id().equals(outcome.featureId()))
+                    .findFirst().ifPresent(com.dndmaster.combatmap.domain.SpatialFeature::discover);
+        }
+        var triggerResolver = new com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver();
         for (int index = 1; index <= operation.cursor(); index++) {
-            new com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver().resolve(map, SpatialTrigger.LEAVE_CELL,
+            triggerResolver.resolve(map, SpatialTrigger.LEAVE_CELL,
                     operation.requestedPath().orderedPositions().get(index - 1));
             map.advancePlayerToken(operation.playerId(), operation.tokenId(), operation.requestedPath().orderedPositions().get(index));
             map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
-            new com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver().resolve(map, SpatialTrigger.ENTER_CELL,
+            triggerResolver.resolve(map, SpatialTrigger.ENTER_CELL,
                     operation.requestedPath().orderedPositions().get(index));
+            triggerResolver.resolveVisible(map, operation.requestedPath().orderedPositions().get(index));
         }
         if (!map.playerTokenPosition(operation.playerId(), operation.tokenId()).equals(operation.currentCell()))
             throw new IllegalStateException("movement reservation cursor does not match its current cell");

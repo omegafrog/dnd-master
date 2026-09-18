@@ -38,6 +38,7 @@ public class CombatMapController {
     private final com.dndmaster.combatmap.application.view.MapGridAlignmentService mapGridAlignmentService;
     private final com.dndmaster.combatmap.application.view.PublicMapImageArtifactService publicMapImages;
     private final com.dndmaster.combatmap.application.view.MapFilePreparationPort mapFilePreparation;
+    private final com.dndmaster.combatmap.application.spatial.SpatialFeatureRuntimeApplicationService spatialRuntime;
 
     public CombatMapController(CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard) {
         this(mapViewService, movementService, requestGuard, (documentId, locator) -> java.util.Optional.empty());
@@ -66,6 +67,16 @@ public class CombatMapController {
             com.dndmaster.combatmap.application.view.MapGridAlignmentService mapGridAlignmentService,
             com.dndmaster.combatmap.application.view.PublicMapImageArtifactService publicMapImages,
             com.dndmaster.combatmap.application.view.MapFilePreparationPort mapFilePreparation) {
+        this(mapViewService, movementService, requestGuard, mapImageEvidence, mapGridAlignmentService,
+                publicMapImages, mapFilePreparation, null);
+    }
+
+    public CombatMapController(CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
+            com.dndmaster.combatmap.application.view.MapImageEvidencePort mapImageEvidence,
+            com.dndmaster.combatmap.application.view.MapGridAlignmentService mapGridAlignmentService,
+            com.dndmaster.combatmap.application.view.PublicMapImageArtifactService publicMapImages,
+            com.dndmaster.combatmap.application.view.MapFilePreparationPort mapFilePreparation,
+            com.dndmaster.combatmap.application.spatial.SpatialFeatureRuntimeApplicationService spatialRuntime) {
         this.mapViewService = mapViewService;
         this.movementService = movementService;
         this.requestGuard = requestGuard;
@@ -73,6 +84,7 @@ public class CombatMapController {
         this.mapGridAlignmentService = mapGridAlignmentService;
         this.publicMapImages = publicMapImages;
         this.mapFilePreparation = mapFilePreparation;
+        this.spatialRuntime = spatialRuntime;
     }
 
     @GetMapping("/internal/v1/combat-maps/{mapId}/player-view")
@@ -410,7 +422,9 @@ public class CombatMapController {
                 : movementService.resume(new MapId(mapId), operationId,
                         new com.dndmaster.combatmap.application.movement.MovementCheckResult(
                                 checkResult.operationId(),
-                                checkResult.checkId(), Boolean.TRUE.equals(checkResult.success())));
+                                checkResult.checkId(), Boolean.TRUE.equals(checkResult.success()),
+                                new com.dndmaster.combatmap.application.movement.MovementCheckOwner(
+                                        checkResult.actor(), new PlayerId(checkResult.ownerPlayerId()))));
         return MovementOperationResponseBody.from(response);
     }
 
@@ -438,6 +452,46 @@ public class CombatMapController {
         return MovementOperationResponseBody.from(movementService.cancel(new MapId(mapId), operationId));
     }
 
+    @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/observe")
+    public SpatialRuntimeResponse observeSpatial(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) SpatialActionRequest request) {
+        requestGuard.internal(token);
+        requireSpatialAction(request);
+        return SpatialRuntimeResponse.from(requireSpatialRuntime().observe(new MapId(mapId), new MapOwnerId(request.ownerId()),
+                new TokenId(request.tokenId()), new GridPosition(request.x(), request.y()), request.expectedVersion(), request.commandId()));
+    }
+
+    @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/interact")
+    public SpatialRuntimeResponse interactSpatial(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) SpatialActionRequest request) {
+        requestGuard.internal(token);
+        requireSpatialAction(request);
+        return SpatialRuntimeResponse.from(requireSpatialRuntime().interact(new MapId(mapId), new MapOwnerId(request.ownerId()),
+                new TokenId(request.tokenId()), new GridPosition(request.x(), request.y()), request.expectedVersion(), request.commandId()));
+    }
+
+    @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/combat-turn-start")
+    public SpatialRuntimeResponse combatTurnStartSpatial(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) SpatialTurnRequest request) {
+        requestGuard.internal(token);
+        requireSpatialTurn(request);
+        return SpatialRuntimeResponse.from(requireSpatialRuntime().combatTurnStart(new MapId(mapId), new MapOwnerId(request.ownerId()),
+                request.expectedVersion(), request.commandId()));
+    }
+
+    @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/advance-durations")
+    public SpatialRuntimeResponse advanceSpatialDurations(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) SpatialTurnRequest request) {
+        requestGuard.internal(token);
+        requireSpatialTurn(request);
+        return SpatialRuntimeResponse.from(requireSpatialRuntime().advanceDurations(new MapId(mapId), new MapOwnerId(request.ownerId()),
+                request.expectedVersion(), request.commandId()));
+    }
+
     private static MovementPath movementPath(List<PositionRequest> positions, int distance) {
         return new MovementPath(positions.stream().map(position -> new GridPosition(position.x(), position.y())).toList(), distance);
     }
@@ -454,6 +508,26 @@ public class CombatMapController {
         if (request.previewFingerprint() == null || request.previewFingerprint().isBlank()) {
             throw new ApiRequestGuard.ApiContractException(400, "MOVEMENT_PREVIEW_REQUIRED");
         }
+    }
+
+    private static void requireSpatialAction(SpatialActionRequest request) {
+        if (request == null || request.ownerId() == null || request.tokenId() == null || request.commandId() == null
+                || request.expectedVersion() == null || request.expectedVersion() < 0 || request.x() == null || request.y() == null
+                || request.x() < 0 || request.y() < 0) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_SPATIAL_ACTION");
+        }
+    }
+
+    private static void requireSpatialTurn(SpatialTurnRequest request) {
+        if (request == null || request.ownerId() == null || request.commandId() == null
+                || request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_SPATIAL_ACTION");
+        }
+    }
+
+    private com.dndmaster.combatmap.application.spatial.SpatialFeatureRuntimeApplicationService requireSpatialRuntime() {
+        if (spatialRuntime == null) throw new IllegalStateException("spatial runtime is unavailable");
+        return spatialRuntime;
     }
 
     private static boolean invalid(PositionRequest position) {
@@ -596,6 +670,14 @@ public class CombatMapController {
 
     public record PositionRequest(Integer x, Integer y) {}
 
+    public record SpatialActionRequest(UUID ownerId, UUID tokenId, Integer x, Integer y, Long expectedVersion, UUID commandId) {}
+    public record SpatialTurnRequest(UUID ownerId, Long expectedVersion, UUID commandId) {}
+    public record SpatialRuntimeResponse(UUID mapId, long mapVersion, List<String> publicEvents) {
+        static SpatialRuntimeResponse from(com.dndmaster.combatmap.application.spatial.SpatialRuntimeResult result) {
+            return new SpatialRuntimeResponse(result.mapId().value(), result.mapVersion(), result.publicEvents());
+        }
+    }
+
     public record AiStateRequest(
             UUID ownerId, UUID tokenId,
             int x, int y,
@@ -706,7 +788,8 @@ public class CombatMapController {
     public record MovementOperationResponseBody(UUID operationId, String status, String outcomeStatus,
             List<PositionRequest> requestedPath, List<PositionRequest> traversedPath, PositionRequest finalPosition, Long mapVersion,
             List<String> publicEvents, String interruptionReason, PendingCheckResponse pendingCheck) {
-        public record PendingCheckResponse(UUID checkId, UUID operationId, String label, String diceExpression, String ownership) {}
+        public record PendingCheckResponse(UUID checkId, UUID operationId, String label, String diceExpression,
+                UUID ownerPlayerId, com.dndmaster.combatmap.application.movement.MovementCheckActor actor) {}
         static MovementOperationResponseBody from(MovementOperationResponse response) {
             var result = response.result();
             return new MovementOperationResponseBody(response.operationId(), response.status().name(), response.outcomeStatus().name(),
@@ -716,7 +799,8 @@ public class CombatMapController {
                     result == null ? null : result.mapVersion(), result == null ? List.of() : result.publicEvents(),
                     result == null ? null : result.interruptionReason(), response.pendingCheck() == null ? null
                             : new PendingCheckResponse(response.pendingCheck().checkId(), response.pendingCheck().operationId(),
-                                    response.pendingCheck().label(), response.pendingCheck().diceExpression(), response.pendingCheck().ownership()));
+                                    response.pendingCheck().label(), response.pendingCheck().diceExpression(),
+                                    response.pendingCheck().owner().playerId().value(), response.pendingCheck().owner().actor()));
         }
     }
 

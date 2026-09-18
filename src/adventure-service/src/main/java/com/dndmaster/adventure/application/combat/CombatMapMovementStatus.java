@@ -15,7 +15,7 @@ public enum CombatMapMovementStatus {
             case "CHECK_REQUIRED" -> CHECK_REQUIRED;
             case "RETRY_REQUIRED" -> RETRY_REQUIRED;
             case "CANCELLED" -> CANCELLED;
-            case "PREPARING", "RETRY_WAIT", "READY_TO_COMMIT" -> status.equals("PREPARING") || status.equals("READY_TO_COMMIT")
+            case "CHECK_PENDING", "PREPARING", "RETRY_WAIT", "READY_TO_COMMIT" -> status.equals("CHECK_PENDING") || status.equals("PREPARING") || status.equals("READY_TO_COMMIT")
                     ? CHECK_REQUIRED : RETRY_REQUIRED;
             default -> throw new IllegalArgumentException("unknown combat map movement status: " + status);
         };

@@ -15,6 +15,7 @@ import com.dndmaster.combatmap.application.movement.MovementStartRequest;
 import com.dndmaster.combatmap.application.movement.MovementOperationResponse;
 import com.dndmaster.combatmap.application.movement.MovementCheckRequest;
 import com.dndmaster.combatmap.application.movement.MovementCheckResult;
+import com.dndmaster.combatmap.application.movement.MovementCheckActor;
 import com.dndmaster.combatmap.application.movement.MovementCheckResolver;
 import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementPreviewMismatchException;
@@ -69,10 +70,11 @@ class MovementResolutionOperationTest {
         assertEquals(MovementResolutionOutcomeStatus.CHECK_REQUIRED, response.outcomeStatus());
         assertEquals(featureId, fixture.findOperationByCommandId(fixture.commandId).orElseThrow().pendingCheck().featureId());
         assertEquals(response.operationId(), response.pendingCheck().operationId());
-        assertEquals("PLAYER", response.pendingCheck().ownership());
+        assertEquals(MovementCheckActor.PLAYER, response.pendingCheck().owner().actor());
+        assertEquals(fixture.player, response.pendingCheck().owner().playerId());
         assertEquals("지각 판정", response.pendingCheck().label());
         org.junit.jupiter.api.Assertions.assertFalse(response.pendingCheck().toString().contains(featureId.toString()));
-        assertEquals(List.of("checkId", "operationId", "label", "diceExpression", "ownership"),
+        assertEquals(List.of("checkId", "operationId", "label", "diceExpression", "owner"),
                 java.util.Arrays.stream(response.pendingCheck().getClass().getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList());
     }
 
@@ -92,15 +94,29 @@ class MovementResolutionOperationTest {
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> fixture.service(MovementCheckResolver.pending()).resume(fixture.map.id(), pending.operationId(),
-                        new MovementCheckResult(UUID.randomUUID(), request.checkId(), true)));
+                        new MovementCheckResult(UUID.randomUUID(), request.checkId(), true, fixture.player)));
 
         MovementOperationResponse resolved = fixture.service(MovementCheckResolver.pending()).resume(fixture.map.id(), pending.operationId(),
-                new MovementCheckResult(pending.operationId(), request.checkId(), true));
+                new MovementCheckResult(pending.operationId(), request.checkId(), true, fixture.player));
         assertEquals(MovementOperationStatus.COMMITTED, resolved.status());
         assertEquals(MovementResolutionOutcomeStatus.INTERRUPTED, resolved.result().status());
         assertEquals(List.of(new GridPosition(1, 1)), resolved.result().traversedPath());
         assertEquals(List.of("TRAP_DISCOVERED:2,1"), resolved.result().publicEvents());
         assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
+    }
+
+    @Test
+    void rejects_a_check_result_from_another_player_even_when_check_identity_matches() {
+        Fixture fixture = new Fixture();
+        fixture.map = mapWithHiddenTrap(fixture);
+        MovementOperationResponse pending = fixture.service(MovementCheckResolver.pending()).start(fixture.start("fingerprint-1"));
+        MovementCheckRequest request = fixture.findOperationByCommandId(fixture.commandId).orElseThrow().pendingCheck();
+
+        assertThrows(IllegalArgumentException.class, () -> fixture.service(MovementCheckResolver.pending()).resume(
+                fixture.map.id(), pending.operationId(), new MovementCheckResult(
+                        pending.operationId(), request.checkId(), true, new PlayerId(UUID.randomUUID()))));
+        assertEquals(MovementOperationStatus.CHECK_PENDING,
+                fixture.findOperationByCommandId(fixture.commandId).orElseThrow().status());
     }
 
     @Test
@@ -116,7 +132,7 @@ class MovementResolutionOperationTest {
                 Set.of(new GridPosition(1, 1), new GridPosition(2, 1)), Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
 
         MovementOperationResponse pending = fixture.service(request -> Optional.of(
-                new MovementCheckResult(request.operationId(), request.checkId(), false))).start(fixture.start("fingerprint-1"));
+                new MovementCheckResult(request.operationId(), request.checkId(), false, fixture.player))).start(fixture.start("fingerprint-1"));
 
         assertEquals(MovementOperationStatus.COMMITTED, pending.status());
         assertEquals(MovementResolutionOutcomeStatus.COMMITTED, pending.result().status());
@@ -165,6 +181,17 @@ class MovementResolutionOperationTest {
         assertEquals(pending.pendingCheck(), restored.pendingCheck());
         assertEquals(0, fixture.map.version());
         assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
+    }
+
+    private static CombatMap mapWithHiddenTrap(Fixture fixture) {
+        CombatMap map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
+                List.of(SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP, List.of(new GridPosition(2, 1)),
+                        com.dndmaster.combatmap.domain.DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.ENTER_CELL),
+                        SpatialFeatureProvenance.storyPlan("story", 0, 0))));
+        map.replaceVisibility(new VisibilitySnapshot(Set.of(new GridPosition(1, 1), new GridPosition(2, 1)),
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+        return map;
     }
     @Test
     void resolves_cells_in_order_and_commits_position_visibility_and_version_once() {

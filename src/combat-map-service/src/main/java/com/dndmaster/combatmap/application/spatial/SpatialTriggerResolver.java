@@ -36,6 +36,25 @@ public final class SpatialTriggerResolver {
         return List.copyOf(events);
     }
 
+    /** 이동 해결 재생용 공개 trigger. 숨겨진 요소를 실패한 탐지로 공개하지 않는다. */
+    public List<String> resolveVisible(CombatMap map, GridPosition cell) {
+        Objects.requireNonNull(map, "combat map must not be null");
+        Objects.requireNonNull(cell, "trigger cell must not be null");
+        List<String> events = new ArrayList<>();
+        for (SpatialFeature feature : map.spatialFeatures()) {
+            if (feature.visibility() == SpatialFeatureVisibility.HIDDEN) continue;
+            if (!feature.cells().contains(cell) || !feature.triggers().contains(SpatialTrigger.BECOME_VISIBLE)
+                    || !feature.canTrigger()) continue;
+            if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.SECRET_DOOR) {
+                events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
+            } else {
+                feature.trigger();
+                events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
+            }
+        }
+        return List.copyOf(events);
+    }
+
     public List<String> resolveCombatTurnStart(CombatMap map) {
         List<String> events = new ArrayList<>();
         for (SpatialFeature feature : map.spatialFeatures()) {

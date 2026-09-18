@@ -306,7 +306,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     setCandidate(null); setSelectedToken(null); setMessage(result.status === 'INTERRUPTED' ? '이동이 중단되었습니다.' : '맵 행동을 GM 턴으로 전송했습니다.')
   }
 
-  async function recoverMovement(resume: boolean) {
+  async function recoverMovement(resume: boolean, check?: { success: boolean }) {
     if (!pendingMovement?.result.operationId) return
     const operationId = pendingMovement.result.operationId
     const operationApi = resume ? api.resumeMovementOperation : api.movementOperation
@@ -315,7 +315,17 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       return
     }
     try {
-      const result = await operationApi(adventureId, pendingMovement.mapId, operationId)
+      const pendingCheck = pendingMovement.result.pendingCheck
+      const submission = resume && check && pendingCheck ? {
+        operationId: pendingCheck.operationId,
+        checkId: pendingCheck.checkId,
+        success: check.success,
+        ownerPlayerId: pendingCheck.ownerPlayerId,
+        actor: pendingCheck.actor,
+      } : undefined
+      const result = submission
+        ? await operationApi(adventureId, pendingMovement.mapId, operationId, submission)
+        : await operationApi(adventureId, pendingMovement.mapId, operationId)
       const refreshed = await api.getCombatMap(adventureId)
       if (resume && pendingMovement.turnId && api.resumeRuntimeTurn) {
         await api.resumeRuntimeTurn(adventureId, pendingMovement.turnId)
@@ -626,9 +636,15 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {pendingMovement && (pendingMovement.result.status === 'RETRY_REQUIRED' || pendingMovement.result.status === 'CHECK_REQUIRED') && <section aria-label="저장된 이동 상태" role="status">
         <p>{pendingMovement.result.status === 'RETRY_REQUIRED' ? '이동 재시도 필요' : '이동 판정 확인 필요'}</p>
         <p>작업 번호: {pendingMovement.result.operationId ?? '없음'}</p>
-        {pendingMovement.result.pendingCheck && <p>{pendingMovement.result.pendingCheck.label} · {pendingMovement.result.pendingCheck.diceExpression}</p>}
+        {pendingMovement.result.pendingCheck && <>
+          <p>{pendingMovement.result.pendingCheck.label} · {pendingMovement.result.pendingCheck.diceExpression}</p>
+          <div className="movement-check-actions" aria-label="판정 결과 제출">
+            <button type="button" onClick={() => void recoverMovement(true, { success: true })}>성공 결과 제출</button>
+            <button type="button" onClick={() => void recoverMovement(true, { success: false })}>실패 결과 제출</button>
+          </div>
+        </>}
         <button type="button" onClick={() => void recoverMovement(false)}>이동 상태 다시 확인</button>
-        <button type="button" onClick={() => void recoverMovement(true)}>이동 재개</button>
+        {!pendingMovement.result.pendingCheck && <button type="button" onClick={() => void recoverMovement(true)}>이동 재개</button>}
       </section>}
       {preparationMode && <button type="button" disabled={preparationStarting || layoutSaving || layoutDirty || !gridConfirmed || !layoutSaved || !onPreparationComplete} aria-busy={preparationStarting} onClick={() => void completePreparation()}>{preparationStarting ? '모험 시작 요청 중…' : '맵 준비 완료, 모험 시작'}</button>}
     </section>

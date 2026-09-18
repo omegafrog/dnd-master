@@ -474,8 +474,64 @@ public class AdventureController {
                 || combatMapViewPort.playerView(adventureId, owner).filter(view -> mapId.equals(view.mapId())).isEmpty()) {
             throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
         }
+        if (submission != null && !owner.equals(submission.ownerPlayerId())) {
+            throw new ApiRequestGuard.ApiContractException(403, "CHECK_OWNERSHIP_DENIED");
+        }
         var result = switch (action) { case "resume" -> submission == null ? mapMovementCoordinator.resume(mapId, operationId) : mapMovementCoordinator.resume(mapId, operationId, submission); case "cancel" -> mapMovementCoordinator.cancel(mapId, operationId); default -> mapMovementCoordinator.query(mapId, operationId); };
         return AdventureMovementOperationResponse.from(result);
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/combat-map/spatial/observe")
+    CombatMapSpatialResponse observeSpatial(@PathVariable UUID adventureId, @RequestBody SpatialActionRequest request) {
+        return CombatMapSpatialResponse.from(mapMovementCoordinator.observe(spatialAction(adventureId, request)));
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/combat-map/spatial/interact")
+    CombatMapSpatialResponse interactSpatial(@PathVariable UUID adventureId, @RequestBody SpatialActionRequest request) {
+        return CombatMapSpatialResponse.from(mapMovementCoordinator.interact(spatialAction(adventureId, request)));
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/combat-map/spatial/combat-turn-start")
+    CombatMapSpatialResponse combatTurnStartSpatial(@PathVariable UUID adventureId, @RequestBody SpatialTurnRequest request) {
+        return CombatMapSpatialResponse.from(mapMovementCoordinator.combatTurnStart(spatialTurn(adventureId, request)));
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations")
+    CombatMapSpatialResponse advanceSpatialDurations(@PathVariable UUID adventureId, @RequestBody SpatialTurnRequest request) {
+        return CombatMapSpatialResponse.from(mapMovementCoordinator.advanceDurations(spatialTurn(adventureId, request)));
+    }
+
+    private com.dndmaster.adventure.application.combat.CombatMapSpatialActionCommand spatialAction(
+            UUID adventureId, SpatialActionRequest request) {
+        if (request == null || request.mapId() == null || request.tokenId() == null || request.commandId() == null
+                || request.x() == null || request.y() == null || request.x() < 0 || request.y() < 0
+                || request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_SPATIAL_ACTION");
+        }
+        UUID owner = requireSpatialMapOwner(adventureId, request.mapId());
+        return new com.dndmaster.adventure.application.combat.CombatMapSpatialActionCommand(request.mapId(), owner,
+                request.tokenId(), new CombatMapPreviewPosition(request.x(), request.y()), request.expectedVersion(), request.commandId());
+    }
+
+    private com.dndmaster.adventure.application.combat.CombatMapSpatialTurnCommand spatialTurn(
+            UUID adventureId, SpatialTurnRequest request) {
+        if (request == null || request.mapId() == null || request.commandId() == null
+                || request.expectedVersion() == null || request.expectedVersion() < 0) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_SPATIAL_ACTION");
+        }
+        UUID owner = requireSpatialMapOwner(adventureId, request.mapId());
+        return new com.dndmaster.adventure.application.combat.CombatMapSpatialTurnCommand(request.mapId(), owner,
+                request.expectedVersion(), request.commandId());
+    }
+
+    private UUID requireSpatialMapOwner(UUID adventureId, UUID mapId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)
+                || combatMapViewPort.playerView(adventureId, owner).filter(view -> mapId.equals(view.mapId())).isEmpty()) {
+            throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
+        }
+        return owner;
     }
 
     private void activatePreparedMap(Adventure adventure, RuntimeTurnResult result) {
@@ -1059,6 +1115,13 @@ public class AdventureController {
             return new CombatMapMovementPreviewResponse(preview.mapId(), preview.orderedPositions().stream()
                     .map(position -> new PositionPayload(position.x(), position.y())).toList(),
                     preview.distance(), preview.baseMapVersion(), preview.fingerprint());
+        }
+    }
+    public record SpatialActionRequest(UUID mapId, UUID tokenId, Integer x, Integer y, Long expectedVersion, UUID commandId) {}
+    public record SpatialTurnRequest(UUID mapId, Long expectedVersion, UUID commandId) {}
+    public record CombatMapSpatialResponse(UUID mapId, long mapVersion, List<String> publicEvents) {
+        static CombatMapSpatialResponse from(com.dndmaster.adventure.application.combat.CombatMapSpatialResult result) {
+            return new CombatMapSpatialResponse(result.mapId(), result.version(), result.publicEvents());
         }
     }
     public record MovementValidationRequest(UUID tokenId, int x, int y, UUID mapId, Long mapVersion,

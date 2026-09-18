@@ -27,4 +27,17 @@ public interface CombatMapPort {
 
     /** Terminal map-owner boundary; map state remains owned by Combat Map. */
     default void commitFinalState(CombatFinalizationCommand command) {}
+
+    default CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) {
+        throw new UnsupportedOperationException("spatial observe is unavailable");
+    }
+    default CombatMapSpatialResult interact(CombatMapSpatialActionCommand command) {
+        throw new UnsupportedOperationException("spatial interact is unavailable");
+    }
+    default CombatMapSpatialResult combatTurnStart(CombatMapSpatialTurnCommand command) {
+        throw new UnsupportedOperationException("spatial combat turn start is unavailable");
+    }
+    default CombatMapSpatialResult advanceDurations(CombatMapSpatialTurnCommand command) {
+        throw new UnsupportedOperationException("spatial duration advance is unavailable");
+    }
 }

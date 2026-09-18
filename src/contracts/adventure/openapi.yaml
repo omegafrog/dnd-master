@@ -233,9 +233,42 @@ paths:
       parameters:
         - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: mapId, in: query, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CombatMapCheckResultSubmission' }
       responses:
         '200': { description: resumed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
         '403': { description: adventure is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/spatial/observe:
+    post:
+      operationId: observeAdventureSpatialFeature
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialActionRequest' } } } }
+      responses:
+        '200': { description: owner-scoped spatial observation, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
+        '403': { description: adventure or map is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/spatial/interact:
+    post:
+      operationId: interactAdventureSpatialFeature
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialActionRequest' } } } }
+      responses:
+        '200': { description: owner-scoped spatial interaction, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
+        '403': { description: adventure or map is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/spatial/combat-turn-start:
+    post:
+      operationId: startAdventureSpatialCombatTurn
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialTurnRequest' } } } }
+      responses:
+        '200': { description: spatial combat-turn triggers, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
+        '403': { description: adventure or map is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations:
+    post:
+      operationId: advanceAdventureSpatialDurations
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialTurnRequest' } } } }
+      responses:
+        '200': { description: advanced spatial durations, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
+        '403': { description: adventure or map is not owned by bearer }
 
 components:
   schemas:
@@ -302,6 +335,50 @@ components:
         finalPosition: { oneOf: [{ $ref: '#/components/schemas/MovementPosition' }, { type: 'null' }] }
         publicEvents: { type: array, items: { type: string } }
         interruptionReason: { type: [string, 'null'] }
+        pendingCheck: { oneOf: [{ $ref: '#/components/schemas/CombatMapPendingCheck' }, { type: 'null' }] }
+    CombatMapCheckResultSubmission:
+      type: object
+      required: [operationId, checkId, success, ownerPlayerId, actor]
+      properties:
+        operationId: { type: string, format: uuid }
+        checkId: { type: string, format: uuid }
+        success: { type: boolean }
+        ownerPlayerId: { type: string, format: uuid }
+        actor: { type: string, enum: [PLAYER] }
+    CombatMapPendingCheck:
+      type: object
+      required: [checkId, operationId, label, diceExpression, ownerPlayerId, actor]
+      properties:
+        checkId: { type: string, format: uuid }
+        operationId: { type: string, format: uuid }
+        label: { type: string }
+        diceExpression: { type: string }
+        ownerPlayerId: { type: string, format: uuid }
+        actor: { type: string, enum: [PLAYER] }
+    AdventureSpatialActionRequest:
+      type: object
+      required: [mapId, tokenId, x, y, expectedVersion, commandId]
+      properties:
+        mapId: { type: string, format: uuid }
+        tokenId: { type: string, format: uuid }
+        x: { type: integer, minimum: 0 }
+        y: { type: integer, minimum: 0 }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+        commandId: { type: string, format: uuid }
+    AdventureSpatialTurnRequest:
+      type: object
+      required: [mapId, expectedVersion, commandId]
+      properties:
+        mapId: { type: string, format: uuid }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+        commandId: { type: string, format: uuid }
+    AdventureSpatialResponse:
+      type: object
+      required: [mapId, mapVersion, publicEvents]
+      properties:
+        mapId: { type: string, format: uuid }
+        mapVersion: { type: integer, format: int64, minimum: 0 }
+        publicEvents: { type: array, items: { type: string } }
     RuntimeTurnResponse:
       type: object
       properties:

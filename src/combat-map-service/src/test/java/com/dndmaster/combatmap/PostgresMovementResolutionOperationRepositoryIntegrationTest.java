@@ -10,6 +10,8 @@ import com.dndmaster.combatmap.application.movement.MovementResolutionOperation;
 import com.dndmaster.combatmap.application.movement.MovementResolutionResult;
 import com.dndmaster.combatmap.application.movement.MovementResolutionOutcomeStatus;
 import com.dndmaster.combatmap.application.movement.MovementCheckRequest;
+import com.dndmaster.combatmap.application.movement.MovementCheckActor;
+import com.dndmaster.combatmap.application.movement.MovementCheckOwner;
 import com.dndmaster.combatmap.application.movement.MovementReservationConflictException;
 import com.dndmaster.combatmap.domain.GridPosition;
 import com.dndmaster.combatmap.domain.MapId;
@@ -160,7 +162,7 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
         MovementResolutionOperation operation = repository.reserve(operation(commandId, "pending"));
         MovementCheckRequest check = new MovementCheckRequest(UUID.randomUUID(), operation.operationId(), UUID.randomUUID(),
                 com.dndmaster.combatmap.domain.SpatialFeatureType.TRAP, com.dndmaster.combatmap.domain.SpatialTrigger.BECOME_VISIBLE,
-                "perception", 15, "PLAYER", "PLAYER");
+                "perception", 15, "PLAYER", new MovementCheckOwner(MovementCheckActor.PLAYER, playerId));
         operation.requestCheck(check);
         repository.save(operation);
 

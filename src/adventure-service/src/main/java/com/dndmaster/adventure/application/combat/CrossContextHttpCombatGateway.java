@@ -248,6 +248,48 @@ public final class CrossContextHttpCombatGateway
     @Override public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "POST", null); }
     @Override public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId, CombatMapCheckSubmission submission) { return operationRequest(mapId, operationId, "POST", submission); }
     @Override public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "DELETE"); }
+
+    @Override public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) {
+        return spatialRequest(command.mapId(), "observe", command.commandId(), new SpatialActionRequest(command.ownerPlayerId(), command.tokenId(),
+                command.cell().x(), command.cell().y(), command.expectedVersion(), command.commandId()));
+    }
+
+    @Override public CombatMapSpatialResult interact(CombatMapSpatialActionCommand command) {
+        return spatialRequest(command.mapId(), "interact", command.commandId(), new SpatialActionRequest(command.ownerPlayerId(), command.tokenId(),
+                command.cell().x(), command.cell().y(), command.expectedVersion(), command.commandId()));
+    }
+
+    @Override public CombatMapSpatialResult combatTurnStart(CombatMapSpatialTurnCommand command) {
+        return spatialRequest(command.mapId(), "combat-turn-start", command.commandId(), new SpatialTurnRequest(command.ownerPlayerId(),
+                command.expectedVersion(), command.commandId()));
+    }
+
+    @Override public CombatMapSpatialResult advanceDurations(CombatMapSpatialTurnCommand command) {
+        return spatialRequest(command.mapId(), "advance-durations", command.commandId(), new SpatialTurnRequest(command.ownerPlayerId(),
+                command.expectedVersion(), command.commandId()));
+    }
+
+    private CombatMapSpatialResult spatialRequest(java.util.UUID mapId, String action, java.util.UUID commandId, Object body) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/spatial/" + action))
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .header("Idempotency-Key", commandId.toString()).POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body))).build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("combat map spatial action failed with status " + response.statusCode());
+            }
+            JsonNode value = objectMapper.readTree(response.body());
+            List<String> events = new ArrayList<>();
+            value.path("publicEvents").forEach(event -> events.add(event.asText()));
+            return new CombatMapSpatialResult(java.util.UUID.fromString(value.path("mapId").asText()),
+                    value.path("mapVersion").asLong(), events);
+        } catch (IOException exception) {
+            throw new CrossContextCallException("combat map spatial action transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("combat map spatial action interrupted", exception);
+        }
+    }
     private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method) { return operationRequest(mapId, operationId, method, null); }
     private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method, CombatMapCheckSubmission submission) {
         try {
@@ -355,7 +397,9 @@ public final class CrossContextHttpCombatGateway
             CombatMapPendingCheck pendingCheck = pending.isObject() && pending.hasNonNull("checkId")
                     ? new CombatMapPendingCheck(java.util.UUID.fromString(pending.path("checkId").asText()),
                             java.util.UUID.fromString(pending.path("operationId").asText()), pending.path("label").asText("판정"),
-                            pending.path("diceExpression").asText("d20"), pending.path("ownership").asText("SYSTEM")) : null;
+                            pending.path("diceExpression").asText("d20"),
+                            java.util.UUID.fromString(pending.path("ownerPlayerId").asText()),
+                            CombatMapCheckActor.valueOf(pending.path("actor").asText("PLAYER"))) : null;
             return new CombatMapMoveResult(version, operationId, status, requested, traversed, finalCell, events,
                     body.hasNonNull("interruptionReason") ? body.path("interruptionReason").asText() : null, pendingCheck);
         } catch (IOException exception) { throw new CrossContextCallException("combat map returned malformed movement result", exception); }
@@ -493,6 +537,9 @@ public final class CrossContextHttpCombatGateway
             List<PositionRequest> waypoints, String appliedEdition, long expectedVersion) {}
     private record PreviewResponse(List<PositionRequest> orderedPositions, int distance, long baseMapVersion, String fingerprint) {}
     private record PositionRequest(int x, int y) {}
+    private record SpatialActionRequest(java.util.UUID ownerId, java.util.UUID tokenId, int x, int y,
+            long expectedVersion, java.util.UUID commandId) {}
+    private record SpatialTurnRequest(java.util.UUID ownerId, long expectedVersion, java.util.UUID commandId) {}
     private record AiStateRequest(
             java.util.UUID ownerId, java.util.UUID tokenId, int x, int y, java.util.UUID commandId,
             long expectedVersion, List<LayerRequest> layers) {}

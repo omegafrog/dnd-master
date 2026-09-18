@@ -134,6 +134,12 @@ public class CombatMapApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.combatmap.application.spatial.SpatialFeatureRuntimeApplicationService spatialFeatureRuntimeApplicationService(
+            CombatMapViewStore store) {
+        return new com.dndmaster.combatmap.application.spatial.SpatialFeatureRuntimeApplicationService(store);
+    }
+
+    @Bean
     org.springframework.boot.ApplicationRunner movementResolutionRecoveryRunner(CombatMapMovementService movementService) {
         return arguments -> movementService.recoverIncompleteOperations();
     }
@@ -197,8 +203,9 @@ public class CombatMapApiConfiguration {
     CombatMapController combatMapController(
             CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
             MapImageEvidencePort mapImageEvidence, MapGridAlignmentService mapGridAlignmentService,
-            PublicMapImageArtifactService publicMapImages, MapFilePreparationPort mapFilePreparation) {
+            PublicMapImageArtifactService publicMapImages, MapFilePreparationPort mapFilePreparation,
+            com.dndmaster.combatmap.application.spatial.SpatialFeatureRuntimeApplicationService spatialRuntime) {
         return new CombatMapController(mapViewService, movementService, requestGuard, mapImageEvidence, mapGridAlignmentService,
-                publicMapImages, mapFilePreparation);
+                publicMapImages, mapFilePreparation, spatialRuntime);
     }
 }

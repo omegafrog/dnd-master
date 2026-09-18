@@ -20,4 +20,8 @@ public final class MapMovementCoordinator {
         return combatMap.resumeMovementOperation(mapId, operationId, submission);
     }
     public CombatMapMoveResult cancel(java.util.UUID mapId, java.util.UUID operationId) { return combatMap.cancelMovementOperation(mapId, operationId); }
+    public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) { return combatMap.observe(command); }
+    public CombatMapSpatialResult interact(CombatMapSpatialActionCommand command) { return combatMap.interact(command); }
+    public CombatMapSpatialResult combatTurnStart(CombatMapSpatialTurnCommand command) { return combatMap.combatTurnStart(command); }
+    public CombatMapSpatialResult advanceDurations(CombatMapSpatialTurnCommand command) { return combatMap.advanceDurations(command); }
 }

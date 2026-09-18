@@ -25,7 +25,11 @@ class OpenApiSchemaTest {
                 "/internal/v1/adventures", "/internal/v1/adventures/{adventureId}/edition",
                 "/internal/v1/adventures/{adventureId}/roll-conditions",
                 "/internal/v1/adventures/{adventureId}/movement-validations",
-                "/api/v1/adventures/{adventureId}/map-movement/pending");
+                "/api/v1/adventures/{adventureId}/map-movement/pending",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/observe",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/interact",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/combat-turn-start",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations");
         assertCombatMapTriggerQualification();
         assertMovementContracts();
         assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/{rulebookId}/source-preview", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",
@@ -34,7 +38,11 @@ class OpenApiSchemaTest {
         assertPaths("character-management", "/internal/v1/character-sheets/{sheetId}");
         assertPaths("dice-roll", "/internal/v1/dice-rolls/player", "/internal/v1/dice-rolls/ai");
         assertPaths("combat-map", "/internal/v1/combat-maps/{mapId}/player-view",
-                "/internal/v1/combat-maps/{mapId}/moves", "/internal/v1/combat-maps/{mapId}/ai-state");
+                "/internal/v1/combat-maps/{mapId}/moves", "/internal/v1/combat-maps/{mapId}/ai-state",
+                "/internal/v1/combat-maps/{mapId}/spatial/observe",
+                "/internal/v1/combat-maps/{mapId}/spatial/interact",
+                "/internal/v1/combat-maps/{mapId}/spatial/combat-turn-start",
+                "/internal/v1/combat-maps/{mapId}/spatial/advance-durations");
         assertPaths("ai-game-master", "/internal/v1/gm/scenes", "/internal/v1/gm/judgments",
                 "/internal/v1/gm/rule-answers", "/internal/v1/gm/maps", "/internal/v1/gm/intent-classifications");
     }
@@ -53,6 +61,9 @@ class OpenApiSchemaTest {
         Map<String, Object> operation = (Map<String, Object>) schemas.get("MovementOperationResponse");
         Map<String, Object> properties = (Map<String, Object>) operation.get("properties");
         assertNullableFinalPosition(properties, "staged movement");
+        assertTrue(properties.containsKey("pendingCheck"), "staged movement must expose a safe pending check projection");
+        Map<String, Object> submission = (Map<String, Object>) schemas.get("MovementCheckResultSubmission");
+        assertEquals(List.of("operationId", "checkId", "success", "ownerPlayerId", "actor"), submission.get("required"));
 
         Map<String, Object> adventure = new Yaml().load(Files.readString(CONTRACTS.resolve("adventure").resolve("openapi.yaml")));
         Map<String, Object> adventureSchemas = (Map<String, Object>) ((Map<String, Object>) adventure.get("components")).get("schemas");
@@ -61,6 +72,7 @@ class OpenApiSchemaTest {
                 "Adventure movement operation response");
         assertNullableProperty(schemaProperties(adventureSchemas, "RuntimeTurnResponse"), "movementResult",
                 "Runtime turn response movement result");
+        assertTrue(schemaProperties(adventureSchemas, "AdventureMovementOperationResponse").containsKey("pendingCheck"));
     }
 
     @SuppressWarnings("unchecked")
