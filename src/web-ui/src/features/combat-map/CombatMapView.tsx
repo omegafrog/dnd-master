@@ -120,7 +120,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     await previewMovement(token.id, cell, [], next)
   }
 
-  async function previewMovement(tokenId: string, destination: { x: number; y: number }, waypoints: { x: number; y: number }[], base: MapInteractionCandidate, sourceMap = map) {
+  async function previewMovement(tokenId: string, destination: { x: number; y: number }, waypoints: { x: number; y: number }[], base: MapInteractionCandidate, sourceMap = map, retryStale = true) {
     if (!sourceMap?.mapId) return
     const sequence = previewSequence.current + 1
     previewSequence.current = sequence
@@ -136,6 +136,16 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       setMessage(`이동 경로를 미리 보았습니다. 거리: ${preview.distance}`)
     } catch (error) {
       if (sequence !== previewSequence.current) return
+      const status = error && typeof error === 'object' && 'status' in error ? (error as { status?: unknown }).status : undefined
+      if (status === 409 && retryStale && base.to && api.previewMapMovement) {
+        try {
+          const refreshed = await api.getCombatMap(adventureId)
+          setMap(refreshed)
+          await previewMovement(tokenId, destination, waypoints, { ...base, mapVersion: refreshed.version ?? 0 }, refreshed, false)
+          setMessage('지도 상태가 바뀌었습니다. 최신 이동 경로를 다시 확인했습니다. 다시 확인해주세요.')
+          return
+        } catch { /* preserve the original request error */ }
+      }
       setCandidate(current => current === base ? null : current)
       setMessage(error instanceof Error ? error.message : '이동 경로를 미리 보지 못했습니다.')
     } finally { if (sequence === previewSequence.current) setPreviewing(false) }

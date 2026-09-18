@@ -368,9 +368,11 @@ public class CombatMapController {
         requestGuard.internal(token);
         requireRequest(request, "movement preview request is required");
         if (request.playerId() == null || request.tokenId() == null || request.destination() == null
-                || request.appliedEdition() == null || request.appliedEdition().isBlank()) {
-            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
-                    "movement preview request is incomplete");
+                || request.appliedEdition() == null || request.appliedEdition().isBlank()
+                || request.expectedVersion() < 0 || invalid(request.destination())
+                || request.waypoints() != null && (request.waypoints().size() > MovementPreviewRequest.MAX_WAYPOINTS
+                        || request.waypoints().stream().anyMatch(CombatMapController::invalid))) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_PREVIEW");
         }
         MovementPreview preview = movementService.preview(new MovementPreviewRequest(
                 new MapId(mapId), new PlayerId(request.playerId()), new TokenId(request.tokenId()),
@@ -378,6 +380,10 @@ public class CombatMapController {
                 request.waypoints() == null ? List.of() : request.waypoints().stream().map(position -> new GridPosition(position.x(), position.y())).toList(),
                 request.appliedEdition(), request.expectedVersion()));
         return MovementPreviewResponse.from(mapId, preview);
+    }
+
+    private static boolean invalid(PositionRequest position) {
+        return position == null || position.x() < 0 || position.y() < 0;
     }
 
     public CombatMapMoveResponse movePlayer(UUID mapId, String token, MoveRequest request) {

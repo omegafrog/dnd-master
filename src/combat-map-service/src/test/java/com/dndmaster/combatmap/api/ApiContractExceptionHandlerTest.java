@@ -1,10 +1,16 @@
 package com.dndmaster.combatmap.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
 
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationCommandConflictException;
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationVersionConflictException;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementStaleException;
+import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
+import com.dndmaster.combatmap.application.view.CombatMapViewService;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class ApiContractExceptionHandlerTest {
@@ -36,5 +42,19 @@ class ApiContractExceptionHandlerTest {
 
         assertEquals(409, response.getStatusCode().value());
         assertEquals("STALE_MOVEMENT_PROPOSAL", response.getBody().code());
+    }
+
+    @Test
+    void rejects_an_oversized_preview_at_the_api_boundary() {
+        var controller = new CombatMapController(mock(CombatMapViewService.class),
+                mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        var waypoints = java.util.stream.IntStream.range(0, 17)
+                .mapToObj(index -> new CombatMapController.PositionRequest(1, 1))
+                .toList();
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.previewMovement(
+                UUID.randomUUID(), "service-secret",
+                new CombatMapController.MovementPreviewRequestBody(UUID.randomUUID(), UUID.randomUUID(),
+                        new CombatMapController.PositionRequest(1, 1), waypoints, "DND_5E_2024", 0)));
     }
 }

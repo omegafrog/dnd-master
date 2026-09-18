@@ -559,6 +559,28 @@ it('allows a destination in an explored cell outside the current view', async ()
   })))
 })
 
+it('refreshes and recomputes when the preview sees a stale map version', async () => {
+  const api = fakeApi()
+  const initial = await api.getCombatMap('a1')
+  const refreshed = { ...initial, version: 1 }
+  api.getCombatMap = vi.fn().mockResolvedValueOnce(initial).mockResolvedValueOnce(refreshed)
+  api.previewMapMovement = vi.fn()
+    .mockRejectedValueOnce(Object.assign(new Error('stale'), { status: 409 }))
+    .mockResolvedValueOnce({
+      mapId: 'm1', orderedPositions: [{ x: 1, y: 1 }, { x: 2, y: 1 }],
+      distance: 5, baseMapVersion: 1, fingerprint: 'fresh',
+    })
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+
+  await waitFor(() => expect(api.previewMapMovement).toHaveBeenCalledTimes(2))
+  expect(api.previewMapMovement).toHaveBeenLastCalledWith('a1', expect.objectContaining({ mapVersion: 1 }))
+  expect(await screen.findByText('지도 상태가 바뀌었습니다. 최신 이동 경로를 다시 확인했습니다. 다시 확인해주세요.')).toBeInTheDocument()
+})
+
 it('keeps the latest destination when previews finish out of order', async () => {
   const api = fakeApi()
   api.getCombatMap = vi.fn().mockResolvedValue({
