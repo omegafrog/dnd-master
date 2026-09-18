@@ -369,7 +369,7 @@ public class CombatMapController {
         requireRequest(request, "movement preview request is required");
         if (request.playerId() == null || request.tokenId() == null || request.destination() == null
                 || request.appliedEdition() == null || request.appliedEdition().isBlank()
-                || request.expectedVersion() < 0 || invalid(request.destination())
+                || request.expectedVersion() == null || request.expectedVersion() < 0 || invalid(request.destination())
                 || request.waypoints() != null && (request.waypoints().size() > MovementPreviewRequest.MAX_WAYPOINTS
                         || request.waypoints().stream().anyMatch(CombatMapController::invalid))) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_PREVIEW");
@@ -499,7 +499,7 @@ public class CombatMapController {
             String appliedEdition, UUID commandId, long expectedVersion) {}
 
     public record MovementPreviewRequestBody(UUID playerId, UUID tokenId, PositionRequest destination,
-            List<PositionRequest> waypoints, String appliedEdition, long expectedVersion) {}
+            List<PositionRequest> waypoints, String appliedEdition, Long expectedVersion) {}
 
     public record PositionRequest(int x, int y) {}
 

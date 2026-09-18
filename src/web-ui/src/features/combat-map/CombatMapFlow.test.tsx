@@ -510,7 +510,7 @@ it('submits exactly one typed map action after confirmation', async () => {
   await user.click(screen.getByRole('button', { name: '격자 2,1' }))
   await user.click(screen.getByRole('button', { name: '확인' }))
   expect(api.submitMapAction).toHaveBeenCalledTimes(1)
-  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }), undefined, 7)
+  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }], fingerprint: 'local-preview', waypoints: [] }), undefined, 7)
 })
 
 it('shows the server preview path and ghost destination before confirmation', async () => {
@@ -531,7 +531,7 @@ it('shows the server preview path and ghost destination before confirmation', as
   }))
   await user.click(screen.getByRole('button', { name: '확인' }))
   expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({
-    path: [{ x: 1, y: 1 }, { x: 1, y: 0 }, { x: 2, y: 1 }],
+    path: [{ x: 1, y: 1 }, { x: 1, y: 0 }, { x: 2, y: 1 }], fingerprint: 'preview-1', waypoints: [],
   }), undefined, 7)
 })
 
@@ -604,7 +604,7 @@ it('keeps the latest destination when previews finish out of order', async () =>
   resolveFirst({ mapId: 'm1', orderedPositions: [{ x: 1, y: 1 }, { x: 2, y: 1 }], distance: 5, baseMapVersion: 0, fingerprint: 'first' })
   await user.click(screen.getByRole('button', { name: '확인' }))
 
-  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ location: { x: 0, y: 1 }, path: [{ x: 1, y: 1 }, { x: 0, y: 1 }] }), undefined, 7)
+  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ location: { x: 0, y: 1 }, path: [{ x: 1, y: 1 }, { x: 0, y: 1 }], fingerprint: 'second', waypoints: [] }), undefined, 7)
 })
 
 it('reconciles a committed move when the turn response reports a conflict', async () => {

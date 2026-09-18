@@ -33,6 +33,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.lang.reflect.InvocationTargetException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -60,7 +61,7 @@ class AdventureMovementPreviewBoundaryTest {
         AdventureController controller = controller(adventures, combatMap, mapViews, playerResolver);
 
         assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.previewMovement(adventureId,
-                new AdventureController.CombatMapMovementPreviewRequest(requestedMapId, 0, UUID.randomUUID(),
+                new AdventureController.CombatMapMovementPreviewRequest(requestedMapId, 0L, UUID.randomUUID(),
                         new AdventureController.PositionPayload(1, 1), List.of())));
         verifyNoInteractions(combatMap);
     }
@@ -87,9 +88,28 @@ class AdventureMovementPreviewBoundaryTest {
                 .mapToObj(index -> new AdventureController.PositionPayload(1, 1)).toList();
 
         assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.previewMovement(adventureId,
-                new AdventureController.CombatMapMovementPreviewRequest(mapId, 0, UUID.randomUUID(),
+                new AdventureController.CombatMapMovementPreviewRequest(mapId, 0L, UUID.randomUUID(),
                         new AdventureController.PositionPayload(1, 1), waypoints)));
         verifyNoInteractions(combatMap);
+    }
+
+    @Test
+    void rejects_confirmed_move_without_server_preview_fingerprint() throws Exception {
+        AdventureController controller = controller(mock(AdventureRepository.class), mock(CombatMapPort.class),
+                mock(CombatMapViewPort.class), mock(AuthenticatedPlayerResolver.class));
+        var method = AdventureController.class.getDeclaredMethod("validateConfirmedMapPreview", Adventure.class,
+                UUID.class, AdventureController.MapActionPayload.class);
+        method.setAccessible(true);
+
+        InvocationTargetException thrown = assertThrows(InvocationTargetException.class, () -> method.invoke(controller,
+                mock(Adventure.class), UUID.randomUUID(), new AdventureController.MapActionPayload(
+                        UUID.randomUUID(), 0, UUID.randomUUID(), "MOVE", List.of(
+                                new AdventureController.PositionPayload(0, 0), new AdventureController.PositionPayload(1, 0)),
+                        null, new AdventureController.PositionPayload(1, 0), List.of(), null)));
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> {
+            throw (ApiRequestGuard.ApiContractException) thrown.getCause();
+        });
     }
 
     private static AdventureController controller(AdventureRepository adventures, CombatMapPort combatMap,

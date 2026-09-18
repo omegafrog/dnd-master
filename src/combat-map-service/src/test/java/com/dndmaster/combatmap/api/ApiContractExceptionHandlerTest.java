@@ -55,6 +55,6 @@ class ApiContractExceptionHandlerTest {
         assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.previewMovement(
                 UUID.randomUUID(), "service-secret",
                 new CombatMapController.MovementPreviewRequestBody(UUID.randomUUID(), UUID.randomUUID(),
-                        new CombatMapController.PositionRequest(1, 1), waypoints, "DND_5E_2024", 0)));
+                        new CombatMapController.PositionRequest(1, 1), waypoints, "DND_5E_2024", 0L)));
     }
 }

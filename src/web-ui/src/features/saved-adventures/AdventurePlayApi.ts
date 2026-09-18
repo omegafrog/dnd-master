@@ -81,6 +81,8 @@ export type MapActionCandidate = {
   tokenId: string
   action: 'MOVE' | 'INTERACT' | 'TARGET' | 'LOCATION'
   path?: Array<{ x: number; y: number }>
+  waypoints?: Array<{ x: number; y: number }>
+  fingerprint?: string
   targetId?: string
   location?: { x: number; y: number }
 }

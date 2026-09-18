@@ -32,6 +32,7 @@ import java.util.Objects;
 import java.util.UUID;
 import com.dndmaster.adventure.domain.runtime.GmTurn;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
+import com.dndmaster.adventure.application.combat.CombatMapMoveCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewPosition;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewResult;
@@ -311,7 +312,7 @@ public class AdventureController {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         }
         if (request == null || request.mapId() == null || request.tokenId() == null || request.destination() == null
-                || request.mapVersion() < 0 || invalidPreviewPosition(request.destination())
+                || request.mapVersion() == null || request.mapVersion() < 0 || invalidPreviewPosition(request.destination())
                 || request.waypoints() != null && (request.waypoints().size() > CombatMapPreviewCommand.MAX_WAYPOINTS
                         || request.waypoints().stream().anyMatch(AdventureController::invalidPreviewPosition))) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_PREVIEW");
@@ -674,7 +675,7 @@ public class AdventureController {
                     adventure.ruleSetId(), member.characterSheetId(), payload.mapId(), CombatActorRole.PLAYER,
                     payload.action(), path, owner, payload.tokenId(), payload.mapVersion());
             characterCombatPort.requireUsableCharacter(command);
-            combatMapPort.validateAndMove(command);
+            combatMapPort.move(new CombatMapMoveCommand(command, movementDistance(payload.path()), payload.mapVersion(), appliedEdition(adventure).edition()));
         } catch (java.io.IOException exception) {
             throw new IllegalArgumentException("invalid map action", exception);
         }
@@ -712,6 +713,7 @@ public class AdventureController {
                     .put("combatMapId", payload.mapId().toString())
                     .put("tokenId", payload.tokenId().toString())
                     .put("expectedVersion", payload.mapVersion())
+                    .put("appliedEdition", appliedEdition(adventure).edition())
                     .toString();
             return com.dndmaster.adventure.application.runtime.RuntimeTurnCommand.create(turnId, runtimeCommandId,
                     adventure.id().value(), adventure.sessionId().value(), owner, targetContext,
@@ -749,9 +751,9 @@ public class AdventureController {
     }
 
     private void validateConfirmedMapPreview(Adventure adventure, UUID owner, MapActionPayload payload) {
-        // Older runtime commands do not carry a preview fingerprint. Keep their
-        // compatibility adapter intact; new player confirmations must carry it.
-        if (payload.fingerprint() == null || payload.fingerprint().isBlank()) return;
+        if (payload.fingerprint() == null || payload.fingerprint().isBlank()) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
+        }
         if (payload.path() == null || payload.path().size() < 2 || payload.tokenId() == null) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }
@@ -765,6 +767,10 @@ public class AdventureController {
         if (!payload.fingerprint().equals(preview.fingerprint()) || !payload.path().equals(previewPath)) {
             throw new ApiRequestGuard.ApiContractException(409, "MOVEMENT_PREVIEW_MISMATCH");
         }
+    }
+
+    private static int movementDistance(List<PositionPayload> path) {
+        return Math.max(1, (path.size() - 1) * 5);
     }
 
     public record MapActionPayload(UUID mapId, long mapVersion, UUID tokenId, String action,
@@ -839,7 +845,7 @@ public class AdventureController {
     public record AdventureSummaryResponse(UUID adventureId, String status, long version, UUID sessionId, UUID scenarioBundleId) {}
     public record EditionResponse(UUID adventureId, String edition) {}
     public record RollConditionsResponse(UUID adventureId, String conditions) {}
-    public record CombatMapMovementPreviewRequest(UUID mapId, long mapVersion, UUID tokenId,
+    public record CombatMapMovementPreviewRequest(UUID mapId, Long mapVersion, UUID tokenId,
             PositionPayload destination, List<PositionPayload> waypoints) {}
     public record CombatMapMovementPreviewResponse(UUID mapId, List<PositionPayload> orderedPositions,
             int distance, long baseMapVersion, String fingerprint) {

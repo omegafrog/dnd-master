@@ -194,8 +194,9 @@ public final class CrossContextHttpCombatGateway
         if (command.combatMapId() == null || command.ownerPlayerId() == null || command.tokenId() == null) {
             throw new IllegalStateException("movement command requires ownerPlayerId and tokenId");
         }
-        String appliedEdition = characterSheetViews.computeIfAbsent(command.operationId(), ignored -> readCharacterSheet(command))
-                .edition();
+        String appliedEdition = moveCommand.appliedEdition() == null
+                ? characterSheetViews.computeIfAbsent(command.operationId(), ignored -> readCharacterSheet(command)).edition()
+                : moveCommand.appliedEdition();
         List<PositionRequest> positions = movementPositions(command.movementPath());
         MoveRequest request = new MoveRequest(
                 command.ownerPlayerId(), command.tokenId(), positions,

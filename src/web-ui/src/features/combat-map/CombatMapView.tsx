@@ -166,6 +166,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         mapId: candidate.mapId, mapVersion: candidate.mapVersion, tokenId: candidate.tokenId,
         action: candidate.action, path: candidate.action === 'MOVE' ? (candidate.path ?? (candidate.from && candidate.to ? gridPath(candidate.from, candidate.to) : undefined)) : undefined,
         targetId: candidate.targetId, location: candidate.location ?? candidate.to,
+        waypoints: candidate.action === 'MOVE' ? (candidate.waypoints ?? []) : undefined,
+        fingerprint: candidate.action === 'MOVE' ? candidate.fingerprint : undefined,
       }, undefined, map?.sessionVersion ?? map?.version ?? 0)
       const refreshed = await api.getCombatMap(adventureId)
       setMap(refreshed); setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
