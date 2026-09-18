@@ -13,6 +13,7 @@ import com.dndmaster.combatmap.domain.PlayerId;
 import com.dndmaster.combatmap.domain.TokenId;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,12 +31,20 @@ public final class PostgresMovementResolutionOperationRepository implements Move
     @Override public MovementResolutionOperation reserve(MovementResolutionOperation value) { return write(value, true); }
     @Override public void save(MovementResolutionOperation value) { write(value, false); }
     @Override public List<MovementResolutionOperation> findRecoverable() {
-        String sql = "SELECT * FROM combat_map_movement_operation WHERE status IN ('PREPARING','RETRY_WAIT','READY_TO_COMMIT') ORDER BY created_at,operation_id";
-        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql);
-                var rows = statement.executeQuery()) {
+        return findRecoverable("status IN ('PREPARING','RETRY_WAIT','READY_TO_COMMIT')", null);
+    }
+    @Override public List<MovementResolutionOperation> findStalledBefore(Instant cutoff) {
+        return findRecoverable("status IN ('PREPARING','READY_TO_COMMIT') AND updated_at<=?", cutoff);
+    }
+    private List<MovementResolutionOperation> findRecoverable(String predicate, Instant cutoff) {
+        String sql = "SELECT * FROM combat_map_movement_operation WHERE " + predicate + " ORDER BY created_at,operation_id";
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {
+            if (cutoff != null) statement.setTimestamp(1, java.sql.Timestamp.from(cutoff));
+            try (var rows = statement.executeQuery()) {
             List<MovementResolutionOperation> result = new java.util.ArrayList<>();
             while (rows.next()) result.add(read(rows));
             return List.copyOf(result);
+            }
         } catch (SQLException exception) { throw new CombatMapPersistenceException("movement operation recovery load failed", exception); }
     }
     private Optional<MovementResolutionOperation> find(String field, UUID value) { return find(field, value, ""); }

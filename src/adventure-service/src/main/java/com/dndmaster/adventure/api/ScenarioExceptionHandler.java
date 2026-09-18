@@ -35,7 +35,8 @@ public final class ScenarioExceptionHandler {
 
     @ExceptionHandler(CombatCommandRejectedException.class)
     public ResponseEntity<Map<String, Object>> combatCommandRejected(CombatCommandRejectedException exception) {
-        return ResponseEntity.status(exception.code().equals("COMBAT_VERSION_CONFLICT") ? HttpStatus.CONFLICT : HttpStatus.UNPROCESSABLE_ENTITY)
+        return ResponseEntity.status(exception.code().equals("COMBAT_VERSION_CONFLICT")
+                        || exception.code().equals("RETRY_REQUIRED") ? HttpStatus.CONFLICT : HttpStatus.UNPROCESSABLE_ENTITY)
                 .body(Map.of("error", exception.code(), "violations", exception.violations()));
     }
 

@@ -12,6 +12,7 @@ import com.dndmaster.adventure.application.combat.CombatMapMoveCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewPosition;
 import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
+import com.dndmaster.adventure.application.combat.CombatMapMovementStatus;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
@@ -131,6 +132,58 @@ class AdventureApiConfigurationTest {
             assertEquals("/internal/v1/combat-maps/" + mapId + "/movement-operations", requestPath.get());
             assertTrue(requestBody.get().contains("\"fingerprint\":\"preview-identity\""));
             assertTrue(!requestBody.get().contains("waypoints"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void maps_combat_map_storage_state_to_adventure_retry_outcome() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/", exchange -> {
+            byte[] body = "{\"mapVersion\":4,\"status\":\"READY_TO_COMMIT\"}"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
+            UUID mapId = UUID.randomUUID();
+            CombatActionCommand command = new CombatActionCommand(UUID.randomUUID(), AdventureId.generate(),
+                    UUID.randomUUID(), new RuleSetId(UUID.randomUUID()), new CharacterSheetId(UUID.randomUUID()), mapId,
+                    CombatActorRole.PLAYER, "MOVE", "0,0;1,0", UUID.randomUUID(), UUID.randomUUID(), 3L);
+
+            var result = configured.move(new CombatMapMoveCommand(command, 5, 3L, "DND_5E_2024"));
+
+            assertEquals(CombatMapMovementStatus.RETRY_REQUIRED, result.status());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void preserves_typed_conflict_from_movement_operation_endpoint() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/", exchange -> {
+            byte[] body = "{\"code\":\"MOVEMENT_OPERATION_IN_PROGRESS\"}"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(409, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
+
+            var exception = assertThrows(CombatMapMovementPreviewRejectedException.class,
+                    () -> configured.movementOperation(UUID.randomUUID(), UUID.randomUUID()));
+
+            assertEquals(409, exception.status());
+            assertEquals("MOVEMENT_OPERATION_IN_PROGRESS", exception.code());
         } finally {
             server.stop(0);
         }

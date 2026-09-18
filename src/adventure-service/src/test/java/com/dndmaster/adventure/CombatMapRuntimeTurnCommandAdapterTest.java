@@ -89,7 +89,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
             @Override public void validateAndMove(CombatActionCommand command) {}
             @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult move(CombatMapMoveCommand command) {
                 return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
-                        CombatMapMovementStatus.RETRY_WAIT, traversed, traversed.getLast(), List.of(), null);
+                        CombatMapMovementStatus.RETRY_REQUIRED, traversed, traversed.getLast(), List.of(), null);
             }
         };
 
@@ -97,9 +97,9 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                 .execute(validCommand());
 
         assertEquals(RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, result.status());
-        assertEquals(CombatMapMovementStatus.RETRY_WAIT, result.movementResult().status());
+        assertEquals(CombatMapMovementStatus.RETRY_REQUIRED, result.movementResult().status());
         assertEquals(traversed, result.movementResult().traversedPath());
-        org.junit.jupiter.api.Assertions.assertTrue(result.value().contains("\"status\":\"RETRY_WAIT\""));
+        org.junit.jupiter.api.Assertions.assertTrue(result.value().contains("\"status\":\"RETRY_REQUIRED\""));
         org.junit.jupiter.api.Assertions.assertTrue(result.value().contains(operationId.toString()));
     }
 

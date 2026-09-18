@@ -953,6 +953,21 @@ public class AdventureApiConfiguration {
                     com.dndmaster.adventure.application.combat.CombatMapPreviewCommand command) {
                 return gateway.preview(command);
             }
+
+            @Override
+            public CombatMapMoveResult movementOperation(java.util.UUID mapId, java.util.UUID operationId) {
+                return gateway.movementOperation(mapId, operationId);
+            }
+
+            @Override
+            public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) {
+                return gateway.resumeMovementOperation(mapId, operationId);
+            }
+
+            @Override
+            public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) {
+                return gateway.cancelMovementOperation(mapId, operationId);
+            }
         };
     }
 

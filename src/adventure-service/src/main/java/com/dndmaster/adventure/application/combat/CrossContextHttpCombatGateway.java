@@ -250,7 +250,12 @@ public final class CrossContextHttpCombatGateway
             HttpRequest.Builder request = HttpRequest.newBuilder(baseUri.resolve(route)).timeout(timeout).header("X-Internal-Token", internalToken);
             if ("POST".equals(method)) request.POST(HttpRequest.BodyPublishers.noBody()); else if ("DELETE".equals(method)) request.DELETE(); else request.GET();
             HttpResponse<String> response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new CrossContextCallException("combat map movement operation failed with status " + response.statusCode());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                if (response.statusCode() == 409 || response.statusCode() == 422) {
+                    throw new CombatMapMovementPreviewRejectedException(response.statusCode(), previewErrorCode(response.body()));
+                }
+                throw new CrossContextCallException("combat map movement operation failed with status " + response.statusCode());
+            }
             return movementResult(response.body(), 0);
         } catch (IOException exception) { throw new CrossContextCallException("combat map movement operation transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new CrossContextCallException("combat map movement operation interrupted", exception); }
@@ -309,7 +314,8 @@ public final class CrossContextHttpCombatGateway
     private CombatMapMoveResult movementResult(String response, long fallback) {
         try {
             JsonNode body = objectMapper.readTree(response);
-            CombatMapMovementStatus status = CombatMapMovementStatus.valueOf(body.path("status").asText("RETRY_WAIT"));
+            CombatMapMovementStatus status = CombatMapMovementStatus.fromCombatMapStatus(
+                    body.path("status").asText("RETRY_WAIT"));
             long version = body.hasNonNull("mapVersion") ? body.path("mapVersion").asLong() : fallback;
             java.util.UUID operationId = body.hasNonNull("operationId") ? java.util.UUID.fromString(body.path("operationId").asText()) : null;
             java.util.List<CombatMapPreviewPosition> traversed = new java.util.ArrayList<>();

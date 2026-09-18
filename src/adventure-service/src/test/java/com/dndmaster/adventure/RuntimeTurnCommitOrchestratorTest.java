@@ -92,7 +92,7 @@ class RuntimeTurnCommitOrchestratorTest {
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
         UUID operationId = UUID.randomUUID();
         var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(3, operationId,
-                com.dndmaster.adventure.application.combat.CombatMapMovementStatus.RETRY_WAIT,
+                com.dndmaster.adventure.application.combat.CombatMapMovementStatus.RETRY_REQUIRED,
                 List.of(new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1)),
                 new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1), List.of(), null);
         String outcome = "{\"operationId\":\"" + operationId + "\",\"status\":\"RETRY_WAIT\"}";

@@ -246,11 +246,21 @@ class MovementResolutionOperationTest {
     @Test
     void startup_recovery_defers_a_transient_operation_list_failure() {
         Fixture fixture = new Fixture();
+        MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
+                fixture.commandId, fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0);
+        fixture.save(operation);
         fixture.failRecoveryLoad = true;
 
         assertEquals(List.of(), fixture.service().recoverIncompleteOperations());
         assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
         assertEquals(0, fixture.map.version());
+
+        fixture.failRecoveryLoad = false;
+        List<MovementOperationResponse> recovered = fixture.service().recoverStalledOperations(java.time.Instant.now());
+
+        assertEquals(1, recovered.size());
+        assertEquals(MovementOperationStatus.COMMITTED, recovered.getFirst().status());
+        assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.dndmaster.combatmap.application.movement;
 import com.dndmaster.combatmap.domain.MapId;
 import java.util.Optional;
 import java.util.List;
+import java.time.Instant;
 import java.util.UUID;
 
 public interface MovementResolutionOperationRepository {
@@ -13,4 +14,9 @@ public interface MovementResolutionOperationRepository {
     MovementResolutionOperation reserve(MovementResolutionOperation operation);
     void save(MovementResolutionOperation operation);
     List<MovementResolutionOperation> findRecoverable();
+    default List<MovementResolutionOperation> findStalledBefore(Instant cutoff) {
+        return findRecoverable().stream()
+                .filter(operation -> operation.status() != MovementOperationStatus.RETRY_WAIT)
+                .toList();
+    }
 }

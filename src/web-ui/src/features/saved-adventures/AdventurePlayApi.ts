@@ -106,7 +106,7 @@ export type MapMovementPreview = {
 export type MapMovementResult = {
   version: number
   operationId?: string
-  status: 'PREPARING' | 'RETRY_WAIT' | 'READY_TO_COMMIT' | 'COMMITTED' | 'CANCELLED'
+  status: 'RETRY_REQUIRED' | 'COMMITTED' | 'CANCELLED'
   traversedPath: Array<{ x: number; y: number }>
   finalPosition?: { x: number; y: number }
   publicEvents: string[]

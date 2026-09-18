@@ -21,6 +21,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.UUID;
+import java.time.Instant;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
@@ -116,6 +117,25 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
         assertEquals(MovementOperationStatus.RETRY_WAIT, restored.status());
         assertEquals(MovementOperationStatus.READY_TO_COMMIT, restored.retryResumeStatus());
         assertEquals(result, restored.result());
+    }
+
+    @Test
+    void stalled_recovery_excludes_recent_active_work_and_retry_wait() throws SQLException {
+        MovementResolutionOperation preparing = repository.reserve(operation(commandId, "preparing"));
+        try (Connection connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "UPDATE combat_map_movement_operation SET updated_at=? WHERE operation_id=?")) {
+            statement.setTimestamp(1, java.sql.Timestamp.from(Instant.parse("2026-09-18T00:00:00Z")));
+            statement.setObject(2, preparing.operationId());
+            statement.executeUpdate();
+        }
+
+        assertEquals(List.of(), repository.findStalledBefore(Instant.parse("2026-09-17T23:59:59Z")));
+        assertEquals(List.of(preparing.operationId()), repository.findStalledBefore(
+                Instant.parse("2026-09-18T00:00:01Z")).stream().map(MovementResolutionOperation::operationId).toList());
+
+        preparing.retryWait(3);
+        repository.save(preparing);
+        assertEquals(List.of(), repository.findStalledBefore(Instant.parse("2030-01-01T00:00:00Z")));
     }
 
     private MovementResolutionOperation operation(UUID requestedCommandId, String fingerprint) {

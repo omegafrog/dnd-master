@@ -69,7 +69,7 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
             String outcome = mapper.writeValueAsString(movement);
             return switch (movement.status()) {
                 case COMMITTED -> RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, outcome, movement);
-                case PREPARING, RETRY_WAIT, READY_TO_COMMIT -> RuntimeTurnCommandExecution.movement(
+                case RETRY_REQUIRED -> RuntimeTurnCommandExecution.movement(
                         RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, outcome, movement);
                 case CANCELLED -> RuntimeTurnCommandExecution.movement(
                         RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, outcome, movement);

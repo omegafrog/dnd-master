@@ -87,6 +87,17 @@ public final class CombatMapMovementService {
         return recoverSafely(true);
     }
 
+    /** Runtime polling resumes active work only after it has stopped making durable progress. */
+    public List<MovementOperationResponse> recoverStalledOperations(java.time.Instant cutoff) {
+        try {
+            return recover(operations.findStalledBefore(Objects.requireNonNull(cutoff)));
+        } catch (RuntimeException failure) {
+            LOGGER.warn("movement_operation_stalled_recovery_load_deferred failure={}",
+                    failure.getClass().getSimpleName());
+            return List.of();
+        }
+    }
+
     private List<MovementOperationResponse> recoverSafely(boolean retryWaitOnly) {
         try {
             List<MovementResolutionOperation> recoverable = operations.findRecoverable();

@@ -27,7 +27,7 @@ public final class CombatActionApplicationService {
     private final CharacterCombatPort characterPort;
     private final AiCombatPort aiPort;
     private final AiCombatDecisionPort decisionPort;
-    private final CombatMapPort mapPort;
+    private final MapMovementCoordinator movementCoordinator;
     private final CombatEndPort combatEndPort;
 
     public CombatActionApplicationService(CombatEncounterRepository encounterRepository,
@@ -79,7 +79,7 @@ public final class CombatActionApplicationService {
         this.dicePort = Objects.requireNonNull(dicePort);
         this.characterPort = Objects.requireNonNull(characterPort);
         this.aiPort = Objects.requireNonNull(aiPort);
-        this.mapPort = Objects.requireNonNull(mapPort);
+        this.movementCoordinator = new MapMovementCoordinator(Objects.requireNonNull(mapPort));
         this.decisionPort = Objects.requireNonNull(decisionPort);
         this.combatEndPort = Objects.requireNonNull(combatEndPort);
     }
@@ -159,6 +159,8 @@ public final class CombatActionApplicationService {
                 operationRepository.save(operation);
             }
             return response;
+        } catch (CombatCommandRejectedException exception) {
+            throw exception;
         } catch (RuntimeCombatRejectionException exception) {
             operation.failed(exception);
             operationRepository.save(operation);
@@ -180,7 +182,8 @@ public final class CombatActionApplicationService {
 
     private void applyMapEffect(CombatActionOperation operation, CombatActionCommand command, CombatMapEffect effect) {
         if (effect == null || stepDone(operation, "map")) return;
-        mapPort.move(new CombatMapMoveCommand(command, effect.movementDistance(), effect.expectedVersion()));
+        requireCommittedMovement(movementCoordinator.resolve(
+                new CombatMapMoveCommand(command, effect.movementDistance(), effect.expectedVersion())));
         operation.completeStep("map");
         operationRepository.save(operation);
     }
@@ -400,7 +403,8 @@ public final class CombatActionApplicationService {
         operationRepository.save(operation);
         try {
             if (command.combatMapId() != null && !stepDone(operation, "map")) {
-                mapPort.move(new CombatMapMoveCommand(command, distance, expectedMapVersion(command)));
+                requireCommittedMovement(movementCoordinator.resolve(
+                        new CombatMapMoveCommand(command, distance, expectedMapVersion(command))));
                 operation.completeStep("map");
                 operationRepository.save(operation);
             } else if (command.combatMapId() == null) {
@@ -444,6 +448,16 @@ public final class CombatActionApplicationService {
 
     private static long expectedMapVersion(CombatActionCommand command) {
         return command.mapVersion() == null ? command.expectedVersion() : command.mapVersion();
+    }
+
+    private static void requireCommittedMovement(CombatMapMoveResult result) {
+        switch (result.status()) {
+            case COMMITTED -> { }
+            case RETRY_REQUIRED -> throw new CombatCommandRejectedException("RETRY_REQUIRED",
+                    List.of("MOVEMENT_OPERATION_NOT_COMMITTED"));
+            case CANCELLED -> throw new CombatCommandRejectedException("MOVEMENT_CANCELLED",
+                    result.interruptionReason() == null ? List.of() : List.of(result.interruptionReason()));
+        }
     }
 
     private static void validateNarrativePosition(CombatActionCommand command, CombatEncounter encounter) {
