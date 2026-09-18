@@ -199,7 +199,9 @@ class GmViewAuthorizationTest {
                 List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
                 1, "DND_5E_2024", null, 0, "preview", List.of());
 
-        assertEquals(400, assertThrows(org.springframework.web.server.ResponseStatusException.class,
-                () -> controller.movePlayer(UUID.randomUUID(), "service-secret", request)).getStatusCode().value());
+        var error = assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.movePlayer(UUID.randomUUID(), "service-secret", request));
+        assertEquals(400, error.status());
+        assertEquals("INVALID_MAP_MOVE_PREVIEW", error.code());
     }
 }

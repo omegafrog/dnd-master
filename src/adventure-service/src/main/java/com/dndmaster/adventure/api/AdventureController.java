@@ -609,7 +609,7 @@ public class AdventureController {
     }
 
     private static boolean invalidPreviewPosition(PositionPayload position) {
-        return position == null || position.x() < 0 || position.y() < 0;
+        return position == null || position.x() == null || position.y() == null || position.x() < 0 || position.y() < 0;
     }
 
     public record GmTurnRequest(UUID turnId, GmInputRequest input) {}
@@ -659,7 +659,7 @@ public class AdventureController {
             com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput input) {
         try {
             MapActionPayload payload = objectMapper.readValue(input.action(), MapActionPayload.class);
-            if (!input.mapId().equals(payload.mapId()) || input.mapVersion() != payload.mapVersion()) {
+            if (!input.mapId().equals(payload.mapId()) || payload.mapVersion() == null || input.mapVersion() != payload.mapVersion()) {
                 throw new IllegalArgumentException("map action identity mismatch");
             }
             if (payload.action() == null || payload.action().isBlank()) {
@@ -694,7 +694,7 @@ public class AdventureController {
             com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput input) {
         try {
             MapActionPayload payload = objectMapper.readValue(input.action(), MapActionPayload.class);
-            if (!input.mapId().equals(payload.mapId()) || input.mapVersion() != payload.mapVersion()) {
+            if (!input.mapId().equals(payload.mapId()) || payload.mapVersion() == null || input.mapVersion() != payload.mapVersion()) {
                 throw new IllegalArgumentException("map action identity mismatch");
             }
             if (payload.action() == null || payload.action().isBlank()) {
@@ -767,6 +767,9 @@ public class AdventureController {
     }
 
     private CombatMapPreviewResult validateConfirmedMapPreview(Adventure adventure, UUID owner, MapActionPayload payload) {
+        if (payload.mapVersion() == null || payload.mapVersion() < 0) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
+        }
         if (payload.waypoints() != null && (payload.waypoints().size() > CombatMapPreviewCommand.MAX_WAYPOINTS
                 || payload.waypoints().stream().anyMatch(AdventureController::invalidPreviewPosition))) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
@@ -792,10 +795,10 @@ public class AdventureController {
         return preview;
     }
 
-    public record MapActionPayload(UUID mapId, long mapVersion, UUID tokenId, String action,
+    public record MapActionPayload(UUID mapId, Long mapVersion, UUID tokenId, String action,
             List<PositionPayload> path, UUID targetId, PositionPayload location,
             List<PositionPayload> waypoints, String fingerprint) {}
-    public record PositionPayload(int x, int y) {}
+    public record PositionPayload(Integer x, Integer y) {}
     public record CombatMapResponse(UUID adventureId, String status, long sessionVersion, UUID mapId,
             com.dndmaster.adventure.application.combat.CombatMapViewPort.Grid grid,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Token> tokens,

@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.runtime;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
+import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
@@ -47,6 +48,8 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
             return RuntimeTurnCommandExecution.permanentFailure(malformed.getMessage());
         } catch (IllegalArgumentException malformed) {
             return RuntimeTurnCommandExecution.permanentFailure(malformed.getMessage());
+        } catch (CombatMapMovementPreviewRejectedException rejected) {
+            return RuntimeTurnCommandExecution.permanentFailure(rejected.code());
         } catch (RuntimeException transientFailure) {
             return RuntimeTurnCommandExecution.transientFailure(transientFailure.getMessage());
         }

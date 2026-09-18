@@ -402,6 +402,9 @@ public class CombatMapController {
     private CombatMapMoveResponse movePlayerInternal(UUID mapId, String token, String idempotencyKey, MoveRequest request) {
         requestGuard.internal(token);
         requireRequest(request, "move request is required");
+        if (request.commandId() == null) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
+        }
         requireIdempotencyKey(idempotencyKey, request.commandId());
         if (request.playerId() == null || request.tokenId() == null || request.appliedEdition() == null
                 || request.appliedEdition().isBlank() || request.commandId() == null || request.expectedVersion() < 0
@@ -409,8 +412,7 @@ public class CombatMapController {
                 || request.positions().stream().anyMatch(CombatMapController::invalid)
                 || request.waypoints() != null && (request.waypoints().size() > MovementPreviewRequest.MAX_WAYPOINTS
                         || request.waypoints().stream().anyMatch(CombatMapController::invalid))) {
-            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
-                    "movement request is invalid");
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }
         MovementPath path = new MovementPath(
                 request.positions().stream().map(p -> new GridPosition(p.x(), p.y())).toList(),

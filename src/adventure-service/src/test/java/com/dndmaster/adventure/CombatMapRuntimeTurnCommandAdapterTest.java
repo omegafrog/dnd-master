@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
 import com.dndmaster.adventure.application.combat.CombatMapMoveCommand;
+import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
 import com.dndmaster.adventure.application.runtime.CombatMapRuntimeTurnCommandAdapter;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution;
@@ -51,5 +52,27 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         assertEquals("preview-1", received.get().previewFingerprint());
         assertEquals(List.of(new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1)),
                 received.get().waypoints());
+    }
+
+    @Test
+    void keeps_a_stale_preview_failure_permanent_for_durable_turn_recovery() {
+        CombatMapPort mapPort = new CombatMapPort() {
+            @Override public void validateAndMove(CombatActionCommand command) {}
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult move(CombatMapMoveCommand command) {
+                throw new CombatMapMovementPreviewRejectedException(409, "STALE_MOVEMENT_PROPOSAL");
+            }
+        };
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "{\"ruleSetId\":\"" + UUID.randomUUID()
+                        + "\",\"characterSheetId\":\"" + UUID.randomUUID()
+                        + "\",\"combatMapId\":\"" + UUID.randomUUID()
+                        + "\",\"tokenId\":\"" + UUID.randomUUID()
+                        + "\",\"expectedVersion\":4,\"distance\":10,\"appliedEdition\":\"DND_5E_2024\",\"fingerprint\":\"preview-1\",\"waypoints\":[]}",
+                "combat-map.move", "{\"action\":\"MOVE\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}", 0);
+
+        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper()).execute(command);
+
+        assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
+        assertEquals("STALE_MOVEMENT_PROPOSAL", result.value());
     }
 }
