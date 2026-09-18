@@ -27,6 +27,7 @@ import com.dndmaster.combatmap.domain.TokenType;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 
 class MovementPreviewServiceTest {
@@ -70,6 +71,16 @@ class MovementPreviewServiceTest {
         assertEquals(new GridPosition(3, 1), preview.orderedPositions().getLast());
         assertThrows(IllegalStateException.class, () -> fixture.service().preview(fixture.request(1, List.of())));
         assertThrows(RuntimeException.class, () -> fixture.service().preview(fixture.request(new GridPosition(2, 2), List.of())));
+    }
+
+    @Test
+    void rejects_a_waypoint_payload_that_exceeds_the_preview_limit() {
+        Fixture fixture = new Fixture();
+        List<GridPosition> waypoints = IntStream.range(0, MovementPreviewRequest.MAX_WAYPOINTS + 1)
+                .mapToObj(index -> new GridPosition(1, 1))
+                .toList();
+
+        assertThrows(IllegalArgumentException.class, () -> fixture.request(waypoints));
     }
 
     private static final class Fixture implements CombatMapRepository {

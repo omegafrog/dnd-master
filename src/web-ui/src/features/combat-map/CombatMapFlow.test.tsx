@@ -535,6 +535,30 @@ it('shows the server preview path and ghost destination before confirmation', as
   }), undefined, 7)
 })
 
+it('allows a destination in an explored cell outside the current view', async () => {
+  const api = fakeApi()
+  api.getCombatMap = vi.fn().mockResolvedValue({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, sessionVersion: 7,
+    grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }],
+    current: [{ x: 1, y: 1 }], explored: [{ x: 1, y: 1 }, { x: 2, y: 1 }],
+  })
+  api.previewMapMovement = vi.fn().mockResolvedValue({
+    mapId: 'm1', orderedPositions: [{ x: 1, y: 1 }, { x: 2, y: 1 }],
+    distance: 5, baseMapVersion: 0, fingerprint: 'explored',
+  })
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  const exploredDestination = screen.getByRole('button', { name: '탐험한 격자 2,1' })
+  expect(exploredDestination).not.toBeDisabled()
+  await user.click(exploredDestination)
+
+  await waitFor(() => expect(api.previewMapMovement).toHaveBeenCalledWith('a1', expect.objectContaining({
+    destination: { x: 2, y: 1 },
+  })))
+})
+
 it('keeps the latest destination when previews finish out of order', async () => {
   const api = fakeApi()
   api.getCombatMap = vi.fn().mockResolvedValue({
