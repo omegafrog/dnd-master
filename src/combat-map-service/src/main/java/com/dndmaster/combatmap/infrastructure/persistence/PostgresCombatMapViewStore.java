@@ -4,6 +4,7 @@ import com.dndmaster.combatmap.application.view.CombatMapViewStore;
 import com.dndmaster.combatmap.application.view.CombatMapAccessDeniedException;
 import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.VersionedOwnedCombatMap;
+import com.dndmaster.combatmap.application.movement.MovementResolutionOperation;
 import com.dndmaster.combatmap.domain.AdventureId;
 import com.dndmaster.combatmap.domain.CombatMap;
 import com.dndmaster.combatmap.domain.CombatToken;
@@ -94,6 +95,34 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         write(owner, map, expected, false, persistedVersion, operationKey, operationFingerprint);
         map.markPersisted(persistedVersion, operationKey, operationFingerprint);
         return persistedVersion;
+    }
+
+    /** The final map snapshot and its reservation terminal state are one local transaction. */
+    public void commitMovementResolution(MapOwnerId owner, CombatMap map, long expectedVersion,
+            long persistedVersion, MovementResolutionOperation operation) {
+        if (persistedVersion != expectedVersion + 1) throw new IllegalArgumentException("persisted version must advance by one");
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                updateMap(connection, owner, map, expectedVersion, persistedVersion, operation.commandId(), operation.fingerprint());
+                replaceCurrentChildren(connection, map);
+                writeVisibility(connection, map);
+                recordHistory(connection, owner, map, persistedVersion, operation.commandId(), operation.fingerprint());
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "UPDATE combat_map_movement_operation SET status='COMMITTED' WHERE operation_id=? AND status='READY_TO_COMMIT'")) {
+                    statement.setObject(1, operation.operationId());
+                    if (statement.executeUpdate() != 1) throw new CombatMapPersistenceException("movement operation commit lost", null);
+                }
+                connection.commit();
+                map.markPersisted(persistedVersion, operation.commandId(), operation.fingerprint());
+            } catch (SQLException | RuntimeException exception) {
+                connection.rollback();
+                if (exception instanceof OptimisticCombatMapLockException optimistic) throw optimistic;
+                throw new CombatMapPersistenceException("movement resolution commit failed", exception);
+            }
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("movement resolution commit DB failed", exception);
+        }
     }
 
     @Override

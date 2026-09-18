@@ -202,7 +202,19 @@ public final class CrossContextHttpCombatGateway
                 command.ownerPlayerId(), command.tokenId(), positions,
                 moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion(),
                 moveCommand.previewFingerprint(), moveCommand.waypoints().stream().map(position -> new PositionRequest(position.x(), position.y())).toList());
-        String response = sendMovement("internal/v1/combat-maps/" + command.combatMapId() + "/moves", request, command);
+        // A confirmed preview is resolved by the durable reservation boundary.  The
+        // legacy route stays available only for callers that have not yet obtained
+        // a preview fingerprint.
+        boolean staged = moveCommand.previewFingerprint() != null;
+        String route = !staged
+                ? "internal/v1/combat-maps/" + command.combatMapId() + "/moves"
+                : "internal/v1/combat-maps/" + command.combatMapId() + "/movement-operations";
+        Object body = staged
+                ? new MovementOperationStartRequest(command.ownerPlayerId(), command.tokenId(), positions,
+                        moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion(),
+                        moveCommand.previewFingerprint())
+                : request;
+        String response = sendMovement(route, body, command);
         return new CombatMapMoveResult(mapVersion(response, moveCommand.expectedVersion()));
     }
 
@@ -411,6 +423,9 @@ public final class CrossContextHttpCombatGateway
             java.util.UUID playerId, java.util.UUID tokenId, List<PositionRequest> positions, int distance,
             String appliedEdition, java.util.UUID commandId, long expectedVersion,
             String fingerprint, List<PositionRequest> waypoints) {}
+    private record MovementOperationStartRequest(
+            java.util.UUID playerId, java.util.UUID tokenId, List<PositionRequest> positions, int distance,
+            String appliedEdition, java.util.UUID commandId, long expectedVersion, String fingerprint) {}
     private record PreviewRequest(java.util.UUID playerId, java.util.UUID tokenId, PositionRequest destination,
             List<PositionRequest> waypoints, String appliedEdition, long expectedVersion) {}
     private record PreviewResponse(List<PositionRequest> orderedPositions, int distance, long baseMapVersion, String fingerprint) {}

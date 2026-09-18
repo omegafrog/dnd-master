@@ -64,6 +64,7 @@ public class AdventureController {
     private final AdventureScenarioApplicationService scenarioService;
     private final AuthenticatedPlayerResolver playerResolver;
     private final CombatMapPort combatMapPort;
+    private final com.dndmaster.adventure.application.combat.MapMovementCoordinator mapMovementCoordinator;
     private final CharacterCombatPort characterCombatPort;
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
     private final CombatMapPreparationPort combatMapPreparationPort;
@@ -108,6 +109,7 @@ public class AdventureController {
         this.combatMapPort = combatMapPort.getIfAvailable(() -> command -> {
             throw new IllegalStateException("combat map gateway unavailable");
         });
+        this.mapMovementCoordinator = new com.dndmaster.adventure.application.combat.MapMovementCoordinator(this.combatMapPort);
         this.characterCombatPort = characterCombatPort.getIfAvailable(() -> command -> {
             throw new IllegalStateException("character combat gateway unavailable");
         });
@@ -691,7 +693,7 @@ public class AdventureController {
                     adventure.ruleSetId(), member.characterSheetId(), payload.mapId(), CombatActorRole.PLAYER,
                     payload.action(), path, owner, payload.tokenId(), payload.mapVersion());
             characterCombatPort.requireUsableCharacter(command);
-            combatMapPort.move(new CombatMapMoveCommand(command, confirmedPreview.distance(), payload.mapVersion(),
+            mapMovementCoordinator.resolve(new CombatMapMoveCommand(command, confirmedPreview.distance(), payload.mapVersion(),
                     appliedEdition(adventure).edition(), payload.fingerprint(), previewWaypoints(payload.waypoints())));
         } catch (java.io.IOException exception) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");

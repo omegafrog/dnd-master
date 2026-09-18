@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.*;
 import com.dndmaster.combatmap.api.CombatMapController;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
+import com.dndmaster.combatmap.application.movement.MovementOperationResponse;
+import com.dndmaster.combatmap.application.movement.MovementOperationStatus;
 import com.dndmaster.combatmap.application.view.*;
 import com.dndmaster.combatmap.application.spatial.SpatialFeatureApplicationService;
 import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementBatch;
@@ -24,6 +26,26 @@ import java.util.Optional;
 import org.mockito.ArgumentCaptor;
 
 class GmViewAuthorizationTest {
+    @Test
+    void starts_a_durable_movement_reservation_through_the_internal_boundary() {
+        var movement = mock(CombatMapMovementService.class);
+        var controller = new CombatMapController(mock(CombatMapViewService.class), movement, new ApiRequestGuard("service-secret"));
+        UUID mapId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        var request = new CombatMapController.MovementStartRequestBody(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
+                5, "DND_5E_2024", commandId, 0L, "fingerprint");
+        when(movement.start(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new MovementOperationResponse(operationId, MovementOperationStatus.PREPARING, null));
+
+        var response = controller.startMovement(mapId, "service-secret", commandId.toString(), request);
+
+        assertEquals(operationId, response.operationId());
+        assertEquals("PREPARING", response.status());
+        verify(movement).start(org.mockito.ArgumentMatchers.any());
+    }
+
     @Test
     void rejectsUnauthenticatedAndWrongServiceRequestsButAllowsTheConfiguredInternalService() {
         var guard = new ApiRequestGuard("service-secret");

@@ -169,7 +169,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         fingerprint: candidate.action === 'MOVE' ? candidate.fingerprint : undefined,
       }, undefined, map?.sessionVersion ?? map?.version ?? 0)
       const refreshed = await api.getCombatMap(adventureId)
-      setMap(refreshed); setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
+      if (candidate.action === 'MOVE' && map) await animateCommittedMovement(setMap, map, refreshed, candidate)
+      else setMap(refreshed)
+      setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
     } catch (error) {
       // The runtime can commit the map command before the HTTP request sees
       // a concurrent-version response. Reconcile that response with the
@@ -494,6 +496,41 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {preparationMode && <button type="button" disabled={preparationStarting || layoutSaving || layoutDirty || !gridConfirmed || !layoutSaved || !onPreparationComplete} aria-busy={preparationStarting} onClick={() => void completePreparation()}>{preparationStarting ? '모험 시작 요청 중…' : '맵 준비 완료, 모험 시작'}</button>}
     </section>
   )
+}
+
+/**
+ * The server remains authoritative.  These short frames only reveal the already
+ * committed path in its fixed order, so a player never sees the final token or
+ * fog state jump ahead of the traversed cells.
+ */
+async function animateCommittedMovement(
+  apply: (next: CombatMapState | null | ((current: CombatMapState | null) => CombatMapState | null)) => void,
+  before: CombatMapState, committed: CombatMapState, candidate: MapInteractionCandidate,
+) {
+  const path = candidate.path ?? []
+  if (path.length < 2) return
+  apply(before)
+  for (const cell of path.slice(1)) {
+    const committedToken = committed.tokens?.find(token => token.id === candidate.tokenId)
+    if (!committedToken) break
+    const visible = committed.current?.some(position => position.x === cell.x && position.y === cell.y)
+    const explored = committed.explored?.some(position => position.x === cell.x && position.y === cell.y)
+    apply(current => {
+      if (!current) return current
+      const currentCells = current.current ?? []
+      const exploredCells = current.explored ?? []
+      return {
+        ...current,
+        tokens: current.tokens?.map(token => token.id === candidate.tokenId ? { ...token, x: cell.x, y: cell.y } : token),
+        current: visible && !currentCells.some(position => position.x === cell.x && position.y === cell.y)
+          ? [...currentCells, cell] : currentCells,
+        explored: explored && !exploredCells.some(position => position.x === cell.x && position.y === cell.y)
+          ? [...exploredCells, cell] : exploredCells,
+      }
+    })
+    await new Promise<void>(resolve => window.setTimeout(resolve, 120))
+  }
+  apply(committed)
 }
 
 function gridPath(from: { x: number; y: number }, to: { x: number; y: number }) {

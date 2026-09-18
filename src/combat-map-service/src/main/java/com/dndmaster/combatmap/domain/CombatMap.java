@@ -35,6 +35,11 @@ public final class CombatMap {
         this.operationFingerprint = operationFingerprint;
     }
     public void movePlayerToken(PlayerId playerId, TokenId tokenId, MovementPath path, int maximumDistance) {
+        validatePlayerMovement(playerId, tokenId, path, maximumDistance);
+        advancePlayerToken(playerId, tokenId, path.orderedPositions().getLast());
+    }
+    /** Validates a whole public path without changing the aggregate. */
+    public void validatePlayerMovement(PlayerId playerId, TokenId tokenId, MovementPath path, int maximumDistance) {
         CombatToken token=tokens.stream().filter(t->t.id().equals(tokenId)).findFirst().orElseThrow(()->new CombatMapMovementDeniedException("token not found"));
         if(token.type()!=TokenType.PLAYER || token.controller()!=TokenController.PLAYER || !token.ownerPlayerId().orElseThrow().equals(playerId)) throw new CombatMapMovementDeniedException("player may move only own PLAYER token");
         if(maximumDistance<0 || path.distance()>maximumDistance) throw new CombatMapMovementDeniedException("path exceeds applied-edition movement allowance");
@@ -50,7 +55,16 @@ public final class CombatMap {
                 if (publicBoundaries().stream().anyMatch(boundary -> boundary.blocks(previous, position))) throw new CombatMapMovementDeniedException("path crosses wall or closed door");
             }
         }
-        token.moveTo(path.orderedPositions().getLast());
+    }
+    /** Advances one already-validated adjacent cell; callers keep this private staging state until commit. */
+    public void advancePlayerToken(PlayerId playerId, TokenId tokenId, GridPosition nextPosition) {
+        CombatToken token=tokens.stream().filter(t->t.id().equals(tokenId)).findFirst().orElseThrow(()->new CombatMapMovementDeniedException("token not found"));
+        if(token.type()!=TokenType.PLAYER || token.controller()!=TokenController.PLAYER || !token.ownerPlayerId().orElseThrow().equals(playerId)) throw new CombatMapMovementDeniedException("player may move only own PLAYER token");
+        if (!token.position().adjacentTo(nextPosition) || !isPublicTraversable(nextPosition)
+                || publicBoundaries().stream().anyMatch(boundary -> boundary.blocks(token.position(), nextPosition))) {
+            throw new CombatMapMovementDeniedException("next movement cell is not publicly traversable");
+        }
+        token.moveTo(nextPosition);
     }
     public GridPosition playerTokenPosition(PlayerId playerId, TokenId tokenId) {
         CombatToken token = tokens.stream().filter(candidate -> candidate.id().equals(tokenId)).findFirst()

@@ -4,6 +4,8 @@ import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
 import com.dndmaster.combatmap.application.movement.MovePlayerTokenCommand;
 import com.dndmaster.combatmap.application.movement.MovementPreview;
 import com.dndmaster.combatmap.application.movement.MovementPreviewRequest;
+import com.dndmaster.combatmap.application.movement.MovementOperationResponse;
+import com.dndmaster.combatmap.application.movement.MovementStartRequest;
 import com.dndmaster.combatmap.application.view.CombatMapViewService;
 import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.PlayerCombatMapView;
@@ -382,6 +384,54 @@ public class CombatMapController {
         return MovementPreviewResponse.from(mapId, preview);
     }
 
+    @PostMapping("/internal/v1/combat-maps/{mapId}/movement-operations")
+    public MovementOperationResponseBody startMovement(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody(required = false) MovementStartRequestBody request) {
+        requestGuard.internal(token);
+        requireMovementStart(request);
+        requireIdempotencyKey(idempotencyKey, request.commandId());
+        return MovementOperationResponseBody.from(movementService.start(new MovementStartRequest(new MapId(mapId),
+                new PlayerId(request.playerId()), new TokenId(request.tokenId()), movementPath(request.positions(), request.distance()),
+                request.appliedEdition(), request.commandId(), request.fingerprint(), request.expectedVersion())));
+    }
+
+    @PostMapping("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}/resume")
+    public MovementOperationResponseBody resumeMovement(@PathVariable UUID mapId, @PathVariable UUID operationId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        MovementOperationResponse response = movementService.resume(operationId);
+        return MovementOperationResponseBody.from(response);
+    }
+
+    @GetMapping("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}")
+    public MovementOperationResponseBody movementOperation(@PathVariable UUID mapId, @PathVariable UUID operationId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        return MovementOperationResponseBody.from(movementService.query(operationId));
+    }
+
+    @DeleteMapping("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}")
+    public MovementOperationResponseBody cancelMovement(@PathVariable UUID mapId, @PathVariable UUID operationId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        return MovementOperationResponseBody.from(movementService.cancel(operationId));
+    }
+
+    private static MovementPath movementPath(List<PositionRequest> positions, int distance) {
+        return new MovementPath(positions.stream().map(position -> new GridPosition(position.x(), position.y())).toList(), distance);
+    }
+
+    private static void requireMovementStart(MovementStartRequestBody request) {
+        if (request == null || request.playerId() == null || request.tokenId() == null || request.commandId() == null
+                || request.appliedEdition() == null || request.appliedEdition().isBlank() || request.fingerprint() == null || request.fingerprint().isBlank()
+                || request.expectedVersion() == null || request.expectedVersion() < 0 || request.distance() == null || request.distance() < 1
+                || request.positions() == null || request.positions().size() < 2 || request.positions().stream().anyMatch(CombatMapController::invalid)) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_OPERATION");
+        }
+    }
+
     private static boolean invalid(PositionRequest position) {
         return position == null || position.x() == null || position.y() == null || position.x() < 0 || position.y() < 0;
     }
@@ -596,6 +646,21 @@ public class CombatMapController {
 
     public record CombatMapMoveResponse(UUID mapId, long version) {
         public CombatMapMoveResponse(UUID mapId) { this(mapId, 0); }
+    }
+
+    public record MovementStartRequestBody(UUID playerId, UUID tokenId, List<PositionRequest> positions, Integer distance,
+            String appliedEdition, UUID commandId, Long expectedVersion, String fingerprint) {}
+
+    public record MovementOperationResponseBody(UUID operationId, String status,
+            List<PositionRequest> requestedPath, List<PositionRequest> traversedPath, PositionRequest finalPosition, Long mapVersion) {
+        static MovementOperationResponseBody from(MovementOperationResponse response) {
+            var result = response.result();
+            return new MovementOperationResponseBody(response.operationId(), response.status().name(),
+                    result == null ? List.of() : result.requestedPath().orderedPositions().stream().map(position -> new PositionRequest(position.x(), position.y())).toList(),
+                    result == null ? List.of() : result.traversedPath().stream().map(position -> new PositionRequest(position.x(), position.y())).toList(),
+                    result == null ? null : new PositionRequest(result.finalPosition().x(), result.finalPosition().y()),
+                    result == null ? null : result.mapVersion());
+        }
     }
 
     public record MovementPreviewResponse(UUID mapId, List<PositionRequest> orderedPositions,

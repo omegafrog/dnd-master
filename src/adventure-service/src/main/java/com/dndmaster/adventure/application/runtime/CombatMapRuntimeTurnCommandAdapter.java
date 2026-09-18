@@ -5,6 +5,7 @@ import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
 import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewCommand;
+import com.dndmaster.adventure.application.combat.MapMovementCoordinator;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
@@ -16,11 +17,11 @@ import java.util.UUID;
 
 /** Adapts the durable map move command to Combat Map's authoritative command API. */
 public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnCommandAdapter {
-    private final CombatMapPort mapPort;
+    private final MapMovementCoordinator movementCoordinator;
     private final ObjectMapper mapper;
 
     public CombatMapRuntimeTurnCommandAdapter(CombatMapPort mapPort, ObjectMapper mapper) {
-        this.mapPort = java.util.Objects.requireNonNull(mapPort, "combat map port must not be null");
+        this.movementCoordinator = new MapMovementCoordinator(mapPort);
         this.mapper = java.util.Objects.requireNonNull(mapper, "object mapper must not be null");
     }
 
@@ -62,7 +63,7 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
                 waypoints.add(new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(
                         Integer.parseInt(values[0]), Integer.parseInt(values[1])));
             }
-            mapPort.move(new com.dndmaster.adventure.application.combat.CombatMapMoveCommand(
+            movementCoordinator.resolve(new com.dndmaster.adventure.application.combat.CombatMapMoveCommand(
                     mapCommand, distance, requiredNonNegativeLong(context, "expectedVersion"), appliedEdition,
                     previewFingerprint, waypoints));
             return RuntimeTurnCommandExecution.done("combat map move applied");

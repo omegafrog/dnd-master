@@ -12,9 +12,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.PriorityQueue;
 import java.util.Set;
+import java.util.UUID;
 public final class CombatMapMovementService {
-    private final CombatMapRepository repository; private final AppliedEditionMovementPort movementPort;
-    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort){this.repository=Objects.requireNonNull(repository);this.movementPort=Objects.requireNonNull(movementPort);}
+    private final CombatMapRepository repository; private final AppliedEditionMovementPort movementPort; private final MovementResolutionOperationRepository operations;
+    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort){this(repository, movementPort, new UnsupportedOperationRepository());}
+    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort, MovementResolutionOperationRepository operations){this.repository=Objects.requireNonNull(repository);this.movementPort=Objects.requireNonNull(movementPort);this.operations=Objects.requireNonNull(operations);}
     public CombatMap movePlayerToken(MovePlayerTokenCommand command){
         Objects.requireNonNull(command);
         CombatMap replay = repository.findByCommandId(command.commandId()).orElse(null);
@@ -39,6 +41,65 @@ public final class CombatMapMovementService {
         repository.save(map, command.expectedVersion()+1, command.commandId(), command.fingerprint());
         map.markPersisted(command.expectedVersion()+1, command.commandId(), command.fingerprint());
         return map;
+    }
+
+    /** Starts or replays a durable movement reservation. Public map state changes only at the final save. */
+    public MovementOperationResponse start(MovementStartRequest request) {
+        Objects.requireNonNull(request);
+        MovementResolutionOperation existing = operations.findOperationByCommandId(request.commandId()).orElse(null);
+        if (existing != null) {
+            if (!existing.fingerprint().equals(request.fingerprint())) throw new IllegalStateException("combat map command id reused with different payload");
+            return response(existing);
+        }
+        if (operations.findActiveByMapId(request.mapId()).isPresent()) throw new MovementReservationConflictException();
+        CombatMap map = repository.findById(request.mapId()).orElseThrow(() -> new CombatMapMovementDeniedException("map not found"));
+        if (map.version() != request.expectedVersion()) throw new MovementVersionConflictException();
+        int maximum = movementPort.maximumMovement(map.ruleSetId(), request.appliedEdition());
+        map.validatePlayerMovement(request.playerId(), request.tokenId(), request.path(), maximum);
+        MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), request.mapId(), request.commandId(), request.playerId(), request.tokenId(), request.path(), request.fingerprint(), request.expectedVersion());
+        operations.reserve(operation);
+        return resolve(map, operation);
+    }
+
+    public MovementOperationResponse resume(UUID operationId) {
+        MovementResolutionOperation operation = operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found"));
+        if (operation.status() == MovementOperationStatus.COMMITTED || operation.status() == MovementOperationStatus.CANCELLED) return response(operation);
+        if (operation.status() == MovementOperationStatus.RETRY_WAIT) {
+            operation.resumePreparing();
+            operations.save(operation);
+        }
+        CombatMap map = repository.findById(operation.mapId()).orElseThrow(() -> new CombatMapMovementDeniedException("map not found"));
+        return resolve(map, operation);
+    }
+
+    public MovementOperationResponse query(UUID operationId) { return response(operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found"))); }
+    public MovementOperationResponse cancel(UUID operationId) { MovementResolutionOperation operation = operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found")); if (operation.status().active()) { operation.cancel(); operations.save(operation); } return response(operation); }
+
+    private MovementOperationResponse resolve(CombatMap map, MovementResolutionOperation operation) {
+        try {
+            while (operation.cursor() < operation.requestedPath().orderedPositions().size() - 1) {
+                int next = operation.cursor() + 1;
+                map.advancePlayerToken(operation.playerId(), operation.tokenId(), operation.requestedPath().orderedPositions().get(next));
+                map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
+                operation.advanceTo(next, map.playerTokenPosition(operation.playerId(), operation.tokenId()));
+                operations.save(operation);
+            }
+            operation.readyToCommit(); operations.save(operation);
+            long committedVersion = operation.expectedVersion() + 1;
+            MovementResolutionResult result = new MovementResolutionResult(operation.requestedPath(), operation.traversedPath(), operation.currentCell(), committedVersion, List.of(), null);
+            repository.commitMovementResolution(map, committedVersion, operation, result);
+            operation.committed(result); operations.save(operation);
+            return response(operation);
+        } catch (RuntimeException exception) {
+            if (operation.status().active()) { operation.cancel(); operations.save(operation); }
+            throw exception;
+        }
+    }
+    private static MovementOperationResponse response(MovementResolutionOperation operation) { return new MovementOperationResponse(operation.operationId(), operation.status(), operation.result()); }
+    private static final class UnsupportedOperationRepository implements MovementResolutionOperationRepository {
+        private IllegalStateException unsupported() { return new IllegalStateException("movement reservations require an operation repository"); }
+        public java.util.Optional<MovementResolutionOperation> findById(UUID id) { throw unsupported(); } public java.util.Optional<MovementResolutionOperation> findOperationByCommandId(UUID id) { throw unsupported(); }
+        public java.util.Optional<MovementResolutionOperation> findActiveByMapId(com.dndmaster.combatmap.domain.MapId id) { throw unsupported(); } public void reserve(MovementResolutionOperation operation) { throw unsupported(); } public void save(MovementResolutionOperation operation) { throw unsupported(); }
     }
 
     /**
