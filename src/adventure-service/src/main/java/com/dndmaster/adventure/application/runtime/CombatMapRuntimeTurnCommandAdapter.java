@@ -4,6 +4,7 @@ import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
 import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
+import com.dndmaster.adventure.application.combat.CombatMapPreviewCommand;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
@@ -51,7 +52,7 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
             String previewFingerprint = requiredText(context, "fingerprint");
             int distance = requiredPositiveInt(context, "distance");
             JsonNode waypointNode = context.get("waypoints");
-            if (waypointNode == null || !waypointNode.isArray()) {
+            if (waypointNode == null || !waypointNode.isArray() || waypointNode.size() > CombatMapPreviewCommand.MAX_WAYPOINTS) {
                 throw new IllegalArgumentException("movement waypoints are required");
             }
             List<com.dndmaster.adventure.application.combat.CombatMapPreviewPosition> waypoints = new ArrayList<>();

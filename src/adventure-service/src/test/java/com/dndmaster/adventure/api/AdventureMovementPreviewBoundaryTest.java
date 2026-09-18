@@ -160,6 +160,25 @@ class AdventureMovementPreviewBoundaryTest {
     }
 
     @Test
+    void rejects_confirmed_move_without_a_waypoint_binding() throws Exception {
+        AdventureController controller = controller(mock(AdventureRepository.class), mock(CombatMapPort.class),
+                mock(CombatMapViewPort.class), mock(AuthenticatedPlayerResolver.class));
+        var method = AdventureController.class.getDeclaredMethod("validateConfirmedMapPreview", Adventure.class,
+                UUID.class, AdventureController.MapActionPayload.class);
+        method.setAccessible(true);
+
+        InvocationTargetException thrown = assertThrows(InvocationTargetException.class, () -> method.invoke(controller,
+                mock(Adventure.class), UUID.randomUUID(), new AdventureController.MapActionPayload(
+                        UUID.randomUUID(), 0L, UUID.randomUUID(), "MOVE", List.of(
+                                new AdventureController.PositionPayload(0, 0), new AdventureController.PositionPayload(1, 0)),
+                        null, new AdventureController.PositionPayload(1, 0), null, "preview")));
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> {
+            throw (ApiRequestGuard.ApiContractException) thrown.getCause();
+        });
+    }
+
+    @Test
     void rejects_confirmed_move_with_a_malformed_path_before_preview() throws Exception {
         AdventureController controller = controller(mock(AdventureRepository.class), mock(CombatMapPort.class),
                 mock(CombatMapViewPort.class), mock(AuthenticatedPlayerResolver.class));

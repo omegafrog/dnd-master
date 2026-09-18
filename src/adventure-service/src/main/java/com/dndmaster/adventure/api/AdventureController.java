@@ -782,8 +782,8 @@ public class AdventureController {
         if (payload.mapVersion() == null || payload.mapVersion() < 0) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }
-        if (payload.waypoints() != null && (payload.waypoints().size() > CombatMapPreviewCommand.MAX_WAYPOINTS
-                || payload.waypoints().stream().anyMatch(AdventureController::invalidPreviewPosition))) {
+        if (payload.waypoints() == null || payload.waypoints().size() > CombatMapPreviewCommand.MAX_WAYPOINTS
+                || payload.waypoints().stream().anyMatch(AdventureController::invalidPreviewPosition)) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }
         if (payload.fingerprint() == null || payload.fingerprint().isBlank()) {

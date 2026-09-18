@@ -96,4 +96,28 @@ class CombatMapRuntimeTurnCommandAdapterTest {
 
         assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
     }
+
+    @Test
+    void rejects_a_durable_move_with_too_many_waypoints() {
+        CombatMapPort mapPort = new CombatMapPort() {
+            @Override public void validateAndMove(CombatActionCommand command) {}
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult move(CombatMapMoveCommand command) {
+                throw new AssertionError("invalid durable movement must not reach the map port");
+            }
+        };
+        String waypoints = java.util.stream.IntStream.range(0, 17)
+                .mapToObj(index -> "{\"x\":1,\"y\":1}")
+                .collect(java.util.stream.Collectors.joining(","));
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "{\"ruleSetId\":\"" + UUID.randomUUID()
+                        + "\",\"characterSheetId\":\"" + UUID.randomUUID()
+                        + "\",\"combatMapId\":\"" + UUID.randomUUID()
+                        + "\",\"tokenId\":\"" + UUID.randomUUID()
+                        + "\",\"expectedVersion\":0,\"distance\":5,\"appliedEdition\":\"DND_5E_2024\",\"fingerprint\":\"preview-1\",\"waypoints\":[" + waypoints + "]}",
+                "combat-map.move", "{\"action\":\"MOVE\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}", 0);
+
+        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper()).execute(command);
+
+        assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
+    }
 }
