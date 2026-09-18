@@ -622,7 +622,12 @@ public class AdventureController {
             if (type == null) throw new IllegalArgumentException("input type is required");
             return switch (type) {
                 case "TEXT" -> new com.dndmaster.adventure.domain.runtime.GmInput.TextInput(text);
-                case "MAP_ACTION" -> new com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput(mapId, mapVersion == null ? -1 : mapVersion, action);
+                case "MAP_ACTION" -> {
+                    if (mapId == null || mapVersion == null || mapVersion < 0 || action == null || action.isBlank()) {
+                        throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
+                    }
+                    yield new com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput(mapId, mapVersion, action);
+                }
                 case "META_QUESTION" -> new com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput(question);
                 default -> throw new IllegalArgumentException("unsupported input type: " + type);
             };

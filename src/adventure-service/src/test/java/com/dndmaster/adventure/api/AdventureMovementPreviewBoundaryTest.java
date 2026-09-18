@@ -217,6 +217,12 @@ class AdventureMovementPreviewBoundaryTest {
         });
     }
 
+    @Test
+    void rejects_a_map_action_without_outer_map_binding_as_a_typed_error() {
+        assertThrows(ApiRequestGuard.ApiContractException.class, () ->
+                new AdventureController.GmInputRequest("MAP_ACTION", null, null, null, "MOVE", null).toDomain());
+    }
+
     private static AdventureController controller(AdventureRepository adventures, CombatMapPort combatMap,
             CombatMapViewPort mapViews, AuthenticatedPlayerResolver playerResolver) {
         return new AdventureController(
