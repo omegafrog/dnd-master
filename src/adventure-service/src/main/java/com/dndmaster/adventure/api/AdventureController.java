@@ -604,6 +604,10 @@ public class AdventureController {
         return new CombatMapPreviewPosition(position.x(), position.y());
     }
 
+    private static List<CombatMapPreviewPosition> previewWaypoints(List<PositionPayload> waypoints) {
+        return waypoints == null ? List.of() : waypoints.stream().map(AdventureController::toPreviewPosition).toList();
+    }
+
     private static boolean invalidPreviewPosition(PositionPayload position) {
         return position == null || position.x() < 0 || position.y() < 0;
     }
@@ -675,7 +679,8 @@ public class AdventureController {
                     adventure.ruleSetId(), member.characterSheetId(), payload.mapId(), CombatActorRole.PLAYER,
                     payload.action(), path, owner, payload.tokenId(), payload.mapVersion());
             characterCombatPort.requireUsableCharacter(command);
-            combatMapPort.move(new CombatMapMoveCommand(command, confirmedPreview.distance(), payload.mapVersion(), appliedEdition(adventure).edition()));
+            combatMapPort.move(new CombatMapMoveCommand(command, confirmedPreview.distance(), payload.mapVersion(),
+                    appliedEdition(adventure).edition(), payload.fingerprint(), previewWaypoints(payload.waypoints())));
         } catch (java.io.IOException exception) {
             throw new IllegalArgumentException("invalid map action", exception);
         }
@@ -715,9 +720,13 @@ public class AdventureController {
                     .put("expectedVersion", payload.mapVersion())
                     .put("distance", confirmedPreview.distance())
                     .put("appliedEdition", appliedEdition(adventure).edition())
-                    .toString();
+                    .put("fingerprint", payload.fingerprint());
+            var waypoints = targetContext.putArray("waypoints");
+            if (payload.waypoints() != null) {
+                payload.waypoints().forEach(position -> waypoints.addObject().put("x", position.x()).put("y", position.y()));
+            }
             return com.dndmaster.adventure.application.runtime.RuntimeTurnCommand.create(turnId, runtimeCommandId,
-                    adventure.id().value(), adventure.sessionId().value(), owner, targetContext,
+                    adventure.id().value(), adventure.sessionId().value(), owner, targetContext.toString(),
                     "combat-map.move", input.action(), 0);
         } catch (java.io.IOException exception) {
             throw new IllegalArgumentException("invalid map action", exception);
@@ -752,6 +761,10 @@ public class AdventureController {
     }
 
     private CombatMapPreviewResult validateConfirmedMapPreview(Adventure adventure, UUID owner, MapActionPayload payload) {
+        if (payload.waypoints() != null && (payload.waypoints().size() > CombatMapPreviewCommand.MAX_WAYPOINTS
+                || payload.waypoints().stream().anyMatch(AdventureController::invalidPreviewPosition))) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
+        }
         if (payload.fingerprint() == null || payload.fingerprint().isBlank()) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }

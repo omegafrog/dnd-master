@@ -10,6 +10,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.UUID;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +35,8 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         RuntimeTurnCommand command = RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), adventureId, sessionId,
                 ownerId, "{\"ruleSetId\":\"" + ruleSetId + "\",\"characterSheetId\":\"" + sheetId
                         + "\",\"combatMapId\":\"" + mapId + "\",\"tokenId\":\"" + tokenId
-                        + "\",\"expectedVersion\":4,\"distance\":10,\"appliedEdition\":\"DND_5E_2024\"}", "combat-map.move",
+                        + "\",\"expectedVersion\":4,\"distance\":10,\"appliedEdition\":\"DND_5E_2024\","
+                        + "\"fingerprint\":\"preview-1\",\"waypoints\":[{\"x\":1,\"y\":1}]}", "combat-map.move",
                 "{\"action\":\"MOVE\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}", 0);
 
         RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper()).execute(command);
@@ -46,5 +48,8 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         assertEquals(10, received.get().distance());
         assertEquals("1,1;2,1", received.get().action().movementPath());
         assertEquals("DND_5E_2024", received.get().appliedEdition());
+        assertEquals("preview-1", received.get().previewFingerprint());
+        assertEquals(List.of(new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1)),
+                received.get().waypoints());
     }
 }

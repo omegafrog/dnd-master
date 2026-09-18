@@ -402,9 +402,14 @@ public class CombatMapController {
         requestGuard.internal(token);
         requireRequest(request, "move request is required");
         requireIdempotencyKey(idempotencyKey, request.commandId());
-        if (request.positions() == null || request.positions().size() < 2) {
+        if (request.playerId() == null || request.tokenId() == null || request.appliedEdition() == null
+                || request.appliedEdition().isBlank() || request.commandId() == null || request.expectedVersion() < 0
+                || request.positions() == null || request.positions().size() < 2
+                || request.positions().stream().anyMatch(CombatMapController::invalid)
+                || request.waypoints() != null && (request.waypoints().size() > MovementPreviewRequest.MAX_WAYPOINTS
+                        || request.waypoints().stream().anyMatch(CombatMapController::invalid))) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
-                    "movement path requires a destination");
+                    "movement request is invalid");
         }
         MovementPath path = new MovementPath(
                 request.positions().stream().map(p -> new GridPosition(p.x(), p.y())).toList(),
@@ -416,7 +421,9 @@ public class CombatMapController {
                 path,
                 request.appliedEdition(),
                 request.commandId(),
-                request.expectedVersion());
+                request.expectedVersion(),
+                request.waypoints() == null ? List.of() : request.waypoints().stream().map(p -> new GridPosition(p.x(), p.y())).toList(),
+                request.fingerprint());
         CombatMap map = movementService.movePlayerToken(command);
         return new CombatMapMoveResponse(map.id().value(), map.version());
     }
@@ -496,7 +503,8 @@ public class CombatMapController {
     public record MoveRequest(
             UUID playerId, UUID tokenId,
             List<PositionRequest> positions, int distance,
-            String appliedEdition, UUID commandId, long expectedVersion) {}
+            String appliedEdition, UUID commandId, long expectedVersion,
+            String fingerprint, List<PositionRequest> waypoints) {}
 
     public record MovementPreviewRequestBody(UUID playerId, UUID tokenId, PositionRequest destination,
             List<PositionRequest> waypoints, String appliedEdition, Long expectedVersion) {}

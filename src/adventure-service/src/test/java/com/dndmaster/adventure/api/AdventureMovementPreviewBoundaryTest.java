@@ -94,6 +94,31 @@ class AdventureMovementPreviewBoundaryTest {
     }
 
     @Test
+    void rejects_a_preview_with_a_null_waypoint_before_calling_combat_map() {
+        UUID adventureId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID mapId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class);
+        AuthenticatedPlayerResolver playerResolver = mock(AuthenticatedPlayerResolver.class);
+        Adventure adventure = mock(Adventure.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(playerResolver.playerId()).thenReturn(ownerId);
+        when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(
+                mapId, new CombatMapViewPort.Grid(2, 2, 50, 5), List.of(), List.of(), List.of(),
+                List.of(), List.of(), 0)));
+
+        AdventureController controller = controller(adventures, combatMap, mapViews, playerResolver);
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.previewMovement(adventureId,
+                new AdventureController.CombatMapMovementPreviewRequest(mapId, 0L, UUID.randomUUID(),
+                        new AdventureController.PositionPayload(1, 1), java.util.Arrays.asList((AdventureController.PositionPayload) null))));
+        verifyNoInteractions(combatMap);
+    }
+
+    @Test
     void rejects_confirmed_move_without_server_preview_fingerprint() throws Exception {
         AdventureController controller = controller(mock(AdventureRepository.class), mock(CombatMapPort.class),
                 mock(CombatMapViewPort.class), mock(AuthenticatedPlayerResolver.class));

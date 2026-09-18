@@ -24,6 +24,15 @@ public final class CombatMapMovementService {
         }
         CombatMap map=repository.findById(command.mapId()).orElseThrow(()->new CombatMapMovementDeniedException("map not found"));
         if(map.version()!=command.expectedVersion()) throw new CombatMapMovementStaleException();
+        if (command.previewFingerprint() != null) {
+            MovementPreview preview = preview(new MovementPreviewRequest(command.mapId(), command.playerId(), command.tokenId(),
+                    command.path().orderedPositions().getLast(), command.waypoints(), command.appliedEdition(), command.expectedVersion()));
+            if (!command.previewFingerprint().equals(preview.fingerprint())
+                    || !command.path().orderedPositions().equals(preview.orderedPositions())
+                    || command.path().distance() != preview.distance()) {
+                throw new CombatMapMovementPreviewMismatchException();
+            }
+        }
         int maximum=movementPort.maximumMovement(map.ruleSetId(),command.appliedEdition());
         map.movePlayerToken(command.playerId(),command.tokenId(),command.path(),maximum);
         map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());

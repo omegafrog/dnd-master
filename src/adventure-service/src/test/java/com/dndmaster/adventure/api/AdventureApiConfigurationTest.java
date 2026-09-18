@@ -167,6 +167,34 @@ class AdventureApiConfigurationTest {
     }
 
     @Test
+    void preserves_stale_status_for_final_player_movement() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/", exchange -> {
+            byte[] response = "{\"code\":\"STALE_MOVEMENT_PROPOSAL\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(409, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
+            CombatActionCommand command = new CombatActionCommand(UUID.randomUUID(), AdventureId.generate(),
+                    UUID.randomUUID(), new RuleSetId(UUID.randomUUID()), new CharacterSheetId(UUID.randomUUID()),
+                    UUID.randomUUID(), CombatActorRole.PLAYER, "MOVE", "0,0;1,0", UUID.randomUUID(), UUID.randomUUID(), 3L);
+
+            var exception = assertThrows(CombatMapMovementPreviewRejectedException.class,
+                    () -> configured.move(new com.dndmaster.adventure.application.combat.CombatMapMoveCommand(
+                            command, 5, 3, "DND_5E_2024")));
+
+            assertEquals(409, exception.status());
+            assertEquals("STALE_MOVEMENT_PROPOSAL", exception.code());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void skips_ai_state_control_for_non_player_actions_without_movement() throws Exception {
         AtomicInteger requestCount = new AtomicInteger();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);

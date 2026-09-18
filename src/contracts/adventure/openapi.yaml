@@ -153,6 +153,18 @@ paths:
                 destination: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } }
                 waypoints: { type: array, maxItems: 16, items: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } } }
       responses:
-        '200': { description: public deterministic movement preview }
+        '200':
+          description: public deterministic movement preview
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mapId, orderedPositions, distance, baseMapVersion, fingerprint]
+                properties:
+                  mapId: { type: string, format: uuid }
+                  orderedPositions: { type: array, items: { type: object, required: [x, y], properties: { x: { type: integer }, y: { type: integer } } } }
+                  distance: { type: integer, minimum: 0 }
+                  baseMapVersion: { type: integer, format: int64, minimum: 0 }
+                  fingerprint: { type: string, minLength: 1 }
         '409': { description: stale map version, content: { application/json: { schema: { type: object, required: [error], properties: { error: { type: string, example: STALE_MOVEMENT_PROPOSAL } } } } } }
         '422': { description: invalid movement preview, content: { application/json: { schema: { type: object, required: [error], properties: { error: { type: string, example: MOVEMENT_NOT_ALLOWED } } } } } }

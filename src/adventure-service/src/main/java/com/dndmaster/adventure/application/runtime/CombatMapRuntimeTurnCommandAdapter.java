@@ -34,9 +34,14 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
                     payload.path("action").asText(), path, command.ownerPlayerId(),
                     UUID.fromString(context.path("tokenId").asText()), context.path("expectedVersion").asLong());
             String appliedEdition = context.path("appliedEdition").asText(null);
+            String previewFingerprint = context.path("fingerprint").asText(null);
+            java.util.List<com.dndmaster.adventure.application.combat.CombatMapPreviewPosition> waypoints =
+                    java.util.stream.StreamSupport.stream(context.path("waypoints").spliterator(), false)
+                            .map(position -> new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(
+                                    position.path("x").asInt(), position.path("y").asInt())).toList();
             mapPort.move(new com.dndmaster.adventure.application.combat.CombatMapMoveCommand(
                     mapCommand, context.path("distance").asInt(Math.max(1, (path.split(";").length - 1) * 5)),
-                    context.path("expectedVersion").asLong(), appliedEdition));
+                    context.path("expectedVersion").asLong(), appliedEdition, previewFingerprint, waypoints));
             return RuntimeTurnCommandExecution.done("combat map move applied");
         } catch (java.io.IOException malformed) {
             return RuntimeTurnCommandExecution.permanentFailure(malformed.getMessage());

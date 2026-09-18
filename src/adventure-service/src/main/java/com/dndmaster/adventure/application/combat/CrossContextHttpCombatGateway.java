@@ -200,8 +200,9 @@ public final class CrossContextHttpCombatGateway
         List<PositionRequest> positions = movementPositions(command.movementPath());
         MoveRequest request = new MoveRequest(
                 command.ownerPlayerId(), command.tokenId(), positions,
-                moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion());
-        String response = send("internal/v1/combat-maps/" + command.combatMapId() + "/moves", "POST", request, command);
+                moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion(),
+                moveCommand.previewFingerprint(), moveCommand.waypoints().stream().map(position -> new PositionRequest(position.x(), position.y())).toList());
+        String response = sendMovement("internal/v1/combat-maps/" + command.combatMapId() + "/moves", request, command);
         return new CombatMapMoveResult(mapVersion(response, moveCommand.expectedVersion()));
     }
 
@@ -243,6 +244,29 @@ public final class CrossContextHttpCombatGateway
             return code.isBlank() ? "MOVEMENT_PREVIEW_REJECTED" : code;
         } catch (IOException ignored) {
             return "MOVEMENT_PREVIEW_REJECTED";
+        }
+    }
+
+    private String sendMovement(String path, Object body, CombatActionCommand command) {
+        try {
+            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve(path))
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
+                    .header("Idempotency-Key", command.operationId().toString())
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body))).build();
+            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                if (response.statusCode() == 409 || response.statusCode() == 422) {
+                    throw new CombatMapMovementPreviewRejectedException(response.statusCode(), previewErrorCode(response.body()));
+                }
+                throw new CrossContextCallException("combat map movement failed with status " + response.statusCode());
+            }
+            return response.body();
+        } catch (IOException exception) {
+            throw new CrossContextCallException("combat map movement transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("combat map movement interrupted", exception);
         }
     }
 
@@ -382,9 +406,11 @@ public final class CrossContextHttpCombatGateway
             String startingAbilities, String derivedStatistics, String characterBuild, String characterState,
             java.util.Map<String, String> blueprintValues) {}
     private record RuntimeMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems, List<String> removeItems) {}
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
     private record MoveRequest(
             java.util.UUID playerId, java.util.UUID tokenId, List<PositionRequest> positions, int distance,
-            String appliedEdition, java.util.UUID commandId, long expectedVersion) {}
+            String appliedEdition, java.util.UUID commandId, long expectedVersion,
+            String fingerprint, List<PositionRequest> waypoints) {}
     private record PreviewRequest(java.util.UUID playerId, java.util.UUID tokenId, PositionRequest destination,
             List<PositionRequest> waypoints, String appliedEdition, long expectedVersion) {}
     private record PreviewResponse(List<PositionRequest> orderedPositions, int distance, long baseMapVersion, String fingerprint) {}

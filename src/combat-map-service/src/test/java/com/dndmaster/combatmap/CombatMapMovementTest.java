@@ -79,6 +79,16 @@ class CombatMapMovementTest {
     }
 
     @Test
+    void rejects_a_move_that_does_not_match_the_confirmed_preview_fingerprint() {
+        Fixture fixture = new Fixture();
+        MovementPath path = new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5);
+
+        assertThrows(CombatMapMovementPreviewMismatchException.class, () -> fixture.service(30).movePlayerToken(
+                new MovePlayerTokenCommand(fixture.map.id(), fixture.player, fixture.playerToken.id(), path,
+                        "5E", UUID.randomUUID(), 0, List.of(), "preview-that-does-not-match")));
+    }
+
+    @Test
     void rejects_reusing_a_movement_command_id_for_different_payload() {
         Fixture fixture = new Fixture();
         CombatMapMovementService service = fixture.service(10);

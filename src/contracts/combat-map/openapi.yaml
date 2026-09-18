@@ -175,6 +175,8 @@ paths:
                 appliedEdition: { type: string }
                 commandId: { type: string, format: uuid }
                 expectedVersion: { type: integer, minimum: 0 }
+                fingerprint: { type: string, minLength: 1 }
+                waypoints: { type: array, maxItems: 16, items: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } } }
       responses:
         '200':
           description: moved
@@ -186,6 +188,7 @@ paths:
                 properties:
                   mapId: { type: string, format: uuid }
                   version: { type: integer, format: int64, minimum: 0 }
+        '409': { description: stale map version or preview mismatch }
         '422': { description: movement denied }
   /internal/v1/combat-maps/{mapId}/movement-previews:
     post:
@@ -215,7 +218,19 @@ paths:
                 appliedEdition: { type: string, minLength: 1 }
                 expectedVersion: { type: integer, format: int64, minimum: 0 }
       responses:
-        '200': { description: deterministic public movement preview }
+        '200':
+          description: deterministic public movement preview
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mapId, orderedPositions, distance, baseMapVersion, fingerprint]
+                properties:
+                  mapId: { type: string, format: uuid }
+                  orderedPositions: { type: array, items: { type: object, required: [x, y], properties: { x: { type: integer }, y: { type: integer } } } }
+                  distance: { type: integer, minimum: 0 }
+                  baseMapVersion: { type: integer, format: int64, minimum: 0 }
+                  fingerprint: { type: string, minLength: 1 }
         '401': { description: internal service authorization required }
         '409': { description: stale map version }
         '422': { description: movement destination or path is not allowed }
