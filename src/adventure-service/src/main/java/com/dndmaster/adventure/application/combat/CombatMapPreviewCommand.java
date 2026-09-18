@@ -8,6 +8,8 @@ import java.util.UUID;
 public record CombatMapPreviewCommand(UUID mapId, UUID ownerPlayerId, UUID tokenId,
         CombatMapPreviewPosition destination, List<CombatMapPreviewPosition> waypoints,
         String appliedEdition, long expectedVersion) {
+    public static final int MAX_WAYPOINTS = 16;
+
     public CombatMapPreviewCommand {
         Objects.requireNonNull(mapId, "map id must not be null");
         Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -15,6 +17,7 @@ public record CombatMapPreviewCommand(UUID mapId, UUID ownerPlayerId, UUID token
         Objects.requireNonNull(destination, "destination must not be null");
         waypoints = waypoints == null ? List.of() : List.copyOf(waypoints);
         if (waypoints.stream().anyMatch(Objects::isNull)) throw new IllegalArgumentException("waypoints must not contain null");
+        if (waypoints.size() > MAX_WAYPOINTS) throw new IllegalArgumentException("too many waypoints");
         appliedEdition = Objects.requireNonNull(appliedEdition, "applied edition must not be null").trim();
         if (appliedEdition.isBlank()) throw new IllegalArgumentException("applied edition must not be blank");
         if (expectedVersion < 0) throw new IllegalArgumentException("expected map version must be non-negative");

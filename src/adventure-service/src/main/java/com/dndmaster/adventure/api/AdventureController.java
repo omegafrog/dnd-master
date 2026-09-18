@@ -306,7 +306,10 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(owner)) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         }
-        if (request == null || request.mapId() == null || request.tokenId() == null || request.destination() == null) {
+        if (request == null || request.mapId() == null || request.tokenId() == null || request.destination() == null
+                || request.mapVersion() < 0 || invalidPreviewPosition(request.destination())
+                || request.waypoints() != null && (request.waypoints().size() > CombatMapPreviewCommand.MAX_WAYPOINTS
+                        || request.waypoints().stream().anyMatch(AdventureController::invalidPreviewPosition))) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_PREVIEW");
         }
         var playerMap = combatMapViewPort.playerView(adventureId, owner);
@@ -316,7 +319,7 @@ public class AdventureController {
         CombatMapPreviewResult preview = combatMapPort.preview(new CombatMapPreviewCommand(
                 request.mapId(), owner, request.tokenId(), toPreviewPosition(request.destination()),
                 request.waypoints() == null ? List.of() : request.waypoints().stream().map(AdventureController::toPreviewPosition).toList(),
-                "DND_5E_2024", request.mapVersion()));
+                appliedEdition(adventureId).edition(), request.mapVersion()));
         return CombatMapMovementPreviewResponse.from(preview);
     }
 
@@ -567,11 +570,17 @@ public class AdventureController {
         try {
             var view = combatMapViewPort.playerView(adventureId, adventure.ownerPlayerId().value()).orElseThrow();
             UUID mapId = request.mapId() == null ? view.mapId() : request.mapId();
+            if (!mapId.equals(view.mapId()) || request.x() < 0 || request.y() < 0
+                    || request.mapVersion() != null && request.mapVersion() < 0
+                    || request.waypoints() != null && (request.waypoints().size() > CombatMapPreviewCommand.MAX_WAYPOINTS
+                            || request.waypoints().stream().anyMatch(AdventureController::invalidPreviewPosition))) {
+                return new MovementValidationResponse(adventureId, false, "invalid");
+            }
             long mapVersion = request.mapVersion() == null ? view.version() : request.mapVersion();
             combatMapPort.preview(new CombatMapPreviewCommand(mapId, adventure.ownerPlayerId().value(), request.tokenId(),
                     new CombatMapPreviewPosition(request.x(), request.y()),
                     request.waypoints() == null ? List.of() : request.waypoints().stream().map(AdventureController::toPreviewPosition).toList(),
-                    "DND_5E_2024", mapVersion));
+                    appliedEdition(adventureId).edition(), mapVersion));
             return new MovementValidationResponse(adventureId, true, "valid");
         } catch (RuntimeException invalid) {
             return new MovementValidationResponse(adventureId, false, "invalid");
@@ -580,6 +589,10 @@ public class AdventureController {
 
     private static CombatMapPreviewPosition toPreviewPosition(PositionPayload position) {
         return new CombatMapPreviewPosition(position.x(), position.y());
+    }
+
+    private static boolean invalidPreviewPosition(PositionPayload position) {
+        return position == null || position.x() < 0 || position.y() < 0;
     }
 
     public record GmTurnRequest(UUID turnId, GmInputRequest input) {}

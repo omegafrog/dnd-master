@@ -64,6 +64,33 @@ class AdventureMovementPreviewBoundaryTest {
         verifyNoInteractions(combatMap);
     }
 
+    @Test
+    void rejects_malformed_preview_before_calling_combat_map() {
+        UUID adventureId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID mapId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class);
+        AuthenticatedPlayerResolver playerResolver = mock(AuthenticatedPlayerResolver.class);
+        Adventure adventure = mock(Adventure.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(playerResolver.playerId()).thenReturn(ownerId);
+        when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(
+                mapId, new CombatMapViewPort.Grid(2, 2, 50, 5), List.of(), List.of(), List.of(),
+                List.of(), List.of(), 0)));
+
+        AdventureController controller = controller(adventures, combatMap, mapViews, playerResolver);
+        List<AdventureController.PositionPayload> waypoints = java.util.stream.IntStream.range(0, 17)
+                .mapToObj(index -> new AdventureController.PositionPayload(1, 1)).toList();
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.previewMovement(adventureId,
+                new AdventureController.CombatMapMovementPreviewRequest(mapId, 0, UUID.randomUUID(),
+                        new AdventureController.PositionPayload(1, 1), waypoints)));
+        verifyNoInteractions(combatMap);
+    }
+
     private static AdventureController controller(AdventureRepository adventures, CombatMapPort combatMap,
             CombatMapViewPort mapViews, AuthenticatedPlayerResolver playerResolver) {
         return new AdventureController(

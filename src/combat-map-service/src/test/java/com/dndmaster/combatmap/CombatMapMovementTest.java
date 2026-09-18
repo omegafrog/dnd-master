@@ -118,6 +118,16 @@ class CombatMapMovementTest {
     }
 
     @Test
+    void rejects_confirmation_through_a_cell_not_known_to_the_player() {
+        Fixture fixture = new Fixture();
+        fixture.map.replaceVisibility(new VisibilitySnapshot(Set.of(new GridPosition(1, 1)),
+                Set.of(new GridPosition(1, 1)), Set.of(), List.of(), 0));
+
+        assertThrows(CombatMapMovementDeniedException.class, () -> fixture.service(30).movePlayerToken(command(fixture,
+                new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5), 0)));
+    }
+
+    @Test
     void rejects_movement_across_a_shared_wall_boundary_without_blocking_the_cell() {
         Fixture fixture = new Fixture();
         fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
@@ -164,6 +174,14 @@ class CombatMapMovementTest {
                         new MapLayer("FOG", "hidden", LayerVisibility.AI_ONLY)));
         int saves;
         final Map<UUID, CombatMap> history = new HashMap<>();
+
+        Fixture() {
+            Set<GridPosition> known = new HashSet<>();
+            for (int y = 0; y < map.grid().height(); y++) for (int x = 0; x < map.grid().width(); x++) {
+                known.add(new GridPosition(x, y));
+            }
+            map.replaceVisibility(new VisibilitySnapshot(known, known, Set.of(), List.of(), 0));
+        }
 
         CombatMapMovementService service(int allowance) {
             return new CombatMapMovementService(this, (ruleSet, edition) -> allowance);

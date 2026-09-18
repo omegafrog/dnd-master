@@ -43,7 +43,7 @@ public final class CombatMap {
         if(path.distance()!=expectedDistance) throw new CombatMapMovementDeniedException("path distance does not match grid");
         for(int i=0;i<path.orderedPositions().size();i++){
             GridPosition position=path.orderedPositions().get(i);
-            if(!grid.contains(position) || !isPlayable(position) || obstacles.contains(position)) throw new CombatMapMovementDeniedException("path crosses blocked or outside position");
+            if(!isPublicTraversable(position)) throw new CombatMapMovementDeniedException("path crosses blocked or outside public position");
             if(i>0 && !path.orderedPositions().get(i-1).adjacentTo(position)) throw new CombatMapMovementDeniedException("path positions must be adjacent");
             if(i>0) {
                 GridPosition previous = path.orderedPositions().get(i - 1);
@@ -62,8 +62,8 @@ public final class CombatMap {
         return token.position();
     }
     public boolean isPublicTraversable(GridPosition position) {
-        boolean known = visibilitySnapshot == null
-                || visibilitySnapshot.current().contains(position) || visibilitySnapshot.explored().contains(position);
+        boolean known = visibilitySnapshot != null
+                && (visibilitySnapshot.current().contains(position) || visibilitySnapshot.explored().contains(position));
         return known && grid.contains(position) && isPlayable(position) && !obstacles.contains(position)
                 && doors.stream().noneMatch(door -> door.position().equals(position) && !door.open());
     }

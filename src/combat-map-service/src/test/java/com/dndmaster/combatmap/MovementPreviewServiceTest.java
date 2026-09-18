@@ -9,6 +9,7 @@ import com.dndmaster.combatmap.application.movement.MovementPreview;
 import com.dndmaster.combatmap.application.movement.MovementPreviewRequest;
 import com.dndmaster.combatmap.domain.AdventureId;
 import com.dndmaster.combatmap.domain.CombatMap;
+import com.dndmaster.combatmap.domain.CombatMapMovementDeniedException;
 import com.dndmaster.combatmap.domain.CombatToken;
 import com.dndmaster.combatmap.domain.GridPosition;
 import com.dndmaster.combatmap.domain.GridSpec;
@@ -24,8 +25,10 @@ import com.dndmaster.combatmap.domain.SpatialFeatureType;
 import com.dndmaster.combatmap.domain.TokenController;
 import com.dndmaster.combatmap.domain.TokenId;
 import com.dndmaster.combatmap.domain.TokenType;
+import com.dndmaster.combatmap.domain.VisibilitySnapshot;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
@@ -83,6 +86,15 @@ class MovementPreviewServiceTest {
         assertThrows(IllegalArgumentException.class, () -> fixture.request(waypoints));
     }
 
+    @Test
+    void rejects_preview_when_public_visibility_has_not_been_initialized() {
+        Fixture fixture = new Fixture();
+        fixture.map = fixture.mapWithoutVisibility();
+
+        assertThrows(CombatMapMovementDeniedException.class,
+                () -> fixture.service().preview(fixture.request(List.of())));
+    }
+
     private static final class Fixture implements CombatMapRepository {
         final PlayerId player = new PlayerId(UUID.randomUUID());
         final TokenId tokenId = new TokenId(UUID.randomUUID());
@@ -110,6 +122,7 @@ class MovementPreviewServiceTest {
         }
 
         CombatMap mapWithHiddenChanges() {
+            VisibilitySnapshot prior = map.visibilitySnapshot();
             CombatToken hiddenEnemy = new CombatToken(new TokenId(UUID.randomUUID()), TokenType.ENEMY,
                     new GridPosition(3, 3), TokenController.AI_GAME_MASTER, null);
             SpatialFeature hiddenFeature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
@@ -117,17 +130,27 @@ class MovementPreviewServiceTest {
             map = new CombatMap(map.id(), map.adventureId(), map.ruleSetId(), map.grid(), player,
                     List.of(map.tokens().getFirst(), hiddenEnemy), map.obstacles(), map.layers(), map.version(), null, null,
                     List.of(hiddenFeature));
+            map.replaceVisibility(new VisibilitySnapshot(prior.current(), prior.explored(), Set.of(), List.of(), prior.ruleTurn()));
             return map;
         }
 
         private CombatMap baseMap() {
-            return new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+            CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
                     new GridSpec(5, 5, 50, 5), player,
                     List.of(new CombatToken(tokenId, TokenType.PLAYER,
                             new GridPosition(1, 1), TokenController.PLAYER, player)),
                     List.of(new GridPosition(2, 2)),
                     List.of(new MapLayer("MAP_BOUNDARIES", "2,2,VERTICAL,WALL,false", LayerVisibility.PLAYER_VISIBLE)),
                     0, null);
+            Set<GridPosition> known = new java.util.HashSet<>();
+            for (int y = 0; y < map.grid().height(); y++) for (int x = 0; x < map.grid().width(); x++) known.add(new GridPosition(x, y));
+            map.replaceVisibility(new VisibilitySnapshot(known, known, Set.of(), List.of(), 0));
+            return map;
+        }
+
+        CombatMap mapWithoutVisibility() {
+            return new CombatMap(map.id(), map.adventureId(), map.ruleSetId(), map.grid(), player, map.tokens(),
+                    map.obstacles(), map.layers(), map.version(), null, null, map.spatialFeatures());
         }
 
         @Override public Optional<CombatMap> findById(MapId id) { return id.equals(map.id()) ? Optional.of(map) : Optional.empty(); }
