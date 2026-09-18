@@ -20,6 +20,7 @@ import com.dndmaster.adventure.application.runtime.GmTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
 import com.dndmaster.adventure.application.runtime.SessionEventRepository;
+import com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
@@ -101,7 +102,7 @@ class AdventureMovementPreviewBoundaryTest {
                 mock(AdventureScenarioApplicationService.class), playerResolver, provider(combatMap),
                 provider(mock(CharacterCombatPort.class)), new ObjectMapper(), provider(mapViews),
                 provider(mock(CombatMapPreparationPort.class)), mock(ScenarioPackageRepository.class),
-                mock(CombatLifecycleApplicationService.class));
+                mock(CombatLifecycleApplicationService.class), mock(AppliedRuleSetApplicationService.class));
     }
 
     private static <T> ObjectProvider<T> provider(T value) {

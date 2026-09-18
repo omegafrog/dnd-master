@@ -42,6 +42,7 @@ import com.dndmaster.adventure.application.combat.CombatStartParticipantFactory;
 import com.dndmaster.adventure.application.combat.CombatStartTransitionPolicy;
 import com.dndmaster.adventure.application.combat.CombatMapPlayerTokenResolver;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
+import com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
@@ -68,6 +69,7 @@ public class AdventureController {
     private final com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository;
     private final ObjectMapper objectMapper;
     private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
+    private final AppliedRuleSetApplicationService appliedRuleSetService;
 
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
@@ -88,7 +90,8 @@ public class AdventureController {
             ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort,
             ObjectProvider<CombatMapPreparationPort> combatMapPreparationPort,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository,
-            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService,
+            AppliedRuleSetApplicationService appliedRuleSetService) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
         this.adventureRepository = adventureRepository;
@@ -115,6 +118,7 @@ public class AdventureController {
         this.scenarioPackageRepository = scenarioPackageRepository;
         this.objectMapper = objectMapper;
         this.combatLifecycleService = combatLifecycleService;
+        this.appliedRuleSetService = appliedRuleSetService;
     }
 
     /** Player read boundary; canonical runtime snapshots and ScenarioModel are intentionally absent. */
@@ -319,7 +323,7 @@ public class AdventureController {
         CombatMapPreviewResult preview = combatMapPort.preview(new CombatMapPreviewCommand(
                 request.mapId(), owner, request.tokenId(), toPreviewPosition(request.destination()),
                 request.waypoints() == null ? List.of() : request.waypoints().stream().map(AdventureController::toPreviewPosition).toList(),
-                appliedEdition(adventureId).edition(), request.mapVersion()));
+                appliedEdition(adventure).edition(), request.mapVersion()));
         return CombatMapMovementPreviewResponse.from(preview);
     }
 
@@ -554,7 +558,15 @@ public class AdventureController {
 
     @GetMapping("/internal/v1/adventures/{adventureId}/edition")
     EditionResponse appliedEdition(@PathVariable UUID adventureId) {
-        return new EditionResponse(adventureId, "DND_5E_2024");
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        return appliedEdition(adventure);
+    }
+
+    private EditionResponse appliedEdition(Adventure adventure) {
+        var applied = appliedRuleSetService.readRuleSet(
+                new com.dndmaster.adventure.domain.ruleset.RuleSetId(adventure.ruleSetId().value()),
+                new com.dndmaster.adventure.domain.ruleset.OwnerPlayerId(adventure.ownerPlayerId().value()));
+        return new EditionResponse(adventure.id().value(), applied.edition().value());
     }
 
     @GetMapping("/internal/v1/adventures/{adventureId}/roll-conditions")
@@ -580,7 +592,7 @@ public class AdventureController {
             combatMapPort.preview(new CombatMapPreviewCommand(mapId, adventure.ownerPlayerId().value(), request.tokenId(),
                     new CombatMapPreviewPosition(request.x(), request.y()),
                     request.waypoints() == null ? List.of() : request.waypoints().stream().map(AdventureController::toPreviewPosition).toList(),
-                    appliedEdition(adventureId).edition(), mapVersion));
+                    appliedEdition(adventure).edition(), mapVersion));
             return new MovementValidationResponse(adventureId, true, "valid");
         } catch (RuntimeException invalid) {
             return new MovementValidationResponse(adventureId, false, "invalid");
@@ -655,6 +667,7 @@ public class AdventureController {
             if (payload.path() == null || payload.path().size() < 2) {
                 throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PATH");
             }
+            validateConfirmedMapPreview(adventure, owner, payload);
             String path = payload.path().stream()
                     .map(position -> position.x() + "," + position.y()).reduce((left, right) -> left + ";" + right).orElse(null);
             CombatActionCommand command = new CombatActionCommand(commandId, adventure.id(), adventure.sessionId().value(),
@@ -685,6 +698,7 @@ public class AdventureController {
             if (payload.path() == null || payload.path().size() < 2) {
                 throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PATH");
             }
+            validateConfirmedMapPreview(adventure, owner, payload);
             String path = payload.path() == null ? null : payload.path().stream()
                     .map(position -> position.x() + "," + position.y()).reduce((left, right) -> left + ";" + right).orElse(null);
             CombatActionCommand command = new CombatActionCommand(
@@ -734,8 +748,28 @@ public class AdventureController {
         return CombatMapPlayerTokenResolver.resolve(adventure, owner, tokenId, combatMapViewPort);
     }
 
+    private void validateConfirmedMapPreview(Adventure adventure, UUID owner, MapActionPayload payload) {
+        // Older runtime commands do not carry a preview fingerprint. Keep their
+        // compatibility adapter intact; new player confirmations must carry it.
+        if (payload.fingerprint() == null || payload.fingerprint().isBlank()) return;
+        if (payload.path() == null || payload.path().size() < 2 || payload.tokenId() == null) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
+        }
+        PositionPayload destination = payload.location() == null ? payload.path().getLast() : payload.location();
+        var preview = combatMapPort.preview(new CombatMapPreviewCommand(
+                payload.mapId(), owner, payload.tokenId(), toPreviewPosition(destination),
+                payload.waypoints() == null ? List.of() : payload.waypoints().stream().map(AdventureController::toPreviewPosition).toList(),
+                appliedEdition(adventure).edition(), payload.mapVersion()));
+        List<PositionPayload> previewPath = preview.orderedPositions().stream()
+                .map(position -> new PositionPayload(position.x(), position.y())).toList();
+        if (!payload.fingerprint().equals(preview.fingerprint()) || !payload.path().equals(previewPath)) {
+            throw new ApiRequestGuard.ApiContractException(409, "MOVEMENT_PREVIEW_MISMATCH");
+        }
+    }
+
     public record MapActionPayload(UUID mapId, long mapVersion, UUID tokenId, String action,
-            List<PositionPayload> path, UUID targetId, PositionPayload location) {}
+            List<PositionPayload> path, UUID targetId, PositionPayload location,
+            List<PositionPayload> waypoints, String fingerprint) {}
     public record PositionPayload(int x, int y) {}
     public record CombatMapResponse(UUID adventureId, String status, long sessionVersion, UUID mapId,
             com.dndmaster.adventure.application.combat.CombatMapViewPort.Grid grid,
