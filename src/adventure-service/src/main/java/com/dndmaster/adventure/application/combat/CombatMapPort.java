@@ -17,6 +17,8 @@ public interface CombatMapPort {
 
     /** Recovery boundary for a durable map-owned movement reservation. */
     default CombatMapMoveResult movementOperation(java.util.UUID mapId, java.util.UUID operationId) { throw new UnsupportedOperationException("movement operation query is unavailable"); }
+    /** Loads the most recent durable operation when the client has no local operation identity. */
+    default CombatMapMoveResult latestMovementOperation(java.util.UUID mapId) { throw new UnsupportedOperationException("latest movement operation query is unavailable"); }
     default CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { throw new UnsupportedOperationException("movement operation resume is unavailable"); }
     default CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { throw new UnsupportedOperationException("movement operation cancellation is unavailable"); }
 

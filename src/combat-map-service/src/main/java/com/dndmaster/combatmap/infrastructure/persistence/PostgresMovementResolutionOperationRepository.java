@@ -29,6 +29,17 @@ public final class PostgresMovementResolutionOperationRepository implements Move
     @Override public Optional<MovementResolutionOperation> findActiveByMapId(MapId id) {
         return find("map_id", id.value(), " AND status IN ('PREPARING','RETRY_WAIT','READY_TO_COMMIT')");
     }
+    @Override public Optional<MovementResolutionOperation> findLatestByMapId(MapId id) {
+        String sql = "SELECT * FROM combat_map_movement_operation WHERE map_id=? ORDER BY updated_at DESC, created_at DESC, operation_id DESC LIMIT 1";
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, id.value());
+            try (var rows = statement.executeQuery()) {
+                return rows.next() ? Optional.of(read(rows)) : Optional.empty();
+            }
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("latest movement operation load failed", exception);
+        }
+    }
     @Override public MovementResolutionOperation reserve(MovementResolutionOperation value) { return write(value, true); }
     @Override public void save(MovementResolutionOperation value) { write(value, false); }
     @Override public List<MovementResolutionOperation> findRecoverable() {

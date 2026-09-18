@@ -587,6 +587,24 @@ it('keeps a typed retry operation available for reconnect and resume', async () 
   window.localStorage.removeItem('dnd-master:movement-operation:a1')
 })
 
+it('restores a durable movement operation when local storage has no waiting state', async () => {
+  window.localStorage.removeItem('dnd-master:movement-operation:a1')
+  window.localStorage.removeItem('dnd-master:movement-command:a1')
+  const api = fakeApi()
+  const result = {
+    version: 0, operationId: 'server-operation-1', status: 'RETRY_REQUIRED' as const,
+    requestedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }], traversedPath: [{ x: 1, y: 1 }],
+    finalPosition: { x: 1, y: 1 }, publicEvents: [],
+  }
+  api.latestMovementOperation = vi.fn(async () => result)
+
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  expect(await screen.findByText('이동 재시도 필요')).toBeInTheDocument()
+  expect(screen.getByText('작업 번호: server-operation-1')).toBeInTheDocument()
+  expect(api.latestMovementOperation).toHaveBeenCalledWith('a1', 'm1')
+})
+
 it('shows the server preview path and ghost destination before confirmation', async () => {
   const api = fakeApi()
   api.previewMapMovement = vi.fn().mockResolvedValue({

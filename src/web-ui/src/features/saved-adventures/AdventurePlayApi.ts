@@ -144,6 +144,7 @@ export interface AdventurePlayApi {
   updateCombatMapLayout?(adventureId: string, draft: CombatMapLayoutDraft): Promise<void>
   previewMapMovement?(adventureId: string, request: MapMovementPreviewRequest): Promise<MapMovementPreview>
   movementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
+  latestMovementOperation?(adventureId: string, mapId: string): Promise<MapMovementResult | null>
   resumeMovementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
   resumeRuntimeTurn?(adventureId: string, turnId: string): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
   submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
@@ -324,6 +325,16 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     })
   }
 
+  latestMovementOperation(adventureId: string, mapId: string) {
+    return request<MapMovementResult | null>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations?mapId=${mapId}`, {
+      headers: this.authHeaders(),
+    }).catch(error => {
+      // A map with no durable movement operation is a normal reconnect state.
+      if (error instanceof AdventureRequestError && error.status === 404) return null
+      throw error
+    })
+  }
+
   resumeMovementOperation(adventureId: string, mapId: string, operationId: string) {
     return request<MapMovementResult>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations/${operationId}/resume?mapId=${mapId}`, {
       method: 'POST', headers: this.authHeaders(),
@@ -347,6 +358,7 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
       body: JSON.stringify({ turnId: command.turnId, input: {
         type: 'MAP_ACTION', mapId: candidate.mapId, mapVersion: candidate.mapVersion,
         action: JSON.stringify(requestCandidate),
+        previewFingerprint: candidate.action === 'MOVE' ? candidate.fingerprint : undefined,
       } }),
     }).then(result => ({ turnId: result.turnId, version: result.version, movementResult: result.movementResult }))
   }

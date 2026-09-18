@@ -18,8 +18,8 @@ public final class CombatMapMovementService {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CombatMapMovementService.class);
     private final CombatMapRepository repository; private final AppliedEditionMovementPort movementPort; private final MovementResolutionOperationRepository operations;
     private final MovementInterruptionPolicy interruptionPolicy;
-    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort){this(repository, movementPort, new UnsupportedOperationRepository(), MovementInterruptionPolicy.never());}
-    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort, MovementResolutionOperationRepository operations){this(repository, movementPort, operations, MovementInterruptionPolicy.never());}
+    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort){this(repository, movementPort, new UnsupportedOperationRepository(), MovementInterruptionPolicy.publicSpatialFeatures());}
+    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort, MovementResolutionOperationRepository operations){this(repository, movementPort, operations, MovementInterruptionPolicy.publicSpatialFeatures());}
     public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort,
             MovementResolutionOperationRepository operations, MovementInterruptionPolicy interruptionPolicy){this.repository=Objects.requireNonNull(repository);this.movementPort=Objects.requireNonNull(movementPort);this.operations=Objects.requireNonNull(operations);this.interruptionPolicy=Objects.requireNonNull(interruptionPolicy);}
     public CombatMap movePlayerToken(MovePlayerTokenCommand command){
@@ -136,6 +136,9 @@ public final class CombatMapMovementService {
     }
 
     public MovementOperationResponse query(MapId mapId, UUID operationId) { MovementResolutionOperation operation = operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found")); requireMap(operation, mapId); return response(operation); }
+    public java.util.Optional<MovementOperationResponse> latest(MapId mapId) {
+        return operations.findLatestByMapId(mapId).map(CombatMapMovementService::response);
+    }
     public MovementOperationResponse cancel(MapId mapId, UUID operationId) { MovementResolutionOperation operation = operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found")); requireMap(operation, mapId); if (operation.status().active()) { operation.cancel(cancelledResult(operation, "CANCELLED")); operations.save(operation); } return response(operation); }
 
     private MovementOperationResponse resolve(CombatMap map, MovementResolutionOperation operation) {
@@ -144,7 +147,7 @@ public final class CombatMapMovementService {
             while (operation.cursor() < operation.requestedPath().orderedPositions().size() - 1) {
                 int next = operation.cursor() + 1;
                 java.util.Optional<MovementInterruption> interruption = interruptionPolicy.beforeEnter(operation,
-                        operation.requestedPath().orderedPositions().get(next));
+                        operation.requestedPath().orderedPositions().get(next), map);
                 if (interruption.isPresent()) {
                     MovementInterruption value = interruption.get();
                     MovementResolutionResult result = new MovementResolutionResult(operation.requestedPath(), operation.traversedPath(),

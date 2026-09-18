@@ -414,6 +414,16 @@ public class CombatMapController {
         return MovementOperationResponseBody.from(movementService.query(new MapId(mapId), operationId));
     }
 
+    @GetMapping("/internal/v1/combat-maps/{mapId}/movement-operations")
+    public org.springframework.http.ResponseEntity<MovementOperationResponseBody> latestMovementOperation(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        return movementService.latest(new MapId(mapId))
+                .map(MovementOperationResponseBody::from)
+                .map(org.springframework.http.ResponseEntity::ok)
+                .orElseGet(() -> org.springframework.http.ResponseEntity.noContent().build());
+    }
+
     @DeleteMapping("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}")
     public MovementOperationResponseBody cancelMovement(@PathVariable UUID mapId, @PathVariable UUID operationId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {

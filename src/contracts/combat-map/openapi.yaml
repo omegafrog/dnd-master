@@ -159,7 +159,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [playerId, tokenId, positions, distance, appliedEdition, commandId, expectedVersion]
+              required: [playerId, tokenId, positions, distance, appliedEdition, commandId, expectedVersion, previewFingerprint]
               properties:
                 playerId: { type: string, format: uuid }
                 tokenId: { type: string, format: uuid }
@@ -176,18 +176,14 @@ paths:
                 commandId: { type: string, format: uuid }
                 expectedVersion: { type: integer, minimum: 0 }
                 fingerprint: { type: string, minLength: 1 }
+                previewFingerprint: { type: string, minLength: 1, description: server-issued movement preview fingerprint }
                 waypoints: { type: array, maxItems: 16, items: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } } }
       responses:
         '200':
           description: moved
           content:
             application/json:
-              schema:
-                type: object
-                required: [mapId, version]
-                properties:
-                  mapId: { type: string, format: uuid }
-                  version: { type: integer, format: int64, minimum: 0 }
+              schema: { $ref: '#/components/schemas/MovementOperationResponse' }
         '409': { description: stale map version or preview mismatch }
         '422': { description: movement denied }
   /internal/v1/combat-maps/{mapId}/movement-previews:
@@ -234,6 +230,89 @@ paths:
         '401': { description: internal service authorization required }
         '409': { description: stale map version }
         '422': { description: movement destination or path is not allowed }
+  /internal/v1/combat-maps/{mapId}/movement-operations:
+    post:
+      operationId: startMovementOperation
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [playerId, tokenId, positions, distance, appliedEdition, commandId, expectedVersion, fingerprint, previewFingerprint]
+              properties:
+                playerId: { type: string, format: uuid }
+                tokenId: { type: string, format: uuid }
+                positions: { type: array, minItems: 2, items: { $ref: '#/components/schemas/GridPosition' } }
+                distance: { type: integer, minimum: 1 }
+                appliedEdition: { type: string, minLength: 1 }
+                commandId: { type: string, format: uuid }
+                expectedVersion: { type: integer, format: int64, minimum: 0 }
+                fingerprint: { type: string, minLength: 1 }
+                previewFingerprint: { type: string, minLength: 1 }
+                waypoints: { type: array, maxItems: 16, items: { $ref: '#/components/schemas/GridPosition' } }
+      responses:
+        '200': { description: durable movement operation, content: { application/json: { schema: { $ref: '#/components/schemas/MovementOperationResponse' } } } }
+        '400': { description: preview fingerprint is required }
+        '401': { description: internal service authorization required }
+        '409': { description: typed reservation, version, command, or operation conflict }
+        '422': { description: movement is not allowed }
+    get:
+      operationId: latestMovementOperation
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: latest durable operation for reconnect, content: { application/json: { schema: { $ref: '#/components/schemas/MovementOperationResponse' } } } }
+        '204': { description: no movement operation exists for this map }
+        '401': { description: internal service authorization required }
+  /internal/v1/combat-maps/{mapId}/movement-operations/{operationId}:
+    get:
+      operationId: queryMovementOperation
+      parameters:
+        - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: durable typed movement operation and result, content: { application/json: { schema: { $ref: '#/components/schemas/MovementOperationResponse' } } } }
+        '401': { description: internal service authorization required }
+    delete:
+      operationId: cancelMovementOperation
+      parameters:
+        - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: cancelled or replayed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/MovementOperationResponse' } } } }
+        '401': { description: internal service authorization required }
+  /internal/v1/combat-maps/{mapId}/movement-operations/{operationId}/resume:
+    post:
+      operationId: resumeMovementOperation
+      parameters:
+        - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: resumed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/MovementOperationResponse' } } } }
+        '401': { description: internal service authorization required }
+        '409': { description: typed operation conflict }
   /internal/v1/combat-maps/{mapId}/ai-state:
     post:
       operationId: controlAiState
@@ -336,3 +415,36 @@ paths:
                 expectedVersion: { type: integer, minimum: 0 }
       responses:
         '200': { description: token revealed }
+
+components:
+  schemas:
+    GridPosition:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: integer, minimum: 0 }
+        y: { type: integer, minimum: 0 }
+    MovementResolutionResult:
+      type: object
+      required: [requestedPath, traversedPath, finalPosition, mapVersion, publicEvents, status]
+      properties:
+        requestedPath: { type: array, items: { $ref: '#/components/schemas/GridPosition' } }
+        traversedPath: { type: array, items: { $ref: '#/components/schemas/GridPosition' } }
+        finalPosition: { $ref: '#/components/schemas/GridPosition' }
+        mapVersion: { type: integer, format: int64, minimum: 0 }
+        publicEvents: { type: array, items: { type: string } }
+        interruptionReason: { type: [string, 'null'] }
+        status: { type: string, enum: [COMMITTED, INTERRUPTED, CHECK_REQUIRED, RETRY_REQUIRED, CANCELLED] }
+    MovementOperationResponse:
+      type: object
+      required: [operationId, status, outcomeStatus, requestedPath, traversedPath, finalPosition, publicEvents]
+      properties:
+        operationId: { type: string, format: uuid }
+        status: { type: string, enum: [PREPARING, RETRY_WAIT, READY_TO_COMMIT, COMMITTED, CANCELLED] }
+        outcomeStatus: { type: string, enum: [COMMITTED, INTERRUPTED, CHECK_REQUIRED, RETRY_REQUIRED, CANCELLED] }
+        requestedPath: { type: array, items: { $ref: '#/components/schemas/GridPosition' } }
+        traversedPath: { type: array, items: { $ref: '#/components/schemas/GridPosition' } }
+        finalPosition: { $ref: '#/components/schemas/GridPosition' }
+        mapVersion: { type: integer, format: int64, minimum: 0 }
+        publicEvents: { type: array, items: { type: string } }
+        interruptionReason: { type: [string, 'null'] }

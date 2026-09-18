@@ -28,6 +28,11 @@ import com.dndmaster.combatmap.domain.MapLayer;
 import com.dndmaster.combatmap.domain.MovementPath;
 import com.dndmaster.combatmap.domain.PlayerId;
 import com.dndmaster.combatmap.domain.RuleSetId;
+import com.dndmaster.combatmap.domain.SpatialFeature;
+import com.dndmaster.combatmap.domain.SpatialFeatureProvenance;
+import com.dndmaster.combatmap.domain.SpatialFeatureType;
+import com.dndmaster.combatmap.domain.SpatialFeatureVisibility;
+import com.dndmaster.combatmap.domain.SpatialTrigger;
 import com.dndmaster.combatmap.domain.TokenController;
 import com.dndmaster.combatmap.domain.TokenId;
 import com.dndmaster.combatmap.domain.TokenType;
@@ -76,6 +81,31 @@ class MovementResolutionOperationTest {
         assertEquals(List.of(new GridPosition(1, 1)), response.result().traversedPath());
         assertEquals(new GridPosition(1, 1), response.result().finalPosition());
         assertEquals("PLAYER_DECISION_REQUIRED", response.result().interruptionReason());
+        assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
+        assertEquals(1, fixture.map.version());
+    }
+
+    @Test
+    void default_movement_stops_before_a_public_enter_cell_feature_and_persists_interrupted_result() {
+        Fixture fixture = new Fixture();
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), fixture.map.version(), null, null,
+                List.of(new SpatialFeature(UUID.randomUUID(), SpatialFeatureType.HAZARD_AREA,
+                        List.of(new GridPosition(2, 1)), SpatialFeatureVisibility.REVEALED, SpatialFeature.State.ACTIVE,
+                        null, Set.of(SpatialTrigger.ENTER_CELL), SpatialFeatureProvenance.runtime("public-feature", 1, 0),
+                        false, -1)));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1)),
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+
+        MovementOperationResponse response = fixture.service().start(fixture.start("fingerprint-1"));
+
+        assertEquals(MovementOperationStatus.COMMITTED, response.status());
+        assertEquals(MovementResolutionOutcomeStatus.INTERRUPTED, response.result().status());
+        assertEquals(List.of(new GridPosition(1, 1)), response.result().traversedPath());
+        assertEquals(new GridPosition(1, 1), response.result().finalPosition());
+        assertEquals("SPATIAL_FEATURE_REQUIRES_DECISION", response.result().interruptionReason());
+        assertEquals(List.of("SPATIAL_FEATURE_REQUIRES_DECISION"), response.result().publicEvents());
         assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
         assertEquals(1, fixture.map.version());
     }

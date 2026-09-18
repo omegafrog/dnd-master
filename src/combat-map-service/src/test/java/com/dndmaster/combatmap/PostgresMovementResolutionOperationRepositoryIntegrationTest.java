@@ -141,6 +141,19 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
         assertEquals(List.of(), repository.findStalledBefore(Instant.parse("2030-01-01T00:00:00Z")));
     }
 
+    @Test
+    void latest_operation_reconnect_query_restores_a_terminal_result_after_the_client_lost_local_state() {
+        MovementResolutionOperation cancelled = repository.reserve(operation(commandId, "first"));
+        cancelled.cancel(new MovementResolutionResult(path, cancelled.traversedPath(), cancelled.currentCell(), 0,
+                List.of(), "CANCELLED", MovementResolutionOutcomeStatus.CANCELLED));
+        repository.save(cancelled);
+
+        MovementResolutionOperation latest = repository.reserve(operation(UUID.randomUUID(), "second"));
+
+        assertEquals(latest.operationId(), repository.findLatestByMapId(mapId).orElseThrow().operationId());
+        assertEquals(MovementOperationStatus.PREPARING, repository.findLatestByMapId(mapId).orElseThrow().status());
+    }
+
     private MovementResolutionOperation operation(UUID requestedCommandId, String fingerprint) {
         return MovementResolutionOperation.start(UUID.randomUUID(), mapId, requestedCommandId,
                 playerId, tokenId, path, fingerprint, 0);

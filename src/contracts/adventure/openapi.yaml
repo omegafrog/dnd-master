@@ -86,9 +86,21 @@ paths:
       requestBody:
         required: true
         content:
-          application/json: { schema: { type: object, required: [turnId, input], properties: { turnId: { type: string, format: uuid }, input: { type: object } } } }
+          application/json:
+            schema:
+              type: object
+              required: [turnId, input]
+              properties:
+                turnId: { type: string, format: uuid }
+                input:
+                  oneOf:
+                    - $ref: '#/components/schemas/AdventureTextInput'
+                    - $ref: '#/components/schemas/AdventureMapMovementInput'
+                    - $ref: '#/components/schemas/AdventureMetaQuestionInput'
       responses:
-        '202': { description: accepted }
+        '202':
+          description: accepted with typed movement result when the input is a map action
+          content: { application/json: { schema: { $ref: '#/components/schemas/RuntimeTurnResponse' } } }
         '403': { description: adventure is not owned by bearer }
         '409': { description: stale version or idempotency conflict }
   /api/v1/adventures/{adventureId}/turns/{pendingTurnId}/resume:
@@ -177,3 +189,100 @@ paths:
                   fingerprint: { type: string, minLength: 1 }
         '409': { description: stale map version, content: { application/json: { schema: { type: object, required: [error], properties: { error: { type: string, example: STALE_MOVEMENT_PROPOSAL } } } } } }
         '422': { description: invalid movement preview, content: { application/json: { schema: { type: object, required: [error], properties: { error: { type: string, example: MOVEMENT_NOT_ALLOWED } } } } } }
+  /api/v1/adventures/{adventureId}/combat-map/movement-operations:
+    get:
+      operationId: latestAdventureMovementOperation
+      parameters:
+        - { name: mapId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: latest durable movement operation for reconnect, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
+        '204': { description: no durable movement operation exists for this map }
+        '403': { description: adventure is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}:
+    get:
+      operationId: queryAdventureMovementOperation
+      parameters:
+        - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: mapId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: durable typed movement operation and result, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
+        '403': { description: adventure is not owned by bearer }
+    delete:
+      operationId: cancelAdventureMovementOperation
+      parameters:
+        - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: mapId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: cancelled or replayed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
+        '403': { description: adventure is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}/resume:
+    post:
+      operationId: resumeAdventureMovementOperation
+      parameters:
+        - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: mapId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: resumed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
+        '403': { description: adventure is not owned by bearer }
+
+components:
+  schemas:
+    AdventureTextInput:
+      type: object
+      required: [type, text]
+      properties:
+        type: { type: string, const: TEXT }
+        text: { type: string }
+    AdventureMetaQuestionInput:
+      type: object
+      required: [type, question]
+      properties:
+        type: { type: string, const: META_QUESTION }
+        question: { type: string }
+    AdventureMapMovementInput:
+      type: object
+      required: [type, mapId, mapVersion, action, previewFingerprint]
+      properties:
+        type: { type: string, const: MAP_ACTION }
+        mapId: { type: string, format: uuid }
+        mapVersion: { type: integer, format: int64, minimum: 0 }
+        action: { type: string, description: JSON encoded confirmed movement action }
+        previewFingerprint: { type: string, minLength: 1, description: server-issued movement preview fingerprint }
+    MovementPosition:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: integer, minimum: 0 }
+        y: { type: integer, minimum: 0 }
+    MovementResult:
+      type: object
+      required: [version, operationId, status, requestedPath, traversedPath, publicEvents]
+      properties:
+        version: { type: integer, format: int64, minimum: 0 }
+        operationId: { type: string, format: uuid }
+        status: { type: string, enum: [RETRY_REQUIRED, CHECK_REQUIRED, COMMITTED, INTERRUPTED, CANCELLED] }
+        requestedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
+        traversedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
+        finalPosition: { $ref: '#/components/schemas/MovementPosition' }
+        publicEvents: { type: array, items: { type: string } }
+        interruptionReason: { type: [string, 'null'] }
+    AdventureMovementOperationResponse:
+      type: object
+      required: [operationId, status, outcomeStatus, version, requestedPath, traversedPath, publicEvents]
+      properties:
+        operationId: { type: string, format: uuid }
+        status: { type: string, enum: [RETRY_REQUIRED, CHECK_REQUIRED, COMMITTED, INTERRUPTED, CANCELLED] }
+        outcomeStatus: { type: string, enum: [RETRY_REQUIRED, CHECK_REQUIRED, COMMITTED, INTERRUPTED, CANCELLED] }
+        version: { type: integer, format: int64, minimum: 0 }
+        requestedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
+        traversedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
+        finalPosition: { $ref: '#/components/schemas/MovementPosition' }
+        publicEvents: { type: array, items: { type: string } }
+        interruptionReason: { type: [string, 'null'] }
+    RuntimeTurnResponse:
+      type: object
+      properties:
+        turnId: { type: string, format: uuid }
+        adventureId: { type: string, format: uuid }
+        version: { type: integer, format: int64, minimum: 0 }
+        movementResult: { $ref: '#/components/schemas/MovementResult' }

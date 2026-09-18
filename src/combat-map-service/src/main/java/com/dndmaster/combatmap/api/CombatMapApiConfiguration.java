@@ -129,7 +129,8 @@ public class CombatMapApiConfiguration {
     CombatMapMovementService combatMapMovementService(
             CombatMapRepository repository, AppliedEditionMovementPort movementPort,
             MovementResolutionOperationRepository operations) {
-        return new CombatMapMovementService(repository, movementPort, operations);
+        return new CombatMapMovementService(repository, movementPort, operations,
+                com.dndmaster.combatmap.application.movement.MovementInterruptionPolicy.publicSpatialFeatures());
     }
 
     @Bean

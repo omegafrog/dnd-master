@@ -244,6 +244,7 @@ public final class CrossContextHttpCombatGateway
     }
 
     @Override public CombatMapMoveResult movementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "GET"); }
+    @Override public CombatMapMoveResult latestMovementOperation(java.util.UUID mapId) { return latestOperationRequest(mapId); }
     @Override public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "POST"); }
     @Override public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "DELETE"); }
     private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method) {
@@ -261,6 +262,24 @@ public final class CrossContextHttpCombatGateway
             return movementResult(response.body(), 0);
         } catch (IOException exception) { throw new CrossContextCallException("combat map movement operation transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new CrossContextCallException("combat map movement operation interrupted", exception); }
+    }
+
+    private CombatMapMoveResult latestOperationRequest(java.util.UUID mapId) {
+        try {
+            String route = "internal/v1/combat-maps/" + mapId + "/movement-operations";
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve(route)).timeout(timeout)
+                    .header("X-Internal-Token", internalToken).GET().build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 204 || response.statusCode() == 404) return null;
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                if (response.statusCode() == 409 || response.statusCode() == 422) {
+                    throw new CombatMapMovementPreviewRejectedException(response.statusCode(), previewErrorCode(response.body()));
+                }
+                throw new CrossContextCallException("latest combat map movement operation failed with status " + response.statusCode());
+            }
+            return movementResult(response.body(), 0);
+        } catch (IOException exception) { throw new CrossContextCallException("latest combat map movement operation transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new CrossContextCallException("latest combat map movement operation interrupted", exception); }
     }
 
     private String previewErrorCode(String responseBody) {

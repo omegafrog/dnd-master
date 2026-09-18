@@ -960,6 +960,11 @@ public class AdventureApiConfiguration {
             }
 
             @Override
+            public CombatMapMoveResult latestMovementOperation(java.util.UUID mapId) {
+                return gateway.latestMovementOperation(mapId);
+            }
+
+            @Override
             public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) {
                 return gateway.resumeMovementOperation(mapId, operationId);
             }

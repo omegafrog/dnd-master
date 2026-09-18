@@ -10,6 +10,10 @@ public interface MovementResolutionOperationRepository {
     Optional<MovementResolutionOperation> findById(UUID operationId);
     Optional<MovementResolutionOperation> findOperationByCommandId(UUID commandId);
     Optional<MovementResolutionOperation> findActiveByMapId(MapId mapId);
+    /** Returns the most recent durable operation for reconnect recovery. */
+    default Optional<MovementResolutionOperation> findLatestByMapId(MapId mapId) {
+        return findActiveByMapId(mapId);
+    }
     /** Returns either the newly reserved operation or an idempotent concurrent winner. */
     MovementResolutionOperation reserve(MovementResolutionOperation operation);
     void save(MovementResolutionOperation operation);

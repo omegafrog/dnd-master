@@ -45,6 +45,7 @@ import com.dndmaster.adventure.application.combat.CombatMapPlayerTokenResolver;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
 import com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 
 @RestController
 @RequestMapping
@@ -75,10 +76,10 @@ public class AdventureController {
 
     public record AdventureMovementOperationResponse(UUID operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus status, long version,
             List<CombatMapPreviewPosition> requestedPath, List<CombatMapPreviewPosition> traversedPath, CombatMapPreviewPosition finalPosition,
-            List<String> publicEvents, String interruptionReason) {
+            List<String> publicEvents, String interruptionReason, String outcomeStatus) {
         static AdventureMovementOperationResponse from(com.dndmaster.adventure.application.combat.CombatMapMoveResult result) {
             return new AdventureMovementOperationResponse(result.operationId(), result.status(), result.version(), result.requestedPath(), result.traversedPath(),
-                    result.finalPosition(), result.publicEvents(), result.interruptionReason());
+                    result.finalPosition(), result.publicEvents(), result.interruptionReason(), result.status().name());
         }
     }
 
@@ -178,7 +179,7 @@ public class AdventureController {
         // recording when a provider request is interrupted.
         var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         adventure.reopen(new OwnerPlayerId(owner));
-        var input = request.input().toDomain();
+        var input = normalizeMapMovementInput(request.input()).toDomain();
         var existing = gmTurnRepository.findByCommandId(commandId);
         if (existing.isPresent()) {
             existing.get().assertSameCommand(input);
@@ -393,6 +394,19 @@ public class AdventureController {
     @DeleteMapping("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}")
     AdventureMovementOperationResponse cancelMovementOperation(@PathVariable UUID adventureId, @PathVariable UUID operationId,
             @RequestParam UUID mapId) { return recoveryMovement(adventureId, mapId, operationId, "cancel"); }
+
+    @GetMapping("/api/v1/adventures/{adventureId}/combat-map/movement-operations")
+    ResponseEntity<AdventureMovementOperationResponse> latestMovementOperation(@PathVariable UUID adventureId,
+            @RequestParam UUID mapId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)
+                || combatMapViewPort.playerView(adventureId, owner).filter(view -> mapId.equals(view.mapId())).isEmpty()) {
+            throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
+        }
+        var result = mapMovementCoordinator.latest(mapId);
+        return result == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(AdventureMovementOperationResponse.from(result));
+    }
 
     private AdventureMovementOperationResponse recoveryMovement(UUID adventureId, UUID mapId, UUID operationId, String action) {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
@@ -693,7 +707,11 @@ public class AdventureController {
 
     public record PlayerRollRequest(int result, long expectedVersion) {}
 
-    public record GmInputRequest(String type, String text, UUID mapId, Long mapVersion, String action, String question) {
+    public record GmInputRequest(String type, String text, UUID mapId, Long mapVersion, String action, String question,
+            String previewFingerprint) {
+        public GmInputRequest(String type, String text, UUID mapId, Long mapVersion, String action, String question) {
+            this(type, text, mapId, mapVersion, action, question, null);
+        }
         com.dndmaster.adventure.domain.runtime.GmInput toDomain() {
             if (type == null) throw new IllegalArgumentException("input type is required");
             return switch (type) {
@@ -709,6 +727,22 @@ public class AdventureController {
             };
         }
         String actionText() { return toDomain().actionText(); }
+    }
+
+    private GmInputRequest normalizeMapMovementInput(GmInputRequest input) {
+        if (input == null || !"MAP_ACTION".equals(input.type())
+                || input.previewFingerprint() == null || input.previewFingerprint().isBlank()
+                || input.action() == null || input.action().isBlank()) return input;
+        try {
+            JsonNode parsed = objectMapper.readTree(input.action());
+            if (parsed == null || !parsed.isObject()) return input;
+            com.fasterxml.jackson.databind.node.ObjectNode payload = (com.fasterxml.jackson.databind.node.ObjectNode) parsed;
+            payload.put("fingerprint", input.previewFingerprint());
+            return new GmInputRequest(input.type(), input.text(), input.mapId(), input.mapVersion(),
+                    objectMapper.writeValueAsString(payload), input.question(), input.previewFingerprint());
+        } catch (java.io.IOException ignored) {
+            return input;
+        }
     }
     // 프런트가 바로 보여줄 수 있게 턴 결과를 압축한 응답이다.
     public record RuntimeTurnResponse(

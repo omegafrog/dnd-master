@@ -84,9 +84,22 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         if (!active) return
         setMap(nextMap)
         const savedMovement = readPendingMovement(adventureId)
-        if (savedMovement) {
-          setPendingMovement(savedMovement)
-          setMessage(`${movementStatusMessage(savedMovement.result.status)} 작업 번호: ${savedMovement.result.operationId ?? '없음'}`)
+        let serverMovement: PendingMovement | null = null
+        const playerTokenId = nextMap.tokens?.find(token => token.type === 'PLAYER')?.id
+        if (!preparationMode && nextMap.mapId && playerTokenId && api.latestMovementOperation) {
+          try {
+            const result = await api.latestMovementOperation(adventureId, nextMap.mapId)
+            if (result && (result.status === 'RETRY_REQUIRED' || result.status === 'CHECK_REQUIRED')) {
+              serverMovement = { mapId: nextMap.mapId, tokenId: playerTokenId, result }
+            }
+          } catch {
+            // The map remains usable; a later explicit recovery action can query by operation ID.
+          }
+        }
+        const restoredMovement = serverMovement ?? savedMovement
+        if (restoredMovement) {
+          setPendingMovement(restoredMovement)
+          setMessage(`${movementStatusMessage(restoredMovement.result.status)} 작업 번호: ${restoredMovement.result.operationId ?? '없음'}`)
         }
         setSelectedPlayerStart(nextMap.playerStartCandidates?.find(candidate => candidate.source === 'USER_CONFIRMED') ?? null)
         if (preparationMode) setLayoutSaved(false)

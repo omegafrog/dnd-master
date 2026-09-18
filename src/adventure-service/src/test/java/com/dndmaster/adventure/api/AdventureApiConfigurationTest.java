@@ -229,6 +229,39 @@ class AdventureApiConfigurationTest {
     }
 
     @Test
+    void reconnects_through_the_server_latest_movement_operation_boundary() throws Exception {
+        AtomicReference<String> requestPath = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        UUID mapId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        server.createContext("/", exchange -> {
+            requestPath.set(exchange.getRequestURI().getPath());
+            byte[] body = ("{\"operationId\":\"" + operationId
+                    + "\",\"status\":\"RETRY_WAIT\",\"outcomeStatus\":\"RETRY_REQUIRED\",\"mapVersion\":0"
+                    + ",\"requestedPath\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]"
+                    + ",\"traversedPath\":[{\"x\":1,\"y\":1}],\"finalPosition\":{\"x\":1,\"y\":1},\"publicEvents\":[]}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
+
+            var result = configured.latestMovementOperation(mapId);
+
+            assertEquals("/internal/v1/combat-maps/" + mapId + "/movement-operations", requestPath.get());
+            assertEquals(operationId, result.operationId());
+            assertEquals(CombatMapMovementStatus.RETRY_REQUIRED, result.status());
+            assertEquals(1, result.traversedPath().size());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void wires_player_public_movement_preview_to_combat_map_gateway() throws Exception {
         AtomicReference<String> requestPath = new AtomicReference<>();
         AtomicReference<String> requestToken = new AtomicReference<>();
