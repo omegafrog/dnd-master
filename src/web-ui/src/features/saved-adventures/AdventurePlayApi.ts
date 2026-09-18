@@ -105,6 +105,16 @@ export type MapMovementPreview = {
   fingerprint: string
 }
 
+export type PendingMapMovement = {
+  mapId: string
+  tokenId: string
+  mapVersion: number
+  path: Array<{ x: number; y: number }>
+  distance: number
+  fingerprint: string
+  waypoints: Array<{ x: number; y: number }>
+}
+
 export type MapMovementResult = {
   version: number
   operationId?: string
@@ -143,6 +153,8 @@ export interface AdventurePlayApi {
   applyMapGridAlignment?(adventureId: string, alignment: MapGridAlignmentRequest): Promise<MapGridAlignment>
   updateCombatMapLayout?(adventureId: string, draft: CombatMapLayoutDraft): Promise<void>
   previewMapMovement?(adventureId: string, request: MapMovementPreviewRequest): Promise<MapMovementPreview>
+  getPendingMapMovement?(adventureId: string): Promise<PendingMapMovement | null>
+  clearPendingMapMovement?(adventureId: string): Promise<void>
   movementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
   latestMovementOperation?(adventureId: string, mapId: string): Promise<MapMovementResult | null>
   resumeMovementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
@@ -316,6 +328,18 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   previewMapMovement(adventureId: string, preview: MapMovementPreviewRequest) {
     return request<MapMovementPreview>(`/api/v1/adventures/${adventureId}/combat-map/movement-preview`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(preview),
+    })
+  }
+
+  getPendingMapMovement(adventureId: string) {
+    return request<PendingMapMovement | null>(`/api/v1/adventures/${adventureId}/map-movement/pending`, {
+      headers: this.authHeaders(),
+    }).then(pending => pending ?? null)
+  }
+
+  clearPendingMapMovement(adventureId: string) {
+    return request<void>(`/api/v1/adventures/${adventureId}/map-movement/pending`, {
+      method: 'DELETE', headers: this.authHeaders(),
     })
   }
 

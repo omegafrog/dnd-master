@@ -153,6 +153,10 @@ paths:
           in: header
           required: true
           schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
       requestBody:
         required: true
         content:
@@ -444,7 +448,7 @@ components:
         outcomeStatus: { type: string, enum: [COMMITTED, INTERRUPTED, CHECK_REQUIRED, RETRY_REQUIRED, CANCELLED] }
         requestedPath: { type: array, items: { $ref: '#/components/schemas/GridPosition' } }
         traversedPath: { type: array, items: { $ref: '#/components/schemas/GridPosition' } }
-        finalPosition: { $ref: '#/components/schemas/GridPosition' }
+        finalPosition: { oneOf: [{ $ref: '#/components/schemas/GridPosition' }, { type: 'null' }] }
         mapVersion: { type: integer, format: int64, minimum: 0 }
         publicEvents: { type: array, items: { type: string } }
         interruptionReason: { type: [string, 'null'] }

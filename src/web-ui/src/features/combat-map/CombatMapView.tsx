@@ -65,6 +65,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const previewSequence = useRef(0)
   const [boundaryPreview, setBoundaryPreview] = useState<BoundaryStroke | null>(null)
   const [pendingMovement, setPendingMovement] = useState<PendingMovement | null>(() => readPendingMovement(adventureId))
+  const [replayedMovement, setReplayedMovement] = useState<MapMovementResult | null>(null)
 
   useEffect(() => () => {
     if (publicMapImage?.startsWith('blob:')) URL.revokeObjectURL(publicMapImage)
@@ -85,12 +86,28 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         setMap(nextMap)
         const savedMovement = readPendingMovement(adventureId)
         let serverMovement: PendingMovement | null = null
+        let terminalMovement: MapMovementResult | null = null
         const playerTokenId = nextMap.tokens?.find(token => token.type === 'PLAYER')?.id
+        if (!preparationMode && api.getPendingMapMovement) {
+          try {
+            const pending = await api.getPendingMapMovement(adventureId)
+            if (pending) {
+              const path = pending.path
+              setCandidate({ mapId: pending.mapId, mapVersion: pending.mapVersion, tokenId: pending.tokenId,
+                action: 'MOVE', from: path[0], to: path[path.length - 1], path, distance: pending.distance,
+                fingerprint: pending.fingerprint, waypoints: pending.waypoints })
+            }
+          } catch {
+            // local candidate state remains a best-effort fallback.
+          }
+        }
         if (!preparationMode && nextMap.mapId && playerTokenId && api.latestMovementOperation) {
           try {
             const result = await api.latestMovementOperation(adventureId, nextMap.mapId)
             if (result && (result.status === 'RETRY_REQUIRED' || result.status === 'CHECK_REQUIRED')) {
               serverMovement = { mapId: nextMap.mapId, tokenId: playerTokenId, result }
+            } else if (result && (result.status === 'COMMITTED' || result.status === 'INTERRUPTED')) {
+              terminalMovement = result
             }
           } catch {
             // The map remains usable; a later explicit recovery action can query by operation ID.
@@ -100,6 +117,12 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         if (restoredMovement) {
           setPendingMovement(restoredMovement)
           setMessage(`${movementStatusMessage(restoredMovement.result.status)} 작업 번호: ${restoredMovement.result.operationId ?? '없음'}`)
+        }
+        if (terminalMovement && nextMap.mapId && playerTokenId) {
+          const first = terminalMovement.traversedPath[0] ?? terminalMovement.requestedPath[0]
+          const replayStart = first ? { ...nextMap, tokens: nextMap.tokens?.map(token => token.id === playerTokenId
+            ? { ...token, x: first.x, y: first.y } : token) } : nextMap
+          await applyMovementResult(terminalMovement, nextMap.mapId, playerTokenId, undefined, undefined, replayStart, nextMap)
         }
         setSelectedPlayerStart(nextMap.playerStartCandidates?.find(candidate => candidate.source === 'USER_CONFIRMED') ?? null)
         if (preparationMode) setLayoutSaved(false)
@@ -277,9 +300,10 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       await animateCommittedMovement(setMap, before, refreshed, tokenId, result.traversedPath)
     } else setMap(refreshed)
     setPendingMovement(null)
+    if (result.status === 'COMMITTED' || result.status === 'INTERRUPTED') setReplayedMovement(result)
     try { window.localStorage.removeItem(pendingMovementKey(adventureId)) } catch { /* storage is optional */ }
     clearPendingMovementCommand(adventureId)
-    setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
+    setCandidate(null); setSelectedToken(null); setMessage(result.status === 'INTERRUPTED' ? '이동이 중단되었습니다.' : '맵 행동을 GM 턴으로 전송했습니다.')
   }
 
   async function recoverMovement(resume: boolean) {
@@ -592,8 +616,13 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {!layoutEditing && tacticalMap}
       {map?.tokens?.filter(token => token.type !== 'PLAYER' && !token.lastSeen && map.current?.some(cell => cell.x === token.x && cell.y === token.y)).map(token => <button key={`target-${token.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'TARGET', { x: token.x, y: token.y }, token.id)) }}>대상 선택: {token.type}</button>)}
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}
-      {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p>{candidate.action === 'MOVE' && <><p>경로 칸: {candidate.path?.length ?? 0} · 거리: {candidate.distance ?? 0}</p><button type="button" disabled={submitting || previewing} onClick={() => setWaypointMode(current => !current)}>{waypointMode ? '경유 지점 조정 끝내기' : '경유 지점 추가'}</button>{waypointMode && <p>지도에서 경유할 칸을 눌러 경로를 조정하세요.</p>}</>}<button type="button" disabled={submitting || previewing} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting || previewing} onClick={() => { previewSequence.current += 1; setCandidate(null); setSelectedToken(null); setWaypointMode(false) }}>취소</button></div>}
+      {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p>{candidate.action === 'MOVE' && <><p>경로 칸: {candidate.path?.length ?? 0} · 거리: {candidate.distance ?? 0}</p><button type="button" disabled={submitting || previewing} onClick={() => setWaypointMode(current => !current)}>{waypointMode ? '경유 지점 조정 끝내기' : '경유 지점 추가'}</button>{waypointMode && <p>지도에서 경유할 칸을 눌러 경로를 조정하세요.</p>}</>}<button type="button" disabled={submitting || previewing} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting || previewing} onClick={() => { previewSequence.current += 1; void api.clearPendingMapMovement?.(adventureId); setCandidate(null); setSelectedToken(null); setWaypointMode(false) }}>취소</button></div>}
       <p role="status">{message}</p>
+      {replayedMovement && <section aria-label="최근 이동 결과" role="status">
+        <p>{replayedMovement.status === 'INTERRUPTED' ? '이동이 중단되었습니다.' : '이동이 완료되었습니다.'}</p>
+        {replayedMovement.interruptionReason && <p>중단 사유: {replayedMovement.interruptionReason}</p>}
+        {replayedMovement.publicEvents.length > 0 && <p>공개된 결과: {replayedMovement.publicEvents.join(', ')}</p>}
+      </section>}
       {pendingMovement && (pendingMovement.result.status === 'RETRY_REQUIRED' || pendingMovement.result.status === 'CHECK_REQUIRED') && <section aria-label="저장된 이동 상태" role="status">
         <p>{pendingMovement.result.status === 'RETRY_REQUIRED' ? '이동 재시도 필요' : '이동 판정 확인 필요'}</p>
         <p>작업 번호: {pendingMovement.result.operationId ?? '없음'}</p>

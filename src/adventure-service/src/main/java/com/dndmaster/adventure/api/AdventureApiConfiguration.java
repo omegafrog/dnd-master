@@ -28,6 +28,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompil
 import com.dndmaster.adventure.infrastructure.persistence.PostgresCompilationCandidateRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresPendingMapMovementConfirmationRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnCommandRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnFailureRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresNarrativeStateRepository;
@@ -321,6 +322,12 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimeTurnRepository runtimeTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
         return new PostgresRuntimeTurnRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository pendingMapMovementConfirmationRepository(
+            DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresPendingMapMovementConfirmationRepository(dataSource, objectMapper);
     }
 
     @Bean
@@ -1192,12 +1199,13 @@ public class AdventureApiConfiguration {
             ObjectMapper objectMapper,
             org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort,
             org.springframework.beans.factory.ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapPreparationPort> combatMapPreparationPort,
+            com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository pendingMapMovementConfirmationRepository,
             org.springframework.beans.factory.ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService,
             com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService appliedRuleSetService) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatMapPreparationPort, scenarioPackageRepository, combatLifecycleService, appliedRuleSetService);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatMapPreparationPort, pendingMapMovementConfirmationRepository, scenarioPackageRepository, combatLifecycleService, appliedRuleSetService);
     }
 
     @Bean

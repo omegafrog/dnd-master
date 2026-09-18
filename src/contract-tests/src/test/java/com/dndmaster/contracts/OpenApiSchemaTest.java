@@ -24,8 +24,10 @@ class OpenApiSchemaTest {
         assertPaths("adventure", "/api/v1/adventures/{adventureId}/turns", "/api/v1/adventures/{adventureId}/rule-inquiries",
                 "/internal/v1/adventures", "/internal/v1/adventures/{adventureId}/edition",
                 "/internal/v1/adventures/{adventureId}/roll-conditions",
-                "/internal/v1/adventures/{adventureId}/movement-validations");
+                "/internal/v1/adventures/{adventureId}/movement-validations",
+                "/api/v1/adventures/{adventureId}/map-movement/pending");
         assertCombatMapTriggerQualification();
+        assertMovementContracts();
         assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/{rulebookId}/source-preview", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",
                 "/internal/v1/rulebook-indexes", "/internal/v1/rulebooks/{rulebookId}/ownership",
                 "/internal/v1/rule-evidence/search");
@@ -35,6 +37,24 @@ class OpenApiSchemaTest {
                 "/internal/v1/combat-maps/{mapId}/moves", "/internal/v1/combat-maps/{mapId}/ai-state");
         assertPaths("ai-game-master", "/internal/v1/gm/scenes", "/internal/v1/gm/judgments",
                 "/internal/v1/gm/rule-answers", "/internal/v1/gm/maps", "/internal/v1/gm/intent-classifications");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertMovementContracts() throws IOException {
+        Map<String, Object> combatMap = new Yaml().load(Files.readString(CONTRACTS.resolve("combat-map").resolve("openapi.yaml")));
+        Map<String, Object> paths = (Map<String, Object>) combatMap.get("paths");
+        Map<String, Object> legacyMove = (Map<String, Object>) ((Map<String, Object>) paths.get("/internal/v1/combat-maps/{mapId}/moves")).get("post");
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) legacyMove.get("parameters");
+        assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                && Boolean.TRUE.equals(parameter.get("required"))),
+                "legacy move contract must require Idempotency-Key");
+
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) combatMap.get("components")).get("schemas");
+        Map<String, Object> operation = (Map<String, Object>) schemas.get("MovementOperationResponse");
+        Map<String, Object> properties = (Map<String, Object>) operation.get("properties");
+        Map<String, Object> finalPosition = (Map<String, Object>) properties.get("finalPosition");
+        assertTrue(finalPosition.containsKey("oneOf") || finalPosition.containsKey("nullable"),
+                "staged movement finalPosition must allow null before a terminal result");
     }
 
     @SuppressWarnings("unchecked")

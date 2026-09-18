@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dndmaster.adventure.application.combat.AdventureCombatApplicationService;
@@ -50,6 +51,7 @@ class AdventureMovementPreviewBoundaryTest {
         AuthenticatedPlayerResolver playerResolver = mock(AuthenticatedPlayerResolver.class);
         Adventure adventure = mock(Adventure.class);
         when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.id()).thenReturn(new AdventureId(adventureId));
         when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
         when(playerResolver.playerId()).thenReturn(ownerId);
         when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(
@@ -119,6 +121,44 @@ class AdventureMovementPreviewBoundaryTest {
                 new AdventureController.CombatMapMovementPreviewRequest(mapId, 0L, UUID.randomUUID(),
                         new AdventureController.PositionPayload(1, 1), java.util.Arrays.asList((AdventureController.PositionPayload) null))));
         verifyNoInteractions(combatMap);
+    }
+
+    @Test
+    void saves_a_preview_as_an_adventure_owned_confirmation_for_reconnect() {
+        UUID adventureId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID mapId = UUID.randomUUID();
+        UUID tokenId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class);
+        AuthenticatedPlayerResolver playerResolver = mock(AuthenticatedPlayerResolver.class);
+        var pendingRepository = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class);
+        var ruleSetService = mock(AppliedRuleSetApplicationService.class);
+        Adventure adventure = mock(Adventure.class);
+        var appliedRuleSet = mock(com.dndmaster.adventure.domain.ruleset.AppliedRuleSet.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.id()).thenReturn(new AdventureId(adventureId));
+        when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(adventure.ruleSetId()).thenReturn(new com.dndmaster.adventure.domain.adventure.RuleSetId(UUID.randomUUID()));
+        when(playerResolver.playerId()).thenReturn(ownerId);
+        when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(
+                mapId, new CombatMapViewPort.Grid(2, 2, 50, 5), List.of(), List.of(), List.of(),
+                List.of(), List.of(), 0)));
+        when(ruleSetService.readRuleSet(any(), any())).thenReturn(appliedRuleSet);
+        when(appliedRuleSet.edition()).thenReturn(new com.dndmaster.adventure.domain.ruleset.DndEdition("DND_5E_2024"));
+        when(combatMap.preview(any())).thenReturn(new CombatMapPreviewResult(mapId,
+                List.of(new CombatMapPreviewPosition(0, 0), new CombatMapPreviewPosition(1, 0)), 5, 3, "preview"));
+
+        AdventureController controller = controller(adventures, combatMap, mapViews, playerResolver, pendingRepository, ruleSetService);
+
+        controller.previewMovement(adventureId, new AdventureController.CombatMapMovementPreviewRequest(
+                mapId, 3L, tokenId, new AdventureController.PositionPayload(1, 0), List.of()));
+
+        verify(pendingRepository).save(org.mockito.ArgumentMatchers.argThat(pending ->
+                pending.adventureId().equals(adventureId) && pending.ownerPlayerId().equals(ownerId)
+                        && pending.mapId().equals(mapId) && pending.tokenId().equals(tokenId)
+                        && pending.path().size() == 2 && pending.fingerprint().equals("preview")));
     }
 
     @Test
@@ -263,6 +303,15 @@ class AdventureMovementPreviewBoundaryTest {
 
     private static AdventureController controller(AdventureRepository adventures, CombatMapPort combatMap,
             CombatMapViewPort mapViews, AuthenticatedPlayerResolver playerResolver) {
+        return controller(adventures, combatMap, mapViews, playerResolver,
+                mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class),
+                mock(AppliedRuleSetApplicationService.class));
+    }
+
+    private static AdventureController controller(AdventureRepository adventures, CombatMapPort combatMap,
+            CombatMapViewPort mapViews, AuthenticatedPlayerResolver playerResolver,
+            com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository pendingRepository,
+            AppliedRuleSetApplicationService ruleSetService) {
         return new AdventureController(
                 mock(SavedAdventureApplicationService.class), mock(RuntimeTurnApplicationService.class), adventures,
                 mock(GmTurnFailureRecorder.class), mock(GmTurnRepository.class), mock(RuntimeTurnRepository.class),
@@ -270,8 +319,8 @@ class AdventureMovementPreviewBoundaryTest {
                 mock(AdventureCombatApplicationService.class), mock(CombatActionApplicationService.class),
                 mock(AdventureScenarioApplicationService.class), playerResolver, provider(combatMap),
                 provider(mock(CharacterCombatPort.class)), new ObjectMapper(), provider(mapViews),
-                provider(mock(CombatMapPreparationPort.class)), mock(ScenarioPackageRepository.class),
-                mock(CombatLifecycleApplicationService.class), mock(AppliedRuleSetApplicationService.class));
+                provider(mock(CombatMapPreparationPort.class)), pendingRepository, mock(ScenarioPackageRepository.class),
+                mock(CombatLifecycleApplicationService.class), ruleSetService);
     }
 
     private static <T> ObjectProvider<T> provider(T value) {

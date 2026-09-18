@@ -189,6 +189,18 @@ paths:
                   fingerprint: { type: string, minLength: 1 }
         '409': { description: stale map version, content: { application/json: { schema: { type: object, required: [error], properties: { error: { type: string, example: STALE_MOVEMENT_PROPOSAL } } } } } }
         '422': { description: invalid movement preview, content: { application/json: { schema: { type: object, required: [error], properties: { error: { type: string, example: MOVEMENT_NOT_ALLOWED } } } } } }
+  /api/v1/adventures/{adventureId}/map-movement/pending:
+    get:
+      operationId: pendingAdventureMapMovement
+      responses:
+        '200': { description: durable movement confirmation for reconnect, content: { application/json: { schema: { $ref: '#/components/schemas/PendingMapMovement' } } } }
+        '204': { description: no pending movement confirmation }
+        '403': { description: adventure is not owned by bearer }
+    delete:
+      operationId: clearPendingAdventureMapMovement
+      responses:
+        '204': { description: pending movement confirmation cleared }
+        '403': { description: adventure is not owned by bearer }
   /api/v1/adventures/{adventureId}/combat-map/movement-operations:
     get:
       operationId: latestAdventureMovementOperation
@@ -254,6 +266,17 @@ components:
       properties:
         x: { type: integer, minimum: 0 }
         y: { type: integer, minimum: 0 }
+    PendingMapMovement:
+      type: object
+      required: [mapId, tokenId, mapVersion, path, distance, fingerprint, waypoints]
+      properties:
+        mapId: { type: string, format: uuid }
+        tokenId: { type: string, format: uuid }
+        mapVersion: { type: integer, format: int64, minimum: 0 }
+        path: { type: array, minItems: 2, items: { $ref: '#/components/schemas/MovementPosition' } }
+        distance: { type: integer, minimum: 0 }
+        fingerprint: { type: string, minLength: 1 }
+        waypoints: { type: array, maxItems: 16, items: { $ref: '#/components/schemas/MovementPosition' } }
     MovementResult:
       type: object
       required: [version, operationId, status, requestedPath, traversedPath, publicEvents]

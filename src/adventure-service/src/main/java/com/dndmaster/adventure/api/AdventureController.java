@@ -43,9 +43,11 @@ import com.dndmaster.adventure.application.combat.CombatStartParticipantFactory;
 import com.dndmaster.adventure.application.combat.CombatStartTransitionPolicy;
 import com.dndmaster.adventure.application.combat.CombatMapPlayerTokenResolver;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
+import com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository;
 import com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation;
 
 @RestController
 @RequestMapping
@@ -66,6 +68,7 @@ public class AdventureController {
     private final AuthenticatedPlayerResolver playerResolver;
     private final CombatMapPort combatMapPort;
     private final com.dndmaster.adventure.application.combat.MapMovementCoordinator mapMovementCoordinator;
+    private final PendingMapMovementConfirmationRepository pendingMapMovementConfirmationRepository;
     private final CharacterCombatPort characterCombatPort;
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
     private final CombatMapPreparationPort combatMapPreparationPort;
@@ -80,6 +83,16 @@ public class AdventureController {
         static AdventureMovementOperationResponse from(com.dndmaster.adventure.application.combat.CombatMapMoveResult result) {
             return new AdventureMovementOperationResponse(result.operationId(), result.status(), result.version(), result.requestedPath(), result.traversedPath(),
                     result.finalPosition(), result.publicEvents(), result.interruptionReason(), result.status().name());
+        }
+    }
+
+    public record PendingMapMovementResponse(UUID mapId, UUID tokenId, long mapVersion,
+            List<PositionPayload> path, int distance, String fingerprint, List<PositionPayload> waypoints) {
+        static PendingMapMovementResponse from(PendingMapMovementConfirmation pending) {
+            return new PendingMapMovementResponse(pending.mapId(), pending.tokenId(), pending.mapVersion(),
+                    pending.path().stream().map(position -> new PositionPayload(position.x(), position.y())).toList(),
+                    pending.distance(), pending.fingerprint(),
+                    pending.waypoints().stream().map(position -> new PositionPayload(position.x(), position.y())).toList());
         }
     }
 
@@ -101,6 +114,7 @@ public class AdventureController {
             ObjectMapper objectMapper,
             ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort,
             ObjectProvider<CombatMapPreparationPort> combatMapPreparationPort,
+            PendingMapMovementConfirmationRepository pendingMapMovementConfirmationRepository,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService,
             AppliedRuleSetApplicationService appliedRuleSetService) {
@@ -120,6 +134,8 @@ public class AdventureController {
             throw new IllegalStateException("combat map gateway unavailable");
         });
         this.mapMovementCoordinator = new com.dndmaster.adventure.application.combat.MapMovementCoordinator(this.combatMapPort);
+        this.pendingMapMovementConfirmationRepository = Objects.requireNonNull(pendingMapMovementConfirmationRepository,
+                "pending map movement confirmation repository must not be null");
         this.characterCombatPort = characterCombatPort.getIfAvailable(() -> command -> {
             throw new IllegalStateException("character combat gateway unavailable");
         });
@@ -183,6 +199,9 @@ public class AdventureController {
         var existing = gmTurnRepository.findByCommandId(commandId);
         if (existing.isPresent()) {
             existing.get().assertSameCommand(input);
+            if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput) {
+                pendingMapMovementConfirmationRepository.deleteByAdventureId(adventureId, owner);
+            }
             var prior = runtimeTurnRepository.findByCommandId(commandId).orElseThrow(
                     () -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "turn is still processing"));
             return ResponseEntity.accepted().body(RuntimeTurnResponse.from(new RuntimeTurnResult(
@@ -207,6 +226,9 @@ public class AdventureController {
                     input.actionText(), expectedVersion,
                     null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), false, false,
                     externalCommands));
+            if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput) {
+                pendingMapMovementConfirmationRepository.deleteByAdventureId(adventureId, owner);
+            }
         } catch (RuntimeException exception) {
             LOGGER.error("gm_turn_request_failed stage=GM_TURN_CONTROLLER turnId={} commandId={} adventureId={} exceptionClass={} exceptionMessage={}",
                     request.turnId(), commandId, adventureId, exception.getClass().getName(), exception.getMessage(), exception);
@@ -380,7 +402,36 @@ public class AdventureController {
                 request.mapId(), owner, request.tokenId(), toPreviewPosition(request.destination()),
                 request.waypoints() == null ? List.of() : request.waypoints().stream().map(AdventureController::toPreviewPosition).toList(),
                 appliedEdition(adventure).edition(), request.mapVersion()));
+        pendingMapMovementConfirmationRepository.save(new PendingMapMovementConfirmation(
+                adventureId, owner, preview.mapId(), request.tokenId(), preview.baseMapVersion(),
+                preview.orderedPositions().stream()
+                        .map(position -> new PendingMapMovementConfirmation.Position(position.x(), position.y())).toList(),
+                preview.distance(), preview.fingerprint(), request.waypoints() == null ? List.of() : request.waypoints().stream()
+                        .map(position -> new PendingMapMovementConfirmation.Position(position.x(), position.y())).toList()));
         return CombatMapMovementPreviewResponse.from(preview);
+    }
+
+    @GetMapping("/api/v1/adventures/{adventureId}/map-movement/pending")
+    ResponseEntity<PendingMapMovementResponse> pendingMapMovement(@PathVariable UUID adventureId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) {
+            throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
+        }
+        return pendingMapMovementConfirmationRepository.findByAdventureId(adventureId, owner)
+                .map(pending -> ResponseEntity.ok(PendingMapMovementResponse.from(pending)))
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    @DeleteMapping("/api/v1/adventures/{adventureId}/map-movement/pending")
+    ResponseEntity<Void> clearPendingMapMovement(@PathVariable UUID adventureId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) {
+            throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
+        }
+        pendingMapMovementConfirmationRepository.deleteByAdventureId(adventureId, owner);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}")
@@ -805,6 +856,7 @@ public class AdventureController {
             characterCombatPort.requireUsableCharacter(command);
             mapMovementCoordinator.resolve(new CombatMapMoveCommand(command, confirmedPreview.distance(), payload.mapVersion(),
                     appliedEdition(adventure).edition(), payload.fingerprint(), previewWaypoints(payload.waypoints())));
+            pendingMapMovementConfirmationRepository.deleteByAdventureId(adventure.id().value(), owner);
         } catch (java.io.IOException exception) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }

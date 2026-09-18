@@ -605,6 +605,29 @@ it('restores a durable movement operation when local storage has no waiting stat
   expect(api.latestMovementOperation).toHaveBeenCalledWith('a1', 'm1')
 })
 
+it.each(['COMMITTED', 'INTERRUPTED'] as const)('replays a stored terminal %s movement result after reconnect', async status => {
+  vi.useFakeTimers()
+  const api = fakeApi()
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 1, sessionVersion: 8,
+    grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 2, y: 1 }],
+    current: [{ x: 1, y: 1 }, { x: 2, y: 1 }], explored: [{ x: 1, y: 1 }, { x: 2, y: 1 }],
+  })
+  api.latestMovementOperation = vi.fn(async () => ({
+    version: 1, operationId: `operation-${status}`, status,
+    requestedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }],
+    traversedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }], finalPosition: { x: 2, y: 1 },
+    publicEvents: status === 'INTERRUPTED' ? ['FEATURE_REVEALED'] : [],
+    interruptionReason: status === 'INTERRUPTED' ? 'FEATURE_REVEALED' : undefined,
+  }))
+
+  render(<CombatMapView adventureId="a1" api={api} />)
+  await act(async () => { await vi.runAllTimersAsync() })
+
+  expect(screen.getByRole('status', { name: '최근 이동 결과' })).toHaveTextContent(status === 'COMMITTED' ? '이동이 완료되었습니다.' : '이동이 중단되었습니다.')
+  vi.useRealTimers()
+})
+
 it('shows the server preview path and ghost destination before confirmation', async () => {
   const api = fakeApi()
   api.previewMapMovement = vi.fn().mockResolvedValue({
