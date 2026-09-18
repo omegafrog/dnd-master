@@ -1,0 +1,11 @@
+package com.dndmaster.combatmap.application.movement;
+
+import java.util.Objects;
+import java.util.UUID;
+
+/** 재시작 뒤 같은 셀 판정을 다시 만들지 않기 위한 내부 결과 기록. */
+public record MovementCheckOutcome(UUID featureId, boolean success) {
+    public MovementCheckOutcome {
+        Objects.requireNonNull(featureId, "feature id must not be null");
+    }
+}

@@ -245,13 +245,16 @@ public final class CrossContextHttpCombatGateway
 
     @Override public CombatMapMoveResult movementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "GET"); }
     @Override public CombatMapMoveResult latestMovementOperation(java.util.UUID mapId) { return latestOperationRequest(mapId); }
-    @Override public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "POST"); }
+    @Override public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "POST", null); }
+    @Override public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId, CombatMapCheckSubmission submission) { return operationRequest(mapId, operationId, "POST", submission); }
     @Override public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "DELETE"); }
-    private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method) {
+    private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method) { return operationRequest(mapId, operationId, method, null); }
+    private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method, CombatMapCheckSubmission submission) {
         try {
             String route = "internal/v1/combat-maps/" + mapId + "/movement-operations/" + operationId + ("POST".equals(method) ? "/resume" : "");
             HttpRequest.Builder request = HttpRequest.newBuilder(baseUri.resolve(route)).timeout(timeout).header("X-Internal-Token", internalToken);
-            if ("POST".equals(method)) request.POST(HttpRequest.BodyPublishers.noBody()); else if ("DELETE".equals(method)) request.DELETE(); else request.GET();
+            if ("POST".equals(method)) request.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(submission == null ? "" : objectMapper.writeValueAsString(submission)));
+            else if ("DELETE".equals(method)) request.DELETE(); else request.GET();
             HttpResponse<String> response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 if (response.statusCode() == 409 || response.statusCode() == 422) {
@@ -348,8 +351,13 @@ public final class CrossContextHttpCombatGateway
             CombatMapPreviewPosition finalCell = finalPosition.isObject() ? new CombatMapPreviewPosition(finalPosition.path("x").asInt(), finalPosition.path("y").asInt()) : null;
             java.util.List<String> events = new java.util.ArrayList<>();
             for (JsonNode event : body.path("publicEvents")) events.add(event.asText());
+            JsonNode pending = body.path("pendingCheck");
+            CombatMapPendingCheck pendingCheck = pending.isObject() && pending.hasNonNull("checkId")
+                    ? new CombatMapPendingCheck(java.util.UUID.fromString(pending.path("checkId").asText()),
+                            java.util.UUID.fromString(pending.path("operationId").asText()), pending.path("label").asText("판정"),
+                            pending.path("diceExpression").asText("d20"), pending.path("ownership").asText("SYSTEM")) : null;
             return new CombatMapMoveResult(version, operationId, status, requested, traversed, finalCell, events,
-                    body.hasNonNull("interruptionReason") ? body.path("interruptionReason").asText() : null);
+                    body.hasNonNull("interruptionReason") ? body.path("interruptionReason").asText() : null, pendingCheck);
         } catch (IOException exception) { throw new CrossContextCallException("combat map returned malformed movement result", exception); }
     }
 

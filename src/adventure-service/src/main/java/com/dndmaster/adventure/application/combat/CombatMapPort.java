@@ -20,6 +20,9 @@ public interface CombatMapPort {
     /** Loads the most recent durable operation when the client has no local operation identity. */
     default CombatMapMoveResult latestMovementOperation(java.util.UUID mapId) { throw new UnsupportedOperationException("latest movement operation query is unavailable"); }
     default CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { throw new UnsupportedOperationException("movement operation resume is unavailable"); }
+    default CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId, CombatMapCheckSubmission submission) {
+        return resumeMovementOperation(mapId, operationId);
+    }
     default CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { throw new UnsupportedOperationException("movement operation cancellation is unavailable"); }
 
     /** Terminal map-owner boundary; map state remains owned by Combat Map. */

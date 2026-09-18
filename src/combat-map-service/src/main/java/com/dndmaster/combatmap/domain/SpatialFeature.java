@@ -101,6 +101,7 @@ public final class SpatialFeature {
     }
 
     public void discover() {
+        if (visibility != SpatialFeatureVisibility.HIDDEN) return;
         visibility = SpatialFeatureVisibility.DISCOVERED;
         if (state == State.HIDDEN) state = State.DISCOVERED;
     }
@@ -117,7 +118,17 @@ public final class SpatialFeature {
 
     public void trigger() {
         if (type == SpatialFeatureType.SECRET_DOOR) throw new IllegalStateException("secret door needs interaction before opening");
+        if (!canTrigger()) return;
+        if (type == SpatialFeatureType.MAGICAL_AREA_EFFECT) return;
         state = repeatable ? State.REPEATABLE : State.TRIGGERED;
+    }
+
+    public boolean canTrigger() {
+        if (type == SpatialFeatureType.MAGICAL_AREA_EFFECT) {
+            return state != State.RESOLVED && state != State.ENDED;
+        }
+        return state != State.DISARMED && state != State.RESOLVED && state != State.ENDED
+                && state != State.OPEN && (repeatable || state != State.TRIGGERED);
     }
 
     public void open() {

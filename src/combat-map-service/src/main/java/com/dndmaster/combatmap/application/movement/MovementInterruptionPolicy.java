@@ -56,7 +56,7 @@ public interface MovementInterruptionPolicy {
 
     private static boolean canInterrupt(SpatialFeature feature) {
         return switch (feature.state()) {
-            case DISARMED, RESOLVED, ENDED -> false;
+            case DISARMED, RESOLVED, ENDED, OPEN -> false;
             default -> true;
         };
     }

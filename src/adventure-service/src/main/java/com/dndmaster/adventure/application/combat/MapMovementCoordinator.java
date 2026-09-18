@@ -16,5 +16,8 @@ public final class MapMovementCoordinator {
     public CombatMapMoveResult query(java.util.UUID mapId, java.util.UUID operationId) { return combatMap.movementOperation(mapId, operationId); }
     public CombatMapMoveResult latest(java.util.UUID mapId) { return combatMap.latestMovementOperation(mapId); }
     public CombatMapMoveResult resume(java.util.UUID mapId, java.util.UUID operationId) { return combatMap.resumeMovementOperation(mapId, operationId); }
+    public CombatMapMoveResult resume(java.util.UUID mapId, java.util.UUID operationId, CombatMapCheckSubmission submission) {
+        return combatMap.resumeMovementOperation(mapId, operationId, submission);
+    }
     public CombatMapMoveResult cancel(java.util.UUID mapId, java.util.UUID operationId) { return combatMap.cancelMovementOperation(mapId, operationId); }
 }

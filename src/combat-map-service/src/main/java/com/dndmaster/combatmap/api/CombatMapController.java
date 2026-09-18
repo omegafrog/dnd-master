@@ -6,6 +6,7 @@ import com.dndmaster.combatmap.application.movement.MovementPreview;
 import com.dndmaster.combatmap.application.movement.MovementPreviewRequest;
 import com.dndmaster.combatmap.application.movement.MovementOperationResponse;
 import com.dndmaster.combatmap.application.movement.MovementStartRequest;
+import com.dndmaster.combatmap.application.movement.MovementCheckResultBody;
 import com.dndmaster.combatmap.application.view.CombatMapViewService;
 import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.PlayerCombatMapView;
@@ -401,9 +402,15 @@ public class CombatMapController {
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}/resume")
     public MovementOperationResponseBody resumeMovement(@PathVariable UUID mapId, @PathVariable UUID operationId,
-            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) MovementCheckResultBody checkResult) {
         requestGuard.internal(token);
-        MovementOperationResponse response = movementService.resume(new MapId(mapId), operationId);
+        MovementOperationResponse response = checkResult == null
+                ? movementService.resume(new MapId(mapId), operationId)
+                : movementService.resume(new MapId(mapId), operationId,
+                        new com.dndmaster.combatmap.application.movement.MovementCheckResult(
+                                checkResult.operationId() == null ? operationId : checkResult.operationId(),
+                                checkResult.checkId(), Boolean.TRUE.equals(checkResult.success())));
         return MovementOperationResponseBody.from(response);
     }
 
@@ -698,7 +705,8 @@ public class CombatMapController {
 
     public record MovementOperationResponseBody(UUID operationId, String status, String outcomeStatus,
             List<PositionRequest> requestedPath, List<PositionRequest> traversedPath, PositionRequest finalPosition, Long mapVersion,
-            List<String> publicEvents, String interruptionReason) {
+            List<String> publicEvents, String interruptionReason, PendingCheckResponse pendingCheck) {
+        public record PendingCheckResponse(UUID checkId, UUID operationId, String label, String diceExpression, String ownership) {}
         static MovementOperationResponseBody from(MovementOperationResponse response) {
             var result = response.result();
             return new MovementOperationResponseBody(response.operationId(), response.status().name(), response.outcomeStatus().name(),
@@ -706,7 +714,9 @@ public class CombatMapController {
                     result == null ? List.of() : result.traversedPath().stream().map(position -> new PositionRequest(position.x(), position.y())).toList(),
                     result == null ? null : new PositionRequest(result.finalPosition().x(), result.finalPosition().y()),
                     result == null ? null : result.mapVersion(), result == null ? List.of() : result.publicEvents(),
-                    result == null ? null : result.interruptionReason());
+                    result == null ? null : result.interruptionReason(), response.pendingCheck() == null ? null
+                            : new PendingCheckResponse(response.pendingCheck().checkId(), response.pendingCheck().operationId(),
+                                    response.pendingCheck().label(), response.pendingCheck().diceExpression(), response.pendingCheck().ownership()));
         }
     }
 

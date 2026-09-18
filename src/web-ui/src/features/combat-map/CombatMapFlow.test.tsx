@@ -587,6 +587,28 @@ it('keeps a typed retry operation available for reconnect and resume', async () 
   window.localStorage.removeItem('dnd-master:movement-operation:a1')
 })
 
+it('restores a safe pending check projection without exposing hidden feature details', async () => {
+  window.localStorage.removeItem('dnd-master:movement-operation:a1')
+  const api = fakeApi()
+  const result = {
+    version: 0, operationId: 'operation-check-1', status: 'CHECK_REQUIRED' as const,
+    requestedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }], traversedPath: [{ x: 1, y: 1 }],
+    finalPosition: { x: 1, y: 1 }, publicEvents: [],
+    pendingCheck: { checkId: 'check-1', operationId: 'operation-check-1', label: '지각 판정', diceExpression: 'd20', ownership: 'PLAYER' },
+  }
+  api.submitMapAction = vi.fn(async () => ({ turnId: 't1', version: 0, movementResult: result }))
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} />)
+  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await user.click(screen.getByRole('button', { name: '확인' }))
+
+  expect(await screen.findByText('이동 판정 확인 필요')).toBeInTheDocument()
+  expect(screen.getByText('지각 판정 · d20')).toBeInTheDocument()
+  expect(screen.queryByText('check-1', { exact: true })).not.toBeInTheDocument()
+  expect(screen.queryByText(/DC/i)).not.toBeInTheDocument()
+})
+
 it('restores a durable movement operation when local storage has no waiting state', async () => {
   window.localStorage.removeItem('dnd-master:movement-operation:a1')
   window.localStorage.removeItem('dnd-master:movement-command:a1')

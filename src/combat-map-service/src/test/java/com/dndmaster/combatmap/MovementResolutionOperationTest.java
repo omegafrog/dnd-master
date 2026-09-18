@@ -7,11 +7,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
 import com.dndmaster.combatmap.application.movement.CombatMapRepository;
 import com.dndmaster.combatmap.application.movement.MovementOperationStatus;
+import com.dndmaster.combatmap.application.movement.MovementInterruptionPolicy;
 import com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException;
 import com.dndmaster.combatmap.application.movement.MovementResolutionOperation;
 import com.dndmaster.combatmap.application.movement.MovementResolutionOperationRepository;
 import com.dndmaster.combatmap.application.movement.MovementStartRequest;
 import com.dndmaster.combatmap.application.movement.MovementOperationResponse;
+import com.dndmaster.combatmap.application.movement.MovementCheckRequest;
+import com.dndmaster.combatmap.application.movement.MovementCheckResult;
+import com.dndmaster.combatmap.application.movement.MovementCheckResolver;
 import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementPreviewMismatchException;
 import com.dndmaster.combatmap.application.movement.MovementPreviewRequiredException;
@@ -47,6 +51,121 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class MovementResolutionOperationTest {
+    @Test
+    void stores_a_check_pending_request_without_leaking_feature_identity_or_difficulty() {
+        Fixture fixture = new Fixture();
+        UUID featureId = UUID.randomUUID();
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
+                List.of(SpatialFeature.hidden(featureId, SpatialFeatureType.TRAP, List.of(new GridPosition(2, 1)),
+                        new com.dndmaster.combatmap.domain.DetectionSpec("perception", 17, "PLAYER"),
+                        Set.of(SpatialTrigger.ENTER_CELL), SpatialFeatureProvenance.storyPlan("story", 0, 0))));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1)), Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+
+        MovementOperationResponse response = fixture.service(MovementCheckResolver.pending()).start(fixture.start("fingerprint-1"));
+
+        assertEquals(MovementOperationStatus.CHECK_PENDING, response.status());
+        assertEquals(MovementResolutionOutcomeStatus.CHECK_REQUIRED, response.outcomeStatus());
+        assertEquals(featureId, fixture.findOperationByCommandId(fixture.commandId).orElseThrow().pendingCheck().featureId());
+        assertEquals(response.operationId(), response.pendingCheck().operationId());
+        assertEquals("PLAYER", response.pendingCheck().ownership());
+        assertEquals("지각 판정", response.pendingCheck().label());
+        org.junit.jupiter.api.Assertions.assertFalse(response.pendingCheck().toString().contains(featureId.toString()));
+        assertEquals(List.of("checkId", "operationId", "label", "diceExpression", "ownership"),
+                java.util.Arrays.stream(response.pendingCheck().getClass().getRecordComponents()).map(java.lang.reflect.RecordComponent::getName).toList());
+    }
+
+    @Test
+    void accepts_only_the_matching_check_result_and_success_stops_before_the_risk_cell() {
+        Fixture fixture = new Fixture();
+        UUID featureId = UUID.randomUUID();
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
+                List.of(SpatialFeature.hidden(featureId, SpatialFeatureType.TRAP, List.of(new GridPosition(2, 1)),
+                        com.dndmaster.combatmap.domain.DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.ENTER_CELL),
+                        SpatialFeatureProvenance.storyPlan("story", 0, 0))));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1)), Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+        MovementOperationResponse pending = fixture.service(MovementCheckResolver.pending()).start(fixture.start("fingerprint-1"));
+        MovementCheckRequest request = fixture.findOperationByCommandId(fixture.commandId).orElseThrow().pendingCheck();
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> fixture.service(MovementCheckResolver.pending()).resume(fixture.map.id(), pending.operationId(),
+                        new MovementCheckResult(UUID.randomUUID(), request.checkId(), true)));
+
+        MovementOperationResponse resolved = fixture.service(MovementCheckResolver.pending()).resume(fixture.map.id(), pending.operationId(),
+                new MovementCheckResult(pending.operationId(), request.checkId(), true));
+        assertEquals(MovementOperationStatus.COMMITTED, resolved.status());
+        assertEquals(MovementResolutionOutcomeStatus.INTERRUPTED, resolved.result().status());
+        assertEquals(List.of(new GridPosition(1, 1)), resolved.result().traversedPath());
+        assertEquals(List.of("TRAP_DISCOVERED:2,1"), resolved.result().publicEvents());
+        assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
+    }
+
+    @Test
+    void failed_detection_is_silent_and_movement_continues() {
+        Fixture fixture = new Fixture();
+        UUID featureId = UUID.randomUUID();
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
+                List.of(SpatialFeature.hidden(featureId, SpatialFeatureType.TRAP, List.of(new GridPosition(2, 1)),
+                        com.dndmaster.combatmap.domain.DetectionSpec.passive("perception", 12), Set.of(),
+                        SpatialFeatureProvenance.storyPlan("story", 0, 0))));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1)), Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+
+        MovementOperationResponse pending = fixture.service(request -> Optional.of(
+                new MovementCheckResult(request.operationId(), request.checkId(), false))).start(fixture.start("fingerprint-1"));
+
+        assertEquals(MovementOperationStatus.COMMITTED, pending.status());
+        assertEquals(MovementResolutionOutcomeStatus.COMMITTED, pending.result().status());
+        assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)),
+                pending.result().traversedPath());
+        assertEquals(List.of(), pending.result().publicEvents());
+        assertEquals(SpatialFeatureVisibility.HIDDEN, fixture.map.spatialFeatures().getFirst().visibility());
+        assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
+    }
+
+    @Test
+    void records_a_spatial_trigger_after_the_cell_is_entered_and_stops_normally() {
+        Fixture fixture = new Fixture();
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
+                List.of(SpatialFeature.prepared(UUID.randomUUID(), SpatialFeatureType.MAGICAL_AREA_EFFECT,
+                        List.of(new GridPosition(2, 1)), null, Set.of(SpatialTrigger.ENTER_CELL),
+                        SpatialFeatureProvenance.runtime("runtime", 1, 0), 3, "EXPIRE", true)));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1)), Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+
+        MovementOperationResponse response = fixture.service(MovementInterruptionPolicy.never()).start(fixture.start("fingerprint-1"));
+
+        assertEquals(MovementOperationStatus.COMMITTED, response.status());
+        assertEquals(MovementResolutionOutcomeStatus.INTERRUPTED, response.result().status());
+        assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), response.result().traversedPath());
+        assertEquals(List.of("MAGICAL_AREA_EFFECT_TRIGGERED:2,1"), response.result().publicEvents());
+    }
+
+    @Test
+    void restart_restores_an_indefinitely_pending_player_check() {
+        Fixture fixture = new Fixture();
+        UUID featureId = UUID.randomUUID();
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
+                List.of(SpatialFeature.hidden(featureId, SpatialFeatureType.TRAP, List.of(new GridPosition(2, 1)),
+                        com.dndmaster.combatmap.domain.DetectionSpec.passive("perception", 12), Set.of(),
+                        SpatialFeatureProvenance.storyPlan("story", 0, 0))));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1)), Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+
+        MovementOperationResponse pending = fixture.service(MovementCheckResolver.pending()).start(fixture.start("fingerprint-1"));
+        MovementOperationResponse restored = fixture.service(MovementCheckResolver.pending()).resume(fixture.map.id(), pending.operationId());
+
+        assertEquals(MovementOperationStatus.CHECK_PENDING, restored.status());
+        assertEquals(pending.pendingCheck(), restored.pendingCheck());
+        assertEquals(0, fixture.map.version());
+        assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
+    }
     @Test
     void resolves_cells_in_order_and_commits_position_visibility_and_version_once() {
         Fixture fixture = new Fixture();
@@ -493,6 +612,11 @@ class MovementResolutionOperationTest {
 
         CombatMapMovementService service(com.dndmaster.combatmap.application.movement.MovementInterruptionPolicy policy) {
             return new CombatMapMovementService(this, (ruleSet, edition) -> 30, this, policy);
+        }
+
+        CombatMapMovementService service(MovementCheckResolver resolver) {
+            return new CombatMapMovementService(this, (ruleSet, edition) -> 30, this,
+                    com.dndmaster.combatmap.application.movement.MovementInterruptionPolicy.publicSpatialFeatures(), resolver);
         }
 
         MovementStartRequest start(String fingerprint) {

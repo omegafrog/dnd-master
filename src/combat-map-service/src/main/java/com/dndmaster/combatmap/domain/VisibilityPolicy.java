@@ -4,6 +4,15 @@ import java.util.*;
 
 /** Pure player-visibility rules. Hidden token data stays in the combat-map context. */
 public final class VisibilityPolicy {
+    private final LineOfSightQuery lineOfSightQuery;
+
+    public VisibilityPolicy() {
+        this(new LineOfSightQuery());
+    }
+
+    public VisibilityPolicy(LineOfSightQuery lineOfSightQuery) {
+        this.lineOfSightQuery = Objects.requireNonNull(lineOfSightQuery);
+    }
     public VisibilitySnapshot calculate(GridSpec grid, Set<GridPosition> origins,
             Set<GridPosition> exploredBefore, Set<GridPosition> blockers,
             List<CombatToken> tokens, Collection<LastSeenState> previousLastSeen, long ruleTurn) {
@@ -28,7 +37,7 @@ public final class VisibilityPolicy {
         for (int y = 0; y < grid.height(); y++) for (int x = 0; x < grid.width(); x++) {
             GridPosition cell = new GridPosition(x, y);
             if (origins.stream().anyMatch(origin -> withinRange(origin, cell, profile)
-                    && lineClear(origin, cell, blockers, boundaries))) current.add(cell);
+                    && lineOfSightQuery.clear(origin, cell, blockers, boundaries))) current.add(cell);
         }
         Set<GridPosition> explored = new HashSet<>(exploredBefore);
         explored.addAll(current);
@@ -80,19 +89,4 @@ public final class VisibilityPolicy {
         return Math.max(Math.abs(to.x() - from.x()), Math.abs(to.y() - from.y())) <= profile.maxRangeCells();
     }
 
-    private boolean lineClear(GridPosition from, GridPosition to, Set<GridPosition> blockers, Collection<MapBoundary> boundaries) {
-        int dx = Math.abs(to.x() - from.x()), dy = Math.abs(to.y() - from.y());
-        int sx = Integer.compare(to.x(), from.x()), sy = Integer.compare(to.y(), from.y());
-        int x = from.x(), y = from.y(), error = dx - dy;
-        while (x != to.x() || y != to.y()) {
-            int twice = error * 2;
-            if (twice > -dy) { error -= dy; x += sx; }
-            if (twice < dx) { error += dx; y += sy; }
-            GridPosition step = new GridPosition(x, y);
-            GridPosition previous = new GridPosition(x - (twice > -dy ? sx : 0), y - (twice < dx ? sy : 0));
-            if (boundaries.stream().anyMatch(boundary -> boundary.blocks(previous, step))) return false;
-            if (!step.equals(to) && blockers.contains(step)) return false;
-        }
-        return true;
-    }
 }

@@ -79,10 +79,11 @@ public class AdventureController {
 
     public record AdventureMovementOperationResponse(UUID operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus status, long version,
             List<CombatMapPreviewPosition> requestedPath, List<CombatMapPreviewPosition> traversedPath, CombatMapPreviewPosition finalPosition,
-            List<String> publicEvents, String interruptionReason, String outcomeStatus) {
+            List<String> publicEvents, String interruptionReason, String outcomeStatus,
+            com.dndmaster.adventure.application.combat.CombatMapPendingCheck pendingCheck) {
         static AdventureMovementOperationResponse from(com.dndmaster.adventure.application.combat.CombatMapMoveResult result) {
             return new AdventureMovementOperationResponse(result.operationId(), result.status(), result.version(), result.requestedPath(), result.traversedPath(),
-                    result.finalPosition(), result.publicEvents(), result.interruptionReason(), result.status().name());
+                    result.finalPosition(), result.publicEvents(), result.interruptionReason(), result.status().name(), result.pendingCheck());
         }
     }
 
@@ -440,7 +441,9 @@ public class AdventureController {
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}/resume")
     AdventureMovementOperationResponse resumeMovementOperation(@PathVariable UUID adventureId, @PathVariable UUID operationId,
-            @RequestParam UUID mapId) { return recoveryMovement(adventureId, mapId, operationId, "resume"); }
+            @RequestParam UUID mapId, @RequestBody(required = false) com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission) {
+        return recoveryMovement(adventureId, mapId, operationId, "resume", submission);
+    }
 
     @DeleteMapping("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}")
     AdventureMovementOperationResponse cancelMovementOperation(@PathVariable UUID adventureId, @PathVariable UUID operationId,
@@ -460,13 +463,18 @@ public class AdventureController {
     }
 
     private AdventureMovementOperationResponse recoveryMovement(UUID adventureId, UUID mapId, UUID operationId, String action) {
+        return recoveryMovement(adventureId, mapId, operationId, action, null);
+    }
+
+    private AdventureMovementOperationResponse recoveryMovement(UUID adventureId, UUID mapId, UUID operationId, String action,
+            com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission) {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)
                 || combatMapViewPort.playerView(adventureId, owner).filter(view -> mapId.equals(view.mapId())).isEmpty()) {
             throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
         }
-        var result = switch (action) { case "resume" -> mapMovementCoordinator.resume(mapId, operationId); case "cancel" -> mapMovementCoordinator.cancel(mapId, operationId); default -> mapMovementCoordinator.query(mapId, operationId); };
+        var result = switch (action) { case "resume" -> submission == null ? mapMovementCoordinator.resume(mapId, operationId) : mapMovementCoordinator.resume(mapId, operationId, submission); case "cancel" -> mapMovementCoordinator.cancel(mapId, operationId); default -> mapMovementCoordinator.query(mapId, operationId); };
         return AdventureMovementOperationResponse.from(result);
     }
 

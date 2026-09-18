@@ -124,6 +124,7 @@ export type MapMovementResult = {
   finalPosition?: { x: number; y: number }
   publicEvents: string[]
   interruptionReason?: string
+  pendingCheck?: { checkId: string; operationId: string; label: string; diceExpression: string; ownership: string }
 }
 
 export type CombatResolutionStatus = 'RESOLVED' | 'PENDING_RULE_INPUT'
@@ -157,7 +158,7 @@ export interface AdventurePlayApi {
   clearPendingMapMovement?(adventureId: string): Promise<void>
   movementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
   latestMovementOperation?(adventureId: string, mapId: string): Promise<MapMovementResult | null>
-  resumeMovementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
+  resumeMovementOperation?(adventureId: string, mapId: string, operationId: string, check?: { operationId: string; checkId: string; success: boolean }): Promise<MapMovementResult>
   resumeRuntimeTurn?(adventureId: string, turnId: string): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
   submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
 }
@@ -359,9 +360,9 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     })
   }
 
-  resumeMovementOperation(adventureId: string, mapId: string, operationId: string) {
+  resumeMovementOperation(adventureId: string, mapId: string, operationId: string, check?: { operationId: string; checkId: string; success: boolean }) {
     return request<MapMovementResult>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations/${operationId}/resume?mapId=${mapId}`, {
-      method: 'POST', headers: this.authHeaders(),
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: check ? JSON.stringify(check) : undefined,
     })
   }
 

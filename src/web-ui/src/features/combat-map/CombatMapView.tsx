@@ -626,6 +626,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {pendingMovement && (pendingMovement.result.status === 'RETRY_REQUIRED' || pendingMovement.result.status === 'CHECK_REQUIRED') && <section aria-label="저장된 이동 상태" role="status">
         <p>{pendingMovement.result.status === 'RETRY_REQUIRED' ? '이동 재시도 필요' : '이동 판정 확인 필요'}</p>
         <p>작업 번호: {pendingMovement.result.operationId ?? '없음'}</p>
+        {pendingMovement.result.pendingCheck && <p>{pendingMovement.result.pendingCheck.label} · {pendingMovement.result.pendingCheck.diceExpression}</p>}
         <button type="button" onClick={() => void recoverMovement(false)}>이동 상태 다시 확인</button>
         <button type="button" onClick={() => void recoverMovement(true)}>이동 재개</button>
       </section>}

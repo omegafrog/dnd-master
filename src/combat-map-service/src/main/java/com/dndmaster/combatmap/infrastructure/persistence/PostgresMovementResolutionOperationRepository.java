@@ -7,6 +7,8 @@ import com.dndmaster.combatmap.application.movement.MovementResolutionOperationR
 import com.dndmaster.combatmap.application.movement.MovementResolutionOutcomeStatus;
 import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
 import com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException;
+import com.dndmaster.combatmap.application.movement.MovementCheckRequest;
+import com.dndmaster.combatmap.application.movement.MovementCheckOutcome;
 import com.dndmaster.combatmap.domain.GridPosition;
 import com.dndmaster.combatmap.domain.MapId;
 import com.dndmaster.combatmap.domain.MovementPath;
@@ -27,7 +29,7 @@ public final class PostgresMovementResolutionOperationRepository implements Move
     @Override public Optional<MovementResolutionOperation> findById(UUID id) { return find("operation_id", id); }
     @Override public Optional<MovementResolutionOperation> findOperationByCommandId(UUID id) { return find("command_id", id); }
     @Override public Optional<MovementResolutionOperation> findActiveByMapId(MapId id) {
-        return find("map_id", id.value(), " AND status IN ('PREPARING','RETRY_WAIT','READY_TO_COMMIT')");
+        return find("map_id", id.value(), " AND status IN ('PREPARING','CHECK_PENDING','RETRY_WAIT','READY_TO_COMMIT')");
     }
     @Override public Optional<MovementResolutionOperation> findLatestByMapId(MapId id) {
         String sql = "SELECT * FROM combat_map_movement_operation WHERE map_id=? ORDER BY updated_at DESC, created_at DESC, operation_id DESC LIMIT 1";
@@ -43,7 +45,7 @@ public final class PostgresMovementResolutionOperationRepository implements Move
     @Override public MovementResolutionOperation reserve(MovementResolutionOperation value) { return write(value, true); }
     @Override public void save(MovementResolutionOperation value) { write(value, false); }
     @Override public List<MovementResolutionOperation> findRecoverable() {
-        return findRecoverable("status IN ('PREPARING','RETRY_WAIT','READY_TO_COMMIT')", null);
+        return findRecoverable("status IN ('PREPARING','CHECK_PENDING','RETRY_WAIT','READY_TO_COMMIT')", null);
     }
     @Override public List<MovementResolutionOperation> findStalledBefore(Instant cutoff) {
         return findRecoverable("status IN ('PREPARING','READY_TO_COMMIT') AND updated_at<=?", cutoff);
@@ -69,11 +71,11 @@ public final class PostgresMovementResolutionOperationRepository implements Move
     private MovementResolutionOperation write(MovementResolutionOperation value, boolean insert) {
         String path = encode(value.requestedPath().orderedPositions());
         String sql = insert
-                ? "INSERT INTO combat_map_movement_operation(operation_id,map_id,command_id,player_id,token_id,requested_path,path_distance,fingerprint,expected_version,status,cursor,current_x,current_y,traversed_path,result_traversed_path,result_status,result_final_x,result_final_y,result_map_version,result_public_events,result_interruption_reason,retry_count,operation_version,retry_resume_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-                : "UPDATE combat_map_movement_operation SET status=?,cursor=?,current_x=?,current_y=?,traversed_path=?,result_traversed_path=?,result_status=?,result_final_x=?,result_final_y=?,result_map_version=?,result_public_events=?,result_interruption_reason=?,retry_count=?,retry_resume_status=?,operation_version=operation_version+1,updated_at=CURRENT_TIMESTAMP WHERE operation_id=? AND operation_version=?";
+                ? "INSERT INTO combat_map_movement_operation(operation_id,map_id,command_id,player_id,token_id,requested_path,path_distance,fingerprint,expected_version,status,cursor,current_x,current_y,traversed_path,result_traversed_path,result_status,result_final_x,result_final_y,result_map_version,result_public_events,result_interruption_reason,retry_count,operation_version,retry_resume_status,pending_check_id,pending_feature_id,pending_feature_type,pending_trigger,pending_rule_reference,pending_difficulty,pending_mode,pending_ownership,check_outcomes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                : "UPDATE combat_map_movement_operation SET status=?,cursor=?,current_x=?,current_y=?,traversed_path=?,result_traversed_path=?,result_status=?,result_final_x=?,result_final_y=?,result_map_version=?,result_public_events=?,result_interruption_reason=?,retry_count=?,retry_resume_status=?,pending_check_id=?,pending_feature_id=?,pending_feature_type=?,pending_trigger=?,pending_rule_reference=?,pending_difficulty=?,pending_mode=?,pending_ownership=?,check_outcomes=?,operation_version=operation_version+1,updated_at=CURRENT_TIMESTAMP WHERE operation_id=? AND operation_version=?";
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {
-            if (insert) { statement.setObject(1, value.operationId()); statement.setObject(2, value.mapId().value()); statement.setObject(3, value.commandId()); statement.setObject(4, value.playerId().value()); statement.setObject(5, value.tokenId().value()); statement.setString(6, path); statement.setInt(7, value.requestedPath().distance()); statement.setString(8, value.fingerprint()); statement.setLong(9, value.expectedVersion()); bindProgress(statement, 10, value); statement.setLong(23, value.persistenceVersion()); statement.setString(24, value.retryResumeStatus().name()); }
-            else { bindProgress(statement, 1, value); statement.setString(14, value.retryResumeStatus().name()); statement.setObject(15, value.operationId()); statement.setLong(16, value.persistenceVersion()); }
+            if (insert) { statement.setObject(1, value.operationId()); statement.setObject(2, value.mapId().value()); statement.setObject(3, value.commandId()); statement.setObject(4, value.playerId().value()); statement.setObject(5, value.tokenId().value()); statement.setString(6, path); statement.setInt(7, value.requestedPath().distance()); statement.setString(8, value.fingerprint()); statement.setLong(9, value.expectedVersion()); bindProgress(statement, 10, value); statement.setLong(23, value.persistenceVersion()); statement.setString(24, value.retryResumeStatus().name()); bindPending(statement, 25, value); }
+            else { bindProgress(statement, 1, value); statement.setString(14, value.retryResumeStatus().name()); bindPending(statement, 15, value); statement.setObject(24, value.operationId()); statement.setLong(25, value.persistenceVersion()); }
             if (statement.executeUpdate() != 1) throw new MovementOperationConcurrentUpdateException();
             if (!insert) value.markPersisted(value.persistenceVersion() + 1);
             return value;
@@ -89,6 +91,19 @@ public final class PostgresMovementResolutionOperationRepository implements Move
             throw new CombatMapPersistenceException("movement operation save failed", exception);
         }
     }
+    private static void bindPending(java.sql.PreparedStatement statement, int start, MovementResolutionOperation value) throws SQLException {
+        MovementCheckRequest pending = value.pendingCheck();
+        if (pending == null) {
+            for (int index = 0; index < 8; index++) statement.setObject(start + index, null);
+        } else {
+            statement.setObject(start, pending.checkId()); statement.setObject(start + 1, pending.featureId());
+            statement.setString(start + 2, pending.featureType().name()); statement.setString(start + 3, pending.trigger().name());
+            statement.setString(start + 4, pending.ruleReference());
+            if (pending.difficulty() == null) statement.setObject(start + 5, null); else statement.setInt(start + 5, pending.difficulty());
+            statement.setString(start + 6, pending.mode()); statement.setString(start + 7, pending.ownership());
+        }
+        statement.setString(start + 8, value.checkOutcomes().stream().map(outcome -> outcome.featureId() + "=" + outcome.success()).collect(java.util.stream.Collectors.joining(";")));
+    }
     private static void bindProgress(java.sql.PreparedStatement statement, int start, MovementResolutionOperation value) throws SQLException { statement.setString(start, value.status().name()); statement.setInt(start + 1, value.cursor()); statement.setInt(start + 2, value.currentCell().x()); statement.setInt(start + 3, value.currentCell().y()); statement.setString(start + 4, encode(value.traversedPath())); MovementResolutionResult result = value.result(); statement.setString(start + 5, result == null ? null : encode(result.traversedPath())); statement.setString(start + 6, result == null ? null : result.status().name()); if (result == null) { statement.setNull(start + 7, java.sql.Types.INTEGER); statement.setNull(start + 8, java.sql.Types.INTEGER); statement.setNull(start + 9, java.sql.Types.BIGINT); statement.setNull(start + 10, java.sql.Types.VARCHAR); statement.setNull(start + 11, java.sql.Types.VARCHAR); } else { statement.setInt(start + 7, result.finalPosition().x()); statement.setInt(start + 8, result.finalPosition().y()); statement.setLong(start + 9, result.mapVersion()); statement.setString(start + 10, String.join("\u001f", result.publicEvents())); statement.setString(start + 11, result.interruptionReason()); } statement.setInt(start + 12, value.retryCount()); }
     private static MovementResolutionOperation read(ResultSet row) throws SQLException {
         List<GridPosition> requested = decode(row.getString("requested_path")); List<GridPosition> traversed = decode(row.getString("traversed_path"));
@@ -99,7 +114,15 @@ public final class PostgresMovementResolutionOperationRepository implements Move
                         new GridPosition(row.getInt("result_final_x"), row.getInt("result_final_y")), row.getLong("result_map_version"),
                         row.getString("result_public_events") == null || row.getString("result_public_events").isEmpty() ? List.of() : List.of(row.getString("result_public_events").split("\\u001f")), row.getString("result_interruption_reason"), resultStatus(row))
                 : null;
-        return MovementResolutionOperation.restore((UUID) row.getObject("operation_id"), new MapId((UUID) row.getObject("map_id")), (UUID) row.getObject("command_id"), new PlayerId((UUID) row.getObject("player_id")), new TokenId((UUID) row.getObject("token_id")), new MovementPath(requested, row.getInt("path_distance")), row.getString("fingerprint"), expectedVersion, status, row.getInt("cursor"), new GridPosition(row.getInt("current_x"), row.getInt("current_y")), traversed, result, row.getInt("retry_count"), row.getLong("operation_version"), MovementOperationStatus.valueOf(row.getString("retry_resume_status")));
+        UUID operationId = (UUID) row.getObject("operation_id");
+        MovementCheckRequest pending = row.getObject("pending_check_id") == null ? null : new MovementCheckRequest(
+                (UUID) row.getObject("pending_check_id"), operationId, (UUID) row.getObject("pending_feature_id"),
+                com.dndmaster.combatmap.domain.SpatialFeatureType.valueOf(row.getString("pending_feature_type")),
+                com.dndmaster.combatmap.domain.SpatialTrigger.valueOf(row.getString("pending_trigger")),
+                row.getString("pending_rule_reference"), row.getObject("pending_difficulty", Integer.class),
+                row.getString("pending_mode"), row.getString("pending_ownership"));
+        List<MovementCheckOutcome> outcomes = decodeOutcomes(row.getString("check_outcomes"));
+        return MovementResolutionOperation.restore(operationId, new MapId((UUID) row.getObject("map_id")), (UUID) row.getObject("command_id"), new PlayerId((UUID) row.getObject("player_id")), new TokenId((UUID) row.getObject("token_id")), new MovementPath(requested, row.getInt("path_distance")), row.getString("fingerprint"), expectedVersion, status, row.getInt("cursor"), new GridPosition(row.getInt("current_x"), row.getInt("current_y")), traversed, result, row.getInt("retry_count"), row.getLong("operation_version"), MovementOperationStatus.valueOf(row.getString("retry_resume_status")), pending, outcomes);
     }
     private static MovementResolutionOutcomeStatus resultStatus(ResultSet row) throws SQLException {
         String status = row.getString("result_status");
@@ -109,4 +132,5 @@ public final class PostgresMovementResolutionOperationRepository implements Move
     }
     private static String encode(List<GridPosition> positions) { return positions.stream().map(p -> p.x() + "," + p.y()).collect(java.util.stream.Collectors.joining(";")); }
     private static List<GridPosition> decode(String encoded) { return encoded == null || encoded.isEmpty() ? List.of() : java.util.Arrays.stream(encoded.split(";")).map(pair -> pair.split(",")).map(pair -> new GridPosition(Integer.parseInt(pair[0]), Integer.parseInt(pair[1]))).toList(); }
+    private static List<MovementCheckOutcome> decodeOutcomes(String encoded) { return encoded == null || encoded.isBlank() ? List.of() : java.util.Arrays.stream(encoded.split(";")).map(value -> value.split("=", 2)).filter(value -> value.length == 2).map(value -> new MovementCheckOutcome(UUID.fromString(value[0]), Boolean.parseBoolean(value[1]))).toList(); }
 }
