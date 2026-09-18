@@ -401,7 +401,7 @@ public class CombatMapController {
     public MovementOperationResponseBody resumeMovement(@PathVariable UUID mapId, @PathVariable UUID operationId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {
         requestGuard.internal(token);
-        MovementOperationResponse response = movementService.resume(operationId);
+        MovementOperationResponse response = movementService.resume(new MapId(mapId), operationId);
         return MovementOperationResponseBody.from(response);
     }
 
@@ -409,14 +409,14 @@ public class CombatMapController {
     public MovementOperationResponseBody movementOperation(@PathVariable UUID mapId, @PathVariable UUID operationId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {
         requestGuard.internal(token);
-        return MovementOperationResponseBody.from(movementService.query(operationId));
+        return MovementOperationResponseBody.from(movementService.query(new MapId(mapId), operationId));
     }
 
     @DeleteMapping("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}")
     public MovementOperationResponseBody cancelMovement(@PathVariable UUID mapId, @PathVariable UUID operationId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {
         requestGuard.internal(token);
-        return MovementOperationResponseBody.from(movementService.cancel(operationId));
+        return MovementOperationResponseBody.from(movementService.cancel(new MapId(mapId), operationId));
     }
 
     private static MovementPath movementPath(List<PositionRequest> positions, int distance) {
@@ -479,8 +479,12 @@ public class CombatMapController {
                 request.expectedVersion(),
                 request.waypoints() == null ? List.of() : request.waypoints().stream().map(p -> new GridPosition(p.x(), p.y())).toList(),
                 request.fingerprint());
-        CombatMap map = movementService.movePlayerToken(command);
-        return new CombatMapMoveResponse(map.id().value(), map.version());
+        MovementOperationResponse operation = movementService.start(new MovementStartRequest(command.mapId(), command.playerId(), command.tokenId(),
+                command.path(), command.appliedEdition(), command.commandId(),
+                command.fingerprint() == null ? "legacy:" + command.commandId() : command.fingerprint(), command.expectedVersion()));
+        if (operation.result() == null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+                "movement reservation is not ready to commit");
+        return new CombatMapMoveResponse(mapId, operation.result().mapVersion());
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/ai-state")

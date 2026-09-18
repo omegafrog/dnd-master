@@ -61,19 +61,21 @@ public final class CombatMapMovementService {
         return resolve(map, operation);
     }
 
-    public MovementOperationResponse resume(UUID operationId) {
+    public MovementOperationResponse resume(MapId mapId, UUID operationId) {
         MovementResolutionOperation operation = operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found"));
+        requireMap(operation, mapId);
         if (operation.status() == MovementOperationStatus.COMMITTED || operation.status() == MovementOperationStatus.CANCELLED) return response(operation);
         if (operation.status() == MovementOperationStatus.RETRY_WAIT) {
             operation.resumePreparing();
             operations.save(operation);
         }
         CombatMap map = repository.findById(operation.mapId()).orElseThrow(() -> new CombatMapMovementDeniedException("map not found"));
+        rebuildStagedMap(map, operation);
         return resolve(map, operation);
     }
 
-    public MovementOperationResponse query(UUID operationId) { return response(operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found"))); }
-    public MovementOperationResponse cancel(UUID operationId) { MovementResolutionOperation operation = operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found")); if (operation.status().active()) { operation.cancel(); operations.save(operation); } return response(operation); }
+    public MovementOperationResponse query(MapId mapId, UUID operationId) { MovementResolutionOperation operation = operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found")); requireMap(operation, mapId); return response(operation); }
+    public MovementOperationResponse cancel(MapId mapId, UUID operationId) { MovementResolutionOperation operation = operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found")); requireMap(operation, mapId); if (operation.status().active()) { operation.cancel(); operations.save(operation); } return response(operation); }
 
     private MovementOperationResponse resolve(CombatMap map, MovementResolutionOperation operation) {
         try {
@@ -91,9 +93,28 @@ public final class CombatMapMovementService {
             operation.committed(result); operations.save(operation);
             return response(operation);
         } catch (RuntimeException exception) {
-            if (operation.status().active()) { operation.cancel(); operations.save(operation); }
+            if (operation.status().active()) {
+                if (retryable(exception)) operation.retryWait(); else operation.cancel();
+                operations.save(operation);
+            }
+            if (retryable(exception)) return response(operation);
             throw exception;
         }
+    }
+    private static void rebuildStagedMap(CombatMap map, MovementResolutionOperation operation) {
+        map.validatePlayerMovement(operation.playerId(), operation.tokenId(), operation.requestedPath(), Integer.MAX_VALUE);
+        for (int index = 1; index <= operation.cursor(); index++) {
+            map.advancePlayerToken(operation.playerId(), operation.tokenId(), operation.requestedPath().orderedPositions().get(index));
+            map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
+        }
+        if (!map.playerTokenPosition(operation.playerId(), operation.tokenId()).equals(operation.currentCell()))
+            throw new IllegalStateException("movement reservation cursor does not match its current cell");
+    }
+    private static void requireMap(MovementResolutionOperation operation, MapId mapId) {
+        if (!operation.mapId().equals(mapId)) throw new IllegalArgumentException("movement reservation does not belong to this map");
+    }
+    private static boolean retryable(RuntimeException exception) {
+        return exception instanceof com.dndmaster.combatmap.infrastructure.persistence.CombatMapPersistenceException;
     }
     private static MovementOperationResponse response(MovementResolutionOperation operation) { return new MovementOperationResponse(operation.operationId(), operation.status(), operation.result()); }
     private static final class UnsupportedOperationRepository implements MovementResolutionOperationRepository {

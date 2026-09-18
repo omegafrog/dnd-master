@@ -202,18 +202,10 @@ public final class CrossContextHttpCombatGateway
                 command.ownerPlayerId(), command.tokenId(), positions,
                 moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion(),
                 moveCommand.previewFingerprint(), moveCommand.waypoints().stream().map(position -> new PositionRequest(position.x(), position.y())).toList());
-        // A confirmed preview is resolved by the durable reservation boundary.  The
-        // legacy route stays available only for callers that have not yet obtained
-        // a preview fingerprint.
-        boolean staged = moveCommand.previewFingerprint() != null;
-        String route = !staged
-                ? "internal/v1/combat-maps/" + command.combatMapId() + "/moves"
-                : "internal/v1/combat-maps/" + command.combatMapId() + "/movement-operations";
-        Object body = staged
-                ? new MovementOperationStartRequest(command.ownerPlayerId(), command.tokenId(), positions,
-                        moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion(),
-                        moveCommand.previewFingerprint())
-                : request;
+        String route = "internal/v1/combat-maps/" + command.combatMapId() + "/movement-operations";
+        Object body = new MovementOperationStartRequest(command.ownerPlayerId(), command.tokenId(), positions,
+                moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion(),
+                moveCommand.previewFingerprint() == null ? "legacy:" + command.operationId() : moveCommand.previewFingerprint());
         String response = sendMovement(route, body, command);
         return new CombatMapMoveResult(mapVersion(response, moveCommand.expectedVersion()));
     }

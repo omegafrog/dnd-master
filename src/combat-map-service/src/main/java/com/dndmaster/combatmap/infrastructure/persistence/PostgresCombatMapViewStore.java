@@ -99,7 +99,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
 
     /** The final map snapshot and its reservation terminal state are one local transaction. */
     public void commitMovementResolution(MapOwnerId owner, CombatMap map, long expectedVersion,
-            long persistedVersion, MovementResolutionOperation operation) {
+            long persistedVersion, MovementResolutionOperation operation, com.dndmaster.combatmap.application.movement.MovementResolutionResult result) {
         if (persistedVersion != expectedVersion + 1) throw new IllegalArgumentException("persisted version must advance by one");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
@@ -109,8 +109,10 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 writeVisibility(connection, map);
                 recordHistory(connection, owner, map, persistedVersion, operation.commandId(), operation.fingerprint());
                 try (PreparedStatement statement = connection.prepareStatement(
-                        "UPDATE combat_map_movement_operation SET status='COMMITTED' WHERE operation_id=? AND status='READY_TO_COMMIT'")) {
-                    statement.setObject(1, operation.operationId());
+                        "UPDATE combat_map_movement_operation SET status='COMMITTED',result_traversed_path=?,result_final_x=?,result_final_y=?,result_map_version=?,result_public_events=?,result_interruption_reason=? WHERE operation_id=? AND status='READY_TO_COMMIT'")) {
+                    statement.setString(1, result.traversedPath().stream().map(p -> p.x() + "," + p.y()).collect(java.util.stream.Collectors.joining(";")));
+                    statement.setInt(2, result.finalPosition().x()); statement.setInt(3, result.finalPosition().y()); statement.setLong(4, result.mapVersion());
+                    statement.setString(5, String.join("\u001f", result.publicEvents())); statement.setString(6, result.interruptionReason()); statement.setObject(7, operation.operationId());
                     if (statement.executeUpdate() != 1) throw new CombatMapPersistenceException("movement operation commit lost", null);
                 }
                 connection.commit();

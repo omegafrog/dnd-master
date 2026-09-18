@@ -97,7 +97,7 @@ class AdventureApiConfigurationTest {
                     UUID.randomUUID(), new RuleSetId(UUID.randomUUID()), new CharacterSheetId(UUID.randomUUID()), mapId,
                     CombatActorRole.PLAYER, "MOVE", "0,0;1,0", UUID.randomUUID(), UUID.randomUUID(), 1L));
 
-            assertEquals("/internal/v1/combat-maps/" + mapId + "/moves", requestPath.get());
+            assertEquals("/internal/v1/combat-maps/" + mapId + "/movement-operations", requestPath.get());
             assertEquals("test-token", requestToken.get());
         } finally {
             server.stop(0);

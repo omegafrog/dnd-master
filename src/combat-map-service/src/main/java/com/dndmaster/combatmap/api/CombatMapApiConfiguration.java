@@ -106,7 +106,7 @@ public class CombatMapApiConfiguration {
                     com.dndmaster.combatmap.application.movement.MovementResolutionResult result) {
                 if (map.ownerPlayerId() == null) throw new IllegalStateException("combat map owner is required for persistence");
                 store.commitMovementResolution(new com.dndmaster.combatmap.application.view.MapOwnerId(map.ownerPlayerId().value()),
-                        map, map.version(), persistedVersion, operation);
+                        map, map.version(), persistedVersion, operation, result);
             }
         };
     }

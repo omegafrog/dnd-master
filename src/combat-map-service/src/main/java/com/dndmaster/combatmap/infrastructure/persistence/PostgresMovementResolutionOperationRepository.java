@@ -43,7 +43,13 @@ public final class PostgresMovementResolutionOperationRepository implements Move
             if (insert) { statement.setObject(1, value.operationId()); statement.setObject(2, value.mapId().value()); statement.setObject(3, value.commandId()); statement.setObject(4, value.playerId().value()); statement.setObject(5, value.tokenId().value()); statement.setString(6, path); statement.setInt(7, value.requestedPath().distance()); statement.setString(8, value.fingerprint()); statement.setLong(9, value.expectedVersion()); bindProgress(statement, 10, value); }
             else { bindProgress(statement, 1, value); statement.setObject(6, value.operationId()); }
             if (statement.executeUpdate() != 1) throw new CombatMapPersistenceException("movement operation save lost", null);
-        } catch (SQLException exception) { throw new CombatMapPersistenceException("movement operation save failed", exception); }
+        } catch (SQLException exception) {
+            if (insert && "23505".equals(exception.getSQLState())
+                    && exception.getMessage() != null && exception.getMessage().contains("combat_map_movement_operation_active_map_uq")) {
+                throw new com.dndmaster.combatmap.application.movement.MovementReservationConflictException();
+            }
+            throw new CombatMapPersistenceException("movement operation save failed", exception);
+        }
     }
     private static void bindProgress(java.sql.PreparedStatement statement, int start, MovementResolutionOperation value) throws SQLException { statement.setString(start, value.status().name()); statement.setInt(start + 1, value.cursor()); statement.setInt(start + 2, value.currentCell().x()); statement.setInt(start + 3, value.currentCell().y()); statement.setString(start + 4, encode(value.traversedPath())); }
     private static MovementResolutionOperation read(ResultSet row) throws SQLException {
@@ -51,11 +57,12 @@ public final class PostgresMovementResolutionOperationRepository implements Move
         MovementOperationStatus status = MovementOperationStatus.valueOf(row.getString("status"));
         long expectedVersion = row.getLong("expected_version");
         MovementResolutionResult result = status == MovementOperationStatus.COMMITTED
-                ? new MovementResolutionResult(new MovementPath(requested, row.getInt("path_distance")), traversed,
-                        new GridPosition(row.getInt("current_x"), row.getInt("current_y")), expectedVersion + 1, List.of(), null)
+                ? new MovementResolutionResult(new MovementPath(requested, row.getInt("path_distance")), decode(row.getString("result_traversed_path")),
+                        new GridPosition(row.getInt("result_final_x"), row.getInt("result_final_y")), row.getLong("result_map_version"),
+                        row.getString("result_public_events") == null || row.getString("result_public_events").isEmpty() ? List.of() : List.of(row.getString("result_public_events").split("\\u001f")), row.getString("result_interruption_reason"))
                 : null;
         return MovementResolutionOperation.restore((UUID) row.getObject("operation_id"), new MapId((UUID) row.getObject("map_id")), (UUID) row.getObject("command_id"), new PlayerId((UUID) row.getObject("player_id")), new TokenId((UUID) row.getObject("token_id")), new MovementPath(requested, row.getInt("path_distance")), row.getString("fingerprint"), expectedVersion, status, row.getInt("cursor"), new GridPosition(row.getInt("current_x"), row.getInt("current_y")), traversed, result);
     }
     private static String encode(List<GridPosition> positions) { return positions.stream().map(p -> p.x() + "," + p.y()).collect(java.util.stream.Collectors.joining(";")); }
-    private static List<GridPosition> decode(String encoded) { return java.util.Arrays.stream(encoded.split(";")).map(pair -> pair.split(",")).map(pair -> new GridPosition(Integer.parseInt(pair[0]), Integer.parseInt(pair[1]))).toList(); }
+    private static List<GridPosition> decode(String encoded) { return encoded == null || encoded.isEmpty() ? List.of() : java.util.Arrays.stream(encoded.split(";")).map(pair -> pair.split(",")).map(pair -> new GridPosition(Integer.parseInt(pair[0]), Integer.parseInt(pair[1]))).toList(); }
 }

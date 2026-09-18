@@ -13,6 +13,12 @@ CREATE TABLE IF NOT EXISTS combat_map_movement_operation (
     current_x INTEGER NOT NULL,
     current_y INTEGER NOT NULL,
     traversed_path TEXT NOT NULL,
+    result_traversed_path TEXT,
+    result_final_x INTEGER,
+    result_final_y INTEGER,
+    result_map_version BIGINT,
+    result_public_events TEXT,
+    result_interruption_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

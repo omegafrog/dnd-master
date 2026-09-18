@@ -105,12 +105,44 @@ class MovementResolutionOperationTest {
         Fixture fixture = new Fixture();
         fixture.failFinalSave = true;
 
-        assertThrows(RuntimeException.class, () -> fixture.service().start(fixture.start("fingerprint-1")));
+        MovementOperationResponse response = fixture.service().start(fixture.start("fingerprint-1"));
 
         assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
         assertEquals(0, fixture.map.version());
-        assertEquals(MovementOperationStatus.CANCELLED,
+        assertEquals(MovementOperationStatus.RETRY_WAIT, response.status());
+        assertEquals(MovementOperationStatus.RETRY_WAIT,
                 fixture.findOperationByCommandId(fixture.commandId).orElseThrow().status());
+    }
+
+    @Test
+    void restart_rebuilds_staged_position_and_visibility_before_continuing_from_saved_cursor() {
+        Fixture fixture = new Fixture();
+        MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
+                fixture.commandId, fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0);
+        operation.advanceTo(1, new GridPosition(2, 1));
+        operation.retryWait();
+        fixture.save(operation);
+
+        MovementOperationResponse response = fixture.service().resume(fixture.map.id(), operation.operationId());
+
+        assertEquals(MovementOperationStatus.COMMITTED, response.status());
+        assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)),
+                response.result().traversedPath());
+        assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
+        assertTrue(fixture.map.visibilitySnapshot().explored().contains(new GridPosition(2, 1)));
+        assertEquals(1, fixture.mapSaves);
+    }
+
+    @Test
+    void operation_access_requires_the_path_map_to_match_the_reserved_map() {
+        Fixture fixture = new Fixture();
+        MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
+                fixture.commandId, fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0);
+        fixture.save(operation);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> fixture.service().query(new MapId(UUID.randomUUID()), operation.operationId()));
+        assertEquals(MovementOperationStatus.PREPARING, fixture.service().query(fixture.map.id(), operation.operationId()).status());
     }
 
     @Test
@@ -163,7 +195,7 @@ class MovementResolutionOperationTest {
         @Override public Optional<CombatMap> findByCommandId(UUID id) { return Optional.empty(); }
         @Override public void save(CombatMap map) { mapSaves++; this.map = copy(map); }
         @Override public void save(CombatMap map, long persistedVersion, UUID operationKey, String operationFingerprint) {
-            if (failFinalSave) throw new IllegalStateException("final save failed");
+            if (failFinalSave) throw new com.dndmaster.combatmap.infrastructure.persistence.CombatMapPersistenceException("final save failed", null);
             map.markPersisted(persistedVersion, operationKey, operationFingerprint);
             mapSaves++;
             this.map = copy(map);
