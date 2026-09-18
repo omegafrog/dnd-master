@@ -14,6 +14,7 @@ import com.dndmaster.combatmap.application.movement.MovementReservationConflictE
 import com.dndmaster.combatmap.application.movement.MovementVersionConflictException;
 import com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException;
 import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
+import com.dndmaster.combatmap.application.movement.MovementFinalCommitConflictException;
 
 @RestControllerAdvice(name = "combatMapApiContractExceptionHandler")
 public final class ApiContractExceptionHandler {
@@ -25,6 +26,11 @@ public final class ApiContractExceptionHandler {
     @ExceptionHandler(MovementVersionConflictException.class)
     ResponseEntity<ErrorResponse> handle(MovementVersionConflictException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("STALE_MOVEMENT_PROPOSAL"));
+    }
+
+    @ExceptionHandler(MovementFinalCommitConflictException.class)
+    ResponseEntity<ErrorResponse> handle(MovementFinalCommitConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("MOVEMENT_VERSION_CONFLICT"));
     }
 
     @ExceptionHandler(MovementOperationConcurrentUpdateException.class)

@@ -452,8 +452,8 @@ public final class CombatActionApplicationService {
 
     private static void requireCommittedMovement(CombatMapMoveResult result) {
         switch (result.status()) {
-            case COMMITTED -> { }
-            case RETRY_REQUIRED -> throw new CombatCommandRejectedException("RETRY_REQUIRED",
+            case COMMITTED, INTERRUPTED -> { }
+            case CHECK_REQUIRED, RETRY_REQUIRED -> throw new CombatCommandRejectedException("RETRY_REQUIRED",
                     List.of("MOVEMENT_OPERATION_NOT_COMMITTED"));
             case CANCELLED -> throw new CombatCommandRejectedException("MOVEMENT_CANCELLED",
                     result.interruptionReason() == null ? List.of() : List.of(result.interruptionReason()));

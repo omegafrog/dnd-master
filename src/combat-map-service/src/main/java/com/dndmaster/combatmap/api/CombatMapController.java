@@ -394,7 +394,9 @@ public class CombatMapController {
         requireIdempotencyKey(idempotencyKey, request.commandId());
         return MovementOperationResponseBody.from(movementService.start(new MovementStartRequest(new MapId(mapId),
                 new PlayerId(request.playerId()), new TokenId(request.tokenId()), movementPath(request.positions(), request.distance()),
-                request.appliedEdition(), request.commandId(), request.fingerprint(), request.expectedVersion())));
+                request.appliedEdition(), request.commandId(), request.fingerprint(), request.previewFingerprint(),
+                request.waypoints() == null ? List.of() : request.waypoints().stream().map(position -> new GridPosition(position.x(), position.y())).toList(),
+                request.expectedVersion())));
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}/resume")
@@ -426,8 +428,11 @@ public class CombatMapController {
     private static void requireMovementStart(MovementStartRequestBody request) {
         if (request == null || request.playerId() == null || request.tokenId() == null || request.commandId() == null
                 || request.appliedEdition() == null || request.appliedEdition().isBlank() || request.fingerprint() == null || request.fingerprint().isBlank()
+                || request.previewFingerprint() != null && request.previewFingerprint().isBlank()
                 || request.expectedVersion() == null || request.expectedVersion() < 0 || request.distance() == null || request.distance() < 1
-                || request.positions() == null || request.positions().size() < 2 || request.positions().stream().anyMatch(CombatMapController::invalid)) {
+                || request.positions() == null || request.positions().size() < 2 || request.positions().stream().anyMatch(CombatMapController::invalid)
+                || request.waypoints() != null && (request.waypoints().size() > MovementPreviewRequest.MAX_WAYPOINTS
+                        || request.waypoints().stream().anyMatch(CombatMapController::invalid))) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_OPERATION");
         }
     }
@@ -481,7 +486,8 @@ public class CombatMapController {
                 request.fingerprint());
         MovementOperationResponse operation = movementService.start(new MovementStartRequest(command.mapId(), command.playerId(), command.tokenId(),
                 command.path(), command.appliedEdition(), command.commandId(),
-                command.fingerprint() == null ? "legacy:" + command.commandId() : command.fingerprint(), command.expectedVersion()));
+                command.fingerprint() == null ? "legacy:" + command.commandId() : command.fingerprint(), command.previewFingerprint(),
+                command.waypoints(), command.expectedVersion()));
         if (operation.result() == null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
                 "movement reservation is not ready to commit");
         return new CombatMapMoveResponse(mapId, operation.result().mapVersion());
@@ -653,14 +659,20 @@ public class CombatMapController {
     }
 
     public record MovementStartRequestBody(UUID playerId, UUID tokenId, List<PositionRequest> positions, Integer distance,
-            String appliedEdition, UUID commandId, Long expectedVersion, String fingerprint) {}
+            String appliedEdition, UUID commandId, Long expectedVersion, String fingerprint, String previewFingerprint,
+            List<PositionRequest> waypoints) {
+        public MovementStartRequestBody(UUID playerId, UUID tokenId, List<PositionRequest> positions, Integer distance,
+                String appliedEdition, UUID commandId, Long expectedVersion, String fingerprint) {
+            this(playerId, tokenId, positions, distance, appliedEdition, commandId, expectedVersion, fingerprint, null, List.of());
+        }
+    }
 
-    public record MovementOperationResponseBody(UUID operationId, String status,
+    public record MovementOperationResponseBody(UUID operationId, String status, String outcomeStatus,
             List<PositionRequest> requestedPath, List<PositionRequest> traversedPath, PositionRequest finalPosition, Long mapVersion,
             List<String> publicEvents, String interruptionReason) {
         static MovementOperationResponseBody from(MovementOperationResponse response) {
             var result = response.result();
-            return new MovementOperationResponseBody(response.operationId(), response.status().name(),
+            return new MovementOperationResponseBody(response.operationId(), response.status().name(), response.outcomeStatus().name(),
                     result == null ? List.of() : result.requestedPath().orderedPositions().stream().map(position -> new PositionRequest(position.x(), position.y())).toList(),
                     result == null ? List.of() : result.traversedPath().stream().map(position -> new PositionRequest(position.x(), position.y())).toList(),
                     result == null ? null : new PositionRequest(result.finalPosition().x(), result.finalPosition().y()),

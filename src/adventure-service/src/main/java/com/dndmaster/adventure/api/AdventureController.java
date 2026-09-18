@@ -74,10 +74,10 @@ public class AdventureController {
     private final AppliedRuleSetApplicationService appliedRuleSetService;
 
     public record AdventureMovementOperationResponse(UUID operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus status, long mapVersion,
-            List<CombatMapPreviewPosition> traversedPath, CombatMapPreviewPosition finalPosition,
+            List<CombatMapPreviewPosition> requestedPath, List<CombatMapPreviewPosition> traversedPath, CombatMapPreviewPosition finalPosition,
             List<String> publicEvents, String interruptionReason) {
         static AdventureMovementOperationResponse from(com.dndmaster.adventure.application.combat.CombatMapMoveResult result) {
-            return new AdventureMovementOperationResponse(result.operationId(), result.status(), result.version(), result.traversedPath(),
+            return new AdventureMovementOperationResponse(result.operationId(), result.status(), result.version(), result.requestedPath(), result.traversedPath(),
                     result.finalPosition(), result.publicEvents(), result.interruptionReason());
         }
     }

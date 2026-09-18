@@ -13,6 +13,9 @@ import com.dndmaster.combatmap.application.movement.MovementResolutionOperationR
 import com.dndmaster.combatmap.application.movement.MovementStartRequest;
 import com.dndmaster.combatmap.application.movement.MovementOperationResponse;
 import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
+import com.dndmaster.combatmap.application.movement.CombatMapMovementPreviewMismatchException;
+import com.dndmaster.combatmap.application.movement.MovementFinalCommitConflictException;
+import com.dndmaster.combatmap.application.movement.MovementResolutionOutcomeStatus;
 import com.dndmaster.combatmap.domain.AdventureId;
 import com.dndmaster.combatmap.domain.CombatMap;
 import com.dndmaster.combatmap.domain.CombatToken;
@@ -47,6 +50,7 @@ class MovementResolutionOperationTest {
         assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)),
                 response.result().traversedPath());
         assertEquals(new GridPosition(3, 1), response.result().finalPosition());
+        assertEquals(MovementResolutionOutcomeStatus.COMMITTED, response.result().status());
         assertEquals(1, fixture.map.version());
         assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
         assertTrue(fixture.map.visibilitySnapshot().explored().containsAll(
@@ -55,6 +59,34 @@ class MovementResolutionOperationTest {
         MovementOperationResponse replay = fixture.service().start(fixture.start("fingerprint-1"));
         assertEquals(response, replay);
         assertEquals(1, fixture.mapSaves);
+    }
+
+    @Test
+    void staged_start_rechecks_the_public_preview_path_distance_and_fingerprint() {
+        Fixture fixture = new Fixture();
+        var preview = fixture.service().preview(new com.dndmaster.combatmap.application.movement.MovementPreviewRequest(
+                fixture.map.id(), fixture.player, fixture.tokenId, new GridPosition(3, 1), List.of(), "5E", fixture.map.version()));
+
+        assertThrows(CombatMapMovementPreviewMismatchException.class, () -> fixture.service().start(
+                fixture.startWithPreview("different-preview", List.of())));
+        assertThrows(CombatMapMovementPreviewMismatchException.class, () -> fixture.service().start(
+                fixture.startWithPreview(preview.fingerprint(), List.of(new GridPosition(2, 1)))));
+        assertEquals(0, fixture.map.version());
+    }
+
+    @Test
+    void final_map_version_conflict_is_typed_and_persisted_as_a_durable_conflict_outcome() {
+        Fixture fixture = new Fixture();
+        fixture.failFinalVersionConflict = true;
+
+        assertThrows(MovementFinalCommitConflictException.class,
+                () -> fixture.service().start(fixture.start("fingerprint-1")));
+
+        MovementResolutionOperation operation = fixture.findOperationByCommandId(fixture.commandId).orElseThrow();
+        assertEquals(MovementOperationStatus.CANCELLED, operation.status());
+        assertEquals(MovementResolutionOutcomeStatus.CANCELLED, operation.result().status());
+        assertEquals("MAP_VERSION_CONFLICT", operation.result().interruptionReason());
+        assertEquals(0, fixture.map.version());
     }
 
     @Test
@@ -361,6 +393,7 @@ class MovementResolutionOperationTest {
         CombatMap map;
         int mapSaves;
         boolean failFinalSave;
+        boolean failFinalVersionConflict;
         boolean failRecoveryLoad;
         boolean atomicCommitPersistsOperation;
         int operationSavesAfterAtomicCommit;
@@ -383,6 +416,11 @@ class MovementResolutionOperationTest {
 
         MovementStartRequest start(String fingerprint) {
             return new MovementStartRequest(map.id(), player, tokenId, path, "5E", commandId, fingerprint, map.version());
+        }
+
+        MovementStartRequest startWithPreview(String previewFingerprint, List<GridPosition> waypoints) {
+            return new MovementStartRequest(map.id(), player, tokenId, path, "5E", commandId, "operation-fingerprint",
+                    previewFingerprint, waypoints, map.version());
         }
 
         MovementResolutionOperation readyOperation() {
@@ -444,6 +482,7 @@ class MovementResolutionOperationTest {
         public void commitMovementResolution(CombatMap map, long persistedVersion,
                 MovementResolutionOperation operation,
                 com.dndmaster.combatmap.application.movement.MovementResolutionResult result) {
+            if (failFinalVersionConflict) throw new MovementFinalCommitConflictException();
             if (!atomicCommitPersistsOperation) {
                 CombatMapRepository.super.commitMovementResolution(map, persistedVersion, operation, result);
                 return;

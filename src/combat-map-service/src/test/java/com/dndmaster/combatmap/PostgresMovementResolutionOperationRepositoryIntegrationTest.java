@@ -8,6 +8,7 @@ import com.dndmaster.combatmap.application.movement.MovementOperationConcurrentU
 import com.dndmaster.combatmap.application.movement.MovementOperationStatus;
 import com.dndmaster.combatmap.application.movement.MovementResolutionOperation;
 import com.dndmaster.combatmap.application.movement.MovementResolutionResult;
+import com.dndmaster.combatmap.application.movement.MovementResolutionOutcomeStatus;
 import com.dndmaster.combatmap.application.movement.MovementReservationConflictException;
 import com.dndmaster.combatmap.domain.GridPosition;
 import com.dndmaster.combatmap.domain.MapId;
@@ -107,7 +108,8 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
         operation.advanceTo(1, new GridPosition(2, 1));
         operation.advanceTo(2, new GridPosition(3, 1));
         MovementResolutionResult result = new MovementResolutionResult(
-                path, operation.traversedPath(), operation.currentCell(), 1, List.of("movement-complete"), null);
+                path, operation.traversedPath(), operation.currentCell(), 1, List.of("feature-revealed"), "FEATURE_REVEALED",
+                MovementResolutionOutcomeStatus.INTERRUPTED);
         operation.readyToCommit(result);
         operation.retryWait(3);
         repository.reserve(operation);
@@ -117,6 +119,7 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
         assertEquals(MovementOperationStatus.RETRY_WAIT, restored.status());
         assertEquals(MovementOperationStatus.READY_TO_COMMIT, restored.retryResumeStatus());
         assertEquals(result, restored.result());
+        assertEquals(MovementResolutionOutcomeStatus.INTERRUPTED, restored.result().status());
     }
 
     @Test

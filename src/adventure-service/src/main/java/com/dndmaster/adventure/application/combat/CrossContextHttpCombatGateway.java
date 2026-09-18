@@ -205,7 +205,9 @@ public final class CrossContextHttpCombatGateway
         String route = "internal/v1/combat-maps/" + command.combatMapId() + "/movement-operations";
         Object body = new MovementOperationStartRequest(command.ownerPlayerId(), command.tokenId(), positions,
                 moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion(),
-                moveCommand.previewFingerprint() == null ? "legacy:" + command.operationId() : moveCommand.previewFingerprint());
+                moveCommand.previewFingerprint() == null ? "legacy:" + command.operationId() : moveCommand.previewFingerprint(),
+                moveCommand.previewFingerprint(),
+                moveCommand.waypoints().stream().map(position -> new PositionRequest(position.x(), position.y())).toList());
         String response = sendMovement(route, body, command);
         return movementResult(response, moveCommand.expectedVersion());
     }
@@ -314,17 +316,20 @@ public final class CrossContextHttpCombatGateway
     private CombatMapMoveResult movementResult(String response, long fallback) {
         try {
             JsonNode body = objectMapper.readTree(response);
-            CombatMapMovementStatus status = CombatMapMovementStatus.fromCombatMapStatus(
-                    body.path("status").asText("RETRY_WAIT"));
+            String outcomeStatus = body.hasNonNull("outcomeStatus")
+                    ? body.path("outcomeStatus").asText() : body.path("status").asText("RETRY_WAIT");
+            CombatMapMovementStatus status = CombatMapMovementStatus.fromCombatMapStatus(outcomeStatus);
             long version = body.hasNonNull("mapVersion") ? body.path("mapVersion").asLong() : fallback;
             java.util.UUID operationId = body.hasNonNull("operationId") ? java.util.UUID.fromString(body.path("operationId").asText()) : null;
             java.util.List<CombatMapPreviewPosition> traversed = new java.util.ArrayList<>();
             for (JsonNode position : body.path("traversedPath")) traversed.add(new CombatMapPreviewPosition(position.path("x").asInt(), position.path("y").asInt()));
+            java.util.List<CombatMapPreviewPosition> requested = new java.util.ArrayList<>();
+            for (JsonNode position : body.path("requestedPath")) requested.add(new CombatMapPreviewPosition(position.path("x").asInt(), position.path("y").asInt()));
             JsonNode finalPosition = body.path("finalPosition");
             CombatMapPreviewPosition finalCell = finalPosition.isObject() ? new CombatMapPreviewPosition(finalPosition.path("x").asInt(), finalPosition.path("y").asInt()) : null;
             java.util.List<String> events = new java.util.ArrayList<>();
             for (JsonNode event : body.path("publicEvents")) events.add(event.asText());
-            return new CombatMapMoveResult(version, operationId, status, traversed, finalCell, events,
+            return new CombatMapMoveResult(version, operationId, status, requested, traversed, finalCell, events,
                     body.hasNonNull("interruptionReason") ? body.path("interruptionReason").asText() : null);
         } catch (IOException exception) { throw new CrossContextCallException("combat map returned malformed movement result", exception); }
     }
@@ -452,9 +457,11 @@ public final class CrossContextHttpCombatGateway
             java.util.UUID playerId, java.util.UUID tokenId, List<PositionRequest> positions, int distance,
             String appliedEdition, java.util.UUID commandId, long expectedVersion,
             String fingerprint, List<PositionRequest> waypoints) {}
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
     private record MovementOperationStartRequest(
             java.util.UUID playerId, java.util.UUID tokenId, List<PositionRequest> positions, int distance,
-            String appliedEdition, java.util.UUID commandId, long expectedVersion, String fingerprint) {}
+            String appliedEdition, java.util.UUID commandId, long expectedVersion, String fingerprint,
+            String previewFingerprint, List<PositionRequest> waypoints) {}
     private record PreviewRequest(java.util.UUID playerId, java.util.UUID tokenId, PositionRequest destination,
             List<PositionRequest> waypoints, String appliedEdition, long expectedVersion) {}
     private record PreviewResponse(List<PositionRequest> orderedPositions, int distance, long baseMapVersion, String fingerprint) {}

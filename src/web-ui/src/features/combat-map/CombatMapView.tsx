@@ -169,7 +169,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         fingerprint: candidate.action === 'MOVE' ? candidate.fingerprint : undefined,
       }, undefined, map?.sessionVersion ?? map?.version ?? 0)
       const refreshed = await api.getCombatMap(adventureId)
-      if (candidate.action === 'MOVE' && map && turn.movementResult?.status === 'COMMITTED') {
+      if (candidate.action === 'MOVE' && map && turn.movementResult
+        && (turn.movementResult.status === 'COMMITTED' || turn.movementResult.status === 'INTERRUPTED')) {
         await animateCommittedMovement(setMap, map, refreshed, candidate.tokenId, turn.movementResult.traversedPath)
       }
       else setMap(refreshed)

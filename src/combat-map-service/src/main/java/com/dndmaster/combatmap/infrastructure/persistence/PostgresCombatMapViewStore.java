@@ -109,10 +109,11 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 writeVisibility(connection, map);
                 recordHistory(connection, owner, map, persistedVersion, operation.commandId(), operation.fingerprint());
                 try (PreparedStatement statement = connection.prepareStatement(
-                        "UPDATE combat_map_movement_operation SET status='COMMITTED',result_traversed_path=?,result_final_x=?,result_final_y=?,result_map_version=?,result_public_events=?,result_interruption_reason=?,operation_version=operation_version+1,updated_at=CURRENT_TIMESTAMP WHERE operation_id=? AND status='READY_TO_COMMIT' AND operation_version=?")) {
+                        "UPDATE combat_map_movement_operation SET status='COMMITTED',result_traversed_path=?,result_status=?,result_final_x=?,result_final_y=?,result_map_version=?,result_public_events=?,result_interruption_reason=?,operation_version=operation_version+1,updated_at=CURRENT_TIMESTAMP WHERE operation_id=? AND status='READY_TO_COMMIT' AND operation_version=?")) {
                     statement.setString(1, result.traversedPath().stream().map(p -> p.x() + "," + p.y()).collect(java.util.stream.Collectors.joining(";")));
-                    statement.setInt(2, result.finalPosition().x()); statement.setInt(3, result.finalPosition().y()); statement.setLong(4, result.mapVersion());
-                    statement.setString(5, String.join("\u001f", result.publicEvents())); statement.setString(6, result.interruptionReason()); statement.setObject(7, operation.operationId()); statement.setLong(8, operation.persistenceVersion());
+                    statement.setString(2, result.status().name());
+                    statement.setInt(3, result.finalPosition().x()); statement.setInt(4, result.finalPosition().y()); statement.setLong(5, result.mapVersion());
+                    statement.setString(6, String.join("\u001f", result.publicEvents())); statement.setString(7, result.interruptionReason()); statement.setObject(8, operation.operationId()); statement.setLong(9, operation.persistenceVersion());
                     if (statement.executeUpdate() != 1) throw new com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException();
                 }
                 connection.commit();
@@ -121,7 +122,9 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 map.markPersisted(persistedVersion, operation.commandId(), operation.fingerprint());
             } catch (SQLException | RuntimeException exception) {
                 connection.rollback();
-                if (exception instanceof OptimisticCombatMapLockException optimistic) throw optimistic;
+                if (exception instanceof OptimisticCombatMapLockException) {
+                    throw new com.dndmaster.combatmap.application.movement.MovementFinalCommitConflictException();
+                }
                 if (exception instanceof com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException concurrent) throw concurrent;
                 throw new CombatMapPersistenceException("movement resolution commit failed", exception);
             }

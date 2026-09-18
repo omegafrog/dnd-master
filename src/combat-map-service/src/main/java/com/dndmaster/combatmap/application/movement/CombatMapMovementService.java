@@ -58,6 +58,7 @@ public final class CombatMapMovementService {
         if (map.version() != request.expectedVersion()) throw new MovementVersionConflictException();
         int maximum = movementPort.maximumMovement(map.ruleSetId(), request.appliedEdition());
         map.validatePlayerMovement(request.playerId(), request.tokenId(), request.path(), maximum);
+        validateStagedPreview(request);
         MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), request.mapId(), request.commandId(), request.playerId(), request.tokenId(), request.path(), request.fingerprint(), request.expectedVersion());
         MovementResolutionOperation reserved = operations.reserve(operation);
         if (reserved != operation) return response(reserved);
@@ -149,6 +150,13 @@ public final class CombatMapMovementService {
             if (exception instanceof MovementOperationConcurrentUpdateException) {
                 throw exception;
             }
+            if (exception instanceof MovementFinalCommitConflictException) {
+                if (operation.status().active()) {
+                    operation.cancel(cancelledResult(operation, "MAP_VERSION_CONFLICT"));
+                    operations.save(operation);
+                }
+                throw exception;
+            }
             if (operation.status().active()) {
                 if (!retryable(exception) || !operation.retryWait(MAXIMUM_RETRY_ATTEMPTS)) {
                     operation.cancel(cancelledResult(operation, retryable(exception) ? "RETRY_EXHAUSTED" : "RESOLUTION_FAILED"));
@@ -174,6 +182,18 @@ public final class CombatMapMovementService {
         }
         return response(operation);
     }
+
+    private void validateStagedPreview(MovementStartRequest request) {
+        if (request.previewFingerprint() == null) return;
+        if (request.path().orderedPositions().isEmpty()) throw new CombatMapMovementPreviewMismatchException();
+        MovementPreview preview = preview(new MovementPreviewRequest(request.mapId(), request.playerId(), request.tokenId(),
+                request.path().orderedPositions().getLast(), request.waypoints(), request.appliedEdition(), request.expectedVersion()));
+        if (!request.previewFingerprint().equals(preview.fingerprint())
+                || !request.path().orderedPositions().equals(preview.orderedPositions())
+                || request.path().distance() != preview.distance()) {
+            throw new CombatMapMovementPreviewMismatchException();
+        }
+    }
     private static void rebuildStagedMap(CombatMap map, MovementResolutionOperation operation) {
         map.validatePlayerMovement(operation.playerId(), operation.tokenId(), operation.requestedPath(), Integer.MAX_VALUE);
         for (int index = 1; index <= operation.cursor(); index++) {
@@ -191,7 +211,7 @@ public final class CombatMapMovementService {
     }
     private static MovementResolutionResult cancelledResult(MovementResolutionOperation operation, String reason) {
         return new MovementResolutionResult(operation.requestedPath(), operation.traversedPath(), operation.currentCell(),
-                operation.expectedVersion(), List.of(), reason);
+                operation.expectedVersion(), List.of(), reason, MovementResolutionOutcomeStatus.CANCELLED);
     }
     private static MovementOperationResponse response(MovementResolutionOperation operation) { return new MovementOperationResponse(operation.operationId(), operation.status(), operation.result()); }
     private static final class UnsupportedOperationRepository implements MovementResolutionOperationRepository {

@@ -68,8 +68,8 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
                     previewFingerprint, waypoints));
             String outcome = mapper.writeValueAsString(movement);
             return switch (movement.status()) {
-                case COMMITTED -> RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, outcome, movement);
-                case RETRY_REQUIRED -> RuntimeTurnCommandExecution.movement(
+                case COMMITTED, INTERRUPTED -> RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, outcome, movement);
+                case CHECK_REQUIRED, RETRY_REQUIRED -> RuntimeTurnCommandExecution.movement(
                         RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, outcome, movement);
                 case CANCELLED -> RuntimeTurnCommandExecution.movement(
                         RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, outcome, movement);

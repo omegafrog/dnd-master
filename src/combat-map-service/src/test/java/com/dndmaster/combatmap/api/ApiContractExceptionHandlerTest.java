@@ -10,6 +10,7 @@ import com.dndmaster.combatmap.application.movement.CombatMapMovementStaleExcept
 import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
 import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
 import com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException;
+import com.dndmaster.combatmap.application.movement.MovementFinalCommitConflictException;
 import com.dndmaster.combatmap.application.view.CombatMapViewService;
 import java.util.List;
 import java.util.UUID;
@@ -60,6 +61,14 @@ class ApiContractExceptionHandlerTest {
 
         assertEquals(409, response.getStatusCode().value());
         assertEquals("MOVEMENT_OPERATION_IN_PROGRESS", response.getBody().code());
+    }
+
+    @Test
+    void maps_final_map_compare_and_set_conflict_to_a_typed_version_conflict() {
+        var response = new ApiContractExceptionHandler().handle(new MovementFinalCommitConflictException());
+
+        assertEquals(409, response.getStatusCode().value());
+        assertEquals("MOVEMENT_VERSION_CONFLICT", response.getBody().code());
     }
 
     @Test

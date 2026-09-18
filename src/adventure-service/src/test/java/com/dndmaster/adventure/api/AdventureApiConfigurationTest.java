@@ -127,11 +127,12 @@ class AdventureApiConfigurationTest {
                     UUID.randomUUID(), new RuleSetId(UUID.randomUUID()), new CharacterSheetId(UUID.randomUUID()), mapId,
                     CombatActorRole.PLAYER, "MOVE", "0,0;1,0", UUID.randomUUID(), UUID.randomUUID(), 3L);
 
-            configured.move(new CombatMapMoveCommand(command, 5, 3L, "DND_5E_2024", "preview-identity", List.of()));
+            configured.move(new CombatMapMoveCommand(command, 5, 3L, "DND_5E_2024", "preview-identity",
+                    List.of(new CombatMapPreviewPosition(0, 0))));
 
             assertEquals("/internal/v1/combat-maps/" + mapId + "/movement-operations", requestPath.get());
             assertTrue(requestBody.get().contains("\"fingerprint\":\"preview-identity\""));
-            assertTrue(!requestBody.get().contains("waypoints"));
+            assertTrue(requestBody.get().contains("\"waypoints\":[{\"x\":0,\"y\":0}]"));
         } finally {
             server.stop(0);
         }
@@ -158,7 +159,45 @@ class AdventureApiConfigurationTest {
 
             var result = configured.move(new CombatMapMoveCommand(command, 5, 3L, "DND_5E_2024"));
 
-            assertEquals(CombatMapMovementStatus.RETRY_REQUIRED, result.status());
+            assertEquals(CombatMapMovementStatus.CHECK_REQUIRED, result.status());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void replays_the_typed_interruption_result_with_requested_and_traversed_paths() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/", exchange -> {
+            byte[] body = ("{\"mapVersion\":5,\"status\":\"INTERRUPTED\","
+                    + "\"requestedPath\":[{\"x\":0,\"y\":0},{\"x\":1,\"y\":0}],"
+                    + "\"traversedPath\":[{\"x\":0,\"y\":0}],"
+                    + "\"finalPosition\":{\"x\":0,\"y\":0},"
+                    + "\"publicEvents\":[\"FEATURE_REVEALED\"],\"interruptionReason\":\"FEATURE_REVEALED\"}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
+            UUID mapId = UUID.randomUUID();
+            CombatActionCommand command = new CombatActionCommand(UUID.randomUUID(), AdventureId.generate(),
+                    UUID.randomUUID(), new RuleSetId(UUID.randomUUID()), new CharacterSheetId(UUID.randomUUID()), mapId,
+                    CombatActorRole.PLAYER, "MOVE", "0,0;1,0", UUID.randomUUID(), UUID.randomUUID(), 3L);
+            CombatMapMoveCommand move = new CombatMapMoveCommand(command, 5, 3L, "DND_5E_2024", "preview", List.of());
+
+            var first = configured.move(move);
+            var replay = configured.move(move);
+
+            assertEquals(first, replay);
+            assertEquals(CombatMapMovementStatus.INTERRUPTED, first.status());
+            assertEquals(List.of(new CombatMapPreviewPosition(0, 0), new CombatMapPreviewPosition(1, 0)), first.requestedPath());
+            assertEquals(List.of(new CombatMapPreviewPosition(0, 0)), first.traversedPath());
+            assertEquals(new CombatMapPreviewPosition(0, 0), first.finalPosition());
+            assertEquals("FEATURE_REVEALED", first.interruptionReason());
         } finally {
             server.stop(0);
         }

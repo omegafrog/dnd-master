@@ -103,6 +103,31 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         org.junit.jupiter.api.Assertions.assertTrue(result.value().contains(operationId.toString()));
     }
 
+    @Test
+    void preserves_requested_and_traversed_paths_and_interruption_status() {
+        UUID operationId = UUID.randomUUID();
+        List<CombatMapPreviewPosition> requested = List.of(
+                new CombatMapPreviewPosition(1, 1), new CombatMapPreviewPosition(2, 1), new CombatMapPreviewPosition(3, 1));
+        List<CombatMapPreviewPosition> traversed = requested.subList(0, 2);
+        CombatMapPort mapPort = new CombatMapPort() {
+            @Override public void validateAndMove(CombatActionCommand command) {}
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult move(CombatMapMoveCommand command) {
+                return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
+                        CombatMapMovementStatus.INTERRUPTED, requested, traversed, traversed.getLast(), List.of("FEATURE_REVEALED"), "FEATURE_REVEALED");
+            }
+        };
+
+        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper())
+                .execute(validCommand());
+
+        assertEquals(RuntimeTurnCommandExecution.Status.DONE, result.status());
+        assertEquals(CombatMapMovementStatus.INTERRUPTED, result.movementResult().status());
+        assertEquals(requested, result.movementResult().requestedPath());
+        assertEquals(traversed, result.movementResult().traversedPath());
+        assertEquals("FEATURE_REVEALED", result.movementResult().interruptionReason());
+        assertEquals(operationId, result.movementResult().operationId());
+    }
+
     private static RuntimeTurnCommand validCommand() {
         return RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), "{\"ruleSetId\":\"" + UUID.randomUUID()
