@@ -37,6 +37,7 @@ class CombatMapMovementTest {
         CombatMapMovementService service = fixture.service(10);
         MovementPath path = new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5);
         MovePlayerTokenCommand command = command(fixture, path, 0);
+        assertEquals(fixture.map.id()+"|"+fixture.player+"|"+fixture.playerToken.id()+"|"+path+"|5E|0", command.fingerprint());
 
         CombatMap first = service.movePlayerToken(command);
         CombatMap second = service.movePlayerToken(command);

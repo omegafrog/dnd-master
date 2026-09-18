@@ -19,5 +19,8 @@ public record MovePlayerTokenCommand(MapId mapId, PlayerId playerId, TokenId tok
             UUID commandId, long expectedVersion) {
         this(mapId, playerId, tokenId, path, appliedEdition, commandId, expectedVersion, List.of(), null);
     }
-    public String fingerprint(){return mapId+"|"+playerId+"|"+tokenId+"|"+path+"|"+appliedEdition+"|"+expectedVersion+"|preview="+previewFingerprint;}
+    public String fingerprint(){
+        String base = mapId+"|"+playerId+"|"+tokenId+"|"+path+"|"+appliedEdition+"|"+expectedVersion;
+        return previewFingerprint == null ? base : base + "|preview=" + previewFingerprint;
+    }
 }

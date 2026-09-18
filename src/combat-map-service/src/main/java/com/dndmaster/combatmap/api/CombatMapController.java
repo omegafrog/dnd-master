@@ -408,6 +408,7 @@ public class CombatMapController {
         requireIdempotencyKey(idempotencyKey, request.commandId());
         if (request.playerId() == null || request.tokenId() == null || request.appliedEdition() == null
                 || request.appliedEdition().isBlank() || request.commandId() == null || request.expectedVersion() < 0
+                || request.fingerprint() != null && request.fingerprint().isBlank()
                 || request.positions() == null || request.positions().size() < 2
                 || request.positions().stream().anyMatch(CombatMapController::invalid)
                 || request.waypoints() != null && (request.waypoints().size() > MovementPreviewRequest.MAX_WAYPOINTS
