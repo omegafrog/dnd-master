@@ -409,7 +409,7 @@ public class CombatMapController {
                 ? movementService.resume(new MapId(mapId), operationId)
                 : movementService.resume(new MapId(mapId), operationId,
                         new com.dndmaster.combatmap.application.movement.MovementCheckResult(
-                                checkResult.operationId() == null ? operationId : checkResult.operationId(),
+                                checkResult.operationId(),
                                 checkResult.checkId(), Boolean.TRUE.equals(checkResult.success())));
         return MovementOperationResponseBody.from(response);
     }
