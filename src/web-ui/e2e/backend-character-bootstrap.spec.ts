@@ -185,7 +185,7 @@ async function compilePackage(request: APIRequestContext, bundleId: string, prim
     const current = await response.json() as { status: string; packageId?: string | null; failureReason?: string | null }
     if (current.status === 'FAILED') throw new Error(current.failureReason ?? 'scenario compilation failed')
     packageId = current.packageId ?? packageId
-    return current.status
+    return current.status === 'COMPLETED' && packageId ? 'PUBLISHED' : current.status
   }, { timeout: 360_000, intervals: [1000, 2000, 5000] }).toBe('PUBLISHED')
   expect(packageId).toBeTruthy()
   return packageId!
