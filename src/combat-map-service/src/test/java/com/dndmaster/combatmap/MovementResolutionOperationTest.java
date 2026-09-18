@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
 import com.dndmaster.combatmap.application.movement.CombatMapRepository;
 import com.dndmaster.combatmap.application.movement.MovementOperationStatus;
+import com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException;
 import com.dndmaster.combatmap.application.movement.MovementResolutionOperation;
 import com.dndmaster.combatmap.application.movement.MovementResolutionOperationRepository;
 import com.dndmaster.combatmap.application.movement.MovementStartRequest;
@@ -171,6 +172,19 @@ class MovementResolutionOperationTest {
     }
 
     @Test
+    void does_not_save_again_after_the_atomic_commit_already_persists_the_operation() {
+        Fixture fixture = new Fixture();
+        fixture.atomicCommitPersistsOperation = true;
+        MovementResolutionOperation operation = fixture.readyOperation();
+        fixture.save(operation);
+
+        MovementOperationResponse response = fixture.service().resume(fixture.map.id(), operation.operationId());
+
+        assertEquals(MovementOperationStatus.COMMITTED, response.status());
+        assertEquals(0, fixture.operationSavesAfterAtomicCommit);
+    }
+
+    @Test
     void retry_wait_preserves_a_prepared_result_and_resumes_the_ready_to_commit_state() {
         Fixture fixture = new Fixture();
         MovementResolutionOperation operation = fixture.readyOperation();
@@ -324,6 +338,20 @@ class MovementResolutionOperationTest {
                 () -> fixture.save(stale));
     }
 
+    @Test
+    void concurrent_operation_update_is_not_converted_into_a_cancellation() {
+        Fixture fixture = new Fixture();
+        fixture.failNextOperationProgressSave = true;
+
+        MovementOperationConcurrentUpdateException failure = org.junit.jupiter.api.Assertions.assertThrows(
+                MovementOperationConcurrentUpdateException.class,
+                () -> fixture.service().start(fixture.start("fingerprint-1")));
+
+        assertEquals("movement operation changed concurrently", failure.getMessage());
+        assertEquals(MovementOperationStatus.PREPARING,
+                fixture.findOperationByCommandId(fixture.commandId).orElseThrow().status());
+    }
+
     private static final class Fixture implements CombatMapRepository, MovementResolutionOperationRepository {
         final PlayerId player = new PlayerId(UUID.randomUUID());
         final TokenId tokenId = new TokenId(UUID.randomUUID());
@@ -334,6 +362,9 @@ class MovementResolutionOperationTest {
         int mapSaves;
         boolean failFinalSave;
         boolean failRecoveryLoad;
+        boolean atomicCommitPersistsOperation;
+        int operationSavesAfterAtomicCommit;
+        boolean failNextOperationProgressSave;
         String concurrentReservationFingerprint;
         final Map<UUID, MovementResolutionOperation> operations = new HashMap<>();
 
@@ -393,12 +424,33 @@ class MovementResolutionOperationTest {
             return operation;
         }
         @Override public void save(MovementResolutionOperation operation) {
+            if (failNextOperationProgressSave && operation.status() == MovementOperationStatus.PREPARING
+                    && operation.cursor() == 1) {
+                failNextOperationProgressSave = false;
+                throw new MovementOperationConcurrentUpdateException();
+            }
+            if (atomicCommitPersistsOperation && operation.status() == MovementOperationStatus.COMMITTED) {
+                operationSavesAfterAtomicCommit++;
+            }
             MovementResolutionOperation stored = operations.get(operation.operationId());
             if (stored != null && stored != operation && stored.persistenceVersion() != operation.persistenceVersion()) {
                 throw new com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException();
             }
             operation.markPersisted(operation.persistenceVersion() + (stored == null ? 0 : 1));
             operations.put(operation.operationId(), operation);
+        }
+
+        @Override
+        public void commitMovementResolution(CombatMap map, long persistedVersion,
+                MovementResolutionOperation operation,
+                com.dndmaster.combatmap.application.movement.MovementResolutionResult result) {
+            if (!atomicCommitPersistsOperation) {
+                CombatMapRepository.super.commitMovementResolution(map, persistedVersion, operation, result);
+                return;
+            }
+            save(map, persistedVersion, operation.commandId(), operation.fingerprint());
+            operation.committed(result);
+            operation.markPersisted(operation.persistenceVersion() + 1);
         }
         void delete(UUID id) { operations.remove(id); }
         @Override public List<MovementResolutionOperation> findRecoverable() {

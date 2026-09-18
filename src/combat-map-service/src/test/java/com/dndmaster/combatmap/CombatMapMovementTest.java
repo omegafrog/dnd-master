@@ -100,7 +100,7 @@ class CombatMapMovementTest {
                 fixture.map.id(), fixture.player, fixture.playerToken.id(), firstPath, "5E", commandId, 0));
 
         MovementPath differentPath = new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(1, 2)), 5);
-        assertThrows(IllegalStateException.class, () -> service.movePlayerToken(new MovePlayerTokenCommand(
+        assertThrows(MovementCommandConflictException.class, () -> service.movePlayerToken(new MovePlayerTokenCommand(
                 fixture.map.id(), fixture.player, fixture.playerToken.id(), differentPath, "5E", commandId, 1)));
     }
 

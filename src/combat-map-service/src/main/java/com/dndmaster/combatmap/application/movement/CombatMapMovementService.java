@@ -23,7 +23,7 @@ public final class CombatMapMovementService {
         Objects.requireNonNull(command);
         CombatMap replay = repository.findByCommandId(command.commandId()).orElse(null);
         if (replay != null) {
-            if (!command.fingerprint().equals(replay.operationFingerprint())) throw new IllegalStateException("combat map command id reused with different payload");
+            if (!command.fingerprint().equals(replay.operationFingerprint())) throw new MovementCommandConflictException();
             return replay;
         }
         CombatMap map=repository.findById(command.mapId()).orElseThrow(()->new CombatMapMovementDeniedException("map not found"));
@@ -146,6 +146,9 @@ public final class CombatMapMovementService {
             operation.readyToCommit(result); operations.save(operation);
             return commitPrepared(map, operation);
         } catch (RuntimeException exception) {
+            if (exception instanceof MovementOperationConcurrentUpdateException) {
+                throw exception;
+            }
             if (operation.status().active()) {
                 if (!retryable(exception) || !operation.retryWait(MAXIMUM_RETRY_ATTEMPTS)) {
                     operation.cancel(cancelledResult(operation, retryable(exception) ? "RETRY_EXHAUSTED" : "RESOLUTION_FAILED"));
@@ -163,8 +166,12 @@ public final class CombatMapMovementService {
                     operation.expectedVersion() + 1, List.of(), null);
         }
         repository.commitMovementResolution(map, operation.expectedVersion() + 1, operation, result);
-        operation.committed(result);
-        operations.save(operation);
+        if (operation.status() == MovementOperationStatus.READY_TO_COMMIT) {
+            operation.committed(result);
+            operations.save(operation);
+        } else if (operation.status() != MovementOperationStatus.COMMITTED) {
+            throw new MovementOperationConcurrentUpdateException();
+        }
         return response(operation);
     }
     private static void rebuildStagedMap(CombatMap map, MovementResolutionOperation operation) {
