@@ -199,7 +199,8 @@ public class AdventureController {
                     request.turnId(), commandId, adventureId, exception.getClass().getName(), exception.getMessage(), exception);
             gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception, expectedVersion);
             if (exception instanceof RuntimeCombatRejectionException
-                    || exception instanceof ApiRequestGuard.ApiContractException) {
+                    || exception instanceof ApiRequestGuard.ApiContractException
+                    || exception instanceof com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException) {
                 throw exception;
             }
             String message = exception.getMessage() == null ? "" : exception.getMessage();
@@ -659,8 +660,11 @@ public class AdventureController {
             com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput input) {
         try {
             MapActionPayload payload = objectMapper.readValue(input.action(), MapActionPayload.class);
+            if (payload == null) {
+                throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
+            }
             if (!input.mapId().equals(payload.mapId()) || payload.mapVersion() == null || input.mapVersion() != payload.mapVersion()) {
-                throw new IllegalArgumentException("map action identity mismatch");
+                throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
             }
             if (payload.action() == null || payload.action().isBlank()) {
                 throw new IllegalArgumentException("map action type required");
@@ -694,8 +698,11 @@ public class AdventureController {
             com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput input) {
         try {
             MapActionPayload payload = objectMapper.readValue(input.action(), MapActionPayload.class);
+            if (payload == null) {
+                throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
+            }
             if (!input.mapId().equals(payload.mapId()) || payload.mapVersion() == null || input.mapVersion() != payload.mapVersion()) {
-                throw new IllegalArgumentException("map action identity mismatch");
+                throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
             }
             if (payload.action() == null || payload.action().isBlank()) {
                 throw new IllegalArgumentException("map action type required");
