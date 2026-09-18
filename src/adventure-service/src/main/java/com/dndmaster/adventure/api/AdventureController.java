@@ -309,6 +309,10 @@ public class AdventureController {
         if (request == null || request.mapId() == null || request.tokenId() == null || request.destination() == null) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_PREVIEW");
         }
+        var playerMap = combatMapViewPort.playerView(adventureId, owner);
+        if (playerMap.isEmpty() || !request.mapId().equals(playerMap.get().mapId())) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_PREVIEW");
+        }
         CombatMapPreviewResult preview = combatMapPort.preview(new CombatMapPreviewCommand(
                 request.mapId(), owner, request.tokenId(), toPreviewPosition(request.destination()),
                 request.waypoints() == null ? List.of() : request.waypoints().stream().map(AdventureController::toPreviewPosition).toList(),

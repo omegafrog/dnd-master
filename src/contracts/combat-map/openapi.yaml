@@ -211,7 +211,7 @@ paths:
                   properties:
                     x: { type: integer, minimum: 0 }
                     y: { type: integer, minimum: 0 }
-                waypoints: { type: array, items: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } } }
+                waypoints: { type: array, maxItems: 16, items: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } } }
                 appliedEdition: { type: string, minLength: 1 }
                 expectedVersion: { type: integer, format: int64, minimum: 0 }
       responses:

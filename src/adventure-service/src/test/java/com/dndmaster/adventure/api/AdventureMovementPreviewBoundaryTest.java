@@ -1,0 +1,86 @@
+package com.dndmaster.adventure.api;
+
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
+import com.dndmaster.adventure.application.combat.AdventureCombatApplicationService;
+import com.dndmaster.adventure.application.combat.CharacterCombatPort;
+import com.dndmaster.adventure.application.combat.CombatActionApplicationService;
+import com.dndmaster.adventure.application.combat.CombatMapPort;
+import com.dndmaster.adventure.application.combat.CombatMapPreviewPosition;
+import com.dndmaster.adventure.application.combat.CombatMapPreviewResult;
+import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
+import com.dndmaster.adventure.application.combat.CombatMapViewPort;
+import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
+import com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder;
+import com.dndmaster.adventure.application.runtime.GmTurnRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
+import com.dndmaster.adventure.application.runtime.SessionEventRepository;
+import com.dndmaster.adventure.application.saved.AdventureRepository;
+import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
+import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+
+class AdventureMovementPreviewBoundaryTest {
+    @Test
+    void rejects_a_preview_for_a_map_not_owned_by_the_requested_adventure() {
+        UUID adventureId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID adventureMapId = UUID.randomUUID();
+        UUID requestedMapId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class);
+        AuthenticatedPlayerResolver playerResolver = mock(AuthenticatedPlayerResolver.class);
+        Adventure adventure = mock(Adventure.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(playerResolver.playerId()).thenReturn(ownerId);
+        when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(
+                adventureMapId, new CombatMapViewPort.Grid(2, 2, 50, 5), List.of(), List.of(), List.of(),
+                List.of(), List.of(), 0)));
+        when(combatMap.preview(any())).thenReturn(new CombatMapPreviewResult(adventureMapId,
+                List.of(new CombatMapPreviewPosition(0, 0)), 0, 0, "preview"));
+
+        AdventureController controller = controller(adventures, combatMap, mapViews, playerResolver);
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.previewMovement(adventureId,
+                new AdventureController.CombatMapMovementPreviewRequest(requestedMapId, 0, UUID.randomUUID(),
+                        new AdventureController.PositionPayload(1, 1), List.of())));
+        verifyNoInteractions(combatMap);
+    }
+
+    private static AdventureController controller(AdventureRepository adventures, CombatMapPort combatMap,
+            CombatMapViewPort mapViews, AuthenticatedPlayerResolver playerResolver) {
+        return new AdventureController(
+                mock(SavedAdventureApplicationService.class), mock(RuntimeTurnApplicationService.class), adventures,
+                mock(GmTurnFailureRecorder.class), mock(GmTurnRepository.class), mock(RuntimeTurnRepository.class),
+                mock(SessionEventRepository.class), mock(RuleGuidanceApplicationService.class),
+                mock(AdventureCombatApplicationService.class), mock(CombatActionApplicationService.class),
+                mock(AdventureScenarioApplicationService.class), playerResolver, provider(combatMap),
+                provider(mock(CharacterCombatPort.class)), new ObjectMapper(), provider(mapViews),
+                provider(mock(CombatMapPreparationPort.class)), mock(ScenarioPackageRepository.class),
+                mock(CombatLifecycleApplicationService.class));
+    }
+
+    private static <T> ObjectProvider<T> provider(T value) {
+        return new ObjectProvider<>() {
+            @Override public T getObject() { return value; }
+            @Override public T getIfAvailable(java.util.function.Supplier<T> fallback) { return value; }
+        };
+    }
+}
