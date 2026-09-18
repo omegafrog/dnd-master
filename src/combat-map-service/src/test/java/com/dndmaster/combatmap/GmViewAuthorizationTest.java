@@ -68,6 +68,22 @@ class GmViewAuthorizationTest {
     }
 
     @Test
+    void rejects_a_compatibility_move_without_a_server_preview_fingerprint() {
+        var movement = mock(CombatMapMovementService.class);
+        var controller = new CombatMapController(mock(CombatMapViewService.class), movement, new ApiRequestGuard("service-secret"));
+        var request = new CombatMapController.MoveRequest(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
+                5, "DND_5E_2024", UUID.randomUUID(), 0L, "operation-fingerprint", null, List.of());
+
+        var error = assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.movePlayer(UUID.randomUUID(), "service-secret", request));
+
+        assertEquals(400, error.status());
+        assertEquals("MOVEMENT_PREVIEW_REQUIRED", error.code());
+        verifyNoInteractions(movement);
+    }
+
+    @Test
     void rejects_a_staged_move_without_a_preview_fingerprint() {
         var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
         var request = new CombatMapController.MovementStartRequestBody(UUID.randomUUID(), UUID.randomUUID(),

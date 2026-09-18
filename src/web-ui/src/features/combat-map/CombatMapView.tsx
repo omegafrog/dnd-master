@@ -4,9 +4,11 @@ import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
 
-type PendingMovement = { mapId: string; tokenId: string; result: MapMovementResult }
+type PendingMovement = { mapId: string; tokenId: string; turnId?: string; commandId?: string; result: MapMovementResult }
+type PendingMovementCommand = { candidate: MapInteractionCandidate; turnId: string; commandId: string; expectedVersion: number }
 
 function pendingMovementKey(adventureId: string) { return `dnd-master:movement-operation:${adventureId}` }
+function pendingMovementCommandKey(adventureId: string) { return `dnd-master:movement-command:${adventureId}` }
 
 function readPendingMovement(adventureId: string): PendingMovement | null {
   try {
@@ -15,15 +17,27 @@ function readPendingMovement(adventureId: string): PendingMovement | null {
   } catch { return null }
 }
 
+function readPendingMovementCommand(adventureId: string): PendingMovementCommand | null {
+  try {
+    const value = window.localStorage.getItem(pendingMovementCommandKey(adventureId))
+    return value ? JSON.parse(value) as PendingMovementCommand : null
+  } catch { return null }
+}
+
 function movementStatusMessage(status: MapMovementResult['status']) {
   return status === 'RETRY_REQUIRED' ? '이동 처리를 다시 시도할 수 있습니다.' : '이동 처리를 이어갈 수 있습니다.'
+}
+
+function createMapCommandIdentity() {
+  const value = globalThis.crypto && 'randomUUID' in globalThis.crypto ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+  return { turnId: value, commandId: value }
 }
 
 export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, onPreparationComplete }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; onPreparationComplete?: () => void | Promise<void> }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [publicMapImage, setPublicMapImage] = useState<string | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
-  const [candidate, setCandidate] = useState<MapInteractionCandidate | null>(null)
+  const [candidate, setCandidate] = useState<MapInteractionCandidate | null>(() => readPendingMovementCommand(adventureId)?.candidate ?? null)
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [previewing, setPreviewing] = useState(false)
@@ -180,20 +194,30 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       return
     }
     setSubmitting(true)
+    const command = candidate.commandId
+      ? { turnId: candidate.commandId, commandId: candidate.commandId }
+      : createMapCommandIdentity()
+    const confirmedCandidate = { ...candidate, commandId: command.commandId }
+    setCandidate(confirmedCandidate)
+    try { window.localStorage.setItem(pendingMovementCommandKey(adventureId), JSON.stringify({
+      candidate: confirmedCandidate, turnId: command.turnId, commandId: command.commandId,
+      expectedVersion: map?.sessionVersion ?? map?.version ?? 0,
+    } satisfies PendingMovementCommand)) } catch { /* replay identity remains in memory */ }
     try {
       if (!api.submitMapAction) throw new Error('맵 행동 API를 사용할 수 없습니다.')
       const turn = await api.submitMapAction(adventureId, {
-        mapId: candidate.mapId, mapVersion: candidate.mapVersion, tokenId: candidate.tokenId,
-        action: candidate.action, path: candidate.action === 'MOVE' ? (candidate.path ?? (candidate.from && candidate.to ? gridPath(candidate.from, candidate.to) : undefined)) : undefined,
-        targetId: candidate.targetId, location: candidate.location ?? candidate.to,
-        waypoints: candidate.action === 'MOVE' ? (candidate.waypoints ?? []) : undefined,
-        fingerprint: candidate.action === 'MOVE' ? candidate.fingerprint : undefined,
-      }, undefined, map?.sessionVersion ?? map?.version ?? 0)
+        mapId: confirmedCandidate.mapId, mapVersion: confirmedCandidate.mapVersion, tokenId: confirmedCandidate.tokenId,
+        action: confirmedCandidate.action, path: confirmedCandidate.action === 'MOVE' ? (confirmedCandidate.path ?? (confirmedCandidate.from && confirmedCandidate.to ? gridPath(confirmedCandidate.from, confirmedCandidate.to) : undefined)) : undefined,
+        targetId: confirmedCandidate.targetId, location: confirmedCandidate.location ?? confirmedCandidate.to,
+        waypoints: confirmedCandidate.action === 'MOVE' ? (confirmedCandidate.waypoints ?? []) : undefined,
+        fingerprint: confirmedCandidate.action === 'MOVE' ? confirmedCandidate.fingerprint : undefined,
+      }, command, map?.sessionVersion ?? map?.version ?? 0)
       const refreshed = await api.getCombatMap(adventureId)
       if (candidate.action === 'MOVE' && turn.movementResult) {
-        await applyMovementResult(turn.movementResult, candidate.mapId, candidate.tokenId, map, refreshed)
+        await applyMovementResult(turn.movementResult, confirmedCandidate.mapId, confirmedCandidate.tokenId, turn.turnId, command.commandId, map, refreshed)
       } else {
         setMap(refreshed)
+        clearPendingMovementCommand(adventureId)
         setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
       }
     } catch (error) {
@@ -227,9 +251,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   }
 
   async function applyMovementResult(result: MapMovementResult, mapId: string, tokenId: string,
-    before: CombatMapState | null, refreshed: CombatMapState) {
+    turnId: string | undefined, commandId: string | undefined, before: CombatMapState | null, refreshed: CombatMapState) {
     if (result.status === 'RETRY_REQUIRED' || result.status === 'CHECK_REQUIRED') {
-      const pending = { mapId, tokenId, result }
+      const pending = { mapId, tokenId, turnId, commandId, result }
       setMap(refreshed)
       setPendingMovement(pending)
       try { window.localStorage.setItem(pendingMovementKey(adventureId), JSON.stringify(pending)) } catch { /* reconnect is best effort */ }
@@ -241,6 +265,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     } else setMap(refreshed)
     setPendingMovement(null)
     try { window.localStorage.removeItem(pendingMovementKey(adventureId)) } catch { /* storage is optional */ }
+    clearPendingMovementCommand(adventureId)
     setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
   }
 
@@ -255,7 +280,11 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     try {
       const result = await operationApi(adventureId, pendingMovement.mapId, operationId)
       const refreshed = await api.getCombatMap(adventureId)
-      await applyMovementResult(result, pendingMovement.mapId, pendingMovement.tokenId, map, refreshed)
+      if (resume && pendingMovement.turnId && api.resumeRuntimeTurn) {
+        await api.resumeRuntimeTurn(adventureId, pendingMovement.turnId)
+      }
+      await applyMovementResult(result, pendingMovement.mapId, pendingMovement.tokenId, pendingMovement.turnId,
+        pendingMovement.commandId, map, refreshed)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '저장된 이동 상태를 확인하지 못했습니다.')
     }
@@ -561,6 +590,10 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {preparationMode && <button type="button" disabled={preparationStarting || layoutSaving || layoutDirty || !gridConfirmed || !layoutSaved || !onPreparationComplete} aria-busy={preparationStarting} onClick={() => void completePreparation()}>{preparationStarting ? '모험 시작 요청 중…' : '맵 준비 완료, 모험 시작'}</button>}
     </section>
   )
+}
+
+function clearPendingMovementCommand(adventureId: string) {
+  try { window.localStorage.removeItem(pendingMovementCommandKey(adventureId)) } catch { /* storage is optional */ }
 }
 
 /**

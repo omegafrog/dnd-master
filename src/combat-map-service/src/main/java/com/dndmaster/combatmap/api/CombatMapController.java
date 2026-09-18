@@ -473,21 +473,15 @@ public class CombatMapController {
                         || request.waypoints().stream().anyMatch(CombatMapController::invalid))) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }
+        if (request.previewFingerprint() == null || request.previewFingerprint().isBlank()) {
+            throw new ApiRequestGuard.ApiContractException(400, "MOVEMENT_PREVIEW_REQUIRED");
+        }
         MovementPath path = new MovementPath(
                 request.positions().stream().map(p -> new GridPosition(p.x(), p.y())).toList(),
                 request.distance());
         List<GridPosition> waypoints = request.waypoints() == null ? List.of()
                 : request.waypoints().stream().map(p -> new GridPosition(p.x(), p.y())).toList();
         String previewFingerprint = request.previewFingerprint();
-        if (previewFingerprint == null || previewFingerprint.isBlank()) {
-            MovementPreview preview = movementService.preview(new MovementPreviewRequest(new MapId(mapId),
-                    new PlayerId(request.playerId()), new TokenId(request.tokenId()), path.orderedPositions().getLast(),
-                    waypoints, request.appliedEdition(), request.expectedVersion()));
-            if (!path.orderedPositions().equals(preview.orderedPositions()) || path.distance() != preview.distance()) {
-                throw new com.dndmaster.combatmap.application.movement.CombatMapMovementPreviewMismatchException();
-            }
-            previewFingerprint = preview.fingerprint();
-        }
         MovementOperationResponse operation = movementService.start(new MovementStartRequest(new MapId(mapId),
                 new PlayerId(request.playerId()), new TokenId(request.tokenId()), path, request.appliedEdition(),
                 request.commandId(), request.fingerprint() == null ? "legacy:" + request.commandId() : request.fingerprint(),

@@ -12,6 +12,7 @@ export type MapInteractionCandidate = {
   path?: GridCell[]
   distance?: number
   fingerprint?: string
+  commandId?: string
   waypoints?: GridCell[]
 }
 

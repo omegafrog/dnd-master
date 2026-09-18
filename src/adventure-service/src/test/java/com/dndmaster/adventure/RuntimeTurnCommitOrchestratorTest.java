@@ -1,6 +1,11 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.dndmaster.adventure.application.runtime.InMemoryRuntimeTurnCommandRepository;
 import com.dndmaster.adventure.application.runtime.InMemoryRuntimeTurnRepository;
@@ -10,8 +15,19 @@ import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandAdapter;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommitOrchestrator;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle;
+import com.dndmaster.adventure.application.runtime.NarrationSafetyPort;
+import com.dndmaster.adventure.application.runtime.RuntimeBindingRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchPort;
+import com.dndmaster.adventure.application.runtime.RuntimePlanningPort;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.application.saved.AdventureRepository;
+import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -131,6 +147,37 @@ class RuntimeTurnCommitOrchestratorTest {
                 result.movementResult().status());
         assertEquals(List.of(new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1)),
                 result.movementResult().traversedPath());
+    }
+
+    @Test
+    void application_service_forward_recovers_map_failure_before_committing_adventure_state() {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        RuntimeTurn ready = fixture.readyTurn();
+        RuntimeTurnCommand command = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
+        fixture.turns.save(ready.beginCommit());
+        var adventureRepository = mock(AdventureRepository.class);
+        Adventure adventure = mock(Adventure.class);
+        when(adventureRepository.findById(ready.adventureId())).thenReturn(Optional.of(adventure));
+        when(adventure.version()).thenReturn(ready.version());
+        when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(UUID.randomUUID()));
+        var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, UUID.randomUUID(),
+                com.dndmaster.adventure.application.combat.CombatMapMovementStatus.COMMITTED, List.of(),
+                new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(2, 1), List.of(), null);
+        var service = new RuntimeTurnApplicationService(adventureRepository, mock(RuntimeBindingRepository.class),
+                mock(ScenarioPackageRepository.class), fixture.turns, mock(RuntimeEvidenceSearchPort.class),
+                mock(RuntimePlanningPort.class), mock(NarrationSafetyPort.class), mock(SessionKnowledgeSetRepository.class));
+        service.setCommitOrchestrator(fixture.orchestrator(ignored ->
+                RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, "saved", movement)));
+        fixture.commands.save(command);
+
+        var result = service.resumeRuntimeTurn(ready.turnId());
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED, result.status());
+        assertEquals(RuntimeTurnLifecycle.COMMITTED, result.turn().lifecycle());
+        assertEquals(movement, result.movementResult());
+        verify(adventure).commitRuntimeTurn(any(OwnerPlayerId.class), eq(ready.version()), eq(ready.pendingState()),
+                eq(ready.context()), eq(ready.conversation()), eq(ready.completionProposal()));
+        verify(adventureRepository).save(adventure);
     }
 
     private static final class RuntimeTurnFixture {

@@ -91,6 +91,15 @@ paths:
         '202': { description: accepted }
         '403': { description: adventure is not owned by bearer }
         '409': { description: stale version or idempotency conflict }
+  /api/v1/adventures/{adventureId}/turns/{pendingTurnId}/resume:
+    post:
+      operationId: resumePendingAdventureTurn
+      parameters:
+        - { name: pendingTurnId, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: accepted or forward-recovered turn result }
+        '403': { description: adventure is not owned by bearer }
+        '409': { description: repair is required }
   /api/v1/adventures/scenarios:
     post: { operationId: uploadScenario, requestBody: { required: true, content: { multipart/form-data: { schema: { $ref: '../rule-knowledge/schemas/multipart-upload.json' } } } }, responses: { '202': { description: accepted } } }
   /api/v1/adventures/{adventureId}/rule-inquiries:

@@ -32,6 +32,14 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
             if (payload == null || !payload.isObject() || context == null || !context.isObject()) {
                 throw new IllegalArgumentException("movement command payload must be objects");
             }
+            JsonNode savedOutcome = readSavedOutcome(command);
+            String savedStatus = savedOutcome == null ? "" : savedOutcome.path("status").asText();
+            if ("RETRY_REQUIRED".equals(savedStatus) || "CHECK_REQUIRED".equals(savedStatus)) {
+                UUID operationId = requiredUuid(savedOutcome, "operationId");
+                var resumed = movementCoordinator.resume(requiredUuid(context, "combatMapId"), operationId);
+                String outcome = mapper.writeValueAsString(resumed);
+                return movementExecution(resumed, outcome);
+            }
             JsonNode pathNode = payload.get("path");
             if (pathNode == null || !pathNode.isArray() || pathNode.size() < 2
                     || !"MOVE".equals(payload.path("action").asText())) {
@@ -67,13 +75,7 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
                     mapCommand, distance, requiredNonNegativeLong(context, "expectedVersion"), appliedEdition,
                     previewFingerprint, waypoints));
             String outcome = mapper.writeValueAsString(movement);
-            return switch (movement.status()) {
-                case COMMITTED, INTERRUPTED -> RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, outcome, movement);
-                case CHECK_REQUIRED, RETRY_REQUIRED -> RuntimeTurnCommandExecution.movement(
-                        RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, outcome, movement);
-                case CANCELLED -> RuntimeTurnCommandExecution.movement(
-                        RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, outcome, movement);
-            };
+            return movementExecution(movement, outcome);
         } catch (java.io.IOException malformed) {
             return RuntimeTurnCommandExecution.permanentFailure(malformed.getMessage());
         } catch (IllegalArgumentException malformed) {
@@ -82,6 +84,27 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
             return RuntimeTurnCommandExecution.movementConflict(rejected.status(), rejected.code());
         } catch (RuntimeException transientFailure) {
             return RuntimeTurnCommandExecution.transientFailure(transientFailure.getMessage());
+        }
+    }
+
+    private RuntimeTurnCommandExecution movementExecution(
+            com.dndmaster.adventure.application.combat.CombatMapMoveResult movement, String outcome) {
+        return switch (movement.status()) {
+            case COMMITTED, INTERRUPTED -> RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, outcome, movement);
+            case CHECK_REQUIRED, RETRY_REQUIRED -> RuntimeTurnCommandExecution.movement(
+                    RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, outcome, movement);
+            case CANCELLED -> RuntimeTurnCommandExecution.movement(
+                    RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, outcome, movement);
+        };
+    }
+
+    private JsonNode readSavedOutcome(RuntimeTurnCommand command) {
+        if (!"combat-map.move".equals(command.commandType()) || command.outcomeJson().isBlank()) return null;
+        try {
+            JsonNode value = mapper.readTree(command.outcomeJson());
+            return value == null || !value.isObject() ? null : value;
+        } catch (java.io.IOException malformed) {
+            throw new IllegalArgumentException("saved movement outcome is invalid", malformed);
         }
     }
 

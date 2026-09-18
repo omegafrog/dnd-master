@@ -534,7 +534,27 @@ it('submits exactly one typed map action after confirmation', async () => {
   await user.click(screen.getByRole('button', { name: '격자 2,1' }))
   await user.click(screen.getByRole('button', { name: '확인' }))
   expect(api.submitMapAction).toHaveBeenCalledTimes(1)
-  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }], fingerprint: 'server-preview', waypoints: [] }), undefined, 7)
+  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }], fingerprint: 'server-preview', waypoints: [] }), expect.objectContaining({ commandId: expect.any(String) }), 7)
+})
+
+it('reuses the first command identity when the confirmation response is lost', async () => {
+  window.localStorage.removeItem('dnd-master:movement-command:a1')
+  const api = fakeApi()
+  api.submitMapAction = vi.fn()
+    .mockRejectedValueOnce(new Error('network response lost'))
+    .mockResolvedValueOnce({ turnId: 't1', version: 1 })
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} />)
+  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await user.click(screen.getByRole('button', { name: '확인' }))
+  await waitFor(() => expect(api.submitMapAction).toHaveBeenCalledTimes(1))
+  await user.click(screen.getByRole('button', { name: '확인' }))
+
+  const firstCommand = (api.submitMapAction as ReturnType<typeof vi.fn>).mock.calls[0][2]
+  const replayCommand = (api.submitMapAction as ReturnType<typeof vi.fn>).mock.calls[1][2]
+  expect(replayCommand).toEqual(firstCommand)
+  window.localStorage.removeItem('dnd-master:movement-command:a1')
 })
 
 it('keeps a typed retry operation available for reconnect and resume', async () => {
@@ -548,6 +568,7 @@ it('keeps a typed retry operation available for reconnect and resume', async () 
   api.submitMapAction = vi.fn(async () => ({ turnId: 't1', version: 0, movementResult: result }))
   api.movementOperation = vi.fn(async () => result)
   api.resumeMovementOperation = vi.fn(async () => result)
+  api.resumeRuntimeTurn = vi.fn(async () => ({ turnId: 't1', version: 1, movementResult: result }))
   const user = userEvent.setup()
   const { unmount } = render(<CombatMapView adventureId="a1" api={api} />)
   await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
@@ -562,6 +583,7 @@ it('keeps a typed retry operation available for reconnect and resume', async () 
   expect(await screen.findByText('이동 재시도 필요')).toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '이동 재개' }))
   expect(api.resumeMovementOperation).toHaveBeenCalledWith('a1', 'm1', 'operation-1')
+  expect(api.resumeRuntimeTurn).toHaveBeenCalledWith('a1', 't1')
   window.localStorage.removeItem('dnd-master:movement-operation:a1')
 })
 
@@ -584,7 +606,7 @@ it('shows the server preview path and ghost destination before confirmation', as
   await user.click(screen.getByRole('button', { name: '확인' }))
   expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({
     path: [{ x: 1, y: 1 }, { x: 1, y: 0 }, { x: 2, y: 1 }], fingerprint: 'preview-1', waypoints: [],
-  }), undefined, 7)
+  }), expect.objectContaining({ commandId: expect.any(String) }), 7)
 })
 
 it('allows a destination in an explored cell outside the current view', async () => {
@@ -669,7 +691,7 @@ it('keeps the latest destination when previews finish out of order', async () =>
   resolveFirst({ mapId: 'm1', orderedPositions: [{ x: 1, y: 1 }, { x: 2, y: 1 }], distance: 5, baseMapVersion: 0, fingerprint: 'first' })
   await user.click(screen.getByRole('button', { name: '확인' }))
 
-  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ location: { x: 0, y: 1 }, path: [{ x: 1, y: 1 }, { x: 0, y: 1 }], fingerprint: 'second', waypoints: [] }), undefined, 7)
+  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ location: { x: 0, y: 1 }, path: [{ x: 1, y: 1 }, { x: 0, y: 1 }], fingerprint: 'second', waypoints: [] }), expect.objectContaining({ commandId: expect.any(String) }), 7)
 })
 
 it('reconciles a committed move when the turn response reports a conflict', async () => {

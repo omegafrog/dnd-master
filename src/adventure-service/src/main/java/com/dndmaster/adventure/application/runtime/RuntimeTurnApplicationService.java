@@ -247,6 +247,13 @@ public class RuntimeTurnApplicationService {
                 throw new IllegalStateException("runtime turn is terminal: " + existing.lifecycle());
             }
             if (!existing.lifecycle().isCommitted()) {
+                if (existing.lifecycle() == RuntimeTurnLifecycle.COMMITTING && commitOrchestrator != null) {
+                    RuntimeTurnCommitOrchestrator.Result resumed = resumeRuntimeTurn(existing.turnId());
+                    Adventure recovered = adventureRepository.findById(command.adventureId())
+                            .orElseThrow(() -> new IllegalStateException("adventure not found after runtime recovery"));
+                    return new RuntimeTurnResult(resumed.turn(), recovered.currentContext(), recovered.conversation(),
+                            recovered.version(), null, resumed.movementResult());
+                }
                 RuntimeTurn resumed = resumeCommittedTurn(command, adventure, existing);
                 return new RuntimeTurnResult(resumed, resumed.context(), resumed.conversation(), resumed.version(), null,
                         movementResultForTurn(resumed.turnId()));
@@ -620,7 +627,11 @@ public class RuntimeTurnApplicationService {
             });
         }
         if (commitResult.status() != RuntimeTurnCommitOrchestrator.Status.COMMITTED) {
-            throw new IllegalStateException("runtime turn commit requires recovery: " + commitResult.status());
+            if (commitResult.status() == RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED) {
+                return new RuntimeTurnResult(commitResult.turn(), adventure.currentContext(), adventure.conversation(),
+                        adventure.version(), visibleInput, commitResult.movementResult());
+            }
+            throw new IllegalStateException("runtime turn commit requires repair: " + commitResult.status());
         }
         RuntimeTurn committed = commitResult.turn();
         PlayerVisibleTurn visible = new PlayerVisibleTurn(ready.narration(), plan.scene(), List.of(), visibleInput.stateDelta(), narrativeContext);

@@ -104,6 +104,34 @@ class CombatMapRuntimeTurnCommandAdapterTest {
     }
 
     @Test
+    void resumes_the_saved_map_operation_instead_of_restarting_the_command() {
+        UUID operationId = UUID.randomUUID();
+        AtomicReference<UUID> resumed = new AtomicReference<>();
+        CombatMapPort mapPort = new CombatMapPort() {
+            @Override public void validateAndMove(CombatActionCommand command) {}
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult move(CombatMapMoveCommand command) {
+                throw new AssertionError("a saved retry must resume the durable operation");
+            }
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult resumeMovementOperation(UUID mapId, UUID id) {
+                resumed.set(id);
+                return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(5, id,
+                        CombatMapMovementStatus.COMMITTED, List.of(),
+                        new CombatMapPreviewPosition(2, 1), List.of(), null);
+            }
+        };
+        String outcome = "{\"version\":4,\"operationId\":\"" + operationId
+                + "\",\"status\":\"RETRY_REQUIRED\",\"requestedPath\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}],"
+                + "\"traversedPath\":[{\"x\":1,\"y\":1}],\"finalPosition\":{\"x\":1,\"y\":1},\"publicEvents\":[]}";
+        RuntimeTurnCommand command = validCommand().failed("RETRY_REQUIRED", outcome);
+
+        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper()).execute(command);
+
+        assertEquals(RuntimeTurnCommandExecution.Status.DONE, result.status());
+        assertEquals(operationId, resumed.get());
+        assertEquals(CombatMapMovementStatus.COMMITTED, result.movementResult().status());
+    }
+
+    @Test
     void preserves_requested_and_traversed_paths_and_interruption_status() {
         UUID operationId = UUID.randomUUID();
         List<CombatMapPreviewPosition> requested = List.of(

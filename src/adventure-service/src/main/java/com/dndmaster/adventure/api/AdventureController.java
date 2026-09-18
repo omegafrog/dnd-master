@@ -73,7 +73,7 @@ public class AdventureController {
     private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
     private final AppliedRuleSetApplicationService appliedRuleSetService;
 
-    public record AdventureMovementOperationResponse(UUID operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus status, long mapVersion,
+    public record AdventureMovementOperationResponse(UUID operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus status, long version,
             List<CombatMapPreviewPosition> requestedPath, List<CombatMapPreviewPosition> traversedPath, CombatMapPreviewPosition finalPosition,
             List<String> publicEvents, String interruptionReason) {
         static AdventureMovementOperationResponse from(com.dndmaster.adventure.application.combat.CombatMapMoveResult result) {
@@ -224,6 +224,9 @@ public class AdventureController {
             }
             return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).body(runtimeTurnFailure(exception));
         }
+        if (result.turn().lifecycle() != com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMITTED) {
+            return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
+        }
         String providerMetadata = "provider=" + result.turn().plan().provider()
                 + ";model=" + result.turn().plan().model()
                 + ";reasoning=" + result.turn().plan().reasoning()
@@ -261,6 +264,44 @@ public class AdventureController {
         sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/resume")
+    public ResponseEntity<?> resumePendingTurn(@PathVariable UUID adventureId, @PathVariable UUID pendingTurnId) {
+        UUID owner = playerResolver.playerId();
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (!adventure.ownerPlayerId().value().equals(owner)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        }
+        var pending = runtimeTurnRepository.findByTurnId(pendingTurnId).orElseThrow();
+        if (!pending.adventureId().value().equals(adventureId)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        }
+        var resumed = runtimeTurnService.resumeRuntimeTurn(pendingTurnId);
+        if (resumed.status() == com.dndmaster.adventure.application.runtime.RuntimeTurnCommitOrchestrator.Status.REPAIR_REQUIRED) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                    .body(Map.of("error", "RUNTIME_TURN_REPAIR_REQUIRED"));
+        }
+        Adventure current = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        RuntimeTurnResult responseResult = new RuntimeTurnResult(resumed.turn(), current.currentContext(), current.conversation(),
+                current.version(), null, resumed.movementResult());
+        if (resumed.status() == com.dndmaster.adventure.application.runtime.RuntimeTurnCommitOrchestrator.Status.COMMITTED) {
+            publishRecoveredTurn(adventureId, responseResult);
+        }
+        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(responseResult));
+    }
+
+    private void publishRecoveredTurn(UUID adventureId, RuntimeTurnResult result) {
+        var existing = gmTurnRepository.findByCommandId(result.turn().commandId()).orElseThrow();
+        if (existing.status() == com.dndmaster.adventure.domain.runtime.GmTurnStatus.COMMITTED) return;
+        String providerMetadata = "provider=" + result.turn().plan().provider()
+                + ";model=" + result.turn().plan().model()
+                + ";reasoning=" + result.turn().plan().reasoning()
+                + ";validation=accepted;recovery=forward";
+        GmTurn committed = existing.commit(providerMetadata);
+        gmTurnRepository.save(committed, adventureId);
+        sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
+                result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
     }
 
     private static Map<String, String> runtimeTurnFailure(RuntimeException exception) {

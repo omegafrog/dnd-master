@@ -63,6 +63,24 @@ class MovementResolutionOperationTest {
     }
 
     @Test
+    void commits_a_normal_interruption_at_the_last_traversed_cell() {
+        Fixture fixture = new Fixture();
+        CombatMapMovementService service = fixture.service((operation, nextCell) ->
+                java.util.Optional.of(new com.dndmaster.combatmap.application.movement.MovementInterruption(
+                        "PLAYER_DECISION_REQUIRED", List.of("MOVEMENT_PAUSED"))));
+
+        MovementOperationResponse response = service.start(fixture.start("fingerprint-1"));
+
+        assertEquals(MovementOperationStatus.COMMITTED, response.status());
+        assertEquals(MovementResolutionOutcomeStatus.INTERRUPTED, response.outcomeStatus());
+        assertEquals(List.of(new GridPosition(1, 1)), response.result().traversedPath());
+        assertEquals(new GridPosition(1, 1), response.result().finalPosition());
+        assertEquals("PLAYER_DECISION_REQUIRED", response.result().interruptionReason());
+        assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
+        assertEquals(1, fixture.map.version());
+    }
+
+    @Test
     void staged_start_rechecks_the_public_preview_path_distance_and_fingerprint() {
         Fixture fixture = new Fixture();
         var preview = fixture.service().preview(new com.dndmaster.combatmap.application.movement.MovementPreviewRequest(
@@ -441,6 +459,10 @@ class MovementResolutionOperationTest {
 
         CombatMapMovementService service() {
             return new CombatMapMovementService(this, (ruleSet, edition) -> 30, this);
+        }
+
+        CombatMapMovementService service(com.dndmaster.combatmap.application.movement.MovementInterruptionPolicy policy) {
+            return new CombatMapMovementService(this, (ruleSet, edition) -> 30, this, policy);
         }
 
         MovementStartRequest start(String fingerprint) {

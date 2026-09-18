@@ -83,6 +83,7 @@ export type MapActionCandidate = {
   path?: Array<{ x: number; y: number }>
   waypoints?: Array<{ x: number; y: number }>
   fingerprint?: string
+  commandId?: string
   targetId?: string
   location?: { x: number; y: number }
 }
@@ -93,6 +94,7 @@ export type MapMovementPreviewRequest = {
   tokenId: string
   destination: { x: number; y: number }
   waypoints?: Array<{ x: number; y: number }>
+  commandId?: string
 }
 
 export type MapMovementPreview = {
@@ -143,6 +145,7 @@ export interface AdventurePlayApi {
   previewMapMovement?(adventureId: string, request: MapMovementPreviewRequest): Promise<MapMovementPreview>
   movementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
   resumeMovementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
+  resumeRuntimeTurn?(adventureId: string, turnId: string): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
   submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
 }
 
@@ -327,7 +330,14 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     })
   }
 
+  resumeRuntimeTurn(adventureId: string, turnId: string) {
+    return request<{ turnId: string; version: number; movementResult?: MapMovementResult }>(`/api/v1/adventures/${adventureId}/turns/${turnId}/resume`, {
+      method: 'POST', headers: this.authHeaders(),
+    })
+  }
+
   submitMapAction(adventureId: string, candidate: MapActionCandidate, command = createMapCommandIdentity(), expectedVersion = candidate.mapVersion) {
+    const { commandId: _commandId, ...requestCandidate } = candidate
     return request<{ turnId: string; version: number; movementResult?: MapMovementResult }>(`/api/v1/adventures/${adventureId}/turns`, {
       method: 'POST',
       headers: {
@@ -336,7 +346,7 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
       },
       body: JSON.stringify({ turnId: command.turnId, input: {
         type: 'MAP_ACTION', mapId: candidate.mapId, mapVersion: candidate.mapVersion,
-        action: JSON.stringify(candidate),
+        action: JSON.stringify(requestCandidate),
       } }),
     }).then(result => ({ turnId: result.turnId, version: result.version, movementResult: result.movementResult }))
   }

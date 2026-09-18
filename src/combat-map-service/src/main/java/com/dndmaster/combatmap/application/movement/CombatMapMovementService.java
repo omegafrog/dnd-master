@@ -17,8 +17,11 @@ public final class CombatMapMovementService {
     private static final int MAXIMUM_RETRY_ATTEMPTS = 3;
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CombatMapMovementService.class);
     private final CombatMapRepository repository; private final AppliedEditionMovementPort movementPort; private final MovementResolutionOperationRepository operations;
-    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort){this(repository, movementPort, new UnsupportedOperationRepository());}
-    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort, MovementResolutionOperationRepository operations){this.repository=Objects.requireNonNull(repository);this.movementPort=Objects.requireNonNull(movementPort);this.operations=Objects.requireNonNull(operations);}
+    private final MovementInterruptionPolicy interruptionPolicy;
+    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort){this(repository, movementPort, new UnsupportedOperationRepository(), MovementInterruptionPolicy.never());}
+    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort, MovementResolutionOperationRepository operations){this(repository, movementPort, operations, MovementInterruptionPolicy.never());}
+    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort,
+            MovementResolutionOperationRepository operations, MovementInterruptionPolicy interruptionPolicy){this.repository=Objects.requireNonNull(repository);this.movementPort=Objects.requireNonNull(movementPort);this.operations=Objects.requireNonNull(operations);this.interruptionPolicy=Objects.requireNonNull(interruptionPolicy);}
     public CombatMap movePlayerToken(MovePlayerTokenCommand command){
         Objects.requireNonNull(command);
         CombatMap replay = repository.findByCommandId(command.commandId()).orElse(null);
@@ -140,6 +143,16 @@ public final class CombatMapMovementService {
             if (operation.status() == MovementOperationStatus.READY_TO_COMMIT) return commitPrepared(map, operation);
             while (operation.cursor() < operation.requestedPath().orderedPositions().size() - 1) {
                 int next = operation.cursor() + 1;
+                java.util.Optional<MovementInterruption> interruption = interruptionPolicy.beforeEnter(operation,
+                        operation.requestedPath().orderedPositions().get(next));
+                if (interruption.isPresent()) {
+                    MovementInterruption value = interruption.get();
+                    MovementResolutionResult result = new MovementResolutionResult(operation.requestedPath(), operation.traversedPath(),
+                            operation.currentCell(), operation.expectedVersion() + 1, value.publicEvents(), value.reason(),
+                            MovementResolutionOutcomeStatus.INTERRUPTED);
+                    operation.readyToCommit(result); operations.save(operation);
+                    return commitPrepared(map, operation);
+                }
                 map.advancePlayerToken(operation.playerId(), operation.tokenId(), operation.requestedPath().orderedPositions().get(next));
                 map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
                 operation.advanceTo(next, map.playerTokenPosition(operation.playerId(), operation.tokenId()));
