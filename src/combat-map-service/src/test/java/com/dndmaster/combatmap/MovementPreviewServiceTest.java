@@ -65,6 +65,19 @@ class MovementPreviewServiceTest {
     }
 
     @Test
+    void ignores_ai_only_boundaries_in_the_public_preview() {
+        Fixture fixture = new Fixture();
+        MovementPreview visibleRoute = fixture.service().preview(fixture.request(List.of()));
+        fixture.map = fixture.mapWithHiddenBoundary();
+
+        MovementPreview hiddenBoundaryRoute = fixture.service().preview(fixture.request(List.of()));
+
+        assertEquals(visibleRoute.orderedPositions(), hiddenBoundaryRoute.orderedPositions());
+        assertEquals(visibleRoute.distance(), hiddenBoundaryRoute.distance());
+        assertEquals(visibleRoute.fingerprint(), hiddenBoundaryRoute.fingerprint());
+    }
+
+    @Test
     void routes_each_waypoint_in_order_and_rejects_stale_or_invalid_requests() {
         Fixture fixture = new Fixture();
         MovementPreview preview = fixture.service().preview(fixture.request(List.of(new GridPosition(2, 3))));
@@ -131,6 +144,18 @@ class MovementPreviewServiceTest {
                     List.of(map.tokens().getFirst(), hiddenEnemy), map.obstacles(), map.layers(), map.version(), null, null,
                     List.of(hiddenFeature));
             map.replaceVisibility(new VisibilitySnapshot(prior.current(), prior.explored(), Set.of(), List.of(), prior.ruleTurn()));
+            return map;
+        }
+
+        CombatMap mapWithHiddenBoundary() {
+            List<MapLayer> layers = new java.util.ArrayList<>(map.layers());
+            layers.add(new MapLayer("MAP_BOUNDARIES", "2,1,VERTICAL,WALL,false", LayerVisibility.AI_ONLY));
+            map = new CombatMap(map.id(), map.adventureId(), map.ruleSetId(), map.grid(), player,
+                    map.tokens(), map.obstacles(), layers,
+                    map.version(), null);
+            Set<GridPosition> known = new java.util.HashSet<>();
+            for (int y = 0; y < map.grid().height(); y++) for (int x = 0; x < map.grid().width(); x++) known.add(new GridPosition(x, y));
+            map.replaceVisibility(new VisibilitySnapshot(known, known, Set.of(), List.of(), 0));
             return map;
         }
 

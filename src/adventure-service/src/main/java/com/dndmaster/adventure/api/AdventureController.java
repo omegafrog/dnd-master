@@ -668,14 +668,14 @@ public class AdventureController {
             if (payload.path() == null || payload.path().size() < 2) {
                 throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PATH");
             }
-            validateConfirmedMapPreview(adventure, owner, payload);
+            CombatMapPreviewResult confirmedPreview = validateConfirmedMapPreview(adventure, owner, payload);
             String path = payload.path().stream()
                     .map(position -> position.x() + "," + position.y()).reduce((left, right) -> left + ";" + right).orElse(null);
             CombatActionCommand command = new CombatActionCommand(commandId, adventure.id(), adventure.sessionId().value(),
                     adventure.ruleSetId(), member.characterSheetId(), payload.mapId(), CombatActorRole.PLAYER,
                     payload.action(), path, owner, payload.tokenId(), payload.mapVersion());
             characterCombatPort.requireUsableCharacter(command);
-            combatMapPort.move(new CombatMapMoveCommand(command, movementDistance(payload.path()), payload.mapVersion(), appliedEdition(adventure).edition()));
+            combatMapPort.move(new CombatMapMoveCommand(command, confirmedPreview.distance(), payload.mapVersion(), appliedEdition(adventure).edition()));
         } catch (java.io.IOException exception) {
             throw new IllegalArgumentException("invalid map action", exception);
         }
@@ -699,7 +699,7 @@ public class AdventureController {
             if (payload.path() == null || payload.path().size() < 2) {
                 throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PATH");
             }
-            validateConfirmedMapPreview(adventure, owner, payload);
+            CombatMapPreviewResult confirmedPreview = validateConfirmedMapPreview(adventure, owner, payload);
             String path = payload.path() == null ? null : payload.path().stream()
                     .map(position -> position.x() + "," + position.y()).reduce((left, right) -> left + ";" + right).orElse(null);
             CombatActionCommand command = new CombatActionCommand(
@@ -713,6 +713,7 @@ public class AdventureController {
                     .put("combatMapId", payload.mapId().toString())
                     .put("tokenId", payload.tokenId().toString())
                     .put("expectedVersion", payload.mapVersion())
+                    .put("distance", confirmedPreview.distance())
                     .put("appliedEdition", appliedEdition(adventure).edition())
                     .toString();
             return com.dndmaster.adventure.application.runtime.RuntimeTurnCommand.create(turnId, runtimeCommandId,
@@ -750,7 +751,7 @@ public class AdventureController {
         return CombatMapPlayerTokenResolver.resolve(adventure, owner, tokenId, combatMapViewPort);
     }
 
-    private void validateConfirmedMapPreview(Adventure adventure, UUID owner, MapActionPayload payload) {
+    private CombatMapPreviewResult validateConfirmedMapPreview(Adventure adventure, UUID owner, MapActionPayload payload) {
         if (payload.fingerprint() == null || payload.fingerprint().isBlank()) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
         }
@@ -767,10 +768,7 @@ public class AdventureController {
         if (!payload.fingerprint().equals(preview.fingerprint()) || !payload.path().equals(previewPath)) {
             throw new ApiRequestGuard.ApiContractException(409, "MOVEMENT_PREVIEW_MISMATCH");
         }
-    }
-
-    private static int movementDistance(List<PositionPayload> path) {
-        return Math.max(1, (path.size() - 1) * 5);
+        return preview;
     }
 
     public record MapActionPayload(UUID mapId, long mapVersion, UUID tokenId, String action,

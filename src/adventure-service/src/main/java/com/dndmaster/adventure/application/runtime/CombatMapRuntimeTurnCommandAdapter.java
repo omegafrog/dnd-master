@@ -35,7 +35,7 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
                     UUID.fromString(context.path("tokenId").asText()), context.path("expectedVersion").asLong());
             String appliedEdition = context.path("appliedEdition").asText(null);
             mapPort.move(new com.dndmaster.adventure.application.combat.CombatMapMoveCommand(
-                    mapCommand, Math.max(1, (path.split(";").length - 1) * 5),
+                    mapCommand, context.path("distance").asInt(Math.max(1, (path.split(";").length - 1) * 5)),
                     context.path("expectedVersion").asLong(), appliedEdition));
             return RuntimeTurnCommandExecution.done("combat map move applied");
         } catch (java.io.IOException malformed) {

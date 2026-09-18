@@ -34,7 +34,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         RuntimeTurnCommand command = RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), adventureId, sessionId,
                 ownerId, "{\"ruleSetId\":\"" + ruleSetId + "\",\"characterSheetId\":\"" + sheetId
                         + "\",\"combatMapId\":\"" + mapId + "\",\"tokenId\":\"" + tokenId
-                        + "\",\"expectedVersion\":4,\"appliedEdition\":\"DND_5E_2024\"}", "combat-map.move",
+                        + "\",\"expectedVersion\":4,\"distance\":10,\"appliedEdition\":\"DND_5E_2024\"}", "combat-map.move",
                 "{\"action\":\"MOVE\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}", 0);
 
         RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper()).execute(command);
@@ -43,6 +43,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         assertEquals(mapId, received.get().action().combatMapId());
         assertEquals(tokenId, received.get().action().tokenId());
         assertEquals(4, received.get().expectedVersion());
+        assertEquals(10, received.get().distance());
         assertEquals("1,1;2,1", received.get().action().movementPath());
         assertEquals("DND_5E_2024", received.get().appliedEdition());
     }

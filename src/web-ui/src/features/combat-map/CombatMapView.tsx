@@ -126,9 +126,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     previewSequence.current = sequence
     setPreviewing(true)
     try {
-      const preview = api.previewMapMovement
-        ? await api.previewMapMovement(adventureId, { mapId: sourceMap.mapId, mapVersion: sourceMap.version ?? 0, tokenId, destination, waypoints })
-        : { mapId: sourceMap.mapId, orderedPositions: fallbackMovementPath(base.from ?? destination, waypoints, destination), distance: (fallbackMovementPath(base.from ?? destination, waypoints, destination).length - 1) * 5, baseMapVersion: sourceMap.version ?? 0, fingerprint: 'local-preview' }
+      if (!api.previewMapMovement) throw new Error('서버 이동 경로 미리보기를 사용할 수 없습니다.')
+      const preview = await api.previewMapMovement(adventureId, { mapId: sourceMap.mapId, mapVersion: sourceMap.version ?? 0, tokenId, destination, waypoints })
       if (sequence !== previewSequence.current) return
       setCandidate(current => current === base || (current?.tokenId === tokenId && current?.action === 'MOVE')
         ? { ...base, mapVersion: preview.baseMapVersion, path: preview.orderedPositions, distance: preview.distance, fingerprint: preview.fingerprint, waypoints }
@@ -505,11 +504,6 @@ function gridPath(from: { x: number; y: number }, to: { x: number; y: number }) 
     path.push({ ...current })
   }
   return path
-}
-
-function fallbackMovementPath(from: { x: number; y: number }, waypoints: { x: number; y: number }[], to: { x: number; y: number }) {
-  const stops = [...waypoints, to]
-  return stops.reduce((path, stop) => [...path, ...gridPath(path[path.length - 1], stop).slice(1)], [{ ...from }])
 }
 
 function isPlayableGridCell(map: CombatMapState | null, grid: { originX?: number; originY?: number; cellSize?: number }, cell: { x: number; y: number }) {

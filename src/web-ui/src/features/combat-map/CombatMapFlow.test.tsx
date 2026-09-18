@@ -18,6 +18,10 @@ function fakeApi(): AdventurePlayApi {
       }
     },
     async getCombatMap() { return { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, sessionVersion: 7, grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }], current: [{ x: 1, y: 1 }, { x: 2, y: 1 }], explored: [{ x: 1, y: 1 }, { x: 2, y: 1 }] } },
+    async previewMapMovement(_adventureId, request) {
+      const path = [{ x: 1, y: 1 }, ...(request.waypoints ?? []), request.destination]
+      return { mapId: request.mapId, orderedPositions: path, distance: (path.length - 1) * 5, baseMapVersion: request.mapVersion, fingerprint: 'server-preview' }
+    },
     submitMapAction,
     async rollDice() { return { rollId: 'r1', total: 19, judgment: 'hit', resolutionStatus: 'RESOLVED', outcomeApplied: true } },
     async listSaved() { return [] },
@@ -510,7 +514,7 @@ it('submits exactly one typed map action after confirmation', async () => {
   await user.click(screen.getByRole('button', { name: '격자 2,1' }))
   await user.click(screen.getByRole('button', { name: '확인' }))
   expect(api.submitMapAction).toHaveBeenCalledTimes(1)
-  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }], fingerprint: 'local-preview', waypoints: [] }), undefined, 7)
+  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }], fingerprint: 'server-preview', waypoints: [] }), undefined, 7)
 })
 
 it('shows the server preview path and ghost destination before confirmation', async () => {
@@ -581,6 +585,19 @@ it('refreshes and recomputes when the preview sees a stale map version', async (
   expect(await screen.findByText('지도 상태가 바뀌었습니다. 최신 이동 경로를 다시 확인했습니다. 다시 확인해주세요.')).toBeInTheDocument()
 })
 
+it('does not invent a local path when the server preview API is unavailable', async () => {
+  const api = fakeApi()
+  api.previewMapMovement = undefined
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+
+  expect(await screen.findByText('서버 이동 경로 미리보기를 사용할 수 없습니다.')).toBeInTheDocument()
+  expect(screen.queryByRole('dialog', { name: '맵 행동 확인' })).not.toBeInTheDocument()
+})
+
 it('keeps the latest destination when previews finish out of order', async () => {
   const api = fakeApi()
   api.getCombatMap = vi.fn().mockResolvedValue({
@@ -619,8 +636,8 @@ it('reconciles a committed move when the turn response reports a conflict', asyn
   await user.click(screen.getByRole('button', { name: '격자 2,1' }))
   await user.click(screen.getByRole('button', { name: '확인' }))
   expect(await screen.findByRole('button', { name: /PLAYER.*2,1/ })).toBeInTheDocument()
-  expect(screen.getByText('맵 이동이 반영되었습니다.')).toBeInTheDocument()
-  expect(screen.queryByRole('dialog', { name: '맵 행동 확인' })).not.toBeInTheDocument()
+  expect(screen.getByText('지도 상태가 바뀌었습니다. 최신 이동 경로를 다시 확인하고 확인해주세요.')).toBeInTheDocument()
+  expect(screen.getByRole('dialog', { name: '맵 행동 확인' })).toBeInTheDocument()
 })
 
 it('refetches the map when the parent refresh token changes', async () => {

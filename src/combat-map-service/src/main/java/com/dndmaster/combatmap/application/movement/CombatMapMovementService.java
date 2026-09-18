@@ -23,7 +23,7 @@ public final class CombatMapMovementService {
             return replay;
         }
         CombatMap map=repository.findById(command.mapId()).orElseThrow(()->new CombatMapMovementDeniedException("map not found"));
-        if(map.version()!=command.expectedVersion()) throw new IllegalStateException("combat map version does not match");
+        if(map.version()!=command.expectedVersion()) throw new CombatMapMovementStaleException();
         int maximum=movementPort.maximumMovement(map.ruleSetId(),command.appliedEdition());
         map.movePlayerToken(command.playerId(),command.tokenId(),command.path(),maximum);
         map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
@@ -103,7 +103,7 @@ public final class CombatMapMovementService {
     private static String fingerprint(MovementPreviewRequest request, CombatMap map, List<GridPosition> path, int distance) {
         String publicState = map.grid().width() + "x" + map.grid().height() + "@" + map.grid().distanceUnit()
                 + "|playable=" + allPositions(map.grid()).stream().filter(map::isPublicTraversable).toList()
-                + "|boundaries=" + map.boundaries().stream().map(MapBoundary::encoded).sorted().toList();
+                + "|boundaries=" + map.publicBoundaries().stream().map(MapBoundary::encoded).sorted().toList();
         String value = request.mapId() + "|" + request.playerId() + "|" + request.tokenId() + "|"
                 + request.destination() + "|waypoints=" + request.waypoints() + "|edition=" + request.appliedEdition()
                 + "|version=" + map.version() + "|distance=" + distance + "|path=" + path + "|" + publicState;

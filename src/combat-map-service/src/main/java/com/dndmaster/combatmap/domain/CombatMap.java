@@ -47,7 +47,7 @@ public final class CombatMap {
             if(i>0 && !path.orderedPositions().get(i-1).adjacentTo(position)) throw new CombatMapMovementDeniedException("path positions must be adjacent");
             if(i>0) {
                 GridPosition previous = path.orderedPositions().get(i - 1);
-                if (boundaries().stream().anyMatch(boundary -> boundary.blocks(previous, position))) throw new CombatMapMovementDeniedException("path crosses wall or closed door");
+                if (publicBoundaries().stream().anyMatch(boundary -> boundary.blocks(previous, position))) throw new CombatMapMovementDeniedException("path crosses wall or closed door");
             }
         }
         token.moveTo(path.orderedPositions().getLast());
@@ -69,7 +69,7 @@ public final class CombatMap {
     }
     public boolean publiclyTraversableBetween(GridPosition from, GridPosition to) {
         return isPublicTraversable(from) && isPublicTraversable(to)
-                && boundaries().stream().noneMatch(boundary -> boundary.blocks(from, to));
+                && publicBoundaries().stream().noneMatch(boundary -> boundary.blocks(from, to));
     }
     public void markPersisted(long version, UUID operationKey, String operationFingerprint) {
         if (version < 0) throw new IllegalArgumentException("version must not be negative");
@@ -91,6 +91,11 @@ public final class CombatMap {
     public boolean isPlayable(GridPosition position) { return PlayableMapArea.contains(grid, layers, position); }
     public Set<MapBoundary> boundaries() {
         return layers.stream().filter(layer -> layer.type().equals("MAP_BOUNDARIES"))
+                .flatMap(layer -> Arrays.stream(layer.value().split(";"))).filter(value -> !value.isBlank())
+                .map(MapBoundary::parse).collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+    public Set<MapBoundary> publicBoundaries() {
+        return layers.stream().filter(layer -> layer.type().equals("MAP_BOUNDARIES") && layer.visibility() == LayerVisibility.PLAYER_VISIBLE)
                 .flatMap(layer -> Arrays.stream(layer.value().split(";"))).filter(value -> !value.isBlank())
                 .map(MapBoundary::parse).collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
