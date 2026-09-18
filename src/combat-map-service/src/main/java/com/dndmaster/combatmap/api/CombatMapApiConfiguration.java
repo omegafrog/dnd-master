@@ -4,6 +4,7 @@ import com.dndmaster.combatmap.application.movement.AppliedEditionMovementPort;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
 import com.dndmaster.combatmap.application.movement.CombatMapRepository;
 import com.dndmaster.combatmap.application.movement.MovementResolutionOperationRepository;
+import com.dndmaster.combatmap.application.movement.MovementResolutionRecoveryWorker;
 import com.dndmaster.combatmap.application.view.*;
 import com.dndmaster.combatmap.domain.*;
 import com.dndmaster.combatmap.infrastructure.persistence.PostgresCombatMapViewStore;
@@ -134,6 +135,11 @@ public class CombatMapApiConfiguration {
     @Bean
     org.springframework.boot.ApplicationRunner movementResolutionRecoveryRunner(CombatMapMovementService movementService) {
         return arguments -> movementService.recoverIncompleteOperations();
+    }
+
+    @Bean
+    MovementResolutionRecoveryWorker movementResolutionRecoveryWorker(CombatMapMovementService movementService) {
+        return new MovementResolutionRecoveryWorker(movementService);
     }
 
     @Bean

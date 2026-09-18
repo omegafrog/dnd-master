@@ -202,6 +202,58 @@ class MovementResolutionOperationTest {
     }
 
     @Test
+    void recovery_worker_defers_one_broken_operation_without_skipping_other_durable_work() {
+        Fixture fixture = new Fixture();
+        MovementResolutionOperation broken = MovementResolutionOperation.start(UUID.randomUUID(), new MapId(UUID.randomUUID()),
+                UUID.randomUUID(), fixture.player, fixture.tokenId, fixture.path, "broken-fingerprint", 0);
+        MovementResolutionOperation recoverable = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
+                fixture.commandId, fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0);
+        recoverable.advanceTo(1, new GridPosition(2, 1));
+        fixture.operations.put(broken.operationId(), broken);
+        fixture.operations.put(recoverable.operationId(), recoverable);
+
+        List<MovementOperationResponse> recovered = fixture.service().recoverIncompleteOperations();
+
+        assertEquals(2, recovered.size());
+        assertEquals(MovementOperationStatus.PREPARING,
+                fixture.findById(broken.operationId()).orElseThrow().status());
+        assertEquals(MovementOperationStatus.COMMITTED,
+                fixture.findById(recoverable.operationId()).orElseThrow().status());
+        assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
+    }
+
+    @Test
+    void runtime_recovery_poll_retries_waiting_work_without_racing_a_preparing_request() {
+        Fixture fixture = new Fixture();
+        MovementResolutionOperation preparing = MovementResolutionOperation.start(UUID.randomUUID(), new MapId(UUID.randomUUID()),
+                UUID.randomUUID(), fixture.player, fixture.tokenId, fixture.path, "preparing-fingerprint", 0);
+        MovementResolutionOperation waiting = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
+                fixture.commandId, fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0);
+        waiting.advanceTo(1, new GridPosition(2, 1));
+        waiting.retryWait(3);
+        fixture.operations.put(preparing.operationId(), preparing);
+        fixture.operations.put(waiting.operationId(), waiting);
+
+        List<MovementOperationResponse> recovered = fixture.service().retryWaitingOperations();
+
+        assertEquals(1, recovered.size());
+        assertEquals(MovementOperationStatus.PREPARING,
+                fixture.findById(preparing.operationId()).orElseThrow().status());
+        assertEquals(MovementOperationStatus.COMMITTED,
+                fixture.findById(waiting.operationId()).orElseThrow().status());
+    }
+
+    @Test
+    void startup_recovery_defers_a_transient_operation_list_failure() {
+        Fixture fixture = new Fixture();
+        fixture.failRecoveryLoad = true;
+
+        assertEquals(List.of(), fixture.service().recoverIncompleteOperations());
+        assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
+        assertEquals(0, fixture.map.version());
+    }
+
+    @Test
     void operation_access_requires_the_path_map_to_match_the_reserved_map() {
         Fixture fixture = new Fixture();
         MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
@@ -271,6 +323,7 @@ class MovementResolutionOperationTest {
         CombatMap map;
         int mapSaves;
         boolean failFinalSave;
+        boolean failRecoveryLoad;
         String concurrentReservationFingerprint;
         final Map<UUID, MovementResolutionOperation> operations = new HashMap<>();
 
@@ -339,6 +392,8 @@ class MovementResolutionOperationTest {
         }
         void delete(UUID id) { operations.remove(id); }
         @Override public List<MovementResolutionOperation> findRecoverable() {
+            if (failRecoveryLoad) throw new com.dndmaster.combatmap.infrastructure.persistence.CombatMapPersistenceException(
+                    "recovery load failed", null);
             return operations.values().stream().filter(operation -> operation.status().active()).toList();
         }
 

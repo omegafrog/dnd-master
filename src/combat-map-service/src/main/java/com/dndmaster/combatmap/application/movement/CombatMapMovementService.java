@@ -15,6 +15,7 @@ import java.util.Set;
 import java.util.UUID;
 public final class CombatMapMovementService {
     private static final int MAXIMUM_RETRY_ATTEMPTS = 3;
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CombatMapMovementService.class);
     private final CombatMapRepository repository; private final AppliedEditionMovementPort movementPort; private final MovementResolutionOperationRepository operations;
     public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort){this(repository, movementPort, new UnsupportedOperationRepository());}
     public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort, MovementResolutionOperationRepository operations){this.repository=Objects.requireNonNull(repository);this.movementPort=Objects.requireNonNull(movementPort);this.operations=Objects.requireNonNull(operations);}
@@ -78,9 +79,42 @@ public final class CombatMapMovementService {
 
     /** Startup recovery entry point. Each operation resumes from its persisted cursor and state. */
     public List<MovementOperationResponse> recoverIncompleteOperations() {
-        return operations.findRecoverable().stream()
-                .map(operation -> resume(operation.mapId(), operation.operationId()))
-                .toList();
+        return recoverSafely(false);
+    }
+
+    /** Runtime polling retries only work that has durably entered retry wait. */
+    public List<MovementOperationResponse> retryWaitingOperations() {
+        return recoverSafely(true);
+    }
+
+    private List<MovementOperationResponse> recoverSafely(boolean retryWaitOnly) {
+        try {
+            List<MovementResolutionOperation> recoverable = operations.findRecoverable();
+            if (retryWaitOnly) {
+                recoverable = recoverable.stream()
+                        .filter(operation -> operation.status() == MovementOperationStatus.RETRY_WAIT)
+                        .toList();
+            }
+            return recover(recoverable);
+        } catch (RuntimeException failure) {
+            LOGGER.warn("movement_operation_recovery_load_deferred failure={}",
+                    failure.getClass().getSimpleName());
+            return List.of();
+        }
+    }
+
+    private List<MovementOperationResponse> recover(List<MovementResolutionOperation> operationsToRecover) {
+        List<MovementOperationResponse> recovered = new ArrayList<>();
+        for (MovementResolutionOperation operation : operationsToRecover) {
+            try {
+                recovered.add(resume(operation.mapId(), operation.operationId()));
+            } catch (RuntimeException failure) {
+                LOGGER.warn("movement_operation_recovery_deferred operationId={} mapId={} failure={}",
+                        operation.operationId(), operation.mapId(), failure.getClass().getSimpleName());
+                operations.findById(operation.operationId()).map(CombatMapMovementService::response).ifPresent(recovered::add);
+            }
+        }
+        return List.copyOf(recovered);
     }
 
     public MovementOperationResponse query(MapId mapId, UUID operationId) { MovementResolutionOperation operation = operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found")); requireMap(operation, mapId); return response(operation); }

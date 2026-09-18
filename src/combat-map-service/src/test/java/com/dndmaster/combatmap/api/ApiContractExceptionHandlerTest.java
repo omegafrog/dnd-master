@@ -8,6 +8,8 @@ import com.dndmaster.combatmap.application.spatial.SpatialPreparationCommandConf
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationVersionConflictException;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementStaleException;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
+import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
+import com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException;
 import com.dndmaster.combatmap.application.view.CombatMapViewService;
 import java.util.List;
 import java.util.UUID;
@@ -42,6 +44,22 @@ class ApiContractExceptionHandlerTest {
 
         assertEquals(409, response.getStatusCode().value());
         assertEquals("STALE_MOVEMENT_PROPOSAL", response.getBody().code());
+    }
+
+    @Test
+    void maps_movement_command_fingerprint_mismatch_to_a_typed_conflict() {
+        var response = new ApiContractExceptionHandler().handle(new MovementCommandConflictException());
+
+        assertEquals(409, response.getStatusCode().value());
+        assertEquals("MOVEMENT_COMMAND_CONFLICT", response.getBody().code());
+    }
+
+    @Test
+    void maps_movement_operation_compare_and_set_conflict_to_a_typed_conflict() {
+        var response = new ApiContractExceptionHandler().handle(new MovementOperationConcurrentUpdateException());
+
+        assertEquals(409, response.getStatusCode().value());
+        assertEquals("MOVEMENT_OPERATION_IN_PROGRESS", response.getBody().code());
     }
 
     @Test
