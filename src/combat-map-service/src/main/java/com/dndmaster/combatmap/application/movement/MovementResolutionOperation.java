@@ -15,7 +15,7 @@ public final class MovementResolutionOperation {
     private final UUID operationId; private final MapId mapId; private final UUID commandId; private final PlayerId playerId;
     private final TokenId tokenId; private final MovementPath requestedPath; private final String fingerprint; private final long expectedVersion;
     private MovementOperationStatus status; private int cursor; private GridPosition currentCell; private List<GridPosition> traversedPath; private MovementResolutionResult result;
-    private int retryCount; private long persistenceVersion;
+    private int retryCount; private long persistenceVersion; private MovementOperationStatus retryResumeStatus;
 
     private MovementResolutionOperation(UUID operationId, MapId mapId, UUID commandId, PlayerId playerId, TokenId tokenId,
             MovementPath requestedPath, String fingerprint, long expectedVersion) {
@@ -23,6 +23,7 @@ public final class MovementResolutionOperation {
         this.playerId = Objects.requireNonNull(playerId); this.tokenId = Objects.requireNonNull(tokenId); this.requestedPath = Objects.requireNonNull(requestedPath);
         this.fingerprint = Objects.requireNonNull(fingerprint); this.expectedVersion = expectedVersion; this.status = MovementOperationStatus.PREPARING;
         this.cursor = 0; this.currentCell = requestedPath.orderedPositions().getFirst(); this.traversedPath = new ArrayList<>(List.of(currentCell));
+        this.retryResumeStatus = MovementOperationStatus.PREPARING;
     }
     public static MovementResolutionOperation start(UUID operationId, MapId mapId, UUID commandId, PlayerId playerId, TokenId tokenId,
             MovementPath requestedPath, String fingerprint, long expectedVersion) {
@@ -31,7 +32,8 @@ public final class MovementResolutionOperation {
     /** Rehydrates only coordinator state; the Combat Map remains the public-state source of truth. */
     public static MovementResolutionOperation restore(UUID operationId, MapId mapId, UUID commandId, PlayerId playerId, TokenId tokenId,
             MovementPath requestedPath, String fingerprint, long expectedVersion, MovementOperationStatus status,
-            int cursor, GridPosition currentCell, List<GridPosition> traversedPath, MovementResolutionResult result, int retryCount, long persistenceVersion) {
+            int cursor, GridPosition currentCell, List<GridPosition> traversedPath, MovementResolutionResult result,
+            int retryCount, long persistenceVersion, MovementOperationStatus retryResumeStatus) {
         MovementResolutionOperation operation = new MovementResolutionOperation(operationId, mapId, commandId, playerId, tokenId,
                 requestedPath, fingerprint, expectedVersion);
         operation.status = Objects.requireNonNull(status);
@@ -41,15 +43,18 @@ public final class MovementResolutionOperation {
         operation.result = result;
         operation.retryCount = retryCount;
         operation.persistenceVersion = persistenceVersion;
+        operation.retryResumeStatus = retryResumeStatus == null ? MovementOperationStatus.PREPARING : retryResumeStatus;
         return operation;
     }
     public void advanceTo(int nextCursor, GridPosition cell) {
         if (status != MovementOperationStatus.PREPARING || nextCursor != cursor + 1) throw new IllegalStateException("movement operation cannot advance");
         cursor = nextCursor; currentCell = Objects.requireNonNull(cell); traversedPath = new ArrayList<>(requestedPath.orderedPositions().subList(0, cursor + 1));
     }
-    public boolean retryWait(int maximumRetries) { if (!status.active()) throw new IllegalStateException("movement operation is terminal"); if (++retryCount > maximumRetries) return false; status = MovementOperationStatus.RETRY_WAIT; return true; }
-    public void resumePreparing() { if (status != MovementOperationStatus.RETRY_WAIT) throw new IllegalStateException("movement operation is not waiting"); status = MovementOperationStatus.PREPARING; }
+    public boolean retryWait(int maximumRetries) { if (!status.active()) throw new IllegalStateException("movement operation is terminal"); if (status != MovementOperationStatus.RETRY_WAIT) retryResumeStatus = status; if (++retryCount > maximumRetries) return false; status = MovementOperationStatus.RETRY_WAIT; return true; }
+    public void resumeAfterRetry() { if (status != MovementOperationStatus.RETRY_WAIT) throw new IllegalStateException("movement operation is not waiting"); status = retryResumeStatus; }
+    public void resumePreparing() { resumeAfterRetry(); }
     public void readyToCommit() { if (status != MovementOperationStatus.PREPARING) throw new IllegalStateException("movement operation is not preparing"); status = MovementOperationStatus.READY_TO_COMMIT; }
+    public void readyToCommit(MovementResolutionResult value) { result = Objects.requireNonNull(value); readyToCommit(); }
     public void committed(MovementResolutionResult value) { if (status != MovementOperationStatus.READY_TO_COMMIT) throw new IllegalStateException("movement operation is not ready"); result = Objects.requireNonNull(value); status = MovementOperationStatus.COMMITTED; }
     public void cancel(MovementResolutionResult value) { if (!status.active()) throw new IllegalStateException("movement operation is terminal"); result = Objects.requireNonNull(value); status = MovementOperationStatus.CANCELLED; }
     public UUID operationId() { return operationId; } public MapId mapId() { return mapId; } public UUID commandId() { return commandId; }
@@ -57,5 +62,6 @@ public final class MovementResolutionOperation {
     public String fingerprint() { return fingerprint; } public long expectedVersion() { return expectedVersion; } public MovementOperationStatus status() { return status; }
     public int cursor() { return cursor; } public GridPosition currentCell() { return currentCell; } public List<GridPosition> traversedPath() { return List.copyOf(traversedPath); }
     public MovementResolutionResult result() { return result; } public int retryCount() { return retryCount; }
+    public MovementOperationStatus retryResumeStatus() { return retryResumeStatus; }
     public long persistenceVersion() { return persistenceVersion; } public void markPersisted(long value) { persistenceVersion = value; }
 }

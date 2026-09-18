@@ -11,6 +11,7 @@ import com.dndmaster.combatmap.application.movement.MovementResolutionOperation;
 import com.dndmaster.combatmap.application.movement.MovementResolutionOperationRepository;
 import com.dndmaster.combatmap.application.movement.MovementStartRequest;
 import com.dndmaster.combatmap.application.movement.MovementOperationResponse;
+import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
 import com.dndmaster.combatmap.domain.AdventureId;
 import com.dndmaster.combatmap.domain.CombatMap;
 import com.dndmaster.combatmap.domain.CombatToken;
@@ -61,9 +62,31 @@ class MovementResolutionOperationTest {
         MovementStartRequest first = fixture.start("fingerprint-1");
         fixture.service().start(first);
 
-        assertThrows(IllegalStateException.class, () -> fixture.service().start(fixture.start("fingerprint-2")));
+        assertThrows(MovementCommandConflictException.class, () -> fixture.service().start(fixture.start("fingerprint-2")));
         assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
         assertEquals(1, fixture.map.version());
+    }
+
+    @Test
+    void concurrent_start_of_the_same_command_replays_the_winning_reservation() {
+        Fixture fixture = new Fixture();
+        fixture.concurrentReservationFingerprint = "fingerprint-1";
+
+        MovementOperationResponse replay = fixture.service().start(fixture.start("fingerprint-1"));
+
+        assertEquals(fixture.commandId, fixture.findById(replay.operationId()).orElseThrow().commandId());
+        assertEquals(MovementOperationStatus.PREPARING, replay.status());
+        assertEquals(0, fixture.mapSaves);
+    }
+
+    @Test
+    void concurrent_start_of_the_same_command_with_another_fingerprint_is_a_typed_conflict() {
+        Fixture fixture = new Fixture();
+        fixture.concurrentReservationFingerprint = "fingerprint-from-other-request";
+
+        assertThrows(MovementCommandConflictException.class,
+                () -> fixture.service().start(fixture.start("fingerprint-1")));
+        assertEquals(0, fixture.mapSaves);
     }
 
     @Test
@@ -134,6 +157,51 @@ class MovementResolutionOperationTest {
     }
 
     @Test
+    void restart_commits_a_ready_operation_from_its_durable_result_without_repreparing_it() {
+        Fixture fixture = new Fixture();
+        MovementResolutionOperation operation = fixture.readyOperation();
+        fixture.save(operation);
+
+        MovementOperationResponse response = fixture.service().resume(fixture.map.id(), operation.operationId());
+
+        assertEquals(MovementOperationStatus.COMMITTED, response.status());
+        assertEquals(operation.traversedPath(), response.result().traversedPath());
+        assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
+        assertEquals(1, fixture.mapSaves);
+    }
+
+    @Test
+    void retry_wait_preserves_a_prepared_result_and_resumes_the_ready_to_commit_state() {
+        Fixture fixture = new Fixture();
+        MovementResolutionOperation operation = fixture.readyOperation();
+        operation.retryWait(3);
+        fixture.save(operation);
+
+        MovementOperationResponse waiting = fixture.service().query(fixture.map.id(), operation.operationId());
+        assertEquals(MovementOperationStatus.RETRY_WAIT, waiting.status());
+        assertEquals(operation.traversedPath(), waiting.result().traversedPath());
+
+        MovementOperationResponse committed = fixture.service().resume(fixture.map.id(), operation.operationId());
+        assertEquals(MovementOperationStatus.COMMITTED, committed.status());
+        assertEquals(operation.traversedPath(), committed.result().traversedPath());
+    }
+
+    @Test
+    void recovery_worker_resumes_all_durable_non_terminal_operations() {
+        Fixture fixture = new Fixture();
+        MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
+                fixture.commandId, fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0);
+        operation.advanceTo(1, new GridPosition(2, 1));
+        fixture.save(operation);
+
+        List<MovementOperationResponse> recovered = fixture.service().recoverIncompleteOperations();
+
+        assertEquals(1, recovered.size());
+        assertEquals(MovementOperationStatus.COMMITTED, recovered.getFirst().status());
+        assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
+    }
+
+    @Test
     void operation_access_requires_the_path_map_to_match_the_reserved_map() {
         Fixture fixture = new Fixture();
         MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
@@ -185,7 +253,8 @@ class MovementResolutionOperationTest {
         fixture.reserve(operation);
         MovementResolutionOperation stale = MovementResolutionOperation.restore(operation.operationId(), fixture.map.id(), fixture.commandId,
                 fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0, MovementOperationStatus.PREPARING,
-                0, new GridPosition(1, 1), List.of(new GridPosition(1, 1)), null, 0, operation.persistenceVersion());
+                0, new GridPosition(1, 1), List.of(new GridPosition(1, 1)), null, 0, operation.persistenceVersion(),
+                MovementOperationStatus.PREPARING);
         operation.advanceTo(1, new GridPosition(2, 1));
         fixture.save(operation);
 
@@ -202,6 +271,7 @@ class MovementResolutionOperationTest {
         CombatMap map;
         int mapSaves;
         boolean failFinalSave;
+        String concurrentReservationFingerprint;
         final Map<UUID, MovementResolutionOperation> operations = new HashMap<>();
 
         Fixture() {
@@ -221,6 +291,16 @@ class MovementResolutionOperationTest {
             return new MovementStartRequest(map.id(), player, tokenId, path, "5E", commandId, fingerprint, map.version());
         }
 
+        MovementResolutionOperation readyOperation() {
+            MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), map.id(), commandId,
+                    player, tokenId, path, "fingerprint-1", 0);
+            operation.advanceTo(1, new GridPosition(2, 1));
+            operation.advanceTo(2, new GridPosition(3, 1));
+            operation.readyToCommit(new com.dndmaster.combatmap.application.movement.MovementResolutionResult(
+                    operation.requestedPath(), operation.traversedPath(), operation.currentCell(), 1, List.of(), null));
+            return operation;
+        }
+
         @Override public Optional<CombatMap> findById(MapId id) { return id.equals(map.id()) ? Optional.of(copy(map)) : Optional.empty(); }
         @Override public Optional<CombatMap> findByCommandId(UUID id) { return Optional.empty(); }
         @Override public void save(CombatMap map) { mapSaves++; this.map = copy(map); }
@@ -237,7 +317,18 @@ class MovementResolutionOperationTest {
         @Override public Optional<MovementResolutionOperation> findActiveByMapId(MapId id) {
             return operations.values().stream().filter(operation -> operation.mapId().equals(id) && operation.status().active()).findFirst();
         }
-        @Override public void reserve(MovementResolutionOperation operation) { operations.put(operation.operationId(), operation); }
+        @Override public MovementResolutionOperation reserve(MovementResolutionOperation operation) {
+            if (concurrentReservationFingerprint != null) {
+                MovementResolutionOperation winner = MovementResolutionOperation.start(UUID.randomUUID(), map.id(), commandId,
+                        player, tokenId, path, concurrentReservationFingerprint, 0);
+                operations.put(winner.operationId(), winner);
+                concurrentReservationFingerprint = null;
+                if (!winner.fingerprint().equals(operation.fingerprint())) throw new MovementCommandConflictException();
+                return winner;
+            }
+            operations.put(operation.operationId(), operation);
+            return operation;
+        }
         @Override public void save(MovementResolutionOperation operation) {
             MovementResolutionOperation stored = operations.get(operation.operationId());
             if (stored != null && stored != operation && stored.persistenceVersion() != operation.persistenceVersion()) {
@@ -247,6 +338,9 @@ class MovementResolutionOperationTest {
             operations.put(operation.operationId(), operation);
         }
         void delete(UUID id) { operations.remove(id); }
+        @Override public List<MovementResolutionOperation> findRecoverable() {
+            return operations.values().stream().filter(operation -> operation.status().active()).toList();
+        }
 
         private static CombatMap copy(CombatMap source) {
             List<CombatToken> tokens = source.tokens().stream().map(token -> new CombatToken(token.id(), token.type(), token.position(),

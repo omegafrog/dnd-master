@@ -36,7 +36,9 @@ public final class CombatMap {
     }
     public void movePlayerToken(PlayerId playerId, TokenId tokenId, MovementPath path, int maximumDistance) {
         validatePlayerMovement(playerId, tokenId, path, maximumDistance);
-        advancePlayerToken(playerId, tokenId, path.orderedPositions().getLast());
+        for (int index = 1; index < path.orderedPositions().size(); index++) {
+            advancePlayerToken(playerId, tokenId, path.orderedPositions().get(index));
+        }
     }
     /** Validates a whole public path without changing the aggregate. */
     public void validatePlayerMovement(PlayerId playerId, TokenId tokenId, MovementPath path, int maximumDistance) {

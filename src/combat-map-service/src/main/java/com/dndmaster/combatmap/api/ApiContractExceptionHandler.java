@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import com.dndmaster.combatmap.application.movement.MovementReservationConflictException;
 import com.dndmaster.combatmap.application.movement.MovementVersionConflictException;
 import com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException;
+import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
 
 @RestControllerAdvice(name = "combatMapApiContractExceptionHandler")
 public final class ApiContractExceptionHandler {
@@ -29,6 +30,11 @@ public final class ApiContractExceptionHandler {
     @ExceptionHandler(MovementOperationConcurrentUpdateException.class)
     ResponseEntity<ErrorResponse> handle(MovementOperationConcurrentUpdateException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("MOVEMENT_OPERATION_IN_PROGRESS"));
+    }
+
+    @ExceptionHandler(MovementCommandConflictException.class)
+    ResponseEntity<ErrorResponse> handle(MovementCommandConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("MOVEMENT_COMMAND_CONFLICT"));
     }
     @ExceptionHandler(ApiRequestGuard.ApiContractException.class)
     ResponseEntity<ErrorResponse> handle(ApiRequestGuard.ApiContractException exception) {

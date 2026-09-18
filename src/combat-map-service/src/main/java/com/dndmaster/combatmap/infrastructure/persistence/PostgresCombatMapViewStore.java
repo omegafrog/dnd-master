@@ -113,13 +113,14 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                     statement.setString(1, result.traversedPath().stream().map(p -> p.x() + "," + p.y()).collect(java.util.stream.Collectors.joining(";")));
                     statement.setInt(2, result.finalPosition().x()); statement.setInt(3, result.finalPosition().y()); statement.setLong(4, result.mapVersion());
                     statement.setString(5, String.join("\u001f", result.publicEvents())); statement.setString(6, result.interruptionReason()); statement.setObject(7, operation.operationId());
-                    if (statement.executeUpdate() != 1) throw new CombatMapPersistenceException("movement operation commit lost", null);
+                    if (statement.executeUpdate() != 1) throw new com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException();
                 }
                 connection.commit();
                 map.markPersisted(persistedVersion, operation.commandId(), operation.fingerprint());
             } catch (SQLException | RuntimeException exception) {
                 connection.rollback();
                 if (exception instanceof OptimisticCombatMapLockException optimistic) throw optimistic;
+                if (exception instanceof com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException concurrent) throw concurrent;
                 throw new CombatMapPersistenceException("movement resolution commit failed", exception);
             }
         } catch (SQLException exception) {

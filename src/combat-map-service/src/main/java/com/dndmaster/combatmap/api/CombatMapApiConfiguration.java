@@ -132,6 +132,11 @@ public class CombatMapApiConfiguration {
     }
 
     @Bean
+    org.springframework.boot.ApplicationRunner movementResolutionRecoveryRunner(CombatMapMovementService movementService) {
+        return arguments -> movementService.recoverIncompleteOperations();
+    }
+
+    @Bean
     MapGridDetectionPort mapGridDetectionPort() {
         return new MapGridDetector();
     }
