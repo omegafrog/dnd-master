@@ -105,6 +105,26 @@ class CombatMapMovementTest {
     }
 
     @Test
+    void rejects_reusing_a_preview_command_id_with_different_waypoints() {
+        Fixture fixture = new Fixture();
+        CombatMapMovementService service = fixture.service(30);
+        UUID commandId = fixture.commandId;
+        List<GridPosition> waypoints = List.of(new GridPosition(2, 1));
+        MovementPreview preview = service.preview(new MovementPreviewRequest(fixture.map.id(), fixture.player,
+                fixture.playerToken.id(), new GridPosition(2, 1), waypoints, "5E", 0));
+        MovePlayerTokenCommand first = new MovePlayerTokenCommand(fixture.map.id(), fixture.player,
+                fixture.playerToken.id(), new MovementPath(preview.orderedPositions(), preview.distance()), "5E",
+                commandId, 0, waypoints, preview.fingerprint());
+        service.movePlayerToken(first);
+
+        MovePlayerTokenCommand changedWaypoints = new MovePlayerTokenCommand(fixture.map.id(), fixture.player,
+                fixture.playerToken.id(), first.path(), "5E", commandId, 0,
+                List.of(new GridPosition(1, 2)), preview.fingerprint());
+
+        assertThrows(IllegalStateException.class, () -> service.movePlayerToken(changedWaypoints));
+    }
+
+    @Test
     void rejects_other_players_and_ai_controlled_tokens() {
         Fixture fixture = new Fixture();
         MovementPath path = new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5);

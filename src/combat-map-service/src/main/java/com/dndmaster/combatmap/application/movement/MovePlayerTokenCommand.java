@@ -21,6 +21,6 @@ public record MovePlayerTokenCommand(MapId mapId, PlayerId playerId, TokenId tok
     }
     public String fingerprint(){
         String base = mapId+"|"+playerId+"|"+tokenId+"|"+path+"|"+appliedEdition+"|"+expectedVersion;
-        return previewFingerprint == null ? base : base + "|preview=" + previewFingerprint;
+        return previewFingerprint == null ? base : base + "|preview=" + previewFingerprint + "|waypoints=" + waypoints;
     }
 }
