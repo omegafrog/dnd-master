@@ -207,7 +207,7 @@ public final class CrossContextHttpCombatGateway
                 moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion(),
                 moveCommand.previewFingerprint() == null ? "legacy:" + command.operationId() : moveCommand.previewFingerprint());
         String response = sendMovement(route, body, command);
-        return new CombatMapMoveResult(mapVersion(response, moveCommand.expectedVersion()));
+        return movementResult(response, moveCommand.expectedVersion());
     }
 
     @Override
@@ -239,6 +239,21 @@ public final class CrossContextHttpCombatGateway
             Thread.currentThread().interrupt();
             throw new CrossContextCallException("combat map movement preview interrupted", exception);
         }
+    }
+
+    @Override public CombatMapMoveResult movementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "GET"); }
+    @Override public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "POST"); }
+    @Override public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "DELETE"); }
+    private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method) {
+        try {
+            String route = "internal/v1/combat-maps/" + mapId + "/movement-operations/" + operationId + ("POST".equals(method) ? "/resume" : "");
+            HttpRequest.Builder request = HttpRequest.newBuilder(baseUri.resolve(route)).timeout(timeout).header("X-Internal-Token", internalToken);
+            if ("POST".equals(method)) request.POST(HttpRequest.BodyPublishers.noBody()); else if ("DELETE".equals(method)) request.DELETE(); else request.GET();
+            HttpResponse<String> response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new CrossContextCallException("combat map movement operation failed with status " + response.statusCode());
+            return movementResult(response.body(), 0);
+        } catch (IOException exception) { throw new CrossContextCallException("combat map movement operation transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new CrossContextCallException("combat map movement operation interrupted", exception); }
     }
 
     private String previewErrorCode(String responseBody) {
@@ -290,6 +305,22 @@ public final class CrossContextHttpCombatGateway
         } catch (IOException exception) {
             throw new CrossContextCallException("combat map returned malformed movement result", exception);
         }
+    }
+    private CombatMapMoveResult movementResult(String response, long fallback) {
+        try {
+            JsonNode body = objectMapper.readTree(response);
+            String status = body.path("status").asText("RETRY_WAIT");
+            long version = body.hasNonNull("mapVersion") ? body.path("mapVersion").asLong() : fallback;
+            java.util.UUID operationId = body.hasNonNull("operationId") ? java.util.UUID.fromString(body.path("operationId").asText()) : null;
+            java.util.List<CombatMapPreviewPosition> traversed = new java.util.ArrayList<>();
+            for (JsonNode position : body.path("traversedPath")) traversed.add(new CombatMapPreviewPosition(position.path("x").asInt(), position.path("y").asInt()));
+            JsonNode finalPosition = body.path("finalPosition");
+            CombatMapPreviewPosition finalCell = finalPosition.isObject() ? new CombatMapPreviewPosition(finalPosition.path("x").asInt(), finalPosition.path("y").asInt()) : null;
+            java.util.List<String> events = new java.util.ArrayList<>();
+            for (JsonNode event : body.path("publicEvents")) events.add(event.asText());
+            return new CombatMapMoveResult(version, operationId, status, traversed, finalCell, events,
+                    body.hasNonNull("interruptionReason") ? body.path("interruptionReason").asText() : null);
+        } catch (IOException exception) { throw new CrossContextCallException("combat map returned malformed movement result", exception); }
     }
 
     @Override

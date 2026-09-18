@@ -656,14 +656,16 @@ public class CombatMapController {
             String appliedEdition, UUID commandId, Long expectedVersion, String fingerprint) {}
 
     public record MovementOperationResponseBody(UUID operationId, String status,
-            List<PositionRequest> requestedPath, List<PositionRequest> traversedPath, PositionRequest finalPosition, Long mapVersion) {
+            List<PositionRequest> requestedPath, List<PositionRequest> traversedPath, PositionRequest finalPosition, Long mapVersion,
+            List<String> publicEvents, String interruptionReason) {
         static MovementOperationResponseBody from(MovementOperationResponse response) {
             var result = response.result();
             return new MovementOperationResponseBody(response.operationId(), response.status().name(),
                     result == null ? List.of() : result.requestedPath().orderedPositions().stream().map(position -> new PositionRequest(position.x(), position.y())).toList(),
                     result == null ? List.of() : result.traversedPath().stream().map(position -> new PositionRequest(position.x(), position.y())).toList(),
                     result == null ? null : new PositionRequest(result.finalPosition().x(), result.finalPosition().y()),
-                    result == null ? null : result.mapVersion());
+                    result == null ? null : result.mapVersion(), result == null ? List.of() : result.publicEvents(),
+                    result == null ? null : result.interruptionReason());
         }
     }
 

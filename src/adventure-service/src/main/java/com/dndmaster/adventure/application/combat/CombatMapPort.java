@@ -15,6 +15,11 @@ public interface CombatMapPort {
         throw new UnsupportedOperationException("combat map movement preview is unavailable");
     }
 
+    /** Recovery boundary for a durable map-owned movement reservation. */
+    default CombatMapMoveResult movementOperation(java.util.UUID mapId, java.util.UUID operationId) { throw new UnsupportedOperationException("movement operation query is unavailable"); }
+    default CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { throw new UnsupportedOperationException("movement operation resume is unavailable"); }
+    default CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { throw new UnsupportedOperationException("movement operation cancellation is unavailable"); }
+
     /** Terminal map-owner boundary; map state remains owned by Combat Map. */
     default void commitFinalState(CombatFinalizationCommand command) {}
 }

@@ -10,9 +10,26 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import com.dndmaster.combatmap.application.movement.MovementReservationConflictException;
+import com.dndmaster.combatmap.application.movement.MovementVersionConflictException;
+import com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException;
 
 @RestControllerAdvice(name = "combatMapApiContractExceptionHandler")
 public final class ApiContractExceptionHandler {
+    @ExceptionHandler(MovementReservationConflictException.class)
+    ResponseEntity<ErrorResponse> handle(MovementReservationConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("MAP_MUTATION_IN_PROGRESS"));
+    }
+
+    @ExceptionHandler(MovementVersionConflictException.class)
+    ResponseEntity<ErrorResponse> handle(MovementVersionConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("STALE_MOVEMENT_PROPOSAL"));
+    }
+
+    @ExceptionHandler(MovementOperationConcurrentUpdateException.class)
+    ResponseEntity<ErrorResponse> handle(MovementOperationConcurrentUpdateException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("MOVEMENT_OPERATION_IN_PROGRESS"));
+    }
     @ExceptionHandler(ApiRequestGuard.ApiContractException.class)
     ResponseEntity<ErrorResponse> handle(ApiRequestGuard.ApiContractException exception) {
         return ResponseEntity.status(exception.status()).body(new ErrorResponse(exception.code()));

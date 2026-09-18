@@ -71,7 +71,7 @@ class MovementResolutionOperationTest {
         Fixture fixture = new Fixture();
         MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
                 fixture.commandId, fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0);
-        operation.retryWait();
+        operation.retryWait(3);
         fixture.save(operation);
 
         MovementOperationResponse replay = fixture.service().start(fixture.start("fingerprint-1"));
@@ -120,7 +120,7 @@ class MovementResolutionOperationTest {
         MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
                 fixture.commandId, fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0);
         operation.advanceTo(1, new GridPosition(2, 1));
-        operation.retryWait();
+        operation.retryWait(3);
         fixture.save(operation);
 
         MovementOperationResponse response = fixture.service().resume(fixture.map.id(), operation.operationId());
@@ -161,6 +161,36 @@ class MovementResolutionOperationTest {
         operation.committed(new com.dndmaster.combatmap.application.movement.MovementResolutionResult(
                 operation.requestedPath(), operation.traversedPath(), operation.currentCell(), 1, List.of(), null));
         assertEquals(MovementOperationStatus.COMMITTED, operation.status());
+    }
+
+    @Test
+    void retry_exhaustion_cancels_without_publishing_the_staged_map() {
+        Fixture fixture = new Fixture();
+        fixture.failFinalSave = true;
+
+        MovementOperationResponse response = fixture.service().start(fixture.start("fingerprint-1"));
+        for (int attempt = 0; attempt < 3; attempt++) response = fixture.service().resume(fixture.map.id(), response.operationId());
+
+        assertEquals(MovementOperationStatus.CANCELLED, response.status());
+        assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
+        assertEquals(0, fixture.map.version());
+        assertEquals("RETRY_EXHAUSTED", response.result().interruptionReason());
+    }
+
+    @Test
+    void stale_operation_save_is_rejected_instead_of_overwriting_newer_state() {
+        Fixture fixture = new Fixture();
+        MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
+                fixture.commandId, fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0);
+        fixture.reserve(operation);
+        MovementResolutionOperation stale = MovementResolutionOperation.restore(operation.operationId(), fixture.map.id(), fixture.commandId,
+                fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0, MovementOperationStatus.PREPARING,
+                0, new GridPosition(1, 1), List.of(new GridPosition(1, 1)), null, 0, operation.persistenceVersion());
+        operation.advanceTo(1, new GridPosition(2, 1));
+        fixture.save(operation);
+
+        assertThrows(com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException.class,
+                () -> fixture.save(stale));
     }
 
     private static final class Fixture implements CombatMapRepository, MovementResolutionOperationRepository {
@@ -208,7 +238,14 @@ class MovementResolutionOperationTest {
             return operations.values().stream().filter(operation -> operation.mapId().equals(id) && operation.status().active()).findFirst();
         }
         @Override public void reserve(MovementResolutionOperation operation) { operations.put(operation.operationId(), operation); }
-        @Override public void save(MovementResolutionOperation operation) { operations.put(operation.operationId(), operation); }
+        @Override public void save(MovementResolutionOperation operation) {
+            MovementResolutionOperation stored = operations.get(operation.operationId());
+            if (stored != null && stored != operation && stored.persistenceVersion() != operation.persistenceVersion()) {
+                throw new com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException();
+            }
+            operation.markPersisted(operation.persistenceVersion() + (stored == null ? 0 : 1));
+            operations.put(operation.operationId(), operation);
+        }
         void delete(UUID id) { operations.remove(id); }
 
         private static CombatMap copy(CombatMap source) {
