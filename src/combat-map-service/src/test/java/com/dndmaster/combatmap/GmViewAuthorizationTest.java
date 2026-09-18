@@ -35,7 +35,7 @@ class GmViewAuthorizationTest {
         UUID operationId = UUID.randomUUID();
         var request = new CombatMapController.MovementStartRequestBody(UUID.randomUUID(), UUID.randomUUID(),
                 List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
-                5, "DND_5E_2024", commandId, 0L, "fingerprint");
+                5, "DND_5E_2024", commandId, 0L, "fingerprint", "preview-fingerprint", List.of());
         when(movement.start(org.mockito.ArgumentMatchers.any())).thenReturn(
                 new MovementOperationResponse(operationId, MovementOperationStatus.PREPARING, null));
 
@@ -44,6 +44,41 @@ class GmViewAuthorizationTest {
         assertEquals(operationId, response.operationId());
         assertEquals("PREPARING", response.status());
         verify(movement).start(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void returns_a_typed_compatibility_move_state_when_the_reservation_is_not_terminal() {
+        var movement = mock(CombatMapMovementService.class);
+        var controller = new CombatMapController(mock(CombatMapViewService.class), movement, new ApiRequestGuard("service-secret"));
+        UUID mapId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        var request = new CombatMapController.MoveRequest(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
+                5, "DND_5E_2024", commandId, 0L, "operation-fingerprint", "preview-fingerprint", List.of());
+        when(movement.start(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new MovementOperationResponse(operationId, MovementOperationStatus.RETRY_WAIT, null));
+
+        var response = controller.movePlayer(mapId, "service-secret", commandId.toString(), request);
+
+        assertEquals(mapId, response.mapId());
+        assertEquals(operationId, response.operationId());
+        assertEquals("RETRY_WAIT", response.status());
+        assertEquals("RETRY_REQUIRED", response.outcomeStatus());
+    }
+
+    @Test
+    void rejects_a_staged_move_without_a_preview_fingerprint() {
+        var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        var request = new CombatMapController.MovementStartRequestBody(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
+                5, "DND_5E_2024", UUID.randomUUID(), 0L, "operation-fingerprint", null, List.of());
+
+        var error = assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.startMovement(UUID.randomUUID(), "service-secret", request.commandId().toString(), request));
+
+        assertEquals(400, error.status());
+        assertEquals("MOVEMENT_PREVIEW_REQUIRED", error.code());
     }
 
     @Test

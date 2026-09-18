@@ -1,8 +1,23 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import type { AdventurePlayApi, CombatMapView as CombatMapState, MapBoundary, MapBoundaryProposal } from '../saved-adventures/AdventurePlayApi'
+import type { AdventurePlayApi, CombatMapView as CombatMapState, MapBoundary, MapBoundaryProposal, MapMovementResult } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
+
+type PendingMovement = { mapId: string; tokenId: string; result: MapMovementResult }
+
+function pendingMovementKey(adventureId: string) { return `dnd-master:movement-operation:${adventureId}` }
+
+function readPendingMovement(adventureId: string): PendingMovement | null {
+  try {
+    const value = window.localStorage.getItem(pendingMovementKey(adventureId))
+    return value ? JSON.parse(value) as PendingMovement : null
+  } catch { return null }
+}
+
+function movementStatusMessage(status: MapMovementResult['status']) {
+  return status === 'RETRY_REQUIRED' ? '이동 처리를 다시 시도할 수 있습니다.' : '이동 처리를 이어갈 수 있습니다.'
+}
 
 export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, onPreparationComplete }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; onPreparationComplete?: () => void | Promise<void> }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
@@ -35,6 +50,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const boundaryStroke = useRef<BoundaryStroke | null>(null)
   const previewSequence = useRef(0)
   const [boundaryPreview, setBoundaryPreview] = useState<BoundaryStroke | null>(null)
+  const [pendingMovement, setPendingMovement] = useState<PendingMovement | null>(() => readPendingMovement(adventureId))
 
   useEffect(() => () => {
     if (publicMapImage?.startsWith('blob:')) URL.revokeObjectURL(publicMapImage)
@@ -53,6 +69,11 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         const nextMap = fetchedMap
         if (!active) return
         setMap(nextMap)
+        const savedMovement = readPendingMovement(adventureId)
+        if (savedMovement) {
+          setPendingMovement(savedMovement)
+          setMessage(`${movementStatusMessage(savedMovement.result.status)} 작업 번호: ${savedMovement.result.operationId ?? '없음'}`)
+        }
         setSelectedPlayerStart(nextMap.playerStartCandidates?.find(candidate => candidate.source === 'USER_CONFIRMED') ?? null)
         if (preparationMode) setLayoutSaved(false)
         const bounds = nextMap.layers?.find(layer => layer.type === 'GRID_BOUNDS')?.value?.split(',').map(Number)
@@ -169,12 +190,12 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         fingerprint: candidate.action === 'MOVE' ? candidate.fingerprint : undefined,
       }, undefined, map?.sessionVersion ?? map?.version ?? 0)
       const refreshed = await api.getCombatMap(adventureId)
-      if (candidate.action === 'MOVE' && map && turn.movementResult
-        && (turn.movementResult.status === 'COMMITTED' || turn.movementResult.status === 'INTERRUPTED')) {
-        await animateCommittedMovement(setMap, map, refreshed, candidate.tokenId, turn.movementResult.traversedPath)
+      if (candidate.action === 'MOVE' && turn.movementResult) {
+        await applyMovementResult(turn.movementResult, candidate.mapId, candidate.tokenId, map, refreshed)
+      } else {
+        setMap(refreshed)
+        setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
       }
-      else setMap(refreshed)
-      setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
     } catch (error) {
       // The runtime can commit the map command before the HTTP request sees
       // a concurrent-version response. Reconcile that response with the
@@ -202,6 +223,41 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       setMessage(error instanceof Error ? error.message : '맵 행동을 처리하지 못했습니다.')
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  async function applyMovementResult(result: MapMovementResult, mapId: string, tokenId: string,
+    before: CombatMapState | null, refreshed: CombatMapState) {
+    if (result.status === 'RETRY_REQUIRED' || result.status === 'CHECK_REQUIRED') {
+      const pending = { mapId, tokenId, result }
+      setMap(refreshed)
+      setPendingMovement(pending)
+      try { window.localStorage.setItem(pendingMovementKey(adventureId), JSON.stringify(pending)) } catch { /* reconnect is best effort */ }
+      setMessage(`${movementStatusMessage(result.status)} 작업 번호: ${result.operationId ?? '없음'}`)
+      return
+    }
+    if (before && result.traversedPath.length > 1) {
+      await animateCommittedMovement(setMap, before, refreshed, tokenId, result.traversedPath)
+    } else setMap(refreshed)
+    setPendingMovement(null)
+    try { window.localStorage.removeItem(pendingMovementKey(adventureId)) } catch { /* storage is optional */ }
+    setCandidate(null); setSelectedToken(null); setMessage('맵 행동을 GM 턴으로 전송했습니다.')
+  }
+
+  async function recoverMovement(resume: boolean) {
+    if (!pendingMovement?.result.operationId) return
+    const operationId = pendingMovement.result.operationId
+    const operationApi = resume ? api.resumeMovementOperation : api.movementOperation
+    if (!operationApi) {
+      setMessage('저장된 이동 상태를 확인할 수 없습니다.')
+      return
+    }
+    try {
+      const result = await operationApi(adventureId, pendingMovement.mapId, operationId)
+      const refreshed = await api.getCombatMap(adventureId)
+      await applyMovementResult(result, pendingMovement.mapId, pendingMovement.tokenId, map, refreshed)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '저장된 이동 상태를 확인하지 못했습니다.')
     }
   }
 
@@ -496,6 +552,12 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}
       {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p>{candidate.action === 'MOVE' && <><p>경로 칸: {candidate.path?.length ?? 0} · 거리: {candidate.distance ?? 0}</p><button type="button" disabled={submitting || previewing} onClick={() => setWaypointMode(current => !current)}>{waypointMode ? '경유 지점 조정 끝내기' : '경유 지점 추가'}</button>{waypointMode && <p>지도에서 경유할 칸을 눌러 경로를 조정하세요.</p>}</>}<button type="button" disabled={submitting || previewing} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting || previewing} onClick={() => { previewSequence.current += 1; setCandidate(null); setSelectedToken(null); setWaypointMode(false) }}>취소</button></div>}
       <p role="status">{message}</p>
+      {pendingMovement && (pendingMovement.result.status === 'RETRY_REQUIRED' || pendingMovement.result.status === 'CHECK_REQUIRED') && <section aria-label="저장된 이동 상태" role="status">
+        <p>{pendingMovement.result.status === 'RETRY_REQUIRED' ? '이동 재시도 필요' : '이동 판정 확인 필요'}</p>
+        <p>작업 번호: {pendingMovement.result.operationId ?? '없음'}</p>
+        <button type="button" onClick={() => void recoverMovement(false)}>이동 상태 다시 확인</button>
+        <button type="button" onClick={() => void recoverMovement(true)}>이동 재개</button>
+      </section>}
       {preparationMode && <button type="button" disabled={preparationStarting || layoutSaving || layoutDirty || !gridConfirmed || !layoutSaved || !onPreparationComplete} aria-busy={preparationStarting} onClick={() => void completePreparation()}>{preparationStarting ? '모험 시작 요청 중…' : '맵 준비 완료, 모험 시작'}</button>}
     </section>
   )

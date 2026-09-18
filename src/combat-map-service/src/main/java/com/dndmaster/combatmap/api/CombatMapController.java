@@ -428,12 +428,14 @@ public class CombatMapController {
     private static void requireMovementStart(MovementStartRequestBody request) {
         if (request == null || request.playerId() == null || request.tokenId() == null || request.commandId() == null
                 || request.appliedEdition() == null || request.appliedEdition().isBlank() || request.fingerprint() == null || request.fingerprint().isBlank()
-                || request.previewFingerprint() != null && request.previewFingerprint().isBlank()
                 || request.expectedVersion() == null || request.expectedVersion() < 0 || request.distance() == null || request.distance() < 1
                 || request.positions() == null || request.positions().size() < 2 || request.positions().stream().anyMatch(CombatMapController::invalid)
                 || request.waypoints() != null && (request.waypoints().size() > MovementPreviewRequest.MAX_WAYPOINTS
                         || request.waypoints().stream().anyMatch(CombatMapController::invalid))) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_OPERATION");
+        }
+        if (request.previewFingerprint() == null || request.previewFingerprint().isBlank()) {
+            throw new ApiRequestGuard.ApiContractException(400, "MOVEMENT_PREVIEW_REQUIRED");
         }
     }
 
@@ -474,23 +476,23 @@ public class CombatMapController {
         MovementPath path = new MovementPath(
                 request.positions().stream().map(p -> new GridPosition(p.x(), p.y())).toList(),
                 request.distance());
-        MovePlayerTokenCommand command = new MovePlayerTokenCommand(
-                new MapId(mapId),
-                new PlayerId(request.playerId()),
-                new TokenId(request.tokenId()),
-                path,
-                request.appliedEdition(),
-                request.commandId(),
-                request.expectedVersion(),
-                request.waypoints() == null ? List.of() : request.waypoints().stream().map(p -> new GridPosition(p.x(), p.y())).toList(),
-                request.fingerprint());
-        MovementOperationResponse operation = movementService.start(new MovementStartRequest(command.mapId(), command.playerId(), command.tokenId(),
-                command.path(), command.appliedEdition(), command.commandId(),
-                command.fingerprint() == null ? "legacy:" + command.commandId() : command.fingerprint(), command.previewFingerprint(),
-                command.waypoints(), command.expectedVersion()));
-        if (operation.result() == null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
-                "movement reservation is not ready to commit");
-        return new CombatMapMoveResponse(mapId, operation.result().mapVersion());
+        List<GridPosition> waypoints = request.waypoints() == null ? List.of()
+                : request.waypoints().stream().map(p -> new GridPosition(p.x(), p.y())).toList();
+        String previewFingerprint = request.previewFingerprint();
+        if (previewFingerprint == null || previewFingerprint.isBlank()) {
+            MovementPreview preview = movementService.preview(new MovementPreviewRequest(new MapId(mapId),
+                    new PlayerId(request.playerId()), new TokenId(request.tokenId()), path.orderedPositions().getLast(),
+                    waypoints, request.appliedEdition(), request.expectedVersion()));
+            if (!path.orderedPositions().equals(preview.orderedPositions()) || path.distance() != preview.distance()) {
+                throw new com.dndmaster.combatmap.application.movement.CombatMapMovementPreviewMismatchException();
+            }
+            previewFingerprint = preview.fingerprint();
+        }
+        MovementOperationResponse operation = movementService.start(new MovementStartRequest(new MapId(mapId),
+                new PlayerId(request.playerId()), new TokenId(request.tokenId()), path, request.appliedEdition(),
+                request.commandId(), request.fingerprint() == null ? "legacy:" + request.commandId() : request.fingerprint(),
+                previewFingerprint, waypoints, request.expectedVersion()));
+        return CombatMapMoveResponse.from(mapId, operation);
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/ai-state")
@@ -569,7 +571,14 @@ public class CombatMapController {
             UUID playerId, UUID tokenId,
             List<PositionRequest> positions, Integer distance,
             String appliedEdition, UUID commandId, Long expectedVersion,
-            String fingerprint, List<PositionRequest> waypoints) {}
+            String fingerprint, String previewFingerprint, List<PositionRequest> waypoints) {
+        public MoveRequest(UUID playerId, UUID tokenId, List<PositionRequest> positions, Integer distance,
+                String appliedEdition, UUID commandId, Long expectedVersion, String fingerprint,
+                List<PositionRequest> waypoints) {
+            this(playerId, tokenId, positions, distance, appliedEdition, commandId, expectedVersion,
+                    fingerprint, null, waypoints);
+        }
+    }
 
     public record MovementPreviewRequestBody(UUID playerId, UUID tokenId, PositionRequest destination,
             List<PositionRequest> waypoints, String appliedEdition, Long expectedVersion) {}
@@ -654,8 +663,24 @@ public class CombatMapController {
 
     public record LayerRequest(String type, String value, String visibility) {}
 
-    public record CombatMapMoveResponse(UUID mapId, long version) {
+    public record CombatMapMoveResponse(UUID mapId, long version, UUID operationId, String status, String outcomeStatus,
+            List<PositionRequest> requestedPath, List<PositionRequest> traversedPath, PositionRequest finalPosition,
+            List<String> publicEvents, String interruptionReason) {
+        public CombatMapMoveResponse(UUID mapId, long version) {
+            this(mapId, version, null, "COMMITTED", "COMMITTED", List.of(), List.of(), null, List.of(), null);
+        }
         public CombatMapMoveResponse(UUID mapId) { this(mapId, 0); }
+        static CombatMapMoveResponse from(UUID mapId, MovementOperationResponse response) {
+            var result = response.result();
+            return new CombatMapMoveResponse(mapId, result == null ? 0 : result.mapVersion(), response.operationId(),
+                    response.status().name(), response.outcomeStatus().name(),
+                    result == null ? List.of() : result.requestedPath().orderedPositions().stream()
+                            .map(position -> new PositionRequest(position.x(), position.y())).toList(),
+                    result == null ? List.of() : result.traversedPath().stream()
+                            .map(position -> new PositionRequest(position.x(), position.y())).toList(),
+                    result == null ? null : new PositionRequest(result.finalPosition().x(), result.finalPosition().y()),
+                    result == null ? List.of() : result.publicEvents(), result == null ? null : result.interruptionReason());
+        }
     }
 
     public record MovementStartRequestBody(UUID playerId, UUID tokenId, List<PositionRequest> positions, Integer distance,

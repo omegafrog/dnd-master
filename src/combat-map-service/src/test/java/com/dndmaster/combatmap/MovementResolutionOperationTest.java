@@ -14,6 +14,7 @@ import com.dndmaster.combatmap.application.movement.MovementStartRequest;
 import com.dndmaster.combatmap.application.movement.MovementOperationResponse;
 import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementPreviewMismatchException;
+import com.dndmaster.combatmap.application.movement.MovementPreviewRequiredException;
 import com.dndmaster.combatmap.application.movement.MovementFinalCommitConflictException;
 import com.dndmaster.combatmap.application.movement.MovementResolutionOutcomeStatus;
 import com.dndmaster.combatmap.domain.AdventureId;
@@ -72,6 +73,33 @@ class MovementResolutionOperationTest {
         assertThrows(CombatMapMovementPreviewMismatchException.class, () -> fixture.service().start(
                 fixture.startWithPreview(preview.fingerprint(), List.of(new GridPosition(2, 1)))));
         assertEquals(0, fixture.map.version());
+    }
+
+    @Test
+    void staged_start_requires_a_server_preview_fingerprint() {
+        Fixture fixture = new Fixture();
+
+        assertThrows(MovementPreviewRequiredException.class, () -> fixture.service().start(
+                new MovementStartRequest(fixture.map.id(), fixture.player, fixture.tokenId, fixture.path,
+                        "5E", fixture.commandId, "operation-fingerprint", fixture.map.version())));
+        assertEquals(0, fixture.map.version());
+    }
+
+    @Test
+    void non_terminal_operation_query_returns_the_durable_movement_result_shape() {
+        Fixture fixture = new Fixture();
+        MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
+                fixture.commandId, fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0);
+        operation.advanceTo(1, new GridPosition(2, 1));
+        fixture.save(operation);
+
+        MovementOperationResponse response = fixture.service().query(fixture.map.id(), operation.operationId());
+
+        assertEquals(MovementOperationStatus.PREPARING, response.status());
+        assertEquals(MovementResolutionOutcomeStatus.CHECK_REQUIRED, response.outcomeStatus());
+        assertEquals(fixture.path, response.result().requestedPath());
+        assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), response.result().traversedPath());
+        assertEquals(new GridPosition(2, 1), response.result().finalPosition());
     }
 
     @Test
@@ -146,14 +174,15 @@ class MovementResolutionOperationTest {
         fixture.save(active);
 
         assertThrows(com.dndmaster.combatmap.application.movement.MovementReservationConflictException.class,
-                () -> fixture.service().start(new MovementStartRequest(fixture.map.id(), fixture.player, fixture.tokenId,
-                        fixture.path, "5E", UUID.randomUUID(), "fingerprint-2", 0)));
+                () -> fixture.service().start(fixture.startWithCommand(UUID.randomUUID(), "fingerprint-2")));
 
         fixture.delete(active.operationId());
         fixture.map.markPersisted(1, UUID.randomUUID(), "other");
+        var currentPreview = fixture.service().preview(new com.dndmaster.combatmap.application.movement.MovementPreviewRequest(
+                fixture.map.id(), fixture.player, fixture.tokenId, fixture.path.orderedPositions().getLast(), List.of(), "5E", 1));
         assertThrows(com.dndmaster.combatmap.application.movement.MovementVersionConflictException.class,
                 () -> fixture.service().start(new MovementStartRequest(fixture.map.id(), fixture.player, fixture.tokenId,
-                        fixture.path, "5E", fixture.commandId, "fingerprint-2", 0)));
+                        fixture.path, "5E", fixture.commandId, "fingerprint-2", currentPreview.fingerprint(), List.of(), 0)));
     }
 
     @Test
@@ -415,12 +444,26 @@ class MovementResolutionOperationTest {
         }
 
         MovementStartRequest start(String fingerprint) {
-            return new MovementStartRequest(map.id(), player, tokenId, path, "5E", commandId, fingerprint, map.version());
+            var preview = service().preview(new com.dndmaster.combatmap.application.movement.MovementPreviewRequest(
+                    map.id(), player, tokenId, path.orderedPositions().getLast(), List.of(), "5E", map.version()));
+            return new MovementStartRequest(map.id(), player, tokenId, path, "5E", commandId, fingerprint,
+                    preview.fingerprint(), List.of(), map.version());
         }
 
         MovementStartRequest startWithPreview(String previewFingerprint, List<GridPosition> waypoints) {
             return new MovementStartRequest(map.id(), player, tokenId, path, "5E", commandId, "operation-fingerprint",
                     previewFingerprint, waypoints, map.version());
+        }
+
+        MovementStartRequest startWithCommand(UUID commandId, String fingerprint) {
+            return startWithCommand(commandId, fingerprint, map.version());
+        }
+
+        MovementStartRequest startWithCommand(UUID commandId, String fingerprint, long expectedVersion) {
+            var preview = service().preview(new com.dndmaster.combatmap.application.movement.MovementPreviewRequest(
+                    map.id(), player, tokenId, path.orderedPositions().getLast(), List.of(), "5E", expectedVersion));
+            return new MovementStartRequest(map.id(), player, tokenId, path, "5E", commandId, fingerprint,
+                    preview.fingerprint(), List.of(), expectedVersion);
         }
 
         MovementResolutionOperation readyOperation() {

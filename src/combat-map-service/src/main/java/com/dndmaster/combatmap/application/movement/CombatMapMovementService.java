@@ -48,6 +48,9 @@ public final class CombatMapMovementService {
     /** Starts or replays a durable movement reservation. Public map state changes only at the final save. */
     public MovementOperationResponse start(MovementStartRequest request) {
         Objects.requireNonNull(request);
+        if (request.previewFingerprint() == null || request.previewFingerprint().isBlank()) {
+            throw new MovementPreviewRequiredException();
+        }
         MovementResolutionOperation existing = operations.findOperationByCommandId(request.commandId()).orElse(null);
         if (existing != null) {
             if (!existing.fingerprint().equals(request.fingerprint())) throw new MovementCommandConflictException();
@@ -184,7 +187,6 @@ public final class CombatMapMovementService {
     }
 
     private void validateStagedPreview(MovementStartRequest request) {
-        if (request.previewFingerprint() == null) return;
         if (request.path().orderedPositions().isEmpty()) throw new CombatMapMovementPreviewMismatchException();
         MovementPreview preview = preview(new MovementPreviewRequest(request.mapId(), request.playerId(), request.tokenId(),
                 request.path().orderedPositions().getLast(), request.waypoints(), request.appliedEdition(), request.expectedVersion()));
@@ -213,7 +215,20 @@ public final class CombatMapMovementService {
         return new MovementResolutionResult(operation.requestedPath(), operation.traversedPath(), operation.currentCell(),
                 operation.expectedVersion(), List.of(), reason, MovementResolutionOutcomeStatus.CANCELLED);
     }
-    private static MovementOperationResponse response(MovementResolutionOperation operation) { return new MovementOperationResponse(operation.operationId(), operation.status(), operation.result()); }
+    private static MovementOperationResponse response(MovementResolutionOperation operation) {
+        MovementResolutionResult result = operation.result();
+        if (result == null) {
+            MovementResolutionOutcomeStatus outcome = switch (operation.status()) {
+                case PREPARING, READY_TO_COMMIT -> MovementResolutionOutcomeStatus.CHECK_REQUIRED;
+                case RETRY_WAIT -> MovementResolutionOutcomeStatus.RETRY_REQUIRED;
+                case COMMITTED -> MovementResolutionOutcomeStatus.COMMITTED;
+                case CANCELLED -> MovementResolutionOutcomeStatus.CANCELLED;
+            };
+            result = new MovementResolutionResult(operation.requestedPath(), operation.traversedPath(),
+                    operation.currentCell(), operation.expectedVersion(), List.of(), null, outcome);
+        }
+        return new MovementOperationResponse(operation.operationId(), operation.status(), result);
+    }
     private static final class UnsupportedOperationRepository implements MovementResolutionOperationRepository {
         private IllegalStateException unsupported() { return new IllegalStateException("movement reservations require an operation repository"); }
         public java.util.Optional<MovementResolutionOperation> findById(UUID id) { throw unsupported(); } public java.util.Optional<MovementResolutionOperation> findOperationByCommandId(UUID id) { throw unsupported(); }

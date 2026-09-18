@@ -15,6 +15,7 @@ import com.dndmaster.combatmap.application.movement.MovementVersionConflictExcep
 import com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException;
 import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
 import com.dndmaster.combatmap.application.movement.MovementFinalCommitConflictException;
+import com.dndmaster.combatmap.application.movement.MovementPreviewRequiredException;
 
 @RestControllerAdvice(name = "combatMapApiContractExceptionHandler")
 public final class ApiContractExceptionHandler {
@@ -76,6 +77,11 @@ public final class ApiContractExceptionHandler {
     @ExceptionHandler(CombatMapMovementPreviewMismatchException.class)
     ResponseEntity<ErrorResponse> handle(CombatMapMovementPreviewMismatchException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("MOVEMENT_PREVIEW_MISMATCH"));
+    }
+
+    @ExceptionHandler(MovementPreviewRequiredException.class)
+    ResponseEntity<ErrorResponse> handle(MovementPreviewRequiredException exception) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(new ErrorResponse("MOVEMENT_PREVIEW_REQUIRED"));
     }
 
     record ErrorResponse(String code) {}

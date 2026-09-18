@@ -182,6 +182,11 @@ public class RuntimeTurnApplicationService {
                 "runtime fact lookup service must not be null");
     }
 
+    /** Returns the saved map movement outcome for duplicate or resumed runtime commands. */
+    public com.dndmaster.adventure.application.combat.CombatMapMoveResult movementResultForTurn(UUID turnId) {
+        return commitOrchestrator == null ? null : commitOrchestrator.movementResultForTurn(turnId);
+    }
+
     /** Client/recovery entry point sharing the same forward-resume orchestrator. */
     public RuntimeTurnCommitOrchestrator.Result resumeRuntimeTurn(UUID turnId) {
         if (commitOrchestrator == null) throw new IllegalStateException("runtime turn commit orchestrator is not configured");
@@ -243,10 +248,11 @@ public class RuntimeTurnApplicationService {
             }
             if (!existing.lifecycle().isCommitted()) {
                 RuntimeTurn resumed = resumeCommittedTurn(command, adventure, existing);
-                return new RuntimeTurnResult(resumed, resumed.context(), resumed.conversation(), resumed.version());
+                return new RuntimeTurnResult(resumed, resumed.context(), resumed.conversation(), resumed.version(), null,
+                        movementResultForTurn(resumed.turnId()));
             }
             return new RuntimeTurnResult(existing, existing.context(), existing.conversation(), existing.version(),
-                    publicProjectionForExisting(command, adventure, existing));
+                    publicProjectionForExisting(command, adventure, existing), movementResultForTurn(existing.turnId()));
         }
         if (command.expectedVersion() >= 0 && adventure.version() != command.expectedVersion()) {
             throw new IllegalStateException("ADVENTURE_VERSION_CONFLICT expected=" + command.expectedVersion() + " actual=" + adventure.version());

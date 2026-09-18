@@ -185,7 +185,8 @@ public class AdventureController {
             var prior = runtimeTurnRepository.findByCommandId(commandId).orElseThrow(
                     () -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "turn is still processing"));
             return ResponseEntity.accepted().body(RuntimeTurnResponse.from(new RuntimeTurnResult(
-                    prior, prior.context(), prior.conversation(), prior.version())));
+                    prior, prior.context(), prior.conversation(), prior.version(), null,
+                    runtimeTurnService.movementResultForTurn(prior.turnId()))));
         }
         GmTurn turn = GmTurn.start(request.turnId(), commandId, expectedVersion, input);
         gmTurnRepository.save(turn, adventureId);

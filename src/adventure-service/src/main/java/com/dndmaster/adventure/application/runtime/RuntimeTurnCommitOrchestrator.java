@@ -1,5 +1,7 @@
 package com.dndmaster.adventure.application.runtime;
 
+import com.dndmaster.adventure.application.combat.CombatMapMoveResult;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -10,6 +12,7 @@ public final class RuntimeTurnCommitOrchestrator {
     private final RuntimeTurnRepository turnRepository;
     private final RuntimeTurnCommandRepository commandRepository;
     private final RuntimeTurnCommandAdapter commandAdapter;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public RuntimeTurnCommitOrchestrator(RuntimeTurnRepository turnRepository,
             RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter commandAdapter) {
@@ -37,18 +40,21 @@ public final class RuntimeTurnCommitOrchestrator {
         Objects.requireNonNull(localAdventureCommit, "local adventure commit must not be null");
         RuntimeTurn turn = turnRepository.findByTurnId(turnId)
                 .orElseThrow(() -> new IllegalStateException("runtime turn not found"));
-        if (turn.lifecycle() == RuntimeTurnLifecycle.COMMITTED) return new Result(Status.COMMITTED, turn, null);
+        if (turn.lifecycle() == RuntimeTurnLifecycle.COMMITTED) {
+            return new Result(Status.COMMITTED, turn, null, movementResultForTurn(turnId));
+        }
         if (turn.lifecycle() == RuntimeTurnLifecycle.COMMIT_REPAIR_REQUIRED) {
-            return new Result(Status.REPAIR_REQUIRED, turn, failedCommand(turnId));
+            return new Result(Status.REPAIR_REQUIRED, turn, failedCommand(turnId), movementResultForTurn(turnId));
         }
         if (turn.lifecycle() != RuntimeTurnLifecycle.COMMITTING) {
             throw new IllegalStateException("turn is not committing: " + turn.lifecycle());
         }
 
-        com.dndmaster.adventure.application.combat.CombatMapMoveResult movementResult = null;
+        CombatMapMoveResult movementResult = null;
         for (RuntimeTurnCommand command : commandRepository.findByTurnId(turnId).stream()
                 .sorted(Comparator.comparingInt(RuntimeTurnCommand::executionOrder)
                         .thenComparing(RuntimeTurnCommand::commandId)).toList()) {
+            movementResult = restoreMovementResult(command).orElse(movementResult);
             if (command.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE) continue;
             RuntimeTurnCommandExecution execution;
             try {
@@ -80,6 +86,28 @@ public final class RuntimeTurnCommitOrchestrator {
         RuntimeTurn committed = turnRepository.findByTurnId(turnId).orElse(turn).markSafeCommitted();
         turnRepository.save(committed);
         return new Result(Status.COMMITTED, committed, null, movementResult);
+    }
+
+    /** Replays a stored map result for reconnects and duplicate turn requests. */
+    public CombatMapMoveResult movementResultForTurn(UUID turnId) {
+        return commandRepository.findByTurnId(Objects.requireNonNull(turnId, "turn id must not be null")).stream()
+                .sorted(Comparator.comparingInt(RuntimeTurnCommand::executionOrder)
+                        .thenComparing(RuntimeTurnCommand::commandId))
+                .map(this::restoreMovementResult)
+                .flatMap(java.util.Optional::stream)
+                .findFirst()
+                .orElse(null);
+    }
+
+    private java.util.Optional<CombatMapMoveResult> restoreMovementResult(RuntimeTurnCommand command) {
+        if (!"combat-map.move".equals(command.commandType()) || command.outcomeJson().isBlank()) {
+            return java.util.Optional.empty();
+        }
+        try {
+            return java.util.Optional.of(objectMapper.readValue(command.outcomeJson(), CombatMapMoveResult.class));
+        } catch (java.io.IOException | RuntimeException ignored) {
+            return java.util.Optional.empty();
+        }
     }
 
     private void validateCommands(UUID turnId, List<RuntimeTurnCommand> commands) {

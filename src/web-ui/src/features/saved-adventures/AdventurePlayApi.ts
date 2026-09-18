@@ -141,6 +141,8 @@ export interface AdventurePlayApi {
   applyMapGridAlignment?(adventureId: string, alignment: MapGridAlignmentRequest): Promise<MapGridAlignment>
   updateCombatMapLayout?(adventureId: string, draft: CombatMapLayoutDraft): Promise<void>
   previewMapMovement?(adventureId: string, request: MapMovementPreviewRequest): Promise<MapMovementPreview>
+  movementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
+  resumeMovementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
   submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
 }
 
@@ -310,6 +312,18 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   previewMapMovement(adventureId: string, preview: MapMovementPreviewRequest) {
     return request<MapMovementPreview>(`/api/v1/adventures/${adventureId}/combat-map/movement-preview`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(preview),
+    })
+  }
+
+  movementOperation(adventureId: string, mapId: string, operationId: string) {
+    return request<MapMovementResult>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations/${operationId}?mapId=${mapId}`, {
+      headers: this.authHeaders(),
+    })
+  }
+
+  resumeMovementOperation(adventureId: string, mapId: string, operationId: string) {
+    return request<MapMovementResult>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations/${operationId}/resume?mapId=${mapId}`, {
+      method: 'POST', headers: this.authHeaders(),
     })
   }
 

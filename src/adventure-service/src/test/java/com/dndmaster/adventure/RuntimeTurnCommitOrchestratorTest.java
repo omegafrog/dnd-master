@@ -108,6 +108,31 @@ class RuntimeTurnCommitOrchestratorTest {
         assertEquals(outcome, fixture.commands.findByCommandId(command.commandId()).orElseThrow().outcomeJson());
     }
 
+    @Test
+    void restores_the_saved_movement_result_when_a_saga_resumes_after_the_command_is_done() {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        UUID operationId = UUID.randomUUID();
+        String outcome = "{\"version\":4,\"operationId\":\"" + operationId
+                + "\",\"status\":\"INTERRUPTED\",\"requestedPath\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}],"
+                + "\"traversedPath\":[{\"x\":1,\"y\":1}],\"finalPosition\":{\"x\":1,\"y\":1},"
+                + "\"publicEvents\":[\"FEATURE_REVEALED\"],\"interruptionReason\":\"FEATURE_REVEALED\"}";
+        RuntimeTurnCommand command = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
+        fixture.commands.save(command.done(outcome));
+        RuntimeTurn ready = fixture.readyTurn();
+        fixture.turns.save(ready.beginCommit());
+
+        RuntimeTurnCommitOrchestrator.Result result = fixture.orchestrator(ignored ->
+                { throw new AssertionError("a done movement command must not execute again"); })
+                .resume(fixture.turnId, () -> { });
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED, result.status());
+        assertEquals(operationId, result.movementResult().operationId());
+        assertEquals(com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED,
+                result.movementResult().status());
+        assertEquals(List.of(new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1)),
+                result.movementResult().traversedPath());
+    }
+
     private static final class RuntimeTurnFixture {
         private final UUID turnId = UUID.randomUUID();
         private final InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
