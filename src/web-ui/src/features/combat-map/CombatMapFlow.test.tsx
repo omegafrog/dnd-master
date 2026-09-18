@@ -605,8 +605,15 @@ it('restores a durable movement operation when local storage has no waiting stat
   expect(api.latestMovementOperation).toHaveBeenCalledWith('a1', 'm1')
 })
 
-it.each(['COMMITTED', 'INTERRUPTED'] as const)('replays a stored terminal %s movement result after reconnect', async status => {
+it.each(['COMMITTED', 'INTERRUPTED', 'CANCELLED'] as const)('replays a stored terminal %s movement result after reconnect', async status => {
   vi.useFakeTimers()
+  window.localStorage.setItem('dnd-master:movement-operation:a1', JSON.stringify({
+    mapId: 'm1', tokenId: 'p1', turnId: 't1', commandId: 'c1', result: {
+      version: 0, operationId: 'stored-operation', status: 'RETRY_REQUIRED',
+      requestedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }], traversedPath: [{ x: 1, y: 1 }],
+      finalPosition: { x: 1, y: 1 }, publicEvents: [],
+    },
+  }))
   const api = fakeApi()
   api.getCombatMap = async () => ({
     adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 1, sessionVersion: 8,
@@ -624,7 +631,9 @@ it.each(['COMMITTED', 'INTERRUPTED'] as const)('replays a stored terminal %s mov
   render(<CombatMapView adventureId="a1" api={api} />)
   await act(async () => { await vi.runAllTimersAsync() })
 
-  expect(screen.getByRole('status', { name: '최근 이동 결과' })).toHaveTextContent(status === 'COMMITTED' ? '이동이 완료되었습니다.' : '이동이 중단되었습니다.')
+  expect(screen.getByRole('status', { name: '최근 이동 결과' })).toHaveTextContent(status === 'COMMITTED' || status === 'CANCELLED' ? '이동이 완료되었습니다.' : '이동이 중단되었습니다.')
+  expect(screen.queryByRole('status', { name: '저장된 이동 상태' })).not.toBeInTheDocument()
+  expect(window.localStorage.getItem('dnd-master:movement-operation:a1')).toBeNull()
   vi.useRealTimers()
 })
 

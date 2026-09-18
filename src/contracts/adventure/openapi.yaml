@@ -286,7 +286,7 @@ components:
         status: { type: string, enum: [RETRY_REQUIRED, CHECK_REQUIRED, COMMITTED, INTERRUPTED, CANCELLED] }
         requestedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
         traversedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
-        finalPosition: { $ref: '#/components/schemas/MovementPosition' }
+        finalPosition: { oneOf: [{ $ref: '#/components/schemas/MovementPosition' }, { type: 'null' }] }
         publicEvents: { type: array, items: { type: string } }
         interruptionReason: { type: [string, 'null'] }
     AdventureMovementOperationResponse:
@@ -299,7 +299,7 @@ components:
         version: { type: integer, format: int64, minimum: 0 }
         requestedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
         traversedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
-        finalPosition: { $ref: '#/components/schemas/MovementPosition' }
+        finalPosition: { oneOf: [{ $ref: '#/components/schemas/MovementPosition' }, { type: 'null' }] }
         publicEvents: { type: array, items: { type: string } }
         interruptionReason: { type: [string, 'null'] }
     RuntimeTurnResponse:

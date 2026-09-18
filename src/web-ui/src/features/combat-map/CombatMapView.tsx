@@ -106,7 +106,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             const result = await api.latestMovementOperation(adventureId, nextMap.mapId)
             if (result && (result.status === 'RETRY_REQUIRED' || result.status === 'CHECK_REQUIRED')) {
               serverMovement = { mapId: nextMap.mapId, tokenId: playerTokenId, result }
-            } else if (result && (result.status === 'COMMITTED' || result.status === 'INTERRUPTED')) {
+            } else if (result && (result.status === 'COMMITTED' || result.status === 'INTERRUPTED' || result.status === 'CANCELLED')) {
               terminalMovement = result
             }
           } catch {
@@ -300,7 +300,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       await animateCommittedMovement(setMap, before, refreshed, tokenId, result.traversedPath)
     } else setMap(refreshed)
     setPendingMovement(null)
-    if (result.status === 'COMMITTED' || result.status === 'INTERRUPTED') setReplayedMovement(result)
+    if (result.status === 'COMMITTED' || result.status === 'INTERRUPTED' || result.status === 'CANCELLED') setReplayedMovement(result)
     try { window.localStorage.removeItem(pendingMovementKey(adventureId)) } catch { /* storage is optional */ }
     clearPendingMovementCommand(adventureId)
     setCandidate(null); setSelectedToken(null); setMessage(result.status === 'INTERRUPTED' ? '이동이 중단되었습니다.' : '맵 행동을 GM 턴으로 전송했습니다.')

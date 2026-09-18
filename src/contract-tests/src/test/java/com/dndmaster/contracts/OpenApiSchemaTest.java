@@ -52,9 +52,25 @@ class OpenApiSchemaTest {
         Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) combatMap.get("components")).get("schemas");
         Map<String, Object> operation = (Map<String, Object>) schemas.get("MovementOperationResponse");
         Map<String, Object> properties = (Map<String, Object>) operation.get("properties");
+        assertNullableFinalPosition(properties, "staged movement");
+
+        Map<String, Object> adventure = new Yaml().load(Files.readString(CONTRACTS.resolve("adventure").resolve("openapi.yaml")));
+        Map<String, Object> adventureSchemas = (Map<String, Object>) ((Map<String, Object>) adventure.get("components")).get("schemas");
+        assertNullableFinalPosition(schemaProperties(adventureSchemas, "MovementResult"), "Adventure movement result");
+        assertNullableFinalPosition(schemaProperties(adventureSchemas, "AdventureMovementOperationResponse"),
+                "Adventure movement operation response");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> schemaProperties(Map<String, Object> schemas, String schemaName) {
+        Map<String, Object> schema = (Map<String, Object>) schemas.get(schemaName);
+        return (Map<String, Object>) schema.get("properties");
+    }
+
+    private static void assertNullableFinalPosition(Map<String, Object> properties, String contractName) {
         Map<String, Object> finalPosition = (Map<String, Object>) properties.get("finalPosition");
         assertTrue(finalPosition.containsKey("oneOf") || finalPosition.containsKey("nullable"),
-                "staged movement finalPosition must allow null before a terminal result");
+                contractName + " finalPosition must allow null before a terminal result");
     }
 
     @SuppressWarnings("unchecked")
