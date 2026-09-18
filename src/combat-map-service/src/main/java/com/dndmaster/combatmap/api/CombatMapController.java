@@ -383,7 +383,7 @@ public class CombatMapController {
     }
 
     private static boolean invalid(PositionRequest position) {
-        return position == null || position.x() < 0 || position.y() < 0;
+        return position == null || position.x() == null || position.y() == null || position.x() < 0 || position.y() < 0;
     }
 
     public CombatMapMoveResponse movePlayer(UUID mapId, String token, MoveRequest request) {
@@ -407,7 +407,8 @@ public class CombatMapController {
         }
         requireIdempotencyKey(idempotencyKey, request.commandId());
         if (request.playerId() == null || request.tokenId() == null || request.appliedEdition() == null
-                || request.appliedEdition().isBlank() || request.commandId() == null || request.expectedVersion() < 0
+                || request.appliedEdition().isBlank() || request.commandId() == null || request.distance() == null
+                || request.distance() < 1 || request.expectedVersion() == null || request.expectedVersion() < 0
                 || request.fingerprint() != null && request.fingerprint().isBlank()
                 || request.positions() == null || request.positions().size() < 2
                 || request.positions().stream().anyMatch(CombatMapController::invalid)
@@ -506,14 +507,14 @@ public class CombatMapController {
 
     public record MoveRequest(
             UUID playerId, UUID tokenId,
-            List<PositionRequest> positions, int distance,
-            String appliedEdition, UUID commandId, long expectedVersion,
+            List<PositionRequest> positions, Integer distance,
+            String appliedEdition, UUID commandId, Long expectedVersion,
             String fingerprint, List<PositionRequest> waypoints) {}
 
     public record MovementPreviewRequestBody(UUID playerId, UUID tokenId, PositionRequest destination,
             List<PositionRequest> waypoints, String appliedEdition, Long expectedVersion) {}
 
-    public record PositionRequest(int x, int y) {}
+    public record PositionRequest(Integer x, Integer y) {}
 
     public record AiStateRequest(
             UUID ownerId, UUID tokenId,
