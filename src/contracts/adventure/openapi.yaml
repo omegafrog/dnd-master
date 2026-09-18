@@ -308,4 +308,4 @@ components:
         turnId: { type: string, format: uuid }
         adventureId: { type: string, format: uuid }
         version: { type: integer, format: int64, minimum: 0 }
-        movementResult: { $ref: '#/components/schemas/MovementResult' }
+        movementResult: { oneOf: [{ $ref: '#/components/schemas/MovementResult' }, { type: 'null' }] }

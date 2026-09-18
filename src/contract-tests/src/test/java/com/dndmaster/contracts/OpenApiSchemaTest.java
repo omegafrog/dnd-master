@@ -59,6 +59,8 @@ class OpenApiSchemaTest {
         assertNullableFinalPosition(schemaProperties(adventureSchemas, "MovementResult"), "Adventure movement result");
         assertNullableFinalPosition(schemaProperties(adventureSchemas, "AdventureMovementOperationResponse"),
                 "Adventure movement operation response");
+        assertNullableProperty(schemaProperties(adventureSchemas, "RuntimeTurnResponse"), "movementResult",
+                "Runtime turn response movement result");
     }
 
     @SuppressWarnings("unchecked")
@@ -71,6 +73,17 @@ class OpenApiSchemaTest {
         Map<String, Object> finalPosition = (Map<String, Object>) properties.get("finalPosition");
         assertTrue(finalPosition.containsKey("oneOf") || finalPosition.containsKey("nullable"),
                 contractName + " finalPosition must allow null before a terminal result");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertNullableProperty(Map<String, Object> properties, String propertyName, String contractName) {
+        Map<String, Object> property = (Map<String, Object>) properties.get(propertyName);
+        boolean oneOfNull = property.get("oneOf") instanceof List<?> variants
+                && variants.stream().anyMatch(variant -> variant instanceof Map<?, ?> schema
+                        && "null".equals(schema.get("type")));
+        assertTrue(oneOfNull || Boolean.TRUE.equals(property.get("nullable"))
+                        || (property.get("type") instanceof List<?> types && types.contains("null")),
+                contractName + " must allow null");
     }
 
     @SuppressWarnings("unchecked")
