@@ -75,4 +75,25 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
         assertEquals("STALE_MOVEMENT_PROPOSAL", result.value());
     }
+
+    @Test
+    void rejects_a_durable_move_without_preview_binding_fields() {
+        CombatMapPort mapPort = new CombatMapPort() {
+            @Override public void validateAndMove(CombatActionCommand command) {}
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult move(CombatMapMoveCommand command) {
+                throw new AssertionError("invalid durable movement must not reach the map port");
+            }
+        };
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "{\"ruleSetId\":\"" + UUID.randomUUID()
+                        + "\",\"characterSheetId\":\"" + UUID.randomUUID()
+                        + "\",\"combatMapId\":\"" + UUID.randomUUID()
+                        + "\",\"tokenId\":\"" + UUID.randomUUID()
+                        + "\",\"expectedVersion\":0,\"distance\":5,\"appliedEdition\":\"DND_5E_2024\",\"waypoints\":[]}",
+                "combat-map.move", "{\"action\":\"MOVE\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}", 0);
+
+        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper()).execute(command);
+
+        assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
+    }
 }
