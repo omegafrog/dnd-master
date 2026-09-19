@@ -5,6 +5,7 @@ import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.Comparator;
@@ -71,7 +72,8 @@ public final class RuntimeTurnCommitOrchestrator {
                 if (movementResult != null && movementResult.followUp() != null
                         && "combat-map.move".equals(command.commandType())
                         && commandRepository.findByCommandId(movementResult.followUp().commandId()).isEmpty()) {
-                    RuntimeTurnCommand followUp = followUpCommand(command, movementResult.followUp(), nextExecutionOrder++);
+                    RuntimeTurnCommand followUp = followUpCommand(command, movementResult.followUp(),
+                            rawFollowUpPayload(command.outcomeJson(), movementResult.followUp()), nextExecutionOrder++);
                     commandRepository.save(followUp);
                     RuntimeTurnCommandExecution followUpExecution = executeFollowUp(followUp);
                     if (followUpExecution.status() != RuntimeTurnCommandExecution.Status.DONE) {
@@ -102,7 +104,8 @@ public final class RuntimeTurnCommitOrchestrator {
                 if (movementResult != null && movementResult.followUp() != null
                         && "combat-map.move".equals(command.commandType())
                         && commandRepository.findByCommandId(movementResult.followUp().commandId()).isEmpty()) {
-                    RuntimeTurnCommand followUp = followUpCommand(command, movementResult.followUp(), nextExecutionOrder++);
+                    RuntimeTurnCommand followUp = followUpCommand(command, movementResult.followUp(),
+                            rawFollowUpPayload(execution.value(), movementResult.followUp()), nextExecutionOrder++);
                     commandRepository.save(followUp);
                     RuntimeTurnCommandExecution followUpExecution = executeFollowUp(followUp);
                     if (followUpExecution.status() != RuntimeTurnCommandExecution.Status.DONE) {
@@ -181,13 +184,73 @@ public final class RuntimeTurnCommitOrchestrator {
         }
     }
 
-    private RuntimeTurnCommand followUpCommand(RuntimeTurnCommand source, MovementFollowUpCommand followUp, int order) {
+    private RuntimeTurnCommand followUpCommand(RuntimeTurnCommand source, MovementFollowUpCommand followUp,
+            String rawPayload, int order) {
+        return RuntimeTurnCommand.create(source.turnId(), followUp.commandId(), source.adventureId(), source.sessionId(),
+                source.ownerPlayerId(), source.targetContext(), "movement.follow-up", rawPayload, order);
+    }
+
+    private String rawFollowUpPayload(String rawMovement, MovementFollowUpCommand expected) {
         try {
-            return RuntimeTurnCommand.create(source.turnId(), followUp.commandId(), source.adventureId(), source.sessionId(),
-                    source.ownerPlayerId(), source.targetContext(), "movement.follow-up", objectMapper.writeValueAsString(followUp), order);
-        } catch (java.io.IOException failure) {
-            throw new IllegalStateException("movement follow-up persistence failed", failure);
+            JsonNode movement = readStrictObject(rawMovement, "durable movement outcome");
+            JsonNode rawFollowUp = movement.get("followUp");
+            if (rawFollowUp == null || !rawFollowUp.isObject()) {
+                throw new PermanentFollowUpFailure("durable movement outcome follow-up is missing");
+            }
+            String raw = extractRawObjectField(rawMovement, "followUp");
+            JsonNode parsed = readStrictObject(raw, "durable movement follow-up");
+            if (!raw.equals(objectMapper.writeValueAsString(parsed))) {
+                throw new PermanentFollowUpFailure("durable movement follow-up payload is not canonical");
+            }
+            if (!parsed.equals(objectMapper.valueToTree(expected))) {
+                throw new PermanentFollowUpFailure("durable movement follow-up payload mismatch");
+            }
+            return raw;
+        } catch (PermanentFollowUpFailure failure) {
+            return "{not-json";
+        } catch (IOException | RuntimeException failure) {
+            return "{not-json";
         }
+    }
+
+    private JsonNode readStrictObject(String raw, String description) throws IOException {
+        try (JsonParser parser = objectMapper.createParser(raw)) {
+            JsonNode value = objectMapper.readTree(parser);
+            if (value == null || !value.isObject() || parser.nextToken() != null) {
+                throw new PermanentFollowUpFailure(description + " is invalid");
+            }
+            return value;
+        }
+    }
+
+    /** Extracts the original JSON value without normalizing whitespace or field order. */
+    private String extractRawObjectField(String json, String field) {
+        String needle = "\"" + field + "\"";
+        int key = json.indexOf(needle);
+        if (key < 0) throw new PermanentFollowUpFailure("durable movement follow-up is missing");
+        int colon = json.indexOf(':', key + needle.length());
+        if (colon < 0) throw new PermanentFollowUpFailure("durable movement follow-up is invalid");
+        int start = colon + 1;
+        while (start < json.length() && Character.isWhitespace(json.charAt(start))) start++;
+        if (start >= json.length() || json.charAt(start) != '{') {
+            throw new PermanentFollowUpFailure("durable movement follow-up is invalid");
+        }
+        int depth = 0;
+        boolean quoted = false;
+        boolean escaped = false;
+        for (int i = start; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (quoted) {
+                if (escaped) escaped = false;
+                else if (c == '\\') escaped = true;
+                else if (c == '"') quoted = false;
+                continue;
+            }
+            if (c == '"') quoted = true;
+            else if (c == '{') depth++;
+            else if (c == '}' && --depth == 0) return json.substring(start, i + 1);
+        }
+        throw new PermanentFollowUpFailure("durable movement follow-up is invalid");
     }
 
     /** Replays a stored map result for reconnects and duplicate turn requests. */

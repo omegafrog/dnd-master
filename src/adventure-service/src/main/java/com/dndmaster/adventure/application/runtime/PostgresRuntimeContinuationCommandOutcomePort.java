@@ -53,7 +53,8 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
         try {
             return objectMapper.readValue(json, type);
         } catch (IOException failure) {
-            throw new IllegalStateException("durable continuation command is malformed", failure);
+            throw new CorruptRuntimeContinuationOutcomeException(
+                    "durable continuation command outcome is corrupt", failure);
         }
     }
 

@@ -17,6 +17,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeContinuationCommandPor
 import com.dndmaster.adventure.application.runtime.RuntimeContinuationCommandOutcome;
 import com.dndmaster.adventure.application.runtime.RuntimeContinuationCommandOutcomePort;
 import com.dndmaster.adventure.application.runtime.PostgresRuntimeContinuationCommandOutcomePort;
+import com.dndmaster.adventure.application.runtime.CorruptRuntimeContinuationOutcomeException;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandAdapterRegistry;
 import com.dndmaster.adventure.application.runtime.TypedRuntimeContinuationCommandAdapter;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution;
@@ -33,6 +34,21 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class SessionEventTest {
+    @Test
+    void corrupt_persisted_typed_continuation_outcome_is_a_permanent_data_failure() {
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(commands, new ObjectMapper());
+        UUID turnId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation.combat", "{}", 0);
+        commands.save(command.done("{corrupt"));
+        RuntimeContinuationCommandPort.ContinuationCommand typed = new RuntimeContinuationCommandPort.ContinuationCommand(
+                command, new MovementFollowUpRuntimeConsumer.Continuation(MovementFollowUpCommand.Kind.COMBAT,
+                        "HOSTILE_OBSERVED", UUID.randomUUID(), turnId, UUID.randomUUID()));
+
+        assertThrows(CorruptRuntimeContinuationOutcomeException.class, () -> outcomes.combat(typed));
+    }
+
     @Test
     void event_versions_are_monotonic_and_duplicate_safe() {
         InMemorySessionEventRepository events = new InMemorySessionEventRepository();

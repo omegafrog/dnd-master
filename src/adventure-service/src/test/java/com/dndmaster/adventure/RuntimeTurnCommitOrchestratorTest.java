@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.runtime.InMemoryRuntimeTurnCommandRepository;
 import com.dndmaster.adventure.application.runtime.InMemorySessionEventRepository;
@@ -37,6 +38,69 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class RuntimeTurnCommitOrchestratorTest {
+    @Test
+    void retains_the_original_raw_follow_up_json_in_the_durable_command() {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        UUID followUpId = UUID.nameUUIDFromBytes(("movement-follow-up:" + operationId)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        var followUp = new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                followUpId, operationId, hostileTokenId, fixture.turnId,
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "HOSTILE_OBSERVED");
+        var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(
+                3, operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED,
+                List.of(), List.of(), null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED",
+                null, followUp, null, hostileTokenId);
+        String rawFollowUp = "{\"commandId\":\"" + followUpId + "\",\"operationId\":\"" + operationId
+                + "\",\"hostileTokenId\":\"" + hostileTokenId + "\",\"turnId\":\"" + fixture.turnId
+                + "\",\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\"}";
+        String rawMovement = "{\"version\":3,\"operationId\":\"" + operationId
+                + "\",\"status\":\"INTERRUPTED\",\"requestedPath\":[],\"traversedPath\":[],"
+                + "\"finalPosition\":null,\"publicEvents\":[\"HOSTILE_OBSERVED\"],"
+                + "\"interruptionReason\":\"HOSTILE_OBSERVED\",\"pendingCheck\":null,\"followUp\":"
+                + rawFollowUp + ",\"hostileTokenId\":\"" + hostileTokenId + "\"}";
+        RuntimeTurnCommand command = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
+        var captured = new java.util.concurrent.atomic.AtomicReference<com.dndmaster.adventure.application.combat.MovementFollowUpCommand>();
+
+        RuntimeTurnCommitOrchestrator.Result result = fixture.orchestrator(ignored ->
+                RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, rawMovement, movement),
+                (published, adventureId, sessionId, ownerPlayerId) -> {
+                    captured.set(published);
+                    return fixture.followUpPublisher().publish(published, adventureId, sessionId, ownerPlayerId);
+                }).commit(fixture.readyTurn(), List.of(command), () -> {});
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED, result.status());
+        assertEquals(rawFollowUp, fixture.commands.findByCommandId(followUpId).orElseThrow().payloadJson());
+        assertEquals(followUp, captured.get());
+    }
+
+    @Test
+    void rejects_a_mismatched_raw_follow_up_identity_permanently() {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        var followUp = com.dndmaster.adventure.application.combat.MovementFollowUpCommand.hostileObserved(
+                operationId, fixture.turnId, hostileTokenId);
+        var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(
+                3, operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED,
+                List.of(), List.of(), null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED",
+                null, followUp, null, hostileTokenId);
+        String rawMovement = "{\"operationId\":\"" + operationId + "\",\"followUp\":{"
+                + "\"commandId\":\"" + UUID.randomUUID() + "\",\"operationId\":\"" + operationId
+                + "\",\"hostileTokenId\":\"" + hostileTokenId + "\",\"turnId\":\"" + fixture.turnId
+                + "\",\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\"}}";
+        RuntimeTurnCommand command = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
+
+        RuntimeTurnCommitOrchestrator.Result result = fixture.orchestrator(ignored ->
+                RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, rawMovement, movement))
+                .commit(fixture.readyTurn(), List.of(command), () -> {});
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.REPAIR_REQUIRED, result.status());
+        assertTrue(fixture.commands.findByTurnId(fixture.turnId).stream()
+                .anyMatch(saved -> saved.executionStatus() == RuntimeTurnCommand.ExecutionStatus.FAILED));
+    }
     @Test
     void executesCommandsInOrderAndSkipsDoneCommandsOnResume() {
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
