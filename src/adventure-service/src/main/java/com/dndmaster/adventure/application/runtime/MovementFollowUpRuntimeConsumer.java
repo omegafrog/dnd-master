@@ -33,7 +33,10 @@ public final class MovementFollowUpRuntimeConsumer {
             if (!"MOVEMENT_FOLLOW_UP".equals(event.type())) {
                 throw new IllegalStateException("unexpected movement follow-up event type");
             }
-            MovementFollowUpCommand followUp = objectMapper.readValue(event.payload(), MovementFollowUpCommand.class);
+            var eventPayload = objectMapper.readTree(event.payload());
+            validateIdentity(eventPayload, "hostileTokenId");
+            validateIdentity(eventPayload, "turnId");
+            MovementFollowUpCommand followUp = objectMapper.treeToValue(eventPayload, MovementFollowUpCommand.class);
             if (!followUp.equals(expected)) throw new IllegalStateException("movement follow-up event payload mismatch");
             if (!source.turnId().equals(followUp.turnId())) {
                 throw new IllegalStateException("movement follow-up belongs to another turn");
@@ -69,9 +72,29 @@ public final class MovementFollowUpRuntimeConsumer {
             }
             commands.save(continuation.done(outcome.value()));
             return MovementFollowUpPort.Result.done(outcome.value());
+        } catch (PermanentFollowUpFailure failure) {
+            return MovementFollowUpPort.Result.permanentFailure(failure.getMessage());
+        } catch (IllegalArgumentException failure) {
+            return MovementFollowUpPort.Result.permanentFailure(failure.getMessage());
         } catch (IOException | RuntimeException failure) {
             return MovementFollowUpPort.Result.retry(failure.getMessage());
         }
+    }
+
+    private static void validateIdentity(com.fasterxml.jackson.databind.JsonNode payload, String field) {
+        if (payload == null || !payload.isObject() || !payload.hasNonNull(field)
+                || !payload.path(field).isTextual() || payload.path(field).asText().isBlank()) {
+            throw new PermanentFollowUpFailure("movement follow-up field " + field + " is required");
+        }
+        try {
+            UUID.fromString(payload.path(field).asText());
+        } catch (IllegalArgumentException failure) {
+            throw new PermanentFollowUpFailure("movement follow-up field " + field + " is invalid");
+        }
+    }
+
+    private static final class PermanentFollowUpFailure extends RuntimeException {
+        private PermanentFollowUpFailure(String message) { super(message); }
     }
 
     public record Continuation(MovementFollowUpCommand.Kind kind, String trigger, UUID operationId, UUID turnId,

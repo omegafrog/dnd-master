@@ -1,13 +1,13 @@
 package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
-
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
+/** Test-only session event store. Production wiring uses the database repository. */
 public final class InMemorySessionEventRepository implements SessionEventRepository {
     private final ConcurrentHashMap<UUID, List<SessionEvent>> events = new ConcurrentHashMap<>();
 

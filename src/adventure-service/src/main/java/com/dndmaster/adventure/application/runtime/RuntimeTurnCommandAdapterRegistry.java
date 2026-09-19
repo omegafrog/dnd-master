@@ -6,16 +6,18 @@ import java.util.Objects;
 /** Dispatches recovered commands to the owning bounded-context adapter. */
 public final class RuntimeTurnCommandAdapterRegistry implements RuntimeTurnCommandAdapter {
     private final Map<String, RuntimeTurnCommandAdapter> adapters;
-    private final RuntimeTurnCommandAdapter fallback;
 
-    public RuntimeTurnCommandAdapterRegistry(Map<String, RuntimeTurnCommandAdapter> adapters,
-            RuntimeTurnCommandAdapter fallback) {
+    public RuntimeTurnCommandAdapterRegistry(Map<String, RuntimeTurnCommandAdapter> adapters) {
         this.adapters = Map.copyOf(Objects.requireNonNull(adapters, "command adapters must not be null"));
-        this.fallback = Objects.requireNonNull(fallback, "fallback command adapter must not be null");
     }
 
     @Override public RuntimeTurnCommandExecution execute(RuntimeTurnCommand command) {
-        return adapters.getOrDefault(command.commandType(), fallback).execute(command);
+        RuntimeTurnCommandAdapter adapter = adapters.get(command.commandType());
+        if (adapter == null) {
+            return RuntimeTurnCommandExecution.permanentFailure(
+                    "unknown runtime command type: " + command.commandType());
+        }
+        return adapter.execute(command);
     }
 
     RuntimeTurnCommandAdapter registered(String commandType) {

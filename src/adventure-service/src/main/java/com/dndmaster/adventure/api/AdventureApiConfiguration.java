@@ -336,7 +336,7 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimeTurnCommandAdapter runtimeTurnCommandAdapter(GmToolGateway gateway, ObjectMapper objectMapper,
+    RuntimeTurnCommandAdapter runtimeTurnCommandAdapter(ObjectMapper objectMapper,
             CombatMapPort combatMapPort,
             @Qualifier("enemyObservationRollPort") com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort,
             RuntimeContinuationCommandPort continuationPort) {
@@ -346,8 +346,7 @@ public class AdventureApiConfiguration {
                         "movement.continuation.combat", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.COMBAT, continuationPort),
                         "movement.continuation.warning", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.WARNING, continuationPort),
                         "movement.continuation.dialogue", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.DIALOGUE, continuationPort),
-                        "movement.continuation.chase", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.CHASE, continuationPort)),
-                new GmToolRuntimeTurnCommandAdapter(gateway, objectMapper));
+                        "movement.continuation.chase", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.CHASE, continuationPort)));
     }
 
     @Bean

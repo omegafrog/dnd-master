@@ -12,7 +12,7 @@ public interface MovementFollowUpPolicy {
             case "FEATURE_REVEALED", "DANGER_WARNING" -> MovementFollowUpCommand.Kind.WARNING;
             case "NPC_CONTACT" -> MovementFollowUpCommand.Kind.DIALOGUE;
             case "CHASE_STARTED" -> MovementFollowUpCommand.Kind.CHASE;
-            default -> MovementFollowUpCommand.Kind.CONTINUATION;
+            default -> throw new IllegalArgumentException("unknown movement follow-up trigger: " + trigger);
         };
     }
 }

@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.runtime.InMemorySessionEventRepository;
@@ -214,8 +215,7 @@ class SessionEventTest {
                 "movement.continuation.combat", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.COMBAT, port),
                 "movement.continuation.warning", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.WARNING, port),
                 "movement.continuation.dialogue", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.DIALOGUE, port),
-                "movement.continuation.chase", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.CHASE, port)),
-                command -> { throw new AssertionError("continuation must not use GM fallback"); });
+                "movement.continuation.chase", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.CHASE, port)));
 
         for (MovementFollowUpCommand.Kind kind : List.of(MovementFollowUpCommand.Kind.COMBAT,
                 MovementFollowUpCommand.Kind.WARNING, MovementFollowUpCommand.Kind.DIALOGUE, MovementFollowUpCommand.Kind.CHASE)) {
@@ -229,6 +229,74 @@ class SessionEventTest {
                     new MovementFollowUpRuntimeConsumer.Continuation(kind, "HOSTILE_OBSERVED", operationId, turnId));
             assertEquals(RuntimeContinuationOutcome.Status.APPLIED, outcome.status());
         }
+    }
+
+    @Test
+    void unknown_movement_trigger_is_rejected_as_a_permanent_failure() {
+        assertThrows(IllegalArgumentException.class,
+                () -> MovementFollowUpPolicy.defaultPolicy().determine("UNSUPPORTED_TRIGGER"));
+    }
+
+    @Test
+    void unknown_runtime_command_type_is_a_permanent_explicit_failure() {
+        RuntimeTurnCommandAdapterRegistry adapters = new RuntimeTurnCommandAdapterRegistry(java.util.Map.of());
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation.unknown", "{}", 1);
+
+        RuntimeTurnCommandExecution result = adapters.execute(command);
+
+        assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
+        assertEquals("unknown runtime command type: movement.continuation.unknown", result.value());
+    }
+
+    @Test
+    void missing_follow_up_identity_fields_are_permanent_failures_not_retries() {
+        InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        ObjectMapper mapper = new ObjectMapper();
+        UUID turnId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        RuntimeTurnCommand source = RuntimeTurnCommand.create(turnId, commandId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
+        events.append(new SessionEvent(source.sessionId(), commandId, 0, "MOVEMENT_FOLLOW_UP",
+                "{\"commandId\":\"" + commandId + "\",\"operationId\":\"" + operationId
+                        + "\",\"turnId\":\"" + turnId + "\",\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\"}"));
+        MovementFollowUpCommand expected = MovementFollowUpCommand.hostileObserved(operationId, turnId, UUID.randomUUID());
+        MovementFollowUpCommand expectedWithCommandId = new MovementFollowUpCommand(commandId, expected.operationId(),
+                expected.hostileTokenId(), expected.turnId(), expected.kind(), expected.trigger());
+        MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands, mapper,
+                MovementFollowUpPolicy.defaultPolicy(), (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
+
+        MovementFollowUpPort.Result result = consumer.consume(source, expectedWithCommandId);
+
+        assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
+        assertTrue(result.value().contains("hostileTokenId"));
+    }
+
+    @Test
+    void missing_follow_up_turn_id_is_a_permanent_failure_not_a_retry() {
+        InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        UUID turnId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        RuntimeTurnCommand source = RuntimeTurnCommand.create(turnId, commandId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
+        events.append(new SessionEvent(source.sessionId(), commandId, 0, "MOVEMENT_FOLLOW_UP",
+                "{\"commandId\":\"" + commandId + "\",\"operationId\":\"" + operationId
+                        + "\",\"hostileTokenId\":\"" + hostileTokenId
+                        + "\",\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\"}"));
+        MovementFollowUpCommand expected = new MovementFollowUpCommand(commandId, operationId, hostileTokenId, turnId,
+                MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED");
+        MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands, new ObjectMapper(),
+                MovementFollowUpPolicy.defaultPolicy(), (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
+
+        MovementFollowUpPort.Result result = consumer.consume(source, expected);
+
+        assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
+        assertTrue(result.value().contains("turnId"));
     }
 
     @Test
