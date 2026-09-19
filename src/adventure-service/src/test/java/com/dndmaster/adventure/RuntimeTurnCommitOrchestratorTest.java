@@ -101,6 +101,103 @@ class RuntimeTurnCommitOrchestratorTest {
         assertTrue(fixture.commands.findByTurnId(fixture.turnId).stream()
                 .anyMatch(saved -> saved.executionStatus() == RuntimeTurnCommand.ExecutionStatus.FAILED));
     }
+
+    @Test
+    void rejects_follow_up_command_id_not_derived_from_current_movement_operation() throws Exception {
+        UUID operationId = UUID.randomUUID();
+        UUID differentOperationId = UUID.randomUUID();
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        assertCorruptFollowUp(fixture, new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                UUID.randomUUID(), operationId, UUID.randomUUID(),
+                fixture.turnId, com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "HOSTILE_OBSERVED"), operationId);
+    }
+
+    @Test
+    void rejects_follow_up_operation_id_different_from_current_movement_result() throws Exception {
+        UUID operationId = UUID.randomUUID();
+        UUID differentOperationId = UUID.randomUUID();
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        assertCorruptFollowUp(fixture, new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                followUpId(operationId), differentOperationId, UUID.randomUUID(), fixture.turnId,
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "HOSTILE_OBSERVED"), operationId);
+    }
+
+    @Test
+    void rejects_follow_up_hostile_token_id_different_from_current_movement_result() throws Exception {
+        UUID operationId = UUID.randomUUID();
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        assertCorruptFollowUp(fixture, new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                followUpId(operationId), operationId, UUID.randomUUID(), fixture.turnId,
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "HOSTILE_OBSERVED"), operationId, UUID.randomUUID());
+    }
+
+    @Test
+    void rejects_follow_up_kind_other_than_combat() throws Exception {
+        UUID operationId = UUID.randomUUID();
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        assertCorruptFollowUp(fixture, new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                followUpId(operationId), operationId, UUID.randomUUID(), fixture.turnId,
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.WARNING,
+                "HOSTILE_OBSERVED"), operationId);
+    }
+
+    @Test
+    void rejects_follow_up_trigger_other_than_hostile_observed() throws Exception {
+        UUID operationId = UUID.randomUUID();
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        assertCorruptFollowUp(fixture, new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                followUpId(operationId), operationId, UUID.randomUUID(), fixture.turnId,
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "FEATURE_REVEALED"), operationId);
+    }
+
+    @Test
+    void rejects_follow_up_turn_id_different_from_current_movement_command() throws Exception {
+        UUID operationId = UUID.randomUUID();
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        assertCorruptFollowUp(fixture, new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                followUpId(operationId), operationId, UUID.randomUUID(), UUID.randomUUID(),
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                "HOSTILE_OBSERVED"), operationId);
+    }
+
+    private static UUID followUpId(UUID operationId) {
+        return UUID.nameUUIDFromBytes(("movement-follow-up:" + operationId)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    private static void assertCorruptFollowUp(RuntimeTurnFixture fixture,
+            com.dndmaster.adventure.application.combat.MovementFollowUpCommand followUp,
+            UUID movementOperationId) throws Exception {
+        assertCorruptFollowUp(fixture, followUp, movementOperationId, followUp.hostileTokenId());
+    }
+
+    private static void assertCorruptFollowUp(RuntimeTurnFixture fixture,
+            com.dndmaster.adventure.application.combat.MovementFollowUpCommand followUp,
+            UUID movementOperationId, UUID movementHostileTokenId) throws Exception {
+        var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(
+                3, movementOperationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED,
+                List.of(), List.of(), null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED",
+                null, followUp, null, movementHostileTokenId);
+        RuntimeTurnCommand command = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
+        AtomicInteger dispatches = new AtomicInteger();
+        String movementOutcome = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(movement);
+        RuntimeTurnCommitOrchestrator.Result result = fixture.orchestrator(ignored ->
+                RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE,
+                        movementOutcome, movement),
+                (published, adventureId, sessionId, ownerPlayerId) -> {
+                    dispatches.incrementAndGet();
+                    return MovementFollowUpPort.Result.done("must not dispatch");
+                }).commit(fixture.readyTurn(), List.of(command), () -> {
+                    throw new AssertionError("corrupt follow-up must not commit the adventure");
+                });
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.REPAIR_REQUIRED, result.status());
+        assertEquals(0, dispatches.get());
+    }
     @Test
     void executesCommandsInOrderAndSkipsDoneCommandsOnResume() {
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
@@ -222,11 +319,12 @@ class RuntimeTurnCommitOrchestratorTest {
     void persists_and_retries_the_idempotent_movement_follow_up_after_restart() throws Exception {
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
         UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
         var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
                 com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED, List.of(), List.of(),
                 null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED", null,
                 com.dndmaster.adventure.application.combat.MovementFollowUpCommand.hostileObserved(operationId,
-                        fixture.turnId, UUID.randomUUID()), null);
+                        fixture.turnId, hostileTokenId), null, hostileTokenId);
         RuntimeTurnCommand move = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
         AtomicInteger publications = new AtomicInteger();
         var durablePublisher = fixture.followUpPublisher();

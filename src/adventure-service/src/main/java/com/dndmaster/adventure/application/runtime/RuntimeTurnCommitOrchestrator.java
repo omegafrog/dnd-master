@@ -80,7 +80,7 @@ public final class RuntimeTurnCommitOrchestrator {
                         return repairRequired(turnId, turn, command, failure.getMessage(), movementResult);
                     }
                     commandRepository.save(followUp);
-                    RuntimeTurnCommandExecution followUpExecution = executeFollowUp(followUp);
+                    RuntimeTurnCommandExecution followUpExecution = executeFollowUp(followUp, movementResult);
                     if (followUpExecution.status() != RuntimeTurnCommandExecution.Status.DONE) {
                         RuntimeTurnCommand failedFollowUp = followUp.failed(followUpExecution.value());
                         commandRepository.save(failedFollowUp);
@@ -98,7 +98,7 @@ public final class RuntimeTurnCommitOrchestrator {
             RuntimeTurnCommandExecution execution;
             try {
                 execution = "movement.follow-up".equals(command.commandType())
-                        ? executeFollowUp(command)
+                        ? executeFollowUp(command, movementResult)
                         : Objects.requireNonNull(commandAdapter.execute(command), "command adapter result must not be null");
             } catch (RuntimeException failure) {
                 execution = RuntimeTurnCommandExecution.transientFailure(failure.getMessage());
@@ -117,7 +117,7 @@ public final class RuntimeTurnCommitOrchestrator {
                         return repairRequired(turnId, turn, command, failure.getMessage(), movementResult);
                     }
                     commandRepository.save(followUp);
-                    RuntimeTurnCommandExecution followUpExecution = executeFollowUp(followUp);
+                    RuntimeTurnCommandExecution followUpExecution = executeFollowUp(followUp, movementResult);
                     if (followUpExecution.status() != RuntimeTurnCommandExecution.Status.DONE) {
                         RuntimeTurnCommand failedFollowUp = followUp.failed(followUpExecution.value());
                         commandRepository.save(failedFollowUp);
@@ -153,9 +153,11 @@ public final class RuntimeTurnCommitOrchestrator {
         return new Result(Status.COMMITTED, committed, null, movementResult);
     }
 
-    private RuntimeTurnCommandExecution executeFollowUp(RuntimeTurnCommand command) {
+    private RuntimeTurnCommandExecution executeFollowUp(RuntimeTurnCommand command,
+            CombatMapMoveResult currentMovementResult) {
         try {
             MovementFollowUpCommand followUp = readDurableFollowUp(command);
+            validateFollowUpIdentity(currentMovementResult, command.turnId(), followUp);
             MovementFollowUpPort.Result result = followUpPort.publish(followUp, command.adventureId(), command.sessionId(), command.ownerPlayerId());
             if (result.status() == MovementFollowUpPort.Result.Status.DONE) {
                 result = followUpConsumer.consume(command, followUp);
@@ -167,8 +169,43 @@ public final class RuntimeTurnCommitOrchestrator {
             };
         } catch (PermanentFollowUpFailure failure) {
             return RuntimeTurnCommandExecution.permanentFailure(failure.getMessage());
+        } catch (CorruptMovementFollowUpException failure) {
+            return RuntimeTurnCommandExecution.permanentFailure(failure.getMessage());
         } catch (RuntimeException failure) {
             return RuntimeTurnCommandExecution.transientFailure(failure.getMessage());
+        }
+    }
+
+    private void validateFollowUpIdentity(CombatMapMoveResult movement, UUID turnId,
+            MovementFollowUpCommand followUp) {
+        if (movement == null || movement.operationId() == null || movement.hostileTokenId() == null) {
+            throw new CorruptMovementFollowUpException(
+                    "durable movement follow-up has no current hostile movement result");
+        }
+        UUID expectedCommandId = UUID.nameUUIDFromBytes(("movement-follow-up:" + movement.operationId())
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        if (!expectedCommandId.equals(followUp.commandId())) {
+            throw new CorruptMovementFollowUpException(
+                    "durable movement follow-up command id is not derived from movement operation");
+        }
+        if (!movement.operationId().equals(followUp.operationId())) {
+            throw new CorruptMovementFollowUpException(
+                    "durable movement follow-up operation id does not match movement result");
+        }
+        if (!movement.hostileTokenId().equals(followUp.hostileTokenId())) {
+            throw new CorruptMovementFollowUpException(
+                    "durable movement follow-up hostile token id does not match movement result");
+        }
+        if (followUp.kind() != MovementFollowUpCommand.Kind.COMBAT) {
+            throw new CorruptMovementFollowUpException("durable movement follow-up kind is not COMBAT");
+        }
+        if (!"HOSTILE_OBSERVED".equals(followUp.trigger())) {
+            throw new CorruptMovementFollowUpException(
+                    "durable movement follow-up trigger is not HOSTILE_OBSERVED");
+        }
+        if (!turnId.equals(followUp.turnId())) {
+            throw new CorruptMovementFollowUpException(
+                    "durable movement follow-up turn id does not match movement command");
         }
     }
 
