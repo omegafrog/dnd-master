@@ -53,9 +53,10 @@ class RuntimeTurnCommitOrchestratorTest {
                 3, operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED,
                 List.of(), List.of(), null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED",
                 null, followUp, null, hostileTokenId);
-        String rawFollowUp = "{\"commandId\":\"" + followUpId + "\",\"operationId\":\"" + operationId
-                + "\",\"hostileTokenId\":\"" + hostileTokenId + "\",\"turnId\":\"" + fixture.turnId
-                + "\",\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\"}";
+        String rawFollowUp = "{ \"trigger\" : \"HOSTILE_OBSERVED\", \"kind\" : \"COMBAT\","
+                + " \"turnId\" : \"" + fixture.turnId + "\", \"hostileTokenId\" : \"" + hostileTokenId
+                + "\", \"operationId\" : \"" + operationId + "\", \"commandId\" : \"" + followUpId
+                + "\" }";
         String rawMovement = "{\"version\":3,\"operationId\":\"" + operationId
                 + "\",\"status\":\"INTERRUPTED\",\"requestedPath\":[],\"traversedPath\":[],"
                 + "\"finalPosition\":null,\"publicEvents\":[\"HOSTILE_OBSERVED\"],"

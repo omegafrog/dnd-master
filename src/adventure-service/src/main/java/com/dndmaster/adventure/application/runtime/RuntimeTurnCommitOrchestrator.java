@@ -3,9 +3,9 @@ package com.dndmaster.adventure.application.runtime;
 import com.dndmaster.adventure.application.combat.CombatMapMoveResult;
 import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
 import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.Comparator;
@@ -210,7 +210,11 @@ public final class RuntimeTurnCommitOrchestrator {
     }
 
     private MovementFollowUpCommand readDurableFollowUp(RuntimeTurnCommand command) {
-        try (JsonParser parser = objectMapper.createParser(command.payloadJson())) {
+        return readStrictFollowUp(command.payloadJson(), command.commandId(), command.turnId());
+    }
+
+    private MovementFollowUpCommand readStrictFollowUp(String rawPayload, UUID commandId, UUID turnId) {
+        try (JsonParser parser = objectMapper.createParser(rawPayload)) {
             MovementFollowUpCommand followUp = objectMapper.readerFor(MovementFollowUpCommand.class)
                     .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                     .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
@@ -218,10 +222,10 @@ public final class RuntimeTurnCommitOrchestrator {
             if (parser.nextToken() != null) {
                 throw new PermanentFollowUpFailure("invalid durable movement follow-up payload: trailing JSON");
             }
-            if (!command.commandId().equals(followUp.commandId())) {
+            if (!commandId.equals(followUp.commandId())) {
                 throw new PermanentFollowUpFailure("durable movement follow-up command id does not match command");
             }
-            if (!command.turnId().equals(followUp.turnId())) {
+            if (!turnId.equals(followUp.turnId())) {
                 throw new PermanentFollowUpFailure("durable movement follow-up turn id does not match command");
             }
             return followUp;
@@ -244,39 +248,53 @@ public final class RuntimeTurnCommitOrchestrator {
     }
 
     private String rawFollowUpPayload(String rawMovement, MovementFollowUpCommand expected) {
-        try {
-            JsonNode movement = readStrictObject(rawMovement, "durable movement outcome");
-            JsonNode rawFollowUp = movement.get("followUp");
-            if (rawFollowUp == null || !rawFollowUp.isObject()) {
-                throw new PermanentFollowUpFailure("durable movement outcome follow-up is missing");
+        try (JsonParser parser = objectMapper.createParser(rawMovement)) {
+            if (parser.nextToken() != JsonToken.START_OBJECT) {
+                throw new PermanentFollowUpFailure("durable movement outcome is invalid");
             }
-            java.util.Set<String> fields = new java.util.HashSet<>();
-            rawFollowUp.fieldNames().forEachRemaining(fields::add);
-            if (!fields.equals(java.util.Set.of("commandId", "operationId", "hostileTokenId", "turnId", "kind", "trigger"))) {
-                throw new PermanentFollowUpFailure("durable movement follow-up payload contains unknown properties");
+            String rawFollowUp = null;
+            while (parser.nextToken() != JsonToken.END_OBJECT) {
+                if (parser.currentToken() != JsonToken.FIELD_NAME) {
+                    throw new PermanentFollowUpFailure("durable movement outcome is invalid");
+                }
+                String fieldName = parser.currentName();
+                JsonToken valueToken = parser.nextToken();
+                if (valueToken == null) {
+                    throw new PermanentFollowUpFailure("durable movement outcome is invalid");
+                }
+                if (!"followUp".equals(fieldName)) {
+                    parser.skipChildren();
+                    continue;
+                }
+                if (rawFollowUp != null) {
+                    throw new PermanentFollowUpFailure("durable movement outcome follow-up is duplicated");
+                }
+                if (valueToken != JsonToken.START_OBJECT) {
+                    throw new PermanentFollowUpFailure("durable movement outcome follow-up is invalid");
+                }
+                long start = parser.getTokenLocation().getCharOffset();
+                parser.skipChildren();
+                if (parser.currentToken() != JsonToken.END_OBJECT) {
+                    throw new PermanentFollowUpFailure("durable movement outcome follow-up is invalid");
+                }
+                long end = parser.getTokenLocation().getCharOffset() + 1;
+                if (start < 0 || end < start || end > rawMovement.length()) {
+                    throw new PermanentFollowUpFailure("durable movement outcome follow-up boundary is invalid");
+                }
+                rawFollowUp = rawMovement.substring(Math.toIntExact(start), Math.toIntExact(end));
             }
-            String raw = objectMapper.writeValueAsString(rawFollowUp);
-            JsonNode parsed = readStrictObject(raw, "durable movement follow-up");
-            if (!parsed.equals(objectMapper.valueToTree(expected))) {
+            if (parser.nextToken() != null || rawFollowUp == null) {
+                throw new PermanentFollowUpFailure("durable movement outcome follow-up is missing or trailing");
+            }
+            MovementFollowUpCommand parsed = readStrictFollowUp(rawFollowUp, expected.commandId(), expected.turnId());
+            if (!parsed.equals(expected)) {
                 throw new PermanentFollowUpFailure("durable movement follow-up payload mismatch");
             }
-            return raw;
+            return rawFollowUp;
         } catch (PermanentFollowUpFailure failure) {
             throw failure;
         } catch (IOException | RuntimeException failure) {
             throw new PermanentFollowUpFailure("invalid durable movement follow-up payload: " + failure.getMessage());
-        }
-    }
-
-    private JsonNode readStrictObject(String raw, String description) throws IOException {
-        try (JsonParser parser = objectMapper.createParser(raw)) {
-            JsonNode value = objectMapper.reader()
-                    .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
-                    .readTree(parser);
-            if (value == null || !value.isObject() || parser.nextToken() != null) {
-                throw new PermanentFollowUpFailure(description + " is invalid");
-            }
-            return value;
         }
     }
 
