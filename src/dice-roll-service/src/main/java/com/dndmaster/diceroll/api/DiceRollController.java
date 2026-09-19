@@ -35,6 +35,15 @@ public class DiceRollController {
         return DiceRollResponse.from(diceRollService.executeAiRoll(command));
     }
 
+    @PostMapping("/internal/v1/dice-rolls/enemy-observation")
+    DiceRollResponse enemyObservationRoll(@RequestHeader("X-Internal-Token") String token,
+            @RequestHeader("Idempotency-Key") String idempotencyKey, @RequestBody DiceRollRequest request) {
+        requestGuard.internal(token);
+        requestGuard.idempotencyKey(idempotencyKey, request.commandId());
+        if (!"ENEMY".equals(request.scope())) throw new ApiRequestGuard.ApiContractException(400, "ENEMY_SCOPE_REQUIRED");
+        return DiceRollResponse.from(diceRollService.executeAiRoll(toCommand(request)));
+    }
+
     @GetMapping("/internal/v1/dice-rolls/commands/{commandId}")
     DiceRollResponse findByCommand(@RequestHeader("X-Internal-Token") String token, @PathVariable UUID commandId) {
         requestGuard.internal(token);

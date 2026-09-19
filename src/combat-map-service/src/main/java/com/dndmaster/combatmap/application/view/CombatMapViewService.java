@@ -106,6 +106,7 @@ public final class CombatMapViewService {
                 operationKey, "ATTACH_SOURCE_IMAGE|" + sourceDocumentId + "|" + sourceAssetLocator, state.map().spatialFeatures(), state.map().spatialPreparationBlocked());
         repaired.replaceDoors(state.map().doors());
         repaired.replaceRuntimeState(state.map().runtimeState());
+        repaired.replaceHostileObservations(state.map().hostileObservations());
         repaired.refreshVisibility(state.map().visibilitySnapshot() == null ? 0 : state.map().visibilitySnapshot().ruleTurn());
         store.update(owner, repaired, state.version(), state.version() + 1, operationKey, repaired.operationFingerprint());
     }
@@ -207,6 +208,7 @@ public final class CombatMapViewService {
         if (tokens.stream().noneMatch(t -> t.id().equals(tokenId))) throw new CombatMapAccessDeniedException();
         CombatMap updated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(), state.map().ownerPlayerId(), tokens, state.map().obstacles(), layers, expectedVersion + 1, commandId, fingerprint, state.map().spatialFeatures(), state.map().spatialPreparationBlocked());
         updated.replaceRuntimeState(state.map().runtimeState());
+        updated.replaceHostileObservations(state.map().hostileObservations());
         VisibilitySnapshot prior = state.map().visibilitySnapshot();
         updated.replaceDoors(state.map().doors());
         updated.refreshVisibility(prior == null ? 0 : prior.ruleTurn() + 1);
@@ -345,6 +347,7 @@ public final class CombatMapViewService {
         CombatMap activated = new CombatMap(prepared.id(), prepared.adventureId(), prepared.ruleSetId(), prepared.grid(), prepared.ownerPlayerId(), tokens, prepared.obstacles(), activatedLayers, state.version() + 1, command.commandId(), command.fingerprint(), prepared.spatialFeatures(), prepared.spatialPreparationBlocked());
         activated.replaceDoors(prepared.doors());
         activated.replaceRuntimeState(prepared.runtimeState());
+        activated.replaceHostileObservations(prepared.hostileObservations());
         activated.refreshVisibility(0);
         store.activate(owner, activated, state.version(), context.stagePosition(), activated.operationKey(), activated.operationFingerprint());
         return activated;
@@ -395,6 +398,7 @@ public final class CombatMapViewService {
                 map.tokens(), map.obstacles(), layers, map.version(), map.operationKey(), map.operationFingerprint(), map.spatialFeatures(), map.spatialPreparationBlocked());
         refreshed.replaceDoors(map.doors());
         refreshed.replaceRuntimeState(map.runtimeState());
+        refreshed.replaceHostileObservations(map.hostileObservations());
         return refreshed;
     }
 
@@ -410,6 +414,7 @@ public final class CombatMapViewService {
                 expectedVersion + 1, operationKey, "PLACEMENT_REQUIRED|" + context, map.spatialFeatures(), map.spatialPreparationBlocked());
         updated.replaceDoors(map.doors());
         updated.replaceRuntimeState(map.runtimeState());
+        updated.replaceHostileObservations(map.hostileObservations());
         updated.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
         store.update(owner, updated, expectedVersion, expectedVersion + 1, operationKey, updated.operationFingerprint());
     }
@@ -520,6 +525,7 @@ public final class CombatMapViewService {
                 state.map().ownerPlayerId(), state.map().tokens(), nextObstacles, layers, expectedVersion + 1, commandId, fingerprint, state.map().spatialFeatures(), state.map().spatialPreparationBlocked());
         updated.replaceDoors(nextDoors);
         updated.replaceRuntimeState(state.map().runtimeState());
+        updated.replaceHostileObservations(state.map().hostileObservations());
         updated.refreshVisibility(state.map().visibilitySnapshot() == null ? 0 : state.map().visibilitySnapshot().ruleTurn());
         store.update(owner, updated, expectedVersion, expectedVersion + 1, commandId, fingerprint);
         return updated;
@@ -562,6 +568,7 @@ public final class CombatMapViewService {
                 "CALIBRATE|" + request, current.spatialFeatures(), current.spatialPreparationBlocked());
         calibrated.replaceDoors(doors);
         calibrated.replaceRuntimeState(current.runtimeState());
+        calibrated.replaceHostileObservations(current.hostileObservations());
         calibrated.refreshVisibility(current.visibilitySnapshot() == null ? 0 : current.visibilitySnapshot().ruleTurn());
         store.update(owner, calibrated, expectedVersion, expectedVersion + 1, calibrated.operationKey(), calibrated.operationFingerprint());
         return calibrated;

@@ -176,6 +176,14 @@ public final class CombatMap {
     public void replaceHostileObservations(Collection<HostileObservationState> values) {
         hostileObservations = Set.copyOf(Objects.requireNonNull(values, "hostile observations must not be null"));
     }
+    /** Copies map-owned control state when an application operation rebuilds the aggregate. */
+    public void preserveControlStateFrom(CombatMap source) {
+        Objects.requireNonNull(source, "source combat map must not be null");
+        replaceDoors(source.doors());
+        replaceRuntimeState(source.runtimeState());
+        if (source.visibilitySnapshot() != null) replaceVisibility(source.visibilitySnapshot());
+        replaceHostileObservations(source.hostileObservations());
+    }
     public void markHostileAware(TokenId hostileTokenId, TokenId playerTokenId) {
         replaceHostileObservation(new HostileObservationState(hostileTokenId, playerTokenId, HostileObservationStatus.AWARE));
     }
@@ -220,6 +228,7 @@ public final class CombatMap {
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.SUCCESS || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FAILURE || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.EXIT)
             nextLayers.add(new MapLayer("TACTICAL_OUTCOME", effect.kind().name(), LayerVisibility.PLAYER_VISIBLE));
         CombatMap next = new CombatMap(id, adventureId, ruleSetId, grid, ownerPlayerId, nextTokens, obstacles, nextLayers, version + 1, null, null, spatialFeatures);
+        next.preserveControlStateFrom(this);
         TacticalRuntimeState state = runtimeState;
         state = switch (effect.kind()) {
             case COMBAT_ENTRY -> new TacticalRuntimeState(true, state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), state.outcome(), state.transitionId());

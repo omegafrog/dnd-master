@@ -20,7 +20,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class CrossContextHttpCombatGateway
-        implements CharacterCombatPort, DiceCombatPort, CombatMapPort, AiCombatPort {
+        implements CharacterCombatPort, DiceCombatPort, EnemyObservationRollPort, CombatMapPort, AiCombatPort {
     private static final int GRID_DISTANCE_UNIT = 5;
     private final HttpClient client;
     private final URI baseUri;
@@ -219,7 +219,7 @@ public final class CrossContextHttpCombatGateway
             EnemyObservationRollRequest request = new EnemyObservationRollRequest(command.adventureId(), command.ruleSetId().value(),
                     "ENEMY", command.ruleReference(), command.difficulty(), dice.count(), dice.sides(), dice.modifier(),
                     command.sessionId(), command.operationId(), command.commandId(), command.expectedVersion());
-            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/dice-rolls/ai"))
+            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/dice-rolls/enemy-observation"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
                     .header("Idempotency-Key", command.commandId().toString())

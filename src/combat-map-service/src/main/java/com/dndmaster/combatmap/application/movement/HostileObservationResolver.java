@@ -7,17 +7,24 @@ import com.dndmaster.combatmap.domain.HostileObservationRule;
 import com.dndmaster.combatmap.domain.HostileObservationStatus;
 import com.dndmaster.combatmap.domain.PlayerId;
 import com.dndmaster.combatmap.domain.SpatialTrigger;
+import com.dndmaster.combatmap.domain.Door;
+import com.dndmaster.combatmap.domain.LineOfSightQuery;
+import com.dndmaster.combatmap.domain.VisibilityProfile;
 import com.dndmaster.combatmap.domain.TokenId;
 import com.dndmaster.combatmap.domain.TokenType;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /** 적에서 이동 중인 플레이어로 향하는 시선과 인지 상태만 담당한다. */
 public final class HostileObservationResolver {
     private final com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy detectionPolicy;
+    private final LineOfSightQuery lineOfSight;
+    private final VisibilityProfile visibilityProfile;
 
     public HostileObservationResolver() {
         this(new com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy());
@@ -25,6 +32,8 @@ public final class HostileObservationResolver {
 
     public HostileObservationResolver(com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy detectionPolicy) {
         this.detectionPolicy = Objects.requireNonNull(detectionPolicy, "detection policy must not be null");
+        this.lineOfSight = new LineOfSightQuery();
+        this.visibilityProfile = new VisibilityProfile(detectionPolicy.maxRangeCells());
     }
 
     public HostileObservationResult evaluate(CombatMap map, PlayerId ownerPlayerId, TokenId playerTokenId,
@@ -38,7 +47,7 @@ public final class HostileObservationResolver {
             if (observation.playerTokenId().equals(playerTokenId)
                     && observation.status() == HostileObservationStatus.AWARE
                     && map.token(observation.hostileTokenId())
-                    .map(token -> !detectionPolicy.detectable(map, playerCell, token.position())).orElse(true)) {
+                    .map(token -> !hostileLineOfSight(map, playerCell, token.position())).orElse(true)) {
                 map.markHostileLost(observation.hostileTokenId(), playerTokenId);
             }
         }
@@ -87,12 +96,20 @@ public final class HostileObservationResolver {
     }
 
     private List<CombatToken> visibleHostiles(CombatMap map, GridPosition playerCell) {
-        if (map.visibilitySnapshot() == null) return List.of();
-        return map.tokensAt(map.visibilitySnapshot().current()).stream()
+        return map.tokens().stream()
                 .filter(token -> (token.type() == TokenType.ENEMY || token.type() == TokenType.BOSS)
-                        && detectionPolicy.detectable(map, playerCell, token.position()))
+                        && hostileLineOfSight(map, playerCell, token.position()))
                 .sorted(Comparator.comparing(token -> token.id().value()))
                 .toList();
+    }
+
+    /** Enemy awareness has its own geometry policy; it must not depend on the player's projection. */
+    private boolean hostileLineOfSight(CombatMap map, GridPosition origin, GridPosition target) {
+        if (Math.max(Math.abs(target.x() - origin.x()), Math.abs(target.y() - origin.y()))
+                > visibilityProfile.maxRangeCells()) return false;
+        Set<GridPosition> blockers = new HashSet<>(map.obstacles());
+        map.doors().stream().filter(door -> !door.open()).map(Door::position).forEach(blockers::add);
+        return lineOfSight.clear(origin, target, blockers, map.boundaries());
     }
 
     private static HostileObservationResult aware(CombatMap map, CombatToken hostile,

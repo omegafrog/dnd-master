@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class RuntimeTurnCommitOrchestratorTest {
@@ -150,6 +151,35 @@ class RuntimeTurnCommitOrchestratorTest {
     }
 
     @Test
+    void persists_and_retries_the_idempotent_movement_follow_up_after_restart() throws Exception {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        UUID operationId = UUID.randomUUID();
+        var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
+                com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED, List.of(), List.of(),
+                null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED", null,
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.hostileObserved(operationId), null);
+        RuntimeTurnCommand move = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
+        AtomicInteger publications = new AtomicInteger();
+        var followUpPort = (com.dndmaster.adventure.application.runtime.MovementFollowUpPort)
+                (command, adventureId, sessionId, ownerPlayerId) -> publications.getAndIncrement() == 0
+                        ? com.dndmaster.adventure.application.runtime.MovementFollowUpPort.Result.retry("downstream unavailable")
+                        : com.dndmaster.adventure.application.runtime.MovementFollowUpPort.Result.done("published");
+        String movementOutcome = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(movement);
+        var orchestrator = fixture.orchestrator(ignored ->
+                RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, movementOutcome, movement), followUpPort);
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED,
+                orchestrator.commit(fixture.readyTurn(), List.of(move), () -> {}).status());
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED,
+                orchestrator.resume(fixture.turnId, () -> {}).status());
+        assertEquals(2, publications.get());
+        assertEquals(1, fixture.commands.findByTurnId(fixture.turnId).stream()
+                .filter(command -> command.commandType().equals("movement.follow-up")).count());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, fixture.commands.findByTurnId(fixture.turnId).stream()
+                .filter(command -> command.commandType().equals("movement.follow-up")).findFirst().orElseThrow().executionStatus());
+    }
+
+    @Test
     void application_service_forward_recovers_map_failure_before_committing_adventure_state() {
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
         RuntimeTurn ready = fixture.readyTurn();
@@ -215,6 +245,11 @@ class RuntimeTurnCommitOrchestratorTest {
 
         RuntimeTurnCommitOrchestrator orchestrator(RuntimeTurnCommandAdapter adapter) {
             return new RuntimeTurnCommitOrchestrator(turns, commands, adapter);
+        }
+
+        RuntimeTurnCommitOrchestrator orchestrator(RuntimeTurnCommandAdapter adapter,
+                com.dndmaster.adventure.application.runtime.MovementFollowUpPort followUpPort) {
+            return new RuntimeTurnCommitOrchestrator(turns, commands, adapter, followUpPort);
         }
     }
 }

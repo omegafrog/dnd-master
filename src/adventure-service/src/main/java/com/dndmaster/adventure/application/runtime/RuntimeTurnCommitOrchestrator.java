@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.application.combat.CombatMapMoveResult;
+import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Comparator;
 import java.util.List;
@@ -12,13 +13,22 @@ public final class RuntimeTurnCommitOrchestrator {
     private final RuntimeTurnRepository turnRepository;
     private final RuntimeTurnCommandRepository commandRepository;
     private final RuntimeTurnCommandAdapter commandAdapter;
+    private final MovementFollowUpPort followUpPort;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public RuntimeTurnCommitOrchestrator(RuntimeTurnRepository turnRepository,
             RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter commandAdapter) {
+        this(turnRepository, commandRepository, commandAdapter, (command, adventureId, sessionId, ownerPlayerId) ->
+                MovementFollowUpPort.Result.done(command.kind().name()));
+    }
+
+    public RuntimeTurnCommitOrchestrator(RuntimeTurnRepository turnRepository,
+            RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter commandAdapter,
+            MovementFollowUpPort followUpPort) {
         this.turnRepository = Objects.requireNonNull(turnRepository, "turn repository must not be null");
         this.commandRepository = Objects.requireNonNull(commandRepository, "command repository must not be null");
         this.commandAdapter = Objects.requireNonNull(commandAdapter, "command adapter must not be null");
+        this.followUpPort = Objects.requireNonNull(followUpPort, "movement follow-up port must not be null");
     }
 
     public Result commit(RuntimeTurn readyTurn, List<RuntimeTurnCommand> commands, Runnable localAdventureCommit) {
@@ -51,20 +61,62 @@ public final class RuntimeTurnCommitOrchestrator {
         }
 
         CombatMapMoveResult movementResult = null;
+        int nextExecutionOrder = commandRepository.findByTurnId(turnId).stream()
+                .mapToInt(RuntimeTurnCommand::executionOrder).max().orElse(-1) + 1;
         for (RuntimeTurnCommand command : commandRepository.findByTurnId(turnId).stream()
                 .sorted(Comparator.comparingInt(RuntimeTurnCommand::executionOrder)
                         .thenComparing(RuntimeTurnCommand::commandId)).toList()) {
             movementResult = restoreMovementResult(command).orElse(movementResult);
-            if (command.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE) continue;
+            if (command.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE) {
+                if (movementResult != null && movementResult.followUp() != null
+                        && "combat-map.move".equals(command.commandType())
+                        && commandRepository.findByCommandId(movementResult.followUp().commandId()).isEmpty()) {
+                    RuntimeTurnCommand followUp = followUpCommand(command, movementResult.followUp(), nextExecutionOrder++);
+                    commandRepository.save(followUp);
+                    RuntimeTurnCommandExecution followUpExecution = executeFollowUp(followUp);
+                    if (followUpExecution.status() != RuntimeTurnCommandExecution.Status.DONE) {
+                        RuntimeTurnCommand failedFollowUp = followUp.failed(followUpExecution.value());
+                        commandRepository.save(failedFollowUp);
+                        if (followUpExecution.status() == RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE) {
+                            RuntimeTurn repaired = turnRepository.findByTurnId(turnId).orElse(turn).markCommitRepairRequired();
+                            turnRepository.save(repaired);
+                            return new Result(Status.REPAIR_REQUIRED, repaired, failedFollowUp, movementResult);
+                        }
+                        return new Result(Status.RETRY_REQUIRED, turnRepository.findByTurnId(turnId).orElse(turn), failedFollowUp, movementResult);
+                    }
+                    commandRepository.save(followUp.done(followUpExecution.value()));
+                }
+                continue;
+            }
             RuntimeTurnCommandExecution execution;
             try {
-                execution = Objects.requireNonNull(commandAdapter.execute(command), "command adapter result must not be null");
+                execution = "movement.follow-up".equals(command.commandType())
+                        ? executeFollowUp(command)
+                        : Objects.requireNonNull(commandAdapter.execute(command), "command adapter result must not be null");
             } catch (RuntimeException failure) {
                 execution = RuntimeTurnCommandExecution.transientFailure(failure.getMessage());
             }
             if (execution.movementResult() != null) movementResult = execution.movementResult();
             if (execution.status() == RuntimeTurnCommandExecution.Status.DONE) {
                 commandRepository.save(command.done(execution.value()));
+                if (movementResult != null && movementResult.followUp() != null
+                        && "combat-map.move".equals(command.commandType())
+                        && commandRepository.findByCommandId(movementResult.followUp().commandId()).isEmpty()) {
+                    RuntimeTurnCommand followUp = followUpCommand(command, movementResult.followUp(), nextExecutionOrder++);
+                    commandRepository.save(followUp);
+                    RuntimeTurnCommandExecution followUpExecution = executeFollowUp(followUp);
+                    if (followUpExecution.status() != RuntimeTurnCommandExecution.Status.DONE) {
+                        RuntimeTurnCommand failedFollowUp = followUp.failed(followUpExecution.value());
+                        commandRepository.save(failedFollowUp);
+                        if (followUpExecution.status() == RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE) {
+                            RuntimeTurn repaired = turnRepository.findByTurnId(turnId).orElse(turn).markCommitRepairRequired();
+                            turnRepository.save(repaired);
+                            return new Result(Status.REPAIR_REQUIRED, repaired, failedFollowUp, movementResult);
+                        }
+                        return new Result(Status.RETRY_REQUIRED, turnRepository.findByTurnId(turnId).orElse(turn), failedFollowUp, movementResult);
+                    }
+                    commandRepository.save(followUp.done(followUpExecution.value()));
+                }
                 continue;
             }
             RuntimeTurnCommand failed = command.failed(
@@ -86,6 +138,29 @@ public final class RuntimeTurnCommitOrchestrator {
         RuntimeTurn committed = turnRepository.findByTurnId(turnId).orElse(turn).markSafeCommitted();
         turnRepository.save(committed);
         return new Result(Status.COMMITTED, committed, null, movementResult);
+    }
+
+    private RuntimeTurnCommandExecution executeFollowUp(RuntimeTurnCommand command) {
+        try {
+            MovementFollowUpCommand followUp = objectMapper.readValue(command.payloadJson(), MovementFollowUpCommand.class);
+            MovementFollowUpPort.Result result = followUpPort.publish(followUp, command.adventureId(), command.sessionId(), command.ownerPlayerId());
+            return switch (result.status()) {
+                case DONE -> RuntimeTurnCommandExecution.done(result.value());
+                case RETRY -> RuntimeTurnCommandExecution.transientFailure(result.value());
+                case PERMANENT_FAILURE -> RuntimeTurnCommandExecution.permanentFailure(result.value());
+            };
+        } catch (Exception failure) {
+            return RuntimeTurnCommandExecution.transientFailure(failure.getMessage());
+        }
+    }
+
+    private RuntimeTurnCommand followUpCommand(RuntimeTurnCommand source, MovementFollowUpCommand followUp, int order) {
+        try {
+            return RuntimeTurnCommand.create(source.turnId(), followUp.commandId(), source.adventureId(), source.sessionId(),
+                    source.ownerPlayerId(), source.targetContext(), "movement.follow-up", objectMapper.writeValueAsString(followUp), order);
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("movement follow-up persistence failed", failure);
+        }
     }
 
     /** Replays a stored map result for reconnects and duplicate turn requests. */

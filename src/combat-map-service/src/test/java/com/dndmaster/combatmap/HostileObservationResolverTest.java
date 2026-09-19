@@ -81,7 +81,7 @@ class HostileObservationResolverTest {
     }
 
     @Test
-    void uses_current_player_visible_cells_closed_doors_and_configured_range() {
+    void uses_enemy_line_of_sight_policy_closed_doors_and_configured_range() {
         CombatMap map = map(new GridPosition(3, 0), List.of());
         map.replaceDoors(List.of(new Door(new GridPosition(2, 0), false)));
         HostileObservationResolver resolver = new HostileObservationResolver(
@@ -91,7 +91,7 @@ class HostileObservationResolverTest {
 
         map.replaceDoors(List.of());
         map.replaceVisibility(new VisibilitySnapshot(Set.of(new GridPosition(1, 0)), Set.of(new GridPosition(1, 0)), Set.of(), List.of(), 0));
-        assertEquals(HostileObservationResult.Status.NO_OBSERVATION,
+        assertEquals(HostileObservationResult.Status.NEW,
                 resolver.evaluate(map, player, playerToken, new GridPosition(1, 0), UUID.randomUUID(), 2).status());
 
         map.replaceVisibility(new VisibilitySnapshot(Set.of(new GridPosition(1, 0), new GridPosition(3, 0)),

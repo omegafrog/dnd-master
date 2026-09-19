@@ -164,6 +164,7 @@ public final class SpatialFeatureApplicationService {
                 map.spatialFeatures(), map.spatialPreparationBlocked());
         updated.replaceDoors(map.doors());
         updated.replaceRuntimeState(map.runtimeState());
+        updated.replaceHostileObservations(map.hostileObservations());
         if (map.visibilitySnapshot() != null) updated.replaceVisibility(map.visibilitySnapshot());
         return updated;
     }

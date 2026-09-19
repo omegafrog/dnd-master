@@ -10,3 +10,26 @@ paths:
       responses: { '200': { description: player result } }
   /internal/v1/dice-rolls/ai:
     post: { operationId: aiRoll, responses: { '200': { description: AI role result } } }
+  /internal/v1/dice-rolls/enemy-observation:
+    post:
+      operationId: enemyObservationRoll
+      parameters:
+        - { name: X-Internal-Token, in: header, required: true, schema: { type: string, minLength: 1 } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnemyObservationRollRequest'
+      responses: { '200': { description: enemy-owned observation result } }
+components:
+  schemas:
+    EnemyObservationRollRequest:
+      type: object
+      required: [adventureId, ruleSetId, scope, commandId]
+      properties:
+        adventureId: { type: string, format: uuid }
+        ruleSetId: { type: string, format: uuid }
+        scope: { type: string, const: ENEMY }
+        commandId: { type: string, format: uuid }

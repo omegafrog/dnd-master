@@ -30,6 +30,7 @@ public final class SpatialFeatureDetectionPolicy {
         this.lineOfSight = Objects.requireNonNull(lineOfSight, "line-of-sight query must not be null");
         this.profile = Objects.requireNonNull(profile, "visibility profile must not be null");
     }
+    public int maxRangeCells() { return profile.maxRangeCells(); }
 
     public List<SpatialFeature> candidates(CombatMap map, PlayerId playerId, TokenId tokenId) {
         Objects.requireNonNull(map, "combat map must not be null");

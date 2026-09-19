@@ -195,7 +195,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         org.junit.jupiter.api.Assertions.assertFalse(result.value().contains(checkId.toString()));
         assertEquals(CombatMapMovementStatus.INTERRUPTED, result.movementResult().status());
         assertEquals("HOSTILE_OBSERVED", result.movementResult().followUp().trigger());
-        assertEquals(com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.CONTINUATION,
+        assertEquals(com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
                 result.movementResult().followUp().kind());
     }
 

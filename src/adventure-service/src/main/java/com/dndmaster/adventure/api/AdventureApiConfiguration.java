@@ -344,9 +344,23 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    MovementFollowUpPort movementFollowUpPort(SessionEventRepository events, ObjectMapper objectMapper) {
+        return (command, adventureId, sessionId, ownerPlayerId) -> {
+            try {
+                events.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
+                        sessionId, command.commandId(), 0, "MOVEMENT_FOLLOW_UP", objectMapper.writeValueAsString(command)));
+                return MovementFollowUpPort.Result.done(command.kind().name());
+            } catch (RuntimeException | java.io.IOException failure) {
+                return MovementFollowUpPort.Result.retry(failure.getMessage());
+            }
+        };
+    }
+
+    @Bean
     RuntimeTurnCommitOrchestrator runtimeTurnCommitOrchestrator(RuntimeTurnRepository turnRepository,
-            RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter adapter) {
-        return new RuntimeTurnCommitOrchestrator(turnRepository, commandRepository, adapter);
+            RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter adapter,
+            MovementFollowUpPort movementFollowUpPort) {
+        return new RuntimeTurnCommitOrchestrator(turnRepository, commandRepository, adapter, movementFollowUpPort);
     }
 
     @Bean
