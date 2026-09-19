@@ -84,11 +84,6 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    ResolutionPort resolutionPort() {
-        return new DefaultResolutionPort();
-    }
-
-    @Bean
     AdventureRepository adventureRepository(DataSource dataSource) {
         return new PostgresAdventureRepository(dataSource);
     }

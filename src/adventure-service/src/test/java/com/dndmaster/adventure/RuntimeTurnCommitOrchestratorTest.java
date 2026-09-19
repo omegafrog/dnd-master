@@ -186,6 +186,39 @@ class RuntimeTurnCommitOrchestratorTest {
     }
 
     @Test
+    void malformed_durable_follow_up_json_is_permanent_before_transient_retry_handling() {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(fixture.turnId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.follow-up", "{not-json", 0);
+
+        RuntimeTurnCommitOrchestrator.Result result = fixture.orchestrator(ignored -> {
+            throw new AssertionError("malformed follow-up must not reach a port");
+        }).commit(fixture.readyTurn(), List.of(command), () -> {
+            throw new AssertionError("invalid follow-up must not commit the adventure");
+        });
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.REPAIR_REQUIRED, result.status());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.FAILED,
+                fixture.commands.findByCommandId(command.commandId()).orElseThrow().executionStatus());
+    }
+
+    @Test
+    void malformed_durable_follow_up_uuid_is_permanent_before_transient_retry_handling() {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(fixture.turnId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.follow-up",
+                "{\"commandId\":\"not-a-uuid\",\"operationId\":\"not-a-uuid\"}", 0);
+
+        RuntimeTurnCommitOrchestrator.Result result = fixture.orchestrator(ignored -> {
+            throw new AssertionError("malformed follow-up must not reach a port");
+        }).commit(fixture.readyTurn(), List.of(command), () -> {
+            throw new AssertionError("invalid follow-up must not commit the adventure");
+        });
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.REPAIR_REQUIRED, result.status());
+    }
+
+    @Test
     void application_service_forward_recovers_map_failure_before_committing_adventure_state() {
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
         RuntimeTurn ready = fixture.readyTurn();

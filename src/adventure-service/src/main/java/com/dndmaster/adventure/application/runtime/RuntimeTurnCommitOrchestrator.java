@@ -2,7 +2,11 @@ package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.application.combat.CombatMapMoveResult;
 import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
@@ -138,7 +142,7 @@ public final class RuntimeTurnCommitOrchestrator {
 
     private RuntimeTurnCommandExecution executeFollowUp(RuntimeTurnCommand command) {
         try {
-            MovementFollowUpCommand followUp = objectMapper.readValue(command.payloadJson(), MovementFollowUpCommand.class);
+            MovementFollowUpCommand followUp = readDurableFollowUp(command.payloadJson());
             MovementFollowUpPort.Result result = followUpPort.publish(followUp, command.adventureId(), command.sessionId(), command.ownerPlayerId());
             if (result.status() == MovementFollowUpPort.Result.Status.DONE) {
                 result = followUpConsumer.consume(command, followUp);
@@ -148,8 +152,31 @@ public final class RuntimeTurnCommitOrchestrator {
                 case RETRY -> RuntimeTurnCommandExecution.transientFailure(result.value());
                 case PERMANENT_FAILURE -> RuntimeTurnCommandExecution.permanentFailure(result.value());
             };
-        } catch (Exception failure) {
+        } catch (PermanentFollowUpFailure failure) {
+            return RuntimeTurnCommandExecution.permanentFailure(failure.getMessage());
+        } catch (RuntimeException failure) {
             return RuntimeTurnCommandExecution.transientFailure(failure.getMessage());
+        }
+    }
+
+    private MovementFollowUpCommand readDurableFollowUp(String payload) {
+        try (JsonParser parser = objectMapper.createParser(payload)) {
+            MovementFollowUpCommand followUp = objectMapper.readerFor(MovementFollowUpCommand.class)
+                    .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                    .readValue(parser);
+            if (parser.nextToken() != null) {
+                throw new PermanentFollowUpFailure("invalid durable movement follow-up payload: trailing JSON");
+            }
+            return followUp;
+        } catch (PermanentFollowUpFailure failure) {
+            throw failure;
+        } catch (JsonProcessingException failure) {
+            throw new PermanentFollowUpFailure(
+                    "invalid durable movement follow-up payload: " + failure.getOriginalMessage());
+        } catch (IOException failure) {
+            throw new PermanentFollowUpFailure("invalid durable movement follow-up payload: " + failure.getMessage());
+        } catch (IllegalArgumentException failure) {
+            throw new PermanentFollowUpFailure("invalid durable movement follow-up payload: " + failure.getMessage());
         }
     }
 
@@ -160,6 +187,10 @@ public final class RuntimeTurnCommitOrchestrator {
         } catch (java.io.IOException failure) {
             throw new IllegalStateException("movement follow-up persistence failed", failure);
         }
+    }
+
+    private static final class PermanentFollowUpFailure extends RuntimeException {
+        private PermanentFollowUpFailure(String message) { super(message); }
     }
 
     /** Replays a stored map result for reconnects and duplicate turn requests. */

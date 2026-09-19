@@ -328,6 +328,58 @@ class SessionEventTest {
     }
 
     @Test
+    void unknown_durable_follow_up_fields_are_a_permanent_failure() throws Exception {
+        InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        ObjectMapper mapper = new ObjectMapper();
+        UUID turnId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID commandId = UUID.nameUUIDFromBytes(("movement-follow-up:" + operationId)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        UUID hostileTokenId = UUID.randomUUID();
+        RuntimeTurnCommand source = RuntimeTurnCommand.create(turnId, commandId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
+        events.append(new SessionEvent(source.sessionId(), commandId, 0, "MOVEMENT_FOLLOW_UP",
+                mapper.writeValueAsString(new java.util.LinkedHashMap<>(java.util.Map.of(
+                        "commandId", commandId, "operationId", operationId, "hostileTokenId", hostileTokenId,
+                        "turnId", turnId, "kind", "COMBAT", "trigger", "HOSTILE_OBSERVED", "unexpected", true)))));
+        MovementFollowUpCommand expected = new MovementFollowUpCommand(commandId, operationId, hostileTokenId, turnId,
+                MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED");
+        MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands, mapper,
+                MovementFollowUpPolicy.defaultPolicy(), (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
+
+        MovementFollowUpPort.Result result = consumer.consume(source, expected);
+
+        assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
+    }
+
+    @Test
+    void durable_follow_up_payload_mismatch_is_a_permanent_failure() throws Exception {
+        InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        ObjectMapper mapper = new ObjectMapper();
+        UUID turnId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID commandId = UUID.nameUUIDFromBytes(("movement-follow-up:" + operationId)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        UUID hostileTokenId = UUID.randomUUID();
+        RuntimeTurnCommand source = RuntimeTurnCommand.create(turnId, commandId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
+        MovementFollowUpCommand stored = new MovementFollowUpCommand(commandId, operationId, hostileTokenId, turnId,
+                MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED");
+        events.append(new SessionEvent(source.sessionId(), commandId, 0, "MOVEMENT_FOLLOW_UP",
+                mapper.writeValueAsString(stored)));
+        MovementFollowUpCommand expected = new MovementFollowUpCommand(commandId, operationId, hostileTokenId, turnId,
+                MovementFollowUpCommand.Kind.WARNING, "HOSTILE_OBSERVED");
+        MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands, mapper,
+                MovementFollowUpPolicy.defaultPolicy(), (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
+
+        MovementFollowUpPort.Result result = consumer.consume(source, expected);
+
+        assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
+    }
+
+    @Test
     void each_continuation_kind_persists_a_distinct_runtime_command_payload_and_replays_it() {
         InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
         RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(commands, new ObjectMapper());

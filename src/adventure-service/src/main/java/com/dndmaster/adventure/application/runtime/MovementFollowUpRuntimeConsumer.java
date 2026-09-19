@@ -1,9 +1,13 @@
 package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
+import com.fasterxml.jackson.core.JsonParser;
 import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.UUID;
@@ -33,13 +37,16 @@ public final class MovementFollowUpRuntimeConsumer {
             if (!"MOVEMENT_FOLLOW_UP".equals(event.type())) {
                 throw new IllegalStateException("unexpected movement follow-up event type");
             }
-            var eventPayload = objectMapper.readTree(event.payload());
+            var eventPayload = readStrictJson(event.payload());
             validateIdentity(eventPayload, "commandId");
             validateIdentity(eventPayload, "operationId");
             validateIdentity(eventPayload, "hostileTokenId");
             validateIdentity(eventPayload, "turnId");
+            JsonNode expectedPayload = objectMapper.valueToTree(expected);
+            if (!eventPayload.equals(expectedPayload)) {
+                throw new PermanentFollowUpFailure("movement follow-up event payload mismatch");
+            }
             MovementFollowUpCommand followUp = objectMapper.treeToValue(eventPayload, MovementFollowUpCommand.class);
-            if (!followUp.equals(expected)) throw new IllegalStateException("movement follow-up event payload mismatch");
             if (!source.turnId().equals(followUp.turnId())) {
                 throw new IllegalStateException("movement follow-up belongs to another turn");
             }
@@ -79,10 +86,28 @@ public final class MovementFollowUpRuntimeConsumer {
         } catch (JsonProcessingException failure) {
             return MovementFollowUpPort.Result.permanentFailure(
                     "invalid durable movement follow-up payload: " + failure.getOriginalMessage());
+        } catch (IOException failure) {
+            return MovementFollowUpPort.Result.permanentFailure(
+                    "invalid durable movement follow-up payload: " + failure.getMessage());
         } catch (IllegalArgumentException failure) {
             return MovementFollowUpPort.Result.permanentFailure(failure.getMessage());
         } catch (RuntimeException failure) {
             return MovementFollowUpPort.Result.retry(failure.getMessage());
+        }
+    }
+
+    private JsonNode readStrictJson(String payload) throws IOException {
+        try (JsonParser parser = objectMapper.createParser(payload)) {
+            JsonNode value = objectMapper.reader()
+                    .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
+                    .readTree(parser);
+            if (value == null || !value.isObject()) {
+                throw new PermanentFollowUpFailure("movement follow-up event payload must be an object");
+            }
+            if (parser.nextToken() != null) {
+                throw new PermanentFollowUpFailure("invalid durable movement follow-up payload: trailing JSON");
+            }
+            return value;
         }
     }
 
