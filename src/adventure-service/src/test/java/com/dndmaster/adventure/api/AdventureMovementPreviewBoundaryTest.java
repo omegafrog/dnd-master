@@ -318,6 +318,7 @@ class AdventureMovementPreviewBoundaryTest {
                 mock(SessionEventRepository.class), mock(RuleGuidanceApplicationService.class),
                 mock(AdventureCombatApplicationService.class), mock(CombatActionApplicationService.class),
                 mock(AdventureScenarioApplicationService.class), playerResolver, provider(combatMap),
+                provider(mock(com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort.class)),
                 provider(mock(CharacterCombatPort.class)), new ObjectMapper(), provider(mapViews),
                 provider(mock(CombatMapPreparationPort.class)), pendingRepository, mock(ScenarioPackageRepository.class),
                 mock(CombatLifecycleApplicationService.class), ruleSetService);

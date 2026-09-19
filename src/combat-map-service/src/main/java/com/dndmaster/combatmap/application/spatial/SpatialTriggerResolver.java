@@ -53,19 +53,9 @@ public final class SpatialTriggerResolver {
     public List<String> resolveVisible(CombatMap map, java.util.Collection<GridPosition> cells) {
         Objects.requireNonNull(map, "combat map must not be null");
         Objects.requireNonNull(cells, "visible cells must not be null");
-        List<String> events = new ArrayList<>();
-        Set<UUID> resolvedFeatureIds = new HashSet<>();
-        List<GridPosition> orderedCells = cells.stream().filter(Objects::nonNull).distinct()
-                .sorted(Comparator.comparingInt(GridPosition::x).thenComparingInt(GridPosition::y)).toList();
-        for (GridPosition cell : orderedCells) {
-            for (SpatialFeature feature : map.spatialFeatures()) {
-                if (!feature.cells().contains(cell) || !feature.triggers().contains(SpatialTrigger.BECOME_VISIBLE)
-                        || feature.visibility() != SpatialFeatureVisibility.HIDDEN || !resolvedFeatureIds.add(feature.id())) continue;
-                feature.discover();
-                events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
-            }
-        }
-        return List.copyOf(events);
+        // Becoming visible is only evidence for a check; it is not the check result.
+        // Callers must use resolveObserved or the movement success path to discover.
+        return List.of();
     }
 
     public List<String> resolveCombatTurnStart(CombatMap map) {
@@ -86,15 +76,14 @@ public final class SpatialTriggerResolver {
 
     private static List<String> resolveFeature(SpatialFeature feature, SpatialTrigger trigger, GridPosition cell) {
         if (!feature.cells().contains(cell) || !feature.triggers().contains(trigger) || !feature.canTrigger()) return List.of();
-        // Hidden features are transitioned only by the detection/observation
-        // success paths or the newly-visible path. A movement trigger must
-        // never reveal or activate a feature whose detection failed.
+        // Hidden features are revealed only by the detection/observation success
+        // paths. Entry/exit triggers may still resolve after a failed detection;
+        // the failed check itself remains silent and does not reveal the feature.
         if (feature.visibility() == SpatialFeatureVisibility.HIDDEN
-                && trigger != SpatialTrigger.BECOME_VISIBLE) return List.of();
+                && trigger != SpatialTrigger.ENTER_CELL && trigger != SpatialTrigger.LEAVE_CELL) return List.of();
         if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.SECRET_DOOR
                 && trigger != SpatialTrigger.INTERACT
                 && feature.visibility() != SpatialFeatureVisibility.HIDDEN) return List.of();
-        if (feature.visibility() == SpatialFeatureVisibility.HIDDEN) feature.discover();
         if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.SECRET_DOOR) {
             if (trigger == SpatialTrigger.INTERACT) feature.open();
             else return List.of(eventName(feature, trigger, cell));

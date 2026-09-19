@@ -168,7 +168,7 @@ class MovementResolutionOperationTest {
     }
 
     @Test
-    void failed_detection_does_not_discover_or_trigger_a_hidden_enter_cell_feature() {
+    void failed_detection_stays_hidden_but_later_entry_trigger_still_applies() {
         Fixture fixture = new Fixture();
         SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
                 List.of(new GridPosition(2, 1)),
@@ -186,11 +186,11 @@ class MovementResolutionOperationTest {
                 .start(fixture.start("fingerprint-1"));
 
         assertEquals(MovementOperationStatus.COMMITTED, response.status());
-        assertEquals(MovementResolutionOutcomeStatus.COMMITTED, response.result().status());
-        assertEquals(List.of(), response.result().publicEvents());
+        assertEquals(MovementResolutionOutcomeStatus.INTERRUPTED, response.result().status());
+        assertEquals(List.of("TRAP_TRIGGERED:2,1"), response.result().publicEvents());
         assertEquals(SpatialFeatureVisibility.HIDDEN, feature.visibility());
-        assertEquals(SpatialFeature.State.HIDDEN, feature.state());
-        assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
+        assertEquals(SpatialFeature.State.TRIGGERED, feature.state());
+        assertEquals(new GridPosition(2, 1), fixture.map.tokens().getFirst().position());
     }
 
     @Test
@@ -350,20 +350,21 @@ class MovementResolutionOperationTest {
     }
 
     @Test
-    void resolves_become_visible_features_on_all_newly_visible_cells_after_each_step() {
+    void does_not_discover_a_feature_from_newly_visible_cells_without_a_successful_check() {
         Fixture fixture = new Fixture();
         fixture.map = mapWithNewlyVisibleMultiCellFeature(fixture);
 
         MovementOperationResponse response = fixture.service().start(fixture.start("fingerprint-1"));
 
         assertEquals(MovementOperationStatus.COMMITTED, response.status());
-        assertEquals(List.of("TRAP_DISCOVERED:4,1"), response.result().publicEvents());
-        assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), response.result().traversedPath());
-        assertEquals(SpatialFeatureVisibility.DISCOVERED, fixture.map.spatialFeatures().getFirst().visibility());
+        assertEquals(List.of(), response.result().publicEvents());
+        assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)),
+                response.result().traversedPath());
+        assertEquals(SpatialFeatureVisibility.HIDDEN, fixture.map.spatialFeatures().getFirst().visibility());
     }
 
     @Test
-    void restart_rebuilds_become_visible_features_from_all_newly_visible_cells() {
+    void restart_preserves_hidden_visibility_when_no_successful_check_was_recorded() {
         Fixture fixture = new Fixture();
         fixture.map = mapWithNewlyVisibleMultiCellFeature(fixture);
         MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
@@ -374,7 +375,7 @@ class MovementResolutionOperationTest {
         MovementOperationResponse response = fixture.service().resume(fixture.map.id(), operation.operationId());
 
         assertEquals(MovementOperationStatus.COMMITTED, response.status());
-        assertEquals(SpatialFeatureVisibility.DISCOVERED, fixture.map.spatialFeatures().getFirst().visibility());
+        assertEquals(SpatialFeatureVisibility.HIDDEN, fixture.map.spatialFeatures().getFirst().visibility());
         assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
     }
 

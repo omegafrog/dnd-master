@@ -1119,6 +1119,13 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort spatialActionAuthorizationPort(
+            com.dndmaster.adventure.application.combat.CombatEncounterRepository encounters,
+            com.dndmaster.adventure.application.combat.CombatActionOperationRepository operations) {
+        return new com.dndmaster.adventure.application.combat.CombatEncounterSpatialActionAuthorization(encounters, operations);
+    }
+
+    @Bean
     com.dndmaster.adventure.application.combat.CombatWorkItemRepository combatWorkItemRepository(
             DataSource dataSource, ObjectMapper objectMapper) {
         return new com.dndmaster.adventure.infrastructure.persistence.PostgresCombatWorkItemRepository(dataSource, objectMapper);
@@ -1227,6 +1234,7 @@ public class AdventureApiConfiguration {
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver,
             org.springframework.beans.factory.ObjectProvider<CombatMapPort> combatMapPort,
+            org.springframework.beans.factory.ObjectProvider<com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort> spatialActionAuthorization,
             org.springframework.beans.factory.ObjectProvider<CharacterCombatPort> characterCombatPort,
             ObjectMapper objectMapper,
             org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort,
@@ -1237,7 +1245,7 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService,
             com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService appliedRuleSetService) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatMapPreparationPort, pendingMapMovementConfirmationRepository, scenarioPackageRepository, combatLifecycleService, appliedRuleSetService);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, spatialActionAuthorization, characterCombatPort, objectMapper, combatMapViewPort, combatMapPreparationPort, pendingMapMovementConfirmationRepository, scenarioPackageRepository, combatLifecycleService, appliedRuleSetService);
     }
 
     @Bean

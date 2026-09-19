@@ -387,12 +387,10 @@ public final class CombatMapMovementService {
     }
     private static List<String> resolveNewlyVisibleFeatures(CombatMap map,
             com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver triggerResolver) {
-        Set<GridPosition> previouslyVisible = map.visibilitySnapshot() == null
-                ? Set.of() : Set.copyOf(map.visibilitySnapshot().current());
         map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
-        List<GridPosition> newlyVisible = map.visibilitySnapshot().current().stream()
-                .filter(cell -> !previouslyVisible.contains(cell)).toList();
-        return triggerResolver.resolveVisible(map, newlyVisible);
+        // Visibility is not a successful detection. Hidden features transition only
+        // in commitDetection/resolveObserved after an explicit successful check.
+        return List.of();
     }
     private static void requireMap(MovementResolutionOperation operation, MapId mapId) {
         if (!operation.mapId().equals(mapId)) throw new IllegalArgumentException("movement reservation does not belong to this map");

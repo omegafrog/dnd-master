@@ -58,11 +58,12 @@ class MapMovementCoordinatorTest {
     void routes_spatial_actions_through_typed_action_and_cost_authorization() {
         UUID owner = UUID.randomUUID();
         UUID commandId = UUID.randomUUID();
+        UUID adventureId = UUID.randomUUID();
         CapturingMapPort map = new CapturingMapPort(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), owner, 15);
         AtomicReference<SpatialActionAuthorizationPort.SpatialActionAuthorization> authorized = new AtomicReference<>();
         MapMovementCoordinator coordinator = new MapMovementCoordinator(map, command -> 1,
                 new com.dndmaster.adventure.application.runtime.DefaultResolutionPort(), authorized::set);
-        CombatMapSpatialActionCommand command = new CombatMapSpatialActionCommand(map.mapId, owner, UUID.randomUUID(),
+        CombatMapSpatialActionCommand command = new CombatMapSpatialActionCommand(adventureId, map.mapId, owner, UUID.randomUUID(),
                 new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1), 0, commandId);
 
         coordinator.observe(command);
@@ -79,12 +80,13 @@ class MapMovementCoordinatorTest {
     @Test
     void rejects_spatial_actions_before_the_map_port_when_runtime_authorization_fails() {
         UUID owner = UUID.randomUUID();
+        UUID adventureId = UUID.randomUUID();
         CapturingMapPort map = new CapturingMapPort(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), owner, 15);
         MapMovementCoordinator coordinator = new MapMovementCoordinator(map, command -> 1,
                 new com.dndmaster.adventure.application.runtime.DefaultResolutionPort(), command -> {
                     throw new IllegalStateException("action resource is unavailable");
                 });
-        CombatMapSpatialActionCommand command = new CombatMapSpatialActionCommand(map.mapId, owner, UUID.randomUUID(),
+        CombatMapSpatialActionCommand command = new CombatMapSpatialActionCommand(adventureId, map.mapId, owner, UUID.randomUUID(),
                 new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1), 0, UUID.randomUUID());
 
         assertThrows(IllegalStateException.class, () -> coordinator.observe(command));

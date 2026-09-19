@@ -4,7 +4,7 @@ import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
 
-type PendingMovement = { mapId: string; tokenId: string; turnId?: string; commandId?: string; result: MapMovementResult }
+type PendingMovement = { mapId: string; tokenId: string; turnId?: string; commandId?: string; cancelCommandId?: string; result: MapMovementResult }
 type PendingMovementCommand = { candidate: MapInteractionCandidate; turnId: string; commandId: string; expectedVersion: number }
 
 function pendingMovementKey(adventureId: string) { return `dnd-master:movement-operation:${adventureId}` }
@@ -105,7 +105,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           try {
             const result = await api.latestMovementOperation(adventureId, nextMap.mapId)
             if (result && (result.status === 'RETRY_REQUIRED' || result.status === 'CHECK_REQUIRED')) {
-              serverMovement = { mapId: nextMap.mapId, tokenId: playerTokenId, result }
+              serverMovement = { mapId: nextMap.mapId, tokenId: playerTokenId,
+                cancelCommandId: savedMovement?.result.operationId === result.operationId
+                  ? savedMovement?.cancelCommandId : createMapCommandIdentity().commandId, result }
             } else if (result && (result.status === 'COMMITTED' || result.status === 'INTERRUPTED' || result.status === 'CANCELLED')) {
               terminalMovement = result
             }
@@ -301,7 +303,13 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   async function applyMovementResult(result: MapMovementResult, mapId: string, tokenId: string,
     turnId: string | undefined, commandId: string | undefined, before: CombatMapState | null, refreshed: CombatMapState) {
     if (result.status === 'RETRY_REQUIRED' || result.status === 'CHECK_REQUIRED') {
-      const pending = { mapId, tokenId, turnId, commandId, result }
+      const pending = {
+        mapId, tokenId, turnId, commandId,
+        cancelCommandId: pendingMovement?.result.operationId === result.operationId
+          ? pendingMovement?.cancelCommandId ?? createMapCommandIdentity().commandId
+          : createMapCommandIdentity().commandId,
+        result,
+      }
       setMap(refreshed)
       setPendingMovement(pending)
       try { window.localStorage.setItem(pendingMovementKey(adventureId), JSON.stringify(pending)) } catch { /* reconnect is best effort */ }
@@ -718,7 +726,12 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         {!pendingMovement.result.pendingCheck && <button type="button" onClick={() => void recoverMovement(true)}>이동 재개</button>}
         {pendingMovement.result.operationId && api.cancelMovementOperation && <button type="button" onClick={async () => {
           try {
-            const cancelCommandId = createMapCommandIdentity().commandId
+            const cancelCommandId = pendingMovement.cancelCommandId ?? createMapCommandIdentity().commandId
+            if (!pendingMovement.cancelCommandId) {
+              const withCancelCommand = { ...pendingMovement, cancelCommandId }
+              setPendingMovement(withCancelCommand)
+              try { window.localStorage.setItem(pendingMovementKey(adventureId), JSON.stringify(withCancelCommand)) } catch { /* storage is optional */ }
+            }
             const result = await api.cancelMovementOperation?.(adventureId, pendingMovement.mapId, pendingMovement.result.operationId!, cancelCommandId)
             const refreshed = await api.getCombatMap(adventureId)
             if (result) await applyMovementResult(result, pendingMovement.mapId, pendingMovement.tokenId, pendingMovement.turnId, pendingMovement.commandId, map, refreshed)

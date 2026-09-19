@@ -29,8 +29,9 @@ class SpatialTriggerResolverTest {
         CombatMap map = map(door);
         SpatialTriggerResolver resolver = new SpatialTriggerResolver();
 
-        assertEquals(List.of("SECRET_DOOR_DISCOVERED:2,2"), resolver.resolve(map, SpatialTrigger.BECOME_VISIBLE, new GridPosition(2, 2)));
-        assertEquals(SpatialFeature.State.DISCOVERED, door.state());
+        assertEquals(List.of(), resolver.resolve(map, SpatialTrigger.BECOME_VISIBLE, new GridPosition(2, 2)));
+        assertEquals(SpatialFeature.State.HIDDEN, door.state());
+        door.discover();
         assertEquals(List.of("SECRET_DOOR_OPENED:2,2"), resolver.resolve(map, SpatialTrigger.INTERACT, new GridPosition(2, 2)));
         assertEquals(SpatialFeature.State.OPEN, door.state());
         assertEquals(List.of(), resolver.resolve(map, SpatialTrigger.INTERACT, new GridPosition(2, 2)));
@@ -81,7 +82,9 @@ class SpatialTriggerResolverTest {
         CombatMap map = map(door);
         SpatialTriggerResolver resolver = new SpatialTriggerResolver();
 
-        assertEquals(List.of("SECRET_DOOR_DISCOVERED:2,2"), resolver.resolve(map, SpatialTrigger.BECOME_VISIBLE, new GridPosition(2, 2)));
+        assertEquals(List.of(), resolver.resolve(map, SpatialTrigger.BECOME_VISIBLE, new GridPosition(2, 2)));
+        assertEquals(SpatialFeatureVisibility.HIDDEN, door.visibility());
+        door.discover();
         assertEquals(List.of(), resolver.resolve(map, SpatialTrigger.BECOME_VISIBLE, new GridPosition(2, 2)));
     }
 
@@ -135,15 +138,15 @@ class SpatialTriggerResolverTest {
     }
 
     @Test
-    void refresh_visibility_discovers_a_become_visible_feature_before_emitting_its_event() {
+    void visibility_refresh_does_not_discover_without_a_successful_check() {
         SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
                 List.of(new GridPosition(1, 1)), null, Set.of(SpatialTrigger.BECOME_VISIBLE),
                 SpatialFeatureProvenance.runtime("runtime", 1, 0));
         CombatMap map = map(feature);
         SpatialTriggerResolver resolver = new SpatialTriggerResolver();
 
-        assertEquals(List.of("TRAP_DISCOVERED:1,1"), resolver.resolveVisible(map, new GridPosition(1, 1)));
-        assertEquals(SpatialFeatureVisibility.DISCOVERED, feature.visibility());
+        assertEquals(List.of(), resolver.resolveVisible(map, new GridPosition(1, 1)));
+        assertEquals(SpatialFeatureVisibility.HIDDEN, feature.visibility());
         assertEquals(List.of(), resolver.resolveVisible(map, new GridPosition(1, 1)));
     }
 
@@ -155,11 +158,11 @@ class SpatialTriggerResolverTest {
                 Set.of(SpatialTrigger.BECOME_VISIBLE), SpatialFeatureProvenance.runtime("runtime", 1, 0));
         CombatMap map = map(feature);
 
-        assertEquals(List.of("TRAP_DISCOVERED:2,2"),
+        assertEquals(List.of(),
                 new SpatialTriggerResolver().resolveVisible(map,
                         List.of(new GridPosition(2, 2), new GridPosition(2, 3))));
-        assertEquals(SpatialFeatureVisibility.DISCOVERED, feature.visibility());
-        assertEquals(SpatialFeature.State.DISCOVERED, feature.state());
+        assertEquals(SpatialFeatureVisibility.HIDDEN, feature.visibility());
+        assertEquals(SpatialFeature.State.HIDDEN, feature.state());
         assertEquals(List.of(), new SpatialTriggerResolver().resolveVisible(map,
                 List.of(new GridPosition(2, 2), new GridPosition(2, 3))));
     }

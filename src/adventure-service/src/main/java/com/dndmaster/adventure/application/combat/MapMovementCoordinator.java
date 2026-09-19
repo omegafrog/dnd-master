@@ -23,6 +23,17 @@ public final class MapMovementCoordinator {
         }, new DefaultResolutionPort());
     }
 
+    public MapMovementCoordinator(CombatMapPort combatMap, SpatialActionAuthorizationPort spatialAuthorization) {
+        this(combatMap, new DiceCombatPort() {
+            @Override public int roll(CombatActionCommand command) {
+                throw new UnsupportedOperationException("combat dice roll is unavailable");
+            }
+            @Override public int rollSpatialCheck(SpatialCheckRollCommand command) {
+                return combatMap.rollSpatialCheck(command);
+            }
+        }, new DefaultResolutionPort(), spatialAuthorization);
+    }
+
     public MapMovementCoordinator(CombatMapPort combatMap, DiceCombatPort dice) {
         this(combatMap, dice, new DefaultResolutionPort());
     }
@@ -108,6 +119,9 @@ public final class MapMovementCoordinator {
     private void authorizeSpatial(CombatMapSpatialActionCommand command, String action) {
         Objects.requireNonNull(command, "spatial action command must not be null");
         spatialAuthorization.authorize(new SpatialActionAuthorizationPort.SpatialActionAuthorization(
-                command.ownerPlayerId(), action, TurnResourceCost.actionOnly(), command.commandId()));
+                command.adventureId(), command.ownerPlayerId(), action, TurnResourceCost.actionOnly(), command.commandId(),
+                command.adventureId() + "|" + command.mapId() + "|" + command.ownerPlayerId() + "|"
+                        + command.tokenId() + "|" + command.cell().x() + "," + command.cell().y() + "|"
+                        + command.expectedVersion() + "|" + action));
     }
 }

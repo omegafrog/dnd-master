@@ -46,6 +46,26 @@ class SpatialFeatureDetectionPolicyTest {
                 .stream().map(SpatialFeature::id).toList());
     }
 
+    @Test
+    void next_cell_detection_requires_the_requested_cell_itself_to_be_visible() {
+        PlayerId player = new PlayerId(UUID.randomUUID());
+        TokenId tokenId = new TokenId(UUID.randomUUID());
+        CombatToken token = new CombatToken(tokenId, TokenType.PLAYER,
+                new GridPosition(1, 1), TokenController.PLAYER, player, TokenDiscovery.REVEALED);
+        GridPosition nextCell = new GridPosition(2, 1);
+        GridPosition otherOccupiedCell = new GridPosition(3, 1);
+        SpatialFeature multiCell = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
+                List.of(nextCell, otherOccupiedCell), DetectionSpec.passive("perception", 12),
+                Set.of(SpatialTrigger.ENTER_CELL), SpatialFeatureProvenance.storyPlan("story", 0, 0));
+        CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()),
+                new RuleSetId(UUID.randomUUID()), new GridSpec(8, 8, 50, 5), player, List.of(token), Set.of(), List.of(),
+                0, null, null, List.of(multiCell));
+        map.replaceVisibility(new VisibilitySnapshot(Set.of(token.position(), otherOccupiedCell),
+                Set.of(token.position(), nextCell, otherOccupiedCell), Set.of(), List.of(), 0));
+
+        assertEquals(List.of(), new SpatialFeatureDetectionPolicy().candidates(map, player, tokenId, nextCell));
+    }
+
     private static SpatialFeature hiddenFeature(GridPosition cell) {
         return SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP, List.of(cell),
                 DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.ENTER_CELL),

@@ -111,6 +111,7 @@ public class AdventureController {
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver,
             ObjectProvider<CombatMapPort> combatMapPort,
+            ObjectProvider<com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort> spatialActionAuthorization,
             ObjectProvider<CharacterCombatPort> characterCombatPort,
             ObjectMapper objectMapper,
             ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort,
@@ -134,7 +135,8 @@ public class AdventureController {
         this.combatMapPort = combatMapPort.getIfAvailable(() -> command -> {
             throw new IllegalStateException("combat map gateway unavailable");
         });
-        this.mapMovementCoordinator = new com.dndmaster.adventure.application.combat.MapMovementCoordinator(this.combatMapPort);
+        this.mapMovementCoordinator = new com.dndmaster.adventure.application.combat.MapMovementCoordinator(this.combatMapPort,
+                spatialActionAuthorization.getIfAvailable(com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort::requiredPlayerAction));
         this.pendingMapMovementConfirmationRepository = Objects.requireNonNull(pendingMapMovementConfirmationRepository,
                 "pending map movement confirmation repository must not be null");
         this.characterCombatPort = characterCombatPort.getIfAvailable(() -> command -> {
@@ -585,7 +587,7 @@ public class AdventureController {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_SPATIAL_ACTION");
         }
         UUID owner = requireSpatialMapOwner(adventureId, request.mapId());
-        return new com.dndmaster.adventure.application.combat.CombatMapSpatialActionCommand(request.mapId(), owner,
+        return new com.dndmaster.adventure.application.combat.CombatMapSpatialActionCommand(adventureId, request.mapId(), owner,
                 request.tokenId(), new CombatMapPreviewPosition(request.x(), request.y()), request.expectedVersion(), request.commandId());
     }
 
