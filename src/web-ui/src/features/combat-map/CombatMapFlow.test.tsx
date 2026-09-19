@@ -29,6 +29,11 @@ it('animates only the server committed traversed path', async () => {
 
 function fakeApi(): AdventurePlayApi {
   const submitMapAction = vi.fn(async () => ({ turnId: 't1', version: 1 }))
+  const submitPlayerRoll = vi.fn(async () => ({
+    version: 1, operationId: 'operation-check-1', status: 'COMMITTED' as const,
+    requestedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }], traversedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }],
+    finalPosition: { x: 2, y: 1 }, publicEvents: [],
+  }))
   return {
     async getCharacter() {
       return {
@@ -43,6 +48,7 @@ function fakeApi(): AdventurePlayApi {
       return { mapId: request.mapId, orderedPositions: path, distance: (path.length - 1) * 5, baseMapVersion: request.mapVersion, fingerprint: 'server-preview' }
     },
     submitMapAction,
+    submitPlayerRoll,
     async rollDice() { return { rollId: 'r1', total: 19, judgment: 'hit', resolutionStatus: 'RESOLVED', outcomeApplied: true } },
     async listSaved() { return [] },
     async save() { return { adventureId: 'a1', newVersion: 1 } },
@@ -607,11 +613,12 @@ it('restores a safe pending check projection without exposing hidden feature det
   expect(screen.getByText('지각 판정 · d20')).toBeInTheDocument()
   expect(screen.queryByText('check-1', { exact: true })).not.toBeInTheDocument()
   expect(screen.queryByText(/DC/i)).not.toBeInTheDocument()
-  const resume = vi.fn(async () => result)
-  api.resumeMovementOperation = resume
-  await user.click(screen.getByRole('button', { name: '성공 결과 제출' }))
-  await waitFor(() => expect(resume).toHaveBeenCalledWith('a1', 'm1', 'operation-check-1', {
-    operationId: 'operation-check-1', checkId: 'check-1', success: true, ownerPlayerId: 'player-1', actor: 'PLAYER',
+  expect(screen.queryByRole('button', { name: '성공 결과 제출' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '실패 결과 제출' })).not.toBeInTheDocument()
+  await user.type(screen.getByLabelText('d20 결과'), '15')
+  await user.click(screen.getByRole('button', { name: '결과 제출' }))
+  await waitFor(() => expect(api.submitPlayerRoll).toHaveBeenCalledWith('a1', 'operation-check-1', 15, 7, {
+    mapId: 'm1', operationId: 'operation-check-1', checkId: 'check-1', ownerPlayerId: 'player-1', actor: 'PLAYER',
   }))
 })
 
@@ -631,6 +638,26 @@ it('restores a durable movement operation when local storage has no waiting stat
   expect(await screen.findByText('이동 재시도 필요')).toBeInTheDocument()
   expect(screen.getByText('작업 번호: server-operation-1')).toBeInTheDocument()
   expect(api.latestMovementOperation).toHaveBeenCalledWith('a1', 'm1')
+})
+
+it('routes observation checks through the player roll submission flow', async () => {
+  window.localStorage.removeItem('dnd-master:movement-operation:a1')
+  const api = fakeApi()
+  api.observeSpatial = vi.fn(async () => ({
+    mapId: 'm1', mapVersion: 0, publicEvents: [], operationId: 'observe-operation', status: 'CHECK_PENDING',
+    pendingCheck: { checkId: 'observe-check', operationId: 'observe-operation', label: '지각 판정', diceExpression: 'd20', ownerPlayerId: 'player-1', actor: 'PLAYER' as const },
+  }))
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  await user.click(await screen.findByRole('button', { name: '주변 살피기' }))
+  expect(await screen.findByText('관찰 판정 확인 필요')).toBeInTheDocument()
+  await user.type(screen.getByLabelText('d20 결과'), '14')
+  await user.click(screen.getByRole('button', { name: '결과 제출' }))
+
+  await waitFor(() => expect(api.submitPlayerRoll).toHaveBeenCalledWith('a1', 'observe-operation', 14, 7, {
+    mapId: 'm1', operationId: 'observe-operation', checkId: 'observe-check', ownerPlayerId: 'player-1', actor: 'PLAYER',
+  }))
 })
 
 it.each(['COMMITTED', 'INTERRUPTED', 'CANCELLED'] as const)('replays a stored terminal %s movement result after reconnect', async status => {

@@ -244,6 +244,8 @@ paths:
   /api/v1/adventures/{adventureId}/combat-map/spatial/observe:
     post:
       operationId: observeAdventureSpatialFeature
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialActionRequest' } } } }
       responses:
         '200': { description: owner-scoped spatial observation, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
@@ -251,6 +253,8 @@ paths:
   /api/v1/adventures/{adventureId}/combat-map/spatial/interact:
     post:
       operationId: interactAdventureSpatialFeature
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialActionRequest' } } } }
       responses:
         '200': { description: owner-scoped spatial interaction, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
@@ -258,6 +262,8 @@ paths:
   /api/v1/adventures/{adventureId}/combat-map/spatial/combat-turn-start:
     post:
       operationId: startAdventureSpatialCombatTurn
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialTurnRequest' } } } }
       responses:
         '200': { description: spatial combat-turn triggers, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
@@ -265,6 +271,8 @@ paths:
   /api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations:
     post:
       operationId: advanceAdventureSpatialDurations
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialTurnRequest' } } } }
       responses:
         '200': { description: advanced spatial durations, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
@@ -345,6 +353,7 @@ components:
         success: { type: boolean }
         ownerPlayerId: { type: string, format: uuid }
         actor: { type: string, enum: [PLAYER] }
+        rollTotal: { type: integer, minimum: 1, maximum: 20, description: submitted player d20 result; server resolves success }
     CombatMapPendingCheck:
       type: object
       required: [checkId, operationId, label, diceExpression, ownerPlayerId, actor]
@@ -379,6 +388,9 @@ components:
         mapId: { type: string, format: uuid }
         mapVersion: { type: integer, format: int64, minimum: 0 }
         publicEvents: { type: array, items: { type: string } }
+        operationId: { type: string, format: uuid, nullable: true }
+        status: { type: string, nullable: true }
+        pendingCheck: { oneOf: [{ $ref: '#/components/schemas/CombatMapPendingCheck' }, { type: 'null' }] }
     RuntimeTurnResponse:
       type: object
       properties:

@@ -1,0 +1,33 @@
+package com.dndmaster.adventure.api;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+
+class AdventureSpatialIdempotencyTest {
+    @Test
+    void accepts_a_spatial_request_only_when_header_matches_command_id() {
+        UUID commandId = UUID.randomUUID();
+        AdventureController.SpatialActionRequest request = new AdventureController.SpatialActionRequest(
+                UUID.randomUUID(), UUID.randomUUID(), 1, 2, 0L, commandId);
+
+        assertDoesNotThrow(() -> AdventureController.requireSpatialIdempotencyKey(commandId, request));
+        assertThrows(RuntimeException.class,
+                () -> AdventureController.requireSpatialIdempotencyKey(UUID.randomUUID(), request));
+        assertThrows(RuntimeException.class,
+                () -> AdventureController.requireSpatialIdempotencyKey(null, request));
+    }
+
+    @Test
+    void validates_turn_start_requests_with_the_same_header_policy() {
+        UUID commandId = UUID.randomUUID();
+        AdventureController.SpatialTurnRequest request = new AdventureController.SpatialTurnRequest(
+                UUID.randomUUID(), 0L, commandId);
+
+        assertDoesNotThrow(() -> AdventureController.requireSpatialIdempotencyKey(commandId, request));
+        assertThrows(RuntimeException.class,
+                () -> AdventureController.requireSpatialIdempotencyKey(UUID.randomUUID(), request));
+    }
+}

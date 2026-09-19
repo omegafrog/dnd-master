@@ -400,7 +400,7 @@ public class CombatMapController {
     @PostMapping("/internal/v1/combat-maps/{mapId}/movement-operations")
     public MovementOperationResponseBody startMovement(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody(required = false) MovementStartRequestBody request) {
         requestGuard.internal(token);
         requireMovementStart(request);
@@ -419,6 +419,8 @@ public class CombatMapController {
         requestGuard.internal(token);
         MovementOperationResponse response = checkResult == null
                 ? movementService.resume(new MapId(mapId), operationId)
+                : checkResult.rollTotal() != null
+                ? movementService.resume(new MapId(mapId), operationId, checkResult.rollTotal(), new PlayerId(checkResult.ownerPlayerId()))
                 : movementService.resume(new MapId(mapId), operationId,
                         new com.dndmaster.combatmap.application.movement.MovementCheckResult(
                                 checkResult.operationId(),
@@ -455,19 +457,23 @@ public class CombatMapController {
     @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/observe")
     public SpatialRuntimeResponse observeSpatial(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody(required = false) SpatialActionRequest request) {
         requestGuard.internal(token);
         requireSpatialAction(request);
-        return SpatialRuntimeResponse.from(requireSpatialRuntime().observe(new MapId(mapId), new MapOwnerId(request.ownerId()),
+        requireIdempotencyKey(idempotencyKey, request.commandId());
+        return SpatialRuntimeResponse.from(mapId, movementService.observe(new MapId(mapId), new PlayerId(request.ownerId()),
                 new TokenId(request.tokenId()), new GridPosition(request.x(), request.y()), request.expectedVersion(), request.commandId()));
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/interact")
     public SpatialRuntimeResponse interactSpatial(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody(required = false) SpatialActionRequest request) {
         requestGuard.internal(token);
         requireSpatialAction(request);
+        requireIdempotencyKey(idempotencyKey, request.commandId());
         return SpatialRuntimeResponse.from(requireSpatialRuntime().interact(new MapId(mapId), new MapOwnerId(request.ownerId()),
                 new TokenId(request.tokenId()), new GridPosition(request.x(), request.y()), request.expectedVersion(), request.commandId()));
     }
@@ -475,9 +481,11 @@ public class CombatMapController {
     @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/combat-turn-start")
     public SpatialRuntimeResponse combatTurnStartSpatial(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody(required = false) SpatialTurnRequest request) {
         requestGuard.internal(token);
         requireSpatialTurn(request);
+        requireIdempotencyKey(idempotencyKey, request.commandId());
         return SpatialRuntimeResponse.from(requireSpatialRuntime().combatTurnStart(new MapId(mapId), new MapOwnerId(request.ownerId()),
                 request.expectedVersion(), request.commandId()));
     }
@@ -485,9 +493,11 @@ public class CombatMapController {
     @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/advance-durations")
     public SpatialRuntimeResponse advanceSpatialDurations(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody(required = false) SpatialTurnRequest request) {
         requestGuard.internal(token);
         requireSpatialTurn(request);
+        requireIdempotencyKey(idempotencyKey, request.commandId());
         return SpatialRuntimeResponse.from(requireSpatialRuntime().advanceDurations(new MapId(mapId), new MapOwnerId(request.ownerId()),
                 request.expectedVersion(), request.commandId()));
     }
@@ -672,9 +682,20 @@ public class CombatMapController {
 
     public record SpatialActionRequest(UUID ownerId, UUID tokenId, Integer x, Integer y, Long expectedVersion, UUID commandId) {}
     public record SpatialTurnRequest(UUID ownerId, Long expectedVersion, UUID commandId) {}
-    public record SpatialRuntimeResponse(UUID mapId, long mapVersion, List<String> publicEvents) {
+    public record SpatialRuntimeResponse(UUID mapId, long mapVersion, List<String> publicEvents, UUID operationId,
+            String status, com.dndmaster.combatmap.application.movement.PendingMovementCheck pendingCheck) {
+        public SpatialRuntimeResponse(UUID mapId, long mapVersion, List<String> publicEvents) {
+            this(mapId, mapVersion, publicEvents, null, null, null);
+        }
         static SpatialRuntimeResponse from(com.dndmaster.combatmap.application.spatial.SpatialRuntimeResult result) {
             return new SpatialRuntimeResponse(result.mapId().value(), result.mapVersion(), result.publicEvents());
+        }
+        static SpatialRuntimeResponse from(UUID mapId,
+                com.dndmaster.combatmap.application.movement.MovementOperationResponse result) {
+            long version = result.result() == null ? 0 : result.result().mapVersion();
+            List<String> events = result.result() == null ? List.of() : result.result().publicEvents();
+            return new SpatialRuntimeResponse(mapId, version, events, result.operationId(), result.status().name(),
+                    result.pendingCheck());
         }
     }
 

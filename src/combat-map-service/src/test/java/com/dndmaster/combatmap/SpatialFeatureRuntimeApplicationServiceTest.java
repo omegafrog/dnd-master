@@ -40,7 +40,7 @@ class SpatialFeatureRuntimeApplicationServiceTest {
         TokenId tokenId = new TokenId(UUID.randomUUID());
         GridPosition target = new GridPosition(2, 1);
         SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP, List.of(target),
-                DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.OBSERVE),
+                DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.INTERACT),
                 SpatialFeatureProvenance.storyPlan("story", 0, 0));
         CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
                 new GridSpec(4, 3, 50, 5), new PlayerId(ownerId),
@@ -52,17 +52,17 @@ class SpatialFeatureRuntimeApplicationServiceTest {
         SpatialFeatureRuntimeApplicationService service = new SpatialFeatureRuntimeApplicationService(store);
         UUID commandId = UUID.randomUUID();
 
-        var first = service.observe(map.id(), owner, tokenId, target, 0, commandId);
-        var replay = service.observe(map.id(), owner, tokenId, target, 1, commandId);
+        var first = service.interact(map.id(), owner, tokenId, target, 0, commandId);
+        var replay = service.interact(map.id(), owner, tokenId, target, 1, commandId);
 
         assertEquals(1, first.mapVersion());
-        assertEquals(List.of("TRAP_DISCOVERED:2,1"), first.publicEvents());
+        assertEquals(List.of("TRAP_INTERACTED:2,1"), first.publicEvents());
         assertEquals(1, replay.mapVersion());
         assertEquals(List.of(), replay.publicEvents());
         assertEquals(SpatialFeatureVisibility.DISCOVERED, feature.visibility());
-        assertThrows(IllegalArgumentException.class, () -> service.observe(map.id(), owner, tokenId,
+        assertThrows(IllegalArgumentException.class, () -> service.interact(map.id(), owner, tokenId,
                 new GridPosition(3, 2), 1, UUID.randomUUID()));
-        assertThrows(RuntimeException.class, () -> service.observe(map.id(), new MapOwnerId(UUID.randomUUID()),
+        assertThrows(RuntimeException.class, () -> service.interact(map.id(), new MapOwnerId(UUID.randomUUID()),
                 tokenId, target, 1, UUID.randomUUID()));
     }
 

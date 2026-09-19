@@ -482,23 +482,43 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/spatial/observe")
-    CombatMapSpatialResponse observeSpatial(@PathVariable UUID adventureId, @RequestBody SpatialActionRequest request) {
+    CombatMapSpatialResponse observeSpatial(@PathVariable UUID adventureId,
+            @RequestHeader("Idempotency-Key") UUID idempotencyKey, @RequestBody SpatialActionRequest request) {
+        requireSpatialIdempotencyKey(idempotencyKey, request);
         return CombatMapSpatialResponse.from(mapMovementCoordinator.observe(spatialAction(adventureId, request)));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/spatial/interact")
-    CombatMapSpatialResponse interactSpatial(@PathVariable UUID adventureId, @RequestBody SpatialActionRequest request) {
+    CombatMapSpatialResponse interactSpatial(@PathVariable UUID adventureId,
+            @RequestHeader("Idempotency-Key") UUID idempotencyKey, @RequestBody SpatialActionRequest request) {
+        requireSpatialIdempotencyKey(idempotencyKey, request);
         return CombatMapSpatialResponse.from(mapMovementCoordinator.interact(spatialAction(adventureId, request)));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/spatial/combat-turn-start")
-    CombatMapSpatialResponse combatTurnStartSpatial(@PathVariable UUID adventureId, @RequestBody SpatialTurnRequest request) {
+    CombatMapSpatialResponse combatTurnStartSpatial(@PathVariable UUID adventureId,
+            @RequestHeader("Idempotency-Key") UUID idempotencyKey, @RequestBody SpatialTurnRequest request) {
+        requireSpatialIdempotencyKey(idempotencyKey, request);
         return CombatMapSpatialResponse.from(mapMovementCoordinator.combatTurnStart(spatialTurn(adventureId, request)));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations")
-    CombatMapSpatialResponse advanceSpatialDurations(@PathVariable UUID adventureId, @RequestBody SpatialTurnRequest request) {
+    CombatMapSpatialResponse advanceSpatialDurations(@PathVariable UUID adventureId,
+            @RequestHeader("Idempotency-Key") UUID idempotencyKey, @RequestBody SpatialTurnRequest request) {
+        requireSpatialIdempotencyKey(idempotencyKey, request);
         return CombatMapSpatialResponse.from(mapMovementCoordinator.advanceDurations(spatialTurn(adventureId, request)));
+    }
+
+    static void requireSpatialIdempotencyKey(UUID header, SpatialActionRequest request) {
+        if (request == null || header == null || request.commandId() == null || !header.equals(request.commandId())) {
+            throw new ApiRequestGuard.ApiContractException(400, "IDEMPOTENCY_KEY_MISMATCH");
+        }
+    }
+
+    static void requireSpatialIdempotencyKey(UUID header, SpatialTurnRequest request) {
+        if (request == null || header == null || request.commandId() == null || !header.equals(request.commandId())) {
+            throw new ApiRequestGuard.ApiContractException(400, "IDEMPOTENCY_KEY_MISMATCH");
+        }
     }
 
     private com.dndmaster.adventure.application.combat.CombatMapSpatialActionCommand spatialAction(
@@ -1119,9 +1139,14 @@ public class AdventureController {
     }
     public record SpatialActionRequest(UUID mapId, UUID tokenId, Integer x, Integer y, Long expectedVersion, UUID commandId) {}
     public record SpatialTurnRequest(UUID mapId, Long expectedVersion, UUID commandId) {}
-    public record CombatMapSpatialResponse(UUID mapId, long mapVersion, List<String> publicEvents) {
+    public record CombatMapSpatialResponse(UUID mapId, long mapVersion, List<String> publicEvents, UUID operationId,
+            String status, com.dndmaster.adventure.application.combat.CombatMapPendingCheck pendingCheck) {
+        public CombatMapSpatialResponse(UUID mapId, long mapVersion, List<String> publicEvents) {
+            this(mapId, mapVersion, publicEvents, null, null, null);
+        }
         static CombatMapSpatialResponse from(com.dndmaster.adventure.application.combat.CombatMapSpatialResult result) {
-            return new CombatMapSpatialResponse(result.mapId(), result.version(), result.publicEvents());
+            return new CombatMapSpatialResponse(result.mapId(), result.version(), result.publicEvents(), result.operationId(),
+                    result.status(), result.pendingCheck());
         }
     }
     public record MovementValidationRequest(UUID tokenId, int x, int y, UUID mapId, Long mapVersion,

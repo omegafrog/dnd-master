@@ -13,6 +13,7 @@ import com.dndmaster.combatmap.domain.RuleSetId;
 import com.dndmaster.combatmap.domain.SpatialFeature;
 import com.dndmaster.combatmap.domain.SpatialFeatureProvenance;
 import com.dndmaster.combatmap.domain.SpatialFeatureType;
+import com.dndmaster.combatmap.domain.SpatialFeatureVisibility;
 import com.dndmaster.combatmap.domain.SpatialTrigger;
 import java.util.List;
 import java.util.Set;
@@ -74,6 +75,30 @@ class SpatialTriggerResolverTest {
         effect.advanceDuration();
         effect.advanceDuration();
         assertEquals(List.of(), resolver.resolve(map, SpatialTrigger.ENTER_CELL, new GridPosition(1, 1)));
+    }
+
+    @Test
+    void multi_cell_magical_area_effect_fires_once_at_combat_turn_start() {
+        SpatialFeature effect = SpatialFeature.prepared(UUID.randomUUID(), SpatialFeatureType.MAGICAL_AREA_EFFECT,
+                List.of(new GridPosition(1, 1), new GridPosition(1, 2), new GridPosition(2, 1)), null,
+                Set.of(SpatialTrigger.COMBAT_TURN_START), SpatialFeatureProvenance.runtime("runtime", 1, 0), 2,
+                "EXPIRE", true);
+
+        assertEquals(List.of("MAGICAL_AREA_EFFECT_TRIGGERED:1,1"),
+                new SpatialTriggerResolver().resolveCombatTurnStart(map(effect)));
+    }
+
+    @Test
+    void refresh_visibility_discovers_a_become_visible_feature_before_emitting_its_event() {
+        SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
+                List.of(new GridPosition(1, 1)), null, Set.of(SpatialTrigger.BECOME_VISIBLE),
+                SpatialFeatureProvenance.runtime("runtime", 1, 0));
+        CombatMap map = map(feature);
+        SpatialTriggerResolver resolver = new SpatialTriggerResolver();
+
+        assertEquals(List.of("TRAP_DISCOVERED:1,1"), resolver.resolveVisible(map, new GridPosition(1, 1)));
+        assertEquals(SpatialFeatureVisibility.DISCOVERED, feature.visibility());
+        assertEquals(List.of(), resolver.resolveVisible(map, new GridPosition(1, 1)));
     }
 
     private static CombatMap map(SpatialFeature feature) {

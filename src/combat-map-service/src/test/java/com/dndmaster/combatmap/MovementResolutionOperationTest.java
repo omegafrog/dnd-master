@@ -183,6 +183,29 @@ class MovementResolutionOperationTest {
         assertEquals(new GridPosition(1, 1), fixture.map.tokens().getFirst().position());
     }
 
+    @Test
+    void observation_uses_the_durable_player_roll_gate_and_keeps_failed_observation_silent() {
+        Fixture fixture = new Fixture();
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
+                List.of(SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP, List.of(new GridPosition(1, 1)),
+                        com.dndmaster.combatmap.domain.DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.OBSERVE),
+                        SpatialFeatureProvenance.storyPlan("story", 0, 0))));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(Set.of(new GridPosition(1, 1)),
+                Set.of(new GridPosition(1, 1)), Set.of(), List.of(), 0));
+
+        MovementOperationResponse pending = fixture.service(MovementCheckResolver.pending()).observe(fixture.map.id(),
+                fixture.player, fixture.tokenId, new GridPosition(1, 1), 0, fixture.commandId);
+
+        assertEquals(MovementOperationStatus.CHECK_PENDING, pending.status());
+        MovementOperationResponse resolved = fixture.service(MovementCheckResolver.pending()).resume(fixture.map.id(),
+                pending.operationId(), 5, fixture.player);
+
+        assertEquals(MovementOperationStatus.COMMITTED, resolved.status());
+        assertEquals(List.of(), resolved.result().publicEvents());
+        assertEquals(SpatialFeatureVisibility.HIDDEN, fixture.map.spatialFeatures().getFirst().visibility());
+    }
+
     private static CombatMap mapWithHiddenTrap(Fixture fixture) {
         CombatMap map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
                 fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,

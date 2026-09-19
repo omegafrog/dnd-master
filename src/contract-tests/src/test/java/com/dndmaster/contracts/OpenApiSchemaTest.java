@@ -51,6 +51,16 @@ class OpenApiSchemaTest {
     private static void assertMovementContracts() throws IOException {
         Map<String, Object> combatMap = new Yaml().load(Files.readString(CONTRACTS.resolve("combat-map").resolve("openapi.yaml")));
         Map<String, Object> paths = (Map<String, Object>) combatMap.get("paths");
+        for (String path : List.of("/internal/v1/combat-maps/{mapId}/spatial/observe",
+                "/internal/v1/combat-maps/{mapId}/spatial/interact",
+                "/internal/v1/combat-maps/{mapId}/spatial/combat-turn-start",
+                "/internal/v1/combat-maps/{mapId}/spatial/advance-durations")) {
+            Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths.get(path)).get("post");
+            List<Map<String, Object>> spatialParameters = (List<Map<String, Object>>) operation.get("parameters");
+            assertTrue(spatialParameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                    && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))),
+                    path + " must require Idempotency-Key");
+        }
         Map<String, Object> legacyMove = (Map<String, Object>) ((Map<String, Object>) paths.get("/internal/v1/combat-maps/{mapId}/moves")).get("post");
         List<Map<String, Object>> parameters = (List<Map<String, Object>>) legacyMove.get("parameters");
         assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
@@ -66,6 +76,17 @@ class OpenApiSchemaTest {
         assertEquals(List.of("operationId", "checkId", "success", "ownerPlayerId", "actor"), submission.get("required"));
 
         Map<String, Object> adventure = new Yaml().load(Files.readString(CONTRACTS.resolve("adventure").resolve("openapi.yaml")));
+        Map<String, Object> adventurePaths = (Map<String, Object>) adventure.get("paths");
+        for (String path : List.of("/api/v1/adventures/{adventureId}/combat-map/spatial/observe",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/interact",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/combat-turn-start",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations")) {
+            Map<String, Object> spatialOperation = (Map<String, Object>) ((Map<String, Object>) adventurePaths.get(path)).get("post");
+            List<Map<String, Object>> spatialParameters = (List<Map<String, Object>>) spatialOperation.get("parameters");
+            assertTrue(spatialParameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                    && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))),
+                    path + " must require Idempotency-Key");
+        }
         Map<String, Object> adventureSchemas = (Map<String, Object>) ((Map<String, Object>) adventure.get("components")).get("schemas");
         assertNullableFinalPosition(schemaProperties(adventureSchemas, "MovementResult"), "Adventure movement result");
         assertNullableFinalPosition(schemaProperties(adventureSchemas, "AdventureMovementOperationResponse"),

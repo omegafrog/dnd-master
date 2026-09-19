@@ -127,6 +127,11 @@ export type MapMovementResult = {
   pendingCheck?: { checkId: string; operationId: string; label: string; diceExpression: string; ownerPlayerId: string; actor: 'PLAYER' }
 }
 
+export type SpatialActionRequest = { mapId: string; tokenId: string; x: number; y: number; expectedVersion: number; commandId: string }
+export type SpatialTurnRequest = { mapId: string; expectedVersion: number; commandId: string }
+export type SpatialActionResult = { mapId: string; mapVersion: number; publicEvents: string[]; operationId?: string; status?: string; pendingCheck?: { checkId: string; operationId: string; label: string; diceExpression: string; ownerPlayerId: string; actor: 'PLAYER' } }
+export type SpatialRollContext = { mapId: string; operationId: string; checkId: string; ownerPlayerId: string; actor: 'PLAYER' }
+
 export type CombatResolutionStatus = 'RESOLVED' | 'PENDING_RULE_INPUT'
 export type DiceRollResponse = {
   rollId: string
@@ -159,8 +164,12 @@ export interface AdventurePlayApi {
   movementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
   latestMovementOperation?(adventureId: string, mapId: string): Promise<MapMovementResult | null>
   resumeMovementOperation?(adventureId: string, mapId: string, operationId: string, check?: { operationId: string; checkId: string; success: boolean; ownerPlayerId: string; actor: 'PLAYER' }): Promise<MapMovementResult>
+  submitPlayerRoll?(adventureId: string, pendingTurnId: string, result: number, expectedVersion: number, spatial?: SpatialRollContext): Promise<MapMovementResult>
   resumeRuntimeTurn?(adventureId: string, turnId: string): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
   submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
+  observeSpatial?(adventureId: string, request: SpatialActionRequest): Promise<SpatialActionResult>
+  interactSpatial?(adventureId: string, request: SpatialActionRequest): Promise<SpatialActionResult>
+  combatTurnStartSpatial?(adventureId: string, request: SpatialTurnRequest): Promise<SpatialActionResult>
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -366,9 +375,36 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     })
   }
 
+  submitPlayerRoll(adventureId: string, pendingTurnId: string, result: number, expectedVersion: number, spatial?: SpatialRollContext) {
+    if (!spatial) throw new Error('공간 판정은 이동 작업 정보가 필요합니다.')
+    return request<MapMovementResult>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations/${spatial.operationId}/resume?mapId=${spatial.mapId}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders(), 'Idempotency-Key': spatial.operationId },
+      body: JSON.stringify({ operationId: spatial.operationId, checkId: spatial.checkId, success: false,
+        ownerPlayerId: spatial.ownerPlayerId, actor: spatial.actor, rollTotal: result, expectedVersion, pendingTurnId }),
+    })
+  }
+
   resumeRuntimeTurn(adventureId: string, turnId: string) {
     return request<{ turnId: string; version: number; movementResult?: MapMovementResult }>(`/api/v1/adventures/${adventureId}/turns/${turnId}/resume`, {
       method: 'POST', headers: this.authHeaders(),
+    })
+  }
+
+  observeSpatial(adventureId: string, action: SpatialActionRequest) {
+    return request<SpatialActionResult>(`/api/v1/adventures/${adventureId}/combat-map/spatial/observe`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders(), 'Idempotency-Key': action.commandId }, body: JSON.stringify(action),
+    })
+  }
+
+  interactSpatial(adventureId: string, action: SpatialActionRequest) {
+    return request<SpatialActionResult>(`/api/v1/adventures/${adventureId}/combat-map/spatial/interact`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders(), 'Idempotency-Key': action.commandId }, body: JSON.stringify(action),
+    })
+  }
+
+  combatTurnStartSpatial(adventureId: string, action: SpatialTurnRequest) {
+    return request<SpatialActionResult>(`/api/v1/adventures/${adventureId}/combat-map/spatial/combat-turn-start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders(), 'Idempotency-Key': action.commandId }, body: JSON.stringify(action),
     })
   }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { BookOpen, ChevronLeft, ChevronRight, Dice5, FileText, Map, MoreHorizontal, NotebookPen, Settings, Shield, Users } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Separator } from '../../components/ui/separator'
@@ -30,6 +30,7 @@ export function SessionRuntime({ adventureId, adventureApi, expectedVersion, pla
   const [mapOpen, setMapOpen] = useState(false)
   const [noteOpen, setNoteOpen] = useState(false)
   const [partyOpen, setPartyOpen] = useState(true)
+  const spatialTurnKey = useRef<string | null>(null)
   const current = combatSnapshot?.initiative.find(item => item.participantId === combatSnapshot.currentParticipantId)
 
   useEffect(() => {
@@ -40,6 +41,23 @@ export function SessionRuntime({ adventureId, adventureApi, expectedVersion, pla
     }).catch(() => undefined)
     return () => { active = false }
   }, [adventureId, mapRefreshToken, playApi])
+
+  useEffect(() => {
+    if (!combatSnapshot || combatSnapshot.status !== 'ACTIVE' || !playApi.combatTurnStartSpatial) return
+    let active = true
+    void playApi.getCombatMap(adventureId).then(map => {
+      if (!active || !map.mapId) return
+      const key = `${map.mapId}:${combatSnapshot.round}:${combatSnapshot.currentParticipantId}`
+      if (spatialTurnKey.current === key) return
+      spatialTurnKey.current = key
+      const commandId = globalThis.crypto && 'randomUUID' in globalThis.crypto
+        ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+      return playApi.combatTurnStartSpatial!(adventureId, {
+        mapId: map.mapId, expectedVersion: map.version ?? 0, commandId,
+      })
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [adventureId, combatSnapshot, playApi])
 
   return <section className="session-runtime" aria-labelledby="session-runtime-title">
     <header className="session-runtime-header">

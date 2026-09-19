@@ -6,6 +6,7 @@ import com.dndmaster.combatmap.domain.SpatialFeature;
 import com.dndmaster.combatmap.domain.SpatialFeatureVisibility;
 import com.dndmaster.combatmap.domain.SpatialTrigger;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
@@ -36,15 +37,37 @@ public final class SpatialTriggerResolver {
         return List.copyOf(events);
     }
 
+    /** Applies an observation only to features whose player-owned check succeeded. */
+    public List<String> resolveObserved(CombatMap map, SpatialTrigger trigger, GridPosition cell,
+            java.util.Set<java.util.UUID> successfulFeatureIds) {
+        Objects.requireNonNull(successfulFeatureIds, "successful feature ids must not be null");
+        List<String> events = new ArrayList<>();
+        for (SpatialFeature feature : map.spatialFeatures()) {
+            if (!feature.cells().contains(cell) || !feature.triggers().contains(trigger)) continue;
+            if (feature.visibility() == SpatialFeatureVisibility.HIDDEN
+                    && !successfulFeatureIds.contains(feature.id())) continue;
+            if (!feature.canTrigger()) continue;
+            if (feature.visibility() == SpatialFeatureVisibility.HIDDEN) feature.discover();
+            if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.SECRET_DOOR) {
+                if (trigger == SpatialTrigger.INTERACT) feature.open();
+                else events.add(eventName(feature, trigger, cell));
+            } else {
+                feature.trigger();
+                events.add(eventName(feature, trigger, cell));
+            }
+        }
+        return List.copyOf(events);
+    }
+
     /** 이동 해결 재생용 공개 trigger. 숨겨진 요소를 실패한 탐지로 공개하지 않는다. */
     public List<String> resolveVisible(CombatMap map, GridPosition cell) {
         Objects.requireNonNull(map, "combat map must not be null");
         Objects.requireNonNull(cell, "trigger cell must not be null");
         List<String> events = new ArrayList<>();
         for (SpatialFeature feature : map.spatialFeatures()) {
-            if (feature.visibility() == SpatialFeatureVisibility.HIDDEN) continue;
             if (!feature.cells().contains(cell) || !feature.triggers().contains(SpatialTrigger.BECOME_VISIBLE)
                     || !feature.canTrigger()) continue;
+            if (feature.visibility() == SpatialFeatureVisibility.HIDDEN) feature.discover();
             if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.SECRET_DOOR) {
                 events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
             } else {
@@ -58,9 +81,10 @@ public final class SpatialTriggerResolver {
     public List<String> resolveCombatTurnStart(CombatMap map) {
         List<String> events = new ArrayList<>();
         for (SpatialFeature feature : map.spatialFeatures()) {
-            for (GridPosition cell : feature.cells()) {
-                events.addAll(resolve(map, SpatialTrigger.COMBAT_TURN_START, cell));
-            }
+            // A trigger belongs to the spatial feature, not to each occupied
+            // cell. A multi-cell area effect therefore fires once per turn.
+            feature.cells().stream().min(Comparator.comparingInt(GridPosition::x).thenComparingInt(GridPosition::y))
+                    .ifPresent(cell -> events.addAll(resolve(map, SpatialTrigger.COMBAT_TURN_START, cell)));
         }
         return List.copyOf(events);
     }

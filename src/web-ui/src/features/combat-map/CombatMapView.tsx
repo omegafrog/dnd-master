@@ -66,6 +66,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [boundaryPreview, setBoundaryPreview] = useState<BoundaryStroke | null>(null)
   const [pendingMovement, setPendingMovement] = useState<PendingMovement | null>(() => readPendingMovement(adventureId))
   const [replayedMovement, setReplayedMovement] = useState<MapMovementResult | null>(null)
+  const [rollValue, setRollValue] = useState('')
 
   useEffect(() => () => {
     if (publicMapImage?.startsWith('blob:')) URL.revokeObjectURL(publicMapImage)
@@ -240,6 +241,18 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       expectedVersion: map?.sessionVersion ?? map?.version ?? 0,
     } satisfies PendingMovementCommand)) } catch { /* replay identity remains in memory */ }
     try {
+      if (confirmedCandidate.action === 'INTERACT' && confirmedCandidate.location && api.interactSpatial) {
+        const spatial = await api.interactSpatial(adventureId, {
+          mapId: confirmedCandidate.mapId, tokenId: confirmedCandidate.tokenId,
+          x: confirmedCandidate.location.x, y: confirmedCandidate.location.y,
+          expectedVersion: confirmedCandidate.mapVersion, commandId: command.commandId,
+        })
+        setMap(await api.getCombatMap(adventureId))
+        clearPendingMovementCommand(adventureId)
+        setCandidate(null); setSelectedToken(null)
+        setMessage(spatial.publicEvents.length ? `공개된 결과: ${spatial.publicEvents.join(', ')}` : '상호작용을 처리했습니다.')
+        return
+      }
       if (!api.submitMapAction) throw new Error('맵 행동 API를 사용할 수 없습니다.')
       const turn = await api.submitMapAction(adventureId, {
         mapId: confirmedCandidate.mapId, mapVersion: confirmedCandidate.mapVersion, tokenId: confirmedCandidate.tokenId,
@@ -334,6 +347,58 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         pendingMovement.commandId, map, refreshed)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '저장된 이동 상태를 확인하지 못했습니다.')
+    }
+  }
+
+  async function submitPendingRoll() {
+    const pendingCheck = pendingMovement?.result.pendingCheck
+    if (!pendingMovement || !pendingCheck || !api.submitPlayerRoll) return
+    const total = Number(rollValue)
+    if (!Number.isInteger(total) || total < 1 || total > 20) {
+      setMessage('d20 결과는 1에서 20 사이여야 합니다.')
+      return
+    }
+    try {
+      const result = await api.submitPlayerRoll(adventureId, pendingCheck.operationId, total,
+        map?.sessionVersion ?? map?.version ?? pendingMovement.result.version, {
+          mapId: pendingMovement.mapId, operationId: pendingCheck.operationId, checkId: pendingCheck.checkId,
+          ownerPlayerId: pendingCheck.ownerPlayerId, actor: pendingCheck.actor,
+        })
+      const refreshed = await api.getCombatMap(adventureId)
+      await applyMovementResult(result, pendingMovement.mapId, pendingMovement.tokenId, pendingMovement.turnId,
+        pendingMovement.commandId, map, refreshed)
+      setRollValue('')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '주사위 결과를 제출하지 못했습니다.')
+    }
+  }
+
+  async function observeCurrentCell() {
+    if (!api.observeSpatial || !map?.mapId) return
+    const player = map.tokens?.find(token => token.type === 'PLAYER')
+    if (!player) return
+    const commandId = createMapCommandIdentity().commandId
+    try {
+      const result = await api.observeSpatial(adventureId, {
+        mapId: map.mapId, tokenId: player.id, x: player.x, y: player.y,
+        expectedVersion: map.version ?? 0, commandId,
+      })
+      if (result.pendingCheck && result.operationId) {
+        const pendingResult: MapMovementResult = {
+          version: result.mapVersion, operationId: result.operationId, status: 'CHECK_REQUIRED',
+          requestedPath: [{ x: player.x, y: player.y }], traversedPath: [{ x: player.x, y: player.y }],
+          finalPosition: { x: player.x, y: player.y }, publicEvents: [], pendingCheck: result.pendingCheck,
+        }
+        const pending = { mapId: result.mapId, tokenId: player.id, result: pendingResult }
+        setPendingMovement(pending)
+        try { window.localStorage.setItem(pendingMovementKey(adventureId), JSON.stringify(pending)) } catch { /* storage is optional */ }
+        setMessage('관찰 판정 확인 필요')
+        return
+      }
+      setMessage(result.publicEvents.length ? `공개된 결과: ${result.publicEvents.join(', ')}` : '특이한 점을 찾지 못했습니다.')
+      setMap(await api.getCombatMap(adventureId))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '주변을 살피지 못했습니다.')
     }
   }
 
@@ -624,6 +689,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {preparationMode && <section className="map-start-preparation" aria-label="플레이어 시작 위치"><h3>시작 위치 확인</h3>{placementRequired && <p role="alert">자동 판정으로 시작 위치를 찾지 못했습니다. 지도에서 직접 선택해주세요.</p>}<p>모험 중 맵에 진입할 때 행동·서술과 지도 이미지를 바탕으로 시작 위치를 자동 판정합니다. 아래 선택은 자동 판정에 실패했을 때 사용할 수 있는 수동 대안입니다.</p>{map.playerStartCandidates?.length ? <ul>{map.playerStartCandidates.map((candidate, index) => <li key={`${candidate.x}-${candidate.y}-${index}`}><button type="button" aria-pressed={selectedPlayerStart?.x === candidate.x && selectedPlayerStart?.y === candidate.y} onClick={() => setSelectedPlayerStart({ x: candidate.x, y: candidate.y })}>({candidate.x},{candidate.y}) 선택</button><span>신뢰도 {Math.round(candidate.confidence * 100)}% · {candidate.evidence.join(', ') || '근거 없음'}</span></li>)}</ul> : <p>아직 모험 중 진입 서술이 없어 자동 시작 위치 후보가 없습니다.</p>}<p role="status">{selectedPlayerStart ? `수동 대안으로 선택한 시작 칸: (${selectedPlayerStart.x},${selectedPlayerStart.y})` : '자동 판정 대기 중입니다.'}</p></section>}
       {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>3. AI 초안 생성 및 검수</h3><p>{!cropConfirmed ? '먼저 1단계에서 여백 자르기를 적용하세요.' : !gridConfirmed ? '먼저 2단계에서 격자를 맞추고 적용하세요.' : '격자 적용 완료. 현재 자른 영역과 격자를 기준으로 AI 초안을 생성합니다.'}</p>{cropConfirmed && gridConfirmed && <><button type="button" disabled={boundaryDetecting || layoutSaving || layoutEditing} onClick={() => void detectBoundaries()}>{boundaryDetecting ? 'AI 벽·문 감지 중…' : 'AI 벽·문 감지'}</button><button type="button" onClick={() => { if (layoutEditing) { setLayoutEditing(false); return }; if (!layoutBeforeEdit) setLayoutBeforeEdit(map); setLayoutSaved(false); setLayoutEditing(true) }}>{layoutEditing ? '검수 닫기' : '벽·문 편집'}</button>{layoutEditing && <div className="map-layout-editor"><ol className="map-layout-guide"><li>선은 칸의 한 면에 붙어 표시됩니다.</li><li>벽 그리기·문 그리기·지우기 중 하나를 고르세요.</li><li>격자선 위를 누른 채 끌면 지나간 선분에 적용됩니다.</li></ol><div className="map-boundary-tools" role="group" aria-label="벽과 문 그리기 도구"><button type="button" aria-pressed={boundaryTool === 'WALL'} onClick={() => setBoundaryTool('WALL')}>벽 그리기</button><button type="button" aria-pressed={boundaryTool === 'DOOR'} onClick={() => setBoundaryTool('DOOR')}>문 그리기</button><button type="button" aria-pressed={boundaryTool === 'ERASE'} onClick={() => setBoundaryTool('ERASE')}>지우기</button></div>{tacticalMap}<p>칸은 이동하거나 선택되지 않습니다.</p><div className="map-layout-actions"><button type="button" disabled={layoutSaving} onClick={() => { boundaryStroke.current = null; setBoundaryPreview(null); const restored = layoutBeforeEdit; setMap(restored); setLayoutSaved(restored?.layers?.some(layer => layer.type === 'MAP_LAYOUT_CONFIRMED') ?? false); setLayoutDirty(false); setLayoutEditing(false); setLayoutBeforeEdit(null) }}>편집 취소</button><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div></div>}</>}</section>}
       {!layoutEditing && tacticalMap}
+      {map?.tokens?.find(token => token.type === 'PLAYER' && map.current?.some(cell => cell.x === token.x && cell.y === token.y)) && api.observeSpatial && <button type="button" onClick={() => void observeCurrentCell()}>주변 살피기</button>}
       {map?.tokens?.filter(token => token.type !== 'PLAYER' && !token.lastSeen && map.current?.some(cell => cell.x === token.x && cell.y === token.y)).map(token => <button key={`target-${token.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'TARGET', { x: token.x, y: token.y }, token.id)) }}>대상 선택: {token.type}</button>)}
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}
       {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p>{candidate.action === 'MOVE' && <><p>경로 칸: {candidate.path?.length ?? 0} · 거리: {candidate.distance ?? 0}</p><button type="button" disabled={submitting || previewing} onClick={() => setWaypointMode(current => !current)}>{waypointMode ? '경유 지점 조정 끝내기' : '경유 지점 추가'}</button>{waypointMode && <p>지도에서 경유할 칸을 눌러 경로를 조정하세요.</p>}</>}<button type="button" disabled={submitting || previewing} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting || previewing} onClick={() => { previewSequence.current += 1; void api.clearPendingMapMovement?.(adventureId); setCandidate(null); setSelectedToken(null); setWaypointMode(false) }}>취소</button></div>}
@@ -638,10 +704,10 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         <p>작업 번호: {pendingMovement.result.operationId ?? '없음'}</p>
         {pendingMovement.result.pendingCheck && <>
           <p>{pendingMovement.result.pendingCheck.label} · {pendingMovement.result.pendingCheck.diceExpression}</p>
-          <div className="movement-check-actions" aria-label="판정 결과 제출">
-            <button type="button" onClick={() => void recoverMovement(true, { success: true })}>성공 결과 제출</button>
-            <button type="button" onClick={() => void recoverMovement(true, { success: false })}>실패 결과 제출</button>
-          </div>
+          <form className="movement-check-actions" aria-label="판정 결과 제출" onSubmit={event => { event.preventDefault(); void submitPendingRoll() }}>
+            <label>d20 결과<input aria-label="d20 결과" type="number" min="1" max="20" step="1" value={rollValue} onChange={event => setRollValue(event.target.value)} /></label>
+            <button type="submit" disabled={!api.submitPlayerRoll}>결과 제출</button>
+          </form>
         </>}
         <button type="button" onClick={() => void recoverMovement(false)}>이동 상태 다시 확인</button>
         {!pendingMovement.result.pendingCheck && <button type="button" onClick={() => void recoverMovement(true)}>이동 재개</button>}

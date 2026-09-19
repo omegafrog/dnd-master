@@ -34,11 +34,6 @@ public final class SpatialFeatureRuntimeApplicationService {
         this.lineOfSight = Objects.requireNonNull(lineOfSight, "line-of-sight query must not be null");
     }
 
-    public SpatialRuntimeResult observe(MapId mapId, MapOwnerId owner, TokenId tokenId, GridPosition cell,
-            long expectedVersion, UUID commandId) {
-        return act(mapId, owner, tokenId, cell, expectedVersion, commandId, "OBSERVE", runtime::observe);
-    }
-
     public SpatialRuntimeResult interact(MapId mapId, MapOwnerId owner, TokenId tokenId, GridPosition cell,
             long expectedVersion, UUID commandId) {
         return act(mapId, owner, tokenId, cell, expectedVersion, commandId, "INTERACT", runtime::interact);

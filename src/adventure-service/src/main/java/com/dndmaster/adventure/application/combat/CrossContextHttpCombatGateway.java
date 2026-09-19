@@ -281,14 +281,24 @@ public final class CrossContextHttpCombatGateway
             JsonNode value = objectMapper.readTree(response.body());
             List<String> events = new ArrayList<>();
             value.path("publicEvents").forEach(event -> events.add(event.asText()));
+            CombatMapPendingCheck pendingCheck = spatialPendingCheck(value.path("pendingCheck"));
             return new CombatMapSpatialResult(java.util.UUID.fromString(value.path("mapId").asText()),
-                    value.path("mapVersion").asLong(), events);
+                    value.path("mapVersion").asLong(), events,
+                    value.hasNonNull("operationId") ? java.util.UUID.fromString(value.path("operationId").asText()) : null,
+                    value.hasNonNull("status") ? value.path("status").asText() : null, pendingCheck);
         } catch (IOException exception) {
             throw new CrossContextCallException("combat map spatial action transport failed", exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new CrossContextCallException("combat map spatial action interrupted", exception);
         }
+    }
+    private CombatMapPendingCheck spatialPendingCheck(JsonNode pending) {
+        return pending != null && pending.isObject() && pending.hasNonNull("checkId")
+                ? new CombatMapPendingCheck(java.util.UUID.fromString(pending.path("checkId").asText()),
+                        java.util.UUID.fromString(pending.path("operationId").asText()), pending.path("label").asText("판정"),
+                        pending.path("diceExpression").asText("d20"), java.util.UUID.fromString(pending.path("ownerPlayerId").asText()),
+                        CombatMapCheckActor.valueOf(pending.path("actor").asText("PLAYER"))) : null;
     }
     private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method) { return operationRequest(mapId, operationId, method, null); }
     private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method, CombatMapCheckSubmission submission) {

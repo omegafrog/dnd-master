@@ -511,6 +511,7 @@ components:
         success: { type: boolean }
         ownerPlayerId: { type: string, format: uuid }
         actor: { type: string, enum: [PLAYER] }
+        rollTotal: { type: integer, minimum: 1, maximum: 20, description: submitted player d20 result; server resolves success }
     MovementCheckPending:
       type: object
       required: [checkId, operationId, label, diceExpression, ownerPlayerId, actor]
@@ -545,3 +546,6 @@ components:
         mapId: { type: string, format: uuid }
         mapVersion: { type: integer, format: int64, minimum: 0 }
         publicEvents: { type: array, items: { type: string } }
+        operationId: { type: string, format: uuid, nullable: true }
+        status: { type: string, nullable: true }
+        pendingCheck: { oneOf: [{ $ref: '#/components/schemas/MovementCheckPending' }, { type: 'null' }] }

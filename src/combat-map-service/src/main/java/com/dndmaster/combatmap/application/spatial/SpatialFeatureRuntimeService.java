@@ -19,10 +19,6 @@ public final class SpatialFeatureRuntimeService {
         this.triggerResolver = Objects.requireNonNull(triggerResolver);
     }
 
-    public List<String> observe(CombatMap map, GridPosition cell) {
-        return triggerResolver.resolve(map, SpatialTrigger.OBSERVE, cell);
-    }
-
     public List<String> interact(CombatMap map, GridPosition cell) {
         return triggerResolver.resolve(map, SpatialTrigger.INTERACT, cell);
     }
