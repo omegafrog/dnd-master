@@ -128,6 +128,7 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
 
     private RuntimeTurnCommandExecution movementExecution(UUID turnId,
             com.dndmaster.adventure.application.combat.CombatMapMoveResult movement, String outcome) {
+        validateMovementResult(movement);
         var followUp = (movement.interruptionReason() != null && movement.interruptionReason().equals("HOSTILE_OBSERVED"))
                 || movement.publicEvents().contains("HOSTILE_OBSERVED")
                 ? com.dndmaster.adventure.application.combat.MovementFollowUpCommand.forTrigger(movement.operationId(),
@@ -141,6 +142,15 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
             case CANCELLED -> RuntimeTurnCommandExecution.movement(
                     RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, enrichedOutcome, enriched);
         };
+    }
+
+    private static void validateMovementResult(
+            com.dndmaster.adventure.application.combat.CombatMapMoveResult movement) {
+        boolean hostileObserved = "HOSTILE_OBSERVED".equals(movement.interruptionReason())
+                || movement.publicEvents().contains("HOSTILE_OBSERVED");
+        if (hostileObserved && movement.hostileTokenId() == null) {
+            throw new IllegalArgumentException("movement result HOSTILE_OBSERVED requires hostileTokenId");
+        }
     }
 
     private String serialize(com.dndmaster.adventure.application.combat.CombatMapMoveResult result) {

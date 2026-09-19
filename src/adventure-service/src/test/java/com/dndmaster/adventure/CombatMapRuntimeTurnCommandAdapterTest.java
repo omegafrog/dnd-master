@@ -162,6 +162,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
     void resolves_an_enemy_perception_check_inside_adventure_runtime_without_exposing_it_to_the_player() {
         UUID operationId = UUID.randomUUID();
         UUID checkId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
         RuntimeTurnCommand command = validCommand();
         AtomicReference<com.dndmaster.adventure.application.combat.CombatMapCheckSubmission> submitted = new AtomicReference<>();
         CombatMapPort mapPort = new CombatMapPort() {
@@ -181,7 +182,8 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                 submitted.set(submission);
                 return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(6, id,
                         CombatMapMovementStatus.INTERRUPTED, List.of(), List.of(new CombatMapPreviewPosition(2, 1)),
-                        new CombatMapPreviewPosition(2, 1), List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED");
+                        new CombatMapPreviewPosition(2, 1), List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED")
+                        .withHostileTokenId(hostileTokenId);
             }
         };
         String outcome = "{\"version\":4,\"operationId\":\"" + operationId
@@ -197,6 +199,26 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         assertEquals("HOSTILE_OBSERVED", result.movementResult().followUp().trigger());
         assertEquals(com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
                 result.movementResult().followUp().kind());
+        assertEquals(hostileTokenId, result.movementResult().followUp().hostileTokenId());
+    }
+
+    @Test
+    void rejects_hostile_observation_without_hostile_token_as_permanent_invalid_result() {
+        UUID operationId = UUID.randomUUID();
+        CombatMapPort mapPort = new CombatMapPort() {
+            @Override public void validateAndMove(CombatActionCommand command) {}
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult move(CombatMapMoveCommand command) {
+                return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
+                        CombatMapMovementStatus.INTERRUPTED, List.of(new CombatMapPreviewPosition(1, 1)),
+                        new CombatMapPreviewPosition(1, 1), List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED");
+            }
+        };
+
+        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper())
+                .execute(validCommand());
+
+        assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
+        assertEquals("movement result HOSTILE_OBSERVED requires hostileTokenId", result.value());
     }
 
     @Test
