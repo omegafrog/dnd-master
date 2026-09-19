@@ -303,6 +303,31 @@ class SessionEventTest {
     }
 
     @Test
+    void malformed_follow_up_operation_id_is_a_permanent_failure_not_a_retry() {
+        InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        UUID turnId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        RuntimeTurnCommand source = RuntimeTurnCommand.create(turnId, commandId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
+        events.append(new SessionEvent(source.sessionId(), commandId, 0, "MOVEMENT_FOLLOW_UP",
+                "{\"commandId\":\"" + commandId + "\",\"operationId\":\"not-a-uuid\""
+                        + ",\"turnId\":\"" + turnId + "\",\"hostileTokenId\":\"" + hostileTokenId
+                        + "\",\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\"}"));
+        MovementFollowUpCommand expected = new MovementFollowUpCommand(commandId, operationId, hostileTokenId, turnId,
+                MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED");
+        MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands, new ObjectMapper(),
+                MovementFollowUpPolicy.defaultPolicy(), (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
+
+        MovementFollowUpPort.Result result = consumer.consume(source, expected);
+
+        assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
+        assertTrue(result.value().contains("operationId"));
+    }
+
+    @Test
     void each_continuation_kind_persists_a_distinct_runtime_command_payload_and_replays_it() {
         InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
         RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(commands, new ObjectMapper());

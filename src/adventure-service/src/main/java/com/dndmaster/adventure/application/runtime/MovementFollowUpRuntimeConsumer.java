@@ -2,8 +2,8 @@ package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
 import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.UUID;
@@ -34,6 +34,8 @@ public final class MovementFollowUpRuntimeConsumer {
                 throw new IllegalStateException("unexpected movement follow-up event type");
             }
             var eventPayload = objectMapper.readTree(event.payload());
+            validateIdentity(eventPayload, "commandId");
+            validateIdentity(eventPayload, "operationId");
             validateIdentity(eventPayload, "hostileTokenId");
             validateIdentity(eventPayload, "turnId");
             MovementFollowUpCommand followUp = objectMapper.treeToValue(eventPayload, MovementFollowUpCommand.class);
@@ -74,9 +76,12 @@ public final class MovementFollowUpRuntimeConsumer {
             return MovementFollowUpPort.Result.done(outcome.value());
         } catch (PermanentFollowUpFailure failure) {
             return MovementFollowUpPort.Result.permanentFailure(failure.getMessage());
+        } catch (JsonProcessingException failure) {
+            return MovementFollowUpPort.Result.permanentFailure(
+                    "invalid durable movement follow-up payload: " + failure.getOriginalMessage());
         } catch (IllegalArgumentException failure) {
             return MovementFollowUpPort.Result.permanentFailure(failure.getMessage());
-        } catch (IOException | RuntimeException failure) {
+        } catch (RuntimeException failure) {
             return MovementFollowUpPort.Result.retry(failure.getMessage());
         }
     }
