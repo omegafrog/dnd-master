@@ -189,10 +189,6 @@ public final class RuntimeTurnCommitOrchestrator {
         }
     }
 
-    private static final class PermanentFollowUpFailure extends RuntimeException {
-        private PermanentFollowUpFailure(String message) { super(message); }
-    }
-
     /** Replays a stored map result for reconnects and duplicate turn requests. */
     public CombatMapMoveResult movementResultForTurn(UUID turnId) {
         return commandRepository.findByTurnId(Objects.requireNonNull(turnId, "turn id must not be null")).stream()

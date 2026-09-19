@@ -2,7 +2,11 @@ package com.dndmaster.adventure.application.runtime;
 
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Set;
+import java.util.HashSet;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 
 /** Adapts one explicitly typed continuation port; it never delegates to GM tools. */
 public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurnCommandAdapter {
@@ -26,7 +30,25 @@ public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurn
         String expected = "movement.continuation." + kind.name().toLowerCase(java.util.Locale.ROOT);
         if (!expected.equals(command.commandType())) return RuntimeTurnCommandExecution.permanentFailure("unexpected continuation command type");
         try {
-            com.fasterxml.jackson.databind.JsonNode payload = objectMapper.readTree(command.payloadJson());
+            com.fasterxml.jackson.databind.JsonNode payload;
+            try (JsonParser parser = objectMapper.createParser(command.payloadJson())) {
+                payload = objectMapper.reader()
+                        .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
+                        .readTree(parser);
+                if (parser.nextToken() != null) {
+                    throw new PermanentFollowUpFailure("continuation payload has trailing JSON");
+                }
+            }
+            Set<String> payloadFields = new HashSet<>();
+            if (payload != null && payload.isObject()) {
+                payload.fieldNames().forEachRemaining(payloadFields::add);
+            }
+            payloadFields.remove("kind");
+            if (payload == null || !payload.isObject()
+                    || !Set.of("trigger", "operationId", "turnId", "hostileTokenId")
+                            .equals(payloadFields)) {
+                throw new PermanentFollowUpFailure("continuation payload contains unknown properties");
+            }
             UUID operationId = requiredUuid(payload, "operationId");
             UUID payloadTurnId = requiredUuid(payload, "turnId");
             UUID hostileTokenId = requiredUuid(payload, "hostileTokenId");
@@ -46,6 +68,8 @@ public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurn
                 case DIALOGUE -> port.dialogue(typed);
                 case CHASE -> port.chase(typed);
             };
+        } catch (PermanentFollowUpFailure failure) {
+            return RuntimeTurnCommandExecution.permanentFailure(failure.getMessage());
         } catch (java.io.IOException | RuntimeException failure) {
             return RuntimeTurnCommandExecution.permanentFailure("continuation payload identity is invalid");
         }

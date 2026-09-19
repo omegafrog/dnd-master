@@ -35,7 +35,7 @@ public final class MovementFollowUpRuntimeConsumer {
                     .filter(candidate -> candidate.eventId().equals(expected.commandId()))
                     .findFirst().orElseThrow(() -> new IllegalStateException("movement follow-up event is not durable"));
             if (!"MOVEMENT_FOLLOW_UP".equals(event.type())) {
-                throw new IllegalStateException("unexpected movement follow-up event type");
+                throw new PermanentFollowUpFailure("unexpected movement follow-up event type");
             }
             var eventPayload = readStrictJson(event.payload());
             validateIdentity(eventPayload, "commandId");
@@ -46,9 +46,12 @@ public final class MovementFollowUpRuntimeConsumer {
             if (!eventPayload.equals(expectedPayload)) {
                 throw new PermanentFollowUpFailure("movement follow-up event payload mismatch");
             }
+            if (!objectMapper.writeValueAsString(eventPayload).equals(objectMapper.writeValueAsString(expectedPayload))) {
+                throw new PermanentFollowUpFailure("movement follow-up event payload is not canonical");
+            }
             MovementFollowUpCommand followUp = objectMapper.treeToValue(eventPayload, MovementFollowUpCommand.class);
             if (!source.turnId().equals(followUp.turnId())) {
-                throw new IllegalStateException("movement follow-up belongs to another turn");
+                throw new PermanentFollowUpFailure("movement follow-up belongs to another turn");
             }
             MovementFollowUpCommand.Kind kind = policy.determine(followUp.trigger());
             UUID continuationId = UUID.nameUUIDFromBytes(
@@ -71,6 +74,9 @@ public final class MovementFollowUpRuntimeConsumer {
             try {
                 outcome = continuationPort.execute(continuation,
                         new Continuation(kind, followUp.trigger(), followUp.operationId(), source.turnId(), followUp.hostileTokenId()));
+            } catch (PermanentFollowUpFailure failure) {
+                commands.save(continuation.failed(failure.getMessage(), failure.getMessage()));
+                return MovementFollowUpPort.Result.permanentFailure(failure.getMessage());
             } catch (RuntimeException failure) {
                 commands.save(continuation.failed(failure.getMessage(), failure.getMessage()));
                 return MovementFollowUpPort.Result.retry(failure.getMessage());
@@ -78,6 +84,10 @@ public final class MovementFollowUpRuntimeConsumer {
             if (outcome.status() == RuntimeContinuationOutcome.Status.RETRY) {
                 commands.save(continuation.failed(outcome.value(), outcome.value()));
                 return MovementFollowUpPort.Result.retry(outcome.value());
+            }
+            if (outcome.status() == RuntimeContinuationOutcome.Status.PERMANENT_FAILURE) {
+                commands.save(continuation.failed(outcome.value(), outcome.value()));
+                return MovementFollowUpPort.Result.permanentFailure(outcome.value());
             }
             commands.save(continuation.done(outcome.value()));
             return MovementFollowUpPort.Result.done(outcome.value());
@@ -121,10 +131,6 @@ public final class MovementFollowUpRuntimeConsumer {
         } catch (IllegalArgumentException failure) {
             throw new PermanentFollowUpFailure("movement follow-up field " + field + " is invalid");
         }
-    }
-
-    private static final class PermanentFollowUpFailure extends RuntimeException {
-        private PermanentFollowUpFailure(String message) { super(message); }
     }
 
     public record Continuation(MovementFollowUpCommand.Kind kind, String trigger, UUID operationId, UUID turnId,

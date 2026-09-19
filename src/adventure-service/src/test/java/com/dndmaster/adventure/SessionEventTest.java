@@ -168,6 +168,42 @@ class SessionEventTest {
     }
 
     @Test
+    void unsupported_continuation_kind_is_permanent_not_retryable() {
+        RuntimeContinuationOutcome outcome = new RuntimeContinuationHandlerRegistry(java.util.Map.of())
+                .execute(RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation.unknown", "{}", 1),
+                        new MovementFollowUpRuntimeConsumer.Continuation(MovementFollowUpCommand.Kind.CONTINUATION,
+                                "HOSTILE_OBSERVED", UUID.randomUUID(), UUID.randomUUID()));
+
+        assertEquals(RuntimeContinuationOutcome.Status.PERMANENT_FAILURE, outcome.status());
+    }
+
+    @Test
+    void strict_durable_follow_up_json_rejects_duplicate_keys_and_trailing_tokens() throws Exception {
+        for (String payload : List.of(
+                "{\"commandId\":\"%s\",\"commandId\":\"%s\"}".formatted(UUID.randomUUID(), UUID.randomUUID()),
+                "{} {}")) {
+            InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+            InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+            UUID commandId = UUID.randomUUID();
+            RuntimeTurnCommand source = RuntimeTurnCommand.create(UUID.randomUUID(), commandId, UUID.randomUUID(),
+                    UUID.randomUUID(), UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
+            events.append(new SessionEvent(source.sessionId(), commandId, 0, "MOVEMENT_FOLLOW_UP", payload));
+            MovementFollowUpCommand expected = MovementFollowUpCommand.hostileObserved(UUID.randomUUID(),
+                    source.turnId(), UUID.randomUUID());
+            expected = new MovementFollowUpCommand(commandId, expected.operationId(), expected.hostileTokenId(),
+                    expected.turnId(), expected.kind(), expected.trigger());
+
+            MovementFollowUpPort.Result result = new MovementFollowUpRuntimeConsumer(events, commands,
+                    new ObjectMapper(), MovementFollowUpPolicy.defaultPolicy(),
+                    (command, continuation) -> RuntimeContinuationOutcome.applied("must not execute"))
+                    .consume(source, expected);
+
+            assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
+        }
+    }
+
+    @Test
     void runtime_calls_the_typed_handler_and_retries_a_failed_transition_idempotently() {
         InMemorySessionEventRepository events = new InMemorySessionEventRepository();
         InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();

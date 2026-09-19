@@ -20,7 +20,8 @@ public final class RuntimeContinuationHandlerRegistry implements RuntimeContinua
     public RuntimeContinuationOutcome execute(RuntimeTurnCommand command,
             MovementFollowUpRuntimeConsumer.Continuation continuation) {
         RuntimeContinuationHandler handler = handlers.get(continuation.kind());
-        if (handler == null) return RuntimeContinuationOutcome.retry("unsupported movement continuation kind");
+        if (handler == null) return RuntimeContinuationOutcome.permanentFailure(
+                "unsupported movement continuation kind");
         return Objects.requireNonNull(handler.handle(command, continuation),
                 "continuation handler outcome must not be null");
     }
@@ -58,12 +59,15 @@ public final class RuntimeContinuationHandlerRegistry implements RuntimeContinua
         String expectedType = "movement.continuation."
                 + kind.name().toLowerCase(java.util.Locale.ROOT);
         if (!expectedType.equals(command.commandType())) {
-            return RuntimeContinuationOutcome.retry("continuation command type does not match " + kind.name());
+            return RuntimeContinuationOutcome.permanentFailure(
+                    "continuation command type does not match " + kind.name());
         }
         RuntimeTurnCommandExecution execution = Objects.requireNonNull(adapter.execute(command),
                 "runtime continuation adapter result must not be null");
-        return execution.status() == RuntimeTurnCommandExecution.Status.DONE
-                ? RuntimeContinuationOutcome.applied(execution.value())
-                : RuntimeContinuationOutcome.retry(execution.value());
+        return switch (execution.status()) {
+            case DONE -> RuntimeContinuationOutcome.applied(execution.value());
+            case TRANSIENT_FAILURE -> RuntimeContinuationOutcome.retry(execution.value());
+            case PERMANENT_FAILURE -> RuntimeContinuationOutcome.permanentFailure(execution.value());
+        };
     }
 }
