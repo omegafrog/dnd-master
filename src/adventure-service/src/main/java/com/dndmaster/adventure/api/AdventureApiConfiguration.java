@@ -340,14 +340,25 @@ public class AdventureApiConfiguration {
             CombatMapPort combatMapPort,
             @Qualifier("enemyObservationRollPort") com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort,
             RuntimeContinuationCommandPort continuationPort,
-            ResolutionPort resolutionPort) {
+            ResolutionPort resolutionPort, MovementFollowUpPolicy movementFollowUpPolicy) {
         return new RuntimeTurnCommandAdapterRegistry(
                 Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, enemyObservationRollPort,
-                                objectMapper, resolutionPort, MovementFollowUpPolicy.defaultPolicy()),
+                                objectMapper, resolutionPort, movementFollowUpPolicy),
                         "movement.continuation.combat", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.COMBAT, continuationPort),
                         "movement.continuation.warning", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.WARNING, continuationPort),
                         "movement.continuation.dialogue", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.DIALOGUE, continuationPort),
                         "movement.continuation.chase", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.CHASE, continuationPort)));
+    }
+
+    @Bean
+    MovementFollowUpPolicy movementFollowUpPolicy() {
+        return trigger -> switch (trigger) {
+            case "HOSTILE_OBSERVED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT;
+            case "FEATURE_REVEALED", "DANGER_WARNING" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.WARNING;
+            case "NPC_CONTACT" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.DIALOGUE;
+            case "CHASE_STARTED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.CHASE;
+            default -> throw new IllegalArgumentException("unknown movement follow-up trigger: " + trigger);
+        };
     }
 
     @Bean
@@ -401,8 +412,7 @@ public class AdventureApiConfiguration {
     @Bean
     MovementFollowUpRuntimeConsumer movementFollowUpRuntimeConsumer(SessionEventRepository events,
             RuntimeTurnCommandRepository commands, ObjectMapper objectMapper, RuntimeContinuationPort continuationPort) {
-        return new MovementFollowUpRuntimeConsumer(events, commands, objectMapper,
-                MovementFollowUpPolicy.defaultPolicy(), continuationPort);
+        return new MovementFollowUpRuntimeConsumer(events, commands, objectMapper, continuationPort);
     }
 
     @Bean(name = "enemyObservationRollPort")

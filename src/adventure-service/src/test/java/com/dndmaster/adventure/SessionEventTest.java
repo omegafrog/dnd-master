@@ -131,11 +131,11 @@ class SessionEventTest {
         new MovementFollowUpEventPublisher(events, new ObjectMapper()).publish(followUp, source.adventureId(),
                 source.sessionId(), source.ownerPlayerId());
         MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands,
-                new ObjectMapper(), trigger -> MovementFollowUpCommand.Kind.DIALOGUE,
+                new ObjectMapper(),
                 RuntimeContinuationHandlerRegistry.standard(command -> {
-                    assertEquals("movement.continuation.dialogue", command.commandType());
+                    assertEquals("movement.continuation.combat", command.commandType());
                     return com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution.done(
-                            "dialogue-state:" + command.commandId());
+                            "combat-state:" + command.commandId());
                 }));
 
         assertEquals(MovementFollowUpPort.Result.Status.DONE, consumer.consume(source, followUp).status());
@@ -143,9 +143,9 @@ class SessionEventTest {
         var continuation = commands.findByTurnId(source.turnId()).stream()
                 .filter(command -> command.commandType().startsWith("movement.continuation.")).toList();
         assertEquals(1, continuation.size());
-        assertEquals("movement.continuation.dialogue", continuation.getFirst().commandType());
+        assertEquals("movement.continuation.combat", continuation.getFirst().commandType());
         assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, continuation.getFirst().executionStatus());
-        assertEquals("dialogue-state:" + continuation.getFirst().commandId(), continuation.getFirst().outcomeJson());
+        assertEquals("combat-state:" + continuation.getFirst().commandId(), continuation.getFirst().outcomeJson());
     }
 
     @Test
@@ -195,12 +195,60 @@ class SessionEventTest {
                     expected.turnId(), expected.kind(), expected.trigger());
 
             MovementFollowUpPort.Result result = new MovementFollowUpRuntimeConsumer(events, commands,
-                    new ObjectMapper(), MovementFollowUpPolicy.defaultPolicy(),
+                    new ObjectMapper(),
                     (command, continuation) -> RuntimeContinuationOutcome.applied("must not execute"))
                     .consume(source, expected);
 
             assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
         }
+    }
+
+    @Test
+    void durable_follow_up_json_must_match_canonical_raw_payload() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        UUID operationId = UUID.randomUUID();
+        UUID turnId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        UUID commandId = UUID.nameUUIDFromBytes(("movement-follow-up:" + operationId)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        MovementFollowUpCommand expected = new MovementFollowUpCommand(commandId, operationId, hostileTokenId, turnId,
+                MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED");
+        String canonical = mapper.writeValueAsString(expected);
+
+        for (String nonCanonical : List.of(
+                " " + canonical,
+                canonical.replace("\"operationId\"", " \"operationId\""),
+                "{\"operationId\":\"" + operationId + "\",\"commandId\":\"" + commandId
+                        + "\",\"hostileTokenId\":\"" + hostileTokenId + "\",\"turnId\":\"" + turnId
+                        + "\",\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\"}")) {
+            InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+            InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+            RuntimeTurnCommand source = RuntimeTurnCommand.create(turnId, commandId, UUID.randomUUID(), UUID.randomUUID(),
+                    UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
+            events.append(new SessionEvent(source.sessionId(), commandId, 0, "MOVEMENT_FOLLOW_UP", nonCanonical));
+
+            MovementFollowUpPort.Result result = new MovementFollowUpRuntimeConsumer(events, commands, mapper,
+                    (command, continuation) -> RuntimeContinuationOutcome.applied("must not execute"))
+                    .consume(source, expected);
+
+            assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
+        }
+    }
+
+    @Test
+    void missing_durable_follow_up_event_is_permanent_not_retryable() {
+        UUID commandId = UUID.randomUUID();
+        RuntimeTurnCommand source = RuntimeTurnCommand.create(UUID.randomUUID(), commandId, UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
+        MovementFollowUpCommand expected = new MovementFollowUpCommand(commandId, UUID.randomUUID(), UUID.randomUUID(),
+                source.turnId(), MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED");
+
+        MovementFollowUpPort.Result result = new MovementFollowUpRuntimeConsumer(
+                new InMemorySessionEventRepository(), new InMemoryRuntimeTurnCommandRepository(), new ObjectMapper(),
+                (command, continuation) -> RuntimeContinuationOutcome.applied("must not execute"))
+                .consume(source, expected);
+
+        assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
     }
 
     @Test
@@ -222,7 +270,7 @@ class SessionEventTest {
             return RuntimeContinuationOutcome.applied("COMBAT:state-changed");
         });
         MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands,
-                new ObjectMapper(), MovementFollowUpPolicy.defaultPolicy(),
+                new ObjectMapper(),
                 new RuntimeContinuationHandlerRegistry(handlers));
 
         assertEquals(MovementFollowUpPort.Result.Status.RETRY, consumer.consume(source, followUp).status());
@@ -271,9 +319,24 @@ class SessionEventTest {
     }
 
     @Test
-    void unknown_movement_trigger_is_rejected_as_a_permanent_failure() {
-        assertThrows(IllegalArgumentException.class,
-                () -> MovementFollowUpPolicy.defaultPolicy().determine("UNSUPPORTED_TRIGGER"));
+    void typed_continuation_adapter_rejects_a_payload_kind_for_another_adapter() {
+        RuntimeContinuationCommandPort port = new RuntimeContinuationCommandPort() {
+            @Override public RuntimeTurnCommandExecution combat(ContinuationCommand command) { return RuntimeTurnCommandExecution.done("combat"); }
+            @Override public RuntimeTurnCommandExecution warning(ContinuationCommand command) { return RuntimeTurnCommandExecution.done("warning"); }
+            @Override public RuntimeTurnCommandExecution dialogue(ContinuationCommand command) { return RuntimeTurnCommandExecution.done("dialogue"); }
+            @Override public RuntimeTurnCommandExecution chase(ContinuationCommand command) { return RuntimeTurnCommandExecution.done("chase"); }
+        };
+        UUID turnId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation.combat",
+                "{\"kind\":\"WARNING\",\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\""
+                        + UUID.randomUUID() + "\",\"turnId\":\"" + turnId + "\",\"hostileTokenId\":\""
+                        + UUID.randomUUID() + "\"}", 1);
+
+        RuntimeTurnCommandExecution result = new TypedRuntimeContinuationCommandAdapter(
+                TypedRuntimeContinuationCommandAdapter.Kind.COMBAT, port).execute(command);
+
+        assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
     }
 
     @Test
@@ -305,12 +368,12 @@ class SessionEventTest {
         MovementFollowUpCommand expectedWithCommandId = new MovementFollowUpCommand(commandId, expected.operationId(),
                 expected.hostileTokenId(), expected.turnId(), expected.kind(), expected.trigger());
         MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands, mapper,
-                MovementFollowUpPolicy.defaultPolicy(), (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
+                (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
 
         MovementFollowUpPort.Result result = consumer.consume(source, expectedWithCommandId);
 
         assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
-        assertTrue(result.value().contains("hostileTokenId"));
+        assertTrue(result.value().contains("canonical"));
     }
 
     @Test
@@ -330,12 +393,12 @@ class SessionEventTest {
         MovementFollowUpCommand expected = new MovementFollowUpCommand(commandId, operationId, hostileTokenId, turnId,
                 MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED");
         MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands, new ObjectMapper(),
-                MovementFollowUpPolicy.defaultPolicy(), (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
+                (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
 
         MovementFollowUpPort.Result result = consumer.consume(source, expected);
 
         assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
-        assertTrue(result.value().contains("turnId"));
+        assertTrue(result.value().contains("canonical"));
     }
 
     @Test
@@ -355,12 +418,12 @@ class SessionEventTest {
         MovementFollowUpCommand expected = new MovementFollowUpCommand(commandId, operationId, hostileTokenId, turnId,
                 MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED");
         MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands, new ObjectMapper(),
-                MovementFollowUpPolicy.defaultPolicy(), (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
+                (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
 
         MovementFollowUpPort.Result result = consumer.consume(source, expected);
 
         assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
-        assertTrue(result.value().contains("operationId"));
+        assertTrue(result.value().contains("canonical"));
     }
 
     @Test
@@ -382,7 +445,7 @@ class SessionEventTest {
         MovementFollowUpCommand expected = new MovementFollowUpCommand(commandId, operationId, hostileTokenId, turnId,
                 MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED");
         MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands, mapper,
-                MovementFollowUpPolicy.defaultPolicy(), (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
+                (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
 
         MovementFollowUpPort.Result result = consumer.consume(source, expected);
 
@@ -408,7 +471,7 @@ class SessionEventTest {
         MovementFollowUpCommand expected = new MovementFollowUpCommand(commandId, operationId, hostileTokenId, turnId,
                 MovementFollowUpCommand.Kind.WARNING, "HOSTILE_OBSERVED");
         MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands, mapper,
-                MovementFollowUpPolicy.defaultPolicy(), (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
+                (command, continuation) -> RuntimeContinuationOutcome.applied("done"));
 
         MovementFollowUpPort.Result result = consumer.consume(source, expected);
 
@@ -455,4 +518,5 @@ class SessionEventTest {
             assertTrue(commands.findByCommandId(command.commandId()).orElseThrow().outcomeJson().contains("HOSTILE_OBSERVED"));
         }
     }
+
 }

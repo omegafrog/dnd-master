@@ -163,6 +163,7 @@ public final class RuntimeTurnCommitOrchestrator {
         try (JsonParser parser = objectMapper.createParser(payload)) {
             MovementFollowUpCommand followUp = objectMapper.readerFor(MovementFollowUpCommand.class)
                     .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                    .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
                     .readValue(parser);
             if (parser.nextToken() != null) {
                 throw new PermanentFollowUpFailure("invalid durable movement follow-up payload: trailing JSON");

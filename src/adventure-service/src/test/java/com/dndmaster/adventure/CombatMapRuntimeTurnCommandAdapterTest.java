@@ -260,7 +260,13 @@ class CombatMapRuntimeTurnCommandAdapterTest {
     private static CombatMapRuntimeTurnCommandAdapter adapter(CombatMapPort mapPort) {
         return new CombatMapRuntimeTurnCommandAdapter(mapPort, mapPort::rollEnemyObservation,
                 new ObjectMapper(), new DefaultResolutionPort(),
-                com.dndmaster.adventure.application.runtime.MovementFollowUpPolicy.defaultPolicy());
+                trigger -> switch (trigger) {
+                    case "HOSTILE_OBSERVED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT;
+                    case "FEATURE_REVEALED", "DANGER_WARNING" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.WARNING;
+                    case "NPC_CONTACT" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.DIALOGUE;
+                    case "CHASE_STARTED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.CHASE;
+                    default -> throw new IllegalArgumentException("unknown movement follow-up trigger: " + trigger);
+                });
     }
 
     @Test

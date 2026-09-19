@@ -17,15 +17,13 @@ public final class MovementFollowUpRuntimeConsumer {
     private final SessionEventRepository events;
     private final RuntimeTurnCommandRepository commands;
     private final ObjectMapper objectMapper;
-    private final MovementFollowUpPolicy policy;
     private final RuntimeContinuationPort continuationPort;
 
     public MovementFollowUpRuntimeConsumer(SessionEventRepository events, RuntimeTurnCommandRepository commands,
-            ObjectMapper objectMapper, MovementFollowUpPolicy policy, RuntimeContinuationPort continuationPort) {
+            ObjectMapper objectMapper, RuntimeContinuationPort continuationPort) {
         this.events = Objects.requireNonNull(events);
         this.commands = Objects.requireNonNull(commands);
         this.objectMapper = Objects.requireNonNull(objectMapper);
-        this.policy = Objects.requireNonNull(policy);
         this.continuationPort = Objects.requireNonNull(continuationPort);
     }
 
@@ -33,9 +31,13 @@ public final class MovementFollowUpRuntimeConsumer {
         try {
             SessionEvent event = events.after(source.sessionId(), -1).stream()
                     .filter(candidate -> candidate.eventId().equals(expected.commandId()))
-                    .findFirst().orElseThrow(() -> new IllegalStateException("movement follow-up event is not durable"));
+                    .findFirst().orElseThrow(() -> new PermanentFollowUpFailure("movement follow-up event is not durable"));
             if (!"MOVEMENT_FOLLOW_UP".equals(event.type())) {
                 throw new PermanentFollowUpFailure("unexpected movement follow-up event type");
+            }
+            String canonicalPayload = objectMapper.writeValueAsString(expected);
+            if (!canonicalPayload.equals(event.payload())) {
+                throw new PermanentFollowUpFailure("movement follow-up event payload is not canonical");
             }
             var eventPayload = readStrictJson(event.payload());
             validateIdentity(eventPayload, "commandId");
@@ -46,14 +48,17 @@ public final class MovementFollowUpRuntimeConsumer {
             if (!eventPayload.equals(expectedPayload)) {
                 throw new PermanentFollowUpFailure("movement follow-up event payload mismatch");
             }
-            if (!objectMapper.writeValueAsString(eventPayload).equals(objectMapper.writeValueAsString(expectedPayload))) {
-                throw new PermanentFollowUpFailure("movement follow-up event payload is not canonical");
-            }
             MovementFollowUpCommand followUp = objectMapper.treeToValue(eventPayload, MovementFollowUpCommand.class);
             if (!source.turnId().equals(followUp.turnId())) {
                 throw new PermanentFollowUpFailure("movement follow-up belongs to another turn");
             }
-            MovementFollowUpCommand.Kind kind = policy.determine(followUp.trigger());
+            MovementFollowUpCommand.Kind kind = requiredKind(eventPayload);
+            if (kind != expected.kind()) {
+                throw new PermanentFollowUpFailure("movement follow-up kind does not match selected typed result");
+            }
+            if (kind == MovementFollowUpCommand.Kind.CONTINUATION) {
+                throw new PermanentFollowUpFailure("movement follow-up kind is not supported");
+            }
             UUID continuationId = UUID.nameUUIDFromBytes(
                     ("movement-continuation:" + followUp.commandId()).getBytes(StandardCharsets.UTF_8));
             RuntimeTurnCommand existing = commands.findByCommandId(continuationId).orElse(null);
@@ -130,6 +135,18 @@ public final class MovementFollowUpRuntimeConsumer {
             UUID.fromString(payload.path(field).asText());
         } catch (IllegalArgumentException failure) {
             throw new PermanentFollowUpFailure("movement follow-up field " + field + " is invalid");
+        }
+    }
+
+    private static MovementFollowUpCommand.Kind requiredKind(JsonNode payload) {
+        if (payload == null || !payload.hasNonNull("kind") || !payload.path("kind").isTextual()
+                || payload.path("kind").asText().isBlank()) {
+            throw new PermanentFollowUpFailure("movement follow-up field kind is required");
+        }
+        try {
+            return MovementFollowUpCommand.Kind.valueOf(payload.path("kind").asText());
+        } catch (IllegalArgumentException failure) {
+            throw new PermanentFollowUpFailure("movement follow-up field kind is invalid");
         }
     }
 

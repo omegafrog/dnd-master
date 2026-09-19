@@ -49,6 +49,10 @@ public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurn
                             .equals(payloadFields)) {
                 throw new PermanentFollowUpFailure("continuation payload contains unknown properties");
             }
+            if (!payload.hasNonNull("kind") || !payload.path("kind").isTextual()
+                    || !kind.name().equals(payload.path("kind").asText())) {
+                throw new PermanentFollowUpFailure("continuation payload kind does not match typed adapter");
+            }
             UUID operationId = requiredUuid(payload, "operationId");
             UUID payloadTurnId = requiredUuid(payload, "turnId");
             UUID hostileTokenId = requiredUuid(payload, "hostileTokenId");

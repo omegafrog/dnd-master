@@ -6,13 +6,4 @@ import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
 public interface MovementFollowUpPolicy {
     MovementFollowUpCommand.Kind determine(String trigger);
 
-    static MovementFollowUpPolicy defaultPolicy() {
-        return trigger -> switch (trigger) {
-            case "HOSTILE_OBSERVED" -> MovementFollowUpCommand.Kind.COMBAT;
-            case "FEATURE_REVEALED", "DANGER_WARNING" -> MovementFollowUpCommand.Kind.WARNING;
-            case "NPC_CONTACT" -> MovementFollowUpCommand.Kind.DIALOGUE;
-            case "CHASE_STARTED" -> MovementFollowUpCommand.Kind.CHASE;
-            default -> throw new IllegalArgumentException("unknown movement follow-up trigger: " + trigger);
-        };
-    }
 }

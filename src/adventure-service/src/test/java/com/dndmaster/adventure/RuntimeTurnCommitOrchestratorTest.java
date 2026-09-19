@@ -262,7 +262,6 @@ class RuntimeTurnCommitOrchestratorTest {
 
         MovementFollowUpRuntimeConsumer followUpConsumer() {
             return new MovementFollowUpRuntimeConsumer(events, commands, objectMapper,
-                    com.dndmaster.adventure.application.runtime.MovementFollowUpPolicy.defaultPolicy(),
                     (command, continuation) -> com.dndmaster.adventure.application.runtime.RuntimeContinuationOutcome.applied("continued"));
         }
 
