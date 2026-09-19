@@ -23,17 +23,8 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
     private final ObjectMapper mapper;
     private final MovementFollowUpPolicy followUpPolicy;
 
-    public CombatMapRuntimeTurnCommandAdapter(CombatMapPort mapPort, ObjectMapper mapper) {
-        this(mapPort, mapPort::rollEnemyObservation, mapper, MovementFollowUpPolicy.defaultPolicy());
-    }
-
     public CombatMapRuntimeTurnCommandAdapter(CombatMapPort mapPort, EnemyObservationRollPort enemyObservationRoll,
-            ObjectMapper mapper) {
-        this(mapPort, enemyObservationRoll, mapper, MovementFollowUpPolicy.defaultPolicy());
-    }
-
-    public CombatMapRuntimeTurnCommandAdapter(CombatMapPort mapPort, EnemyObservationRollPort enemyObservationRoll,
-            ObjectMapper mapper, MovementFollowUpPolicy followUpPolicy) {
+            ObjectMapper mapper, ResolutionPort resolution, MovementFollowUpPolicy followUpPolicy) {
         this.movementCoordinator = new MapMovementCoordinator(mapPort, new com.dndmaster.adventure.application.combat.DiceCombatPort() {
             @Override public int roll(com.dndmaster.adventure.application.combat.CombatActionCommand command) {
                 throw new UnsupportedOperationException("combat dice roll is unavailable");
@@ -41,7 +32,8 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
             @Override public int rollSpatialCheck(com.dndmaster.adventure.application.combat.SpatialCheckRollCommand command) {
                 return mapPort.rollSpatialCheck(command);
             }
-        }, new DefaultResolutionPort(), SpatialActionAuthorizationPort.requiredPlayerAction(), enemyObservationRoll);
+        }, java.util.Objects.requireNonNull(resolution, "resolution port must not be null"),
+                SpatialActionAuthorizationPort.requiredPlayerAction(), enemyObservationRoll);
         this.mapper = java.util.Objects.requireNonNull(mapper, "object mapper must not be null");
         this.followUpPolicy = java.util.Objects.requireNonNull(followUpPolicy, "follow-up policy must not be null");
     }

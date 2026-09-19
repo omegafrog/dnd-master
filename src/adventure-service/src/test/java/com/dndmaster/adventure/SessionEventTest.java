@@ -221,12 +221,15 @@ class SessionEventTest {
                 MovementFollowUpCommand.Kind.WARNING, MovementFollowUpCommand.Kind.DIALOGUE, MovementFollowUpCommand.Kind.CHASE)) {
             UUID turnId = UUID.randomUUID();
             UUID operationId = UUID.randomUUID();
+            UUID hostileTokenId = UUID.randomUUID();
             String payload = "{\"kind\":\"" + kind + "\",\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\""
-                    + operationId + "\",\"turnId\":\"" + turnId + "\"}";
+                    + operationId + "\",\"turnId\":\"" + turnId + "\",\"hostileTokenId\":\""
+                    + hostileTokenId + "\"}";
             RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
                     UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation." + kind.name().toLowerCase(), payload, 1);
             RuntimeContinuationOutcome outcome = RuntimeContinuationHandlerRegistry.standard(adapters).execute(command,
-                    new MovementFollowUpRuntimeConsumer.Continuation(kind, "HOSTILE_OBSERVED", operationId, turnId));
+                    new MovementFollowUpRuntimeConsumer.Continuation(kind, "HOSTILE_OBSERVED", operationId, turnId,
+                            hostileTokenId));
             assertEquals(RuntimeContinuationOutcome.Status.APPLIED, outcome.status());
         }
     }

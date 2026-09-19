@@ -84,6 +84,11 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    ResolutionPort resolutionPort() {
+        return new DefaultResolutionPort();
+    }
+
+    @Bean
     AdventureRepository adventureRepository(DataSource dataSource) {
         return new PostgresAdventureRepository(dataSource);
     }
@@ -339,10 +344,11 @@ public class AdventureApiConfiguration {
     RuntimeTurnCommandAdapter runtimeTurnCommandAdapter(ObjectMapper objectMapper,
             CombatMapPort combatMapPort,
             @Qualifier("enemyObservationRollPort") com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort,
-            RuntimeContinuationCommandPort continuationPort) {
+            RuntimeContinuationCommandPort continuationPort,
+            ResolutionPort resolutionPort) {
         return new RuntimeTurnCommandAdapterRegistry(
                 Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, enemyObservationRollPort,
-                                objectMapper, MovementFollowUpPolicy.defaultPolicy()),
+                                objectMapper, resolutionPort, MovementFollowUpPolicy.defaultPolicy()),
                         "movement.continuation.combat", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.COMBAT, continuationPort),
                         "movement.continuation.warning", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.WARNING, continuationPort),
                         "movement.continuation.dialogue", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.DIALOGUE, continuationPort),

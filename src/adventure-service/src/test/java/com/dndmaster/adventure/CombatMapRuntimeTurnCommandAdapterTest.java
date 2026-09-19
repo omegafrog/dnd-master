@@ -9,6 +9,7 @@ import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewReject
 import com.dndmaster.adventure.application.combat.CombatMapMovementStatus;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewPosition;
 import com.dndmaster.adventure.application.runtime.CombatMapRuntimeTurnCommandAdapter;
+import com.dndmaster.adventure.application.runtime.DefaultResolutionPort;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,7 +43,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                         + "\"fingerprint\":\"preview-1\",\"waypoints\":[{\"x\":1,\"y\":1}]}", "combat-map.move",
                 "{\"action\":\"MOVE\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}", 0);
 
-        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper()).execute(command);
+        RuntimeTurnCommandExecution result = adapter(mapPort).execute(command);
 
         assertEquals(RuntimeTurnCommandExecution.Status.DONE, result.status());
         assertEquals(mapId, received.get().action().combatMapId());
@@ -72,7 +73,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                         + "\",\"expectedVersion\":4,\"distance\":10,\"appliedEdition\":\"DND_5E_2024\",\"fingerprint\":\"preview-1\",\"waypoints\":[]}",
                 "combat-map.move", "{\"action\":\"MOVE\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}", 0);
 
-        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper()).execute(command);
+        RuntimeTurnCommandExecution result = adapter(mapPort).execute(command);
 
         assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
         assertEquals("STALE_MOVEMENT_PROPOSAL", result.value());
@@ -93,7 +94,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
             }
         };
 
-        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper())
+        RuntimeTurnCommandExecution result = adapter(mapPort)
                 .execute(validCommand());
 
         assertEquals(RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, result.status());
@@ -124,7 +125,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                 + "\"traversedPath\":[{\"x\":1,\"y\":1}],\"finalPosition\":{\"x\":1,\"y\":1},\"publicEvents\":[]}";
         RuntimeTurnCommand command = validCommand().failed("RETRY_REQUIRED", outcome);
 
-        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper()).execute(command);
+        RuntimeTurnCommandExecution result = adapter(mapPort).execute(command);
 
         assertEquals(RuntimeTurnCommandExecution.Status.DONE, result.status());
         assertEquals(operationId, resumed.get());
@@ -150,7 +151,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                 + "\",\"status\":\"CHECK_REQUIRED\",\"requestedPath\":[],\"traversedPath\":[],"
                 + "\"publicEvents\":[]}";
 
-        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper())
+        RuntimeTurnCommandExecution result = adapter(mapPort)
                 .execute(validCommand().failed("CHECK_REQUIRED", outcome));
 
         assertEquals(RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, result.status());
@@ -189,7 +190,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         String outcome = "{\"version\":4,\"operationId\":\"" + operationId
                 + "\",\"status\":\"CHECK_REQUIRED\",\"requestedPath\":[],\"traversedPath\":[],\"publicEvents\":[]}";
 
-        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper())
+        RuntimeTurnCommandExecution result = adapter(mapPort)
                 .execute(command.failed("CHECK_REQUIRED", outcome));
 
         assertEquals(RuntimeTurnCommandExecution.Status.DONE, result.status());
@@ -214,7 +215,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
             }
         };
 
-        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper())
+        RuntimeTurnCommandExecution result = adapter(mapPort)
                 .execute(validCommand());
 
         assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
@@ -235,7 +236,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
             }
         };
 
-        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper())
+        RuntimeTurnCommandExecution result = adapter(mapPort)
                 .execute(validCommand());
 
         assertEquals(RuntimeTurnCommandExecution.Status.DONE, result.status());
@@ -256,6 +257,12 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                 "combat-map.move", "{\"action\":\"MOVE\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}", 0);
     }
 
+    private static CombatMapRuntimeTurnCommandAdapter adapter(CombatMapPort mapPort) {
+        return new CombatMapRuntimeTurnCommandAdapter(mapPort, mapPort::rollEnemyObservation,
+                new ObjectMapper(), new DefaultResolutionPort(),
+                com.dndmaster.adventure.application.runtime.MovementFollowUpPolicy.defaultPolicy());
+    }
+
     @Test
     void rejects_a_durable_move_without_preview_binding_fields() {
         CombatMapPort mapPort = new CombatMapPort() {
@@ -272,7 +279,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                         + "\",\"expectedVersion\":0,\"distance\":5,\"appliedEdition\":\"DND_5E_2024\",\"waypoints\":[]}",
                 "combat-map.move", "{\"action\":\"MOVE\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}", 0);
 
-        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper()).execute(command);
+        RuntimeTurnCommandExecution result = adapter(mapPort).execute(command);
 
         assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
     }
@@ -296,7 +303,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                         + "\",\"expectedVersion\":0,\"distance\":5,\"appliedEdition\":\"DND_5E_2024\",\"fingerprint\":\"preview-1\",\"waypoints\":[" + waypoints + "]}",
                 "combat-map.move", "{\"action\":\"MOVE\",\"path\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}]}", 0);
 
-        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper()).execute(command);
+        RuntimeTurnCommandExecution result = adapter(mapPort).execute(command);
 
         assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
     }
