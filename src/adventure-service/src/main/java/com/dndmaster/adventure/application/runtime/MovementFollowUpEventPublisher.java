@@ -1,10 +1,8 @@
 package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
-import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
-import java.util.Comparator;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -19,7 +17,7 @@ public final class MovementFollowUpEventPublisher {
         this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper must not be null");
     }
 
-    public synchronized MovementFollowUpPort.Result publish(MovementFollowUpCommand command, UUID adventureId,
+    public MovementFollowUpPort.Result publish(MovementFollowUpCommand command, UUID adventureId,
             UUID sessionId, UUID ownerPlayerId) {
         Objects.requireNonNull(command, "movement follow-up command must not be null");
         Objects.requireNonNull(adventureId, "adventure id must not be null");
@@ -32,14 +30,8 @@ public final class MovementFollowUpEventPublisher {
             return MovementFollowUpPort.Result.retry(failure.getMessage());
         }
         for (int attempt = 0; attempt < MAX_APPEND_ATTEMPTS; attempt++) {
-            var existing = events.after(sessionId, -1).stream()
-                    .filter(event -> event.eventId().equals(command.commandId())).findFirst();
-            if (existing.isPresent()) return MovementFollowUpPort.Result.done(command.kind().name());
-            long nextVersion = events.after(sessionId, -1).stream()
-                    .mapToLong(SessionEvent::version).max().orElse(-1) + 1;
             try {
-                events.append(new SessionEvent(sessionId, command.commandId(), nextVersion,
-                        "MOVEMENT_FOLLOW_UP", payload));
+                events.appendNext(sessionId, command.commandId(), "MOVEMENT_FOLLOW_UP", payload);
                 return MovementFollowUpPort.Result.done(command.kind().name());
             } catch (RuntimeException conflict) {
                 if (attempt == MAX_APPEND_ATTEMPTS - 1) return MovementFollowUpPort.Result.retry(conflict.getMessage());

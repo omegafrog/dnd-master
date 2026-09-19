@@ -23,6 +23,17 @@ public final class InMemorySessionEventRepository implements SessionEventReposit
         current.add(event);
     }
 
+    @Override public synchronized SessionEvent appendNext(UUID sessionId, UUID eventId, String type, String payload) {
+        List<SessionEvent> current = events.computeIfAbsent(sessionId, ignored -> new ArrayList<>());
+        for (SessionEvent existing : current) {
+            if (existing.eventId().equals(eventId)) return existing;
+        }
+        long nextVersion = current.stream().mapToLong(SessionEvent::version).max().orElse(-1) + 1;
+        SessionEvent event = new SessionEvent(sessionId, eventId, nextVersion, type, payload);
+        current.add(event);
+        return event;
+    }
+
     @Override public List<SessionEvent> after(UUID sessionId, long version) {
         return events.getOrDefault(sessionId, List.of()).stream().filter(event -> event.version() > version)
                 .sorted(Comparator.comparingLong(SessionEvent::version)).toList();

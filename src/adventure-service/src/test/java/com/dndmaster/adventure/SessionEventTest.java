@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
 import java.util.UUID;
+import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 
 class SessionEventTest {
@@ -57,6 +58,17 @@ class SessionEventTest {
                 }
                 stored.append(event);
             }
+            @Override public SessionEvent appendNext(UUID sessionId, UUID eventId, String type, String payload) {
+                if (conflict) {
+                    conflict = false;
+                    stored.append(new SessionEvent(sessionId, UUID.randomUUID(), 0, "OTHER_EVENT", "other"));
+                    throw new IllegalStateException("session event version conflict");
+                }
+                long next = stored.after(sessionId, -1).stream().mapToLong(SessionEvent::version).max().orElse(-1) + 1;
+                SessionEvent event = new SessionEvent(sessionId, eventId, next, type, payload);
+                stored.append(event);
+                return event;
+            }
             @Override public List<SessionEvent> after(UUID sessionId, long version) { return stored.after(sessionId, version); }
         };
         MovementFollowUpCommand followUp = MovementFollowUpCommand.hostileObserved(UUID.randomUUID());
@@ -65,5 +77,27 @@ class SessionEventTest {
                 followUp, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
 
         assertEquals(MovementFollowUpPort.Result.Status.DONE, result.status());
+    }
+
+    @Test
+    void concurrent_follow_ups_reserve_every_session_version_once() throws Exception {
+        InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+        MovementFollowUpEventPublisher publisher = new MovementFollowUpEventPublisher(events, new ObjectMapper());
+        UUID session = UUID.randomUUID();
+        UUID adventure = UUID.randomUUID();
+        UUID owner = UUID.randomUUID();
+        int count = 32;
+        var executor = Executors.newFixedThreadPool(8);
+        try {
+            var futures = java.util.stream.IntStream.range(0, count).mapToObj(index -> executor.submit(() -> {
+                return publisher.publish(MovementFollowUpCommand.hostileObserved(UUID.randomUUID()), adventure,
+                        session, owner);
+            })).toList();
+            for (var future : futures) assertEquals(MovementFollowUpPort.Result.Status.DONE, future.get().status());
+        } finally {
+            executor.shutdownNow();
+        }
+        assertEquals(java.util.stream.LongStream.range(0, count).boxed().toList(),
+                events.after(session, -1).stream().map(SessionEvent::version).toList());
     }
 }
