@@ -35,7 +35,7 @@ public final class HttpMovementPlacementModelGateway implements MovementPlacemen
             Wire payload = objectMapper.readValue(response.body(), Wire.class);
             MovementPlacementModelPort.Position destination = payload.destination() == null ? null : new MovementPlacementModelPort.Position(payload.destination().x(), payload.destination().y());
             List<MovementPlacementModelPort.Candidate> candidates = payload.candidates() == null ? List.of() : payload.candidates().stream()
-                    .filter(Objects::nonNull).map(item -> new MovementPlacementModelPort.Candidate(new MovementPlacementModelPort.Position(item.destination().x(), item.destination().y()), item.confidence(), item.reason())).toList();
+                    .filter(item -> item != null && item.destination() != null).map(item -> new MovementPlacementModelPort.Candidate(new MovementPlacementModelPort.Position(item.destination().x(), item.destination().y()), item.confidence(), item.reason())).toList();
             return new MovementPlacementProposal(payload.status(), destination, candidates, payload.playerMessage());
         } catch (IOException exception) { throw new CrossContextCallException("movement placement failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new CrossContextCallException("movement placement interrupted", exception); }
