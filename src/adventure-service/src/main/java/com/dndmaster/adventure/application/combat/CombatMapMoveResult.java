@@ -5,11 +5,11 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 public record CombatMapMoveResult(long version, java.util.UUID operationId, CombatMapMovementStatus status,
         java.util.List<CombatMapPreviewPosition> requestedPath, java.util.List<CombatMapPreviewPosition> traversedPath, CombatMapPreviewPosition finalPosition,
         java.util.List<String> publicEvents, String interruptionReason, CombatMapPendingCheck pendingCheck,
-        @JsonIgnore CombatMapCheckDetails pendingCheckDetails) {
+        MovementFollowUpCommand followUp, @JsonIgnore CombatMapCheckDetails pendingCheckDetails) {
     public CombatMapMoveResult(long version, java.util.UUID operationId, CombatMapMovementStatus status,
             java.util.List<CombatMapPreviewPosition> requestedPath, java.util.List<CombatMapPreviewPosition> traversedPath,
             CombatMapPreviewPosition finalPosition, java.util.List<String> publicEvents, String interruptionReason) {
-        this(version, operationId, status, requestedPath, traversedPath, finalPosition, publicEvents, interruptionReason, null, null);
+        this(version, operationId, status, requestedPath, traversedPath, finalPosition, publicEvents, interruptionReason, null, null, null);
     }
     public CombatMapMoveResult {
         if (version < 0) throw new IllegalArgumentException("map version must be non-negative");
@@ -22,13 +22,25 @@ public record CombatMapMoveResult(long version, java.util.UUID operationId, Comb
             CombatMapPreviewPosition finalPosition, java.util.List<String> publicEvents, String interruptionReason,
             CombatMapPendingCheck pendingCheck) {
         this(version, operationId, status, requestedPath, traversedPath, finalPosition, publicEvents,
-                interruptionReason, pendingCheck, null);
+                interruptionReason, pendingCheck, null, null);
     }
-    public CombatMapMoveResult(long version) { this(version, null, CombatMapMovementStatus.COMMITTED, java.util.List.of(), java.util.List.of(), null, java.util.List.of(), null, null, null); }
+    public CombatMapMoveResult(long version, java.util.UUID operationId, CombatMapMovementStatus status,
+            java.util.List<CombatMapPreviewPosition> requestedPath, java.util.List<CombatMapPreviewPosition> traversedPath,
+            CombatMapPreviewPosition finalPosition, java.util.List<String> publicEvents, String interruptionReason,
+            CombatMapPendingCheck pendingCheck, CombatMapCheckDetails pendingCheckDetails) {
+        this(version, operationId, status, requestedPath, traversedPath, finalPosition, publicEvents,
+                interruptionReason, pendingCheck, null, pendingCheckDetails);
+    }
+    public CombatMapMoveResult(long version) { this(version, null, CombatMapMovementStatus.COMMITTED, java.util.List.of(), java.util.List.of(), null, java.util.List.of(), null, null, null, null); }
 
     public CombatMapMoveResult(long version, java.util.UUID operationId, CombatMapMovementStatus status,
             java.util.List<CombatMapPreviewPosition> traversedPath, CombatMapPreviewPosition finalPosition,
             java.util.List<String> publicEvents, String interruptionReason) {
-        this(version, operationId, status, java.util.List.of(), traversedPath, finalPosition, publicEvents, interruptionReason, null, null);
+        this(version, operationId, status, java.util.List.of(), traversedPath, finalPosition, publicEvents, interruptionReason, null, null, null);
+    }
+
+    public CombatMapMoveResult withFollowUp(MovementFollowUpCommand value) {
+        return new CombatMapMoveResult(version, operationId, status, requestedPath, traversedPath, finalPosition,
+                publicEvents, interruptionReason, pendingCheck, value, pendingCheckDetails);
     }
 }

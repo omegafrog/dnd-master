@@ -76,6 +76,7 @@ public final class CombatMapMovementService {
         map.validatePlayerMovement(request.playerId(), request.tokenId(), request.path(), maximum);
         validateStagedPreview(request);
         MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), request.mapId(), request.commandId(), request.playerId(), request.tokenId(), request.path(), request.fingerprint(), request.expectedVersion());
+        operation.replaceHostileObservations(map.hostileObservations());
         MovementResolutionOperation reserved = operations.reserve(operation);
         if (reserved != operation) return response(reserved);
         return resolve(map, operation);
@@ -126,6 +127,7 @@ public final class CombatMapMovementService {
         }
         MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), mapId, commandId,
                 playerId, tokenId, new MovementPath(List.of(cell), 0), fingerprint, expectedVersion);
+        operation.replaceHostileObservations(map.hostileObservations());
         MovementResolutionOperation reserved = operations.reserve(operation);
         if (reserved != operation) return response(reserved);
         return resolve(map, operation);
@@ -217,6 +219,7 @@ public final class CombatMapMovementService {
 
     private MovementOperationResponse resolve(CombatMap map, MovementResolutionOperation operation) {
         try {
+            map.replaceHostileObservations(operation.hostileObservations());
             if (operation.status() == MovementOperationStatus.READY_TO_COMMIT) return commitPrepared(map, operation);
             if (operation.requestedPath().orderedPositions().size() == 1) return resolveObservation(map, operation);
             List<String> publicEvents = new ArrayList<>();
@@ -271,6 +274,7 @@ public final class CombatMapMovementService {
                 HostileObservationResult hostile = hostileObservationResolver.evaluate(map, operation.playerId(),
                         operation.tokenId(), operation.requestedPath().orderedPositions().get(next),
                         operation.operationId(), next);
+                operation.replaceHostileObservations(map.hostileObservations());
                 if (hostile.status() == HostileObservationResult.Status.CHECK_REQUIRED) {
                     MovementCheckRequest request = hostile.check().orElseThrow();
                     java.util.Optional<Boolean> priorCheck = operation.checkOutcomeAtCursor(request.featureId(), operation.cursor());
@@ -281,6 +285,7 @@ public final class CombatMapMovementService {
                     }
                     hostile = hostileObservationResolver.resolveCheck(map, new TokenId(request.featureId()), operation.tokenId(),
                             priorCheck.orElseThrow(), request.targetCell());
+                    operation.replaceHostileObservations(map.hostileObservations());
                 }
                 operation.advanceTo(next, map.playerTokenPosition(operation.playerId(), operation.tokenId()));
                 operations.save(operation);
@@ -413,9 +418,8 @@ public final class CombatMapMovementService {
             resolveNewlyVisibleFeatures(map, triggerResolver, operation);
             triggerResolver.resolve(map, SpatialTrigger.ENTER_CELL,
                     operation.requestedPath().orderedPositions().get(index));
-            hostileObservationResolver.rebuildAwareness(map, operation.tokenId(),
-                    operation.requestedPath().orderedPositions().get(index));
         }
+        map.replaceHostileObservations(operation.hostileObservations());
         if (!map.playerTokenPosition(operation.playerId(), operation.tokenId()).equals(operation.currentCell()))
             throw new IllegalStateException("movement reservation cursor does not match its current cell");
     }

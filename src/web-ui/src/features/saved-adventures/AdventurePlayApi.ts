@@ -125,6 +125,7 @@ export type MapMovementResult = {
   finalPosition?: { x: number; y: number }
   publicEvents: string[]
   interruptionReason?: string
+  followUp?: { commandId: string; operationId: string; kind: 'COMBAT' | 'WARNING' | 'CONTINUATION'; trigger: 'HOSTILE_OBSERVED' }
   pendingCheck?: { checkId: string; operationId: string; label: string; diceExpression: string; ownerPlayerId: string; actor: 'PLAYER' }
 }
 

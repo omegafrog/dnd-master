@@ -5,10 +5,12 @@ import com.dndmaster.combatmap.domain.MapId;
 import com.dndmaster.combatmap.domain.MovementPath;
 import com.dndmaster.combatmap.domain.PlayerId;
 import com.dndmaster.combatmap.domain.TokenId;
+import com.dndmaster.combatmap.domain.HostileObservationState;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Set;
 
 /** Durable, non-public work record. It never changes a map until committed. */
 public final class MovementResolutionOperation {
@@ -17,6 +19,7 @@ public final class MovementResolutionOperation {
     private UUID cancelCommandId;
     private MovementOperationStatus status; private int cursor; private GridPosition currentCell; private List<GridPosition> traversedPath; private MovementResolutionResult result;
     private MovementCheckRequest pendingCheck; private List<MovementCheckOutcome> checkOutcomes = new ArrayList<>();
+    private Set<HostileObservationState> hostileObservations = Set.of();
     private int retryCount; private long persistenceVersion; private MovementOperationStatus retryResumeStatus;
 
     private MovementResolutionOperation(UUID operationId, MapId mapId, UUID commandId, PlayerId playerId, TokenId tokenId,
@@ -44,6 +47,16 @@ public final class MovementResolutionOperation {
             int cursor, GridPosition currentCell, List<GridPosition> traversedPath, MovementResolutionResult result,
             int retryCount, long persistenceVersion, MovementOperationStatus retryResumeStatus,
             MovementCheckRequest pendingCheck, List<MovementCheckOutcome> checkOutcomes) {
+        return restore(operationId, mapId, commandId, playerId, tokenId, requestedPath, fingerprint, expectedVersion, status,
+                cursor, currentCell, traversedPath, result, retryCount, persistenceVersion, retryResumeStatus,
+                pendingCheck, checkOutcomes, Set.of());
+    }
+    public static MovementResolutionOperation restore(UUID operationId, MapId mapId, UUID commandId, PlayerId playerId, TokenId tokenId,
+            MovementPath requestedPath, String fingerprint, long expectedVersion, MovementOperationStatus status,
+            int cursor, GridPosition currentCell, List<GridPosition> traversedPath, MovementResolutionResult result,
+            int retryCount, long persistenceVersion, MovementOperationStatus retryResumeStatus,
+            MovementCheckRequest pendingCheck, List<MovementCheckOutcome> checkOutcomes,
+            Set<HostileObservationState> hostileObservations) {
         MovementResolutionOperation operation = new MovementResolutionOperation(operationId, mapId, commandId, playerId, tokenId,
                 requestedPath, fingerprint, expectedVersion);
         operation.status = Objects.requireNonNull(status);
@@ -56,6 +69,7 @@ public final class MovementResolutionOperation {
         operation.retryResumeStatus = retryResumeStatus == null ? MovementOperationStatus.PREPARING : retryResumeStatus;
         operation.pendingCheck = pendingCheck;
         operation.checkOutcomes = new ArrayList<>(checkOutcomes == null ? List.of() : checkOutcomes);
+        operation.hostileObservations = Set.copyOf(hostileObservations == null ? Set.of() : hostileObservations);
         return operation;
     }
     public static MovementResolutionOperation restore(UUID operationId, MapId mapId, UUID commandId, PlayerId playerId, TokenId tokenId,
@@ -66,6 +80,18 @@ public final class MovementResolutionOperation {
         MovementResolutionOperation operation = restore(operationId, mapId, commandId, playerId, tokenId, requestedPath, fingerprint,
                 expectedVersion, status, cursor, currentCell, traversedPath, result, retryCount, persistenceVersion,
                 retryResumeStatus, pendingCheck, checkOutcomes);
+        operation.cancelCommandId = cancelCommandId;
+        return operation;
+    }
+    public static MovementResolutionOperation restore(UUID operationId, MapId mapId, UUID commandId, PlayerId playerId, TokenId tokenId,
+            MovementPath requestedPath, String fingerprint, long expectedVersion, MovementOperationStatus status,
+            int cursor, GridPosition currentCell, List<GridPosition> traversedPath, MovementResolutionResult result,
+            int retryCount, long persistenceVersion, MovementOperationStatus retryResumeStatus,
+            MovementCheckRequest pendingCheck, List<MovementCheckOutcome> checkOutcomes,
+            Set<HostileObservationState> hostileObservations, UUID cancelCommandId) {
+        MovementResolutionOperation operation = restore(operationId, mapId, commandId, playerId, tokenId, requestedPath,
+                fingerprint, expectedVersion, status, cursor, currentCell, traversedPath, result, retryCount,
+                persistenceVersion, retryResumeStatus, pendingCheck, checkOutcomes, hostileObservations);
         operation.cancelCommandId = cancelCommandId;
         return operation;
     }
@@ -122,6 +148,10 @@ public final class MovementResolutionOperation {
     public MovementResolutionResult result() { return result; } public int retryCount() { return retryCount; }
     public MovementCheckRequest pendingCheck() { return pendingCheck; }
     public List<MovementCheckOutcome> checkOutcomes() { return List.copyOf(checkOutcomes); }
+    public Set<HostileObservationState> hostileObservations() { return Set.copyOf(hostileObservations); }
+    public void replaceHostileObservations(Set<HostileObservationState> values) {
+        hostileObservations = Set.copyOf(Objects.requireNonNull(values, "hostile observations must not be null"));
+    }
     public java.util.Optional<Boolean> checkOutcome(UUID featureId) { return checkOutcomes.stream().filter(value -> value.featureId().equals(featureId)).reduce((first, ignored) -> ignored).map(MovementCheckOutcome::success); }
     public java.util.Optional<Boolean> checkOutcomeAtCursor(UUID featureId, int cursor) {
         return checkOutcomes.stream().filter(value -> value.featureId().equals(featureId)

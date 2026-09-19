@@ -60,6 +60,18 @@ public final class SpatialFeatureDetectionPolicy {
         return candidates(origin, features, currentVisible, blockers, boundaries, null);
     }
 
+    /** Uses the same player-visible cells, range, door, and public-boundary rules for any spatial observer. */
+    public boolean detectable(CombatMap map, GridPosition origin, GridPosition target) {
+        Objects.requireNonNull(map, "combat map must not be null");
+        Objects.requireNonNull(origin, "detection origin must not be null");
+        Objects.requireNonNull(target, "detection target must not be null");
+        VisibilitySnapshot visibility = map.visibilitySnapshot();
+        if (visibility == null || !visibility.current().contains(origin)) return false;
+        Set<GridPosition> blockers = new HashSet<>(map.obstacles());
+        map.doors().stream().filter(door -> !door.open()).map(Door::position).forEach(blockers::add);
+        return detectable(origin, target, visibility.current(), blockers, map.publicBoundaries());
+    }
+
     private List<SpatialFeature> candidates(GridPosition origin, List<SpatialFeature> features,
             Set<GridPosition> currentVisible, Set<GridPosition> blockers,
             java.util.Collection<com.dndmaster.combatmap.domain.MapBoundary> boundaries,

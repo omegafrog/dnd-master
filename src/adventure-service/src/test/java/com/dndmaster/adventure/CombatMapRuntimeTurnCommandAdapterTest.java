@@ -173,7 +173,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                 return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(5, id,
                         CombatMapMovementStatus.CHECK_REQUIRED, List.of(), List.of(), null, List.of(), null, null, details);
             }
-            @Override public int rollSpatialCheck(com.dndmaster.adventure.application.combat.SpatialCheckRollCommand command) {
+            @Override public int rollEnemyObservation(com.dndmaster.adventure.application.combat.EnemyObservationRollCommand command) {
                 return 15;
             }
             @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult resumeMovementOperation(UUID mapId, UUID id,
@@ -194,6 +194,9 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         assertEquals(com.dndmaster.adventure.application.combat.CombatMapCheckActor.ENEMY, submitted.get().actor());
         org.junit.jupiter.api.Assertions.assertFalse(result.value().contains(checkId.toString()));
         assertEquals(CombatMapMovementStatus.INTERRUPTED, result.movementResult().status());
+        assertEquals("HOSTILE_OBSERVED", result.movementResult().followUp().trigger());
+        assertEquals(com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.CONTINUATION,
+                result.movementResult().followUp().kind());
     }
 
     @Test

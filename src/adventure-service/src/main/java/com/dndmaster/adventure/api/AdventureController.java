@@ -80,10 +80,11 @@ public class AdventureController {
     public record AdventureMovementOperationResponse(UUID operationId, com.dndmaster.adventure.application.combat.CombatMapMovementStatus status, long version,
             List<CombatMapPreviewPosition> requestedPath, List<CombatMapPreviewPosition> traversedPath, CombatMapPreviewPosition finalPosition,
             List<String> publicEvents, String interruptionReason, String outcomeStatus,
-            com.dndmaster.adventure.application.combat.CombatMapPendingCheck pendingCheck) {
+            com.dndmaster.adventure.application.combat.CombatMapPendingCheck pendingCheck,
+            com.dndmaster.adventure.application.combat.MovementFollowUpCommand followUp) {
         static AdventureMovementOperationResponse from(com.dndmaster.adventure.application.combat.CombatMapMoveResult result) {
             return new AdventureMovementOperationResponse(result.operationId(), result.status(), result.version(), result.requestedPath(), result.traversedPath(),
-                    result.finalPosition(), result.publicEvents(), result.interruptionReason(), result.status().name(), result.pendingCheck());
+                    result.finalPosition(), result.publicEvents(), result.interruptionReason(), result.status().name(), result.pendingCheck(), result.followUp());
         }
     }
 

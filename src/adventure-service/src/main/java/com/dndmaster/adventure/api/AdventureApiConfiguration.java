@@ -961,6 +961,11 @@ public class AdventureApiConfiguration {
             }
 
             @Override
+            public int rollEnemyObservation(com.dndmaster.adventure.application.combat.EnemyObservationRollCommand command) {
+                return gateway.rollEnemyObservation(command);
+            }
+
+            @Override
             public com.dndmaster.adventure.application.combat.CombatMapPreviewResult preview(
                     com.dndmaster.adventure.application.combat.CombatMapPreviewCommand command) {
                 return gateway.preview(command);

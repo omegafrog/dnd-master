@@ -78,6 +78,13 @@ public final class CombatMap {
         }
         return token.position();
     }
+    public java.util.Optional<CombatToken> token(TokenId tokenId) {
+        return tokens.stream().filter(candidate -> candidate.id().equals(Objects.requireNonNull(tokenId))).findFirst();
+    }
+    public List<CombatToken> tokensAt(Set<GridPosition> cells) {
+        Objects.requireNonNull(cells, "token cells must not be null");
+        return tokens.stream().filter(token -> cells.contains(token.position())).toList();
+    }
     public boolean isPublicTraversable(GridPosition position) {
         boolean known = visibilitySnapshot != null
                 && (visibilitySnapshot.current().contains(position) || visibilitySnapshot.explored().contains(position));

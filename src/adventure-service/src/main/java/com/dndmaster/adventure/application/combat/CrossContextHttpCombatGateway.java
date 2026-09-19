@@ -212,6 +212,32 @@ public final class CrossContextHttpCombatGateway
     }
 
     @Override
+    public int rollEnemyObservation(EnemyObservationRollCommand command) {
+        Objects.requireNonNull(command, "enemy observation roll command must not be null");
+        try {
+            TypedCheckRule.DiceExpression dice = TypedCheckRule.DiceExpression.parse(command.diceExpression(), command.modifier());
+            EnemyObservationRollRequest request = new EnemyObservationRollRequest(command.adventureId(), command.ruleSetId().value(),
+                    "ENEMY", command.ruleReference(), command.difficulty(), dice.count(), dice.sides(), dice.modifier(),
+                    command.sessionId(), command.operationId(), command.commandId(), command.expectedVersion());
+            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/dice-rolls/ai"))
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
+                    .header("Idempotency-Key", command.commandId().toString())
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request))).build();
+            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("enemy observation dice roll failed with status " + response.statusCode());
+            }
+            return objectMapper.readTree(response.body()).path("total").asInt(-1);
+        } catch (IOException exception) {
+            throw new CrossContextCallException("enemy observation dice roll serialization failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("enemy observation dice roll interrupted", exception);
+        }
+    }
+
+    @Override
     public void validateAndMove(CombatActionCommand command) {
         move(new CombatMapMoveCommand(command, movementDistance(command), expectedMapVersion(command)));
     }
@@ -603,6 +629,9 @@ public final class CrossContextHttpCombatGateway
     private record PlayerCheckRollRequest(java.util.UUID adventureId, java.util.UUID ruleSetId, String scope,
             String ruleReference, Integer difficulty, int count, int sides, int modifier, java.util.UUID sessionId, java.util.UUID turnId,
             java.util.UUID commandId, long expectedVersion) {}
+    private record EnemyObservationRollRequest(java.util.UUID adventureId, java.util.UUID ruleSetId, String scope,
+            String ruleReference, Integer difficulty, int count, int sides, int modifier, java.util.UUID sessionId,
+            java.util.UUID turnId, java.util.UUID commandId, long expectedVersion) {}
     private record AiStateRequest(
             java.util.UUID ownerId, java.util.UUID tokenId, int x, int y, java.util.UUID commandId,
             long expectedVersion, List<LayerRequest> layers) {}

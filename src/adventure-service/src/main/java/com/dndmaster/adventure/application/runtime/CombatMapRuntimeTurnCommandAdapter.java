@@ -40,12 +40,12 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
                 if (pending.pendingCheckDetails() != null
                         && pending.pendingCheckDetails().actor() == com.dndmaster.adventure.application.combat.CombatMapCheckActor.ENEMY) {
                     var details = pending.pendingCheckDetails();
-                    var roll = new com.dndmaster.adventure.application.combat.SpatialCheckRollCommand(
+                    var roll = new com.dndmaster.adventure.application.combat.EnemyObservationRollCommand(
                             command.adventureId(), requiredUuid(context, "combatMapId"), command.sessionId(),
                             new RuleSetId(requiredUuid(context, "ruleSetId")), command.ownerPlayerId(), details.checkId(),
                             details.operationId(), command.commandId(), details.ruleReference(), details.diceExpression(),
-                            details.modifier(), details.difficulty(), requiredNonNegativeLong(context, "expectedVersion"), details.actor());
-                    var resumed = movementCoordinator.rollAndResume(roll);
+                            details.modifier(), details.difficulty(), requiredNonNegativeLong(context, "expectedVersion"));
+                    var resumed = movementCoordinator.rollEnemyAndResume(roll);
                     String outcome = mapper.writeValueAsString(resumed);
                     return movementExecution(resumed, outcome);
                 }
@@ -107,13 +107,26 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
 
     private RuntimeTurnCommandExecution movementExecution(
             com.dndmaster.adventure.application.combat.CombatMapMoveResult movement, String outcome) {
+        var followUp = (movement.interruptionReason() != null && movement.interruptionReason().equals("HOSTILE_OBSERVED"))
+                || movement.publicEvents().contains("HOSTILE_OBSERVED")
+                ? com.dndmaster.adventure.application.combat.MovementFollowUpCommand.hostileObserved(movement.operationId()) : null;
+        var enriched = followUp == null ? movement : movement.withFollowUp(followUp);
+        String enrichedOutcome = followUp == null ? outcome : serialize(enriched);
         return switch (movement.status()) {
-            case COMMITTED, INTERRUPTED -> RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, outcome, movement);
+            case COMMITTED, INTERRUPTED -> RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, enrichedOutcome, enriched);
             case CHECK_REQUIRED, RETRY_REQUIRED -> RuntimeTurnCommandExecution.movement(
-                    RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, outcome, movement);
+                    RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, enrichedOutcome, enriched);
             case CANCELLED -> RuntimeTurnCommandExecution.movement(
-                    RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, outcome, movement);
+                    RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, enrichedOutcome, enriched);
         };
+    }
+
+    private String serialize(com.dndmaster.adventure.application.combat.CombatMapMoveResult result) {
+        try {
+            return mapper.writeValueAsString(result);
+        } catch (java.io.IOException failure) {
+            throw new IllegalStateException("movement follow-up serialization failed", failure);
+        }
     }
 
     private JsonNode readSavedOutcome(RuntimeTurnCommand command) {

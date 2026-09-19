@@ -694,6 +694,7 @@ it('keeps the confirmed path and shows the enemy observation interruption from A
     requestedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }],
     traversedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }], finalPosition: { x: 2, y: 1 },
     publicEvents: ['HOSTILE_OBSERVED'], interruptionReason: 'HOSTILE_OBSERVED',
+    followUp: { commandId: 'follow-up-1', operationId: 'operation-1', kind: 'CONTINUATION' as const, trigger: 'HOSTILE_OBSERVED' as const },
   }
   api.submitMapAction = vi.fn(async () => ({ turnId: 'turn-331', version: 1, movementResult: result }))
   const user = userEvent.setup()
@@ -704,6 +705,7 @@ it('keeps the confirmed path and shows the enemy observation interruption from A
 
   await waitFor(() => expect(screen.getAllByText('이동이 중단되었습니다.').length).toBeGreaterThan(0))
   expect(screen.getByText('공개된 결과: HOSTILE_OBSERVED')).toBeInTheDocument()
+  expect(screen.getByText('후속 진행: 모험 진행 판단 대기')).toBeInTheDocument()
   expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ path: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }), expect.anything(), expect.any(Number))
 })
 

@@ -5,15 +5,11 @@ import com.dndmaster.combatmap.domain.CombatToken;
 import com.dndmaster.combatmap.domain.GridPosition;
 import com.dndmaster.combatmap.domain.HostileObservationRule;
 import com.dndmaster.combatmap.domain.HostileObservationStatus;
-import com.dndmaster.combatmap.domain.LineOfSightQuery;
 import com.dndmaster.combatmap.domain.PlayerId;
-import com.dndmaster.combatmap.domain.SpatialFeatureType;
 import com.dndmaster.combatmap.domain.SpatialTrigger;
 import com.dndmaster.combatmap.domain.TokenId;
 import com.dndmaster.combatmap.domain.TokenType;
-import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -21,14 +17,14 @@ import java.util.UUID;
 
 /** 적에서 이동 중인 플레이어로 향하는 시선과 인지 상태만 담당한다. */
 public final class HostileObservationResolver {
-    private final LineOfSightQuery lineOfSight;
+    private final com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy detectionPolicy;
 
     public HostileObservationResolver() {
-        this(new LineOfSightQuery());
+        this(new com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy());
     }
 
-    HostileObservationResolver(LineOfSightQuery lineOfSight) {
-        this.lineOfSight = Objects.requireNonNull(lineOfSight, "line-of-sight query must not be null");
+    public HostileObservationResolver(com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy detectionPolicy) {
+        this.detectionPolicy = Objects.requireNonNull(detectionPolicy, "detection policy must not be null");
     }
 
     public HostileObservationResult evaluate(CombatMap map, PlayerId ownerPlayerId, TokenId playerTokenId,
@@ -38,15 +34,19 @@ public final class HostileObservationResolver {
         Objects.requireNonNull(playerTokenId, "player token id must not be null");
         Objects.requireNonNull(playerCell, "player cell must not be null");
         Objects.requireNonNull(operationId, "operation id must not be null");
-        List<CombatToken> hostiles = map.tokens().stream()
+        for (var observation : map.hostileObservations()) {
+            if (observation.playerTokenId().equals(playerTokenId)
+                    && observation.status() == HostileObservationStatus.AWARE
+                    && map.token(observation.hostileTokenId())
+                    .map(token -> !detectionPolicy.detectable(map, playerCell, token.position())).orElse(true)) {
+                map.markHostileLost(observation.hostileTokenId(), playerTokenId);
+            }
+        }
+        List<CombatToken> hostiles = visibleHostiles(map, playerCell).stream()
                 .filter(token -> token.type() == TokenType.ENEMY || token.type() == TokenType.BOSS)
                 .sorted(Comparator.comparing(token -> token.id().value()))
                 .toList();
         for (CombatToken hostile : hostiles) {
-            if (!lineOfSight.clear(hostile.position(), playerCell, new HashSet<>(map.obstacles()), map.boundaries())) {
-                map.markHostileLost(hostile.id(), playerTokenId);
-                continue;
-            }
             HostileObservationStatus prior = map.hostileObservationStatus(hostile.id(), playerTokenId);
             if (prior == HostileObservationStatus.AWARE) {
                 return new HostileObservationResult(HostileObservationResult.Status.CONTINUOUS,
@@ -81,12 +81,18 @@ public final class HostileObservationResolver {
 
     /** Replays awareness state for cells already traversed by a recovered operation. */
     public void rebuildAwareness(CombatMap map, TokenId playerTokenId, GridPosition playerCell) {
-        for (CombatToken hostile : candidates(map)) {
-            boolean visible = lineOfSight.clear(hostile.position(), playerCell,
-                    new HashSet<>(map.obstacles()), map.boundaries());
-            if (visible) map.markHostileAware(hostile.id(), playerTokenId);
-            else map.markHostileLost(hostile.id(), playerTokenId);
+        for (CombatToken hostile : visibleHostiles(map, playerCell)) {
+            map.markHostileAware(hostile.id(), playerTokenId);
         }
+    }
+
+    private List<CombatToken> visibleHostiles(CombatMap map, GridPosition playerCell) {
+        if (map.visibilitySnapshot() == null) return List.of();
+        return map.tokensAt(map.visibilitySnapshot().current()).stream()
+                .filter(token -> (token.type() == TokenType.ENEMY || token.type() == TokenType.BOSS)
+                        && detectionPolicy.detectable(map, playerCell, token.position()))
+                .sorted(Comparator.comparing(token -> token.id().value()))
+                .toList();
     }
 
     private static HostileObservationResult aware(CombatMap map, CombatToken hostile,
@@ -98,10 +104,4 @@ public final class HostileObservationResolver {
         return new HostileObservationResult(status, hostile.id(), Optional.empty(), Optional.of(interruption));
     }
 
-    private static List<CombatToken> candidates(CombatMap map) {
-        return map.tokens().stream()
-                .filter(token -> token.type() == TokenType.ENEMY || token.type() == TokenType.BOSS)
-                .sorted(Comparator.comparing(token -> token.id().value()))
-                .toList();
-    }
 }

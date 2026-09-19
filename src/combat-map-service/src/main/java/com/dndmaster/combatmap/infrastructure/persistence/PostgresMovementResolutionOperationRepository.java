@@ -16,6 +16,8 @@ import com.dndmaster.combatmap.domain.MapId;
 import com.dndmaster.combatmap.domain.MovementPath;
 import com.dndmaster.combatmap.domain.PlayerId;
 import com.dndmaster.combatmap.domain.TokenId;
+import com.dndmaster.combatmap.domain.HostileObservationState;
+import com.dndmaster.combatmap.domain.HostileObservationStatus;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -74,11 +76,11 @@ public final class PostgresMovementResolutionOperationRepository implements Move
     private MovementResolutionOperation write(MovementResolutionOperation value, boolean insert) {
         String path = encode(value.requestedPath().orderedPositions());
         String sql = insert
-                ? "INSERT INTO combat_map_movement_operation(operation_id,map_id,command_id,player_id,token_id,requested_path,path_distance,fingerprint,expected_version,status,cursor,current_x,current_y,traversed_path,result_traversed_path,result_status,result_final_x,result_final_y,result_map_version,result_public_events,result_interruption_reason,retry_count,operation_version,retry_resume_status,pending_check_id,pending_feature_id,pending_feature_type,pending_trigger,pending_rule_reference,pending_difficulty,pending_mode,pending_dice_expression,pending_modifier,pending_ownership,pending_owner_actor,pending_owner_player_id,check_outcomes,cancel_command_id) VALUES (" + "?,".repeat(37) + "?)"
-                : "UPDATE combat_map_movement_operation SET status=?,cursor=?,current_x=?,current_y=?,traversed_path=?,result_traversed_path=?,result_status=?,result_final_x=?,result_final_y=?,result_map_version=?,result_public_events=?,result_interruption_reason=?,retry_count=?,retry_resume_status=?,pending_check_id=?,pending_feature_id=?,pending_feature_type=?,pending_trigger=?,pending_rule_reference=?,pending_difficulty=?,pending_mode=?,pending_dice_expression=?,pending_modifier=?,pending_ownership=?,pending_owner_actor=?,pending_owner_player_id=?,check_outcomes=?,cancel_command_id=?,operation_version=operation_version+1,updated_at=CURRENT_TIMESTAMP WHERE operation_id=? AND operation_version=?";
+                ? "INSERT INTO combat_map_movement_operation(operation_id,map_id,command_id,player_id,token_id,requested_path,path_distance,fingerprint,expected_version,status,cursor,current_x,current_y,traversed_path,result_traversed_path,result_status,result_final_x,result_final_y,result_map_version,result_public_events,result_interruption_reason,retry_count,operation_version,retry_resume_status,pending_check_id,pending_feature_id,pending_feature_type,pending_trigger,pending_rule_reference,pending_difficulty,pending_mode,pending_dice_expression,pending_modifier,pending_ownership,pending_owner_actor,pending_owner_player_id,check_outcomes,cancel_command_id,hostile_observations) VALUES (" + "?,".repeat(38) + "?)"
+                : "UPDATE combat_map_movement_operation SET status=?,cursor=?,current_x=?,current_y=?,traversed_path=?,result_traversed_path=?,result_status=?,result_final_x=?,result_final_y=?,result_map_version=?,result_public_events=?,result_interruption_reason=?,retry_count=?,retry_resume_status=?,pending_check_id=?,pending_feature_id=?,pending_feature_type=?,pending_trigger=?,pending_rule_reference=?,pending_difficulty=?,pending_mode=?,pending_dice_expression=?,pending_modifier=?,pending_ownership=?,pending_owner_actor=?,pending_owner_player_id=?,check_outcomes=?,cancel_command_id=?,hostile_observations=?,operation_version=operation_version+1,updated_at=CURRENT_TIMESTAMP WHERE operation_id=? AND operation_version=?";
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {
-            if (insert) { statement.setObject(1, value.operationId()); statement.setObject(2, value.mapId().value()); statement.setObject(3, value.commandId()); statement.setObject(4, value.playerId().value()); statement.setObject(5, value.tokenId().value()); statement.setString(6, path); statement.setInt(7, value.requestedPath().distance()); statement.setString(8, value.fingerprint()); statement.setLong(9, value.expectedVersion()); bindProgress(statement, 10, value); statement.setLong(23, value.persistenceVersion()); statement.setString(24, value.retryResumeStatus().name()); bindPending(statement, 25, value); statement.setObject(38, value.cancelCommandId()); }
-            else { bindProgress(statement, 1, value); statement.setString(14, value.retryResumeStatus().name()); bindPending(statement, 15, value); statement.setObject(28, value.cancelCommandId()); statement.setObject(29, value.operationId()); statement.setLong(30, value.persistenceVersion()); }
+            if (insert) { statement.setObject(1, value.operationId()); statement.setObject(2, value.mapId().value()); statement.setObject(3, value.commandId()); statement.setObject(4, value.playerId().value()); statement.setObject(5, value.tokenId().value()); statement.setString(6, path); statement.setInt(7, value.requestedPath().distance()); statement.setString(8, value.fingerprint()); statement.setLong(9, value.expectedVersion()); bindProgress(statement, 10, value); statement.setLong(23, value.persistenceVersion()); statement.setString(24, value.retryResumeStatus().name()); bindPending(statement, 25, value); statement.setObject(38, value.cancelCommandId()); statement.setString(39, encodeHostileObservations(value)); }
+            else { bindProgress(statement, 1, value); statement.setString(14, value.retryResumeStatus().name()); bindPending(statement, 15, value); statement.setObject(28, value.cancelCommandId()); statement.setString(29, encodeHostileObservations(value)); statement.setObject(30, value.operationId()); statement.setLong(31, value.persistenceVersion()); }
             if (statement.executeUpdate() != 1) throw new MovementOperationConcurrentUpdateException();
             if (!insert) value.markPersisted(value.persistenceVersion() + 1);
             return value;
@@ -138,7 +140,7 @@ public final class PostgresMovementResolutionOperationRepository implements Move
         if (ownerPlayerId == null) ownerPlayerId = row.getObject("player_id", UUID.class);
         MovementCheckRequest pending = row.getObject("pending_check_id") == null ? null : pendingCheck(row, operationId, requested, ownerPlayerId);
         List<MovementCheckOutcome> outcomes = decodeOutcomes(row.getString("check_outcomes"));
-        return MovementResolutionOperation.restore(operationId, new MapId((UUID) row.getObject("map_id")), (UUID) row.getObject("command_id"), new PlayerId((UUID) row.getObject("player_id")), new TokenId((UUID) row.getObject("token_id")), new MovementPath(requested, row.getInt("path_distance")), row.getString("fingerprint"), expectedVersion, status, row.getInt("cursor"), new GridPosition(row.getInt("current_x"), row.getInt("current_y")), traversed, result, row.getInt("retry_count"), row.getLong("operation_version"), MovementOperationStatus.valueOf(row.getString("retry_resume_status")), pending, outcomes, (UUID) row.getObject("cancel_command_id"));
+        return MovementResolutionOperation.restore(operationId, new MapId((UUID) row.getObject("map_id")), (UUID) row.getObject("command_id"), new PlayerId((UUID) row.getObject("player_id")), new TokenId((UUID) row.getObject("token_id")), new MovementPath(requested, row.getInt("path_distance")), row.getString("fingerprint"), expectedVersion, status, row.getInt("cursor"), new GridPosition(row.getInt("current_x"), row.getInt("current_y")), traversed, result, row.getInt("retry_count"), row.getLong("operation_version"), MovementOperationStatus.valueOf(row.getString("retry_resume_status")), pending, outcomes, decodeHostileObservations(row.getString("hostile_observations")), (UUID) row.getObject("cancel_command_id"));
     }
     private static MovementCheckRequest pendingCheck(ResultSet row, UUID operationId, List<GridPosition> requested,
             UUID ownerPlayerId) throws SQLException {
@@ -179,5 +181,19 @@ public final class PostgresMovementResolutionOperationRepository implements Move
                         : new MovementCheckOutcome(UUID.fromString(value[0].split("=", 2)[0]),
                                 Boolean.parseBoolean(value[0].split("=", 2)[1])))
                 .toList();
+    }
+    private static String encodeHostileObservations(MovementResolutionOperation value) {
+        return value.hostileObservations().stream().sorted(java.util.Comparator.comparing(state -> state.hostileTokenId().value()))
+                .map(state -> String.join("|", state.hostileTokenId().value().toString(), state.playerTokenId().value().toString(), state.status().name()))
+                .collect(java.util.stream.Collectors.joining(";"));
+    }
+    private static java.util.Set<HostileObservationState> decodeHostileObservations(String encoded) {
+        if (encoded == null || encoded.isBlank()) return java.util.Set.of();
+        return java.util.Arrays.stream(encoded.split(";"))
+                .map(value -> value.split("\\|", -1))
+                .filter(value -> value.length == 3)
+                .map(value -> new HostileObservationState(new TokenId(UUID.fromString(value[0])),
+                        new TokenId(UUID.fromString(value[1])), HostileObservationStatus.valueOf(value[2])))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 }

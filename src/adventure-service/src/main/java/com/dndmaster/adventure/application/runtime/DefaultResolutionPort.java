@@ -22,4 +22,11 @@ public final class DefaultResolutionPort implements ResolutionPort {
         return new PlayerCheckResult(rule.ruleReference(), request.diceExpression(), rule.modifier(),
                 rule.difficulty(), request.rollTotal(), rule.accepts(request.rollTotal()));
     }
+    @Override
+    public EnemyObservationCheckResult resolveEnemyObservation(EnemyObservationCheckRequest request) {
+        if (request == null) throw new IllegalArgumentException("enemy observation check request is required");
+        TypedCheckRule rule = request.rule();
+        return new EnemyObservationCheckResult(rule.ruleReference(), request.diceExpression(), rule.modifier(),
+                rule.difficulty(), request.rollTotal(), rule.accepts(request.rollTotal()));
+    }
 }

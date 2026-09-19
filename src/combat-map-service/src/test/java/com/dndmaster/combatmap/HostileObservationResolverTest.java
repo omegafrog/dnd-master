@@ -6,9 +6,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.combatmap.application.movement.HostileObservationResolver;
 import com.dndmaster.combatmap.application.movement.HostileObservationResult;
+import com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy;
 import com.dndmaster.combatmap.domain.AdventureId;
 import com.dndmaster.combatmap.domain.CombatMap;
 import com.dndmaster.combatmap.domain.CombatToken;
+import com.dndmaster.combatmap.domain.Door;
 import com.dndmaster.combatmap.domain.GridPosition;
 import com.dndmaster.combatmap.domain.GridSpec;
 import com.dndmaster.combatmap.domain.LayerVisibility;
@@ -19,7 +21,11 @@ import com.dndmaster.combatmap.domain.RuleSetId;
 import com.dndmaster.combatmap.domain.TokenController;
 import com.dndmaster.combatmap.domain.TokenId;
 import com.dndmaster.combatmap.domain.TokenType;
+import com.dndmaster.combatmap.domain.VisibilityProfile;
+import com.dndmaster.combatmap.domain.VisibilitySnapshot;
+import com.dndmaster.combatmap.domain.LineOfSightQuery;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -72,6 +78,28 @@ class HostileObservationResolverTest {
 
         assertEquals(HostileObservationResult.Status.REACQUIRED, reacquired.status());
         assertEquals("HOSTILE_OBSERVED", reacquired.interruption().orElseThrow().reason());
+    }
+
+    @Test
+    void uses_current_player_visible_cells_closed_doors_and_configured_range() {
+        CombatMap map = map(new GridPosition(3, 0), List.of());
+        map.replaceDoors(List.of(new Door(new GridPosition(2, 0), false)));
+        HostileObservationResolver resolver = new HostileObservationResolver(
+                new SpatialFeatureDetectionPolicy(new LineOfSightQuery(), new VisibilityProfile(6)));
+        assertEquals(HostileObservationResult.Status.NO_OBSERVATION,
+                resolver.evaluate(map, player, playerToken, new GridPosition(1, 0), UUID.randomUUID(), 1).status());
+
+        map.replaceDoors(List.of());
+        map.replaceVisibility(new VisibilitySnapshot(Set.of(new GridPosition(1, 0)), Set.of(new GridPosition(1, 0)), Set.of(), List.of(), 0));
+        assertEquals(HostileObservationResult.Status.NO_OBSERVATION,
+                resolver.evaluate(map, player, playerToken, new GridPosition(1, 0), UUID.randomUUID(), 2).status());
+
+        map.replaceVisibility(new VisibilitySnapshot(Set.of(new GridPosition(1, 0), new GridPosition(3, 0)),
+                Set.of(new GridPosition(1, 0), new GridPosition(3, 0)), Set.of(), List.of(), 0));
+        HostileObservationResolver shortRange = new HostileObservationResolver(
+                new SpatialFeatureDetectionPolicy(new LineOfSightQuery(), new VisibilityProfile(1)));
+        assertEquals(HostileObservationResult.Status.NO_OBSERVATION,
+                shortRange.evaluate(map, player, playerToken, new GridPosition(1, 0), UUID.randomUUID(), 3).status());
     }
 
     private CombatMap map(GridPosition enemyPosition, List<GridPosition> obstacles) {

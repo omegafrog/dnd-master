@@ -7,6 +7,9 @@ public interface ResolutionPort {
     default PlayerCheckResult resolvePlayerCheck(PlayerCheckRequest request) {
         throw new UnsupportedOperationException("player check resolution is unavailable");
     }
+    default EnemyObservationCheckResult resolveEnemyObservation(EnemyObservationCheckRequest request) {
+        throw new UnsupportedOperationException("enemy observation resolution is unavailable");
+    }
 
     record PlayerCheckRequest(String ruleReference, String diceExpression, int modifier,
             Integer difficulty, int rollTotal) {
@@ -25,4 +28,10 @@ public interface ResolutionPort {
             this("", "", 0, null, total, success);
         }
     }
+    record EnemyObservationCheckRequest(String ruleReference, String diceExpression, int modifier,
+            Integer difficulty, int rollTotal) {
+        public TypedCheckRule rule() { return new TypedCheckRule(ruleReference, diceExpression, modifier, difficulty); }
+    }
+    record EnemyObservationCheckResult(String ruleReference, String diceExpression, int modifier,
+            Integer difficulty, int total, boolean success) { }
 }

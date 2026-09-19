@@ -19,6 +19,8 @@ import com.dndmaster.combatmap.domain.MapId;
 import com.dndmaster.combatmap.domain.MovementPath;
 import com.dndmaster.combatmap.domain.PlayerId;
 import com.dndmaster.combatmap.domain.TokenId;
+import com.dndmaster.combatmap.domain.HostileObservationState;
+import com.dndmaster.combatmap.domain.HostileObservationStatus;
 import com.dndmaster.combatmap.infrastructure.persistence.PostgresMovementResolutionOperationRepository;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -237,6 +239,19 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
         assertEquals(MovementCheckActor.ENEMY, restored.pendingCheck().owner().actor());
         assertEquals(check, restored.pendingCheck());
         assertEquals(null, restored.pendingCheck().playerView());
+    }
+
+    @Test
+    void hostile_awareness_snapshot_round_trips_for_restart_recovery() {
+        MovementResolutionOperation operation = repository.reserve(operation(commandId, "hostile-awareness"));
+        TokenId hostile = new TokenId(UUID.randomUUID());
+        operation.replaceHostileObservations(java.util.Set.of(
+                new HostileObservationState(hostile, tokenId, HostileObservationStatus.AWARE)));
+        repository.save(operation);
+
+        MovementResolutionOperation restored = repository.findById(operation.operationId()).orElseThrow();
+
+        assertEquals(operation.hostileObservations(), restored.hostileObservations());
     }
 
     @Test

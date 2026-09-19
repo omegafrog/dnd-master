@@ -20,6 +20,9 @@ public final class MapMovementCoordinator {
             @Override public int rollSpatialCheck(SpatialCheckRollCommand command) {
                 return combatMap.rollSpatialCheck(command);
             }
+            @Override public int rollEnemyObservation(EnemyObservationRollCommand command) {
+                return combatMap.rollEnemyObservation(command);
+            }
         }, new DefaultResolutionPort());
     }
 
@@ -30,6 +33,9 @@ public final class MapMovementCoordinator {
             }
             @Override public int rollSpatialCheck(SpatialCheckRollCommand command) {
                 return combatMap.rollSpatialCheck(command);
+            }
+            @Override public int rollEnemyObservation(EnemyObservationRollCommand command) {
+                return combatMap.rollEnemyObservation(command);
             }
         }, new DefaultResolutionPort(), spatialAuthorization);
     }
@@ -72,6 +78,18 @@ public final class MapMovementCoordinator {
                         command.ownerPlayerId(), details.actor()));
     }
 
+    public CombatMapMoveResult rollEnemyAndResume(EnemyObservationRollCommand command) {
+        Objects.requireNonNull(command, "enemy observation roll command must not be null");
+        CombatMapCheckDetails details = requireEnemyPendingCheck(command.mapId(), command.operationId(), command);
+        int rollTotal = dice.rollEnemyObservation(command.withRule(details));
+        ResolutionPort.EnemyObservationCheckResult result = resolution.resolveEnemyObservation(
+                new ResolutionPort.EnemyObservationCheckRequest(details.ruleReference(), details.diceExpression(),
+                        details.modifier(), details.difficulty(), rollTotal));
+        return combatMap.resumeMovementOperation(command.mapId(), command.operationId(),
+                new CombatMapCheckSubmission(command.commandId(), command.operationId(), command.checkId(), result.success(),
+                        command.ownerPlayerId(), CombatMapCheckActor.ENEMY));
+    }
+
     private ResolutionPort.PlayerCheckResult resolve(CombatMapCheckDetails details, int rollTotal) {
         if (details.difficulty() == null) throw new IllegalStateException("pending movement check has no typed difficulty");
         return resolution.resolvePlayerCheck(new ResolutionPort.PlayerCheckRequest(
@@ -100,6 +118,18 @@ public final class MapMovementCoordinator {
                 || !details.ownerPlayerId().equals(command.ownerPlayerId())
                 || details.actor() != command.actor()) {
             throw new IllegalArgumentException("player roll does not belong to the pending movement check");
+        }
+        return details;
+    }
+    private CombatMapCheckDetails requireEnemyPendingCheck(java.util.UUID mapId, java.util.UUID operationId,
+            EnemyObservationRollCommand command) {
+        CombatMapMoveResult pending = combatMap.movementOperation(mapId, operationId);
+        CombatMapCheckDetails details = pending.pendingCheckDetails();
+        if (details == null || !details.checkId().equals(command.checkId())
+                || !details.operationId().equals(command.operationId())
+                || !details.ownerPlayerId().equals(command.ownerPlayerId())
+                || details.actor() != CombatMapCheckActor.ENEMY) {
+            throw new IllegalArgumentException("enemy observation roll does not belong to the pending movement check");
         }
         return details;
     }

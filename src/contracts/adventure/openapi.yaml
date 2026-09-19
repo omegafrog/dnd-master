@@ -351,6 +351,15 @@ components:
         finalPosition: { oneOf: [{ $ref: '#/components/schemas/MovementPosition' }, { type: 'null' }] }
         publicEvents: { type: array, items: { type: string } }
         interruptionReason: { type: [string, 'null'] }
+        followUp: { oneOf: [{ $ref: '#/components/schemas/MovementFollowUpCommand' }, { type: 'null' }] }
+    MovementFollowUpCommand:
+      type: object
+      required: [commandId, operationId, kind, trigger]
+      properties:
+        commandId: { type: string, format: uuid }
+        operationId: { type: string, format: uuid }
+        kind: { type: string, enum: [COMBAT, WARNING, CONTINUATION] }
+        trigger: { type: string, enum: [HOSTILE_OBSERVED] }
     AdventureMovementOperationResponse:
       type: object
       required: [operationId, status, outcomeStatus, version, requestedPath, traversedPath, publicEvents]
@@ -365,6 +374,7 @@ components:
         publicEvents: { type: array, items: { type: string } }
         interruptionReason: { type: [string, 'null'] }
         pendingCheck: { oneOf: [{ $ref: '#/components/schemas/CombatMapPendingCheck' }, { type: 'null' }] }
+        followUp: { oneOf: [{ $ref: '#/components/schemas/MovementFollowUpCommand' }, { type: 'null' }] }
     CombatMapCheckResultSubmission:
       type: object
       required: [commandId, operationId, checkId, success, ownerPlayerId, actor]

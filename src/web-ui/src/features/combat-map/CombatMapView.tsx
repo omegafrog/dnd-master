@@ -711,6 +711,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {replayedMovement && <section aria-label="최근 이동 결과" role="status">
         <p>{replayedMovement.status === 'INTERRUPTED' ? '이동이 중단되었습니다.' : '이동이 완료되었습니다.'}</p>
         {replayedMovement.interruptionReason && <p>중단 사유: {replayedMovement.interruptionReason}</p>}
+        {replayedMovement.followUp && <p>후속 진행: {replayedMovement.followUp.kind === 'CONTINUATION' ? '모험 진행 판단 대기' : replayedMovement.followUp.kind}</p>}
         {replayedMovement.publicEvents.length > 0 && <p>공개된 결과: {replayedMovement.publicEvents.join(', ')}</p>}
       </section>}
       {pendingMovement && (pendingMovement.result.status === 'RETRY_REQUIRED' || pendingMovement.result.status === 'CHECK_REQUIRED') && <section aria-label="저장된 이동 상태" role="status">
