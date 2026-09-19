@@ -12,6 +12,7 @@ import com.dndmaster.combatmap.application.movement.MovementResolutionOutcomeSta
 import com.dndmaster.combatmap.application.movement.MovementCheckRequest;
 import com.dndmaster.combatmap.application.movement.MovementCheckActor;
 import com.dndmaster.combatmap.application.movement.MovementCheckOwner;
+import com.dndmaster.combatmap.application.movement.MovementCheckResult;
 import com.dndmaster.combatmap.application.movement.MovementReservationConflictException;
 import com.dndmaster.combatmap.domain.GridPosition;
 import com.dndmaster.combatmap.domain.MapId;
@@ -162,7 +163,7 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
         MovementResolutionOperation operation = repository.reserve(operation(commandId, "pending"));
         MovementCheckRequest check = new MovementCheckRequest(UUID.randomUUID(), operation.operationId(), UUID.randomUUID(),
                 com.dndmaster.combatmap.domain.SpatialFeatureType.TRAP, com.dndmaster.combatmap.domain.SpatialTrigger.BECOME_VISIBLE,
-                "perception", 15, "PLAYER", new MovementCheckOwner(MovementCheckActor.PLAYER, playerId));
+                "perception", "2d6", 3, 15, "PLAYER", new MovementCheckOwner(MovementCheckActor.PLAYER, playerId));
         operation.requestCheck(check);
         repository.save(operation);
 
@@ -170,6 +171,30 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
 
         assertEquals(MovementOperationStatus.CHECK_PENDING, restored.status());
         assertEquals(check, restored.pendingCheck());
+    }
+
+    @Test
+    void check_resume_identity_and_result_round_trip_replays_after_reload() {
+        MovementResolutionOperation operation = repository.reserve(operation(commandId, "resume"));
+        UUID checkId = UUID.randomUUID();
+        UUID featureId = UUID.randomUUID();
+        MovementCheckRequest check = new MovementCheckRequest(checkId, operation.operationId(), featureId,
+                com.dndmaster.combatmap.domain.SpatialFeatureType.TRAP, com.dndmaster.combatmap.domain.SpatialTrigger.BECOME_VISIBLE,
+                "dnd5e.perception", "2d6", 3, 15, "PLAYER", MovementCheckOwner.player(playerId));
+        operation.requestCheck(check);
+        repository.save(operation);
+        UUID resumeCommandId = UUID.randomUUID();
+        MovementCheckResult result = new MovementCheckResult(resumeCommandId, operation.operationId(), checkId, true,
+                MovementCheckOwner.player(playerId));
+        operation.resumeFromCheck(result);
+        repository.save(operation);
+
+        MovementResolutionOperation restored = repository.findById(operation.operationId()).orElseThrow();
+
+        assertEquals(checkId, restored.checkOutcomes().getFirst().checkId());
+        assertEquals(true, restored.checkOutcomes().getFirst().success());
+        assertEquals(resumeCommandId, restored.checkOutcomes().getFirst().commandId());
+        assertEquals(true, restored.resumeFromCheck(result));
     }
 
     private MovementResolutionOperation operation(UUID requestedCommandId, String fingerprint) {

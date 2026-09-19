@@ -1,5 +1,6 @@
 package com.dndmaster.adventure.application.combat;
 
+import com.dndmaster.adventure.application.runtime.TypedCheckRule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -187,12 +188,15 @@ public final class CrossContextHttpCombatGateway
     public int rollSpatialCheck(SpatialCheckRollCommand command) {
         Objects.requireNonNull(command, "spatial check roll command must not be null");
         try {
+            TypedCheckRule.DiceExpression dice = TypedCheckRule.DiceExpression.parse(
+                    command.diceExpression(), command.modifier());
             PlayerCheckRollRequest request = new PlayerCheckRollRequest(command.adventureId(), command.ruleSetId().value(),
-                    "PLAYER_ACTION", 1, 20, 0, command.sessionId(), command.operationId(), command.checkId(), command.expectedVersion());
+                    "PLAYER_ACTION", command.ruleReference(), command.difficulty(), dice.count(), dice.sides(), dice.modifier(),
+                    command.sessionId(), command.operationId(), command.commandId(), command.expectedVersion());
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/dice-rolls/player"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
-                    .header("Idempotency-Key", command.checkId().toString())
+                    .header("Idempotency-Key", command.commandId().toString())
                     .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request))).build();
             HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -321,7 +325,7 @@ public final class CrossContextHttpCombatGateway
         return pending != null && pending.isObject() && pending.hasNonNull("checkId")
                 ? new CombatMapPendingCheck(java.util.UUID.fromString(pending.path("checkId").asText()),
                         java.util.UUID.fromString(pending.path("operationId").asText()), pending.path("label").asText("판정"),
-                        pending.path("diceExpression").asText("d20"), java.util.UUID.fromString(pending.path("ownerPlayerId").asText()),
+                        pending.path("diceExpression").asText(), java.util.UUID.fromString(pending.path("ownerPlayerId").asText()),
                         CombatMapCheckActor.valueOf(pending.path("actor").asText("PLAYER"))) : null;
     }
     private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method) { return operationRequest(mapId, operationId, method, null); }
@@ -329,7 +333,9 @@ public final class CrossContextHttpCombatGateway
         try {
             String route = "internal/v1/combat-maps/" + mapId + "/movement-operations/" + operationId + ("POST".equals(method) ? "/resume" : "");
             HttpRequest.Builder request = HttpRequest.newBuilder(baseUri.resolve(route)).timeout(timeout).header("X-Internal-Token", internalToken);
-            if ("POST".equals(method)) request.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(submission == null ? "" : objectMapper.writeValueAsString(submission)));
+            if ("POST".equals(method)) request.header("Content-Type", "application/json")
+                    .header("Idempotency-Key", (submission == null ? operationId : submission.commandId()).toString())
+                    .POST(HttpRequest.BodyPublishers.ofString(submission == null ? "" : objectMapper.writeValueAsString(submission)));
             else if ("DELETE".equals(method)) request.DELETE(); else request.GET();
             HttpResponse<String> response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -431,7 +437,7 @@ public final class CrossContextHttpCombatGateway
             CombatMapPendingCheck pendingCheck = pending.isObject() && pending.hasNonNull("checkId")
                     ? new CombatMapPendingCheck(java.util.UUID.fromString(pending.path("checkId").asText()),
                             java.util.UUID.fromString(pending.path("operationId").asText()), pending.path("label").asText("판정"),
-                            pending.path("diceExpression").asText("d20"),
+                            pending.path("diceExpression").asText(),
                             java.util.UUID.fromString(pending.path("ownerPlayerId").asText()),
                             CombatMapCheckActor.valueOf(pending.path("actor").asText("PLAYER"))) : null;
             JsonNode details = body.path("pendingCheckDetails");
@@ -439,6 +445,8 @@ public final class CrossContextHttpCombatGateway
                     ? new CombatMapCheckDetails(java.util.UUID.fromString(details.path("checkId").asText()),
                             java.util.UUID.fromString(details.path("operationId").asText()),
                             details.path("ruleReference").asText(),
+                            details.path("diceExpression").asText(),
+                            details.path("modifier").asInt(),
                             details.hasNonNull("difficulty") ? details.path("difficulty").asInt() : null,
                             java.util.UUID.fromString(details.path("ownerPlayerId").asText()),
                             CombatMapCheckActor.valueOf(details.path("actor").asText("PLAYER"))) : null;
@@ -584,7 +592,7 @@ public final class CrossContextHttpCombatGateway
             long expectedVersion, java.util.UUID commandId) {}
     private record SpatialTurnRequest(java.util.UUID ownerId, long expectedVersion, java.util.UUID commandId) {}
     private record PlayerCheckRollRequest(java.util.UUID adventureId, java.util.UUID ruleSetId, String scope,
-            int count, int sides, int modifier, java.util.UUID sessionId, java.util.UUID turnId,
+            String ruleReference, Integer difficulty, int count, int sides, int modifier, java.util.UUID sessionId, java.util.UUID turnId,
             java.util.UUID commandId, long expectedVersion) {}
     private record AiStateRequest(
             java.util.UUID ownerId, java.util.UUID tokenId, int x, int y, java.util.UUID commandId,

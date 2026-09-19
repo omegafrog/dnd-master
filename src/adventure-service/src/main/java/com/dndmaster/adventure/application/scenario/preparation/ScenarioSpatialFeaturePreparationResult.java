@@ -18,13 +18,14 @@ public record ScenarioSpatialFeaturePreparationResult(boolean activationAllowed,
     public record Placement(UUID featureId, String type, boolean required, List<String> cells,
             Evidence evidence, String detectionRuleReference, Integer detectionDifficulty,
             String detectionMode, List<String> triggers, int durationTurns,
-            String removalPolicy, boolean overlapAllowed, boolean repeatable) {
+            String removalPolicy, boolean overlapAllowed, boolean repeatable,
+            String detectionDiceExpression, int detectionModifier) {
         public Placement(UUID featureId, String type, boolean required, List<String> cells,
                 Evidence evidence, String detectionRuleReference, Integer detectionDifficulty,
                 String detectionMode, List<String> triggers, int durationTurns,
                 String removalPolicy, boolean overlapAllowed) {
             this(featureId, type, required, cells, evidence, detectionRuleReference, detectionDifficulty,
-                    detectionMode, triggers, durationTurns, removalPolicy, overlapAllowed, false);
+                    detectionMode, triggers, durationTurns, removalPolicy, overlapAllowed, false, "1d20", 0);
         }
         public Placement {
             featureId = Objects.requireNonNull(featureId);
@@ -33,6 +34,8 @@ public record ScenarioSpatialFeaturePreparationResult(boolean activationAllowed,
             evidence = Objects.requireNonNull(evidence);
             triggers = List.copyOf(triggers == null ? List.of() : triggers);
             removalPolicy = removalPolicy == null ? "" : removalPolicy.trim();
+            detectionDiceExpression = detectionDiceExpression == null || detectionDiceExpression.isBlank() ? "1d20" : detectionDiceExpression.trim();
+            if (detectionModifier < -10_000 || detectionModifier > 10_000) throw new IllegalArgumentException("detection modifier is out of range");
         }
     }
 

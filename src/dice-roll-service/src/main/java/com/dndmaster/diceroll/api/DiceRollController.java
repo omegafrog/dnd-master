@@ -53,5 +53,6 @@ public class DiceRollController {
     public record DiceRollRequest(
             UUID adventureId, UUID ruleSetId, String scope,
             int count, int sides, int modifier,
-            UUID sessionId, UUID turnId, UUID commandId, long expectedVersion) {}
+            UUID sessionId, UUID turnId, UUID commandId, long expectedVersion,
+            String ruleReference, Integer difficulty) {}
 }

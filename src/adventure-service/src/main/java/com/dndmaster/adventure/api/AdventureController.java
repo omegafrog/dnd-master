@@ -441,8 +441,9 @@ public class AdventureController {
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}/resume")
     AdventureMovementOperationResponse resumeMovementOperation(@PathVariable UUID adventureId, @PathVariable UUID operationId,
-            @RequestParam UUID mapId, @RequestBody(required = false) com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission) {
-        return recoveryMovement(adventureId, mapId, operationId, "resume", submission);
+            @RequestParam UUID mapId, @RequestHeader("Idempotency-Key") UUID commandId,
+            @RequestBody(required = false) com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission) {
+        return recoveryMovement(adventureId, mapId, operationId, "resume", submission, commandId);
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}/roll")
@@ -487,11 +488,16 @@ public class AdventureController {
     }
 
     private AdventureMovementOperationResponse recoveryMovement(UUID adventureId, UUID mapId, UUID operationId, String action) {
-        return recoveryMovement(adventureId, mapId, operationId, action, null);
+        return recoveryMovement(adventureId, mapId, operationId, action, null, null);
     }
 
     private AdventureMovementOperationResponse recoveryMovement(UUID adventureId, UUID mapId, UUID operationId, String action,
             com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission) {
+        return recoveryMovement(adventureId, mapId, operationId, action, submission, null);
+    }
+
+    private AdventureMovementOperationResponse recoveryMovement(UUID adventureId, UUID mapId, UUID operationId, String action,
+            com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission, UUID commandId) {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)
@@ -500,6 +506,11 @@ public class AdventureController {
         }
         if (submission != null && !owner.equals(submission.ownerPlayerId())) {
             throw new ApiRequestGuard.ApiContractException(403, "CHECK_OWNERSHIP_DENIED");
+        }
+        if ("resume".equals(action)) {
+            if (commandId == null || (submission == null ? !operationId.equals(commandId) : !commandId.equals(submission.commandId()))) {
+                throw new ApiRequestGuard.ApiContractException(400, "IDEMPOTENCY_KEY_MISMATCH");
+            }
         }
         var result = switch (action) { case "resume" -> submission == null ? mapMovementCoordinator.resume(mapId, operationId) : mapMovementCoordinator.resume(mapId, operationId, submission); case "cancel" -> mapMovementCoordinator.cancel(mapId, operationId); default -> mapMovementCoordinator.query(mapId, operationId); };
         return AdventureMovementOperationResponse.from(result);

@@ -67,7 +67,17 @@ public final class MovementResolutionOperation {
         pendingCheck = Objects.requireNonNull(request);
         status = MovementOperationStatus.CHECK_PENDING;
     }
-    public void resumeFromCheck(MovementCheckResult result) {
+    public boolean resumeFromCheck(MovementCheckResult result) {
+        Objects.requireNonNull(result, "check result must not be null");
+        for (MovementCheckOutcome outcome : checkOutcomes) {
+            if (result.commandId().equals(outcome.commandId())) {
+                if (outcome.matches(result)) return true;
+                throw new MovementCommandConflictException();
+            }
+            if (outcome.checkId() != null && outcome.checkId().equals(result.checkId())) {
+                throw new MovementCommandConflictException();
+            }
+        }
         if (status != MovementOperationStatus.CHECK_PENDING || pendingCheck == null) {
             throw new IllegalStateException("movement operation is not waiting for a check");
         }
@@ -75,9 +85,11 @@ public final class MovementResolutionOperation {
                 || !pendingCheck.owner().equals(result.owner())) {
             throw new IllegalArgumentException("check result does not belong to this movement operation");
         }
-        checkOutcomes.add(new MovementCheckOutcome(pendingCheck.featureId(), result.success()));
+        checkOutcomes.add(new MovementCheckOutcome(pendingCheck.featureId(), result.checkId(), result.commandId(),
+                result.owner(), result.success()));
         pendingCheck = null;
         status = MovementOperationStatus.PREPARING;
+        return false;
     }
     public boolean retryWait(int maximumRetries) { if (!status.active()) throw new IllegalStateException("movement operation is terminal"); if (status != MovementOperationStatus.RETRY_WAIT) retryResumeStatus = status; if (++retryCount > maximumRetries) return false; status = MovementOperationStatus.RETRY_WAIT; return true; }
     public void resumeAfterRetry() { if (status != MovementOperationStatus.RETRY_WAIT) throw new IllegalStateException("movement operation is not waiting"); status = retryResumeStatus; }

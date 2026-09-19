@@ -329,6 +329,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     try {
       const pendingCheck = pendingMovement.result.pendingCheck
       const submission = resume && check && pendingCheck ? {
+        commandId: pendingCheck.checkId,
         operationId: pendingCheck.operationId,
         checkId: pendingCheck.checkId,
         success: check.success,

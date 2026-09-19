@@ -107,6 +107,28 @@ class MovementResolutionOperationTest {
     }
 
     @Test
+    void replays_the_stored_terminal_result_for_an_idempotent_check_resume() {
+        Fixture fixture = new Fixture();
+        fixture.map = mapWithHiddenTrap(fixture);
+        MovementOperationResponse pending = fixture.service(MovementCheckResolver.pending()).start(fixture.start("fingerprint-1"));
+        MovementCheckRequest request = fixture.findOperationByCommandId(fixture.commandId).orElseThrow().pendingCheck();
+        UUID commandId = UUID.randomUUID();
+        MovementCheckResult submission = new MovementCheckResult(commandId, pending.operationId(), request.checkId(), true,
+                MovementCheckOwner.player(fixture.player));
+
+        MovementOperationResponse committed = fixture.service(MovementCheckResolver.pending()).resume(
+                fixture.map.id(), pending.operationId(), submission);
+        MovementOperationResponse replay = fixture.service(MovementCheckResolver.pending()).resume(
+                fixture.map.id(), pending.operationId(), submission);
+
+        assertEquals(committed, replay);
+        assertEquals(MovementOperationStatus.COMMITTED, replay.status());
+        assertThrows(MovementCommandConflictException.class, () -> fixture.service(MovementCheckResolver.pending()).resume(
+                fixture.map.id(), pending.operationId(), new MovementCheckResult(commandId, pending.operationId(),
+                        request.checkId(), false, MovementCheckOwner.player(fixture.player))));
+    }
+
+    @Test
     void rejects_a_check_result_from_another_player_even_when_check_identity_matches() {
         Fixture fixture = new Fixture();
         fixture.map = mapWithHiddenTrap(fixture);

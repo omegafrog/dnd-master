@@ -74,7 +74,7 @@ class OpenApiSchemaTest {
         assertNullableFinalPosition(properties, "staged movement");
         assertTrue(properties.containsKey("pendingCheck"), "staged movement must expose a safe pending check projection");
         Map<String, Object> submission = (Map<String, Object>) schemas.get("MovementCheckResultSubmission");
-        assertEquals(List.of("operationId", "checkId", "success", "ownerPlayerId", "actor"), submission.get("required"));
+        assertEquals(List.of("commandId", "operationId", "checkId", "success", "ownerPlayerId", "actor"), submission.get("required"));
 
         Map<String, Object> adventure = new Yaml().load(Files.readString(CONTRACTS.resolve("adventure").resolve("openapi.yaml")));
         Map<String, Object> adventurePaths = (Map<String, Object>) adventure.get("paths");

@@ -415,12 +415,15 @@ public class CombatMapController {
     @PostMapping("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}/resume")
     public MovementOperationResponseBody resumeMovement(@PathVariable UUID mapId, @PathVariable UUID operationId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody(required = false) MovementCheckResultBody checkResult) {
         requestGuard.internal(token);
+        requireIdempotencyKey(idempotencyKey, checkResult == null ? operationId : checkResult.commandId());
         MovementOperationResponse response = checkResult == null
                 ? movementService.resume(new MapId(mapId), operationId)
                 : movementService.resume(new MapId(mapId), operationId,
                         new com.dndmaster.combatmap.application.movement.MovementCheckResult(
+                                checkResult.commandId(),
                                 checkResult.operationId(),
                                 checkResult.checkId(), Boolean.TRUE.equals(checkResult.success()),
                                 new com.dndmaster.combatmap.application.movement.MovementCheckOwner(
@@ -811,7 +814,7 @@ public class CombatMapController {
         public record PendingCheckResponse(UUID checkId, UUID operationId, String label, String diceExpression,
                 UUID ownerPlayerId, com.dndmaster.combatmap.application.movement.MovementCheckActor actor) {}
         public record PendingCheckDetailsResponse(UUID checkId, UUID operationId, String ruleReference,
-                Integer difficulty, UUID ownerPlayerId,
+                String diceExpression, int modifier, Integer difficulty, UUID ownerPlayerId,
                 com.dndmaster.combatmap.application.movement.MovementCheckActor actor) {}
         static MovementOperationResponseBody from(MovementOperationResponse response) {
             var result = response.result();
@@ -826,7 +829,8 @@ public class CombatMapController {
                                     response.pendingCheck().owner().playerId().value(), response.pendingCheck().owner().actor()),
                     response.pendingCheckDetails() == null ? null
                             : new PendingCheckDetailsResponse(response.pendingCheckDetails().checkId(), response.pendingCheckDetails().operationId(),
-                                    response.pendingCheckDetails().ruleReference(), response.pendingCheckDetails().difficulty(),
+                                    response.pendingCheckDetails().ruleReference(), response.pendingCheckDetails().diceExpression(),
+                                    response.pendingCheckDetails().modifier(), response.pendingCheckDetails().difficulty(),
                                     response.pendingCheckDetails().owner().playerId().value(), response.pendingCheckDetails().owner().actor()));
         }
     }
@@ -917,7 +921,8 @@ public class CombatMapController {
             Set<SpatialTrigger> triggers = requestTriggers(item.triggers());
             DetectionSpec detection = item.detectionRuleReference() == null || item.detectionRuleReference().isBlank()
                     || item.detectionMode() == null || item.detectionMode().isBlank()
-                    ? null : new DetectionSpec(item.detectionRuleReference(), item.detectionDifficulty(), item.detectionMode());
+                    ? null : new DetectionSpec(item.detectionRuleReference(), item.detectionDiceExpression(), item.detectionModifier(),
+                            item.detectionDifficulty(), item.detectionMode());
             var evidence = item.evidence();
             if (evidence == null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "structured spatial evidence is required");
             return new SpatialFeaturePlacementBatch.Placement(item.featureId(), type, item.required(),
@@ -951,18 +956,19 @@ public class CombatMapController {
     }
     public record SpatialFeaturePlacementRequest(UUID featureId, String type, boolean required, List<String> cells,
             SpatialEvidenceRequest evidence, String detectionRuleReference, Integer detectionDifficulty,
-            String detectionMode, List<String> triggers, int durationTurns, String removalPolicy,
+            String detectionMode, String detectionDiceExpression, int detectionModifier, List<String> triggers, int durationTurns, String removalPolicy,
             boolean overlapAllowed, boolean repeatable) {
         public SpatialFeaturePlacementRequest {
             cells = cells == null ? List.of() : List.copyOf(cells);
             triggers = triggers == null ? List.of() : List.copyOf(triggers);
             removalPolicy = removalPolicy == null ? "" : removalPolicy;
+            detectionDiceExpression = detectionDiceExpression == null || detectionDiceExpression.isBlank() ? "1d20" : detectionDiceExpression.trim();
         }
         public SpatialFeaturePlacementRequest(UUID featureId, String type, boolean required, List<String> cells,
                 SpatialEvidenceRequest evidence, String detectionRuleReference, Integer detectionDifficulty,
                 String detectionMode, List<String> triggers) {
             this(featureId, type, required, cells, evidence, detectionRuleReference, detectionDifficulty,
-                    detectionMode, triggers, -1, "", false, false);
+                    detectionMode, "1d20", 0, triggers, -1, "", false, false);
         }
     }
 

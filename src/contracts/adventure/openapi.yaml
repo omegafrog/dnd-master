@@ -233,6 +233,7 @@ paths:
       parameters:
         - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: mapId, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
       requestBody:
         required: false
         content:
@@ -360,8 +361,9 @@ components:
         pendingCheck: { oneOf: [{ $ref: '#/components/schemas/CombatMapPendingCheck' }, { type: 'null' }] }
     CombatMapCheckResultSubmission:
       type: object
-      required: [operationId, checkId, success, ownerPlayerId, actor]
+      required: [commandId, operationId, checkId, success, ownerPlayerId, actor]
       properties:
+        commandId: { type: string, format: uuid }
         operationId: { type: string, format: uuid }
         checkId: { type: string, format: uuid }
         success: { type: boolean }

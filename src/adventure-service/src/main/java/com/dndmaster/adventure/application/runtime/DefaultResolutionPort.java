@@ -17,13 +17,9 @@ public final class DefaultResolutionPort implements ResolutionPort {
 
     @Override
     public PlayerCheckResult resolvePlayerCheck(PlayerCheckRequest request) {
-        if (request == null || request.ruleReference() == null || request.ruleReference().isBlank()) {
-            throw new IllegalArgumentException("a player check rule reference is required");
-        }
-        if (request.difficulty() < 0) throw new IllegalArgumentException("player check difficulty must not be negative");
-        if (request.rollTotal() < 1 || request.rollTotal() > 20) {
-            throw new IllegalArgumentException("player check roll must be between 1 and 20");
-        }
-        return new PlayerCheckResult(request.rollTotal(), request.rollTotal() >= request.difficulty());
+        if (request == null) throw new IllegalArgumentException("player check request is required");
+        TypedCheckRule rule = request.rule();
+        return new PlayerCheckResult(rule.ruleReference(), request.diceExpression(), rule.modifier(),
+                rule.difficulty(), request.rollTotal(), rule.accepts(request.rollTotal()));
     }
 }

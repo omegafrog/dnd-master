@@ -19,8 +19,8 @@ import java.util.regex.Pattern;
 final class MapDefinitionCompiler {
     private static final Pattern VALUE = Pattern.compile("(?i)([a-z]+)=(?:\"([^\"]+)\"|([^\\s]+))");
     private static final Pattern SPATIAL_FEATURE = Pattern.compile(
-            "(?i)\\bFEATURE\\s+id=([^\\s]+)\\s+type=([^\\s]+)\\s+required=(true|false)(?:\\s+(?:cells|resolutionUnitId|rule|difficulty|mode|triggers|duration|removal|overlap|repeatable)=[^\\s]+)*");
-    private static final Pattern FEATURE_ATTRIBUTE = Pattern.compile("(?i)(cells|resolutionUnitId|rule|difficulty|mode|triggers|duration|removal|overlap|repeatable)=([^\\s]+)");
+            "(?i)\\bFEATURE\\s+id=([^\\s]+)\\s+type=([^\\s]+)\\s+required=(true|false)(?:\\s+(?:cells|resolutionUnitId|rule|difficulty|mode|diceExpression|modifier|triggers|duration|removal|overlap|repeatable)=[^\\s]+)*");
+    private static final Pattern FEATURE_ATTRIBUTE = Pattern.compile("(?i)(cells|resolutionUnitId|rule|difficulty|mode|diceExpression|modifier|triggers|duration|removal|overlap|repeatable)=([^\\s]+)");
 
     Compilation compile(ScenarioSourceBundle bundle, List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
         List<MapDefinition> result = new ArrayList<>();
@@ -84,6 +84,7 @@ final class MapDefinitionCompiler {
             Matcher values = FEATURE_ATTRIBUTE.matcher(features.group());
             while (values.find()) attributes.put(values.group(1).toLowerCase(Locale.ROOT), values.group(2));
             Integer difficulty = attributes.containsKey("difficulty") ? integer(attributes.get("difficulty")) : null;
+            int modifier = attributes.containsKey("modifier") ? integer(attributes.get("modifier")) : 0;
             List<String> triggers = attributes.getOrDefault("triggers", "").isBlank()
                     ? List.of() : List.of(attributes.get("triggers").split("[|,]"));
             int duration = attributes.containsKey("duration") ? integer(attributes.get("duration")) : -1;
@@ -92,8 +93,9 @@ final class MapDefinitionCompiler {
             requirements.add(new MapDefinition.SpatialFeatureRequirement(
                     UUID.fromString(features.group(1)), features.group(2), Boolean.parseBoolean(features.group(3)),
                     List.of(evidenceReference), splitValues(attributes.getOrDefault("cells", "")),
-                    attributes.getOrDefault("resolutionunitid", ""), attributes.getOrDefault("rule", ""), difficulty,
-                    attributes.getOrDefault("mode", ""), triggers, duration, attributes.getOrDefault("removal", ""), overlap, repeatable));
+                    attributes.getOrDefault("rule", ""), difficulty, attributes.getOrDefault("mode", ""), triggers, duration,
+                    attributes.getOrDefault("removal", ""), overlap, attributes.getOrDefault("resolutionunitid", ""), repeatable,
+                    attributes.getOrDefault("diceexpression", "1d20"), modifier));
         }
         return List.copyOf(requirements);
     }

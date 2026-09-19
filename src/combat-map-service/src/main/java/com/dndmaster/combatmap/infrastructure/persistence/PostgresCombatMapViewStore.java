@@ -406,18 +406,21 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     private static void writeFeatures(Connection connection, CombatMap map, UUID mapId, String featureTable,
             String cellTable, String triggerTable) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO " + featureTable + " (map_id,feature_id,feature_type,visibility,state,detection_rule_reference,detection_difficulty,detection_mode,origin,source_reference,created_turn,created_map_version,repeatable,remaining_duration_turns,removal_policy,overlap_allowed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                "INSERT INTO " + featureTable + " (map_id,feature_id,feature_type,visibility,state,detection_rule_reference,detection_difficulty,detection_mode,detection_dice_expression,detection_modifier,origin,source_reference,created_turn,created_map_version,repeatable,remaining_duration_turns,removal_policy,overlap_allowed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
             for (SpatialFeature feature : map.spatialFeatures()) {
                 statement.setObject(1, mapId); statement.setObject(2, feature.id()); statement.setString(3, feature.type().name());
                 statement.setString(4, feature.visibility().name()); statement.setString(5, feature.state().name());
                 DetectionSpec detection = feature.detectionSpec();
                 statement.setString(6, detection == null ? null : detection.ruleReference());
                 if (detection == null || detection.difficulty() == null) statement.setObject(7, null); else statement.setInt(7, detection.difficulty());
-                statement.setString(8, detection == null ? null : detection.mode()); statement.setString(9, feature.provenance().origin().name());
-                statement.setString(10, feature.provenance().sourceReference()); statement.setLong(11, feature.provenance().createdTurn());
-                statement.setLong(12, feature.provenance().createdMapVersion()); statement.setBoolean(13, feature.repeatable());
-                statement.setInt(14, feature.remainingDurationTurns()); statement.setString(15, feature.removalPolicy());
-                statement.setBoolean(16, feature.overlapAllowed()); statement.addBatch();
+                statement.setString(8, detection == null ? null : detection.mode());
+                statement.setString(9, detection == null ? null : detection.diceExpression());
+                statement.setInt(10, detection == null ? 0 : detection.modifier());
+                statement.setString(11, feature.provenance().origin().name());
+                statement.setString(12, feature.provenance().sourceReference()); statement.setLong(13, feature.provenance().createdTurn());
+                statement.setLong(14, feature.provenance().createdMapVersion()); statement.setBoolean(15, feature.repeatable());
+                statement.setInt(16, feature.remainingDurationTurns()); statement.setString(17, feature.removalPolicy());
+                statement.setBoolean(18, feature.overlapAllowed()); statement.addBatch();
             }
             statement.executeBatch();
         }
@@ -544,7 +547,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             }
         }
         try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO " + HISTORY_FEATURE_TABLE + " (command_id,sequence,feature_id,feature_type,visibility,state,detection_rule_reference,detection_difficulty,detection_mode,origin,source_reference,created_turn,created_map_version,repeatable,remaining_duration_turns,removal_policy,overlap_allowed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+                "INSERT INTO " + HISTORY_FEATURE_TABLE + " (command_id,sequence,feature_id,feature_type,visibility,state,detection_rule_reference,detection_difficulty,detection_mode,detection_dice_expression,detection_modifier,origin,source_reference,created_turn,created_map_version,repeatable,remaining_duration_turns,removal_policy,overlap_allowed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
             int sequence = 0;
             for (SpatialFeature feature : map.spatialFeatures()) {
                 DetectionSpec detection = feature.detectionSpec();
@@ -552,11 +555,13 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 statement.setString(4, feature.type().name()); statement.setString(5, feature.visibility().name()); statement.setString(6, feature.state().name());
                 statement.setString(7, detection == null ? null : detection.ruleReference());
                 if (detection == null || detection.difficulty() == null) statement.setObject(8, null); else statement.setInt(8, detection.difficulty());
-                statement.setString(9, detection == null ? null : detection.mode()); statement.setString(10, feature.provenance().origin().name());
-                statement.setString(11, feature.provenance().sourceReference()); statement.setLong(12, feature.provenance().createdTurn());
-                statement.setLong(13, feature.provenance().createdMapVersion()); statement.setBoolean(14, feature.repeatable());
-                statement.setInt(15, feature.remainingDurationTurns()); statement.setString(16, feature.removalPolicy());
-                statement.setBoolean(17, feature.overlapAllowed()); statement.addBatch();
+                statement.setString(9, detection == null ? null : detection.mode());
+                statement.setString(10, detection == null ? null : detection.diceExpression());
+                statement.setInt(11, detection == null ? 0 : detection.modifier()); statement.setString(12, feature.provenance().origin().name());
+                statement.setString(13, feature.provenance().sourceReference()); statement.setLong(14, feature.provenance().createdTurn());
+                statement.setLong(15, feature.provenance().createdMapVersion()); statement.setBoolean(16, feature.repeatable());
+                statement.setInt(17, feature.remainingDurationTurns()); statement.setString(18, feature.removalPolicy());
+                statement.setBoolean(19, feature.overlapAllowed()); statement.addBatch();
             }
             statement.executeBatch();
         }
@@ -690,8 +695,11 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                     String ruleReference = rows.getString("detection_rule_reference");
                     Integer difficulty = rows.getObject("detection_difficulty", Integer.class);
                     String mode = rows.getString("detection_mode");
+                    String diceExpression = rows.getString("detection_dice_expression");
+                    Integer modifier = rows.getObject("detection_modifier", Integer.class);
                     DetectionSpec detection = ruleReference == null || ruleReference.isBlank() || mode == null || mode.isBlank()
-                            ? null : new DetectionSpec(ruleReference, difficulty, mode);
+                            ? null : new DetectionSpec(ruleReference, diceExpression == null ? "1d20" : diceExpression,
+                                    modifier == null ? 0 : modifier, difficulty, mode);
                     SpatialFeatureProvenance provenance = new SpatialFeatureProvenance(
                             SpatialFeatureOrigin.valueOf(rows.getString("origin")), rows.getString("source_reference"),
                             rows.getLong("created_turn"), rows.getLong("created_map_version"));

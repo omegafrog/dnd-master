@@ -94,7 +94,8 @@ public final class CombatMapMovementService {
     public MovementOperationResponse resume(MapId mapId, UUID operationId, MovementCheckResult checkResult) {
         MovementResolutionOperation operation = operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found"));
         requireMap(operation, mapId);
-        operation.resumeFromCheck(Objects.requireNonNull(checkResult));
+        boolean replay = operation.resumeFromCheck(Objects.requireNonNull(checkResult));
+        if (replay) return response(operation);
         operations.save(operation);
         CombatMap map = repository.findById(operation.mapId()).orElseThrow(() -> new CombatMapMovementDeniedException("map not found"));
         rebuildStagedMap(map, operation);
@@ -206,6 +207,7 @@ public final class CombatMapMovementService {
                     }
                     MovementCheckRequest request = new MovementCheckRequest(UUID.randomUUID(), operation.operationId(), feature.id(),
                             feature.type(), SpatialTrigger.BECOME_VISIBLE, feature.detectionSpec().ruleReference(),
+                            feature.detectionSpec().diceExpression(), feature.detectionSpec().modifier(),
                             feature.detectionSpec().difficulty(), feature.detectionSpec().mode(),
                             MovementCheckOwner.player(operation.playerId()));
                     java.util.Optional<MovementCheckResult> resolved = checkResolver.resolve(request);
@@ -282,6 +284,7 @@ public final class CombatMapMovementService {
             if (previous.isPresent()) continue;
             MovementCheckRequest request = new MovementCheckRequest(UUID.randomUUID(), operation.operationId(), feature.id(),
                     feature.type(), SpatialTrigger.OBSERVE, feature.detectionSpec().ruleReference(),
+                    feature.detectionSpec().diceExpression(), feature.detectionSpec().modifier(),
                     feature.detectionSpec().difficulty(), feature.detectionSpec().mode(),
                     MovementCheckOwner.player(operation.playerId()));
             java.util.Optional<MovementCheckResult> resolved = checkResolver.resolve(request);

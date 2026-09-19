@@ -47,35 +47,36 @@ public record MapDefinition(
     public record SpatialFeatureRequirement(UUID featureId, String type, boolean required,
             List<String> evidenceReferences, List<String> authoritativeCells, String detectionRuleReference, Integer detectionDifficulty,
             String detectionMode, List<String> triggers, int durationTurns, String removalPolicy,
-            boolean overlapAllowed, String resolutionUnitId, boolean repeatable) {
+            boolean overlapAllowed, String resolutionUnitId, boolean repeatable,
+            String detectionDiceExpression, int detectionModifier) {
         public SpatialFeatureRequirement(UUID featureId, String type, boolean required,
                 List<String> evidenceReferences, String detectionRuleReference, Integer detectionDifficulty,
                 String detectionMode, List<String> triggers) {
             this(featureId, type, required, evidenceReferences, List.of(), detectionRuleReference,
-                    detectionDifficulty, detectionMode, triggers, -1, "", "MAGICAL_AREA_EFFECT".equalsIgnoreCase(type), "", false);
+                    detectionDifficulty, detectionMode, triggers, -1, "", "MAGICAL_AREA_EFFECT".equalsIgnoreCase(type), "", false, "1d20", 0);
         }
 
         public SpatialFeatureRequirement(UUID featureId, String type, boolean required,
                 List<String> evidenceReferences, List<String> authoritativeCells, String detectionRuleReference,
                 Integer detectionDifficulty, String detectionMode, List<String> triggers) {
             this(featureId, type, required, evidenceReferences, authoritativeCells, detectionRuleReference,
-                    detectionDifficulty, detectionMode, triggers, -1, "", "MAGICAL_AREA_EFFECT".equalsIgnoreCase(type), "", false);
+                    detectionDifficulty, detectionMode, triggers, -1, "", "MAGICAL_AREA_EFFECT".equalsIgnoreCase(type), "", false, "1d20", 0);
         }
 
         public SpatialFeatureRequirement(UUID featureId, String type, boolean required,
                 List<String> evidenceReferences, List<String> authoritativeCells, String resolutionUnitId,
                 String detectionRuleReference, Integer detectionDifficulty, String detectionMode, List<String> triggers) {
-            this(featureId, type, required, evidenceReferences, authoritativeCells, resolutionUnitId,
-                    detectionRuleReference, detectionDifficulty, detectionMode, triggers, -1, "",
-                    "MAGICAL_AREA_EFFECT".equalsIgnoreCase(type), false);
+            this(featureId, type, required, evidenceReferences, authoritativeCells, detectionRuleReference,
+                    detectionDifficulty, detectionMode, triggers, -1, "",
+                    "MAGICAL_AREA_EFFECT".equalsIgnoreCase(type), resolutionUnitId, false, "1d20", 0);
         }
 
             public SpatialFeatureRequirement(UUID featureId, String type, boolean required,
                 List<String> evidenceReferences, List<String> authoritativeCells, String detectionRuleReference,
                 Integer detectionDifficulty, String detectionMode, List<String> triggers,
                 int durationTurns, String removalPolicy, boolean overlapAllowed) {
-            this(featureId, type, required, evidenceReferences, authoritativeCells, "", detectionRuleReference,
-                    detectionDifficulty, detectionMode, triggers, durationTurns, removalPolicy, overlapAllowed, false);
+            this(featureId, type, required, evidenceReferences, authoritativeCells, detectionRuleReference,
+                    detectionDifficulty, detectionMode, triggers, durationTurns, removalPolicy, overlapAllowed, "", false, "1d20", 0);
         }
 
         public SpatialFeatureRequirement(UUID featureId, String type, boolean required,
@@ -84,7 +85,7 @@ public record MapDefinition(
                 int durationTurns, String removalPolicy, boolean overlapAllowed, boolean repeatable) {
             this(featureId, type, required, evidenceReferences, authoritativeCells, detectionRuleReference,
                     detectionDifficulty, detectionMode, triggers, durationTurns, removalPolicy, overlapAllowed,
-                    resolutionUnitId, repeatable);
+                    resolutionUnitId, repeatable, "1d20", 0);
         }
 
         public SpatialFeatureRequirement {
@@ -100,6 +101,8 @@ public record MapDefinition(
             }
             detectionRuleReference = detectionRuleReference == null ? "" : detectionRuleReference.trim();
             detectionMode = detectionMode == null ? "" : detectionMode.trim();
+            detectionDiceExpression = detectionDiceExpression == null || detectionDiceExpression.isBlank() ? "1d20" : detectionDiceExpression.trim();
+            if (detectionModifier < -10_000 || detectionModifier > 10_000) throw new IllegalArgumentException("detection modifier is out of range");
             resolutionUnitId = resolutionUnitId == null ? "" : resolutionUnitId.trim();
             triggers = triggers == null ? List.of() : List.copyOf(triggers);
             if (durationTurns < -1) throw new IllegalArgumentException("duration must be -1 or non-negative");

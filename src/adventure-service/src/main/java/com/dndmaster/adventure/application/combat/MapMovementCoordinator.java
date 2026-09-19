@@ -46,17 +46,17 @@ public final class MapMovementCoordinator {
     public CombatMapMoveResult rollAndResume(SpatialCheckRollCommand command) {
         Objects.requireNonNull(command, "spatial check roll command must not be null");
         CombatMapCheckDetails details = requireOwnedPendingCheck(command.mapId(), command.operationId(), command);
-        int rollTotal = dice.rollSpatialCheck(command);
+        int rollTotal = dice.rollSpatialCheck(command.withRule(details));
         ResolutionPort.PlayerCheckResult result = resolve(details, rollTotal);
         return combatMap.resumeMovementOperation(command.mapId(), command.operationId(),
-                new CombatMapCheckSubmission(command.operationId(), command.checkId(), result.success(),
+                new CombatMapCheckSubmission(command.commandId(), command.operationId(), command.checkId(), result.success(),
                         command.ownerPlayerId(), CombatMapCheckActor.PLAYER));
     }
 
     private ResolutionPort.PlayerCheckResult resolve(CombatMapCheckDetails details, int rollTotal) {
         if (details.difficulty() == null) throw new IllegalStateException("pending movement check has no typed difficulty");
         return resolution.resolvePlayerCheck(new ResolutionPort.PlayerCheckRequest(
-                details.ruleReference(), details.difficulty(), rollTotal));
+                details.ruleReference(), details.diceExpression(), details.modifier(), details.difficulty(), rollTotal));
     }
 
     private CombatMapCheckDetails requireOwnedPendingCheck(java.util.UUID mapId, java.util.UUID operationId,

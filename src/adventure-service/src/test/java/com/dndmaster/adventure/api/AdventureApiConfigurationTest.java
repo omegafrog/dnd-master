@@ -59,14 +59,57 @@ class AdventureApiConfigurationTest {
             CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
                     "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
             UUID checkId = UUID.randomUUID();
+            UUID commandId = UUID.randomUUID();
             var command = new SpatialCheckRollCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                    new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), checkId, UUID.randomUUID(), 4L);
+                    new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), checkId, UUID.randomUUID(), commandId,
+                    "dnd5e.perception", "2d6", 3, 15, 4L);
 
             assertEquals(17, configured.rollSpatialCheck(command));
             assertEquals("/internal/v1/dice-rolls/player", requestPath.get());
-            assertEquals(checkId.toString(), idempotencyKey.get());
-            assertTrue(requestBody.get().contains("\"sides\":20"));
-            assertTrue(requestBody.get().contains("\"commandId\":\"" + checkId + "\""));
+            assertEquals(commandId.toString(), idempotencyKey.get());
+            assertTrue(requestBody.get().contains("\"ruleReference\":\"dnd5e.perception\""));
+            assertTrue(requestBody.get().contains("\"count\":2"));
+            assertTrue(requestBody.get().contains("\"sides\":6"));
+            assertTrue(requestBody.get().contains("\"modifier\":3"));
+            assertTrue(requestBody.get().contains("\"commandId\":\"" + commandId + "\""));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void sends_check_resume_command_identity_to_the_combat_map_gateway() throws Exception {
+        AtomicReference<String> requestPath = new AtomicReference<>();
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        AtomicReference<String> idempotencyKey = new AtomicReference<>();
+        UUID mapId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID checkId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/", exchange -> {
+            requestPath.set(exchange.getRequestURI().getPath());
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            idempotencyKey.set(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
+            byte[] body = ("{\"operationId\":\"%s\",\"status\":\"COMMITTED\",\"mapVersion\":1,\"requestedPath\":[],\"traversedPath\":[],\"publicEvents\":[]}").formatted(operationId).getBytes();
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
+            configured.resumeMovementOperation(mapId, operationId,
+                    new com.dndmaster.adventure.application.combat.CombatMapCheckSubmission(
+                            commandId, operationId, checkId, true, ownerId,
+                            com.dndmaster.adventure.application.combat.CombatMapCheckActor.PLAYER));
+
+            assertEquals("/internal/v1/combat-maps/" + mapId + "/movement-operations/" + operationId + "/resume", requestPath.get());
+            assertEquals(commandId.toString(), idempotencyKey.get());
+            assertTrue(requestBody.get().contains("\"commandId\":\"" + commandId + "\""));
+            assertTrue(requestBody.get().contains("\"checkId\":\"" + checkId + "\""));
         } finally {
             server.stop(0);
         }

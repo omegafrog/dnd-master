@@ -313,6 +313,10 @@ paths:
           in: header
           required: true
           schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
       requestBody:
         required: false
         content:
@@ -504,8 +508,9 @@ components:
         pendingCheck: { oneOf: [{ $ref: '#/components/schemas/MovementCheckPending' }, { type: 'null' }] }
     MovementCheckResultSubmission:
       type: object
-      required: [operationId, checkId, success, ownerPlayerId, actor]
+      required: [commandId, operationId, checkId, success, ownerPlayerId, actor]
       properties:
+        commandId: { type: string, format: uuid }
         operationId: { type: string, format: uuid }
         checkId: { type: string, format: uuid }
         success: { type: boolean }

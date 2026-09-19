@@ -87,10 +87,11 @@ public final class ScenarioSpatialFeaturePreparationService {
                 map.source(), requirement.resolutionUnitId(), requirement.evidenceReferences().getFirst(), requirement.authoritativeCells());
         return new ScenarioSpatialFeaturePreparationResult.Placement(requirement.featureId(), requirement.type().toUpperCase(Locale.ROOT),
                 requirement.required(), candidate.cells(), new ScenarioSpatialFeaturePreparationResult.Evidence(
-                        evidence.sourceDocumentId(), evidence.sourceExtractionVersion(), evidence.sourceLocator(),
+                evidence.sourceDocumentId(), evidence.sourceExtractionVersion(), evidence.sourceLocator(),
                         evidence.resolutionUnitId(), evidence.scenarioPackageVersion(), evidence.allowedCells()),
                 requirement.detectionRuleReference(), requirement.detectionDifficulty(), requirement.detectionMode(),
-                requirement.triggers(), requirement.durationTurns(), requirement.removalPolicy(), requirement.overlapAllowed(), requirement.repeatable());
+                requirement.triggers(), requirement.durationTurns(), requirement.removalPolicy(), requirement.overlapAllowed(), requirement.repeatable(),
+                requirement.detectionDiceExpression(), requirement.detectionModifier());
     }
 
     private record Validation(List<ScenarioSpatialFeaturePreparationResult.Placement> placements,

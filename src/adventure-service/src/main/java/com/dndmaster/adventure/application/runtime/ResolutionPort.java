@@ -8,6 +8,21 @@ public interface ResolutionPort {
         throw new UnsupportedOperationException("player check resolution is unavailable");
     }
 
-    record PlayerCheckRequest(String ruleReference, int difficulty, int rollTotal) {}
-    record PlayerCheckResult(int total, boolean success) {}
+    record PlayerCheckRequest(String ruleReference, String diceExpression, int modifier,
+            Integer difficulty, int rollTotal) {
+        public PlayerCheckRequest(String ruleReference, int difficulty, int rollTotal) {
+            this(ruleReference, "1d20", 0, difficulty, rollTotal);
+        }
+
+        public TypedCheckRule rule() {
+            return new TypedCheckRule(ruleReference, diceExpression, modifier, difficulty);
+        }
+    }
+
+    record PlayerCheckResult(String ruleReference, String diceExpression, int modifier,
+            Integer difficulty, int total, boolean success) {
+        public PlayerCheckResult(int total, boolean success) {
+            this("", "", 0, null, total, success);
+        }
+    }
 }

@@ -10,7 +10,8 @@ public record PendingMovementCheck(UUID checkId, UUID operationId, String label,
         Objects.requireNonNull(checkId, "check id must not be null");
         Objects.requireNonNull(operationId, "operation id must not be null");
         label = label == null || label.isBlank() ? "판정" : label.trim();
-        diceExpression = diceExpression == null || diceExpression.isBlank() ? "d20" : diceExpression.trim();
+        if (diceExpression == null || diceExpression.isBlank()) throw new IllegalArgumentException("dice expression is required");
+        diceExpression = diceExpression.trim();
         owner = Objects.requireNonNull(owner, "check owner must not be null");
     }
 }
