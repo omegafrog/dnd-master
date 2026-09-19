@@ -354,10 +354,12 @@ components:
         followUp: { oneOf: [{ $ref: '#/components/schemas/MovementFollowUpCommand' }, { type: 'null' }] }
     MovementFollowUpCommand:
       type: object
-      required: [commandId, operationId, kind, trigger]
+      required: [commandId, operationId, hostileTokenId, turnId, kind, trigger]
       properties:
         commandId: { type: string, format: uuid }
         operationId: { type: string, format: uuid }
+        hostileTokenId: { type: string, format: uuid }
+        turnId: { type: string, format: uuid }
         kind: { type: string, enum: [COMBAT] }
         trigger: { type: string, enum: [HOSTILE_OBSERVED] }
     AdventureMovementOperationResponse:

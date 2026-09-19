@@ -113,6 +113,42 @@ class SessionEventTest {
     }
 
     @Test
+    void typed_outcome_port_rejects_a_command_with_the_wrong_type_at_the_persistence_boundary() {
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(commands, new ObjectMapper());
+        UUID turnId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "unrelated.command",
+                continuationPayload(operationId, turnId, hostileTokenId), 0);
+        RuntimeContinuationCommandPort.ContinuationCommand request = new RuntimeContinuationCommandPort.ContinuationCommand(
+                command, new MovementFollowUpRuntimeConsumer.Continuation(MovementFollowUpCommand.Kind.COMBAT,
+                        "HOSTILE_OBSERVED", operationId, turnId, hostileTokenId));
+
+        assertThrows(CorruptRuntimeContinuationOutcomeException.class, () -> outcomes.combat(request));
+        assertTrue(commands.findByCommandId(command.commandId()).isEmpty());
+    }
+
+    @Test
+    void typed_outcome_port_rejects_a_payload_that_does_not_match_the_typed_request() {
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(commands, new ObjectMapper());
+        UUID turnId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation.combat",
+                continuationPayload(UUID.randomUUID(), turnId, hostileTokenId), 0);
+        RuntimeContinuationCommandPort.ContinuationCommand request = new RuntimeContinuationCommandPort.ContinuationCommand(
+                command, new MovementFollowUpRuntimeConsumer.Continuation(MovementFollowUpCommand.Kind.COMBAT,
+                        "HOSTILE_OBSERVED", operationId, turnId, hostileTokenId));
+
+        assertThrows(CorruptRuntimeContinuationOutcomeException.class, () -> outcomes.combat(request));
+        assertTrue(commands.findByCommandId(command.commandId()).isEmpty());
+    }
+
+    @Test
     void done_typed_continuation_with_empty_outcome_is_permanent_and_not_overwritten() {
         InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
         RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(commands, new ObjectMapper());
@@ -564,7 +600,8 @@ class SessionEventTest {
         for (MovementFollowUpCommand.Kind kind : List.of(MovementFollowUpCommand.Kind.COMBAT)) {
             RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
                     UUID.randomUUID(), UUID.randomUUID(), "external",
-                    "movement.continuation." + kind.name().toLowerCase(), "{}", kind.ordinal());
+                    "movement.continuation." + kind.name().toLowerCase(),
+                    continuationPayload(operationId, turnId, hostileTokenId), kind.ordinal());
             RuntimeContinuationCommandPort.ContinuationCommand typed = new RuntimeContinuationCommandPort.ContinuationCommand(
                     command, new MovementFollowUpRuntimeConsumer.Continuation(kind, "HOSTILE_OBSERVED", operationId,
                             turnId, hostileTokenId));
@@ -578,6 +615,12 @@ class SessionEventTest {
                     first.getClass().getSimpleName().replace("ContinuationCommand", ""));
             assertTrue(commands.findByCommandId(command.commandId()).orElseThrow().outcomeJson().contains("HOSTILE_OBSERVED"));
         }
+    }
+
+    private static String continuationPayload(UUID operationId, UUID turnId, UUID hostileTokenId) {
+        return "{\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\""
+                + operationId + "\",\"turnId\":\"" + turnId + "\",\"hostileTokenId\":\""
+                + hostileTokenId + "\"}";
     }
 
 }

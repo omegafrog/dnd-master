@@ -10,6 +10,8 @@ import java.util.Objects;
 
 /** Durable Runtime continuation command store backed by the existing command repository. */
 public final class PostgresRuntimeContinuationCommandOutcomePort implements RuntimeContinuationCommandOutcomePort {
+    private static final String COMBAT_CONTINUATION_COMMAND_TYPE = "movement.continuation.combat";
+
     private final RuntimeTurnCommandRepository commands;
     private final ObjectMapper objectMapper;
 
@@ -40,6 +42,27 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
                 || !command.turnId().equals(continuation.turnId())) {
             throw new CorruptRuntimeContinuationOutcomeException(
                     "typed continuation request identity does not match command", null);
+        }
+        if (!COMBAT_CONTINUATION_COMMAND_TYPE.equals(command.commandType())) {
+            throw new CorruptRuntimeContinuationOutcomeException(
+                    "typed continuation request command type does not match combat outcome", null);
+        }
+        validateCommandPayload(command, continuation);
+    }
+
+    private void validateCommandPayload(RuntimeTurnCommand command,
+            MovementFollowUpRuntimeConsumer.Continuation expected) {
+        MovementFollowUpRuntimeConsumer.Continuation persisted = read(command.payloadJson(),
+                MovementFollowUpRuntimeConsumer.Continuation.class);
+        try {
+            String canonical = objectMapper.writeValueAsString(persisted);
+            if (!canonical.equals(command.payloadJson()) || !persisted.equals(expected)) {
+                throw new CorruptRuntimeContinuationOutcomeException(
+                        "typed continuation command payload does not match request", null);
+            }
+        } catch (JsonProcessingException failure) {
+            throw new CorruptRuntimeContinuationOutcomeException(
+                    "typed continuation command payload is corrupt", failure);
         }
     }
 

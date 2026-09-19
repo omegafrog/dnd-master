@@ -126,6 +126,10 @@ class OpenApiSchemaTest {
         Map<String, Object> adventureSchemas = (Map<String, Object>) ((Map<String, Object>) adventure.get("components")).get("schemas");
         Map<String, Object> followUp = (Map<String, Object>) adventureSchemas.get("MovementFollowUpCommand");
         Map<String, Object> followUpProperties = (Map<String, Object>) followUp.get("properties");
+        assertEquals(List.of("commandId", "operationId", "hostileTokenId", "turnId", "kind", "trigger"),
+                followUp.get("required"));
+        assertEquals("uuid", ((Map<String, Object>) followUpProperties.get("hostileTokenId")).get("format"));
+        assertEquals("uuid", ((Map<String, Object>) followUpProperties.get("turnId")).get("format"));
         assertEquals(List.of("COMBAT"), ((Map<String, Object>) followUpProperties.get("kind")).get("enum"));
         assertEquals(List.of("HOSTILE_OBSERVED"), ((Map<String, Object>) followUpProperties.get("trigger")).get("enum"));
         assertNullableFinalPosition(schemaProperties(adventureSchemas, "MovementResult"), "Adventure movement result");
