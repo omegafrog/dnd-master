@@ -713,6 +713,15 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.combat.MovementPlacementModelPort movementPlacementModelPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
+        return new com.dndmaster.adventure.infrastructure.integration.HttpMovementPlacementModelGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(180), objectMapper, token);
+    }
+
+    @Bean
     AiGameMasterPort aiGameMasterPort() {
         return new AiGameMasterPort() {
             @Override

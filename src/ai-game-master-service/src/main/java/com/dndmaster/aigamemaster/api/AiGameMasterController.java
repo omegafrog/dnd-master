@@ -4,6 +4,7 @@ import com.dndmaster.aigamemaster.application.ports.AdjudicationModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapEntryPlacementModelPort;
 import com.dndmaster.aigamemaster.application.ports.SpatialFeaturePlacementModelPort;
+import com.dndmaster.aigamemaster.application.ports.MovementPlacementModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationModelPort;
 import com.dndmaster.aigamemaster.application.rule.*;
 import com.dndmaster.aigamemaster.application.scene.NpcOutput;
@@ -26,6 +27,7 @@ public class AiGameMasterController {
     private final MapModelPort mapPort;
     private final MapEntryPlacementModelPort mapEntryPlacementPort;
     private final SpatialFeaturePlacementModelPort spatialFeaturePlacementPort;
+    private final MovementPlacementModelPort movementPlacementPort;
     private final IntentClassificationModelPort intentClassificationPort;
 
     public AiGameMasterController(
@@ -35,7 +37,8 @@ public class AiGameMasterController {
             MapModelPort mapPort,
             IntentClassificationModelPort intentClassificationPort,
             MapEntryPlacementModelPort mapEntryPlacementPort,
-            SpatialFeaturePlacementModelPort spatialFeaturePlacementPort) {
+            SpatialFeaturePlacementModelPort spatialFeaturePlacementPort,
+            MovementPlacementModelPort movementPlacementPort) {
         this.sceneService = sceneService;
         this.adjudicationPort = adjudicationPort;
         this.ruleAnswerService = ruleAnswerService;
@@ -43,12 +46,13 @@ public class AiGameMasterController {
         this.intentClassificationPort = intentClassificationPort;
         this.mapEntryPlacementPort = mapEntryPlacementPort;
         this.spatialFeaturePlacementPort = spatialFeaturePlacementPort;
+        this.movementPlacementPort = movementPlacementPort;
     }
 
     public AiGameMasterController(ScenarioBoundSceneService sceneService,
             AdjudicationModelPort adjudicationPort, GroundedRuleAnswerService ruleAnswerService,
             MapModelPort mapPort, IntentClassificationModelPort intentClassificationPort) {
-        this(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort, null, null);
+        this(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort, null, null, null);
     }
 
     @PostMapping("/internal/v1/gm/scenes")
@@ -112,6 +116,14 @@ public class AiGameMasterController {
                 request.action(), request.judgment(), request.narration(),
                 request.mapData(), request.imageDataUri()));
         return MapEntryPlacementResponse.from(output);
+    }
+
+    @PostMapping("/internal/v1/gm/movement-placements")
+    MovementPlacementResponse interpretMovement(@RequestBody MovementPlacementRequest request) {
+        if (movementPlacementPort == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
+        var output = movementPlacementPort.interpret(new MovementPlacementModelPort.MovementPlacementContext(
+                request.sourceText(), request.publicMap(), request.currentPosition(), request.tacticalContext()));
+        return MovementPlacementResponse.from(output);
     }
 
     @PostMapping("/internal/v1/gm/spatial-features")
@@ -258,6 +270,14 @@ public class AiGameMasterController {
                                             String reason) {
         static MapEntryPlacementResponse from(MapEntryPlacementModelPort.EntryPlacementOutput output) {
             return new MapEntryPlacementResponse(output.status(), output.interpretation(), output.candidates(), output.reason());
+        }
+    }
+
+    public record MovementPlacementRequest(String sourceText, String publicMap, String currentPosition, String tacticalContext) {}
+    public record MovementPlacementResponse(String status, MovementPlacementModelPort.Position destination,
+                                             List<MovementPlacementModelPort.Candidate> candidates, String playerMessage) {
+        static MovementPlacementResponse from(MovementPlacementModelPort.MovementPlacementProposal output) {
+            return new MovementPlacementResponse(output.status(), output.destination(), output.candidates(), output.playerMessage());
         }
     }
 

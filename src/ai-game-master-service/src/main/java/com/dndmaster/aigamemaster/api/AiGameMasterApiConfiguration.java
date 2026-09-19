@@ -4,6 +4,7 @@ import com.dndmaster.aigamemaster.application.ports.AdjudicationModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapEntryPlacementModelPort;
 import com.dndmaster.aigamemaster.application.ports.SpatialFeaturePlacementModelPort;
+import com.dndmaster.aigamemaster.application.ports.MovementPlacementModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationOutput;
 import com.dndmaster.aigamemaster.application.rule.*;
@@ -230,6 +231,53 @@ public class AiGameMasterApiConfiguration {
                         List.of(), "진입 위치 분석 제공자가 응답하지 않았습니다.");
             }
         };
+    }
+
+    @Bean
+    MovementPlacementModelPort movementPlacementModelPort(GmCompletionAdapter adapter,
+            com.fasterxml.jackson.databind.ObjectMapper mapper) {
+        return context -> {
+            try {
+                return java.util.concurrent.CompletableFuture.supplyAsync(() -> adapter.complete(
+                        "movement-placement-" + UUID.randomUUID(),
+                        new GmPrompt("ROLE=MOVEMENT_PLACEMENT_AGENT\n"
+                                + "SOURCE_TEXT=" + context.sourceText() + "\n"
+                                + "CURRENT_POSITION=" + context.currentPosition() + "\n"
+                                + "TACTICAL_CONTEXT=" + context.tacticalContext() + "\n"
+                                + "PUBLIC_MAP=" + context.publicMap() + "\n"
+                                + "TASK=Map the player's requested destination only against the supplied public map. Never infer or mention hidden creatures, hidden spatial features, difficulty values, or private map state. Do not change state.\n"
+                                + "OUTPUT_CONTRACT=Return one JSON object with status, destination, candidates, and playerMessage. status must be RESOLVED, AMBIGUOUS, or UNRESOLVED. RESOLVED must contain exactly one destination {x,y}; AMBIGUOUS and UNRESOLVED must not choose destination. candidates may contain public alternatives with destination, confidence, and reason. Ask a clarifying question or guide direct selection when not resolved.\n"
+                                + "Do not return markdown or hidden information.", null),
+                        text -> parseMovementPlacement(mapper, text)))
+                        .orTimeout(180, java.util.concurrent.TimeUnit.SECONDS).join();
+            } catch (java.util.concurrent.CompletionException | java.util.concurrent.CancellationException failure) {
+                return new MovementPlacementModelPort.MovementPlacementProposal("UNRESOLVED", null, List.of(), "목적지를 해석하지 못했습니다. 지도에서 목적지를 눌러 선택해주세요.");
+            }
+        };
+    }
+
+    private static MovementPlacementModelPort.MovementPlacementProposal parseMovementPlacement(
+            com.fasterxml.jackson.databind.ObjectMapper mapper, String text) {
+        try {
+            var root = mapper.readTree(text);
+            String status = root.path("status").asText("UNRESOLVED");
+            MovementPlacementModelPort.Position destination = position(root.path("destination"));
+            List<MovementPlacementModelPort.Candidate> candidates = new java.util.ArrayList<>();
+            if (root.path("candidates").isArray()) for (var item : root.path("candidates")) {
+                var point = position(item.path("destination"));
+                if (point != null) candidates.add(new MovementPlacementModelPort.Candidate(point,
+                        item.path("confidence").asDouble(0), item.path("reason").asText("")));
+            }
+            return new MovementPlacementModelPort.MovementPlacementProposal(status, destination, candidates,
+                    root.path("playerMessage").asText(""));
+        } catch (Exception invalid) {
+            return new MovementPlacementModelPort.MovementPlacementProposal("UNRESOLVED", null, List.of(), "목적지를 해석하지 못했습니다. 지도에서 목적지를 눌러 선택해주세요.");
+        }
+    }
+
+    private static MovementPlacementModelPort.Position position(com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null || !node.isObject() || !node.has("x") || !node.has("y")) return null;
+        return new MovementPlacementModelPort.Position(node.path("x").asInt(-1), node.path("y").asInt(-1));
     }
 
     @Bean
@@ -598,9 +646,10 @@ public class AiGameMasterApiConfiguration {
             MapModelPort mapPort,
             IntentClassificationModelPort intentClassificationPort,
             MapEntryPlacementModelPort mapEntryPlacementPort,
-            SpatialFeaturePlacementModelPort spatialFeaturePlacementPort) {
+            SpatialFeaturePlacementModelPort spatialFeaturePlacementPort,
+            MovementPlacementModelPort movementPlacementPort) {
         return new AiGameMasterController(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort,
-                mapEntryPlacementPort, spatialFeaturePlacementPort);
+                mapEntryPlacementPort, spatialFeaturePlacementPort, movementPlacementPort);
     }
 
     @Bean

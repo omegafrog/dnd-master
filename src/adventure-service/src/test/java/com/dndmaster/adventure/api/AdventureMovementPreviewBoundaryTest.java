@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.api;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -66,6 +67,27 @@ class AdventureMovementPreviewBoundaryTest {
                 new AdventureController.CombatMapMovementPreviewRequest(requestedMapId, 0L, UUID.randomUUID(),
                         new AdventureController.PositionPayload(1, 1), List.of())));
         verifyNoInteractions(combatMap);
+    }
+
+    @Test
+    void ambiguous_natural_language_destination_does_not_change_map_or_save_confirmation() {
+        UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID mapId = UUID.randomUUID(); UUID tokenId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class); AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        var pending = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class); Adventure adventure = mock(Adventure.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure)); when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(players.playerId()).thenReturn(ownerId); when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(
+                mapId, new CombatMapViewPort.Grid(3, 3, 50, 5), List.of(new CombatMapViewPort.Token(tokenId, "PLAYER", 0, 0)), List.of(), List.of(), List.of(), List.of(), List.of(), 4)));
+        AdventureController controller = controller(adventures, combatMap, mapViews, players, pending, mock(AppliedRuleSetApplicationService.class));
+        controller.setMovementPlacementModelPort(context -> new com.dndmaster.adventure.application.combat.MovementPlacementModelPort.MovementPlacementProposal(
+                "AMBIGUOUS", null, List.of(), "어느 문인지 알려주세요."));
+
+        var response = controller.previewNaturalLanguageMovement(adventureId,
+                new AdventureController.NaturalLanguageMovementPreviewRequest(mapId, 4L, tokenId, "문으로 가", ""));
+
+        assertEquals("AMBIGUOUS", response.status());
+        verifyNoInteractions(combatMap);
+        verifyNoInteractions(pending);
     }
 
     @Test

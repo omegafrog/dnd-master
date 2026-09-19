@@ -14,6 +14,8 @@ export type MapInteractionCandidate = {
   fingerprint?: string
   commandId?: string
   waypoints?: GridCell[]
+  sourceText?: string
+  pendingTurnId?: string
 }
 
 export function actionCandidate(mapId: string, mapVersion: number, tokenId: string, action: MapInteractionCandidate['action'], location?: GridCell, targetId?: string): MapInteractionCandidate {

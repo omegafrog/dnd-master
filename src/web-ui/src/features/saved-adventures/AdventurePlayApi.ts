@@ -115,7 +115,14 @@ export type PendingMapMovement = {
   distance: number
   fingerprint: string
   waypoints: Array<{ x: number; y: number }>
+  sourceText?: string
+  destination?: { x: number; y: number }
+  pendingTurnId?: string
 }
+export type NaturalLanguageMovementPreviewRequest = { mapId: string; mapVersion: number; tokenId: string; sourceText: string; tacticalContext?: string }
+export type NaturalLanguageMovementPreview = { status: 'RESOLVED' | 'AMBIGUOUS' | 'UNRESOLVED'; destination?: { x: number; y: number }; candidates: Array<{ destination: { x: number; y: number }; confidence: number; reason: string }>; playerMessage: string; pendingTurnId?: string; path: Array<{ x: number; y: number }>; distance?: number; baseMapVersion?: number; fingerprint?: string }
+export type NaturalLanguageMovementConfirmation = { pendingTurnId: string; commandId: string; tokenId: string; mapVersion: number }
+export type NaturalLanguageMovementConfirmationResult = { operationId?: string; status: string; version: number; publicEvents: string[] }
 
 export type MapMovementResult = {
   version: number
@@ -164,6 +171,8 @@ export interface AdventurePlayApi {
   previewMapMovement?(adventureId: string, request: MapMovementPreviewRequest): Promise<MapMovementPreview>
   getPendingMapMovement?(adventureId: string): Promise<PendingMapMovement | null>
   clearPendingMapMovement?(adventureId: string): Promise<void>
+  previewNaturalLanguageMovement?(adventureId: string, request: NaturalLanguageMovementPreviewRequest): Promise<NaturalLanguageMovementPreview>
+  confirmNaturalLanguageMovement?(adventureId: string, request: NaturalLanguageMovementConfirmation): Promise<NaturalLanguageMovementConfirmationResult>
   movementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
   latestMovementOperation?(adventureId: string, mapId: string): Promise<MapMovementResult | null>
   cancelMovementOperation?(adventureId: string, mapId: string, operationId: string, cancelCommandId: string): Promise<MapMovementResult>
@@ -355,6 +364,18 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   clearPendingMapMovement(adventureId: string) {
     return request<void>(`/api/v1/adventures/${adventureId}/map-movement/pending`, {
       method: 'DELETE', headers: this.authHeaders(),
+    })
+  }
+
+  previewNaturalLanguageMovement(adventureId: string, preview: NaturalLanguageMovementPreviewRequest) {
+    return request<NaturalLanguageMovementPreview>(`/api/v1/adventures/${adventureId}/map-movement/preview`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(preview),
+    })
+  }
+
+  confirmNaturalLanguageMovement(adventureId: string, confirmation: NaturalLanguageMovementConfirmation) {
+    return request<NaturalLanguageMovementConfirmationResult>(`/api/v1/adventures/${adventureId}/map-movement/confirm`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(confirmation),
     })
   }
 

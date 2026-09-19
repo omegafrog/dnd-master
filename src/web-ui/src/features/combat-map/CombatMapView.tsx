@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import type { AdventurePlayApi, CombatMapView as CombatMapState, MapBoundary, MapBoundaryProposal, MapMovementResult } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
@@ -38,6 +38,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [publicMapImage, setPublicMapImage] = useState<string | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
+  const [naturalMovementText, setNaturalMovementText] = useState('')
   const [candidate, setCandidate] = useState<MapInteractionCandidate | null>(() => readPendingMovementCommand(adventureId)?.candidate ?? null)
   const [message, setMessage] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -93,10 +94,11 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           try {
             const pending = await api.getPendingMapMovement(adventureId)
             if (pending) {
-              const path = pending.path
+              const currentToken = nextMap.tokens?.find(token => token.id === pending.tokenId)
+              const path = pending.path?.length ? pending.path : (currentToken && pending.destination ? [{ x: currentToken.x, y: currentToken.y }, pending.destination] : [])
               setCandidate({ mapId: pending.mapId, mapVersion: pending.mapVersion, tokenId: pending.tokenId,
                 action: 'MOVE', from: path[0], to: path[path.length - 1], path, distance: pending.distance,
-                fingerprint: pending.fingerprint, waypoints: pending.waypoints })
+                fingerprint: pending.fingerprint, waypoints: pending.waypoints, sourceText: pending.sourceText, pendingTurnId: pending.pendingTurnId })
             }
           } catch {
             // local candidate state remains a best-effort fallback.
@@ -233,6 +235,15 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       return
     }
     setSubmitting(true)
+    if (candidate.action === 'MOVE' && candidate.pendingTurnId && api.confirmNaturalLanguageMovement) {
+      try {
+        const command = createMapCommandIdentity()
+        const result = await api.confirmNaturalLanguageMovement(adventureId, { pendingTurnId: candidate.pendingTurnId, commandId: command.commandId, tokenId: candidate.tokenId, mapVersion: candidate.mapVersion })
+        setMap(await api.getCombatMap(adventureId)); setCandidate(null); setSelectedToken(null); setMessage(result.publicEvents.length ? `공개된 결과: ${result.publicEvents.join(', ')}` : '이동 확인을 처리했습니다.')
+      } catch (error) { setMessage(error instanceof Error ? error.message : '이동 확인을 처리하지 못했습니다.') }
+      finally { setSubmitting(false) }
+      return
+    }
     const command = candidate.commandId
       ? { turnId: candidate.commandId, commandId: candidate.commandId }
       : createMapCommandIdentity()
@@ -299,6 +310,21 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function previewNaturalMovement(event: FormEvent) {
+    event.preventDefault()
+    const token = map?.tokens?.find(item => item.type === 'PLAYER')
+    if (!map?.mapId || !token || !naturalMovementText.trim() || !api.previewNaturalLanguageMovement) return
+    setPreviewing(true)
+    try {
+      const result = await api.previewNaturalLanguageMovement(adventureId, { mapId: map.mapId, mapVersion: map.version ?? 0, tokenId: token.id, sourceText: naturalMovementText.trim() })
+      if (result.status !== 'RESOLVED' || !result.destination) { setCandidate(null); setMessage(result.playerMessage || '목적지를 다시 설명하거나 지도에서 선택해주세요.'); return }
+      setSelectedToken(token.id)
+      setCandidate({ mapId: map.mapId, mapVersion: result.baseMapVersion ?? map.version ?? 0, tokenId: token.id, action: 'MOVE', from: { x: token.x, y: token.y }, to: result.destination, path: result.path, distance: result.distance, fingerprint: result.fingerprint, waypoints: [], sourceText: naturalMovementText.trim(), pendingTurnId: result.pendingTurnId })
+      setMessage('자연어 목적지의 이동 경로를 미리 보았습니다. 확인 전에는 지도 상태가 바뀌지 않습니다.')
+    } catch (error) { setMessage(error instanceof Error ? error.message : '자연어 목적지를 해석하지 못했습니다.') }
+    finally { setPreviewing(false) }
   }
 
   async function applyMovementResult(result: MapMovementResult, mapId: string, tokenId: string,
@@ -701,6 +727,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {preparationMode && <section className="map-start-preparation" aria-label="플레이어 시작 위치"><h3>시작 위치 확인</h3>{placementRequired && <p role="alert">자동 판정으로 시작 위치를 찾지 못했습니다. 지도에서 직접 선택해주세요.</p>}<p>모험 중 맵에 진입할 때 행동·서술과 지도 이미지를 바탕으로 시작 위치를 자동 판정합니다. 아래 선택은 자동 판정에 실패했을 때 사용할 수 있는 수동 대안입니다.</p>{map.playerStartCandidates?.length ? <ul>{map.playerStartCandidates.map((candidate, index) => <li key={`${candidate.x}-${candidate.y}-${index}`}><button type="button" aria-pressed={selectedPlayerStart?.x === candidate.x && selectedPlayerStart?.y === candidate.y} onClick={() => setSelectedPlayerStart({ x: candidate.x, y: candidate.y })}>({candidate.x},{candidate.y}) 선택</button><span>신뢰도 {Math.round(candidate.confidence * 100)}% · {candidate.evidence.join(', ') || '근거 없음'}</span></li>)}</ul> : <p>아직 모험 중 진입 서술이 없어 자동 시작 위치 후보가 없습니다.</p>}<p role="status">{selectedPlayerStart ? `수동 대안으로 선택한 시작 칸: (${selectedPlayerStart.x},${selectedPlayerStart.y})` : '자동 판정 대기 중입니다.'}</p></section>}
       {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>3. AI 초안 생성 및 검수</h3><p>{!cropConfirmed ? '먼저 1단계에서 여백 자르기를 적용하세요.' : !gridConfirmed ? '먼저 2단계에서 격자를 맞추고 적용하세요.' : '격자 적용 완료. 현재 자른 영역과 격자를 기준으로 AI 초안을 생성합니다.'}</p>{cropConfirmed && gridConfirmed && <><button type="button" disabled={boundaryDetecting || layoutSaving || layoutEditing} onClick={() => void detectBoundaries()}>{boundaryDetecting ? 'AI 벽·문 감지 중…' : 'AI 벽·문 감지'}</button><button type="button" onClick={() => { if (layoutEditing) { setLayoutEditing(false); return }; if (!layoutBeforeEdit) setLayoutBeforeEdit(map); setLayoutSaved(false); setLayoutEditing(true) }}>{layoutEditing ? '검수 닫기' : '벽·문 편집'}</button>{layoutEditing && <div className="map-layout-editor"><ol className="map-layout-guide"><li>선은 칸의 한 면에 붙어 표시됩니다.</li><li>벽 그리기·문 그리기·지우기 중 하나를 고르세요.</li><li>격자선 위를 누른 채 끌면 지나간 선분에 적용됩니다.</li></ol><div className="map-boundary-tools" role="group" aria-label="벽과 문 그리기 도구"><button type="button" aria-pressed={boundaryTool === 'WALL'} onClick={() => setBoundaryTool('WALL')}>벽 그리기</button><button type="button" aria-pressed={boundaryTool === 'DOOR'} onClick={() => setBoundaryTool('DOOR')}>문 그리기</button><button type="button" aria-pressed={boundaryTool === 'ERASE'} onClick={() => setBoundaryTool('ERASE')}>지우기</button></div>{tacticalMap}<p>칸은 이동하거나 선택되지 않습니다.</p><div className="map-layout-actions"><button type="button" disabled={layoutSaving} onClick={() => { boundaryStroke.current = null; setBoundaryPreview(null); const restored = layoutBeforeEdit; setMap(restored); setLayoutSaved(restored?.layers?.some(layer => layer.type === 'MAP_LAYOUT_CONFIRMED') ?? false); setLayoutDirty(false); setLayoutEditing(false); setLayoutBeforeEdit(null) }}>편집 취소</button><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div></div>}</>}</section>}
       {!layoutEditing && tacticalMap}
+      {!preparationMode && api.previewNaturalLanguageMovement && <form aria-label="자연어 이동" onSubmit={previewNaturalMovement}><label htmlFor="natural-movement-text">어디로 이동할까요?</label><input id="natural-movement-text" value={naturalMovementText} onChange={event => setNaturalMovementText(event.target.value)} placeholder="예: 열린 문 쪽으로 이동" /><button type="submit" disabled={previewing || !naturalMovementText.trim()}>목적지 미리보기</button></form>}
       {map?.tokens?.find(token => token.type === 'PLAYER' && map.current?.some(cell => cell.x === token.x && cell.y === token.y)) && api.observeSpatial && <button type="button" onClick={() => void observeCurrentCell()}>주변 살피기</button>}
       {map?.tokens?.filter(token => token.type !== 'PLAYER' && !token.lastSeen && map.current?.some(cell => cell.x === token.x && cell.y === token.y)).map(token => <button key={`target-${token.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'TARGET', { x: token.x, y: token.y }, token.id)) }}>대상 선택: {token.type}</button>)}
       {map?.objects?.filter(object => map.current?.some(cell => cell.x === object.x && cell.y === object.y)).map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}

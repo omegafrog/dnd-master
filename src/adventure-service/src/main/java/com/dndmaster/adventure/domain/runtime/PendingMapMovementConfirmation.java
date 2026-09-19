@@ -14,7 +14,16 @@ public record PendingMapMovementConfirmation(
         List<Position> path,
         int distance,
         String fingerprint,
-        List<Position> waypoints) {
+        List<Position> waypoints,
+        String sourceText,
+        Position destination,
+        UUID pendingTurnId) {
+    public PendingMapMovementConfirmation(UUID adventureId, UUID ownerPlayerId, UUID mapId, UUID tokenId, long mapVersion,
+            List<Position> path, int distance, String fingerprint, List<Position> waypoints) {
+        this(adventureId, ownerPlayerId, mapId, tokenId, mapVersion, path, distance, fingerprint, waypoints, "",
+                path == null || path.isEmpty() ? null : path.getLast(), null);
+    }
+
     public PendingMapMovementConfirmation {
         Objects.requireNonNull(adventureId, "adventure id must not be null");
         Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -22,10 +31,12 @@ public record PendingMapMovementConfirmation(
         Objects.requireNonNull(tokenId, "token id must not be null");
         if (mapVersion < 0) throw new IllegalArgumentException("map version must not be negative");
         path = copyPositions(path, "path");
-        if (path.size() < 2) throw new IllegalArgumentException("movement path must contain at least two positions");
+        if (path.size() < 2 && (sourceText == null || sourceText.isBlank())) throw new IllegalArgumentException("movement path must contain at least two positions");
         if (distance < 0) throw new IllegalArgumentException("movement distance must not be negative");
         if (fingerprint == null || fingerprint.isBlank()) throw new IllegalArgumentException("fingerprint must not be blank");
         waypoints = copyPositions(waypoints, "waypoints");
+        sourceText = sourceText == null ? "" : sourceText.trim();
+        if (destination != null && (destination.x() < 0 || destination.y() < 0)) throw new IllegalArgumentException("destination must not be negative");
     }
 
     private static List<Position> copyPositions(List<Position> positions, String name) {
