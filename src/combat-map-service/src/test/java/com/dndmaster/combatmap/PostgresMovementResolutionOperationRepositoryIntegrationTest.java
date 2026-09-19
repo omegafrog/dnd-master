@@ -107,6 +107,42 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
     }
 
     @Test
+    void concurrent_cancel_writes_keep_the_winner_and_report_a_compare_and_set_conflict() {
+        MovementResolutionOperation inserted = repository.reserve(operation(commandId, "cancel-race"));
+        MovementResolutionOperation first = repository.findById(inserted.operationId()).orElseThrow();
+        MovementResolutionOperation stale = repository.findById(inserted.operationId()).orElseThrow();
+        UUID cancelCommandId = UUID.randomUUID();
+        MovementResolutionResult result = new MovementResolutionResult(path, first.traversedPath(), first.currentCell(), 0,
+                List.of(), "CANCELLED", MovementResolutionOutcomeStatus.CANCELLED);
+        first.recordCancelCommand(cancelCommandId);
+        first.cancel(result);
+        stale.recordCancelCommand(cancelCommandId);
+        stale.cancel(result);
+
+        repository.save(first);
+
+        assertThrows(MovementOperationConcurrentUpdateException.class, () -> repository.save(stale));
+        assertEquals(cancelCommandId, repository.findById(inserted.operationId()).orElseThrow().cancelCommandId());
+    }
+
+    @Test
+    void cancel_command_unique_conflict_is_rejected_for_a_different_operation() {
+        MovementResolutionOperation first = repository.reserve(operation(commandId, "first-cancel"));
+        UUID cancelCommandId = UUID.randomUUID();
+        first.recordCancelCommand(cancelCommandId);
+        first.cancel(new MovementResolutionResult(path, first.traversedPath(), first.currentCell(), 0,
+                List.of(), "CANCELLED", MovementResolutionOutcomeStatus.CANCELLED));
+        repository.save(first);
+
+        MovementResolutionOperation second = repository.reserve(operation(UUID.randomUUID(), "second-cancel"));
+        second.recordCancelCommand(cancelCommandId);
+        second.cancel(new MovementResolutionResult(path, second.traversedPath(), second.currentCell(), 0,
+                List.of(), "CANCELLED", MovementResolutionOutcomeStatus.CANCELLED));
+
+        assertThrows(MovementCommandConflictException.class, () -> repository.save(second));
+    }
+
+    @Test
     void retry_wait_round_trip_preserves_the_prepared_result_and_resume_state() {
         MovementResolutionOperation operation = operation(commandId, "fingerprint");
         operation.advanceTo(1, new GridPosition(2, 1));

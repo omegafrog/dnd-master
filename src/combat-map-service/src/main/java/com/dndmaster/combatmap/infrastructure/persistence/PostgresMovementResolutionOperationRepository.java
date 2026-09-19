@@ -91,6 +91,13 @@ public final class PostgresMovementResolutionOperationRepository implements Move
                 }
                 throw new com.dndmaster.combatmap.application.movement.MovementReservationConflictException();
             }
+            if (!insert && "23505".equals(exception.getSQLState()) && value.cancelCommandId() != null) {
+                MovementResolutionOperation winner = findOperationByCancelCommandId(value.cancelCommandId()).orElse(null);
+                if (winner != null && !winner.operationId().equals(value.operationId())) {
+                    throw new MovementCommandConflictException();
+                }
+                throw new MovementOperationConcurrentUpdateException();
+            }
             throw new CombatMapPersistenceException("movement operation save failed", exception);
         }
     }

@@ -138,15 +138,16 @@ class SpatialTriggerResolverTest {
     }
 
     @Test
-    void visibility_refresh_does_not_discover_without_a_successful_check() {
+    void newly_visible_feature_is_discovered_once_and_returns_a_public_event() {
         SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
                 List.of(new GridPosition(1, 1)), null, Set.of(SpatialTrigger.BECOME_VISIBLE),
                 SpatialFeatureProvenance.runtime("runtime", 1, 0));
         CombatMap map = map(feature);
         SpatialTriggerResolver resolver = new SpatialTriggerResolver();
 
-        assertEquals(List.of(), resolver.resolveVisible(map, new GridPosition(1, 1)));
-        assertEquals(SpatialFeatureVisibility.HIDDEN, feature.visibility());
+        assertEquals(List.of("TRAP_DISCOVERED:1,1"), resolver.resolveVisible(map, new GridPosition(1, 1)));
+        assertEquals(SpatialFeatureVisibility.DISCOVERED, feature.visibility());
+        assertEquals(SpatialFeature.State.DISCOVERED, feature.state());
         assertEquals(List.of(), resolver.resolveVisible(map, new GridPosition(1, 1)));
     }
 
@@ -158,11 +159,11 @@ class SpatialTriggerResolverTest {
                 Set.of(SpatialTrigger.BECOME_VISIBLE), SpatialFeatureProvenance.runtime("runtime", 1, 0));
         CombatMap map = map(feature);
 
-        assertEquals(List.of(),
+        assertEquals(List.of("TRAP_DISCOVERED:2,2"),
                 new SpatialTriggerResolver().resolveVisible(map,
                         List.of(new GridPosition(2, 2), new GridPosition(2, 3))));
-        assertEquals(SpatialFeatureVisibility.HIDDEN, feature.visibility());
-        assertEquals(SpatialFeature.State.HIDDEN, feature.state());
+        assertEquals(SpatialFeatureVisibility.DISCOVERED, feature.visibility());
+        assertEquals(SpatialFeature.State.DISCOVERED, feature.state());
         assertEquals(List.of(), new SpatialTriggerResolver().resolveVisible(map,
                 List.of(new GridPosition(2, 2), new GridPosition(2, 3))));
     }

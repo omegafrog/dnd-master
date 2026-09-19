@@ -150,7 +150,7 @@ class MovementResolutionOperationTest {
         fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
                 fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
                 List.of(SpatialFeature.hidden(featureId, SpatialFeatureType.TRAP, List.of(new GridPosition(2, 1)),
-                        com.dndmaster.combatmap.domain.DetectionSpec.passive("perception", 12), Set.of(),
+                        com.dndmaster.combatmap.domain.DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.BECOME_VISIBLE),
                         SpatialFeatureProvenance.storyPlan("story", 0, 0))));
         fixture.map.replaceVisibility(new VisibilitySnapshot(
                 Set.of(new GridPosition(1, 1), new GridPosition(2, 1)), Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
@@ -350,21 +350,22 @@ class MovementResolutionOperationTest {
     }
 
     @Test
-    void does_not_discover_a_feature_from_newly_visible_cells_without_a_successful_check() {
+    void movement_propagates_newly_visible_discovery_and_stops_once() {
         Fixture fixture = new Fixture();
         fixture.map = mapWithNewlyVisibleMultiCellFeature(fixture);
 
         MovementOperationResponse response = fixture.service().start(fixture.start("fingerprint-1"));
 
         assertEquals(MovementOperationStatus.COMMITTED, response.status());
-        assertEquals(List.of(), response.result().publicEvents());
-        assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)),
+        assertEquals(MovementResolutionOutcomeStatus.INTERRUPTED, response.result().status());
+        assertEquals(List.of("TRAP_DISCOVERED:4,1"), response.result().publicEvents());
+        assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1)),
                 response.result().traversedPath());
-        assertEquals(SpatialFeatureVisibility.HIDDEN, fixture.map.spatialFeatures().getFirst().visibility());
+        assertEquals(SpatialFeatureVisibility.DISCOVERED, fixture.map.spatialFeatures().getFirst().visibility());
     }
 
     @Test
-    void restart_preserves_hidden_visibility_when_no_successful_check_was_recorded() {
+    void restart_rebuilds_newly_visible_discovery_without_repeating_the_event() {
         Fixture fixture = new Fixture();
         fixture.map = mapWithNewlyVisibleMultiCellFeature(fixture);
         MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
@@ -375,7 +376,7 @@ class MovementResolutionOperationTest {
         MovementOperationResponse response = fixture.service().resume(fixture.map.id(), operation.operationId());
 
         assertEquals(MovementOperationStatus.COMMITTED, response.status());
-        assertEquals(SpatialFeatureVisibility.HIDDEN, fixture.map.spatialFeatures().getFirst().visibility());
+        assertEquals(SpatialFeatureVisibility.DISCOVERED, fixture.map.spatialFeatures().getFirst().visibility());
         assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
     }
 
@@ -759,6 +760,37 @@ class MovementResolutionOperationTest {
     }
 
     @Test
+    void concurrent_cancel_reloads_and_replays_the_winning_result_for_the_same_command() {
+        Fixture fixture = new Fixture();
+        fixture.map = mapWithHiddenTrap(fixture);
+        MovementOperationResponse pending = fixture.service(MovementCheckResolver.pending())
+                .start(fixture.start("fingerprint-1"));
+        UUID cancelCommandId = UUID.randomUUID();
+        fixture.cancelRaceCommandId = cancelCommandId;
+
+        MovementOperationResponse cancelled = fixture.service().cancel(fixture.map.id(), pending.operationId(), cancelCommandId);
+
+        assertEquals(MovementOperationStatus.CANCELLED, cancelled.status());
+        assertEquals(cancelCommandId, fixture.findById(pending.operationId()).orElseThrow().cancelCommandId());
+        assertEquals(cancelled, fixture.service().cancel(fixture.map.id(), pending.operationId(), cancelCommandId));
+    }
+
+    @Test
+    void concurrent_cancel_rejects_a_different_command_after_reloading_the_winner() {
+        Fixture fixture = new Fixture();
+        fixture.map = mapWithHiddenTrap(fixture);
+        MovementOperationResponse pending = fixture.service(MovementCheckResolver.pending())
+                .start(fixture.start("fingerprint-1"));
+        UUID winningCommandId = UUID.randomUUID();
+        fixture.cancelRaceCommandId = winningCommandId;
+        UUID losingCommandId = UUID.randomUUID();
+        fixture.cancelRaceWinnerCommandId = winningCommandId;
+
+        assertThrows(MovementCommandConflictException.class,
+                () -> fixture.service().cancel(fixture.map.id(), pending.operationId(), losingCommandId));
+    }
+
+    @Test
     void stale_operation_save_is_rejected_instead_of_overwriting_newer_state() {
         Fixture fixture = new Fixture();
         MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
@@ -804,6 +836,8 @@ class MovementResolutionOperationTest {
         int operationSavesAfterAtomicCommit;
         boolean failNextOperationProgressSave;
         String concurrentReservationFingerprint;
+        UUID cancelRaceCommandId;
+        UUID cancelRaceWinnerCommandId;
         final Map<UUID, MovementResolutionOperation> operations = new HashMap<>();
 
         Fixture() {
@@ -893,6 +927,17 @@ class MovementResolutionOperationTest {
             return operation;
         }
         @Override public void save(MovementResolutionOperation operation) {
+            if (cancelRaceCommandId != null && operation.status() == MovementOperationStatus.CANCELLED) {
+                UUID winnerCommandId = cancelRaceWinnerCommandId == null ? cancelRaceCommandId : cancelRaceWinnerCommandId;
+                MovementResolutionOperation winner = MovementResolutionOperation.restore(operation.operationId(), operation.mapId(),
+                        operation.commandId(), operation.playerId(), operation.tokenId(), operation.requestedPath(), operation.fingerprint(),
+                        operation.expectedVersion(), operation.status(), operation.cursor(), operation.currentCell(), operation.traversedPath(),
+                        operation.result(), operation.retryCount(), operation.persistenceVersion() + 1, operation.retryResumeStatus(),
+                        operation.pendingCheck(), operation.checkOutcomes(), winnerCommandId);
+                operations.put(operation.operationId(), winner);
+                cancelRaceCommandId = null;
+                throw new MovementOperationConcurrentUpdateException();
+            }
             if (failNextOperationProgressSave && operation.status() == MovementOperationStatus.PREPARING
                     && operation.cursor() == 1) {
                 failNextOperationProgressSave = false;

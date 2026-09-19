@@ -51,11 +51,33 @@ public final class SpatialTriggerResolver {
 
     /** Newly visible cells are one observation; a multi-cell feature fires once by feature id. */
     public List<String> resolveVisible(CombatMap map, java.util.Collection<GridPosition> cells) {
+        return resolveVisible(map, cells, Set.of());
+    }
+
+    /**
+     * Resolves visibility for eligible hidden features. Features excluded by a
+     * failed explicit detection stay hidden, so a visibility refresh cannot
+     * leak the failed check.
+     */
+    public List<String> resolveVisible(CombatMap map, java.util.Collection<GridPosition> cells,
+            Set<UUID> excludedFeatureIds) {
         Objects.requireNonNull(map, "combat map must not be null");
         Objects.requireNonNull(cells, "visible cells must not be null");
-        // Becoming visible is only evidence for a check; it is not the check result.
-        // Callers must use resolveObserved or the movement success path to discover.
-        return List.of();
+        Objects.requireNonNull(excludedFeatureIds, "excluded feature ids must not be null");
+        List<String> events = new ArrayList<>();
+        Set<UUID> resolvedFeatureIds = new HashSet<>();
+        List<GridPosition> orderedCells = cells.stream().filter(Objects::nonNull).distinct()
+                .sorted(Comparator.comparingInt(GridPosition::x).thenComparingInt(GridPosition::y)).toList();
+        for (GridPosition cell : orderedCells) {
+            for (SpatialFeature feature : map.spatialFeatures()) {
+                if (!feature.cells().contains(cell) || !feature.triggers().contains(SpatialTrigger.BECOME_VISIBLE)
+                        || feature.visibility() != SpatialFeatureVisibility.HIDDEN
+                        || excludedFeatureIds.contains(feature.id()) || !resolvedFeatureIds.add(feature.id())) continue;
+                feature.discover();
+                events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
+            }
+        }
+        return List.copyOf(events);
     }
 
     public List<String> resolveCombatTurnStart(CombatMap map) {

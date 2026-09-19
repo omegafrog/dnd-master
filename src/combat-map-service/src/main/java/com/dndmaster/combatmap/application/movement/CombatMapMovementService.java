@@ -195,13 +195,20 @@ public final class CombatMapMovementService {
         }
         boolean firstCancellationCommand = operation.cancelCommandId() == null;
         if (firstCancellationCommand) operation.recordCancelCommand(cancelCommandId);
-        if (operation.status().active()) {
-            operation.cancel(cancelledResult(operation, "CANCELLED"));
-            operations.save(operation);
-        } else if (firstCancellationCommand) {
-            operations.save(operation);
+        try {
+            if (operation.status().active()) {
+                operation.cancel(cancelledResult(operation, "CANCELLED"));
+                operations.save(operation);
+            } else if (firstCancellationCommand) {
+                operations.save(operation);
+            }
+            return response(operation);
+        } catch (MovementOperationConcurrentUpdateException concurrentUpdate) {
+            MovementResolutionOperation latest = operations.findById(operationId)
+                    .orElseThrow(() -> concurrentUpdate);
+            if (!cancelCommandId.equals(latest.cancelCommandId())) throw new MovementCommandConflictException();
+            return response(latest);
         }
-        return response(operation);
     }
 
     private MovementOperationResponse resolve(CombatMap map, MovementResolutionOperation operation) {
@@ -254,7 +261,7 @@ public final class CombatMapMovementService {
                 }
                 publicEvents.addAll(triggerResolver.resolve(map, SpatialTrigger.LEAVE_CELL, operation.currentCell()));
                 map.advancePlayerToken(operation.playerId(), operation.tokenId(), operation.requestedPath().orderedPositions().get(next));
-                publicEvents.addAll(resolveNewlyVisibleFeatures(map));
+                publicEvents.addAll(resolveNewlyVisibleFeatures(map, triggerResolver, operation));
                 publicEvents.addAll(triggerResolver.resolve(map, SpatialTrigger.ENTER_CELL,
                         operation.requestedPath().orderedPositions().get(next)));
                 operation.advanceTo(next, map.playerTokenPosition(operation.playerId(), operation.tokenId()));
@@ -375,22 +382,26 @@ public final class CombatMapMovementService {
             triggerResolver.resolve(map, SpatialTrigger.LEAVE_CELL,
                     operation.requestedPath().orderedPositions().get(index - 1));
             map.advancePlayerToken(operation.playerId(), operation.tokenId(), operation.requestedPath().orderedPositions().get(index));
-            resolveNewlyVisibleFeatures(map, triggerResolver);
+            resolveNewlyVisibleFeatures(map, triggerResolver, operation);
             triggerResolver.resolve(map, SpatialTrigger.ENTER_CELL,
                     operation.requestedPath().orderedPositions().get(index));
         }
         if (!map.playerTokenPosition(operation.playerId(), operation.tokenId()).equals(operation.currentCell()))
             throw new IllegalStateException("movement reservation cursor does not match its current cell");
     }
-    private List<String> resolveNewlyVisibleFeatures(CombatMap map) {
-        return resolveNewlyVisibleFeatures(map, triggerResolver);
-    }
     private static List<String> resolveNewlyVisibleFeatures(CombatMap map,
-            com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver triggerResolver) {
+            com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver triggerResolver,
+            MovementResolutionOperation operation) {
+        Set<UUID> failedDetectionFeatureIds = operation.checkOutcomes().stream()
+                .filter(outcome -> !outcome.success())
+                .map(MovementCheckOutcome::featureId)
+                .collect(java.util.stream.Collectors.toSet());
+        Set<GridPosition> previouslyVisible = map.visibilitySnapshot() == null
+                ? Set.of() : Set.copyOf(map.visibilitySnapshot().current());
         map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
-        // Visibility is not a successful detection. Hidden features transition only
-        // in commitDetection/resolveObserved after an explicit successful check.
-        return List.of();
+        List<GridPosition> newlyVisible = map.visibilitySnapshot().current().stream()
+                .filter(cell -> !previouslyVisible.contains(cell)).toList();
+        return triggerResolver.resolveVisible(map, newlyVisible, failedDetectionFeatureIds);
     }
     private static void requireMap(MovementResolutionOperation operation, MapId mapId) {
         if (!operation.mapId().equals(mapId)) throw new IllegalArgumentException("movement reservation does not belong to this map");
