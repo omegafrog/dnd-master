@@ -275,7 +275,7 @@ public final class CombatMapMovementService {
                         operation.tokenId(), operation.requestedPath().orderedPositions().get(next),
                         operation.operationId(), next);
                 operation.replaceHostileObservations(map.hostileObservations());
-                if (hostile.status() == HostileObservationResult.Status.CHECK_REQUIRED) {
+                while (hostile.status() == HostileObservationResult.Status.CHECK_REQUIRED) {
                     MovementCheckRequest request = hostile.check().orElseThrow();
                     java.util.Optional<Boolean> priorCheck = operation.checkOutcomeAtCursor(request.featureId(), operation.cursor());
                     if (priorCheck.isEmpty()) {
@@ -286,6 +286,11 @@ public final class CombatMapMovementService {
                     hostile = hostileObservationResolver.resolveCheck(map, new TokenId(request.featureId()), operation.tokenId(),
                             priorCheck.orElseThrow(), request.targetCell());
                     operation.replaceHostileObservations(map.hostileObservations());
+                    if (!priorCheck.orElseThrow()) {
+                        hostile = hostileObservationResolver.evaluate(map, operation.playerId(), operation.tokenId(),
+                                operation.requestedPath().orderedPositions().get(next), operation.operationId(), next);
+                        operation.replaceHostileObservations(map.hostileObservations());
+                    }
                 }
                 operation.advanceTo(next, map.playerTokenPosition(operation.playerId(), operation.tokenId()));
                 operations.save(operation);

@@ -338,11 +338,34 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimeTurnCommandAdapter runtimeTurnCommandAdapter(GmToolGateway gateway, ObjectMapper objectMapper,
             CombatMapPort combatMapPort,
-            @Qualifier("enemyObservationRollPort") com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort) {
+            @Qualifier("enemyObservationRollPort") com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort,
+            RuntimeContinuationCommandPort continuationPort) {
         return new RuntimeTurnCommandAdapterRegistry(
                 Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, enemyObservationRollPort,
-                        objectMapper, MovementFollowUpPolicy.defaultPolicy())),
+                                objectMapper, MovementFollowUpPolicy.defaultPolicy()),
+                        "movement.continuation.combat", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.COMBAT, continuationPort),
+                        "movement.continuation.warning", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.WARNING, continuationPort),
+                        "movement.continuation.dialogue", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.DIALOGUE, continuationPort),
+                        "movement.continuation.chase", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.CHASE, continuationPort)),
                 new GmToolRuntimeTurnCommandAdapter(gateway, objectMapper));
+    }
+
+    @Bean
+    RuntimeContinuationCommandPort runtimeContinuationCommandPort() {
+        return new RuntimeContinuationCommandPort() {
+            @Override public RuntimeTurnCommandExecution combat(ContinuationCommand command) {
+                return RuntimeTurnCommandExecution.done("COMBAT:" + command.command().commandId());
+            }
+            @Override public RuntimeTurnCommandExecution warning(ContinuationCommand command) {
+                return RuntimeTurnCommandExecution.done("WARNING:" + command.command().commandId());
+            }
+            @Override public RuntimeTurnCommandExecution dialogue(ContinuationCommand command) {
+                return RuntimeTurnCommandExecution.done("DIALOGUE:" + command.command().commandId());
+            }
+            @Override public RuntimeTurnCommandExecution chase(ContinuationCommand command) {
+                return RuntimeTurnCommandExecution.done("CHASE:" + command.command().commandId());
+            }
+        };
     }
 
     @Bean
@@ -358,7 +381,7 @@ public class AdventureApiConfiguration {
 
     @Bean
     RuntimeContinuationPort runtimeContinuationPort(RuntimeTurnCommandAdapter runtimeTurnCommandAdapter) {
-        return RuntimeContinuationHandlerRegistry.standard(runtimeTurnCommandAdapter);
+        return RuntimeContinuationHandlerRegistry.standard((RuntimeTurnCommandAdapterRegistry) runtimeTurnCommandAdapter);
     }
 
     @Bean

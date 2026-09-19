@@ -84,6 +84,36 @@ class MovementResolutionOperationTest {
     }
 
     @Test
+    void failed_enemy_check_reevaluates_the_other_visible_enemy_before_advancing() {
+        Fixture fixture = new Fixture();
+        CombatToken firstEnemy = new CombatToken(new TokenId(UUID.fromString("00000000-0000-0000-0000-000000000001")),
+                TokenType.ENEMY, new GridPosition(2, 2), TokenController.AI_GAME_MASTER, null,
+                new com.dndmaster.combatmap.domain.HostileObservationRule("monster.perception", "1d20", 1, 12, "ACTIVE"));
+        CombatToken secondEnemy = new CombatToken(new TokenId(UUID.fromString("00000000-0000-0000-0000-000000000002")),
+                TokenType.ENEMY, new GridPosition(2, 2), TokenController.AI_GAME_MASTER, null,
+                new com.dndmaster.combatmap.domain.HostileObservationRule("monster.perception", "1d20", 2, 13, "ACTIVE"));
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, List.of(fixture.map.tokens().getFirst(), firstEnemy, secondEnemy), fixture.map.obstacles(),
+                fixture.map.layers(), 0, null);
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)),
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+
+        MovementCheckResolver resolver = request -> Optional.of(
+                new MovementCheckResult(request.operationId(), request.checkId(), false, fixture.player));
+        MovementOperationResponse firstPending = fixture.service(resolver).start(fixture.start("two-enemy-checks"));
+        MovementCheckRequest firstRequest = fixture.findOperationByCommandId(fixture.commandId).orElseThrow().pendingCheck();
+
+        MovementOperationResponse secondPending = fixture.service(resolver).resume(fixture.map.id(), firstPending.operationId(),
+                new MovementCheckResult(firstPending.operationId(), firstRequest.checkId(), false,
+                        MovementCheckOwner.enemy(fixture.player)));
+
+        assertEquals(MovementOperationStatus.CHECK_PENDING, secondPending.status());
+        assertEquals(secondEnemy.id().value(), secondPending.pendingCheckDetails().featureId(), secondPending.toString());
+        assertEquals(new GridPosition(2, 1), fixture.findOperationByCommandId(fixture.commandId).orElseThrow().currentCell());
+    }
+
+    @Test
     void stops_at_the_first_cell_where_a_new_enemy_sees_the_player_and_replays_once() {
         Fixture fixture = new Fixture();
         CombatToken enemy = new CombatToken(new TokenId(UUID.randomUUID()), TokenType.ENEMY,

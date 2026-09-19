@@ -192,4 +192,29 @@ class SessionEventTest {
         assertEquals(MovementFollowUpPort.Result.Status.DONE, consumer.consume(source, followUp).status());
         assertEquals(2, calls.get());
     }
+
+    @Test
+    void registered_continuation_adapters_are_wired_without_gm_fallback() {
+        RuntimeContinuationCommandPort port = new RuntimeContinuationCommandPort() {
+            @Override public com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution combat(ContinuationCommand command) { return RuntimeTurnCommandExecution.done("combat"); }
+            @Override public com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution warning(ContinuationCommand command) { return RuntimeTurnCommandExecution.done("warning"); }
+            @Override public com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution dialogue(ContinuationCommand command) { return RuntimeTurnCommandExecution.done("dialogue"); }
+            @Override public com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution chase(ContinuationCommand command) { return RuntimeTurnCommandExecution.done("chase"); }
+        };
+        RuntimeTurnCommandAdapterRegistry adapters = new RuntimeTurnCommandAdapterRegistry(java.util.Map.of(
+                "movement.continuation.combat", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.COMBAT, port),
+                "movement.continuation.warning", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.WARNING, port),
+                "movement.continuation.dialogue", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.DIALOGUE, port),
+                "movement.continuation.chase", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.CHASE, port)),
+                command -> { throw new AssertionError("continuation must not use GM fallback"); });
+
+        for (MovementFollowUpCommand.Kind kind : List.of(MovementFollowUpCommand.Kind.COMBAT,
+                MovementFollowUpCommand.Kind.WARNING, MovementFollowUpCommand.Kind.DIALOGUE, MovementFollowUpCommand.Kind.CHASE)) {
+            RuntimeTurnCommand command = RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                    UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation." + kind.name().toLowerCase(), "{}", 1);
+            RuntimeContinuationOutcome outcome = RuntimeContinuationHandlerRegistry.standard(adapters).execute(command,
+                    new MovementFollowUpRuntimeConsumer.Continuation(kind, "HOSTILE_OBSERVED", UUID.randomUUID()));
+            assertEquals(RuntimeContinuationOutcome.Status.APPLIED, outcome.status());
+        }
+    }
 }

@@ -17,4 +17,8 @@ public final class RuntimeTurnCommandAdapterRegistry implements RuntimeTurnComma
     @Override public RuntimeTurnCommandExecution execute(RuntimeTurnCommand command) {
         return adapters.getOrDefault(command.commandType(), fallback).execute(command);
     }
+
+    RuntimeTurnCommandAdapter registered(String commandType) {
+        return adapters.get(commandType);
+    }
 }
