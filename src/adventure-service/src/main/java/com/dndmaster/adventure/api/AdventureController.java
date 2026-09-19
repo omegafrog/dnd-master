@@ -1123,7 +1123,8 @@ public class AdventureController {
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Layer> layers,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> current,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> explored, Long version,
-            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.StartCandidate> playerStartCandidates) {
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.StartCandidate> playerStartCandidates,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.SpatialFeature> spatialFeatures) {
         public CombatMapResponse(UUID adventureId, String status, long sessionVersion, UUID mapId,
                 com.dndmaster.adventure.application.combat.CombatMapViewPort.Grid grid,
                 List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Token> tokens,
@@ -1132,10 +1133,10 @@ public class AdventureController {
                 List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Layer> layers,
                 List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> current,
                 List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> explored, Long version) {
-            this(adventureId, status, sessionVersion, mapId, grid, tokens, obstacles, doors, layers, current, explored, version, List.of());
+            this(adventureId, status, sessionVersion, mapId, grid, tokens, obstacles, doors, layers, current, explored, version, List.of(), List.of());
         }
         static CombatMapResponse from(UUID adventureId, long sessionVersion, com.dndmaster.adventure.application.combat.CombatMapViewPort.View view) {
-            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.doors(), view.layers(), view.current(), view.explored(), view.version(), view.playerStartCandidates());
+            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.doors(), view.layers(), view.current(), view.explored(), view.version(), view.playerStartCandidates(), view.spatialFeatures());
         }
     }
     public record CombatMapCalibrationRequest(UUID mapId, long expectedVersion, int width, int height, int cellSize,

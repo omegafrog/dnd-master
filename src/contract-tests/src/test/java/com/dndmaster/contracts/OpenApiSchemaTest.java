@@ -194,6 +194,11 @@ class OpenApiSchemaTest {
         assertEquals(1, candidate.at("/properties/sources/minItems").asInt());
         assertEquals("PLAYER_VISIBLE", playerMap.at("/properties/layers/items/properties/visibility/const").asText());
         assertFalse(playerMap.toString().contains("AI_ONLY"));
+        assertTrue(playerMap.at("/required").toString().contains("spatialFeatures"));
+        assertTrue(playerMap.at("/properties/spatialFeatures/items/required").toString().contains("interactable"));
+        assertFalse(playerMap.at("/properties/spatialFeatures").toString().contains("difficulty"));
+        assertFalse(playerMap.at("/properties/spatialFeatures").toString().contains("ruleReference"));
+        assertFalse(playerMap.at("/properties/spatialFeatures").toString().contains("payload"));
         assertTrue(evidenceSearch.at("/required").toString().contains("queryIntent"));
     }
 

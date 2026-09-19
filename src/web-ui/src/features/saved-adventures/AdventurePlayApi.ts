@@ -65,6 +65,7 @@ export type CombatMapView = {
   grid?: { width: number; height: number }
   obstacles?: Array<{ x: number; y: number }>
   objects?: Array<{ id: string; type: string; x: number; y: number }>
+  spatialFeatures?: Array<{ id: string; type: string; cells: Array<{ x: number; y: number }>; visibility: string; state: string; interactable: boolean }>
   playerStartCandidates?: Array<{ x: number; y: number; confidence: number; evidence: string[]; source?: string }>
 }
 

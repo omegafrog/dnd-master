@@ -40,14 +40,15 @@ public interface CombatMapViewPort {
     }
 
     record View(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Door> doors, List<Layer> layers,
-            List<Position> current, List<Position> explored, long version, List<StartCandidate> playerStartCandidates) {
+            List<Position> current, List<Position> explored, long version, List<StartCandidate> playerStartCandidates,
+            List<SpatialFeature> spatialFeatures) {
         public View(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Door> doors, List<Layer> layers,
                 List<Position> current, List<Position> explored, long version) {
-            this(mapId, grid, tokens, obstacles, doors, layers, current, explored, version, List.of());
+            this(mapId, grid, tokens, obstacles, doors, layers, current, explored, version, List.of(), List.of());
         }
         public View(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Layer> layers,
                 List<Position> current, List<Position> explored, long version) {
-            this(mapId, grid, tokens, obstacles, List.of(), layers, current, explored, version);
+            this(mapId, grid, tokens, obstacles, List.of(), layers, current, explored, version, List.of(), List.of());
         }
     }
     record Grid(int width, int height, int cellSize, int distanceUnit) {}
@@ -63,6 +64,9 @@ public interface CombatMapViewPort {
     }
     record StartCandidate(int x, int y, double confidence, List<String> evidence, String source) {
         public StartCandidate { evidence = evidence == null ? List.of() : List.copyOf(evidence); }
+    }
+    record SpatialFeature(UUID id, String type, List<Position> cells, String visibility, String state, boolean interactable) {
+        public SpatialFeature { cells = cells == null ? List.of() : List.copyOf(cells); }
     }
     record BoundaryProposal(long mapVersion, List<Position> obstacles, List<Door> doors, List<Boundary> boundaries, String crop,
                             List<BoundaryCandidate> candidates, long alignmentVersion, String imageRevision) {

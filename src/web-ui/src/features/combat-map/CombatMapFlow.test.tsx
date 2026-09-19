@@ -181,6 +181,42 @@ it('keeps the map usable when the public image is temporarily unavailable', asyn
   expect(screen.getByText('현재 맵 상태: authoritative-map')).toBeInTheDocument()
 })
 
+it('does not render a hidden spatial feature as an interaction target', async () => {
+  const api = fakeApi()
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }],
+    current: [{ x: 1, y: 1 }, { x: 2, y: 1 }], explored: [{ x: 1, y: 1 }, { x: 2, y: 1 }],
+    spatialFeatures: [],
+  })
+
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  await screen.findByLabelText('tactical-map')
+  expect(screen.queryByRole('button', { name: /상호작용/ })).not.toBeInTheDocument()
+})
+
+it('renders a discovered interactable spatial feature and calls the interaction API', async () => {
+  const api = fakeApi()
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 4,
+    grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }],
+    current: [{ x: 1, y: 1 }, { x: 2, y: 1 }], explored: [{ x: 1, y: 1 }, { x: 2, y: 1 }],
+    spatialFeatures: [{ id: 'feature-1', type: 'SECRET_DOOR', cells: [{ x: 2, y: 1 }], visibility: 'DISCOVERED', state: 'DISCOVERED', interactable: true }],
+  })
+  api.interactSpatial = vi.fn().mockResolvedValue({ mapId: 'm1', mapVersion: 5, publicEvents: ['SECRET_DOOR_OPENED:2,1'] })
+  const user = userEvent.setup()
+
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  await user.click(await screen.findByRole('button', { name: '상호작용: SECRET_DOOR' }))
+  await user.click(screen.getByRole('button', { name: '확인' }))
+
+  expect(api.interactSpatial).toHaveBeenCalledWith('a1', expect.objectContaining({
+    mapId: 'm1', tokenId: 'p1', x: 2, y: 1, expectedVersion: 4,
+  }))
+})
+
 it('does not render a tactical map while the story has not entered combat', async () => {
   const api = fakeApi()
   api.getCombatMap = vi.fn().mockResolvedValue({ adventureId: 'a1', status: 'map-view', mapId: null, version: 2, grid: { width: 20, height: 20 }, tokens: [] })
