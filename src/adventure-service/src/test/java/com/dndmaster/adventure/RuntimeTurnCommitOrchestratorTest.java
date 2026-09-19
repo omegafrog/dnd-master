@@ -8,6 +8,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.dndmaster.adventure.application.runtime.InMemoryRuntimeTurnCommandRepository;
+import com.dndmaster.adventure.application.runtime.InMemorySessionEventRepository;
+import com.dndmaster.adventure.application.runtime.MovementFollowUpEventPublisher;
+import com.dndmaster.adventure.application.runtime.MovementFollowUpRuntimeConsumer;
+import com.dndmaster.adventure.application.runtime.MovementFollowUpPort;
 import com.dndmaster.adventure.application.runtime.InMemoryRuntimeTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurn;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
@@ -157,13 +161,15 @@ class RuntimeTurnCommitOrchestratorTest {
         var movement = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
                 com.dndmaster.adventure.application.combat.CombatMapMovementStatus.INTERRUPTED, List.of(), List.of(),
                 null, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED", null,
-                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.hostileObserved(operationId), null);
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.hostileObserved(operationId,
+                        fixture.turnId, UUID.randomUUID()), null);
         RuntimeTurnCommand move = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
         AtomicInteger publications = new AtomicInteger();
-        var followUpPort = (com.dndmaster.adventure.application.runtime.MovementFollowUpPort)
+        var durablePublisher = fixture.followUpPublisher();
+        var followUpPort = (MovementFollowUpPort)
                 (command, adventureId, sessionId, ownerPlayerId) -> publications.getAndIncrement() == 0
-                        ? com.dndmaster.adventure.application.runtime.MovementFollowUpPort.Result.retry("downstream unavailable")
-                        : com.dndmaster.adventure.application.runtime.MovementFollowUpPort.Result.done("published");
+                        ? MovementFollowUpPort.Result.retry("downstream unavailable")
+                        : durablePublisher.publish(command, adventureId, sessionId, ownerPlayerId);
         String movementOutcome = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(movement);
         var orchestrator = fixture.orchestrator(ignored ->
                 RuntimeTurnCommandExecution.movement(RuntimeTurnCommandExecution.Status.DONE, movementOutcome, movement), followUpPort);
@@ -214,6 +220,18 @@ class RuntimeTurnCommitOrchestratorTest {
         private final UUID turnId = UUID.randomUUID();
         private final InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
         private final InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        private final InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+        private final com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+
+        MovementFollowUpEventPublisher followUpPublisher() {
+            return new MovementFollowUpEventPublisher(events, objectMapper);
+        }
+
+        MovementFollowUpRuntimeConsumer followUpConsumer() {
+            return new MovementFollowUpRuntimeConsumer(events, commands, objectMapper,
+                    com.dndmaster.adventure.application.runtime.MovementFollowUpPolicy.defaultPolicy(),
+                    (command, continuation) -> com.dndmaster.adventure.application.runtime.RuntimeContinuationOutcome.applied("continued"));
+        }
 
         RuntimeTurn readyTurn() {
             UUID commandId = UUID.randomUUID();
@@ -244,12 +262,13 @@ class RuntimeTurnCommitOrchestratorTest {
         }
 
         RuntimeTurnCommitOrchestrator orchestrator(RuntimeTurnCommandAdapter adapter) {
-            return new RuntimeTurnCommitOrchestrator(turns, commands, adapter);
+            return new RuntimeTurnCommitOrchestrator(turns, commands, adapter, followUpPublisher()::publish,
+                    followUpConsumer());
         }
 
         RuntimeTurnCommitOrchestrator orchestrator(RuntimeTurnCommandAdapter adapter,
                 com.dndmaster.adventure.application.runtime.MovementFollowUpPort followUpPort) {
-            return new RuntimeTurnCommitOrchestrator(turns, commands, adapter, followUpPort);
+            return new RuntimeTurnCommitOrchestrator(turns, commands, adapter, followUpPort, followUpConsumer());
         }
     }
 }

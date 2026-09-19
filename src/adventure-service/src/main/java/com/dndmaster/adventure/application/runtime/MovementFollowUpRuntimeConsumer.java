@@ -35,6 +35,9 @@ public final class MovementFollowUpRuntimeConsumer {
             }
             MovementFollowUpCommand followUp = objectMapper.readValue(event.payload(), MovementFollowUpCommand.class);
             if (!followUp.equals(expected)) throw new IllegalStateException("movement follow-up event payload mismatch");
+            if (!source.turnId().equals(followUp.turnId())) {
+                throw new IllegalStateException("movement follow-up belongs to another turn");
+            }
             MovementFollowUpCommand.Kind kind = policy.determine(followUp.trigger());
             UUID continuationId = UUID.nameUUIDFromBytes(
                     ("movement-continuation:" + followUp.commandId()).getBytes(StandardCharsets.UTF_8));

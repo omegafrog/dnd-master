@@ -18,25 +18,13 @@ public final class RuntimeTurnCommitOrchestrator {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public RuntimeTurnCommitOrchestrator(RuntimeTurnRepository turnRepository,
-            RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter commandAdapter) {
-        this(turnRepository, commandRepository, commandAdapter, (command, adventureId, sessionId, ownerPlayerId) ->
-                MovementFollowUpPort.Result.done(command.kind().name()), null);
-    }
-
-    public RuntimeTurnCommitOrchestrator(RuntimeTurnRepository turnRepository,
-            RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter commandAdapter,
-            MovementFollowUpPort followUpPort) {
-        this(turnRepository, commandRepository, commandAdapter, followUpPort, null);
-    }
-
-    public RuntimeTurnCommitOrchestrator(RuntimeTurnRepository turnRepository,
             RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter commandAdapter,
             MovementFollowUpPort followUpPort, MovementFollowUpRuntimeConsumer followUpConsumer) {
         this.turnRepository = Objects.requireNonNull(turnRepository, "turn repository must not be null");
         this.commandRepository = Objects.requireNonNull(commandRepository, "command repository must not be null");
         this.commandAdapter = Objects.requireNonNull(commandAdapter, "command adapter must not be null");
         this.followUpPort = Objects.requireNonNull(followUpPort, "movement follow-up port must not be null");
-        this.followUpConsumer = followUpConsumer;
+        this.followUpConsumer = Objects.requireNonNull(followUpConsumer, "movement follow-up consumer must not be null");
     }
 
     public Result commit(RuntimeTurn readyTurn, List<RuntimeTurnCommand> commands, Runnable localAdventureCommit) {
@@ -152,7 +140,7 @@ public final class RuntimeTurnCommitOrchestrator {
         try {
             MovementFollowUpCommand followUp = objectMapper.readValue(command.payloadJson(), MovementFollowUpCommand.class);
             MovementFollowUpPort.Result result = followUpPort.publish(followUp, command.adventureId(), command.sessionId(), command.ownerPlayerId());
-            if (result.status() == MovementFollowUpPort.Result.Status.DONE && followUpConsumer != null) {
+            if (result.status() == MovementFollowUpPort.Result.Status.DONE) {
                 result = followUpConsumer.consume(command, followUp);
             }
             return switch (result.status()) {

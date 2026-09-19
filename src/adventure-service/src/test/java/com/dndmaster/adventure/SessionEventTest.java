@@ -50,9 +50,9 @@ class SessionEventTest {
         UUID session = UUID.randomUUID();
         UUID adventure = UUID.randomUUID();
         UUID owner = UUID.randomUUID();
-        MovementFollowUpCommand first = MovementFollowUpCommand.hostileObserved(UUID.randomUUID());
-        MovementFollowUpCommand second = new MovementFollowUpCommand(UUID.randomUUID(), UUID.randomUUID(),
-                MovementFollowUpCommand.Kind.WARNING, "FEATURE_REVEALED");
+        MovementFollowUpCommand first = MovementFollowUpCommand.hostileObserved(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        MovementFollowUpCommand second = new MovementFollowUpCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), MovementFollowUpCommand.Kind.WARNING, "FEATURE_REVEALED");
 
         assertEquals("COMBAT", publisher.publish(first, adventure, session, owner).value());
         assertEquals("WARNING", publisher.publish(second, adventure, session, owner).value());
@@ -88,8 +88,8 @@ class SessionEventTest {
             }
             @Override public List<SessionEvent> after(UUID sessionId, long version) { return stored.after(sessionId, version); }
         };
-        MovementFollowUpCommand followUp = new MovementFollowUpCommand(UUID.randomUUID(), UUID.randomUUID(),
-                MovementFollowUpCommand.Kind.CONTINUATION, "NPC_CONTACT");
+        MovementFollowUpCommand followUp = new MovementFollowUpCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), MovementFollowUpCommand.Kind.CONTINUATION, "NPC_CONTACT");
 
         MovementFollowUpPort.Result result = new MovementFollowUpEventPublisher(conflicting, new ObjectMapper()).publish(
                 followUp, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
@@ -108,7 +108,7 @@ class SessionEventTest {
         var executor = Executors.newFixedThreadPool(8);
         try {
             var futures = java.util.stream.IntStream.range(0, count).mapToObj(index -> executor.submit(() -> {
-                return publisher.publish(MovementFollowUpCommand.hostileObserved(UUID.randomUUID()), adventure,
+                return publisher.publish(MovementFollowUpCommand.hostileObserved(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()), adventure,
                         session, owner);
             })).toList();
             for (var future : futures) assertEquals(MovementFollowUpPort.Result.Status.DONE, future.get().status());
@@ -123,8 +123,9 @@ class SessionEventTest {
     void runtime_consumes_durable_follow_up_into_one_typed_continuation_and_replays_it_idempotently() {
         InMemorySessionEventRepository events = new InMemorySessionEventRepository();
         InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
-        MovementFollowUpCommand followUp = MovementFollowUpCommand.hostileObserved(UUID.randomUUID());
-        RuntimeTurnCommand source = RuntimeTurnCommand.create(UUID.randomUUID(), followUp.commandId(), UUID.randomUUID(),
+        UUID turnId = UUID.randomUUID();
+        MovementFollowUpCommand followUp = MovementFollowUpCommand.hostileObserved(UUID.randomUUID(), turnId, UUID.randomUUID());
+        RuntimeTurnCommand source = RuntimeTurnCommand.create(turnId, followUp.commandId(), UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
         new MovementFollowUpEventPublisher(events, new ObjectMapper()).publish(followUp, source.adventureId(),
                 source.sessionId(), source.ownerPlayerId());
@@ -169,8 +170,9 @@ class SessionEventTest {
     void runtime_calls_the_typed_handler_and_retries_a_failed_transition_idempotently() {
         InMemorySessionEventRepository events = new InMemorySessionEventRepository();
         InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
-        MovementFollowUpCommand followUp = MovementFollowUpCommand.hostileObserved(UUID.randomUUID());
-        RuntimeTurnCommand source = RuntimeTurnCommand.create(UUID.randomUUID(), followUp.commandId(), UUID.randomUUID(),
+        UUID turnId = UUID.randomUUID();
+        MovementFollowUpCommand followUp = MovementFollowUpCommand.hostileObserved(UUID.randomUUID(), turnId, UUID.randomUUID());
+        RuntimeTurnCommand source = RuntimeTurnCommand.create(turnId, followUp.commandId(), UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
         new MovementFollowUpEventPublisher(events, new ObjectMapper()).publish(followUp, source.adventureId(),
                 source.sessionId(), source.ownerPlayerId());

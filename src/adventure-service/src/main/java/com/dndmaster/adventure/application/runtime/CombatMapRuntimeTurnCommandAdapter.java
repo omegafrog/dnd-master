@@ -68,16 +68,16 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
                             details.modifier(), details.difficulty(), requiredNonNegativeLong(context, "expectedVersion"));
                     var resumed = movementCoordinator.rollEnemyAndResume(roll);
                     String outcome = mapper.writeValueAsString(resumed);
-                    return movementExecution(resumed, outcome);
+                    return movementExecution(command.turnId(), resumed, outcome);
                 }
                 String outcome = mapper.writeValueAsString(pending);
-                return movementExecution(pending, outcome);
+                return movementExecution(command.turnId(), pending, outcome);
             }
             if ("RETRY_REQUIRED".equals(savedStatus)) {
                 UUID operationId = requiredUuid(savedOutcome, "operationId");
                 var resumed = movementCoordinator.resume(requiredUuid(context, "combatMapId"), operationId);
                 String outcome = mapper.writeValueAsString(resumed);
-                return movementExecution(resumed, outcome);
+                return movementExecution(command.turnId(), resumed, outcome);
             }
             JsonNode pathNode = payload.get("path");
             if (pathNode == null || !pathNode.isArray() || pathNode.size() < 2
@@ -114,7 +114,7 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
                     mapCommand, distance, requiredNonNegativeLong(context, "expectedVersion"), appliedEdition,
                     previewFingerprint, waypoints));
             String outcome = mapper.writeValueAsString(movement);
-            return movementExecution(movement, outcome);
+            return movementExecution(command.turnId(), movement, outcome);
         } catch (java.io.IOException malformed) {
             return RuntimeTurnCommandExecution.permanentFailure(malformed.getMessage());
         } catch (IllegalArgumentException malformed) {
@@ -126,12 +126,12 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
         }
     }
 
-    private RuntimeTurnCommandExecution movementExecution(
+    private RuntimeTurnCommandExecution movementExecution(UUID turnId,
             com.dndmaster.adventure.application.combat.CombatMapMoveResult movement, String outcome) {
         var followUp = (movement.interruptionReason() != null && movement.interruptionReason().equals("HOSTILE_OBSERVED"))
                 || movement.publicEvents().contains("HOSTILE_OBSERVED")
                 ? com.dndmaster.adventure.application.combat.MovementFollowUpCommand.forTrigger(movement.operationId(),
-                        movement.hostileTokenId(), "HOSTILE_OBSERVED", followUpPolicy) : null;
+                        turnId, movement.hostileTokenId(), "HOSTILE_OBSERVED", followUpPolicy) : null;
         var enriched = followUp == null ? movement : movement.withFollowUp(followUp);
         String enrichedOutcome = followUp == null ? outcome : serialize(enriched);
         return switch (movement.status()) {
