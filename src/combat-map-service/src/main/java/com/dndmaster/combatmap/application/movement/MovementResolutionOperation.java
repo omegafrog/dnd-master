@@ -98,7 +98,7 @@ public final class MovementResolutionOperation {
             throw new IllegalArgumentException("check result does not belong to this movement operation");
         }
         checkOutcomes.add(new MovementCheckOutcome(pendingCheck.featureId(), result.checkId(), result.commandId(),
-                result.owner(), result.success()));
+                result.owner(), result.success(), cursor));
         pendingCheck = null;
         status = MovementOperationStatus.PREPARING;
         return false;
@@ -123,6 +123,11 @@ public final class MovementResolutionOperation {
     public MovementCheckRequest pendingCheck() { return pendingCheck; }
     public List<MovementCheckOutcome> checkOutcomes() { return List.copyOf(checkOutcomes); }
     public java.util.Optional<Boolean> checkOutcome(UUID featureId) { return checkOutcomes.stream().filter(value -> value.featureId().equals(featureId)).reduce((first, ignored) -> ignored).map(MovementCheckOutcome::success); }
+    public java.util.Optional<Boolean> checkOutcomeAtCursor(UUID featureId, int cursor) {
+        return checkOutcomes.stream().filter(value -> value.featureId().equals(featureId)
+                && (value.cursor() < 0 || value.cursor() == cursor))
+                .reduce((first, ignored) -> ignored).map(MovementCheckOutcome::success);
+    }
     public MovementOperationStatus retryResumeStatus() { return retryResumeStatus; }
     public long persistenceVersion() { return persistenceVersion; } public void markPersisted(long value) { persistenceVersion = value; }
     public UUID cancelCommandId() { return cancelCommandId; }

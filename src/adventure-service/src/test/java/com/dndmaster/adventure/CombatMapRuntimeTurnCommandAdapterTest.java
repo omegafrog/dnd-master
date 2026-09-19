@@ -159,6 +159,44 @@ class CombatMapRuntimeTurnCommandAdapterTest {
     }
 
     @Test
+    void resolves_an_enemy_perception_check_inside_adventure_runtime_without_exposing_it_to_the_player() {
+        UUID operationId = UUID.randomUUID();
+        UUID checkId = UUID.randomUUID();
+        RuntimeTurnCommand command = validCommand();
+        AtomicReference<com.dndmaster.adventure.application.combat.CombatMapCheckSubmission> submitted = new AtomicReference<>();
+        CombatMapPort mapPort = new CombatMapPort() {
+            @Override public void validateAndMove(CombatActionCommand command) {}
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult movementOperation(UUID mapId, UUID id) {
+                var details = new com.dndmaster.adventure.application.combat.CombatMapCheckDetails(checkId, operationId,
+                        "monster.perception", "1d20", 2, 13, command.ownerPlayerId(),
+                        com.dndmaster.adventure.application.combat.CombatMapCheckActor.ENEMY);
+                return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(5, id,
+                        CombatMapMovementStatus.CHECK_REQUIRED, List.of(), List.of(), null, List.of(), null, null, details);
+            }
+            @Override public int rollSpatialCheck(com.dndmaster.adventure.application.combat.SpatialCheckRollCommand command) {
+                return 15;
+            }
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult resumeMovementOperation(UUID mapId, UUID id,
+                    com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission) {
+                submitted.set(submission);
+                return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(6, id,
+                        CombatMapMovementStatus.INTERRUPTED, List.of(), List.of(new CombatMapPreviewPosition(2, 1)),
+                        new CombatMapPreviewPosition(2, 1), List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED");
+            }
+        };
+        String outcome = "{\"version\":4,\"operationId\":\"" + operationId
+                + "\",\"status\":\"CHECK_REQUIRED\",\"requestedPath\":[],\"traversedPath\":[],\"publicEvents\":[]}";
+
+        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper())
+                .execute(command.failed("CHECK_REQUIRED", outcome));
+
+        assertEquals(RuntimeTurnCommandExecution.Status.DONE, result.status());
+        assertEquals(com.dndmaster.adventure.application.combat.CombatMapCheckActor.ENEMY, submitted.get().actor());
+        org.junit.jupiter.api.Assertions.assertFalse(result.value().contains(checkId.toString()));
+        assertEquals(CombatMapMovementStatus.INTERRUPTED, result.movementResult().status());
+    }
+
+    @Test
     void preserves_requested_and_traversed_paths_and_interruption_status() {
         UUID operationId = UUID.randomUUID();
         List<CombatMapPreviewPosition> requested = List.of(

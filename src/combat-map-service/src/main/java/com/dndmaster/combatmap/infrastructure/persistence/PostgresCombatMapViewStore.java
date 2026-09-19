@@ -30,6 +30,9 @@ import com.dndmaster.combatmap.domain.SpatialFeatureType;
 import com.dndmaster.combatmap.domain.SpatialFeatureVisibility;
 import com.dndmaster.combatmap.domain.SpatialTrigger;
 import com.dndmaster.combatmap.domain.DetectionSpec;
+import com.dndmaster.combatmap.domain.HostileObservationRule;
+import com.dndmaster.combatmap.domain.HostileObservationState;
+import com.dndmaster.combatmap.domain.HostileObservationStatus;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -61,6 +64,8 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     private static final String HISTORY_FEATURE_TABLE = "combat_map_command_spatial_feature_history";
     private static final String HISTORY_FEATURE_CELL_TABLE = "combat_map_command_spatial_feature_cell_history";
     private static final String HISTORY_FEATURE_TRIGGER_TABLE = "combat_map_command_spatial_feature_trigger_history";
+    private static final String HOSTILE_OBSERVATION_TABLE = "combat_map_hostile_observation";
+    private static final String HISTORY_HOSTILE_OBSERVATION_TABLE = "combat_map_command_hostile_observation_history";
 
     private final DataSource dataSource;
 
@@ -355,13 +360,13 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         if (map.tokens().stream().anyMatch(token -> token.type() == TokenType.TRAP || token.type() == TokenType.OBJECT)) {
             throw new IllegalArgumentException("new TRAP/OBJECT token writes are not allowed; use spatial features");
         }
-        for (String table : List.of(TOKEN_TABLE, OBSTACLE_TABLE, LAYER_TABLE, DOOR_TABLE, FEATURE_TRIGGER_TABLE, FEATURE_CELL_TABLE, FEATURE_TABLE)) {
+        for (String table : List.of(TOKEN_TABLE, OBSTACLE_TABLE, LAYER_TABLE, DOOR_TABLE, FEATURE_TRIGGER_TABLE, FEATURE_CELL_TABLE, FEATURE_TABLE, HOSTILE_OBSERVATION_TABLE)) {
             try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + table + " WHERE map_id=?")) {
                 statement.setObject(1, map.id().value());
                 statement.executeUpdate();
             }
         }
-        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO combat_map_token VALUES (?,?,?,?,?,?,?,?)")) {
+        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO combat_map_token(map_id,token_id,token_type,x,y,controller,owner_player_id,discovery,hostile_rule_reference,hostile_dice_expression,hostile_modifier,hostile_difficulty,hostile_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
             for (CombatToken token : map.tokens()) {
                 statement.setObject(1, map.id().value());
                 statement.setObject(2, token.id().value());
@@ -371,6 +376,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 statement.setString(6, token.controller().name());
                 statement.setObject(7, token.ownerPlayerId().map(PlayerId::value).orElse(null));
                 statement.setString(8, token.discovery().name());
+                bindHostileRule(statement, 9, token.hostileObservationRule().orElse(null));
                 statement.addBatch();
             }
             statement.executeBatch();
@@ -401,6 +407,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             for(Door door:map.doors()){statement.setObject(1,map.id().value());statement.setInt(2,door.position().x());statement.setInt(3,door.position().y());statement.setBoolean(4,door.open());statement.addBatch();} statement.executeBatch();
         }
         writeFeatures(connection, map, map.id().value(), FEATURE_TABLE, FEATURE_CELL_TABLE, FEATURE_TRIGGER_TABLE);
+        writeHostileObservations(connection, map, map.id().value(), HOSTILE_OBSERVATION_TABLE);
     }
 
     private static void writeFeatures(Connection connection, CombatMap map, UUID mapId, String featureTable,
@@ -485,7 +492,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             statement.executeUpdate();
         }
         try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO " + HISTORY_TOKEN_TABLE + " (command_id, sequence, token_id, token_type, x, y, controller, owner_player_id, discovery) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO " + HISTORY_TOKEN_TABLE + " (command_id, sequence, token_id, token_type, x, y, controller, owner_player_id, discovery, hostile_rule_reference, hostile_dice_expression, hostile_modifier, hostile_difficulty, hostile_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
             int index = 0;
             for (CombatToken token : map.tokens()) {
                 statement.setObject(1, operationKey);
@@ -497,6 +504,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 statement.setString(7, token.controller().name());
                 statement.setObject(8, token.ownerPlayerId().map(PlayerId::value).orElse(null));
                 statement.setString(9, token.discovery().name());
+                bindHostileRule(statement, 10, token.hostileObservationRule().orElse(null));
                 statement.addBatch();
             }
             statement.executeBatch();
@@ -518,6 +526,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             statement.executeBatch();
         }
         writeHistoryFeatures(connection, map, operationKey);
+        writeHostileObservations(connection, map, operationKey, HISTORY_HOSTILE_OBSERVATION_TABLE);
         try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + HISTORY_LAYER_TABLE + " WHERE command_id=?")) {
             statement.setObject(1, operationKey);
             statement.executeUpdate();
@@ -602,6 +611,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         readVisibility(row, map);
         map.replaceRuntimeState(readRuntime(row));
         map.replaceDoors(doors);
+        map.replaceHostileObservations(readHostileObservations(connection, HOSTILE_OBSERVATION_TABLE, "map_id", row.getObject("map_id", UUID.class)));
         return new VersionedOwnedCombatMap(map, new MapOwnerId(ownerId), row.getLong("version"));
     }
 
@@ -629,6 +639,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         readVisibility(row, map);
         map.replaceRuntimeState(readRuntime(row));
         map.replaceDoors(doors);
+        map.replaceHostileObservations(readHostileObservations(connection, HISTORY_HOSTILE_OBSERVATION_TABLE, "command_id", commandId));
         return new VersionedOwnedCombatMap(map, new MapOwnerId(ownerId), row.getLong("version"));
     }
 
@@ -756,13 +767,63 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     }
 
     private static CombatToken readToken(ResultSet row) throws SQLException {
+        String hostileRuleReference = row.getString("hostile_rule_reference");
+        HostileObservationRule hostileRule = hostileRuleReference == null || hostileRuleReference.isBlank()
+                ? null : new HostileObservationRule(hostileRuleReference,
+                        row.getString("hostile_dice_expression") == null ? "1d20" : row.getString("hostile_dice_expression"),
+                        row.getObject("hostile_modifier", Integer.class) == null ? 0 : row.getInt("hostile_modifier"),
+                        row.getObject("hostile_difficulty", Integer.class), row.getString("hostile_mode"));
         return new CombatToken(
                 new TokenId(row.getObject("token_id", UUID.class)),
                 TokenType.valueOf(row.getString("token_type")),
                 new GridPosition(row.getInt("x"), row.getInt("y")),
                 TokenController.valueOf(row.getString("controller")),
                 row.getObject("owner_player_id") == null ? null : new PlayerId(row.getObject("owner_player_id", UUID.class)),
-                row.getString("discovery") == null ? TokenDiscovery.DISCOVERED : TokenDiscovery.valueOf(row.getString("discovery")));
+                row.getString("discovery") == null ? TokenDiscovery.DISCOVERED : TokenDiscovery.valueOf(row.getString("discovery")), hostileRule);
+    }
+
+    private static void bindHostileRule(PreparedStatement statement, int start, HostileObservationRule rule) throws SQLException {
+        if (rule == null) {
+            statement.setObject(start, null); statement.setObject(start + 1, null); statement.setInt(start + 2, 0);
+            statement.setObject(start + 3, null); statement.setObject(start + 4, null);
+            return;
+        }
+        statement.setString(start, rule.ruleReference()); statement.setString(start + 1, rule.diceExpression());
+        statement.setInt(start + 2, rule.modifier());
+        if (rule.difficulty() == null) statement.setObject(start + 3, null); else statement.setInt(start + 3, rule.difficulty());
+        statement.setString(start + 4, rule.mode());
+    }
+
+    private static void writeHostileObservations(Connection connection, CombatMap map, UUID key, String table) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + table + " WHERE "
+                + (table.equals(HOSTILE_OBSERVATION_TABLE) ? "map_id" : "command_id") + "=?")) {
+            statement.setObject(1, key);
+            statement.executeUpdate();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO " + table + " (" + (table.equals(HOSTILE_OBSERVATION_TABLE) ? "map_id" : "command_id")
+                        + ",hostile_token_id,player_token_id,status) VALUES (?,?,?,?)")) {
+            for (HostileObservationState observation : map.hostileObservations()) {
+                statement.setObject(1, key); statement.setObject(2, observation.hostileTokenId().value());
+                statement.setObject(3, observation.playerTokenId().value()); statement.setString(4, observation.status().name());
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+    }
+
+    private static Set<HostileObservationState> readHostileObservations(Connection connection, String table,
+            String keyColumn, UUID key) throws SQLException {
+        Set<HostileObservationState> observations = new HashSet<>();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT hostile_token_id,player_token_id,status FROM "
+                + table + " WHERE " + keyColumn + "=?")) {
+            statement.setObject(1, key);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) observations.add(new HostileObservationState(new TokenId(rows.getObject(1, UUID.class)),
+                        new TokenId(rows.getObject(2, UUID.class)), HostileObservationStatus.valueOf(rows.getString(3))));
+            }
+        }
+        return observations;
     }
 
     private static void writeVisibility(Connection connection, CombatMap map) throws SQLException {

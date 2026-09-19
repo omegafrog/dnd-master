@@ -7,17 +7,24 @@ import java.util.UUID;
 /** 서버가 플레이어 공간 판정을 위해 주사위 서비스에 보내는 명령. */
 public record SpatialCheckRollCommand(UUID adventureId, UUID mapId, UUID sessionId, RuleSetId ruleSetId,
         UUID ownerPlayerId, UUID checkId, UUID operationId, UUID commandId,
-        String ruleReference, String diceExpression, int modifier, Integer difficulty, long expectedVersion) {
+        String ruleReference, String diceExpression, int modifier, Integer difficulty, long expectedVersion,
+        CombatMapCheckActor actor) {
+    public SpatialCheckRollCommand(UUID adventureId, UUID mapId, UUID sessionId, RuleSetId ruleSetId,
+            UUID ownerPlayerId, UUID checkId, UUID operationId, UUID commandId,
+            String ruleReference, String diceExpression, int modifier, Integer difficulty, long expectedVersion) {
+        this(adventureId, mapId, sessionId, ruleSetId, ownerPlayerId, checkId, operationId, commandId,
+                ruleReference, diceExpression, modifier, difficulty, expectedVersion, CombatMapCheckActor.PLAYER);
+    }
     public SpatialCheckRollCommand(UUID adventureId, UUID mapId, UUID sessionId, RuleSetId ruleSetId,
             UUID ownerPlayerId, UUID checkId, UUID operationId, long expectedVersion) {
         this(adventureId, mapId, sessionId, ruleSetId, ownerPlayerId, checkId, operationId,
-                checkId, "legacy.spatial-check", "1d20", 0, null, expectedVersion);
+                checkId, "legacy.spatial-check", "1d20", 0, null, expectedVersion, CombatMapCheckActor.PLAYER);
     }
 
     public SpatialCheckRollCommand(UUID adventureId, UUID mapId, UUID sessionId, RuleSetId ruleSetId,
             UUID ownerPlayerId, UUID checkId, UUID operationId, UUID commandId, long expectedVersion) {
         this(adventureId, mapId, sessionId, ruleSetId, ownerPlayerId, checkId, operationId,
-                commandId, "legacy.spatial-check", "1d20", 0, null, expectedVersion);
+                commandId, "legacy.spatial-check", "1d20", 0, null, expectedVersion, CombatMapCheckActor.PLAYER);
     }
 
     public SpatialCheckRollCommand {
@@ -29,6 +36,7 @@ public record SpatialCheckRollCommand(UUID adventureId, UUID mapId, UUID session
         Objects.requireNonNull(checkId, "check id must not be null");
         Objects.requireNonNull(operationId, "operation id must not be null");
         Objects.requireNonNull(commandId, "command id must not be null");
+        Objects.requireNonNull(actor, "check actor must not be null");
         if (ruleReference == null || ruleReference.isBlank()) throw new IllegalArgumentException("rule reference must not be blank");
         if (diceExpression == null || diceExpression.isBlank()) throw new IllegalArgumentException("dice expression must not be blank");
         if (expectedVersion < 0) throw new IllegalArgumentException("expected map version must be non-negative");
@@ -36,6 +44,6 @@ public record SpatialCheckRollCommand(UUID adventureId, UUID mapId, UUID session
 
     public SpatialCheckRollCommand withRule(CombatMapCheckDetails details) {
         return new SpatialCheckRollCommand(adventureId, mapId, sessionId, ruleSetId, ownerPlayerId, checkId, operationId,
-                commandId, details.ruleReference(), details.diceExpression(), details.modifier(), details.difficulty(), expectedVersion);
+                commandId, details.ruleReference(), details.diceExpression(), details.modifier(), details.difficulty(), expectedVersion, details.actor());
     }
 }

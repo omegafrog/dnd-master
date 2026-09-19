@@ -248,6 +248,20 @@ class OpenApiSchemaTest {
     }
 
     @SuppressWarnings("unchecked")
+    @Test
+    void combat_map_internal_movement_contract_keeps_enemy_check_details_out_of_player_pending_check() throws IOException {
+        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve("combat-map/openapi.yaml")));
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) root.get("components")).get("schemas");
+        Map<String, Object> pending = (Map<String, Object>) schemas.get("MovementCheckPending");
+        Map<String, Object> details = (Map<String, Object>) schemas.get("MovementCheckDetails");
+        Map<String, Object> pendingActor = (Map<String, Object>) ((Map<String, Object>) pending.get("properties")).get("actor");
+        Map<String, Object> detailsActor = (Map<String, Object>) ((Map<String, Object>) details.get("properties")).get("actor");
+        assertEquals(List.of("PLAYER"), pendingActor.get("enum"));
+        assertEquals(List.of("PLAYER", "ENEMY"), detailsActor.get("enum"));
+        assertTrue(details.get("description").toString().contains("Internal-only"));
+    }
+
+    @SuppressWarnings("unchecked")
     private static void assertPaths(String provider, String... expected) throws IOException {
         Path document = CONTRACTS.resolve(provider).resolve("openapi.yaml");
         Map<String, Object> root = new Yaml().load(Files.readString(document));

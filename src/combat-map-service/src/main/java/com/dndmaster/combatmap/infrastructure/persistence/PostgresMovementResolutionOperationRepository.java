@@ -108,7 +108,8 @@ public final class PostgresMovementResolutionOperationRepository implements Move
             statement.setInt(start + 8, 0);
         } else {
             statement.setObject(start, pending.checkId()); statement.setObject(start + 1, pending.featureId());
-            statement.setString(start + 2, pending.featureType().name()); statement.setString(start + 3, pending.trigger().name());
+            if (pending.featureType() == null) statement.setObject(start + 2, null); else statement.setString(start + 2, pending.featureType().name());
+            statement.setString(start + 3, pending.trigger().name());
             statement.setString(start + 4, pending.ruleReference());
             if (pending.difficulty() == null) statement.setObject(start + 5, null); else statement.setInt(start + 5, pending.difficulty());
             statement.setString(start + 6, pending.mode()); statement.setString(start + 7, pending.diceExpression());
@@ -118,7 +119,8 @@ public final class PostgresMovementResolutionOperationRepository implements Move
         statement.setString(start + 12, value.checkOutcomes().stream().map(outcome -> outcome.commandId() == null
                 ? outcome.featureId() + "=" + outcome.success()
                 : String.join(",", outcome.featureId().toString(), outcome.checkId().toString(), outcome.commandId().toString(),
-                        outcome.owner().actor().name(), outcome.owner().playerId().value().toString(), Boolean.toString(outcome.success())))
+                        outcome.owner().actor().name(), outcome.owner().playerId().value().toString(), Boolean.toString(outcome.success()),
+                        Integer.toString(outcome.cursor())))
                 .collect(java.util.stream.Collectors.joining(";")));
     }
     private static void bindProgress(java.sql.PreparedStatement statement, int start, MovementResolutionOperation value) throws SQLException { statement.setString(start, value.status().name()); statement.setInt(start + 1, value.cursor()); statement.setInt(start + 2, value.currentCell().x()); statement.setInt(start + 3, value.currentCell().y()); statement.setString(start + 4, encode(value.traversedPath())); MovementResolutionResult result = value.result(); statement.setString(start + 5, result == null ? null : encode(result.traversedPath())); statement.setString(start + 6, result == null ? null : result.status().name()); if (result == null) { statement.setNull(start + 7, java.sql.Types.INTEGER); statement.setNull(start + 8, java.sql.Types.INTEGER); statement.setNull(start + 9, java.sql.Types.BIGINT); statement.setNull(start + 10, java.sql.Types.VARCHAR); statement.setNull(start + 11, java.sql.Types.VARCHAR); } else { statement.setInt(start + 7, result.finalPosition().x()); statement.setInt(start + 8, result.finalPosition().y()); statement.setLong(start + 9, result.mapVersion()); statement.setString(start + 10, String.join("\u001f", result.publicEvents())); statement.setString(start + 11, result.interruptionReason()); } statement.setInt(start + 12, value.retryCount()); }
@@ -134,18 +136,25 @@ public final class PostgresMovementResolutionOperationRepository implements Move
         UUID operationId = (UUID) row.getObject("operation_id");
         UUID ownerPlayerId = row.getObject("pending_owner_player_id", UUID.class);
         if (ownerPlayerId == null) ownerPlayerId = row.getObject("player_id", UUID.class);
-        MovementCheckRequest pending = row.getObject("pending_check_id") == null ? null : new MovementCheckRequest(
-                (UUID) row.getObject("pending_check_id"), operationId, (UUID) row.getObject("pending_feature_id"),
-                com.dndmaster.combatmap.domain.SpatialFeatureType.valueOf(row.getString("pending_feature_type")),
+        MovementCheckRequest pending = row.getObject("pending_check_id") == null ? null : pendingCheck(row, operationId, requested, ownerPlayerId);
+        List<MovementCheckOutcome> outcomes = decodeOutcomes(row.getString("check_outcomes"));
+        return MovementResolutionOperation.restore(operationId, new MapId((UUID) row.getObject("map_id")), (UUID) row.getObject("command_id"), new PlayerId((UUID) row.getObject("player_id")), new TokenId((UUID) row.getObject("token_id")), new MovementPath(requested, row.getInt("path_distance")), row.getString("fingerprint"), expectedVersion, status, row.getInt("cursor"), new GridPosition(row.getInt("current_x"), row.getInt("current_y")), traversed, result, row.getInt("retry_count"), row.getLong("operation_version"), MovementOperationStatus.valueOf(row.getString("retry_resume_status")), pending, outcomes, (UUID) row.getObject("cancel_command_id"));
+    }
+    private static MovementCheckRequest pendingCheck(ResultSet row, UUID operationId, List<GridPosition> requested,
+            UUID ownerPlayerId) throws SQLException {
+        MovementCheckActor actor = MovementCheckActor.valueOf(row.getString("pending_owner_actor") == null
+                ? row.getString("pending_ownership") : row.getString("pending_owner_actor"));
+        MovementCheckOwner owner = new MovementCheckOwner(actor, new PlayerId(ownerPlayerId));
+        GridPosition targetCell = actor == MovementCheckActor.ENEMY && row.getInt("cursor") + 1 < requested.size()
+                ? requested.get(row.getInt("cursor") + 1) : null;
+        return new MovementCheckRequest((UUID) row.getObject("pending_check_id"), operationId,
+                (UUID) row.getObject("pending_feature_id"),
+                row.getString("pending_feature_type") == null ? null : com.dndmaster.combatmap.domain.SpatialFeatureType.valueOf(row.getString("pending_feature_type")),
                 com.dndmaster.combatmap.domain.SpatialTrigger.valueOf(row.getString("pending_trigger")),
                 row.getString("pending_rule_reference"), row.getString("pending_dice_expression"),
                 row.getObject("pending_modifier", Integer.class) == null ? 0 : row.getInt("pending_modifier"),
-                row.getObject("pending_difficulty", Integer.class),
-                row.getString("pending_mode"), new MovementCheckOwner(
-                        MovementCheckActor.valueOf(row.getString("pending_owner_actor") == null
-                                ? row.getString("pending_ownership") : row.getString("pending_owner_actor")), new PlayerId(ownerPlayerId)));
-        List<MovementCheckOutcome> outcomes = decodeOutcomes(row.getString("check_outcomes"));
-        return MovementResolutionOperation.restore(operationId, new MapId((UUID) row.getObject("map_id")), (UUID) row.getObject("command_id"), new PlayerId((UUID) row.getObject("player_id")), new TokenId((UUID) row.getObject("token_id")), new MovementPath(requested, row.getInt("path_distance")), row.getString("fingerprint"), expectedVersion, status, row.getInt("cursor"), new GridPosition(row.getInt("current_x"), row.getInt("current_y")), traversed, result, row.getInt("retry_count"), row.getLong("operation_version"), MovementOperationStatus.valueOf(row.getString("retry_resume_status")), pending, outcomes, (UUID) row.getObject("cancel_command_id"));
+                row.getObject("pending_difficulty", Integer.class), row.getString("pending_mode"), owner,
+                targetCell, actor == MovementCheckActor.ENEMY ? row.getInt("cursor") + 1 : -1);
     }
     private static MovementResolutionOutcomeStatus resultStatus(ResultSet row) throws SQLException {
         String status = row.getString("result_status");
@@ -159,7 +168,11 @@ public final class PostgresMovementResolutionOperationRepository implements Move
         if (encoded == null || encoded.isBlank()) return List.of();
         return java.util.Arrays.stream(encoded.split(";"))
                 .map(value -> value.split(",", -1))
-                .map(value -> value.length == 6
+                .map(value -> value.length == 7
+                        ? new MovementCheckOutcome(UUID.fromString(value[0]), UUID.fromString(value[1]), UUID.fromString(value[2]),
+                                new MovementCheckOwner(MovementCheckActor.valueOf(value[3]), new PlayerId(UUID.fromString(value[4]))),
+                                Boolean.parseBoolean(value[5]), Integer.parseInt(value[6]))
+                        : value.length == 6
                         ? new MovementCheckOutcome(UUID.fromString(value[0]), UUID.fromString(value[1]), UUID.fromString(value[2]),
                                 new MovementCheckOwner(MovementCheckActor.valueOf(value[3]), new PlayerId(UUID.fromString(value[4]))),
                                 Boolean.parseBoolean(value[5]))

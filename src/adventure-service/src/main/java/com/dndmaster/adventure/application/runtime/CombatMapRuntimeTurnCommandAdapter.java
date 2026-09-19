@@ -37,6 +37,18 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
             if ("CHECK_REQUIRED".equals(savedStatus)) {
                 UUID operationId = requiredUuid(savedOutcome, "operationId");
                 var pending = movementCoordinator.query(requiredUuid(context, "combatMapId"), operationId);
+                if (pending.pendingCheckDetails() != null
+                        && pending.pendingCheckDetails().actor() == com.dndmaster.adventure.application.combat.CombatMapCheckActor.ENEMY) {
+                    var details = pending.pendingCheckDetails();
+                    var roll = new com.dndmaster.adventure.application.combat.SpatialCheckRollCommand(
+                            command.adventureId(), requiredUuid(context, "combatMapId"), command.sessionId(),
+                            new RuleSetId(requiredUuid(context, "ruleSetId")), command.ownerPlayerId(), details.checkId(),
+                            details.operationId(), command.commandId(), details.ruleReference(), details.diceExpression(),
+                            details.modifier(), details.difficulty(), requiredNonNegativeLong(context, "expectedVersion"), details.actor());
+                    var resumed = movementCoordinator.rollAndResume(roll);
+                    String outcome = mapper.writeValueAsString(resumed);
+                    return movementExecution(resumed, outcome);
+                }
                 String outcome = mapper.writeValueAsString(pending);
                 return movementExecution(pending, outcome);
             }

@@ -16,6 +16,5 @@ public record CombatMapCheckSubmission(UUID commandId, UUID operationId, UUID ch
         Objects.requireNonNull(checkId, "check id is required");
         Objects.requireNonNull(ownerPlayerId, "owner player id is required");
         Objects.requireNonNull(actor, "check actor is required");
-        if (actor != CombatMapCheckActor.PLAYER) throw new IllegalArgumentException("unsupported check actor");
     }
 }

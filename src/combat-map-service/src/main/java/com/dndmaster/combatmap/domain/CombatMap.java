@@ -7,6 +7,7 @@ public final class CombatMap {
     private List<SpatialFeature> spatialFeatures = List.of(); private Set<Door> doors = Set.of();
     private boolean spatialPreparationBlocked;
     private long version; private UUID operationKey; private String operationFingerprint; private VisibilitySnapshot visibilitySnapshot;
+    private Set<HostileObservationState> hostileObservations = Set.of();
     private TacticalRuntimeState runtimeState = TacticalRuntimeState.initial();
     public CombatMap(MapId id, AdventureId adventureId, RuleSetId ruleSetId, GridSpec grid, List<CombatToken> tokens, Collection<GridPosition> obstacles, List<MapLayer> layers) {
         this(id, adventureId, ruleSetId, grid, null, tokens, obstacles, layers, 0, null, null);
@@ -159,6 +160,27 @@ public final class CombatMap {
         visibilitySnapshot = new VisibilitySnapshot(current, explored, observed,
                 calculated.lastSeen().stream().filter(last -> isPlayable(last.position())).toList(), ruleTurn);
     }
+    public HostileObservationStatus hostileObservationStatus(TokenId hostileTokenId, TokenId playerTokenId) {
+        return hostileObservations.stream()
+                .filter(value -> value.hostileTokenId().equals(hostileTokenId) && value.playerTokenId().equals(playerTokenId))
+                .map(HostileObservationState::status).findFirst().orElse(null);
+    }
+    public Set<HostileObservationState> hostileObservations() { return Set.copyOf(hostileObservations); }
+    public void replaceHostileObservations(Collection<HostileObservationState> values) {
+        hostileObservations = Set.copyOf(Objects.requireNonNull(values, "hostile observations must not be null"));
+    }
+    public void markHostileAware(TokenId hostileTokenId, TokenId playerTokenId) {
+        replaceHostileObservation(new HostileObservationState(hostileTokenId, playerTokenId, HostileObservationStatus.AWARE));
+    }
+    public void markHostileLost(TokenId hostileTokenId, TokenId playerTokenId) {
+        replaceHostileObservation(new HostileObservationState(hostileTokenId, playerTokenId, HostileObservationStatus.LOST));
+    }
+    private void replaceHostileObservation(HostileObservationState state) {
+        Set<HostileObservationState> next = new HashSet<>(hostileObservations);
+        next.removeIf(value -> value.hostileTokenId().equals(state.hostileTokenId()) && value.playerTokenId().equals(state.playerTokenId()));
+        next.add(state);
+        hostileObservations = Set.copyOf(next);
+    }
     public CombatMap apply(com.dndmaster.combatmap.application.view.TacticalTriggerEffect effect) {
         if (!effect.planned()) throw new IllegalArgumentException("only planned tactical triggers may change the map");
         List<String> tokenTargetIds = effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL
@@ -174,7 +196,8 @@ public final class CombatMap {
                 ? TokenDiscovery.REVEALED : TokenDiscovery.DISCOVERED;
         List<CombatToken> nextTokens = tokens.stream().map(token -> targets.contains(token.id().value())
                 ? new CombatToken(token.id(), token.type(), token.position(), token.controller(), token.ownerPlayerId().orElse(null),
-                        token.discovery() == TokenDiscovery.REVEALED ? TokenDiscovery.REVEALED : targetDiscovery) : token).toList();
+                        token.discovery() == TokenDiscovery.REVEALED ? TokenDiscovery.REVEALED : targetDiscovery,
+                        token.hostileObservationRule().orElse(null)) : token).toList();
         List<MapLayer> nextLayers = new ArrayList<>(layers);
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL) {
             nextLayers.replaceAll(layer -> layer.type().equals("INITIAL_FOG") ? revealFog(layer, effect.targetIds(), tokens) : layer);
@@ -204,6 +227,7 @@ public final class CombatMap {
         next.replaceRuntimeState(state);
         if (spatialPreparationBlocked) next.blockSpatialPreparation();
         next.replaceDoors(doors); next.refreshVisibility(visibilitySnapshot == null ? 0 : visibilitySnapshot.ruleTurn());
+        next.replaceHostileObservations(hostileObservations);
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL) {
             next.revealCells(fogRevealPositions(effect.targetIds(), tokens));
         }

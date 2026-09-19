@@ -516,6 +516,7 @@ components:
         publicEvents: { type: array, items: { type: string } }
         interruptionReason: { type: [string, 'null'] }
         pendingCheck: { oneOf: [{ $ref: '#/components/schemas/MovementCheckPending' }, { type: 'null' }] }
+        pendingCheckDetails: { oneOf: [{ $ref: '#/components/schemas/MovementCheckDetails' }, { type: 'null' }] }
     MovementCheckResultSubmission:
       type: object
       required: [commandId, operationId, checkId, success, ownerPlayerId, actor]
@@ -542,6 +543,19 @@ components:
         diceExpression: { type: string }
         ownerPlayerId: { type: string, format: uuid }
         actor: { type: string, enum: [PLAYER] }
+    MovementCheckDetails:
+      type: object
+      description: Internal-only typed check details; never returned in player-facing movementCheckPending.
+      required: [checkId, operationId, ruleReference, diceExpression, modifier, ownerPlayerId, actor]
+      properties:
+        checkId: { type: string, format: uuid }
+        operationId: { type: string, format: uuid }
+        ruleReference: { type: string }
+        diceExpression: { type: string }
+        modifier: { type: integer }
+        difficulty: { type: [integer, 'null'] }
+        ownerPlayerId: { type: string, format: uuid }
+        actor: { type: string, enum: [PLAYER, ENEMY] }
     SpatialActionRequest:
       type: object
       required: [ownerId, tokenId, x, y, expectedVersion, commandId]

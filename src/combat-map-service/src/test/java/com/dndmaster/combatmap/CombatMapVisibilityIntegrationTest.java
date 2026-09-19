@@ -137,6 +137,24 @@ class CombatMapVisibilityIntegrationTest{
   assertEquals(feature.triggers(),restoredFeature.triggers());
   assertEquals(feature.provenance(),restoredFeature.provenance());
  }
+ @Test void hostileObservationRuleAndAwarenessRoundTripThroughPostgres(){
+  UUID hostileId=UUID.randomUUID();
+  UUID playerTokenId=UUID.randomUUID();
+  CombatToken hostile=new CombatToken(new TokenId(hostileId),TokenType.ENEMY,new GridPosition(3,1),TokenController.AI_GAME_MASTER,null,
+          new HostileObservationRule("monster.perception","1d20",2,13,"PASSIVE_OR_ACTIVE"));
+  CombatMap map=new CombatMap(new MapId(UUID.randomUUID()),adventure(),rules(),new GridSpec(10,10,50,5),new PlayerId(owner.value()),List.of(
+          new CombatToken(new TokenId(playerTokenId),TokenType.PLAYER,new GridPosition(1,1),TokenController.PLAYER,new PlayerId(owner.value())),hostile),Set.of(),List.of(),0,null);
+  map.replaceHostileObservations(Set.of(new HostileObservationState(hostile.id(),new TokenId(playerTokenId),HostileObservationStatus.AWARE)));
+  store.insert(owner,map);
+  try(Connection c=ds.getConnection();PreparedStatement p=c.prepareStatement("SELECT hostile_rule_reference,hostile_dice_expression,hostile_modifier,hostile_difficulty,hostile_mode FROM combat_map_token WHERE token_id=?")){
+   p.setObject(1,hostileId);
+   try(ResultSet row=p.executeQuery()){assertTrue(row.next());assertEquals("monster.perception",row.getString(1));assertEquals("1d20",row.getString(2));assertEquals(2,row.getInt(3));assertEquals(13,row.getInt(4));assertEquals("PASSIVE_OR_ACTIVE",row.getString(5));}
+  }catch(SQLException exception){throw new RuntimeException(exception);}
+  CombatMap restored=store.find(map.id()).orElseThrow().map();
+  assertEquals(map.hostileObservations(),restored.hostileObservations());
+  assertEquals(map.tokens().stream().filter(token -> token.id().value().equals(hostileId)).findFirst().orElseThrow().hostileObservationRule(),
+          restored.tokens().stream().filter(token -> token.id().value().equals(hostileId)).findFirst().orElseThrow().hostileObservationRule());
+ }
  @Test void discovered_multi_cell_feature_stays_discovered_after_reload_and_does_not_repeat(){
   UUID featureId=UUID.randomUUID();
   List<GridPosition> cells=List.of(new GridPosition(2,2),new GridPosition(2,3));

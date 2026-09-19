@@ -685,6 +685,28 @@ it('resumes the adventure turn after a successful player roll and uses its typed
   expect(screen.getByText('공개된 결과: TRAP_DISCOVERED:2,1')).toBeInTheDocument()
 })
 
+it('keeps the confirmed path and shows the enemy observation interruption from Adventure Runtime', async () => {
+  window.localStorage.removeItem('dnd-master:movement-operation:a1')
+  window.localStorage.removeItem('dnd-master:movement-command:a1')
+  const api = fakeApi()
+  const result = {
+    version: 1, operationId: 'operation-hostile-1', status: 'INTERRUPTED' as const,
+    requestedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 3, y: 1 }],
+    traversedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }], finalPosition: { x: 2, y: 1 },
+    publicEvents: ['HOSTILE_OBSERVED'], interruptionReason: 'HOSTILE_OBSERVED',
+  }
+  api.submitMapAction = vi.fn(async () => ({ turnId: 'turn-331', version: 1, movementResult: result }))
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} />)
+  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await user.click(screen.getByRole('button', { name: '확인' }))
+
+  await waitFor(() => expect(screen.getAllByText('이동이 중단되었습니다.').length).toBeGreaterThan(0))
+  expect(screen.getByText('공개된 결과: HOSTILE_OBSERVED')).toBeInTheDocument()
+  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ path: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }), expect.anything(), expect.any(Number))
+})
+
 it('restores a durable movement operation when local storage has no waiting state', async () => {
   window.localStorage.removeItem('dnd-master:movement-operation:a1')
   window.localStorage.removeItem('dnd-master:movement-command:a1')

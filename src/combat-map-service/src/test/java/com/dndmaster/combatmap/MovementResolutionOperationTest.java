@@ -55,6 +55,59 @@ import org.junit.jupiter.api.Test;
 
 class MovementResolutionOperationTest {
     @Test
+    void enemy_perception_check_is_typed_and_never_projected_as_a_player_roll() {
+        Fixture fixture = new Fixture();
+        CombatToken enemy = new CombatToken(new TokenId(UUID.randomUUID()), TokenType.ENEMY,
+                new GridPosition(2, 2), TokenController.AI_GAME_MASTER, null,
+                new com.dndmaster.combatmap.domain.HostileObservationRule("monster.perception", "1d20", 2, 13, "SYSTEM"));
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, List.of(fixture.map.tokens().getFirst(), enemy), fixture.map.obstacles(), fixture.map.layers(),
+                0, null);
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)),
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+
+        MovementOperationResponse pending = fixture.service().start(fixture.start("enemy-check"));
+        MovementCheckRequest request = fixture.findOperationByCommandId(fixture.commandId).orElseThrow().pendingCheck();
+
+        assertEquals(MovementOperationStatus.CHECK_PENDING, pending.status());
+        assertEquals(MovementCheckActor.ENEMY, request.owner().actor());
+        assertEquals(null, pending.pendingCheck());
+        assertEquals(MovementCheckActor.ENEMY, pending.pendingCheckDetails().owner().actor());
+
+        MovementOperationResponse resolved = fixture.service().resume(fixture.map.id(), pending.operationId(),
+                new MovementCheckResult(UUID.randomUUID(), pending.operationId(), request.checkId(), true,
+                        MovementCheckOwner.enemy(fixture.player)));
+
+        assertEquals(MovementResolutionOutcomeStatus.INTERRUPTED, resolved.result().status());
+        assertEquals(List.of("HOSTILE_OBSERVED"), resolved.result().publicEvents());
+    }
+
+    @Test
+    void stops_at_the_first_cell_where_a_new_enemy_sees_the_player_and_replays_once() {
+        Fixture fixture = new Fixture();
+        CombatToken enemy = new CombatToken(new TokenId(UUID.randomUUID()), TokenType.ENEMY,
+                new GridPosition(2, 2), TokenController.AI_GAME_MASTER, null);
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, List.of(fixture.map.tokens().getFirst(), enemy), fixture.map.obstacles(), fixture.map.layers(),
+                0, null);
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)),
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+
+        MovementOperationResponse stopped = fixture.service().start(fixture.start("hostile-fingerprint"));
+        MovementOperationResponse replay = fixture.service().start(fixture.start("hostile-fingerprint"));
+
+        assertEquals(MovementOperationStatus.COMMITTED, stopped.status());
+        assertEquals(MovementResolutionOutcomeStatus.INTERRUPTED, stopped.result().status());
+        assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), stopped.result().traversedPath());
+        assertEquals(List.of("HOSTILE_OBSERVED"), stopped.result().publicEvents());
+        assertEquals(stopped, replay);
+        assertEquals(com.dndmaster.combatmap.domain.HostileObservationStatus.AWARE,
+                fixture.map.hostileObservationStatus(enemy.id(), fixture.tokenId));
+    }
+
+    @Test
     void stores_a_check_pending_request_without_leaking_feature_identity_or_difficulty() {
         Fixture fixture = new Fixture();
         UUID featureId = UUID.randomUUID();
@@ -976,13 +1029,15 @@ class MovementResolutionOperationTest {
 
         private static CombatMap copy(CombatMap source) {
             List<CombatToken> tokens = source.tokens().stream().map(token -> new CombatToken(token.id(), token.type(), token.position(),
-                    token.controller(), token.ownerPlayerId().orElse(null), token.discovery())).toList();
+                    token.controller(), token.ownerPlayerId().orElse(null), token.discovery(),
+                    token.hostileObservationRule().orElse(null))).toList();
             CombatMap copy = new CombatMap(source.id(), source.adventureId(), source.ruleSetId(), source.grid(), source.ownerPlayerId(), tokens,
                     source.obstacles(), source.layers(), source.version(), source.operationKey(), source.operationFingerprint(), source.spatialFeatures(),
                     source.spatialPreparationBlocked());
             if (source.visibilitySnapshot() != null) copy.replaceVisibility(source.visibilitySnapshot());
             copy.replaceDoors(source.doors());
             copy.replaceRuntimeState(source.runtimeState());
+            copy.replaceHostileObservations(source.hostileObservations());
             return copy;
         }
     }

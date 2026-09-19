@@ -223,6 +223,23 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
     }
 
     @Test
+    void enemy_check_pending_and_cursor_round_trip_without_player_projection() {
+        MovementResolutionOperation operation = repository.reserve(operation(commandId, "enemy-pending"));
+        MovementCheckRequest check = MovementCheckRequest.hostile(UUID.randomUUID(), operation.operationId(),
+                UUID.randomUUID(), com.dndmaster.combatmap.domain.SpatialTrigger.BECOME_VISIBLE,
+                "monster.perception", "1d20", 2, 13, "SYSTEM", MovementCheckOwner.enemy(playerId),
+                new GridPosition(2, 1), 1);
+        operation.requestCheck(check);
+        repository.save(operation);
+
+        MovementResolutionOperation restored = repository.findById(operation.operationId()).orElseThrow();
+
+        assertEquals(MovementCheckActor.ENEMY, restored.pendingCheck().owner().actor());
+        assertEquals(check, restored.pendingCheck());
+        assertEquals(null, restored.pendingCheck().playerView());
+    }
+
+    @Test
     void check_resume_identity_and_result_round_trip_replays_after_reload() {
         MovementResolutionOperation operation = repository.reserve(operation(commandId, "resume"));
         UUID checkId = UUID.randomUUID();

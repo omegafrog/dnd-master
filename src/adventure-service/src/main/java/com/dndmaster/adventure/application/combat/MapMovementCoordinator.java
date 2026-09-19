@@ -69,7 +69,7 @@ public final class MapMovementCoordinator {
         ResolutionPort.PlayerCheckResult result = resolve(details, rollTotal);
         return combatMap.resumeMovementOperation(command.mapId(), command.operationId(),
                 new CombatMapCheckSubmission(command.commandId(), command.operationId(), command.checkId(), result.success(),
-                        command.ownerPlayerId(), CombatMapCheckActor.PLAYER));
+                        command.ownerPlayerId(), details.actor()));
     }
 
     private ResolutionPort.PlayerCheckResult resolve(CombatMapCheckDetails details, int rollTotal) {
@@ -97,7 +97,8 @@ public final class MapMovementCoordinator {
         CombatMapCheckDetails details = pending.pendingCheckDetails();
         if (details == null || !details.checkId().equals(command.checkId())
                 || !details.operationId().equals(command.operationId())
-                || !details.ownerPlayerId().equals(command.ownerPlayerId())) {
+                || !details.ownerPlayerId().equals(command.ownerPlayerId())
+                || details.actor() != command.actor()) {
             throw new IllegalArgumentException("player roll does not belong to the pending movement check");
         }
         return details;

@@ -517,6 +517,9 @@ public class AdventureController {
         if (submission != null && !owner.equals(submission.ownerPlayerId())) {
             throw new ApiRequestGuard.ApiContractException(403, "CHECK_OWNERSHIP_DENIED");
         }
+        if (submission != null && submission.actor() != com.dndmaster.adventure.application.combat.CombatMapCheckActor.PLAYER) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_SPATIAL_CHECK_ACTOR");
+        }
         if ("resume".equals(action)) {
             if (commandId == null || (submission == null ? !operationId.equals(commandId) : !commandId.equals(submission.commandId()))) {
                 throw new ApiRequestGuard.ApiContractException(400, "IDEMPOTENCY_KEY_MISMATCH");

@@ -8,10 +8,13 @@ public record MovementCheckOwner(MovementCheckActor actor, PlayerId playerId) {
     public MovementCheckOwner {
         actor = Objects.requireNonNull(actor, "check actor must not be null");
         playerId = Objects.requireNonNull(playerId, "check owner player id must not be null");
-        if (actor != MovementCheckActor.PLAYER) throw new IllegalArgumentException("unsupported check actor");
+        if (actor == null) throw new IllegalArgumentException("check actor must not be null");
     }
 
     public static MovementCheckOwner player(PlayerId playerId) {
         return new MovementCheckOwner(MovementCheckActor.PLAYER, playerId);
+    }
+    public static MovementCheckOwner enemy(PlayerId ownerPlayerId) {
+        return new MovementCheckOwner(MovementCheckActor.ENEMY, ownerPlayerId);
     }
 }

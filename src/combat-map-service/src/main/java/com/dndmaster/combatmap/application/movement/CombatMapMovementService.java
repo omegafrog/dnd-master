@@ -20,6 +20,7 @@ public final class CombatMapMovementService {
     private final MovementInterruptionPolicy interruptionPolicy;
     private final com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy detectionPolicy;
     private final com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver triggerResolver;
+    private final HostileObservationResolver hostileObservationResolver;
     private final MovementCheckResolver checkResolver;
     public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort){this(repository, movementPort, new UnsupportedOperationRepository(), MovementInterruptionPolicy.publicSpatialFeatures(), MovementCheckResolver.pending());}
     public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort, MovementResolutionOperationRepository operations){this(repository, movementPort, operations, MovementInterruptionPolicy.publicSpatialFeatures(), MovementCheckResolver.pending());}
@@ -27,7 +28,10 @@ public final class CombatMapMovementService {
             MovementResolutionOperationRepository operations, MovementInterruptionPolicy interruptionPolicy){this(repository, movementPort, operations, interruptionPolicy, MovementCheckResolver.pending());}
     public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort,
             MovementResolutionOperationRepository operations, MovementInterruptionPolicy interruptionPolicy,
-            MovementCheckResolver checkResolver){this.repository=Objects.requireNonNull(repository);this.movementPort=Objects.requireNonNull(movementPort);this.operations=Objects.requireNonNull(operations);this.interruptionPolicy=Objects.requireNonNull(interruptionPolicy);this.detectionPolicy=new com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy();this.triggerResolver=new com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver();this.checkResolver=Objects.requireNonNull(checkResolver);}
+            MovementCheckResolver checkResolver){this(repository, movementPort, operations, interruptionPolicy, checkResolver, new HostileObservationResolver());}
+    public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort,
+            MovementResolutionOperationRepository operations, MovementInterruptionPolicy interruptionPolicy,
+            MovementCheckResolver checkResolver, HostileObservationResolver hostileObservationResolver){this.repository=Objects.requireNonNull(repository);this.movementPort=Objects.requireNonNull(movementPort);this.operations=Objects.requireNonNull(operations);this.interruptionPolicy=Objects.requireNonNull(interruptionPolicy);this.detectionPolicy=new com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy();this.triggerResolver=new com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver();this.checkResolver=Objects.requireNonNull(checkResolver);this.hostileObservationResolver=Objects.requireNonNull(hostileObservationResolver);}
     public CombatMap movePlayerToken(MovePlayerTokenCommand command){
         Objects.requireNonNull(command);
         CombatMap replay = repository.findByCommandId(command.commandId()).orElse(null);
@@ -264,8 +268,32 @@ public final class CombatMapMovementService {
                 publicEvents.addAll(resolveNewlyVisibleFeatures(map, triggerResolver, operation));
                 publicEvents.addAll(triggerResolver.resolve(map, SpatialTrigger.ENTER_CELL,
                         operation.requestedPath().orderedPositions().get(next)));
+                HostileObservationResult hostile = hostileObservationResolver.evaluate(map, operation.playerId(),
+                        operation.tokenId(), operation.requestedPath().orderedPositions().get(next),
+                        operation.operationId(), next);
+                if (hostile.status() == HostileObservationResult.Status.CHECK_REQUIRED) {
+                    MovementCheckRequest request = hostile.check().orElseThrow();
+                    java.util.Optional<Boolean> priorCheck = operation.checkOutcomeAtCursor(request.featureId(), operation.cursor());
+                    if (priorCheck.isEmpty()) {
+                        operation.requestCheck(request);
+                        operations.save(operation);
+                        return response(operation);
+                    }
+                    hostile = hostileObservationResolver.resolveCheck(map, new TokenId(request.featureId()), operation.tokenId(),
+                            priorCheck.orElseThrow(), request.targetCell());
+                }
                 operation.advanceTo(next, map.playerTokenPosition(operation.playerId(), operation.tokenId()));
                 operations.save(operation);
+                if (hostile.interruption().isPresent()) {
+                    MovementInterruption value = hostile.interruption().orElseThrow();
+                    publicEvents.addAll(value.publicEvents());
+                    MovementResolutionResult result = new MovementResolutionResult(operation.requestedPath(), operation.traversedPath(),
+                            operation.currentCell(), operation.expectedVersion() + 1, publicEvents, value.reason(),
+                            MovementResolutionOutcomeStatus.INTERRUPTED);
+                    operation.readyToCommit(result);
+                    operations.save(operation);
+                    return commitPrepared(map, operation);
+                }
                 if (!publicEvents.isEmpty()) {
                     MovementResolutionResult result = new MovementResolutionResult(operation.requestedPath(), operation.traversedPath(),
                             operation.currentCell(), operation.expectedVersion() + 1, publicEvents,
@@ -370,7 +398,7 @@ public final class CombatMapMovementService {
             throw new CombatMapMovementPreviewMismatchException();
         }
     }
-    private static void rebuildStagedMap(CombatMap map, MovementResolutionOperation operation) {
+    private void rebuildStagedMap(CombatMap map, MovementResolutionOperation operation) {
         map.validatePlayerMovement(operation.playerId(), operation.tokenId(), operation.requestedPath(), Integer.MAX_VALUE);
         for (MovementCheckOutcome outcome : operation.checkOutcomes()) {
             if (!outcome.success()) continue;
@@ -384,6 +412,8 @@ public final class CombatMapMovementService {
             map.advancePlayerToken(operation.playerId(), operation.tokenId(), operation.requestedPath().orderedPositions().get(index));
             resolveNewlyVisibleFeatures(map, triggerResolver, operation);
             triggerResolver.resolve(map, SpatialTrigger.ENTER_CELL,
+                    operation.requestedPath().orderedPositions().get(index));
+            hostileObservationResolver.rebuildAwareness(map, operation.tokenId(),
                     operation.requestedPath().orderedPositions().get(index));
         }
         if (!map.playerTokenPosition(operation.playerId(), operation.tokenId()).equals(operation.currentCell()))
