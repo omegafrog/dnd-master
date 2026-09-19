@@ -47,4 +47,3 @@ it('uses the selected and current-turn context when the server token has no disp
   expect(visual.primaryStatus).toBe('CURRENT_TURN')
   expect(visual.isThumbnail).toBe(false)
 })
-

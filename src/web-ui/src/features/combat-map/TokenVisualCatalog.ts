@@ -81,4 +81,3 @@ export class TokenVisualCatalog {
 }
 
 export const tokenVisualCatalog = new TokenVisualCatalog()
-
