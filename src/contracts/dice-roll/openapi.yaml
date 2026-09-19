@@ -33,7 +33,7 @@ components:
         ruleSetId: { type: string, format: uuid }
         scope: { type: string, const: ENEMY }
         count: { type: integer, minimum: 1 }
-        sides: { type: integer, minimum: 1 }
+        sides: { type: integer, minimum: 2 }
         modifier: { type: integer }
         sessionId: { type: string, format: uuid }
         turnId: { type: string, format: uuid }

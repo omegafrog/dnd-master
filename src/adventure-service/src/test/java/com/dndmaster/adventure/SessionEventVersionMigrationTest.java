@@ -1,7 +1,9 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -42,28 +44,43 @@ class SessionEventVersionMigrationTest {
     }
 
     @Test
-    void V72_resequences_legacy_duplicate_versions_before_restoring_atomic_uniqueness() throws SQLException {
+    void V72_preserves_existing_versions_and_appends_legacy_duplicates_deterministically() throws SQLException {
         UUID session = UUID.randomUUID();
+        UUID firstEvent = UUID.fromString("00000000-0000-0000-0000-000000000001");
+        UUID duplicateEvent = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        UUID laterEvent = UUID.fromString("00000000-0000-0000-0000-000000000003");
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
             statement.execute("INSERT INTO " + schema + ".adventure_session_event_outbox"
                     + "(event_id, session_id, version, event_type, payload) VALUES "
-                    + "('" + UUID.randomUUID() + "', '" + session + "', 4, 'FIRST', '{}'),"
-                    + "('" + UUID.randomUUID() + "', '" + session + "', 4, 'SECOND', '{}'),"
-                    + "('" + UUID.randomUUID() + "', '" + session + "', 7, 'THIRD', '{}')");
+                    + "('" + firstEvent + "', '" + session + "', 4, 'FIRST', '{}'),"
+                    + "('" + duplicateEvent + "', '" + session + "', 4, 'SECOND', '{}'),"
+                    + "('" + laterEvent + "', '" + session + "', 7, 'THIRD', '{}')");
         }
 
         flyway("72").migrate();
 
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-            var rows = statement.executeQuery("SELECT version FROM " + schema
+            var rows = statement.executeQuery("SELECT event_id, version FROM " + schema
                     + ".adventure_session_event_outbox WHERE session_id = '" + session + "' ORDER BY version");
-            long expected = 0;
-            while (rows.next()) assertEquals(expected++, rows.getLong(1));
-            assertEquals(3, expected);
+            assertTrue(rows.next());
+            assertEquals(firstEvent, rows.getObject("event_id"));
+            assertEquals(4, rows.getLong("version"));
+            assertTrue(rows.next());
+            assertEquals(laterEvent, rows.getObject("event_id"));
+            assertEquals(7, rows.getLong("version"));
+            assertTrue(rows.next());
+            assertEquals(duplicateEvent, rows.getObject("event_id"));
+            assertEquals(8, rows.getLong("version"));
+            assertFalse(rows.next());
+
+            rows = statement.executeQuery("SELECT next_version FROM " + schema
+                    + ".adventure_session_event_version_counter WHERE session_id = '" + session + "'");
+            assertTrue(rows.next());
+            assertEquals(9, rows.getLong(1));
 
             assertThrows(SQLException.class, () -> statement.executeUpdate("INSERT INTO " + schema
                     + ".adventure_session_event_outbox(event_id, session_id, version, event_type, payload) VALUES ('"
-                    + UUID.randomUUID() + "', '" + session + "', 1, 'DUPLICATE', '{}')"));
+                    + UUID.randomUUID() + "', '" + session + "', 8, 'DUPLICATE', '{}')"));
         }
     }
 

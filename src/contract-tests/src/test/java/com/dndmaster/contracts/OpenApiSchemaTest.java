@@ -72,6 +72,11 @@ class OpenApiSchemaTest {
                 && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))));
         assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
                 && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))));
+        Map<String, Object> components = (Map<String, Object>) root.get("components");
+        Map<String, Object> enemyRequest = (Map<String, Object>) ((Map<String, Object>) components.get("schemas"))
+                .get("EnemyObservationRollRequest");
+        Map<String, Object> sides = (Map<String, Object>) ((Map<String, Object>) enemyRequest.get("properties")).get("sides");
+        assertEquals(2, sides.get("minimum"), "dice sides must match DiceExpression runtime validation");
     }
 
     @SuppressWarnings("unchecked")
