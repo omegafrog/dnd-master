@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.runtime.RuntimeContinuationCommandPort;
+import com.dndmaster.adventure.application.runtime.CorruptRuntimeContinuationOutcomeException;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution;
 import com.dndmaster.adventure.application.runtime.TypedRuntimeContinuationCommandAdapter;
@@ -74,6 +75,24 @@ class TypedRuntimeContinuationCommandAdapterTest {
 
         assertEquals(RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, result.status());
         assertTrue(result.value().contains("provider unavailable"));
+    }
+
+    @Test
+    void maps_corrupt_persisted_continuation_outcomes_to_permanent_failure() {
+        UUID turnId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation.combat",
+                payload(UUID.randomUUID(), turnId, UUID.randomUUID()), 1);
+        RuntimeTurnCommandExecution result = adapter(new RuntimeContinuationCommandPort() {
+            @Override public RuntimeTurnCommandExecution combat(ContinuationCommand ignored) {
+                throw new CorruptRuntimeContinuationOutcomeException("corrupt persisted outcome", null);
+            }
+            @Override public RuntimeTurnCommandExecution warning(ContinuationCommand command) { return combat(command); }
+            @Override public RuntimeTurnCommandExecution dialogue(ContinuationCommand command) { return combat(command); }
+            @Override public RuntimeTurnCommandExecution chase(ContinuationCommand command) { return combat(command); }
+        }).execute(command);
+
+        assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
     }
 
     @Test

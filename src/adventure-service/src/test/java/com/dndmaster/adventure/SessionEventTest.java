@@ -50,6 +50,24 @@ class SessionEventTest {
     }
 
     @Test
+    void malformed_persisted_typed_continuation_identity_is_a_permanent_data_failure() {
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(commands, new ObjectMapper());
+        UUID turnId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, commandId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "external", "movement.continuation.combat", "{}", 0);
+        commands.save(command.done("{\"commandId\":\"" + UUID.randomUUID() + "\",\"turnId\":\"" + turnId
+                + "\",\"operationId\":\"" + UUID.randomUUID() + "\",\"hostileTokenId\":\"" + UUID.randomUUID()
+                + "\",\"trigger\":\"HOSTILE_OBSERVED\"}"));
+        RuntimeContinuationCommandPort.ContinuationCommand typed = new RuntimeContinuationCommandPort.ContinuationCommand(
+                command, new MovementFollowUpRuntimeConsumer.Continuation(MovementFollowUpCommand.Kind.COMBAT,
+                        "HOSTILE_OBSERVED", UUID.randomUUID(), turnId, UUID.randomUUID()));
+
+        assertThrows(CorruptRuntimeContinuationOutcomeException.class, () -> outcomes.combat(typed));
+    }
+
+    @Test
     void event_versions_are_monotonic_and_duplicate_safe() {
         InMemorySessionEventRepository events = new InMemorySessionEventRepository();
         UUID session = UUID.randomUUID();

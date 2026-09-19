@@ -41,6 +41,8 @@ public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurn
                 case DIALOGUE -> port.dialogue(typed);
                 case CHASE -> port.chase(typed);
             };
+        } catch (CorruptRuntimeContinuationOutcomeException failure) {
+            return RuntimeTurnCommandExecution.permanentFailure(failure.getMessage());
         } catch (PermanentFollowUpFailure failure) {
             return RuntimeTurnCommandExecution.permanentFailure(failure.getMessage());
         } catch (RuntimeException failure) {

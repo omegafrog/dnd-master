@@ -288,8 +288,8 @@ public class AdventureController {
                                             member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                             adventure.sessionId().value()))));
         }
-        sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
-                result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
+        sessionEventRepository.appendNext(result.turn().sessionId(), UUID.randomUUID(), "GM_TURN_COMMITTED",
+                result.turn().turnId().toString());
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
     }
 
@@ -332,8 +332,8 @@ public class AdventureController {
                 + ";validation=accepted;recovery=forward";
         GmTurn committed = existing.commit(providerMetadata);
         gmTurnRepository.save(committed, adventureId);
-        sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
-                result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
+        sessionEventRepository.appendNext(result.turn().sessionId(), UUID.randomUUID(), "GM_TURN_COMMITTED",
+                result.turn().turnId().toString());
     }
 
     private static Map<String, String> runtimeTurnFailure(RuntimeException exception) {

@@ -15,28 +15,7 @@ public final class PostgresSessionEventRepository implements SessionEventReposit
     public PostgresSessionEventRepository(DataSource dataSource) { this.dataSource = dataSource; }
 
     @Override public void append(SessionEvent event) {
-        try (Connection connection = transaction()) {
-            if (findById(connection, event.eventId()) != null) {
-                SessionEvent existing = findById(connection, event.eventId());
-                if (!existing.sessionId().equals(event.sessionId()) || !existing.type().equals(event.type())
-                        || !existing.payload().equals(event.payload())) {
-                    throw new com.dndmaster.adventure.application.runtime.SessionEventIdentityConflictException(
-                            "session event identity conflict");
-                }
-                connection.commit();
-                return;
-            }
-            try (var statement = connection.prepareStatement("""
-                    INSERT INTO adventure_session_event_outbox(event_id, session_id, version, event_type, payload)
-                    VALUES (?, ?, ?, ?, ?)
-                    """)) {
-                statement.setObject(1, event.eventId()); statement.setObject(2, event.sessionId());
-                statement.setLong(3, event.version()); statement.setString(4, event.type());
-                statement.setString(5, event.payload()); statement.executeUpdate();
-            }
-            advanceCounter(connection, event.sessionId(), event.version() + 1);
-            connection.commit();
-        } catch (SQLException e) { throw new RuntimeException("could not append session event", e); }
+        appendNext(event.sessionId(), event.eventId(), event.type(), event.payload());
     }
 
     @Override public SessionEvent appendNext(UUID sessionId, UUID eventId, String type, String payload) {

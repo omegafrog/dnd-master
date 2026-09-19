@@ -1,6 +1,8 @@
 package com.dndmaster.adventure.application.runtime;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.Objects;
@@ -37,7 +39,11 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
         RuntimeTurnCommand command = request.command();
         RuntimeTurnCommand existing = commands.findByCommandId(command.commandId()).orElse(null);
         if (existing != null && existing.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE
-                && !existing.outcomeJson().isBlank()) return read(existing.outcomeJson(), type);
+                && !existing.outcomeJson().isBlank()) {
+            T persisted = read(existing.outcomeJson(), type);
+            validateIdentity(persisted, command);
+            return persisted;
+        }
         MovementFollowUpRuntimeConsumer.Continuation continuation = request.continuation();
         T outcome = factory.create(command.commandId(), command.turnId(), continuation.operationId(),
                 continuation.hostileTokenId(), continuation.trigger());
@@ -50,11 +56,27 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
     }
 
     private <T> T read(String json, Class<T> type) {
-        try {
-            return objectMapper.readValue(json, type);
+        try (JsonParser parser = objectMapper.createParser(json)) {
+            T value = objectMapper.readerFor(type)
+                    .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                    .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
+                    .readValue(parser);
+            if (parser.nextToken() != null) throw new IOException("trailing JSON");
+            return value;
         } catch (IOException failure) {
             throw new CorruptRuntimeContinuationOutcomeException(
                     "durable continuation command outcome is corrupt", failure);
+        }
+    }
+
+    private static void validateIdentity(RuntimeContinuationCommandOutcome outcome, RuntimeTurnCommand command) {
+        if (outcome == null || outcome.commandId() == null || outcome.turnId() == null
+                || outcome.operationId() == null || outcome.hostileTokenId() == null
+                || outcome.trigger() == null || outcome.trigger().isBlank()
+                || !command.commandId().equals(outcome.commandId())
+                || !command.turnId().equals(outcome.turnId())) {
+            throw new CorruptRuntimeContinuationOutcomeException(
+                    "durable continuation command outcome identity is corrupt", null);
         }
     }
 
