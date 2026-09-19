@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.runtime.InMemorySessionEventRepository;
 import com.dndmaster.adventure.application.runtime.MovementFollowUpEventPublisher;
@@ -20,6 +21,7 @@ import java.util.UUID;
 import java.util.EnumMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class SessionEventTest {
@@ -120,7 +122,12 @@ class SessionEventTest {
         new MovementFollowUpEventPublisher(events, new ObjectMapper()).publish(followUp, source.adventureId(),
                 source.sessionId(), source.ownerPlayerId());
         MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands,
-                new ObjectMapper(), trigger -> MovementFollowUpCommand.Kind.DIALOGUE);
+                new ObjectMapper(), trigger -> MovementFollowUpCommand.Kind.DIALOGUE,
+                RuntimeContinuationHandlerRegistry.standard(command -> {
+                    assertEquals("movement.continuation.dialogue", command.commandType());
+                    return com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution.done(
+                            "dialogue-state:" + command.commandId());
+                }));
 
         assertEquals(MovementFollowUpPort.Result.Status.DONE, consumer.consume(source, followUp).status());
         assertEquals(MovementFollowUpPort.Result.Status.DONE, consumer.consume(source, followUp).status());
@@ -129,7 +136,26 @@ class SessionEventTest {
         assertEquals(1, continuation.size());
         assertEquals("movement.continuation.dialogue", continuation.getFirst().commandType());
         assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, continuation.getFirst().executionStatus());
-        assertEquals("DIALOGUE:transitioned:" + followUp.operationId(), continuation.getFirst().outcomeJson());
+        assertEquals("dialogue-state:" + continuation.getFirst().commandId(), continuation.getFirst().outcomeJson());
+    }
+
+    @Test
+    void standard_continuation_retries_when_the_runtime_adapter_does_not_report_a_transition() {
+        AtomicReference<RuntimeTurnCommand> dispatched = new AtomicReference<>();
+        RuntimeContinuationHandlerRegistry registry = RuntimeContinuationHandlerRegistry.standard(command -> {
+            dispatched.set(command);
+            return com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution.transientFailure("runtime unavailable");
+        });
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation.combat", "{}", 1);
+
+        RuntimeContinuationOutcome outcome = registry.execute(command,
+                new MovementFollowUpRuntimeConsumer.Continuation(MovementFollowUpCommand.Kind.COMBAT,
+                        "HOSTILE_OBSERVED", UUID.randomUUID()));
+
+        assertEquals(RuntimeContinuationOutcome.Status.RETRY, outcome.status());
+        assertEquals(command, dispatched.get());
+        assertTrue(outcome.value().contains("runtime unavailable"));
     }
 
     @Test

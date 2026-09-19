@@ -357,8 +357,8 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimeContinuationPort runtimeContinuationPort() {
-        return RuntimeContinuationHandlerRegistry.standard();
+    RuntimeContinuationPort runtimeContinuationPort(RuntimeTurnCommandAdapter runtimeTurnCommandAdapter) {
+        return RuntimeContinuationHandlerRegistry.standard(runtimeTurnCommandAdapter);
     }
 
     @Bean

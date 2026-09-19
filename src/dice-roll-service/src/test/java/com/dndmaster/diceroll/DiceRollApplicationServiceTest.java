@@ -73,7 +73,8 @@ class DiceRollApplicationServiceTest {
     }
 
     private static RollCommand command(RollScope scope, DiceExpression expression) {
-        return new RollCommand(adventure(), ruleSet(), scope, expression, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 0);
+        return new RollCommand(adventure(), ruleSet(), scope, expression, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 0,
+                "dnd5e.perception", 10);
     }
     private static DiceExpression die() { return new DiceExpression(1, 20, 0); }
     private static AdventureId adventure() { return new AdventureId(UUID.randomUUID()); }

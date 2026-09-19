@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS dice_roll (
     dice_count INTEGER NOT NULL CHECK (dice_count BETWEEN 1 AND 100),
     dice_sides INTEGER NOT NULL CHECK (dice_sides BETWEEN 2 AND 1000),
     modifier INTEGER NOT NULL,
+    rule_reference TEXT,
+    difficulty INTEGER CHECK (difficulty IS NULL OR difficulty >= 0),
     faces INTEGER[] NOT NULL,
     total INTEGER NOT NULL,
     version BIGINT NOT NULL CHECK (version >= 0)

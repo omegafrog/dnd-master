@@ -41,6 +41,12 @@ public class DiceRollController {
         requestGuard.internal(token);
         requestGuard.idempotencyKey(idempotencyKey, request.commandId());
         if (!"ENEMY".equals(request.scope())) throw new ApiRequestGuard.ApiContractException(400, "ENEMY_SCOPE_REQUIRED");
+        if (request.ruleReference() == null || request.ruleReference().isBlank()) {
+            throw new ApiRequestGuard.ApiContractException(400, "RULE_REFERENCE_REQUIRED");
+        }
+        if (request.difficulty() == null || request.difficulty() < 0) {
+            throw new ApiRequestGuard.ApiContractException(400, "DIFFICULTY_REQUIRED");
+        }
         return DiceRollResponse.from(diceRollService.executeAiRoll(toCommand(request)));
     }
 
@@ -59,7 +65,7 @@ public class DiceRollController {
                 request.sessionId(),
                 request.turnId(),
                 request.commandId(),
-                request.expectedVersion());
+                request.expectedVersion(), request.ruleReference(), request.difficulty());
     }
 
     public record DiceRollRequest(

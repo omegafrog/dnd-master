@@ -31,8 +31,9 @@ public final class PostgresDiceRollRepository implements DiceRollRepository {
         String sql = """
                 INSERT INTO dice_roll(
                     roll_id, adventure_id, rule_set_id, scope, dice_count, dice_sides, modifier,
-                    faces, total, version, operation_key, session_id, turn_id, expected_version
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                    faces, total, version, operation_key, session_id, turn_id, expected_version,
+                    rule_reference, difficulty
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)
                 """;
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, roll.id().value()); statement.setObject(2, roll.adventureId().value());
@@ -45,6 +46,9 @@ public final class PostgresDiceRollRepository implements DiceRollRepository {
             statement.setObject(11, roll.sessionId());
             statement.setObject(12, roll.turnId());
             statement.setLong(13, roll.expectedVersion());
+            statement.setString(14, roll.ruleReference());
+            if (roll.difficulty() == null) statement.setNull(15, Types.INTEGER);
+            else statement.setInt(15, roll.difficulty());
             statement.executeUpdate();
         } catch (SQLException exception) { throw failure("could not save dice roll", exception); }
     }
@@ -78,7 +82,8 @@ public final class PostgresDiceRollRepository implements DiceRollRepository {
                 row.getObject("session_id", UUID.class),
                 row.getObject("turn_id", UUID.class),
                 UUID.fromString(row.getString("operation_key")),
-                row.getLong("expected_version"));
+                row.getLong("expected_version"), row.getString("rule_reference"),
+                (Integer) row.getObject("difficulty"));
     }
 
     private static DiceRollPersistenceException failure(String message, Throwable cause) {

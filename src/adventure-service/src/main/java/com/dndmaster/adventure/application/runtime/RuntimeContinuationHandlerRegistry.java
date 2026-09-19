@@ -26,6 +26,12 @@ public final class RuntimeContinuationHandlerRegistry implements RuntimeContinua
     }
 
     public static RuntimeContinuationHandlerRegistry standard() {
+        return standard(command -> RuntimeTurnCommandExecution.transientFailure(
+                "runtime continuation adapter is not configured"));
+    }
+
+    public static RuntimeContinuationHandlerRegistry standard(RuntimeTurnCommandAdapter adapter) {
+        Objects.requireNonNull(adapter, "runtime command adapter must not be null");
         EnumMap<MovementFollowUpCommand.Kind, RuntimeContinuationHandler> handlers =
                 new EnumMap<>(MovementFollowUpCommand.Kind.class);
         for (MovementFollowUpCommand.Kind kind : new MovementFollowUpCommand.Kind[] {
@@ -33,9 +39,22 @@ public final class RuntimeContinuationHandlerRegistry implements RuntimeContinua
                 MovementFollowUpCommand.Kind.WARNING,
                 MovementFollowUpCommand.Kind.DIALOGUE,
                 MovementFollowUpCommand.Kind.CHASE }) {
-            handlers.put(kind, (command, continuation) -> RuntimeContinuationOutcome.applied(
-                    kind.name() + ":transitioned:" + continuation.operationId()));
+            handlers.put(kind, (command, continuation) -> transition(adapter, command, kind));
         }
         return new RuntimeContinuationHandlerRegistry(handlers);
+    }
+
+    private static RuntimeContinuationOutcome transition(RuntimeTurnCommandAdapter adapter,
+            RuntimeTurnCommand command, MovementFollowUpCommand.Kind kind) {
+        String expectedType = "movement.continuation."
+                + kind.name().toLowerCase(java.util.Locale.ROOT);
+        if (!expectedType.equals(command.commandType())) {
+            return RuntimeContinuationOutcome.retry("continuation command type does not match " + kind.name());
+        }
+        RuntimeTurnCommandExecution execution = Objects.requireNonNull(adapter.execute(command),
+                "runtime continuation adapter result must not be null");
+        return execution.status() == RuntimeTurnCommandExecution.Status.DONE
+                ? RuntimeContinuationOutcome.applied(execution.value())
+                : RuntimeContinuationOutcome.retry(execution.value());
     }
 }
