@@ -136,23 +136,13 @@ class RuntimeTurnCommitOrchestratorTest {
     }
 
     @Test
-    void rejects_follow_up_kind_other_than_combat() throws Exception {
-        UUID operationId = UUID.randomUUID();
-        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
-        assertCorruptFollowUp(fixture, new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
-                followUpId(operationId), operationId, UUID.randomUUID(), fixture.turnId,
-                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.WARNING,
-                "HOSTILE_OBSERVED"), operationId);
-    }
-
-    @Test
     void rejects_follow_up_trigger_other_than_hostile_observed() throws Exception {
         UUID operationId = UUID.randomUUID();
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
         assertCorruptFollowUp(fixture, new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
                 followUpId(operationId), operationId, UUID.randomUUID(), fixture.turnId,
                 com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
-                "FEATURE_REVEALED"), operationId);
+                "UNEXPECTED_TRIGGER"), operationId);
     }
 
     @Test
@@ -298,7 +288,7 @@ class RuntimeTurnCommitOrchestratorTest {
         String outcome = "{\"version\":4,\"operationId\":\"" + operationId
                 + "\",\"status\":\"INTERRUPTED\",\"requestedPath\":[{\"x\":1,\"y\":1},{\"x\":2,\"y\":1}],"
                 + "\"traversedPath\":[{\"x\":1,\"y\":1}],\"finalPosition\":{\"x\":1,\"y\":1},"
-                + "\"publicEvents\":[\"FEATURE_REVEALED\"],\"interruptionReason\":\"FEATURE_REVEALED\"}";
+                + "\"publicEvents\":[\"HOSTILE_OBSERVED\"],\"interruptionReason\":\"HOSTILE_OBSERVED\"}";
         RuntimeTurnCommand command = fixture.command("combat-map.move", 0, RuntimeTurnCommand.ExecutionStatus.PENDING);
         fixture.commands.save(command.done(outcome));
         RuntimeTurn ready = fixture.readyTurn();

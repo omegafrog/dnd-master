@@ -6,7 +6,7 @@ import java.util.UUID;
 /** Adventure Runtime이 지도 이동 사실을 다음 진행으로 넘기는 typed 명령이다. */
 public record MovementFollowUpCommand(UUID commandId, UUID operationId, UUID hostileTokenId, UUID turnId,
         Kind kind, String trigger) {
-    public enum Kind { COMBAT, WARNING, DIALOGUE, CHASE, CONTINUATION }
+    public enum Kind { COMBAT }
     public MovementFollowUpCommand {
         Objects.requireNonNull(commandId, "follow-up command id must not be null");
         Objects.requireNonNull(operationId, "movement operation id must not be null");

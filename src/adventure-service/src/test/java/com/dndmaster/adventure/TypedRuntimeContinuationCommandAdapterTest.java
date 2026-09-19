@@ -68,9 +68,6 @@ class TypedRuntimeContinuationCommandAdapterTest {
             @Override public RuntimeTurnCommandExecution combat(ContinuationCommand command) {
                 throw new IllegalStateException("provider unavailable");
             }
-            @Override public RuntimeTurnCommandExecution warning(ContinuationCommand command) { return combat(command); }
-            @Override public RuntimeTurnCommandExecution dialogue(ContinuationCommand command) { return combat(command); }
-            @Override public RuntimeTurnCommandExecution chase(ContinuationCommand command) { return combat(command); }
         }).execute(command);
 
         assertEquals(RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, result.status());
@@ -87,9 +84,6 @@ class TypedRuntimeContinuationCommandAdapterTest {
             @Override public RuntimeTurnCommandExecution combat(ContinuationCommand ignored) {
                 throw new CorruptRuntimeContinuationOutcomeException("corrupt persisted outcome", null);
             }
-            @Override public RuntimeTurnCommandExecution warning(ContinuationCommand command) { return combat(command); }
-            @Override public RuntimeTurnCommandExecution dialogue(ContinuationCommand command) { return combat(command); }
-            @Override public RuntimeTurnCommandExecution chase(ContinuationCommand command) { return combat(command); }
         }).execute(command);
 
         assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
@@ -121,9 +115,6 @@ class TypedRuntimeContinuationCommandAdapterTest {
                 called.set(command);
                 return RuntimeTurnCommandExecution.done("ok");
             }
-            @Override public RuntimeTurnCommandExecution warning(ContinuationCommand command) { return combat(command); }
-            @Override public RuntimeTurnCommandExecution dialogue(ContinuationCommand command) { return combat(command); }
-            @Override public RuntimeTurnCommandExecution chase(ContinuationCommand command) { return combat(command); }
         };
     }
 

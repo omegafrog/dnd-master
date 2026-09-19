@@ -124,6 +124,10 @@ class OpenApiSchemaTest {
         assertRequiredHeader(adventureCancel, "adventure cancel");
         assertTrue(adventureCancel.toString().contains("Distinct cancel command identity"));
         Map<String, Object> adventureSchemas = (Map<String, Object>) ((Map<String, Object>) adventure.get("components")).get("schemas");
+        Map<String, Object> followUp = (Map<String, Object>) adventureSchemas.get("MovementFollowUpCommand");
+        Map<String, Object> followUpProperties = (Map<String, Object>) followUp.get("properties");
+        assertEquals(List.of("COMBAT"), ((Map<String, Object>) followUpProperties.get("kind")).get("enum"));
+        assertEquals(List.of("HOSTILE_OBSERVED"), ((Map<String, Object>) followUpProperties.get("trigger")).get("enum"));
         assertNullableFinalPosition(schemaProperties(adventureSchemas, "MovementResult"), "Adventure movement result");
         assertNullableFinalPosition(schemaProperties(adventureSchemas, "AdventureMovementOperationResponse"),
                 "Adventure movement operation response");

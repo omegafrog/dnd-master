@@ -5,8 +5,7 @@ import java.util.UUID;
 
 /** A typed command payload that the Adventure Runtime can consume after movement interruption. */
 public sealed interface RuntimeContinuationCommandOutcome
-        permits CombatContinuationCommand, WarningContinuationCommand,
-        DialogueContinuationCommand, ChaseContinuationCommand {
+        permits CombatContinuationCommand {
     UUID commandId();
     UUID turnId();
     UUID operationId();

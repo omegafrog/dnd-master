@@ -344,7 +344,7 @@ class AdventureApiConfigurationTest {
                     + "\"requestedPath\":[{\"x\":0,\"y\":0},{\"x\":1,\"y\":0}],"
                     + "\"traversedPath\":[{\"x\":0,\"y\":0}],"
                     + "\"finalPosition\":{\"x\":0,\"y\":0},"
-                    + "\"publicEvents\":[\"FEATURE_REVEALED\"],\"interruptionReason\":\"FEATURE_REVEALED\"}")
+                    + "\"publicEvents\":[\"HOSTILE_OBSERVED\"],\"interruptionReason\":\"HOSTILE_OBSERVED\"}")
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body);
@@ -368,7 +368,7 @@ class AdventureApiConfigurationTest {
             assertEquals(List.of(new CombatMapPreviewPosition(0, 0), new CombatMapPreviewPosition(1, 0)), first.requestedPath());
             assertEquals(List.of(new CombatMapPreviewPosition(0, 0)), first.traversedPath());
             assertEquals(new CombatMapPreviewPosition(0, 0), first.finalPosition());
-            assertEquals("FEATURE_REVEALED", first.interruptionReason());
+            assertEquals("HOSTILE_OBSERVED", first.interruptionReason());
         } finally {
             server.stop(0);
         }

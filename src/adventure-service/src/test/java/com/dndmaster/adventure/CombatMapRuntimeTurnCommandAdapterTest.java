@@ -232,7 +232,8 @@ class CombatMapRuntimeTurnCommandAdapterTest {
             @Override public void validateAndMove(CombatActionCommand command) {}
             @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult move(CombatMapMoveCommand command) {
                 return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
-                        CombatMapMovementStatus.INTERRUPTED, requested, traversed, traversed.getLast(), List.of("FEATURE_REVEALED"), "FEATURE_REVEALED");
+                        CombatMapMovementStatus.INTERRUPTED, requested, traversed, traversed.getLast(), List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED")
+                        .withHostileTokenId(UUID.randomUUID());
             }
         };
 
@@ -243,7 +244,7 @@ class CombatMapRuntimeTurnCommandAdapterTest {
         assertEquals(CombatMapMovementStatus.INTERRUPTED, result.movementResult().status());
         assertEquals(requested, result.movementResult().requestedPath());
         assertEquals(traversed, result.movementResult().traversedPath());
-        assertEquals("FEATURE_REVEALED", result.movementResult().interruptionReason());
+        assertEquals("HOSTILE_OBSERVED", result.movementResult().interruptionReason());
         assertEquals(operationId, result.movementResult().operationId());
     }
 
@@ -262,9 +263,6 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                 new ObjectMapper(), new DefaultResolutionPort(),
                 trigger -> switch (trigger) {
                     case "HOSTILE_OBSERVED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT;
-                    case "FEATURE_REVEALED", "DANGER_WARNING" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.WARNING;
-                    case "NPC_CONTACT" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.DIALOGUE;
-                    case "CHASE_STARTED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.CHASE;
                     default -> throw new IllegalArgumentException("unknown movement follow-up trigger: " + trigger);
                 });
     }

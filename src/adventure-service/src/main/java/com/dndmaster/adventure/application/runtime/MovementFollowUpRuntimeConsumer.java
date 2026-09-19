@@ -56,9 +56,6 @@ public final class MovementFollowUpRuntimeConsumer {
             if (kind != expected.kind()) {
                 throw new PermanentFollowUpFailure("movement follow-up kind does not match selected typed result");
             }
-            if (kind == MovementFollowUpCommand.Kind.CONTINUATION) {
-                throw new PermanentFollowUpFailure("movement follow-up kind is not supported");
-            }
             UUID continuationId = UUID.nameUUIDFromBytes(
                     ("movement-continuation:" + followUp.commandId()).getBytes(StandardCharsets.UTF_8));
             RuntimeTurnCommand existing = commands.findByCommandId(continuationId).orElse(null);

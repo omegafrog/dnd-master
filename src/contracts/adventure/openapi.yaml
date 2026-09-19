@@ -358,7 +358,7 @@ components:
       properties:
         commandId: { type: string, format: uuid }
         operationId: { type: string, format: uuid }
-        kind: { type: string, enum: [COMBAT, WARNING, CONTINUATION] }
+        kind: { type: string, enum: [COMBAT] }
         trigger: { type: string, enum: [HOSTILE_OBSERVED] }
     AdventureMovementOperationResponse:
       type: object

@@ -344,19 +344,13 @@ public class AdventureApiConfiguration {
         return new RuntimeTurnCommandAdapterRegistry(
                 Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, enemyObservationRollPort,
                                 objectMapper, resolutionPort, movementFollowUpPolicy),
-                        "movement.continuation.combat", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.COMBAT, continuationPort),
-                        "movement.continuation.warning", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.WARNING, continuationPort),
-                        "movement.continuation.dialogue", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.DIALOGUE, continuationPort),
-                        "movement.continuation.chase", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.CHASE, continuationPort)));
+                        "movement.continuation.combat", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.COMBAT, continuationPort)));
     }
 
     @Bean
     MovementFollowUpPolicy movementFollowUpPolicy() {
         return trigger -> switch (trigger) {
             case "HOSTILE_OBSERVED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT;
-            case "FEATURE_REVEALED", "DANGER_WARNING" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.WARNING;
-            case "NPC_CONTACT" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.DIALOGUE;
-            case "CHASE_STARTED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.CHASE;
             default -> throw new IllegalArgumentException("unknown movement follow-up trigger: " + trigger);
         };
     }
@@ -380,15 +374,6 @@ public class AdventureApiConfiguration {
         return new RuntimeContinuationCommandPort() {
             @Override public RuntimeTurnCommandExecution combat(ContinuationCommand command) {
                 return transition.apply(outcomePort.combat(command));
-            }
-            @Override public RuntimeTurnCommandExecution warning(ContinuationCommand command) {
-                return transition.apply(outcomePort.warning(command));
-            }
-            @Override public RuntimeTurnCommandExecution dialogue(ContinuationCommand command) {
-                return transition.apply(outcomePort.dialogue(command));
-            }
-            @Override public RuntimeTurnCommandExecution chase(ContinuationCommand command) {
-                return transition.apply(outcomePort.chase(command));
             }
         };
     }

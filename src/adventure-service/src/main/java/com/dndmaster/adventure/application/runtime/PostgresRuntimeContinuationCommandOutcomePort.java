@@ -19,20 +19,28 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
     }
 
     @Override public synchronized CombatContinuationCommand combat(RuntimeContinuationCommandPort.ContinuationCommand request) {
+        validateRequest(request);
         return persist(request, CombatContinuationCommand.class,
                 (id, turn, operation, hostile, trigger, kind) -> new CombatContinuationCommand(id, turn, operation, hostile, trigger, kind));
     }
-    @Override public synchronized WarningContinuationCommand warning(RuntimeContinuationCommandPort.ContinuationCommand request) {
-        return persist(request, WarningContinuationCommand.class,
-                (id, turn, operation, hostile, trigger, kind) -> new WarningContinuationCommand(id, turn, operation, hostile, trigger, kind));
-    }
-    @Override public synchronized DialogueContinuationCommand dialogue(RuntimeContinuationCommandPort.ContinuationCommand request) {
-        return persist(request, DialogueContinuationCommand.class,
-                (id, turn, operation, hostile, trigger, kind) -> new DialogueContinuationCommand(id, turn, operation, hostile, trigger, kind));
-    }
-    @Override public synchronized ChaseContinuationCommand chase(RuntimeContinuationCommandPort.ContinuationCommand request) {
-        return persist(request, ChaseContinuationCommand.class,
-                (id, turn, operation, hostile, trigger, kind) -> new ChaseContinuationCommand(id, turn, operation, hostile, trigger, kind));
+
+    private void validateRequest(RuntimeContinuationCommandPort.ContinuationCommand request) {
+        if (request == null || request.command() == null || request.continuation() == null) {
+            throw new CorruptRuntimeContinuationOutcomeException("typed continuation request is required", null);
+        }
+        RuntimeTurnCommand command = request.command();
+        MovementFollowUpRuntimeConsumer.Continuation continuation = request.continuation();
+        if (continuation.kind() != MovementFollowUpCommand.Kind.COMBAT
+                || !"HOSTILE_OBSERVED".equals(continuation.trigger())) {
+            throw new CorruptRuntimeContinuationOutcomeException(
+                    "typed continuation request kind or trigger does not match combat outcome", null);
+        }
+        if (command.commandId() == null || command.turnId() == null
+                || continuation.operationId() == null || continuation.hostileTokenId() == null
+                || !command.turnId().equals(continuation.turnId())) {
+            throw new CorruptRuntimeContinuationOutcomeException(
+                    "typed continuation request identity does not match command", null);
+        }
     }
 
     private <T extends RuntimeContinuationCommandOutcome> T persist(

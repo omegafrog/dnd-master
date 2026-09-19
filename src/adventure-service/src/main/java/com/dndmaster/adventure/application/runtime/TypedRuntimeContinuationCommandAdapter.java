@@ -9,7 +9,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 /** Adapts one explicitly typed continuation port; it never delegates to GM tools. */
 public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurnCommandAdapter {
-    public enum Kind { COMBAT, WARNING, DIALOGUE, CHASE }
+    public enum Kind { COMBAT }
 
     private final Kind kind;
     private final RuntimeContinuationCommandPort port;
@@ -35,12 +35,7 @@ public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurn
             return RuntimeTurnCommandExecution.permanentFailure(failure.getMessage());
         }
         try {
-            return switch (kind) {
-                case COMBAT -> port.combat(typed);
-                case WARNING -> port.warning(typed);
-                case DIALOGUE -> port.dialogue(typed);
-                case CHASE -> port.chase(typed);
-            };
+            return port.combat(typed);
         } catch (CorruptRuntimeContinuationOutcomeException failure) {
             return RuntimeTurnCommandExecution.permanentFailure(failure.getMessage());
         } catch (PermanentFollowUpFailure failure) {
