@@ -336,7 +336,7 @@ public final class CrossContextHttpCombatGateway
             if ("POST".equals(method)) request.header("Content-Type", "application/json")
                     .header("Idempotency-Key", (submission == null ? operationId : submission.commandId()).toString())
                     .POST(HttpRequest.BodyPublishers.ofString(submission == null ? "" : objectMapper.writeValueAsString(submission)));
-            else if ("DELETE".equals(method)) request.DELETE(); else request.GET();
+            else if ("DELETE".equals(method)) request.header("Idempotency-Key", operationId.toString()).DELETE(); else request.GET();
             HttpResponse<String> response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 if (response.statusCode() == 409 || response.statusCode() == 422) {

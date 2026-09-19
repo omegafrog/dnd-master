@@ -37,6 +37,31 @@ class SpatialTriggerResolverTest {
     }
 
     @Test
+    void hidden_feature_cannot_be_interacted_with_before_discovery() {
+        SpatialFeature door = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.SECRET_DOOR,
+                List.of(new GridPosition(2, 2)), null, Set.of(SpatialTrigger.INTERACT),
+                SpatialFeatureProvenance.runtime("runtime", 1, 0));
+        CombatMap map = map(door);
+
+        assertEquals(List.of(), new SpatialTriggerResolver().resolve(map, SpatialTrigger.INTERACT, new GridPosition(2, 2)));
+        assertEquals(SpatialFeatureVisibility.HIDDEN, door.visibility());
+        assertEquals(SpatialFeature.State.HIDDEN, door.state());
+    }
+
+    @Test
+    void observation_discovers_but_does_not_trigger_a_hidden_feature() {
+        SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
+                List.of(new GridPosition(1, 1)), null, Set.of(SpatialTrigger.OBSERVE),
+                SpatialFeatureProvenance.runtime("runtime", 1, 0));
+        CombatMap map = map(feature);
+
+        assertEquals(List.of("TRAP_DISCOVERED:1,1"), new SpatialTriggerResolver().resolveObserved(
+                map, SpatialTrigger.OBSERVE, new GridPosition(1, 1), Set.of(feature.id())));
+        assertEquals(SpatialFeatureVisibility.DISCOVERED, feature.visibility());
+        assertEquals(SpatialFeature.State.DISCOVERED, feature.state());
+    }
+
+    @Test
     void a_non_repeatable_trigger_is_not_applied_twice() {
         SpatialFeature feature = SpatialFeature.active(UUID.randomUUID(), SpatialFeatureType.HAZARD_AREA,
                 List.of(new GridPosition(1, 1)), SpatialFeatureProvenance.runtime("runtime", 1, 0), -1);
@@ -134,6 +159,9 @@ class SpatialTriggerResolverTest {
                 new SpatialTriggerResolver().resolveVisible(map,
                         List.of(new GridPosition(2, 2), new GridPosition(2, 3))));
         assertEquals(SpatialFeatureVisibility.DISCOVERED, feature.visibility());
+        assertEquals(SpatialFeature.State.DISCOVERED, feature.state());
+        assertEquals(List.of(), new SpatialTriggerResolver().resolveVisible(map,
+                List.of(new GridPosition(2, 2), new GridPosition(2, 3))));
     }
 
     private static CombatMap map(SpatialFeature feature) {

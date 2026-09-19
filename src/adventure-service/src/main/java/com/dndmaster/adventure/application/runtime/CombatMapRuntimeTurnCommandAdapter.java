@@ -34,7 +34,13 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
             }
             JsonNode savedOutcome = readSavedOutcome(command);
             String savedStatus = savedOutcome == null ? "" : savedOutcome.path("status").asText();
-            if ("RETRY_REQUIRED".equals(savedStatus) || "CHECK_REQUIRED".equals(savedStatus)) {
+            if ("CHECK_REQUIRED".equals(savedStatus)) {
+                UUID operationId = requiredUuid(savedOutcome, "operationId");
+                var pending = movementCoordinator.query(requiredUuid(context, "combatMapId"), operationId);
+                String outcome = mapper.writeValueAsString(pending);
+                return movementExecution(pending, outcome);
+            }
+            if ("RETRY_REQUIRED".equals(savedStatus)) {
                 UUID operationId = requiredUuid(savedOutcome, "operationId");
                 var resumed = movementCoordinator.resume(requiredUuid(context, "combatMapId"), operationId);
                 String outcome = mapper.writeValueAsString(resumed);

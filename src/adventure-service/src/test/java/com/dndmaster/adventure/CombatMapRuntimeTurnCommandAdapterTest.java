@@ -132,6 +132,33 @@ class CombatMapRuntimeTurnCommandAdapterTest {
     }
 
     @Test
+    void reflects_a_saved_pending_check_without_resuming_without_a_player_result() {
+        UUID operationId = UUID.randomUUID();
+        AtomicReference<UUID> queried = new AtomicReference<>();
+        CombatMapPort mapPort = new CombatMapPort() {
+            @Override public void validateAndMove(CombatActionCommand command) {}
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult movementOperation(UUID mapId, UUID id) {
+                queried.set(id);
+                return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(5, id,
+                        CombatMapMovementStatus.CHECK_REQUIRED, List.of(), List.of(), null, List.of(), null);
+            }
+            @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult resumeMovementOperation(UUID mapId, UUID id) {
+                throw new AssertionError("pending player check must not be resumed without its result");
+            }
+        };
+        String outcome = "{\"version\":4,\"operationId\":\"" + operationId
+                + "\",\"status\":\"CHECK_REQUIRED\",\"requestedPath\":[],\"traversedPath\":[],"
+                + "\"publicEvents\":[]}";
+
+        RuntimeTurnCommandExecution result = new CombatMapRuntimeTurnCommandAdapter(mapPort, new ObjectMapper())
+                .execute(validCommand().failed("CHECK_REQUIRED", outcome));
+
+        assertEquals(RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, result.status());
+        assertEquals(operationId, queried.get());
+        assertEquals(CombatMapMovementStatus.CHECK_REQUIRED, result.movementResult().status());
+    }
+
+    @Test
     void preserves_requested_and_traversed_paths_and_interruption_status() {
         UUID operationId = UUID.randomUUID();
         List<CombatMapPreviewPosition> requested = List.of(

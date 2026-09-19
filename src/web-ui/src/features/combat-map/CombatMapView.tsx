@@ -340,10 +340,12 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         ? await operationApi(adventureId, pendingMovement.mapId, operationId, submission)
         : await operationApi(adventureId, pendingMovement.mapId, operationId)
       const refreshed = await api.getCombatMap(adventureId)
+      let effectiveResult = result
       if (resume && pendingMovement.turnId && api.resumeRuntimeTurn) {
-        await api.resumeRuntimeTurn(adventureId, pendingMovement.turnId, pendingMovement.commandId ?? pendingMovement.turnId)
+        const runtime = await api.resumeRuntimeTurn(adventureId, pendingMovement.turnId, pendingMovement.commandId ?? pendingMovement.turnId)
+        effectiveResult = runtime.movementResult ?? result
       }
-      await applyMovementResult(result, pendingMovement.mapId, pendingMovement.tokenId, pendingMovement.turnId,
+      await applyMovementResult(effectiveResult, pendingMovement.mapId, pendingMovement.tokenId, pendingMovement.turnId,
         pendingMovement.commandId, map, refreshed)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '저장된 이동 상태를 확인하지 못했습니다.')
@@ -359,8 +361,13 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           mapId: pendingMovement.mapId, operationId: pendingCheck.operationId, checkId: pendingCheck.checkId,
           ownerPlayerId: pendingCheck.ownerPlayerId, actor: pendingCheck.actor,
         })
+      let effectiveResult = result
+      if (result.status !== 'CHECK_REQUIRED' && pendingMovement.turnId && api.resumeRuntimeTurn) {
+        const runtime = await api.resumeRuntimeTurn(adventureId, pendingMovement.turnId, pendingMovement.commandId ?? pendingMovement.turnId)
+        effectiveResult = runtime.movementResult ?? result
+      }
       const refreshed = await api.getCombatMap(adventureId)
-      await applyMovementResult(result, pendingMovement.mapId, pendingMovement.tokenId, pendingMovement.turnId,
+      await applyMovementResult(effectiveResult, pendingMovement.mapId, pendingMovement.tokenId, pendingMovement.turnId,
         pendingMovement.commandId, map, refreshed)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '주사위 결과를 제출하지 못했습니다.')
@@ -704,6 +711,13 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         </>}
         <button type="button" onClick={() => void recoverMovement(false)}>이동 상태 다시 확인</button>
         {!pendingMovement.result.pendingCheck && <button type="button" onClick={() => void recoverMovement(true)}>이동 재개</button>}
+        {pendingMovement.result.operationId && api.cancelMovementOperation && <button type="button" onClick={async () => {
+          try {
+            const result = await api.cancelMovementOperation?.(adventureId, pendingMovement.mapId, pendingMovement.result.operationId!)
+            const refreshed = await api.getCombatMap(adventureId)
+            if (result) await applyMovementResult(result, pendingMovement.mapId, pendingMovement.tokenId, pendingMovement.turnId, pendingMovement.commandId, map, refreshed)
+          } catch (error) { setMessage(error instanceof Error ? error.message : '이동을 취소하지 못했습니다.') }
+        }}>이동 취소</button>}
       </section>}
       {preparationMode && <button type="button" disabled={preparationStarting || layoutSaving || layoutDirty || !gridConfirmed || !layoutSaved || !onPreparationComplete} aria-busy={preparationStarting} onClick={() => void completePreparation()}>{preparationStarting ? '모험 시작 요청 중…' : '맵 준비 완료, 모험 시작'}</button>}
     </section>

@@ -34,7 +34,7 @@ import org.junit.jupiter.api.Test;
 
 class SpatialFeatureRuntimeApplicationServiceTest {
     @Test
-    void exposes_only_owned_visible_actions_and_replays_without_duplicate_public_events() {
+    void rejects_hidden_interaction_until_discovery_and_replays_without_duplicate_public_events() {
         UUID ownerId = UUID.randomUUID();
         MapOwnerId owner = new MapOwnerId(ownerId);
         TokenId tokenId = new TokenId(UUID.randomUUID());
@@ -53,17 +53,24 @@ class SpatialFeatureRuntimeApplicationServiceTest {
         UUID commandId = UUID.randomUUID();
 
         var first = service.interact(map.id(), owner, tokenId, target, 0, commandId);
-        var replay = service.interact(map.id(), owner, tokenId, target, 1, commandId);
 
         assertEquals(1, first.mapVersion());
-        assertEquals(List.of("TRAP_INTERACTED:2,1"), first.publicEvents());
-        assertEquals(1, replay.mapVersion());
+        assertEquals(List.of(), first.publicEvents());
+        assertEquals(SpatialFeatureVisibility.HIDDEN, feature.visibility());
+        feature.discover();
+        UUID openedCommandId = UUID.randomUUID();
+        var opened = service.interact(map.id(), owner, tokenId, target, 1, openedCommandId);
+        var replay = service.interact(map.id(), owner, tokenId, target, 2, openedCommandId);
+
+        assertEquals(List.of("TRAP_INTERACTED:2,1"), opened.publicEvents());
+        assertEquals(2, opened.mapVersion());
+        assertEquals(2, replay.mapVersion());
         assertEquals(List.of(), replay.publicEvents());
         assertEquals(SpatialFeatureVisibility.DISCOVERED, feature.visibility());
         assertThrows(IllegalArgumentException.class, () -> service.interact(map.id(), owner, tokenId,
-                new GridPosition(3, 2), 1, UUID.randomUUID()));
+                new GridPosition(3, 2), 2, UUID.randomUUID()));
         assertThrows(RuntimeException.class, () -> service.interact(map.id(), new MapOwnerId(UUID.randomUUID()),
-                tokenId, target, 1, UUID.randomUUID()));
+                tokenId, target, 2, UUID.randomUUID()));
     }
 
     private static final class InMemoryStore implements CombatMapViewStore {

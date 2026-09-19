@@ -137,6 +137,21 @@ class CombatMapVisibilityIntegrationTest{
   assertEquals(feature.triggers(),restoredFeature.triggers());
   assertEquals(feature.provenance(),restoredFeature.provenance());
  }
+ @Test void discovered_multi_cell_feature_stays_discovered_after_reload_and_does_not_repeat(){
+  UUID featureId=UUID.randomUUID();
+  List<GridPosition> cells=List.of(new GridPosition(2,2),new GridPosition(2,3));
+  SpatialFeature feature=SpatialFeature.hidden(featureId,SpatialFeatureType.TRAP,cells,null,Set.of(SpatialTrigger.BECOME_VISIBLE),SpatialFeatureProvenance.storyPlan("story-plan:page-4",3,0));
+  CombatMap map=new CombatMap(new MapId(UUID.randomUUID()),adventure(),rules(),new GridSpec(10,10,50,5),new PlayerId(owner.value()),List.of(),Set.of(),List.of(),0,null,null,List.of(feature),false);
+  store.insert(owner,map);
+  assertEquals(List.of("TRAP_DISCOVERED:2,2"),new SpatialTriggerResolver().resolveVisible(map,cells));
+  store.update(owner,map,0,1,UUID.randomUUID(),"discover-feature");
+
+  CombatMap restored=store.find(map.id()).orElseThrow().map();
+  SpatialFeature restoredFeature=restored.spatialFeatures().stream().filter(candidate->candidate.id().equals(featureId)).findFirst().orElseThrow();
+  assertEquals(SpatialFeatureVisibility.DISCOVERED,restoredFeature.visibility());
+  assertEquals(SpatialFeature.State.DISCOVERED,restoredFeature.state());
+  assertEquals(List.of(),new SpatialTriggerResolver().resolveVisible(restored,cells));
+ }
  @Test void spatialPreparationServicePersistsValidatedBatchAndBlockedState(){
   UUID featureId=UUID.randomUUID();
   SpatialFeaturePlacementBatch batch=validatedBatch(featureId,new GridPosition(6,6));

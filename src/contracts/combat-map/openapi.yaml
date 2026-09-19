@@ -301,6 +301,10 @@ paths:
           in: header
           required: true
           schema: { type: string }
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
       responses:
         '200': { description: cancelled or replayed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/MovementOperationResponse' } } } }
         '401': { description: internal service authorization required }

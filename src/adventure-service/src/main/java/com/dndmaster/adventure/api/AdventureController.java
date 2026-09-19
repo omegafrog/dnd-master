@@ -478,7 +478,9 @@ public class AdventureController {
 
     @DeleteMapping("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}")
     AdventureMovementOperationResponse cancelMovementOperation(@PathVariable UUID adventureId, @PathVariable UUID operationId,
-            @RequestParam UUID mapId) { return recoveryMovement(adventureId, mapId, operationId, "cancel"); }
+            @RequestParam UUID mapId, @RequestHeader("Idempotency-Key") UUID commandId) {
+        return recoveryMovement(adventureId, mapId, operationId, "cancel", null, commandId);
+    }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map/movement-operations")
     ResponseEntity<AdventureMovementOperationResponse> latestMovementOperation(@PathVariable UUID adventureId,
@@ -518,6 +520,7 @@ public class AdventureController {
                 throw new ApiRequestGuard.ApiContractException(400, "IDEMPOTENCY_KEY_MISMATCH");
             }
         }
+        if ("cancel".equals(action)) requireMovementIdempotencyKey(commandId, operationId);
         var result = switch (action) { case "resume" -> submission == null ? mapMovementCoordinator.resume(mapId, operationId) : mapMovementCoordinator.resume(mapId, operationId, submission); case "cancel" -> mapMovementCoordinator.cancel(mapId, operationId); default -> mapMovementCoordinator.query(mapId, operationId); };
         return AdventureMovementOperationResponse.from(result);
     }
@@ -564,6 +567,12 @@ public class AdventureController {
 
     static void requireSpatialIdempotencyKey(UUID header, SpatialCheckRollRequest request) {
         if (request == null || header == null || request.commandId() == null || !header.equals(request.commandId())) {
+            throw new ApiRequestGuard.ApiContractException(400, "IDEMPOTENCY_KEY_MISMATCH");
+        }
+    }
+
+    static void requireMovementIdempotencyKey(UUID header, UUID operationId) {
+        if (header == null || operationId == null || !header.equals(operationId)) {
             throw new ApiRequestGuard.ApiContractException(400, "IDEMPOTENCY_KEY_MISMATCH");
         }
     }

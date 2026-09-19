@@ -621,6 +621,34 @@ it('restores a safe pending check projection without exposing hidden feature det
   }))
 })
 
+it('resumes the adventure turn after a successful player roll and uses its typed result', async () => {
+  window.localStorage.removeItem('dnd-master:movement-operation:a1')
+  window.localStorage.removeItem('dnd-master:movement-command:a1')
+  const api = fakeApi()
+  const pending = {
+    version: 0, operationId: 'operation-check-1', status: 'CHECK_REQUIRED' as const,
+    requestedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }], traversedPath: [{ x: 1, y: 1 }],
+    finalPosition: { x: 1, y: 1 }, publicEvents: [],
+    pendingCheck: { checkId: 'check-1', operationId: 'operation-check-1', label: '지각 판정', diceExpression: 'd20', ownerPlayerId: 'player-1', actor: 'PLAYER' as const },
+  }
+  const committed = { ...pending, status: 'COMMITTED' as const, pendingCheck: undefined,
+    traversedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }], finalPosition: { x: 2, y: 1 } }
+  const interrupted = { ...committed, status: 'INTERRUPTED' as const, publicEvents: ['TRAP_DISCOVERED:2,1'], interruptionReason: 'TRAP_DISCOVERED:2,1' }
+  api.submitMapAction = vi.fn(async () => ({ turnId: 'turn-330', version: 0, movementResult: pending }))
+  api.rollSpatialCheck = vi.fn(async () => committed)
+  api.resumeRuntimeTurn = vi.fn(async () => ({ turnId: 'turn-330', version: 1, movementResult: interrupted }))
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} />)
+  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  await user.click(screen.getByRole('button', { name: '격자 2,1' }))
+  await user.click(screen.getByRole('button', { name: '확인' }))
+  await user.click(await screen.findByRole('button', { name: '주사위 굴리기' }))
+
+  await waitFor(() => expect(api.resumeRuntimeTurn).toHaveBeenCalledWith('a1', 'turn-330', expect.any(String)))
+  await waitFor(() => expect(screen.getAllByText('이동이 중단되었습니다.').length).toBeGreaterThan(0))
+  expect(screen.getByText('공개된 결과: TRAP_DISCOVERED:2,1')).toBeInTheDocument()
+})
+
 it('restores a durable movement operation when local storage has no waiting state', async () => {
   window.localStorage.removeItem('dnd-master:movement-operation:a1')
   window.localStorage.removeItem('dnd-master:movement-command:a1')
@@ -936,6 +964,19 @@ it('passes the runtime turn idempotency key when resuming a saved turn', async (
     await new HttpAdventurePlayApi(() => 'player-token').resumeRuntimeTurn('a1', 't1', 'command-1')
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/a1/turns/t1/resume', {
       method: 'POST', headers: { Authorization: 'Bearer player-token', 'Idempotency-Key': 'command-1' },
+    })
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('passes the movement operation identity when cancelling a saved operation', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ operationId: 'operation-1', status: 'CANCELLED', version: 2, requestedPath: [], traversedPath: [], publicEvents: [] }), {
+    status: 200, headers: { 'Content-Type': 'application/json' },
+  }))
+  vi.stubGlobal('fetch', fetchMock)
+  try {
+    await new HttpAdventurePlayApi(() => 'player-token').cancelMovementOperation('a1', 'm1', 'operation-1')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/a1/combat-map/movement-operations/operation-1?mapId=m1', {
+      method: 'DELETE', headers: { Authorization: 'Bearer player-token', 'Idempotency-Key': 'operation-1' },
     })
   } finally { vi.unstubAllGlobals() }
 })

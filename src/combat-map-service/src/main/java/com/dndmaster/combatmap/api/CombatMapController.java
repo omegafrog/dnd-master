@@ -450,8 +450,10 @@ public class CombatMapController {
 
     @DeleteMapping("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}")
     public MovementOperationResponseBody cancelMovement(@PathVariable UUID mapId, @PathVariable UUID operationId,
-            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         requestGuard.internal(token);
+        requireIdempotencyKey(idempotencyKey, operationId);
         return MovementOperationResponseBody.from(movementService.cancel(new MapId(mapId), operationId));
     }
 

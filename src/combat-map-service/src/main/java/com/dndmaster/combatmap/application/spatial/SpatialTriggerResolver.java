@@ -35,15 +35,9 @@ public final class SpatialTriggerResolver {
             if (!feature.cells().contains(cell) || !feature.triggers().contains(trigger)) continue;
             if (feature.visibility() == SpatialFeatureVisibility.HIDDEN
                     && !successfulFeatureIds.contains(feature.id())) continue;
-            if (!feature.canTrigger()) continue;
-            if (feature.visibility() == SpatialFeatureVisibility.HIDDEN) feature.discover();
-            if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.SECRET_DOOR) {
-                if (trigger == SpatialTrigger.INTERACT) feature.open();
-                else events.add(eventName(feature, trigger, cell));
-            } else {
-                feature.trigger();
-                events.add(eventName(feature, trigger, cell));
-            }
+            if (feature.visibility() != SpatialFeatureVisibility.HIDDEN) continue;
+            feature.discover();
+            events.add(eventName(feature, trigger, cell));
         }
         return List.copyOf(events);
     }
@@ -66,14 +60,9 @@ public final class SpatialTriggerResolver {
         for (GridPosition cell : orderedCells) {
             for (SpatialFeature feature : map.spatialFeatures()) {
                 if (!feature.cells().contains(cell) || !feature.triggers().contains(SpatialTrigger.BECOME_VISIBLE)
-                        || !feature.canTrigger() || !resolvedFeatureIds.add(feature.id())) continue;
-                if (feature.visibility() == SpatialFeatureVisibility.HIDDEN) feature.discover();
-                if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.SECRET_DOOR) {
-                    events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
-                } else {
-                    feature.trigger();
-                    events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
-                }
+                        || feature.visibility() != SpatialFeatureVisibility.HIDDEN || !resolvedFeatureIds.add(feature.id())) continue;
+                feature.discover();
+                events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
             }
         }
         return List.copyOf(events);
@@ -97,6 +86,7 @@ public final class SpatialTriggerResolver {
 
     private static List<String> resolveFeature(SpatialFeature feature, SpatialTrigger trigger, GridPosition cell) {
         if (!feature.cells().contains(cell) || !feature.triggers().contains(trigger) || !feature.canTrigger()) return List.of();
+        if (feature.visibility() == SpatialFeatureVisibility.HIDDEN && trigger == SpatialTrigger.INTERACT) return List.of();
         if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.SECRET_DOOR
                 && trigger != SpatialTrigger.INTERACT
                 && feature.visibility() != SpatialFeatureVisibility.HIDDEN) return List.of();
