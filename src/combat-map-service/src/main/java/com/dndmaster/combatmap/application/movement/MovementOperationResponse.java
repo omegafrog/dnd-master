@@ -3,9 +3,13 @@ package com.dndmaster.combatmap.application.movement;
 import java.util.UUID;
 
 public record MovementOperationResponse(UUID operationId, MovementOperationStatus status,
-        MovementResolutionResult result, PendingMovementCheck pendingCheck) {
+        MovementResolutionResult result, PendingMovementCheck pendingCheck, MovementCheckRequest pendingCheckDetails) {
     public MovementOperationResponse(UUID operationId, MovementOperationStatus status, MovementResolutionResult result) {
-        this(operationId, status, result, null);
+        this(operationId, status, result, null, null);
+    }
+    public MovementOperationResponse(UUID operationId, MovementOperationStatus status, MovementResolutionResult result,
+            PendingMovementCheck pendingCheck) {
+        this(operationId, status, result, pendingCheck, null);
     }
     public MovementResolutionOutcomeStatus outcomeStatus() {
         if (result != null) return result.status();

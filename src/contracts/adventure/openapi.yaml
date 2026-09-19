@@ -241,6 +241,20 @@ paths:
       responses:
         '200': { description: resumed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
         '403': { description: adventure is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}/roll:
+    post:
+      operationId: rollAdventureMovementCheck
+      parameters:
+        - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpatialCheckRollRequest' }
+      responses:
+        '200': { description: server-rolled and resumed movement result, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
+        '403': { description: adventure or check is not owned by bearer }
   /api/v1/adventures/{adventureId}/combat-map/spatial/observe:
     post:
       operationId: observeAdventureSpatialFeature
@@ -353,7 +367,16 @@ components:
         success: { type: boolean }
         ownerPlayerId: { type: string, format: uuid }
         actor: { type: string, enum: [PLAYER] }
-        rollTotal: { type: integer, minimum: 1, maximum: 20, description: submitted player d20 result; server resolves success }
+    SpatialCheckRollRequest:
+      type: object
+      required: [mapId, operationId, checkId, ownerPlayerId, commandId, expectedVersion]
+      properties:
+        mapId: { type: string, format: uuid }
+        operationId: { type: string, format: uuid }
+        checkId: { type: string, format: uuid }
+        ownerPlayerId: { type: string, format: uuid }
+        commandId: { type: string, format: uuid }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
     CombatMapPendingCheck:
       type: object
       required: [checkId, operationId, label, diceExpression, ownerPlayerId, actor]

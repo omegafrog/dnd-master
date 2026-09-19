@@ -1,13 +1,34 @@
 package com.dndmaster.adventure.application.combat;
 
+import com.dndmaster.adventure.application.runtime.DefaultResolutionPort;
+import com.dndmaster.adventure.application.runtime.ResolutionPort;
 import java.util.Objects;
 
 /** Shared Adventure-side boundary for confirmed movement from runtime and map actions. */
 public final class MapMovementCoordinator {
     private final CombatMapPort combatMap;
+    private final DiceCombatPort dice;
+    private final ResolutionPort resolution;
 
     public MapMovementCoordinator(CombatMapPort combatMap) {
+        this(combatMap, new DiceCombatPort() {
+            @Override public int roll(CombatActionCommand command) {
+                throw new UnsupportedOperationException("combat dice roll is unavailable");
+            }
+            @Override public int rollSpatialCheck(SpatialCheckRollCommand command) {
+                return combatMap.rollSpatialCheck(command);
+            }
+        }, new DefaultResolutionPort());
+    }
+
+    public MapMovementCoordinator(CombatMapPort combatMap, DiceCombatPort dice) {
+        this(combatMap, dice, new DefaultResolutionPort());
+    }
+
+    public MapMovementCoordinator(CombatMapPort combatMap, DiceCombatPort dice, ResolutionPort resolution) {
         this.combatMap = Objects.requireNonNull(combatMap, "combat map port must not be null");
+        this.dice = Objects.requireNonNull(dice, "dice port must not be null");
+        this.resolution = Objects.requireNonNull(resolution, "resolution port must not be null");
     }
 
     public CombatMapMoveResult resolve(CombatMapMoveCommand command) {
@@ -17,7 +38,50 @@ public final class MapMovementCoordinator {
     public CombatMapMoveResult latest(java.util.UUID mapId) { return combatMap.latestMovementOperation(mapId); }
     public CombatMapMoveResult resume(java.util.UUID mapId, java.util.UUID operationId) { return combatMap.resumeMovementOperation(mapId, operationId); }
     public CombatMapMoveResult resume(java.util.UUID mapId, java.util.UUID operationId, CombatMapCheckSubmission submission) {
+        Objects.requireNonNull(submission, "check submission must not be null");
+        requireOwnedPendingCheck(mapId, operationId, submission);
         return combatMap.resumeMovementOperation(mapId, operationId, submission);
+    }
+
+    public CombatMapMoveResult rollAndResume(SpatialCheckRollCommand command) {
+        Objects.requireNonNull(command, "spatial check roll command must not be null");
+        CombatMapCheckDetails details = requireOwnedPendingCheck(command.mapId(), command.operationId(), command);
+        int rollTotal = dice.rollSpatialCheck(command);
+        ResolutionPort.PlayerCheckResult result = resolve(details, rollTotal);
+        return combatMap.resumeMovementOperation(command.mapId(), command.operationId(),
+                new CombatMapCheckSubmission(command.operationId(), command.checkId(), result.success(),
+                        command.ownerPlayerId(), CombatMapCheckActor.PLAYER));
+    }
+
+    private ResolutionPort.PlayerCheckResult resolve(CombatMapCheckDetails details, int rollTotal) {
+        if (details.difficulty() == null) throw new IllegalStateException("pending movement check has no typed difficulty");
+        return resolution.resolvePlayerCheck(new ResolutionPort.PlayerCheckRequest(
+                details.ruleReference(), details.difficulty(), rollTotal));
+    }
+
+    private CombatMapCheckDetails requireOwnedPendingCheck(java.util.UUID mapId, java.util.UUID operationId,
+            CombatMapCheckSubmission submission) {
+        if (!operationId.equals(submission.operationId())) throw new IllegalArgumentException("check operation does not match movement operation");
+        CombatMapMoveResult pending = combatMap.movementOperation(mapId, operationId);
+        CombatMapCheckDetails details = pending.pendingCheckDetails();
+        if (details == null || !details.checkId().equals(submission.checkId())
+                || !details.operationId().equals(submission.operationId())
+                || !details.ownerPlayerId().equals(submission.ownerPlayerId())
+                || details.actor() != submission.actor()) {
+            throw new IllegalArgumentException("player roll does not belong to the pending movement check");
+        }
+        return details;
+    }
+
+    private CombatMapCheckDetails requireOwnedPendingCheck(java.util.UUID mapId, java.util.UUID operationId, SpatialCheckRollCommand command) {
+        CombatMapMoveResult pending = combatMap.movementOperation(mapId, operationId);
+        CombatMapCheckDetails details = pending.pendingCheckDetails();
+        if (details == null || !details.checkId().equals(command.checkId())
+                || !details.operationId().equals(command.operationId())
+                || !details.ownerPlayerId().equals(command.ownerPlayerId())) {
+            throw new IllegalArgumentException("player roll does not belong to the pending movement check");
+        }
+        return details;
     }
     public CombatMapMoveResult cancel(java.util.UUID mapId, java.util.UUID operationId) { return combatMap.cancelMovementOperation(mapId, operationId); }
     public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) { return combatMap.observe(command); }

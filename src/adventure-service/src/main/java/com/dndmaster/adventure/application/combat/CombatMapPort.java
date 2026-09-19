@@ -40,4 +40,9 @@ public interface CombatMapPort {
     default CombatMapSpatialResult advanceDurations(CombatMapSpatialTurnCommand command) {
         throw new UnsupportedOperationException("spatial duration advance is unavailable");
     }
+
+    /** Player-owned spatial checks are rolled by the typed dice gateway before map resume. */
+    default int rollSpatialCheck(SpatialCheckRollCommand command) {
+        throw new UnsupportedOperationException("spatial check dice roll is unavailable");
+    }
 }

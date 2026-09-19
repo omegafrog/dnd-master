@@ -66,7 +66,6 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [boundaryPreview, setBoundaryPreview] = useState<BoundaryStroke | null>(null)
   const [pendingMovement, setPendingMovement] = useState<PendingMovement | null>(() => readPendingMovement(adventureId))
   const [replayedMovement, setReplayedMovement] = useState<MapMovementResult | null>(null)
-  const [rollValue, setRollValue] = useState('')
 
   useEffect(() => () => {
     if (publicMapImage?.startsWith('blob:')) URL.revokeObjectURL(publicMapImage)
@@ -352,14 +351,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
 
   async function submitPendingRoll() {
     const pendingCheck = pendingMovement?.result.pendingCheck
-    if (!pendingMovement || !pendingCheck || !api.submitPlayerRoll) return
-    const total = Number(rollValue)
-    if (!Number.isInteger(total) || total < 1 || total > 20) {
-      setMessage('d20 결과는 1에서 20 사이여야 합니다.')
-      return
-    }
+    if (!pendingMovement || !pendingCheck || !api.rollSpatialCheck) return
     try {
-      const result = await api.submitPlayerRoll(adventureId, pendingCheck.operationId, total,
+      const result = await api.rollSpatialCheck(adventureId,
         map?.sessionVersion ?? map?.version ?? pendingMovement.result.version, {
           mapId: pendingMovement.mapId, operationId: pendingCheck.operationId, checkId: pendingCheck.checkId,
           ownerPlayerId: pendingCheck.ownerPlayerId, actor: pendingCheck.actor,
@@ -367,7 +361,6 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       const refreshed = await api.getCombatMap(adventureId)
       await applyMovementResult(result, pendingMovement.mapId, pendingMovement.tokenId, pendingMovement.turnId,
         pendingMovement.commandId, map, refreshed)
-      setRollValue('')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '주사위 결과를 제출하지 못했습니다.')
     }
@@ -704,9 +697,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         <p>작업 번호: {pendingMovement.result.operationId ?? '없음'}</p>
         {pendingMovement.result.pendingCheck && <>
           <p>{pendingMovement.result.pendingCheck.label} · {pendingMovement.result.pendingCheck.diceExpression}</p>
-          <form className="movement-check-actions" aria-label="판정 결과 제출" onSubmit={event => { event.preventDefault(); void submitPendingRoll() }}>
-            <label>d20 결과<input aria-label="d20 결과" type="number" min="1" max="20" step="1" value={rollValue} onChange={event => setRollValue(event.target.value)} /></label>
-            <button type="submit" disabled={!api.submitPlayerRoll}>결과 제출</button>
+          <form className="movement-check-actions" aria-label="판정 굴리기" onSubmit={event => { event.preventDefault(); void submitPendingRoll() }}>
+            <button type="submit" disabled={!api.rollSpatialCheck}>주사위 굴리기</button>
           </form>
         </>}
         <button type="button" onClick={() => void recoverMovement(false)}>이동 상태 다시 확인</button>

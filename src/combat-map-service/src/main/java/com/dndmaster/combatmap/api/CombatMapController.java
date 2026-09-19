@@ -419,8 +419,6 @@ public class CombatMapController {
         requestGuard.internal(token);
         MovementOperationResponse response = checkResult == null
                 ? movementService.resume(new MapId(mapId), operationId)
-                : checkResult.rollTotal() != null
-                ? movementService.resume(new MapId(mapId), operationId, checkResult.rollTotal(), new PlayerId(checkResult.ownerPlayerId()))
                 : movementService.resume(new MapId(mapId), operationId,
                         new com.dndmaster.combatmap.application.movement.MovementCheckResult(
                                 checkResult.operationId(),
@@ -808,9 +806,13 @@ public class CombatMapController {
 
     public record MovementOperationResponseBody(UUID operationId, String status, String outcomeStatus,
             List<PositionRequest> requestedPath, List<PositionRequest> traversedPath, PositionRequest finalPosition, Long mapVersion,
-            List<String> publicEvents, String interruptionReason, PendingCheckResponse pendingCheck) {
+            List<String> publicEvents, String interruptionReason, PendingCheckResponse pendingCheck,
+            PendingCheckDetailsResponse pendingCheckDetails) {
         public record PendingCheckResponse(UUID checkId, UUID operationId, String label, String diceExpression,
                 UUID ownerPlayerId, com.dndmaster.combatmap.application.movement.MovementCheckActor actor) {}
+        public record PendingCheckDetailsResponse(UUID checkId, UUID operationId, String ruleReference,
+                Integer difficulty, UUID ownerPlayerId,
+                com.dndmaster.combatmap.application.movement.MovementCheckActor actor) {}
         static MovementOperationResponseBody from(MovementOperationResponse response) {
             var result = response.result();
             return new MovementOperationResponseBody(response.operationId(), response.status().name(), response.outcomeStatus().name(),
@@ -821,7 +823,11 @@ public class CombatMapController {
                     result == null ? null : result.interruptionReason(), response.pendingCheck() == null ? null
                             : new PendingCheckResponse(response.pendingCheck().checkId(), response.pendingCheck().operationId(),
                                     response.pendingCheck().label(), response.pendingCheck().diceExpression(),
-                                    response.pendingCheck().owner().playerId().value(), response.pendingCheck().owner().actor()));
+                                    response.pendingCheck().owner().playerId().value(), response.pendingCheck().owner().actor()),
+                    response.pendingCheckDetails() == null ? null
+                            : new PendingCheckDetailsResponse(response.pendingCheckDetails().checkId(), response.pendingCheckDetails().operationId(),
+                                    response.pendingCheckDetails().ruleReference(), response.pendingCheckDetails().difficulty(),
+                                    response.pendingCheckDetails().owner().playerId().value(), response.pendingCheckDetails().owner().actor()));
         }
     }
 

@@ -20,7 +20,6 @@ public final class CombatMapMovementService {
     private final MovementInterruptionPolicy interruptionPolicy;
     private final com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy detectionPolicy;
     private final com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver triggerResolver;
-    private final com.dndmaster.combatmap.application.spatial.HostileObservationResolver hostileObservationResolver;
     private final MovementCheckResolver checkResolver;
     public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort){this(repository, movementPort, new UnsupportedOperationRepository(), MovementInterruptionPolicy.publicSpatialFeatures(), MovementCheckResolver.pending());}
     public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort, MovementResolutionOperationRepository operations){this(repository, movementPort, operations, MovementInterruptionPolicy.publicSpatialFeatures(), MovementCheckResolver.pending());}
@@ -28,7 +27,7 @@ public final class CombatMapMovementService {
             MovementResolutionOperationRepository operations, MovementInterruptionPolicy interruptionPolicy){this(repository, movementPort, operations, interruptionPolicy, MovementCheckResolver.pending());}
     public CombatMapMovementService(CombatMapRepository repository, AppliedEditionMovementPort movementPort,
             MovementResolutionOperationRepository operations, MovementInterruptionPolicy interruptionPolicy,
-            MovementCheckResolver checkResolver){this.repository=Objects.requireNonNull(repository);this.movementPort=Objects.requireNonNull(movementPort);this.operations=Objects.requireNonNull(operations);this.interruptionPolicy=Objects.requireNonNull(interruptionPolicy);this.detectionPolicy=new com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy();this.triggerResolver=new com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver();this.hostileObservationResolver=new com.dndmaster.combatmap.application.spatial.HostileObservationResolver();this.checkResolver=Objects.requireNonNull(checkResolver);}
+            MovementCheckResolver checkResolver){this.repository=Objects.requireNonNull(repository);this.movementPort=Objects.requireNonNull(movementPort);this.operations=Objects.requireNonNull(operations);this.interruptionPolicy=Objects.requireNonNull(interruptionPolicy);this.detectionPolicy=new com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy();this.triggerResolver=new com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver();this.checkResolver=Objects.requireNonNull(checkResolver);}
     public CombatMap movePlayerToken(MovePlayerTokenCommand command){
         Objects.requireNonNull(command);
         CombatMap replay = repository.findByCommandId(command.commandId()).orElse(null);
@@ -100,21 +99,6 @@ public final class CombatMapMovementService {
         CombatMap map = repository.findById(operation.mapId()).orElseThrow(() -> new CombatMapMovementDeniedException("map not found"));
         rebuildStagedMap(map, operation);
         return resolve(map, operation);
-    }
-
-    /** Resumes a player-owned check from the actual submitted d20 result. */
-    public MovementOperationResponse resume(MapId mapId, UUID operationId, int rollTotal, PlayerId ownerPlayerId) {
-        MovementResolutionOperation operation = operations.findById(operationId)
-                .orElseThrow(() -> new IllegalArgumentException("movement reservation not found"));
-        requireMap(operation, mapId);
-        if (rollTotal < 1 || rollTotal > 20) throw new IllegalArgumentException("roll total must be between 1 and 20");
-        MovementCheckRequest pending = operation.pendingCheck();
-        if (pending == null || !pending.owner().playerId().equals(ownerPlayerId)) {
-            throw new IllegalArgumentException("player roll does not belong to the pending movement check");
-        }
-        int difficulty = pending.difficulty() == null ? 10 : pending.difficulty();
-        return resume(mapId, operationId, new MovementCheckResult(operationId, pending.checkId(),
-                rollTotal >= difficulty, pending.owner()));
     }
 
     /** Starts a durable observation action at the player's current cell. */
@@ -247,16 +231,12 @@ public final class CombatMapMovementService {
                 }
                 publicEvents.addAll(triggerResolver.resolve(map, SpatialTrigger.LEAVE_CELL, operation.currentCell()));
                 map.advancePlayerToken(operation.playerId(), operation.tokenId(), operation.requestedPath().orderedPositions().get(next));
-                Set<TokenId> previouslyObserved = map.visibilitySnapshot() == null ? Set.of() : map.visibilitySnapshot().observedTokens();
                 map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
                 publicEvents.addAll(triggerResolver.resolve(map, SpatialTrigger.ENTER_CELL,
                         operation.requestedPath().orderedPositions().get(next)));
                 publicEvents.addAll(triggerResolver.resolveVisible(map, operation.requestedPath().orderedPositions().get(next)));
                 operation.advanceTo(next, map.playerTokenPosition(operation.playerId(), operation.tokenId()));
                 operations.save(operation);
-                if (hostileObservationResolver.resolve(map, operation.currentCell(), previouslyObserved).newlyObserved()) {
-                    publicEvents.add("HOSTILE_OBSERVED");
-                }
                 if (!publicEvents.isEmpty()) {
                     MovementResolutionResult result = new MovementResolutionResult(operation.requestedPath(), operation.traversedPath(),
                             operation.currentCell(), operation.expectedVersion() + 1, publicEvents,
@@ -403,7 +383,7 @@ public final class CombatMapMovementService {
                     operation.currentCell(), operation.expectedVersion(), List.of(), null, outcome);
         }
         return new MovementOperationResponse(operation.operationId(), operation.status(), result,
-                operation.pendingCheck() == null ? null : operation.pendingCheck().playerView());
+                operation.pendingCheck() == null ? null : operation.pendingCheck().playerView(), operation.pendingCheck());
     }
     private static final class UnsupportedOperationRepository implements MovementResolutionOperationRepository {
         private IllegalStateException unsupported() { return new IllegalStateException("movement reservations require an operation repository"); }

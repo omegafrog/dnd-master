@@ -16,6 +16,7 @@ import com.dndmaster.combatmap.application.movement.MovementOperationResponse;
 import com.dndmaster.combatmap.application.movement.MovementCheckRequest;
 import com.dndmaster.combatmap.application.movement.MovementCheckResult;
 import com.dndmaster.combatmap.application.movement.MovementCheckActor;
+import com.dndmaster.combatmap.application.movement.MovementCheckOwner;
 import com.dndmaster.combatmap.application.movement.MovementCheckResolver;
 import com.dndmaster.combatmap.application.movement.MovementCommandConflictException;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementPreviewMismatchException;
@@ -199,7 +200,8 @@ class MovementResolutionOperationTest {
 
         assertEquals(MovementOperationStatus.CHECK_PENDING, pending.status());
         MovementOperationResponse resolved = fixture.service(MovementCheckResolver.pending()).resume(fixture.map.id(),
-                pending.operationId(), 5, fixture.player);
+                pending.operationId(), new MovementCheckResult(pending.operationId(), pending.pendingCheck().checkId(),
+                        false, MovementCheckOwner.player(fixture.player)));
 
         assertEquals(MovementOperationStatus.COMMITTED, resolved.status());
         assertEquals(List.of(), resolved.result().publicEvents());

@@ -184,6 +184,30 @@ public final class CrossContextHttpCombatGateway
     }
 
     @Override
+    public int rollSpatialCheck(SpatialCheckRollCommand command) {
+        Objects.requireNonNull(command, "spatial check roll command must not be null");
+        try {
+            PlayerCheckRollRequest request = new PlayerCheckRollRequest(command.adventureId(), command.ruleSetId().value(),
+                    "PLAYER_ACTION", 1, 20, 0, command.sessionId(), command.operationId(), command.checkId(), command.expectedVersion());
+            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/dice-rolls/player"))
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
+                    .header("Idempotency-Key", command.checkId().toString())
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request))).build();
+            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("spatial check dice roll failed with status " + response.statusCode());
+            }
+            return objectMapper.readTree(response.body()).path("total").asInt(-1);
+        } catch (IOException exception) {
+            throw new CrossContextCallException("spatial check dice roll serialization failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("spatial check dice roll interrupted", exception);
+        }
+    }
+
+    @Override
     public void validateAndMove(CombatActionCommand command) {
         move(new CombatMapMoveCommand(command, movementDistance(command), expectedMapVersion(command)));
     }
@@ -410,8 +434,17 @@ public final class CrossContextHttpCombatGateway
                             pending.path("diceExpression").asText("d20"),
                             java.util.UUID.fromString(pending.path("ownerPlayerId").asText()),
                             CombatMapCheckActor.valueOf(pending.path("actor").asText("PLAYER"))) : null;
+            JsonNode details = body.path("pendingCheckDetails");
+            CombatMapCheckDetails pendingCheckDetails = details.isObject() && details.hasNonNull("checkId")
+                    ? new CombatMapCheckDetails(java.util.UUID.fromString(details.path("checkId").asText()),
+                            java.util.UUID.fromString(details.path("operationId").asText()),
+                            details.path("ruleReference").asText(),
+                            details.hasNonNull("difficulty") ? details.path("difficulty").asInt() : null,
+                            java.util.UUID.fromString(details.path("ownerPlayerId").asText()),
+                            CombatMapCheckActor.valueOf(details.path("actor").asText("PLAYER"))) : null;
             return new CombatMapMoveResult(version, operationId, status, requested, traversed, finalCell, events,
-                    body.hasNonNull("interruptionReason") ? body.path("interruptionReason").asText() : null, pendingCheck);
+                    body.hasNonNull("interruptionReason") ? body.path("interruptionReason").asText() : null, pendingCheck,
+                    pendingCheckDetails);
         } catch (IOException exception) { throw new CrossContextCallException("combat map returned malformed movement result", exception); }
     }
 
@@ -550,6 +583,9 @@ public final class CrossContextHttpCombatGateway
     private record SpatialActionRequest(java.util.UUID ownerId, java.util.UUID tokenId, int x, int y,
             long expectedVersion, java.util.UUID commandId) {}
     private record SpatialTurnRequest(java.util.UUID ownerId, long expectedVersion, java.util.UUID commandId) {}
+    private record PlayerCheckRollRequest(java.util.UUID adventureId, java.util.UUID ruleSetId, String scope,
+            int count, int sides, int modifier, java.util.UUID sessionId, java.util.UUID turnId,
+            java.util.UUID commandId, long expectedVersion) {}
     private record AiStateRequest(
             java.util.UUID ownerId, java.util.UUID tokenId, int x, int y, java.util.UUID commandId,
             long expectedVersion, List<LayerRequest> layers) {}

@@ -29,7 +29,7 @@ it('animates only the server committed traversed path', async () => {
 
 function fakeApi(): AdventurePlayApi {
   const submitMapAction = vi.fn(async () => ({ turnId: 't1', version: 1 }))
-  const submitPlayerRoll = vi.fn(async () => ({
+  const rollSpatialCheck = vi.fn(async () => ({
     version: 1, operationId: 'operation-check-1', status: 'COMMITTED' as const,
     requestedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }], traversedPath: [{ x: 1, y: 1 }, { x: 2, y: 1 }],
     finalPosition: { x: 2, y: 1 }, publicEvents: [],
@@ -48,7 +48,7 @@ function fakeApi(): AdventurePlayApi {
       return { mapId: request.mapId, orderedPositions: path, distance: (path.length - 1) * 5, baseMapVersion: request.mapVersion, fingerprint: 'server-preview' }
     },
     submitMapAction,
-    submitPlayerRoll,
+    rollSpatialCheck,
     async rollDice() { return { rollId: 'r1', total: 19, judgment: 'hit', resolutionStatus: 'RESOLVED', outcomeApplied: true } },
     async listSaved() { return [] },
     async save() { return { adventureId: 'a1', newVersion: 1 } },
@@ -615,9 +615,8 @@ it('restores a safe pending check projection without exposing hidden feature det
   expect(screen.queryByText(/DC/i)).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '성공 결과 제출' })).not.toBeInTheDocument()
   expect(screen.queryByRole('button', { name: '실패 결과 제출' })).not.toBeInTheDocument()
-  await user.type(screen.getByLabelText('d20 결과'), '15')
-  await user.click(screen.getByRole('button', { name: '결과 제출' }))
-  await waitFor(() => expect(api.submitPlayerRoll).toHaveBeenCalledWith('a1', 'operation-check-1', 15, 7, {
+  await user.click(screen.getByRole('button', { name: '주사위 굴리기' }))
+  await waitFor(() => expect(api.rollSpatialCheck).toHaveBeenCalledWith('a1', 7, {
     mapId: 'm1', operationId: 'operation-check-1', checkId: 'check-1', ownerPlayerId: 'player-1', actor: 'PLAYER',
   }))
 })
@@ -652,10 +651,9 @@ it('routes observation checks through the player roll submission flow', async ()
 
   await user.click(await screen.findByRole('button', { name: '주변 살피기' }))
   expect(await screen.findByText('관찰 판정 확인 필요')).toBeInTheDocument()
-  await user.type(screen.getByLabelText('d20 결과'), '14')
-  await user.click(screen.getByRole('button', { name: '결과 제출' }))
+  await user.click(screen.getByRole('button', { name: '주사위 굴리기' }))
 
-  await waitFor(() => expect(api.submitPlayerRoll).toHaveBeenCalledWith('a1', 'observe-operation', 14, 7, {
+  await waitFor(() => expect(api.rollSpatialCheck).toHaveBeenCalledWith('a1', 7, {
     mapId: 'm1', operationId: 'observe-operation', checkId: 'observe-check', ownerPlayerId: 'player-1', actor: 'PLAYER',
   }))
 })

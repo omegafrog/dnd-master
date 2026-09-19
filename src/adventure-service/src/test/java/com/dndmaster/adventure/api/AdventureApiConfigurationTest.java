@@ -13,6 +13,8 @@ import com.dndmaster.adventure.application.combat.CombatMapPreviewCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewPosition;
 import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
 import com.dndmaster.adventure.application.combat.CombatMapMovementStatus;
+import com.dndmaster.adventure.application.combat.SpatialCheckRollCommand;
+import com.dndmaster.adventure.application.combat.CombatMapSpatialTurnCommand;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
@@ -35,6 +37,72 @@ class AdventureApiConfigurationTest {
     @Test
     void adjudicates_natural_one_as_critical_miss() {
         assertEquals("critical miss (natural 1)", aiCombatPort.adjudicate(command(), 1));
+    }
+
+    @Test
+    void sends_spatial_check_roll_to_the_typed_dice_gateway_with_stable_check_identity() throws Exception {
+        AtomicReference<String> requestPath = new AtomicReference<>();
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        AtomicReference<String> idempotencyKey = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/", exchange -> {
+            requestPath.set(exchange.getRequestURI().getPath());
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            idempotencyKey.set(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
+            byte[] body = "{\"total\":17}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
+            UUID checkId = UUID.randomUUID();
+            var command = new SpatialCheckRollCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                    new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), checkId, UUID.randomUUID(), 4L);
+
+            assertEquals(17, configured.rollSpatialCheck(command));
+            assertEquals("/internal/v1/dice-rolls/player", requestPath.get());
+            assertEquals(checkId.toString(), idempotencyKey.get());
+            assertTrue(requestBody.get().contains("\"sides\":20"));
+            assertTrue(requestBody.get().contains("\"commandId\":\"" + checkId + "\""));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void wires_duration_advance_to_the_map_gateway_with_the_command_id_header() throws Exception {
+        AtomicReference<String> requestPath = new AtomicReference<>();
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        AtomicReference<String> idempotencyKey = new AtomicReference<>();
+        UUID mapId = UUID.randomUUID();
+        UUID owner = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/", exchange -> {
+            requestPath.set(exchange.getRequestURI().getPath());
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            idempotencyKey.set(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
+            byte[] body = ("{\"mapId\":\"%s\",\"mapVersion\":4,\"publicEvents\":[]}").formatted(mapId).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
+            configured.advanceDurations(new CombatMapSpatialTurnCommand(mapId, owner, 3, commandId));
+
+            assertEquals("/internal/v1/combat-maps/" + mapId + "/spatial/advance-durations", requestPath.get());
+            assertEquals(commandId.toString(), idempotencyKey.get());
+            assertTrue(requestBody.get().contains("\"commandId\":\"" + commandId + "\""));
+            assertTrue(requestBody.get().contains("\"expectedVersion\":3"));
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test

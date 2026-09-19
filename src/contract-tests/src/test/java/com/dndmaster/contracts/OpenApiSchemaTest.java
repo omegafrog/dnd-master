@@ -29,7 +29,8 @@ class OpenApiSchemaTest {
                 "/api/v1/adventures/{adventureId}/combat-map/spatial/observe",
                 "/api/v1/adventures/{adventureId}/combat-map/spatial/interact",
                 "/api/v1/adventures/{adventureId}/combat-map/spatial/combat-turn-start",
-                "/api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations");
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations",
+                "/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}/roll");
         assertCombatMapTriggerQualification();
         assertMovementContracts();
         assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/{rulebookId}/source-preview", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",

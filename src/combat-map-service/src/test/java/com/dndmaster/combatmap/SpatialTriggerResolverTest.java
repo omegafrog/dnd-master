@@ -89,6 +89,27 @@ class SpatialTriggerResolverTest {
     }
 
     @Test
+    void combat_turn_start_deduplicates_the_same_spatial_feature_id_but_keeps_distinct_effects() {
+        UUID repeatedId = UUID.randomUUID();
+        SpatialFeature firstRow = SpatialFeature.prepared(repeatedId, SpatialFeatureType.MAGICAL_AREA_EFFECT,
+                List.of(new GridPosition(1, 1), new GridPosition(1, 2)), null,
+                Set.of(SpatialTrigger.COMBAT_TURN_START), SpatialFeatureProvenance.runtime("runtime", 1, 0), 2,
+                "EXPIRE", true, true);
+        SpatialFeature overlappingRow = SpatialFeature.prepared(UUID.randomUUID(), SpatialFeatureType.MAGICAL_AREA_EFFECT,
+                List.of(new GridPosition(2, 1), new GridPosition(2, 2)), null,
+                Set.of(SpatialTrigger.COMBAT_TURN_START), SpatialFeatureProvenance.runtime("runtime", 1, 0), 2,
+                "EXPIRE", true, true);
+        SpatialFeature distinctEffect = SpatialFeature.prepared(UUID.randomUUID(), SpatialFeatureType.MAGICAL_AREA_EFFECT,
+                List.of(new GridPosition(3, 1)), null,
+                Set.of(SpatialTrigger.COMBAT_TURN_START), SpatialFeatureProvenance.runtime("runtime", 1, 0), 2,
+                "EXPIRE", true, true);
+
+        assertEquals(List.of("MAGICAL_AREA_EFFECT_TRIGGERED:1,1", "MAGICAL_AREA_EFFECT_TRIGGERED:2,1",
+                        "MAGICAL_AREA_EFFECT_TRIGGERED:3,1"),
+                new SpatialTriggerResolver().resolveCombatTurnStart(map(firstRow, overlappingRow, distinctEffect)));
+    }
+
+    @Test
     void refresh_visibility_discovers_a_become_visible_feature_before_emitting_its_event() {
         SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
                 List.of(new GridPosition(1, 1)), null, Set.of(SpatialTrigger.BECOME_VISIBLE),
@@ -102,7 +123,15 @@ class SpatialTriggerResolverTest {
     }
 
     private static CombatMap map(SpatialFeature feature) {
+        return map(List.of(feature));
+    }
+
+    private static CombatMap map(SpatialFeature... features) {
+        return map(List.of(features));
+    }
+
+    private static CombatMap map(List<SpatialFeature> features) {
         return new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
-                new GridSpec(5, 5, 50, 5), new PlayerId(UUID.randomUUID()), List.of(), Set.of(), List.of(), 0, null, null, List.of(feature));
+                new GridSpec(5, 5, 50, 5), new PlayerId(UUID.randomUUID()), List.of(), Set.of(), List.of(), 0, null, null, features);
     }
 }

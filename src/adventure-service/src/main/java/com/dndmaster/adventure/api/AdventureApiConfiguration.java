@@ -956,6 +956,11 @@ public class AdventureApiConfiguration {
             }
 
             @Override
+            public int rollSpatialCheck(SpatialCheckRollCommand command) {
+                return gateway.rollSpatialCheck(command);
+            }
+
+            @Override
             public com.dndmaster.adventure.application.combat.CombatMapPreviewResult preview(
                     com.dndmaster.adventure.application.combat.CombatMapPreviewCommand command) {
                 return gateway.preview(command);
@@ -985,6 +990,26 @@ public class AdventureApiConfiguration {
             @Override
             public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) {
                 return gateway.cancelMovementOperation(mapId, operationId);
+            }
+
+            @Override
+            public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) {
+                return gateway.observe(command);
+            }
+
+            @Override
+            public CombatMapSpatialResult interact(CombatMapSpatialActionCommand command) {
+                return gateway.interact(command);
+            }
+
+            @Override
+            public CombatMapSpatialResult combatTurnStart(CombatMapSpatialTurnCommand command) {
+                return gateway.combatTurnStart(command);
+            }
+
+            @Override
+            public CombatMapSpatialResult advanceDurations(CombatMapSpatialTurnCommand command) {
+                return gateway.advanceDurations(command);
             }
         };
     }

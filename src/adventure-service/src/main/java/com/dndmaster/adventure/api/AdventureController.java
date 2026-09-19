@@ -445,6 +445,30 @@ public class AdventureController {
         return recoveryMovement(adventureId, mapId, operationId, "resume", submission);
     }
 
+    @PostMapping("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}/roll")
+    AdventureMovementOperationResponse rollMovementCheck(@PathVariable UUID adventureId, @PathVariable UUID operationId,
+            @RequestHeader("Idempotency-Key") UUID idempotencyKey,
+            @RequestBody SpatialCheckRollRequest request) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) {
+            throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
+        }
+        if (request == null || request.mapId() == null || request.operationId() == null
+                || !operationId.equals(request.operationId()) || request.checkId() == null
+                || request.ownerPlayerId() == null || !owner.equals(request.ownerPlayerId())
+                || request.commandId() == null || !idempotencyKey.equals(request.commandId())) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_SPATIAL_CHECK_ROLL");
+        }
+        if (combatMapViewPort.playerView(adventureId, owner).filter(view -> request.mapId().equals(view.mapId())).isEmpty()) {
+            throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
+        }
+        var result = mapMovementCoordinator.rollAndResume(new com.dndmaster.adventure.application.combat.SpatialCheckRollCommand(
+                adventure.id().value(), request.mapId(), adventure.sessionId().value(), adventure.ruleSetId(), owner,
+                request.checkId(), operationId, request.expectedVersion()));
+        return AdventureMovementOperationResponse.from(result);
+    }
+
     @DeleteMapping("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}")
     AdventureMovementOperationResponse cancelMovementOperation(@PathVariable UUID adventureId, @PathVariable UUID operationId,
             @RequestParam UUID mapId) { return recoveryMovement(adventureId, mapId, operationId, "cancel"); }
@@ -1139,6 +1163,8 @@ public class AdventureController {
     }
     public record SpatialActionRequest(UUID mapId, UUID tokenId, Integer x, Integer y, Long expectedVersion, UUID commandId) {}
     public record SpatialTurnRequest(UUID mapId, Long expectedVersion, UUID commandId) {}
+    public record SpatialCheckRollRequest(UUID mapId, UUID operationId, UUID checkId, UUID ownerPlayerId,
+            UUID commandId, long expectedVersion) {}
     public record CombatMapSpatialResponse(UUID mapId, long mapVersion, List<String> publicEvents, UUID operationId,
             String status, com.dndmaster.adventure.application.combat.CombatMapPendingCheck pendingCheck) {
         public CombatMapSpatialResponse(UUID mapId, long mapVersion, List<String> publicEvents) {
