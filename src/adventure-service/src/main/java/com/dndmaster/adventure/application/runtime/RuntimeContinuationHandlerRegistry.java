@@ -25,11 +25,6 @@ public final class RuntimeContinuationHandlerRegistry implements RuntimeContinua
                 "continuation handler outcome must not be null");
     }
 
-    public static RuntimeContinuationHandlerRegistry standard() {
-        return standard(command -> RuntimeTurnCommandExecution.transientFailure(
-                "runtime continuation adapter is not configured"));
-    }
-
     public static RuntimeContinuationHandlerRegistry standard(RuntimeTurnCommandAdapter adapter) {
         Objects.requireNonNull(adapter, "runtime command adapter must not be null");
         EnumMap<MovementFollowUpCommand.Kind, RuntimeContinuationHandler> handlers =

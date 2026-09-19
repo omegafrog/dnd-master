@@ -351,32 +351,33 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimeContinuationStatePort runtimeContinuationStatePort(RuntimeTurnCommandRepository commands, ObjectMapper objectMapper) {
-        return new RuntimeCommandContinuationStatePort(commands, objectMapper);
+    RuntimeContinuationCommandOutcomePort runtimeContinuationCommandOutcomePort(RuntimeTurnCommandRepository commands,
+            ObjectMapper objectMapper) {
+        return new PostgresRuntimeContinuationCommandOutcomePort(commands, objectMapper);
     }
 
     @Bean
-    RuntimeContinuationCommandPort runtimeContinuationCommandPort(RuntimeContinuationStatePort statePort, ObjectMapper objectMapper) {
-        java.util.function.Function<RuntimeContinuationCommandPort.ContinuationCommand, RuntimeTurnCommandExecution> transition = command -> {
-            RuntimeContinuationState state = statePort.apply(command);
+    RuntimeContinuationCommandPort runtimeContinuationCommandPort(RuntimeContinuationCommandOutcomePort outcomePort,
+            ObjectMapper objectMapper) {
+        java.util.function.Function<RuntimeContinuationCommandOutcome, RuntimeTurnCommandExecution> transition = outcome -> {
             try {
-                return RuntimeTurnCommandExecution.done(objectMapper.writeValueAsString(state));
+                return RuntimeTurnCommandExecution.done(objectMapper.writeValueAsString(outcome));
             } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
-                return RuntimeTurnCommandExecution.transientFailure("continuation state serialization failed");
+                return RuntimeTurnCommandExecution.transientFailure("typed continuation command serialization failed");
             }
         };
         return new RuntimeContinuationCommandPort() {
             @Override public RuntimeTurnCommandExecution combat(ContinuationCommand command) {
-                return transition.apply(command);
+                return transition.apply(outcomePort.combat(command));
             }
             @Override public RuntimeTurnCommandExecution warning(ContinuationCommand command) {
-                return transition.apply(command);
+                return transition.apply(outcomePort.warning(command));
             }
             @Override public RuntimeTurnCommandExecution dialogue(ContinuationCommand command) {
-                return transition.apply(command);
+                return transition.apply(outcomePort.dialogue(command));
             }
             @Override public RuntimeTurnCommandExecution chase(ContinuationCommand command) {
-                return transition.apply(command);
+                return transition.apply(outcomePort.chase(command));
             }
         };
     }

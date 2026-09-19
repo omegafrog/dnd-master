@@ -255,6 +255,25 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
     }
 
     @Test
+    void exact_interruption_hostile_identity_round_trips_across_restart_with_multiple_aware_enemies() {
+        MovementResolutionOperation operation = repository.reserve(operation(commandId, "hostile-result-identity"));
+        TokenId firstAware = new TokenId(UUID.randomUUID());
+        TokenId interruptedBy = new TokenId(UUID.randomUUID());
+        operation.replaceHostileObservations(java.util.Set.of(
+                new HostileObservationState(firstAware, tokenId, HostileObservationStatus.AWARE),
+                new HostileObservationState(interruptedBy, tokenId, HostileObservationStatus.AWARE)));
+        MovementResolutionResult result = new MovementResolutionResult(path, operation.traversedPath(),
+                operation.currentCell(), 1, List.of("HOSTILE_OBSERVED"), "HOSTILE_OBSERVED",
+                MovementResolutionOutcomeStatus.INTERRUPTED, interruptedBy.value());
+        operation.readyToCommit(result);
+        repository.save(operation);
+
+        MovementResolutionOperation restored = repository.findById(operation.operationId()).orElseThrow();
+
+        assertEquals(interruptedBy.value(), restored.result().hostileTokenId());
+    }
+
+    @Test
     void check_resume_identity_and_result_round_trip_replays_after_reload() {
         MovementResolutionOperation operation = repository.reserve(operation(commandId, "resume"));
         UUID checkId = UUID.randomUUID();

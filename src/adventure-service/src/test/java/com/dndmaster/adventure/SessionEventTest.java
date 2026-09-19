@@ -13,8 +13,9 @@ import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
 import com.dndmaster.adventure.application.runtime.RuntimeContinuationHandlerRegistry;
 import com.dndmaster.adventure.application.runtime.RuntimeContinuationOutcome;
 import com.dndmaster.adventure.application.runtime.RuntimeContinuationCommandPort;
-import com.dndmaster.adventure.application.runtime.RuntimeContinuationState;
-import com.dndmaster.adventure.application.runtime.InMemoryRuntimeContinuationStatePort;
+import com.dndmaster.adventure.application.runtime.RuntimeContinuationCommandOutcome;
+import com.dndmaster.adventure.application.runtime.RuntimeContinuationCommandOutcomePort;
+import com.dndmaster.adventure.application.runtime.PostgresRuntimeContinuationCommandOutcomePort;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandAdapterRegistry;
 import com.dndmaster.adventure.application.runtime.TypedRuntimeContinuationCommandAdapter;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution;
@@ -229,25 +230,43 @@ class SessionEventTest {
     }
 
     @Test
-    void continuation_state_is_persisted_once_with_the_runtime_turn_id() {
-        InMemoryRuntimeContinuationStatePort states = new InMemoryRuntimeContinuationStatePort();
+    void each_continuation_kind_persists_a_distinct_runtime_command_payload_and_replays_it() {
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(commands, new ObjectMapper());
         UUID turnId = UUID.randomUUID();
         UUID operationId = UUID.randomUUID();
-        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
-                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation.combat", "{}", 1);
-        MovementFollowUpRuntimeConsumer.Continuation continuation =
-                new MovementFollowUpRuntimeConsumer.Continuation(MovementFollowUpCommand.Kind.COMBAT,
-                        "HOSTILE_OBSERVED", operationId, turnId);
-        RuntimeContinuationCommandPort.ContinuationCommand typed =
-                new RuntimeContinuationCommandPort.ContinuationCommand(command, continuation);
+        UUID hostileTokenId = UUID.randomUUID();
 
-        RuntimeContinuationState first = states.apply(typed);
-        RuntimeContinuationState second = states.apply(typed);
-
-        assertEquals(first, second);
-        assertEquals(command.commandId(), first.commandId());
-        assertEquals(turnId, first.turnId());
-        assertEquals(operationId, first.operationId());
-        assertEquals(RuntimeContinuationState.Status.APPLIED, first.status());
+        for (MovementFollowUpCommand.Kind kind : List.of(MovementFollowUpCommand.Kind.COMBAT,
+                MovementFollowUpCommand.Kind.WARNING, MovementFollowUpCommand.Kind.DIALOGUE,
+                MovementFollowUpCommand.Kind.CHASE)) {
+            RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
+                    UUID.randomUUID(), UUID.randomUUID(), "external",
+                    "movement.continuation." + kind.name().toLowerCase(), "{}", kind.ordinal());
+            RuntimeContinuationCommandPort.ContinuationCommand typed = new RuntimeContinuationCommandPort.ContinuationCommand(
+                    command, new MovementFollowUpRuntimeConsumer.Continuation(kind, "HOSTILE_OBSERVED", operationId,
+                            turnId, hostileTokenId));
+            RuntimeContinuationCommandOutcome first = switch (kind) {
+                case COMBAT -> outcomes.combat(typed);
+                case WARNING -> outcomes.warning(typed);
+                case DIALOGUE -> outcomes.dialogue(typed);
+                case CHASE -> outcomes.chase(typed);
+                default -> throw new AssertionError(kind);
+            };
+            RuntimeContinuationCommandOutcome second = switch (kind) {
+                case COMBAT -> outcomes.combat(typed);
+                case WARNING -> outcomes.warning(typed);
+                case DIALOGUE -> outcomes.dialogue(typed);
+                case CHASE -> outcomes.chase(typed);
+                default -> throw new AssertionError(kind);
+            };
+            assertEquals(first, second);
+            assertEquals(turnId, first.turnId());
+            assertEquals(operationId, first.operationId());
+            assertEquals(hostileTokenId, first.hostileTokenId());
+            assertEquals(kind.name().substring(0, 1) + kind.name().substring(1).toLowerCase(),
+                    first.getClass().getSimpleName().replace("ContinuationCommand", ""));
+            assertTrue(commands.findByCommandId(command.commandId()).orElseThrow().outcomeJson().contains("HOSTILE_OBSERVED"));
+        }
     }
 }

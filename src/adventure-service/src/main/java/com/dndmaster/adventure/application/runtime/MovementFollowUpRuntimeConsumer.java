@@ -17,11 +17,6 @@ public final class MovementFollowUpRuntimeConsumer {
     private final RuntimeContinuationPort continuationPort;
 
     public MovementFollowUpRuntimeConsumer(SessionEventRepository events, RuntimeTurnCommandRepository commands,
-            ObjectMapper objectMapper, MovementFollowUpPolicy policy) {
-        this(events, commands, objectMapper, policy, RuntimeContinuationHandlerRegistry.standard());
-    }
-
-    public MovementFollowUpRuntimeConsumer(SessionEventRepository events, RuntimeTurnCommandRepository commands,
             ObjectMapper objectMapper, MovementFollowUpPolicy policy, RuntimeContinuationPort continuationPort) {
         this.events = Objects.requireNonNull(events);
         this.commands = Objects.requireNonNull(commands);
