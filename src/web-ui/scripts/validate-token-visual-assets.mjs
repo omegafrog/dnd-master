@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url'
 const scriptDirectory = dirname(fileURLToPath(import.meta.url))
 const webRoot = resolve(scriptDirectory, '..')
 const manifestPath = resolve(webRoot, 'public/assets/token-visuals.manifest.json')
+const catalogPath = resolve(webRoot, 'src/features/combat-map/TokenVisualCatalog.ts')
 const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+const catalogSource = readFileSync(catalogPath, 'utf8')
 const requiredIds = ['token-frame', 'player', 'friendly-npc', 'neutral-npc', 'enemy', 'boss', 'trap', 'object']
 
 if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.assets)) throw new Error('토큰 자산 manifest 형식이 올바르지 않습니다.')
@@ -22,5 +24,10 @@ for (const asset of manifest.assets) {
   if (!existsSync(resolve(webRoot, 'public', asset.path.slice(1)))) throw new Error(`토큰 자산 파일을 찾을 수 없습니다: ${asset.path}`)
 }
 for (const id of requiredIds) if (!ids.has(id)) throw new Error(`필수 토큰 자산이 manifest에 없습니다: ${id}`)
+
+const catalogAssetPaths = new Set([...catalogSource.matchAll(/['\"](\/assets\/tokens\/[^'\"]+)['\"]/g)].map(match => match[1]))
+for (const path of catalogAssetPaths) {
+  if (!manifest.assets.some(asset => asset.path === path)) throw new Error(`TokenVisualCatalog 자산이 manifest에 없습니다: ${path}`)
+}
 
 console.log(`토큰 자산 ${manifest.assets.length}개와 라이선스 기록을 확인했습니다.`)
