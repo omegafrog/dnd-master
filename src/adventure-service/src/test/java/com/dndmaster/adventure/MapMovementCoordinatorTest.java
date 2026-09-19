@@ -15,6 +15,8 @@ import com.dndmaster.adventure.application.combat.CombatMapSpatialActionCommand;
 import com.dndmaster.adventure.application.combat.CombatMapSpatialResult;
 import com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort;
 import com.dndmaster.adventure.application.combat.SpatialCheckRollCommand;
+import com.dndmaster.adventure.application.combat.EnemyObservationRollCommand;
+import com.dndmaster.adventure.application.combat.EnemyObservationRollPort;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.combat.TurnResourceCost;
 import java.util.List;
@@ -23,6 +25,27 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class MapMovementCoordinatorTest {
+    @Test
+    void routes_enemy_observation_through_the_dedicated_enemy_roll_port() {
+        UUID mapId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID checkId = UUID.randomUUID();
+        UUID owner = UUID.randomUUID();
+        CapturingMapPort map = new CapturingMapPort(mapId, operationId, checkId, owner, 15, CombatMapCheckActor.ENEMY);
+        AtomicReference<EnemyObservationRollCommand> received = new AtomicReference<>();
+        EnemyObservationRollPort enemyRoll = command -> { received.set(command); return 20; };
+        MapMovementCoordinator coordinator = new MapMovementCoordinator(map, command -> 1,
+                new com.dndmaster.adventure.application.runtime.DefaultResolutionPort(),
+                SpatialActionAuthorizationPort.requiredPlayerAction(), enemyRoll);
+
+        coordinator.rollEnemyAndResume(new EnemyObservationRollCommand(UUID.randomUUID(), mapId, UUID.randomUUID(),
+                new RuleSetId(UUID.randomUUID()), owner, checkId, operationId, UUID.randomUUID(),
+                "monster.perception", "1d20", 2, 15, 0));
+
+        assertEquals(0, received.get().modifier());
+        assertEquals(0, map.enemyRolls);
+    }
+
     @Test
     void rolls_and_resumes_only_after_matching_check_and_owner_are_verified() {
         UUID mapId = UUID.randomUUID();
@@ -100,15 +123,19 @@ class MapMovementCoordinatorTest {
         private int observations;
         private int interactions;
         private int rolls;
+        private int enemyRolls;
         private com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission;
 
         private CapturingMapPort(UUID mapId, UUID operationId, UUID checkId, UUID owner, int roll) {
+            this(mapId, operationId, checkId, owner, roll, CombatMapCheckActor.PLAYER);
+        }
+
+        private CapturingMapPort(UUID mapId, UUID operationId, UUID checkId, UUID owner, int roll, CombatMapCheckActor actor) {
             this.mapId = mapId;
             this.roll = roll;
-            CombatMapPendingCheck safe = new CombatMapPendingCheck(checkId, operationId, "지각 판정", "d20", owner,
-                    CombatMapCheckActor.PLAYER);
+            CombatMapPendingCheck safe = new CombatMapPendingCheck(checkId, operationId, "지각 판정", "d20", owner, actor);
             CombatMapCheckDetails details = new CombatMapCheckDetails(checkId, operationId, "perception", 15, owner,
-                    CombatMapCheckActor.PLAYER);
+                    actor);
             this.pending = new CombatMapMoveResult(0, operationId, CombatMapMovementStatus.CHECK_REQUIRED,
                     List.of(), List.of(), null, List.of(), null, safe, details);
         }
@@ -119,6 +146,7 @@ class MapMovementCoordinatorTest {
             return pending;
         }
         @Override public int rollSpatialCheck(SpatialCheckRollCommand command) { rolls++; return roll; }
+        @Override public int rollEnemyObservation(EnemyObservationRollCommand command) { enemyRolls++; return roll; }
         @Override public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) {
             observations++;
             return new CombatMapSpatialResult(mapId, 1, List.of());

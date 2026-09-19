@@ -18,7 +18,16 @@ public final class PostgresSessionEventRepository implements SessionEventReposit
                 VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING
                 """)) {
             s.setObject(1, event.eventId()); s.setObject(2, event.sessionId()); s.setLong(3, event.version());
-            s.setString(4, event.type()); s.setString(5, event.payload()); s.executeUpdate();
+            s.setString(4, event.type()); s.setString(5, event.payload());
+            s.executeUpdate();
+            try (var check = c.prepareStatement("SELECT event_id FROM adventure_session_event_outbox WHERE session_id = ? AND version = ?")) {
+                check.setObject(1, event.sessionId()); check.setLong(2, event.version());
+                try (var rows = check.executeQuery()) {
+                    if (!rows.next() || !event.eventId().equals(rows.getObject(1))) {
+                        throw new IllegalStateException("session event version conflict");
+                    }
+                }
+            }
         } catch (SQLException e) { throw new RuntimeException("could not append session event", e); }
     }
 

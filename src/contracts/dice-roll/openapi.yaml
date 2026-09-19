@@ -27,9 +27,17 @@ components:
   schemas:
     EnemyObservationRollRequest:
       type: object
-      required: [adventureId, ruleSetId, scope, commandId]
+      required: [adventureId, ruleSetId, scope, count, sides, modifier, sessionId, turnId, commandId, expectedVersion, ruleReference, difficulty]
       properties:
         adventureId: { type: string, format: uuid }
         ruleSetId: { type: string, format: uuid }
         scope: { type: string, const: ENEMY }
+        count: { type: integer, minimum: 1 }
+        sides: { type: integer, minimum: 1 }
+        modifier: { type: integer }
+        sessionId: { type: string, format: uuid }
+        turnId: { type: string, format: uuid }
         commandId: { type: string, format: uuid }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+        ruleReference: { type: string, minLength: 1 }
+        difficulty: { type: integer, minimum: 0 }

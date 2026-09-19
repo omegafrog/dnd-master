@@ -337,9 +337,10 @@ public class AdventureApiConfiguration {
 
     @Bean
     RuntimeTurnCommandAdapter runtimeTurnCommandAdapter(GmToolGateway gateway, ObjectMapper objectMapper,
-            CombatMapPort combatMapPort) {
+            CombatMapPort combatMapPort,
+            @Qualifier("enemyObservationRollPort") com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort) {
         return new RuntimeTurnCommandAdapterRegistry(
-                Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, objectMapper)),
+                Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, enemyObservationRollPort, objectMapper)),
                 new GmToolRuntimeTurnCommandAdapter(gateway, objectMapper));
     }
 
@@ -347,13 +348,20 @@ public class AdventureApiConfiguration {
     MovementFollowUpPort movementFollowUpPort(SessionEventRepository events, ObjectMapper objectMapper) {
         return (command, adventureId, sessionId, ownerPlayerId) -> {
             try {
-                events.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
-                        sessionId, command.commandId(), 0, "MOVEMENT_FOLLOW_UP", objectMapper.writeValueAsString(command)));
-                return MovementFollowUpPort.Result.done(command.kind().name());
-            } catch (RuntimeException | java.io.IOException failure) {
+                return new MovementFollowUpEventPublisher(events, objectMapper).publish(command, adventureId, sessionId, ownerPlayerId);
+            } catch (RuntimeException failure) {
                 return MovementFollowUpPort.Result.retry(failure.getMessage());
             }
         };
+    }
+
+    @Bean(name = "enemyObservationRollPort")
+    com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort(
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
+        return gateway::rollEnemyObservation;
     }
 
     @Bean

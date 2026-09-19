@@ -9,6 +9,7 @@ import java.util.Objects;
 public final class MapMovementCoordinator {
     private final CombatMapPort combatMap;
     private final DiceCombatPort dice;
+    private final EnemyObservationRollPort enemyObservationRoll;
     private final ResolutionPort resolution;
     private final SpatialActionAuthorizationPort spatialAuthorization;
 
@@ -23,7 +24,7 @@ public final class MapMovementCoordinator {
             @Override public int rollEnemyObservation(EnemyObservationRollCommand command) {
                 return combatMap.rollEnemyObservation(command);
             }
-        }, new DefaultResolutionPort());
+        }, new DefaultResolutionPort(), SpatialActionAuthorizationPort.requiredPlayerAction(), combatMap::rollEnemyObservation);
     }
 
     public MapMovementCoordinator(CombatMapPort combatMap, SpatialActionAuthorizationPort spatialAuthorization) {
@@ -37,7 +38,7 @@ public final class MapMovementCoordinator {
             @Override public int rollEnemyObservation(EnemyObservationRollCommand command) {
                 return combatMap.rollEnemyObservation(command);
             }
-        }, new DefaultResolutionPort(), spatialAuthorization);
+        }, new DefaultResolutionPort(), spatialAuthorization, combatMap::rollEnemyObservation);
     }
 
     public MapMovementCoordinator(CombatMapPort combatMap, DiceCombatPort dice) {
@@ -45,15 +46,21 @@ public final class MapMovementCoordinator {
     }
 
     public MapMovementCoordinator(CombatMapPort combatMap, DiceCombatPort dice, ResolutionPort resolution) {
-        this(combatMap, dice, resolution, SpatialActionAuthorizationPort.requiredPlayerAction());
+        this(combatMap, dice, resolution, SpatialActionAuthorizationPort.requiredPlayerAction(), dice::rollEnemyObservation);
     }
 
     public MapMovementCoordinator(CombatMapPort combatMap, DiceCombatPort dice, ResolutionPort resolution,
             SpatialActionAuthorizationPort spatialAuthorization) {
+        this(combatMap, dice, resolution, spatialAuthorization, dice::rollEnemyObservation);
+    }
+
+    public MapMovementCoordinator(CombatMapPort combatMap, DiceCombatPort dice, ResolutionPort resolution,
+            SpatialActionAuthorizationPort spatialAuthorization, EnemyObservationRollPort enemyObservationRoll) {
         this.combatMap = Objects.requireNonNull(combatMap, "combat map port must not be null");
         this.dice = Objects.requireNonNull(dice, "dice port must not be null");
         this.resolution = Objects.requireNonNull(resolution, "resolution port must not be null");
         this.spatialAuthorization = Objects.requireNonNull(spatialAuthorization, "spatial action authorization must not be null");
+        this.enemyObservationRoll = Objects.requireNonNull(enemyObservationRoll, "enemy observation roll port must not be null");
     }
 
     public CombatMapMoveResult resolve(CombatMapMoveCommand command) {
@@ -81,7 +88,7 @@ public final class MapMovementCoordinator {
     public CombatMapMoveResult rollEnemyAndResume(EnemyObservationRollCommand command) {
         Objects.requireNonNull(command, "enemy observation roll command must not be null");
         CombatMapCheckDetails details = requireEnemyPendingCheck(command.mapId(), command.operationId(), command);
-        int rollTotal = dice.rollEnemyObservation(command.withRule(details));
+        int rollTotal = enemyObservationRoll.rollEnemyObservation(command.withRule(details));
         ResolutionPort.EnemyObservationCheckResult result = resolution.resolveEnemyObservation(
                 new ResolutionPort.EnemyObservationCheckRequest(details.ruleReference(), details.diceExpression(),
                         details.modifier(), details.difficulty(), rollTotal));

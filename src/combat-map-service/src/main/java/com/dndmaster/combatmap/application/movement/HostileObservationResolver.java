@@ -55,11 +55,15 @@ public final class HostileObservationResolver {
                 .filter(token -> token.type() == TokenType.ENEMY || token.type() == TokenType.BOSS)
                 .sorted(Comparator.comparing(token -> token.id().value()))
                 .toList();
+        HostileObservationResult continuous = null;
         for (CombatToken hostile : hostiles) {
             HostileObservationStatus prior = map.hostileObservationStatus(hostile.id(), playerTokenId);
             if (prior == HostileObservationStatus.AWARE) {
-                return new HostileObservationResult(HostileObservationResult.Status.CONTINUOUS,
-                        hostile.id(), Optional.empty(), Optional.empty());
+                if (continuous == null) {
+                    continuous = new HostileObservationResult(HostileObservationResult.Status.CONTINUOUS,
+                            hostile.id(), Optional.empty(), Optional.empty());
+                }
+                continue;
             }
             Optional<HostileObservationRule> rule = hostile.hostileObservationRule();
             if (rule.isPresent()) {
@@ -73,7 +77,7 @@ public final class HostileObservationResolver {
             }
             return aware(map, hostile, playerTokenId, prior);
         }
-        return HostileObservationResult.none();
+        return continuous == null ? HostileObservationResult.none() : continuous;
     }
 
     public HostileObservationResult resolveCheck(CombatMap map, TokenId hostileTokenId, TokenId playerTokenId,

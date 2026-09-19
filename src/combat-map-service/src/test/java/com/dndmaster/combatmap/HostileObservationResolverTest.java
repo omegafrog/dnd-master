@@ -24,6 +24,7 @@ import com.dndmaster.combatmap.domain.TokenType;
 import com.dndmaster.combatmap.domain.VisibilityProfile;
 import com.dndmaster.combatmap.domain.VisibilitySnapshot;
 import com.dndmaster.combatmap.domain.LineOfSightQuery;
+import com.dndmaster.combatmap.domain.HostileObservationRule;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -60,6 +61,41 @@ class HostileObservationResolverTest {
         assertEquals("HOSTILE_OBSERVED", first.interruption().orElseThrow().reason());
         assertEquals(HostileObservationResult.Status.CONTINUOUS, continuous.status());
         assertTrue(continuous.interruption().isEmpty());
+    }
+
+    @Test
+    void an_already_aware_enemy_does_not_hide_a_later_unseen_enemy() {
+        TokenId alreadyAware = new TokenId(UUID.randomUUID());
+        TokenId unseen = new TokenId(UUID.randomUUID());
+        CombatMap map = map(List.of(
+                new CombatToken(alreadyAware, TokenType.ENEMY, new GridPosition(1, 0), TokenController.AI_GAME_MASTER, null),
+                new CombatToken(unseen, TokenType.ENEMY, new GridPosition(3, 0), TokenController.AI_GAME_MASTER, null)));
+        map.markHostileAware(alreadyAware, playerToken);
+
+        HostileObservationResult result = new HostileObservationResolver().evaluate(
+                map, player, playerToken, new GridPosition(0, 0), UUID.randomUUID(), 1);
+
+        assertEquals(HostileObservationResult.Status.NEW, result.status());
+        assertEquals(unseen, result.hostileTokenId());
+        assertTrue(result.interruption().isPresent());
+    }
+
+    @Test
+    void an_already_aware_enemy_does_not_hide_a_later_enemy_check() {
+        TokenId alreadyAware = new TokenId(UUID.randomUUID());
+        TokenId unseen = new TokenId(UUID.randomUUID());
+        CombatMap map = map(List.of(
+                new CombatToken(alreadyAware, TokenType.ENEMY, new GridPosition(1, 0), TokenController.AI_GAME_MASTER, null),
+                new CombatToken(unseen, TokenType.ENEMY, new GridPosition(3, 0), TokenController.AI_GAME_MASTER, null,
+                        new HostileObservationRule("monster.perception", "1d20", 3, 14, "ACTIVE"))));
+        map.markHostileAware(alreadyAware, playerToken);
+
+        HostileObservationResult result = new HostileObservationResolver().evaluate(
+                map, player, playerToken, new GridPosition(0, 0), UUID.randomUUID(), 1);
+
+        assertEquals(HostileObservationResult.Status.CHECK_REQUIRED, result.status());
+        assertEquals(unseen, result.hostileTokenId());
+        assertEquals(3, result.check().orElseThrow().modifier());
     }
 
     @Test
@@ -107,9 +143,22 @@ class HostileObservationResolverTest {
                 TokenController.PLAYER, player);
         CombatToken enemyValue = new CombatToken(enemyToken, TokenType.ENEMY, enemyPosition,
                 TokenController.AI_GAME_MASTER, null);
+        return map(List.of(enemyValue), obstacles);
+    }
+
+    private CombatMap map(List<CombatToken> enemies) {
+        return map(enemies, List.of());
+    }
+
+    private CombatMap map(List<CombatToken> enemies, List<GridPosition> obstacles) {
+        CombatToken playerValue = new CombatToken(playerToken, TokenType.PLAYER, new GridPosition(0, 0),
+                TokenController.PLAYER, player);
+        List<CombatToken> tokens = new java.util.ArrayList<>();
+        tokens.add(playerValue);
+        tokens.addAll(enemies);
         CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()),
                 new RuleSetId(UUID.randomUUID()), new GridSpec(5, 3, 5, 5),
-                player, List.of(playerValue, enemyValue), obstacles, List.of(), 0, null);
+                player, tokens, obstacles, List.of(), 0, null);
         map.refreshVisibility(0);
         return map;
     }

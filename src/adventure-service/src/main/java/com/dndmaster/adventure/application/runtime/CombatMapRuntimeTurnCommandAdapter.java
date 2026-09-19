@@ -3,9 +3,11 @@ package com.dndmaster.adventure.application.runtime;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
+import com.dndmaster.adventure.application.combat.EnemyObservationRollPort;
 import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewCommand;
 import com.dndmaster.adventure.application.combat.MapMovementCoordinator;
+import com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
@@ -21,7 +23,19 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
     private final ObjectMapper mapper;
 
     public CombatMapRuntimeTurnCommandAdapter(CombatMapPort mapPort, ObjectMapper mapper) {
-        this.movementCoordinator = new MapMovementCoordinator(mapPort);
+        this(mapPort, mapPort::rollEnemyObservation, mapper);
+    }
+
+    public CombatMapRuntimeTurnCommandAdapter(CombatMapPort mapPort, EnemyObservationRollPort enemyObservationRoll,
+            ObjectMapper mapper) {
+        this.movementCoordinator = new MapMovementCoordinator(mapPort, new com.dndmaster.adventure.application.combat.DiceCombatPort() {
+            @Override public int roll(com.dndmaster.adventure.application.combat.CombatActionCommand command) {
+                throw new UnsupportedOperationException("combat dice roll is unavailable");
+            }
+            @Override public int rollSpatialCheck(com.dndmaster.adventure.application.combat.SpatialCheckRollCommand command) {
+                return mapPort.rollSpatialCheck(command);
+            }
+        }, new DefaultResolutionPort(), SpatialActionAuthorizationPort.requiredPlayerAction(), enemyObservationRoll);
         this.mapper = java.util.Objects.requireNonNull(mapper, "object mapper must not be null");
     }
 
