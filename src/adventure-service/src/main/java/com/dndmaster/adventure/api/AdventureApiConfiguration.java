@@ -351,19 +351,24 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimeContinuationCommandPort runtimeContinuationCommandPort() {
+    RuntimeContinuationStatePort runtimeContinuationStatePort() {
+        return new InMemoryRuntimeContinuationStatePort();
+    }
+
+    @Bean
+    RuntimeContinuationCommandPort runtimeContinuationCommandPort(RuntimeContinuationStatePort statePort) {
         return new RuntimeContinuationCommandPort() {
             @Override public RuntimeTurnCommandExecution combat(ContinuationCommand command) {
-                return RuntimeTurnCommandExecution.done("COMBAT:" + command.command().commandId());
+                return RuntimeTurnCommandExecution.done(statePort.apply(command).toString());
             }
             @Override public RuntimeTurnCommandExecution warning(ContinuationCommand command) {
-                return RuntimeTurnCommandExecution.done("WARNING:" + command.command().commandId());
+                return RuntimeTurnCommandExecution.done(statePort.apply(command).toString());
             }
             @Override public RuntimeTurnCommandExecution dialogue(ContinuationCommand command) {
-                return RuntimeTurnCommandExecution.done("DIALOGUE:" + command.command().commandId());
+                return RuntimeTurnCommandExecution.done(statePort.apply(command).toString());
             }
             @Override public RuntimeTurnCommandExecution chase(ContinuationCommand command) {
-                return RuntimeTurnCommandExecution.done("CHASE:" + command.command().commandId());
+                return RuntimeTurnCommandExecution.done(statePort.apply(command).toString());
             }
         };
     }

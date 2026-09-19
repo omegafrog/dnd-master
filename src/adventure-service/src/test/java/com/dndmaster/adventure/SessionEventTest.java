@@ -12,6 +12,12 @@ import com.dndmaster.adventure.application.runtime.MovementFollowUpRuntimeConsum
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
 import com.dndmaster.adventure.application.runtime.RuntimeContinuationHandlerRegistry;
 import com.dndmaster.adventure.application.runtime.RuntimeContinuationOutcome;
+import com.dndmaster.adventure.application.runtime.RuntimeContinuationCommandPort;
+import com.dndmaster.adventure.application.runtime.RuntimeContinuationState;
+import com.dndmaster.adventure.application.runtime.InMemoryRuntimeContinuationStatePort;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandAdapterRegistry;
+import com.dndmaster.adventure.application.runtime.TypedRuntimeContinuationCommandAdapter;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandExecution;
 import com.dndmaster.adventure.application.runtime.MovementFollowUpPolicy;
 import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -151,7 +157,7 @@ class SessionEventTest {
 
         RuntimeContinuationOutcome outcome = registry.execute(command,
                 new MovementFollowUpRuntimeConsumer.Continuation(MovementFollowUpCommand.Kind.COMBAT,
-                        "HOSTILE_OBSERVED", UUID.randomUUID()));
+                        "HOSTILE_OBSERVED", UUID.randomUUID(), UUID.randomUUID()));
 
         assertEquals(RuntimeContinuationOutcome.Status.RETRY, outcome.status());
         assertEquals(command, dispatched.get());
@@ -210,11 +216,38 @@ class SessionEventTest {
 
         for (MovementFollowUpCommand.Kind kind : List.of(MovementFollowUpCommand.Kind.COMBAT,
                 MovementFollowUpCommand.Kind.WARNING, MovementFollowUpCommand.Kind.DIALOGUE, MovementFollowUpCommand.Kind.CHASE)) {
-            RuntimeTurnCommand command = RuntimeTurnCommand.create(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                    UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation." + kind.name().toLowerCase(), "{}", 1);
+            UUID turnId = UUID.randomUUID();
+            UUID operationId = UUID.randomUUID();
+            String payload = "{\"kind\":\"" + kind + "\",\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\""
+                    + operationId + "\",\"turnId\":\"" + turnId + "\"}";
+            RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
+                    UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation." + kind.name().toLowerCase(), payload, 1);
             RuntimeContinuationOutcome outcome = RuntimeContinuationHandlerRegistry.standard(adapters).execute(command,
-                    new MovementFollowUpRuntimeConsumer.Continuation(kind, "HOSTILE_OBSERVED", UUID.randomUUID()));
+                    new MovementFollowUpRuntimeConsumer.Continuation(kind, "HOSTILE_OBSERVED", operationId, turnId));
             assertEquals(RuntimeContinuationOutcome.Status.APPLIED, outcome.status());
         }
+    }
+
+    @Test
+    void continuation_state_is_persisted_once_with_the_runtime_turn_id() {
+        InMemoryRuntimeContinuationStatePort states = new InMemoryRuntimeContinuationStatePort();
+        UUID turnId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation.combat", "{}", 1);
+        MovementFollowUpRuntimeConsumer.Continuation continuation =
+                new MovementFollowUpRuntimeConsumer.Continuation(MovementFollowUpCommand.Kind.COMBAT,
+                        "HOSTILE_OBSERVED", operationId, turnId);
+        RuntimeContinuationCommandPort.ContinuationCommand typed =
+                new RuntimeContinuationCommandPort.ContinuationCommand(command, continuation);
+
+        RuntimeContinuationState first = states.apply(typed);
+        RuntimeContinuationState second = states.apply(typed);
+
+        assertEquals(first, second);
+        assertEquals(command.commandId(), first.commandId());
+        assertEquals(turnId, first.turnId());
+        assertEquals(operationId, first.operationId());
+        assertEquals(RuntimeContinuationState.Status.APPLIED, first.status());
     }
 }

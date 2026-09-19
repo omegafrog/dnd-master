@@ -38,11 +38,17 @@ public final class HostileObservationResolver {
 
     public HostileObservationResult evaluate(CombatMap map, PlayerId ownerPlayerId, TokenId playerTokenId,
             GridPosition playerCell, UUID operationId, int cursor) {
+        return evaluate(map, ownerPlayerId, playerTokenId, playerCell, operationId, cursor, Set.of());
+    }
+
+    public HostileObservationResult evaluate(CombatMap map, PlayerId ownerPlayerId, TokenId playerTokenId,
+            GridPosition playerCell, UUID operationId, int cursor, Set<UUID> excludedHostileIds) {
         Objects.requireNonNull(map, "combat map must not be null");
         Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
         Objects.requireNonNull(playerTokenId, "player token id must not be null");
         Objects.requireNonNull(playerCell, "player cell must not be null");
         Objects.requireNonNull(operationId, "operation id must not be null");
+        Objects.requireNonNull(excludedHostileIds, "excluded hostile ids must not be null");
         for (var observation : map.hostileObservations()) {
             if (observation.playerTokenId().equals(playerTokenId)
                     && observation.status() == HostileObservationStatus.AWARE
@@ -57,6 +63,7 @@ public final class HostileObservationResolver {
                 .toList();
         HostileObservationResult continuous = null;
         for (CombatToken hostile : hostiles) {
+            if (excludedHostileIds.contains(hostile.id().value())) continue;
             HostileObservationStatus prior = map.hostileObservationStatus(hostile.id(), playerTokenId);
             if (prior == HostileObservationStatus.AWARE) {
                 if (continuous == null) {

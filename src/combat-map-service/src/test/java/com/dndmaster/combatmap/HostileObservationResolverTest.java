@@ -99,6 +99,29 @@ class HostileObservationResolverTest {
     }
 
     @Test
+    void failed_enemy_check_excludes_that_enemy_and_evaluates_the_next_visible_enemy() {
+        TokenId first = new TokenId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
+        TokenId second = new TokenId(UUID.fromString("00000000-0000-0000-0000-000000000002"));
+        CombatMap map = map(List.of(
+                new CombatToken(first, TokenType.ENEMY, new GridPosition(1, 0), TokenController.AI_GAME_MASTER, null,
+                        new HostileObservationRule("enemy.first", "1d20", 0, 12, "ACTIVE")),
+                new CombatToken(second, TokenType.ENEMY, new GridPosition(3, 0), TokenController.AI_GAME_MASTER, null,
+                        new HostileObservationRule("enemy.second", "1d20", 0, 12, "ACTIVE"))));
+        HostileObservationResolver resolver = new HostileObservationResolver();
+        UUID operationId = UUID.randomUUID();
+
+        HostileObservationResult firstCheck = resolver.evaluate(
+                map, player, playerToken, new GridPosition(0, 0), operationId, 1);
+        assertEquals(first, firstCheck.hostileTokenId());
+        resolver.resolveCheck(map, first, playerToken, false, new GridPosition(0, 0));
+
+        HostileObservationResult secondCheck = resolver.evaluate(
+                map, player, playerToken, new GridPosition(0, 0), operationId, 1, Set.of(first.value()));
+        assertEquals(HostileObservationResult.Status.CHECK_REQUIRED, secondCheck.status());
+        assertEquals(second, secondCheck.hostileTokenId());
+    }
+
+    @Test
     void losing_sight_then_seeing_the_same_enemy_is_reacquisition() {
         CombatMap map = map(new GridPosition(3, 0), List.of());
         HostileObservationResolver resolver = new HostileObservationResolver();
