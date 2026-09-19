@@ -23,6 +23,7 @@ import com.dndmaster.combatmap.application.movement.CombatMapMovementPreviewMism
 import com.dndmaster.combatmap.application.movement.MovementPreviewRequiredException;
 import com.dndmaster.combatmap.application.movement.MovementFinalCommitConflictException;
 import com.dndmaster.combatmap.application.movement.MovementResolutionOutcomeStatus;
+import com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver;
 import com.dndmaster.combatmap.domain.AdventureId;
 import com.dndmaster.combatmap.domain.CombatMap;
 import com.dndmaster.combatmap.domain.CombatToken;
@@ -164,6 +165,58 @@ class MovementResolutionOperationTest {
         assertEquals(List.of(), pending.result().publicEvents());
         assertEquals(SpatialFeatureVisibility.HIDDEN, fixture.map.spatialFeatures().getFirst().visibility());
         assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
+    }
+
+    @Test
+    void failed_detection_does_not_discover_or_trigger_a_hidden_enter_cell_feature() {
+        Fixture fixture = new Fixture();
+        SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
+                List.of(new GridPosition(2, 1)),
+                com.dndmaster.combatmap.domain.DetectionSpec.passive("perception", 12),
+                Set.of(SpatialTrigger.ENTER_CELL), SpatialFeatureProvenance.storyPlan("story", 0, 0));
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
+                List.of(feature));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1)),
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+
+        MovementOperationResponse response = fixture.service(request -> Optional.of(
+                new MovementCheckResult(request.operationId(), request.checkId(), false, fixture.player)))
+                .start(fixture.start("fingerprint-1"));
+
+        assertEquals(MovementOperationStatus.COMMITTED, response.status());
+        assertEquals(MovementResolutionOutcomeStatus.COMMITTED, response.result().status());
+        assertEquals(List.of(), response.result().publicEvents());
+        assertEquals(SpatialFeatureVisibility.HIDDEN, feature.visibility());
+        assertEquals(SpatialFeature.State.HIDDEN, feature.state());
+        assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
+    }
+
+    @Test
+    void successful_detection_discovers_before_explicit_interaction_can_trigger_the_feature() {
+        Fixture fixture = new Fixture();
+        SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
+                List.of(new GridPosition(2, 1)),
+                com.dndmaster.combatmap.domain.DetectionSpec.passive("perception", 12),
+                Set.of(SpatialTrigger.ENTER_CELL, SpatialTrigger.INTERACT),
+                SpatialFeatureProvenance.storyPlan("story", 0, 0));
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
+                List.of(feature));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1)),
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+
+        MovementOperationResponse response = fixture.service(request -> Optional.of(
+                new MovementCheckResult(request.operationId(), request.checkId(), true, fixture.player)))
+                .start(fixture.start("fingerprint-1"));
+
+        assertEquals(SpatialFeatureVisibility.DISCOVERED, feature.visibility());
+        assertEquals(List.of("TRAP_DISCOVERED:2,1"), response.result().publicEvents());
+        assertEquals(List.of("TRAP_INTERACTED:2,1"),
+                new SpatialTriggerResolver().resolve(fixture.map, SpatialTrigger.INTERACT, new GridPosition(2, 1)));
+        assertEquals(SpatialFeature.State.TRIGGERED, feature.state());
     }
 
     @Test

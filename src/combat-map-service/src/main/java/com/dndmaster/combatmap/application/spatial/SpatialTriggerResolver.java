@@ -86,7 +86,11 @@ public final class SpatialTriggerResolver {
 
     private static List<String> resolveFeature(SpatialFeature feature, SpatialTrigger trigger, GridPosition cell) {
         if (!feature.cells().contains(cell) || !feature.triggers().contains(trigger) || !feature.canTrigger()) return List.of();
-        if (feature.visibility() == SpatialFeatureVisibility.HIDDEN && trigger == SpatialTrigger.INTERACT) return List.of();
+        // Hidden features are transitioned only by the detection/observation
+        // success paths or the newly-visible path. A movement trigger must
+        // never reveal or activate a feature whose detection failed.
+        if (feature.visibility() == SpatialFeatureVisibility.HIDDEN
+                && trigger != SpatialTrigger.BECOME_VISIBLE) return List.of();
         if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.SECRET_DOOR
                 && trigger != SpatialTrigger.INTERACT
                 && feature.visibility() != SpatialFeatureVisibility.HIDDEN) return List.of();
