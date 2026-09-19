@@ -155,7 +155,7 @@ public final class RuntimeTurnCommitOrchestrator {
 
     private RuntimeTurnCommandExecution executeFollowUp(RuntimeTurnCommand command) {
         try {
-            MovementFollowUpCommand followUp = readDurableFollowUp(command.payloadJson());
+            MovementFollowUpCommand followUp = readDurableFollowUp(command);
             MovementFollowUpPort.Result result = followUpPort.publish(followUp, command.adventureId(), command.sessionId(), command.ownerPlayerId());
             if (result.status() == MovementFollowUpPort.Result.Status.DONE) {
                 result = followUpConsumer.consume(command, followUp);
@@ -172,14 +172,20 @@ public final class RuntimeTurnCommitOrchestrator {
         }
     }
 
-    private MovementFollowUpCommand readDurableFollowUp(String payload) {
-        try (JsonParser parser = objectMapper.createParser(payload)) {
+    private MovementFollowUpCommand readDurableFollowUp(RuntimeTurnCommand command) {
+        try (JsonParser parser = objectMapper.createParser(command.payloadJson())) {
             MovementFollowUpCommand followUp = objectMapper.readerFor(MovementFollowUpCommand.class)
                     .with(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
                     .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
                     .readValue(parser);
             if (parser.nextToken() != null) {
                 throw new PermanentFollowUpFailure("invalid durable movement follow-up payload: trailing JSON");
+            }
+            if (!command.commandId().equals(followUp.commandId())) {
+                throw new PermanentFollowUpFailure("durable movement follow-up command id does not match command");
+            }
+            if (!command.turnId().equals(followUp.turnId())) {
+                throw new PermanentFollowUpFailure("durable movement follow-up turn id does not match command");
             }
             return followUp;
         } catch (PermanentFollowUpFailure failure) {

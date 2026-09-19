@@ -68,6 +68,48 @@ class SessionEventTest {
     }
 
     @Test
+    void done_typed_continuation_outcome_must_match_every_request_identity_and_kind() {
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(commands, new ObjectMapper());
+        UUID turnId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, commandId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "external", "movement.continuation.combat", "{}", 0);
+        String persisted = "{\"commandId\":\"" + commandId + "\",\"turnId\":\"" + turnId
+                + "\",\"operationId\":\"" + operationId + "\",\"hostileTokenId\":\"" + hostileTokenId
+                + "\",\"trigger\":\"HOSTILE_OBSERVED\",\"kind\":\"COMBAT\"}";
+        commands.save(command.done(persisted));
+
+        RuntimeContinuationCommandPort.ContinuationCommand differentRequest =
+                new RuntimeContinuationCommandPort.ContinuationCommand(command,
+                        new MovementFollowUpRuntimeConsumer.Continuation(
+                                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.WARNING,
+                                "FEATURE_REVEALED", UUID.randomUUID(), turnId, UUID.randomUUID()));
+
+        assertThrows(CorruptRuntimeContinuationOutcomeException.class, () -> outcomes.combat(differentRequest));
+        assertEquals(persisted, commands.findByCommandId(commandId).orElseThrow().outcomeJson());
+    }
+
+    @Test
+    void done_typed_continuation_with_empty_outcome_is_permanent_and_not_overwritten() {
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        RuntimeContinuationCommandOutcomePort outcomes = new PostgresRuntimeContinuationCommandOutcomePort(commands, new ObjectMapper());
+        UUID turnId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), "external", "movement.continuation.combat", "{}", 0);
+        commands.save(command.done(""));
+        RuntimeContinuationCommandPort.ContinuationCommand request = new RuntimeContinuationCommandPort.ContinuationCommand(
+                command, new MovementFollowUpRuntimeConsumer.Continuation(
+                        com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                        "HOSTILE_OBSERVED", UUID.randomUUID(), turnId, UUID.randomUUID()));
+
+        assertThrows(CorruptRuntimeContinuationOutcomeException.class, () -> outcomes.combat(request));
+        assertTrue(commands.findByCommandId(command.commandId()).orElseThrow().outcomeJson().isEmpty());
+    }
+
+    @Test
     void event_versions_are_monotonic_and_duplicate_safe() {
         InMemorySessionEventRepository events = new InMemorySessionEventRepository();
         UUID session = UUID.randomUUID();

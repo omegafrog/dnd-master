@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
 import java.io.IOException;
 import java.util.Objects;
 
@@ -19,37 +20,41 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
 
     @Override public synchronized CombatContinuationCommand combat(RuntimeContinuationCommandPort.ContinuationCommand request) {
         return persist(request, CombatContinuationCommand.class,
-                (id, turn, operation, hostile, trigger) -> new CombatContinuationCommand(id, turn, operation, hostile, trigger));
+                (id, turn, operation, hostile, trigger, kind) -> new CombatContinuationCommand(id, turn, operation, hostile, trigger, kind));
     }
     @Override public synchronized WarningContinuationCommand warning(RuntimeContinuationCommandPort.ContinuationCommand request) {
         return persist(request, WarningContinuationCommand.class,
-                (id, turn, operation, hostile, trigger) -> new WarningContinuationCommand(id, turn, operation, hostile, trigger));
+                (id, turn, operation, hostile, trigger, kind) -> new WarningContinuationCommand(id, turn, operation, hostile, trigger, kind));
     }
     @Override public synchronized DialogueContinuationCommand dialogue(RuntimeContinuationCommandPort.ContinuationCommand request) {
         return persist(request, DialogueContinuationCommand.class,
-                (id, turn, operation, hostile, trigger) -> new DialogueContinuationCommand(id, turn, operation, hostile, trigger));
+                (id, turn, operation, hostile, trigger, kind) -> new DialogueContinuationCommand(id, turn, operation, hostile, trigger, kind));
     }
     @Override public synchronized ChaseContinuationCommand chase(RuntimeContinuationCommandPort.ContinuationCommand request) {
         return persist(request, ChaseContinuationCommand.class,
-                (id, turn, operation, hostile, trigger) -> new ChaseContinuationCommand(id, turn, operation, hostile, trigger));
+                (id, turn, operation, hostile, trigger, kind) -> new ChaseContinuationCommand(id, turn, operation, hostile, trigger, kind));
     }
 
     private <T extends RuntimeContinuationCommandOutcome> T persist(
             RuntimeContinuationCommandPort.ContinuationCommand request, Class<T> type, OutcomeFactory<T> factory) {
         RuntimeTurnCommand command = request.command();
         RuntimeTurnCommand existing = commands.findByCommandId(command.commandId()).orElse(null);
-        if (existing != null && existing.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE
-                && !existing.outcomeJson().isBlank()) {
+        MovementFollowUpRuntimeConsumer.Continuation continuation = request.continuation();
+        T expected = factory.create(command.commandId(), command.turnId(), continuation.operationId(),
+                continuation.hostileTokenId(), continuation.trigger(), continuation.kind());
+        if (existing != null && existing.executionStatus() == RuntimeTurnCommand.ExecutionStatus.DONE) {
+            if (existing.outcomeJson().isBlank()) {
+                throw new CorruptRuntimeContinuationOutcomeException(
+                        "done continuation command has no durable outcome", null);
+            }
             T persisted = read(existing.outcomeJson(), type);
-            validateIdentity(persisted, command);
+            validateMatches(persisted, expected, existing.outcomeJson());
             return persisted;
         }
-        MovementFollowUpRuntimeConsumer.Continuation continuation = request.continuation();
-        T outcome = factory.create(command.commandId(), command.turnId(), continuation.operationId(),
-                continuation.hostileTokenId(), continuation.trigger());
         try {
-            commands.save(command.done(objectMapper.writeValueAsString(outcome)));
-            return outcome;
+            String canonical = objectMapper.writeValueAsString(expected);
+            commands.save(command.done(canonical));
+            return expected;
         } catch (JsonProcessingException failure) {
             throw new IllegalStateException("typed continuation command serialization failed", failure);
         }
@@ -69,20 +74,23 @@ public final class PostgresRuntimeContinuationCommandOutcomePort implements Runt
         }
     }
 
-    private static void validateIdentity(RuntimeContinuationCommandOutcome outcome, RuntimeTurnCommand command) {
-        if (outcome == null || outcome.commandId() == null || outcome.turnId() == null
-                || outcome.operationId() == null || outcome.hostileTokenId() == null
-                || outcome.trigger() == null || outcome.trigger().isBlank()
-                || !command.commandId().equals(outcome.commandId())
-                || !command.turnId().equals(outcome.turnId())) {
+    private void validateMatches(RuntimeContinuationCommandOutcome persisted,
+            RuntimeContinuationCommandOutcome expected, String rawJson) {
+        try {
+            String canonical = objectMapper.writeValueAsString(persisted);
+            if (!canonical.equals(rawJson) || !persisted.equals(expected)) {
+                throw new CorruptRuntimeContinuationOutcomeException(
+                        "durable continuation command outcome does not match request", null);
+            }
+        } catch (JsonProcessingException failure) {
             throw new CorruptRuntimeContinuationOutcomeException(
-                    "durable continuation command outcome identity is corrupt", null);
+                    "durable continuation command outcome is corrupt", failure);
         }
     }
 
     @FunctionalInterface
     private interface OutcomeFactory<T> {
         T create(java.util.UUID commandId, java.util.UUID turnId, java.util.UUID operationId,
-                java.util.UUID hostileTokenId, String trigger);
+                java.util.UUID hostileTokenId, String trigger, MovementFollowUpCommand.Kind kind);
     }
 }

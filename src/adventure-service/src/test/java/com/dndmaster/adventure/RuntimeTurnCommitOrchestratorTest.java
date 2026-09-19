@@ -283,6 +283,49 @@ class RuntimeTurnCommitOrchestratorTest {
     }
 
     @Test
+    void durable_follow_up_command_id_must_match_owning_runtime_command() throws Exception {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        UUID payloadCommandId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(fixture.turnId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.follow-up",
+                new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                        new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                                payloadCommandId, operationId, hostileTokenId, fixture.turnId,
+                                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                                "HOSTILE_OBSERVED")), 0);
+
+        RuntimeTurnCommitOrchestrator.Result result = fixture.orchestrator(ignored -> {
+            throw new AssertionError("mismatched follow-up must not reach a port");
+        }).commit(fixture.readyTurn(), List.of(command), () -> {
+            throw new AssertionError("mismatched follow-up must not commit the adventure");
+        });
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.REPAIR_REQUIRED, result.status());
+    }
+
+    @Test
+    void durable_follow_up_turn_id_must_match_owning_runtime_command() throws Exception {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(fixture.turnId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.follow-up",
+                new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+                        new com.dndmaster.adventure.application.combat.MovementFollowUpCommand(
+                                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT,
+                                "HOSTILE_OBSERVED")), 0);
+
+        RuntimeTurnCommitOrchestrator.Result result = fixture.orchestrator(ignored -> {
+            throw new AssertionError("mismatched follow-up must not reach a port");
+        }).commit(fixture.readyTurn(), List.of(command), () -> {
+            throw new AssertionError("mismatched follow-up must not commit the adventure");
+        });
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.REPAIR_REQUIRED, result.status());
+    }
+
+    @Test
     void application_service_forward_recovers_map_failure_before_committing_adventure_state() {
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
         RuntimeTurn ready = fixture.readyTurn();
