@@ -275,7 +275,8 @@ public final class CrossContextHttpCombatGateway
     @Override public CombatMapMoveResult latestMovementOperation(java.util.UUID mapId) { return latestOperationRequest(mapId); }
     @Override public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "POST", null); }
     @Override public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId, CombatMapCheckSubmission submission) { return operationRequest(mapId, operationId, "POST", submission); }
-    @Override public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "DELETE"); }
+    @Override public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId,
+            java.util.UUID cancelCommandId) { return operationRequest(mapId, operationId, "DELETE", null, cancelCommandId); }
 
     @Override public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) {
         return spatialRequest(command.mapId(), "observe", command.commandId(), new SpatialActionRequest(command.ownerPlayerId(), command.tokenId(),
@@ -328,15 +329,22 @@ public final class CrossContextHttpCombatGateway
                         pending.path("diceExpression").asText(), java.util.UUID.fromString(pending.path("ownerPlayerId").asText()),
                         CombatMapCheckActor.valueOf(pending.path("actor").asText("PLAYER"))) : null;
     }
-    private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method) { return operationRequest(mapId, operationId, method, null); }
+    private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method) { return operationRequest(mapId, operationId, method, null, operationId); }
     private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method, CombatMapCheckSubmission submission) {
+        return operationRequest(mapId, operationId, method, submission, submission == null ? operationId : submission.commandId());
+    }
+    private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method,
+            CombatMapCheckSubmission submission, java.util.UUID cancelCommandId) {
         try {
             String route = "internal/v1/combat-maps/" + mapId + "/movement-operations/" + operationId + ("POST".equals(method) ? "/resume" : "");
             HttpRequest.Builder request = HttpRequest.newBuilder(baseUri.resolve(route)).timeout(timeout).header("X-Internal-Token", internalToken);
             if ("POST".equals(method)) request.header("Content-Type", "application/json")
                     .header("Idempotency-Key", (submission == null ? operationId : submission.commandId()).toString())
                     .POST(HttpRequest.BodyPublishers.ofString(submission == null ? "" : objectMapper.writeValueAsString(submission)));
-            else if ("DELETE".equals(method)) request.header("Idempotency-Key", operationId.toString()).DELETE(); else request.GET();
+            else if ("DELETE".equals(method)) request.header("Content-Type", "application/json")
+                    .header("Idempotency-Key", cancelCommandId.toString())
+                    .method("DELETE", HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(
+                            new MovementCancelRequest(operationId, cancelCommandId)))); else request.GET();
             HttpResponse<String> response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 if (response.statusCode() == 409 || response.statusCode() == 422) {
@@ -590,6 +598,7 @@ public final class CrossContextHttpCombatGateway
     private record PositionRequest(int x, int y) {}
     private record SpatialActionRequest(java.util.UUID ownerId, java.util.UUID tokenId, int x, int y,
             long expectedVersion, java.util.UUID commandId) {}
+    private record MovementCancelRequest(java.util.UUID operationId, java.util.UUID commandId) {}
     private record SpatialTurnRequest(java.util.UUID ownerId, long expectedVersion, java.util.UUID commandId) {}
     private record PlayerCheckRollRequest(java.util.UUID adventureId, java.util.UUID ruleSetId, String scope,
             String ruleReference, Integer difficulty, int count, int sides, int modifier, java.util.UUID sessionId, java.util.UUID turnId,

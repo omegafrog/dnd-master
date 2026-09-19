@@ -988,8 +988,9 @@ public class AdventureApiConfiguration {
             }
 
             @Override
-            public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) {
-                return gateway.cancelMovementOperation(mapId, operationId);
+            public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId,
+                    java.util.UUID cancelCommandId) {
+                return gateway.cancelMovementOperation(mapId, operationId, cancelCommandId);
             }
 
             @Override

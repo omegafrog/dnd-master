@@ -11,10 +11,15 @@ import com.dndmaster.adventure.application.combat.CombatMapMovementStatus;
 import com.dndmaster.adventure.application.combat.CombatMapPendingCheck;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
 import com.dndmaster.adventure.application.combat.MapMovementCoordinator;
+import com.dndmaster.adventure.application.combat.CombatMapSpatialActionCommand;
+import com.dndmaster.adventure.application.combat.CombatMapSpatialResult;
+import com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort;
 import com.dndmaster.adventure.application.combat.SpatialCheckRollCommand;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
+import com.dndmaster.adventure.domain.combat.TurnResourceCost;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class MapMovementCoordinatorTest {
@@ -49,10 +54,49 @@ class MapMovementCoordinatorTest {
         assertEquals(0, map.rolls);
     }
 
+    @Test
+    void routes_spatial_actions_through_typed_action_and_cost_authorization() {
+        UUID owner = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        CapturingMapPort map = new CapturingMapPort(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), owner, 15);
+        AtomicReference<SpatialActionAuthorizationPort.SpatialActionAuthorization> authorized = new AtomicReference<>();
+        MapMovementCoordinator coordinator = new MapMovementCoordinator(map, command -> 1,
+                new com.dndmaster.adventure.application.runtime.DefaultResolutionPort(), authorized::set);
+        CombatMapSpatialActionCommand command = new CombatMapSpatialActionCommand(map.mapId, owner, UUID.randomUUID(),
+                new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1), 0, commandId);
+
+        coordinator.observe(command);
+        assertEquals("OBSERVE", authorized.get().action());
+        assertEquals(owner, authorized.get().actorId());
+        assertEquals(TurnResourceCost.actionOnly(), authorized.get().cost());
+        assertEquals(1, map.observations);
+
+        coordinator.interact(command);
+        assertEquals("INTERACT", authorized.get().action());
+        assertEquals(1, map.interactions);
+    }
+
+    @Test
+    void rejects_spatial_actions_before_the_map_port_when_runtime_authorization_fails() {
+        UUID owner = UUID.randomUUID();
+        CapturingMapPort map = new CapturingMapPort(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), owner, 15);
+        MapMovementCoordinator coordinator = new MapMovementCoordinator(map, command -> 1,
+                new com.dndmaster.adventure.application.runtime.DefaultResolutionPort(), command -> {
+                    throw new IllegalStateException("action resource is unavailable");
+                });
+        CombatMapSpatialActionCommand command = new CombatMapSpatialActionCommand(map.mapId, owner, UUID.randomUUID(),
+                new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(1, 1), 0, UUID.randomUUID());
+
+        assertThrows(IllegalStateException.class, () -> coordinator.observe(command));
+        assertEquals(0, map.observations);
+    }
+
     private static final class CapturingMapPort implements CombatMapPort {
         private final UUID mapId;
         private final CombatMapMoveResult pending;
         private final int roll;
+        private int observations;
+        private int interactions;
         private int rolls;
         private com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission;
 
@@ -73,6 +117,14 @@ class MapMovementCoordinatorTest {
             return pending;
         }
         @Override public int rollSpatialCheck(SpatialCheckRollCommand command) { rolls++; return roll; }
+        @Override public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) {
+            observations++;
+            return new CombatMapSpatialResult(mapId, 1, List.of());
+        }
+        @Override public CombatMapSpatialResult interact(CombatMapSpatialActionCommand command) {
+            interactions++;
+            return new CombatMapSpatialResult(mapId, 1, List.of());
+        }
         @Override public CombatMapMoveResult resumeMovementOperation(UUID mapId, UUID operationId,
                 com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission) {
             this.submission = submission;

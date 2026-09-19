@@ -194,6 +194,31 @@ class MovementResolutionOperationTest {
     }
 
     @Test
+    void unrelated_visible_enter_cell_feature_does_not_stop_movement_or_request_a_check() {
+        Fixture fixture = new Fixture();
+        SpatialFeature unrelated = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
+                List.of(new GridPosition(4, 1)),
+                com.dndmaster.combatmap.domain.DetectionSpec.passive("perception", 12),
+                Set.of(SpatialTrigger.ENTER_CELL), SpatialFeatureProvenance.storyPlan("story", 0, 0));
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
+                List.of(unrelated));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1), new GridPosition(4, 1)),
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1), new GridPosition(4, 1)),
+                Set.of(), List.of(), 0));
+
+        MovementOperationResponse response = fixture.service(MovementCheckResolver.pending())
+                .start(fixture.start("fingerprint-1"));
+
+        assertEquals(MovementOperationStatus.COMMITTED, response.status());
+        assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)),
+                response.result().traversedPath());
+        assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
+        assertEquals(SpatialFeatureVisibility.HIDDEN, unrelated.visibility());
+    }
+
+    @Test
     void successful_detection_discovers_before_explicit_interaction_can_trigger_the_feature() {
         Fixture fixture = new Fixture();
         SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
@@ -717,6 +742,22 @@ class MovementResolutionOperationTest {
     }
 
     @Test
+    void cancel_replays_with_the_same_cancel_command_and_rejects_reuse_for_another_operation() {
+        Fixture fixture = new Fixture();
+        MovementOperationResponse pending = fixture.service(MovementCheckResolver.pending())
+                .start(fixture.start("fingerprint-1"));
+        UUID cancelCommandId = UUID.randomUUID();
+
+        MovementOperationResponse cancelled = fixture.service().cancel(fixture.map.id(), pending.operationId(), cancelCommandId);
+        MovementOperationResponse replay = fixture.service().cancel(fixture.map.id(), pending.operationId(), cancelCommandId);
+
+        assertEquals(cancelled, replay);
+        assertEquals(cancelCommandId, fixture.findById(pending.operationId()).orElseThrow().cancelCommandId());
+        assertThrows(MovementCommandConflictException.class,
+                () -> fixture.service().cancel(fixture.map.id(), pending.operationId(), UUID.randomUUID()));
+    }
+
+    @Test
     void stale_operation_save_is_rejected_instead_of_overwriting_newer_state() {
         Fixture fixture = new Fixture();
         MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
@@ -831,6 +872,9 @@ class MovementResolutionOperationTest {
         @Override public Optional<MovementResolutionOperation> findById(UUID id) { return Optional.ofNullable(operations.get(id)); }
         @Override public Optional<MovementResolutionOperation> findOperationByCommandId(UUID id) {
             return operations.values().stream().filter(operation -> operation.commandId().equals(id)).findFirst();
+        }
+        @Override public Optional<MovementResolutionOperation> findOperationByCancelCommandId(UUID id) {
+            return operations.values().stream().filter(operation -> id.equals(operation.cancelCommandId())).findFirst();
         }
         @Override public Optional<MovementResolutionOperation> findActiveByMapId(MapId id) {
             return operations.values().stream().filter(operation -> operation.mapId().equals(id) && operation.status().active()).findFirst();

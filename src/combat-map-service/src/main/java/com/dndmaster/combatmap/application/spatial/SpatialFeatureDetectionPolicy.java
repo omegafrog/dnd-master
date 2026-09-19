@@ -41,6 +41,15 @@ public final class SpatialFeatureDetectionPolicy {
         return candidates(origin, map.spatialFeatures(), visibility.current(), blockers, map.publicBoundaries());
     }
 
+    /** Returns only features that can be detected before entering the requested next cell. */
+    public List<SpatialFeature> candidates(CombatMap map, PlayerId playerId, TokenId tokenId,
+            GridPosition nextCell) {
+        Objects.requireNonNull(nextCell, "next cell must not be null");
+        return candidates(map, playerId, tokenId).stream()
+                .filter(feature -> feature.cells().contains(nextCell))
+                .toList();
+    }
+
     public List<SpatialFeature> candidates(GridPosition origin, List<SpatialFeature> features,
             Set<GridPosition> currentVisible, Set<GridPosition> blockers,
             java.util.Collection<com.dndmaster.combatmap.domain.MapBoundary> boundaries) {

@@ -718,7 +718,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         {!pendingMovement.result.pendingCheck && <button type="button" onClick={() => void recoverMovement(true)}>이동 재개</button>}
         {pendingMovement.result.operationId && api.cancelMovementOperation && <button type="button" onClick={async () => {
           try {
-            const result = await api.cancelMovementOperation?.(adventureId, pendingMovement.mapId, pendingMovement.result.operationId!)
+            const cancelCommandId = createMapCommandIdentity().commandId
+            const result = await api.cancelMovementOperation?.(adventureId, pendingMovement.mapId, pendingMovement.result.operationId!, cancelCommandId)
             const refreshed = await api.getCombatMap(adventureId)
             if (result) await applyMovementResult(result, pendingMovement.mapId, pendingMovement.tokenId, pendingMovement.turnId, pendingMovement.commandId, map, refreshed)
           } catch (error) { setMessage(error instanceof Error ? error.message : '이동을 취소하지 못했습니다.') }

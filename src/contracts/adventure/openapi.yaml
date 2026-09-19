@@ -225,7 +225,11 @@ paths:
       parameters:
         - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: mapId, in: query, required: true, schema: { type: string, format: uuid } }
-        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+        - name: Idempotency-Key
+          description: Distinct cancel command identity; reuse is valid only for the same movement operation.
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
       responses:
         '200': { description: cancelled or replayed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
         '403': { description: adventure is not owned by bearer }

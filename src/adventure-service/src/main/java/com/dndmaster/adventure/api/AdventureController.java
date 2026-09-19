@@ -520,8 +520,8 @@ public class AdventureController {
                 throw new ApiRequestGuard.ApiContractException(400, "IDEMPOTENCY_KEY_MISMATCH");
             }
         }
-        if ("cancel".equals(action)) requireMovementIdempotencyKey(commandId, operationId);
-        var result = switch (action) { case "resume" -> submission == null ? mapMovementCoordinator.resume(mapId, operationId) : mapMovementCoordinator.resume(mapId, operationId, submission); case "cancel" -> mapMovementCoordinator.cancel(mapId, operationId); default -> mapMovementCoordinator.query(mapId, operationId); };
+        if ("cancel".equals(action)) requireCancelCommandId(commandId);
+        var result = switch (action) { case "resume" -> submission == null ? mapMovementCoordinator.resume(mapId, operationId) : mapMovementCoordinator.resume(mapId, operationId, submission); case "cancel" -> mapMovementCoordinator.cancel(mapId, operationId, commandId); default -> mapMovementCoordinator.query(mapId, operationId); };
         return AdventureMovementOperationResponse.from(result);
     }
 
@@ -571,8 +571,8 @@ public class AdventureController {
         }
     }
 
-    static void requireMovementIdempotencyKey(UUID header, UUID operationId) {
-        if (header == null || operationId == null || !header.equals(operationId)) {
+    static void requireCancelCommandId(UUID header) {
+        if (header == null) {
             throw new ApiRequestGuard.ApiContractException(400, "IDEMPOTENCY_KEY_MISMATCH");
         }
     }

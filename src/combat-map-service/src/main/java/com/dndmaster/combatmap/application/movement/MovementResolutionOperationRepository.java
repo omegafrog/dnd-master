@@ -9,6 +9,9 @@ import java.util.UUID;
 public interface MovementResolutionOperationRepository {
     Optional<MovementResolutionOperation> findById(UUID operationId);
     Optional<MovementResolutionOperation> findOperationByCommandId(UUID commandId);
+    default Optional<MovementResolutionOperation> findOperationByCancelCommandId(UUID commandId) {
+        return Optional.empty();
+    }
     Optional<MovementResolutionOperation> findActiveByMapId(MapId mapId);
     /** Returns the most recent durable operation for reconnect recovery. */
     default Optional<MovementResolutionOperation> findLatestByMapId(MapId mapId) {

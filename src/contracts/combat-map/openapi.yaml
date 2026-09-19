@@ -302,9 +302,15 @@ paths:
           required: true
           schema: { type: string }
         - name: Idempotency-Key
+          description: Distinct cancel command identity; reuse is valid only for the same movement operation.
           in: header
           required: true
           schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MovementCancelRequest' }
       responses:
         '200': { description: cancelled or replayed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/MovementOperationResponse' } } } }
         '401': { description: internal service authorization required }
@@ -520,6 +526,12 @@ components:
         success: { type: boolean }
         ownerPlayerId: { type: string, format: uuid }
         actor: { type: string, enum: [PLAYER] }
+    MovementCancelRequest:
+      type: object
+      required: [operationId, commandId]
+      properties:
+        operationId: { type: string, format: uuid }
+        commandId: { type: string, format: uuid }
     MovementCheckPending:
       type: object
       required: [checkId, operationId, label, diceExpression, ownerPlayerId, actor]

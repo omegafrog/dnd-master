@@ -93,8 +93,11 @@ class OpenApiSchemaTest {
         assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
                 && Boolean.TRUE.equals(parameter.get("required"))),
                 "legacy move contract must require Idempotency-Key");
-        assertRequiredHeader((Map<String, Object>) ((Map<String, Object>) paths
-                .get("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}")).get("delete"), "internal cancel");
+        Map<String, Object> internalCancel = (Map<String, Object>) ((Map<String, Object>) paths
+                .get("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}")).get("delete");
+        assertRequiredHeader(internalCancel, "internal cancel");
+        assertTrue(internalCancel.toString().contains("Distinct cancel command identity"));
+        assertRequiredJsonBody(internalCancel, "MovementCancelRequest", "internal cancel");
 
         Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) combatMap.get("components")).get("schemas");
         Map<String, Object> operation = (Map<String, Object>) schemas.get("MovementOperationResponse");
@@ -116,8 +119,10 @@ class OpenApiSchemaTest {
                     && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))),
                     path + " must require Idempotency-Key");
         }
-        assertRequiredHeader((Map<String, Object>) ((Map<String, Object>) adventurePaths
-                .get("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}")).get("delete"), "adventure cancel");
+        Map<String, Object> adventureCancel = (Map<String, Object>) ((Map<String, Object>) adventurePaths
+                .get("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}")).get("delete");
+        assertRequiredHeader(adventureCancel, "adventure cancel");
+        assertTrue(adventureCancel.toString().contains("Distinct cancel command identity"));
         Map<String, Object> adventureSchemas = (Map<String, Object>) ((Map<String, Object>) adventure.get("components")).get("schemas");
         assertNullableFinalPosition(schemaProperties(adventureSchemas, "MovementResult"), "Adventure movement result");
         assertNullableFinalPosition(schemaProperties(adventureSchemas, "AdventureMovementOperationResponse"),
@@ -139,6 +144,16 @@ class OpenApiSchemaTest {
         assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
                 && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))),
                 contractName + " must require Idempotency-Key");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertRequiredJsonBody(Map<String, Object> operation, String schemaName, String contractName) {
+        Map<String, Object> body = (Map<String, Object>) operation.get("requestBody");
+        assertTrue(Boolean.TRUE.equals(body.get("required")), contractName + " must require a request body");
+        Map<String, Object> content = (Map<String, Object>) body.get("content");
+        Map<String, Object> json = (Map<String, Object>) content.get("application/json");
+        Map<String, Object> schema = (Map<String, Object>) json.get("schema");
+        assertEquals("#/components/schemas/" + schemaName, schema.get("$ref"), contractName + " body schema");
     }
 
     private static void assertNullableFinalPosition(Map<String, Object> properties, String contractName) {

@@ -23,7 +23,8 @@ public interface CombatMapPort {
     default CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId, CombatMapCheckSubmission submission) {
         return resumeMovementOperation(mapId, operationId);
     }
-    default CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { throw new UnsupportedOperationException("movement operation cancellation is unavailable"); }
+    default CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId,
+            java.util.UUID cancelCommandId) { throw new UnsupportedOperationException("movement operation cancellation is unavailable"); }
 
     /** Terminal map-owner boundary; map state remains owned by Combat Map. */
     default void commitFinalState(CombatFinalizationCommand command) {}

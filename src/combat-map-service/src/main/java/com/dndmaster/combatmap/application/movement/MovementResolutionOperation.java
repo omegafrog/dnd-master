@@ -14,6 +14,7 @@ import java.util.UUID;
 public final class MovementResolutionOperation {
     private final UUID operationId; private final MapId mapId; private final UUID commandId; private final PlayerId playerId;
     private final TokenId tokenId; private final MovementPath requestedPath; private final String fingerprint; private final long expectedVersion;
+    private UUID cancelCommandId;
     private MovementOperationStatus status; private int cursor; private GridPosition currentCell; private List<GridPosition> traversedPath; private MovementResolutionResult result;
     private MovementCheckRequest pendingCheck; private List<MovementCheckOutcome> checkOutcomes = new ArrayList<>();
     private int retryCount; private long persistenceVersion; private MovementOperationStatus retryResumeStatus;
@@ -57,6 +58,17 @@ public final class MovementResolutionOperation {
         operation.checkOutcomes = new ArrayList<>(checkOutcomes == null ? List.of() : checkOutcomes);
         return operation;
     }
+    public static MovementResolutionOperation restore(UUID operationId, MapId mapId, UUID commandId, PlayerId playerId, TokenId tokenId,
+            MovementPath requestedPath, String fingerprint, long expectedVersion, MovementOperationStatus status,
+            int cursor, GridPosition currentCell, List<GridPosition> traversedPath, MovementResolutionResult result,
+            int retryCount, long persistenceVersion, MovementOperationStatus retryResumeStatus,
+            MovementCheckRequest pendingCheck, List<MovementCheckOutcome> checkOutcomes, UUID cancelCommandId) {
+        MovementResolutionOperation operation = restore(operationId, mapId, commandId, playerId, tokenId, requestedPath, fingerprint,
+                expectedVersion, status, cursor, currentCell, traversedPath, result, retryCount, persistenceVersion,
+                retryResumeStatus, pendingCheck, checkOutcomes);
+        operation.cancelCommandId = cancelCommandId;
+        return operation;
+    }
     public void advanceTo(int nextCursor, GridPosition cell) {
         if (status != MovementOperationStatus.PREPARING || nextCursor != cursor + 1) throw new IllegalStateException("movement operation cannot advance");
         cursor = nextCursor; currentCell = Objects.requireNonNull(cell); traversedPath = new ArrayList<>(requestedPath.orderedPositions().subList(0, cursor + 1));
@@ -98,6 +110,11 @@ public final class MovementResolutionOperation {
     public void readyToCommit(MovementResolutionResult value) { result = Objects.requireNonNull(value); readyToCommit(); }
     public void committed(MovementResolutionResult value) { if (status != MovementOperationStatus.READY_TO_COMMIT) throw new IllegalStateException("movement operation is not ready"); result = Objects.requireNonNull(value); status = MovementOperationStatus.COMMITTED; }
     public void cancel(MovementResolutionResult value) { if (!status.active()) throw new IllegalStateException("movement operation is terminal"); result = Objects.requireNonNull(value); status = MovementOperationStatus.CANCELLED; }
+    public void recordCancelCommand(UUID value) {
+        Objects.requireNonNull(value, "cancel command id must not be null");
+        if (cancelCommandId != null && !cancelCommandId.equals(value)) throw new MovementCommandConflictException();
+        cancelCommandId = value;
+    }
     public UUID operationId() { return operationId; } public MapId mapId() { return mapId; } public UUID commandId() { return commandId; }
     public PlayerId playerId() { return playerId; } public TokenId tokenId() { return tokenId; } public MovementPath requestedPath() { return requestedPath; }
     public String fingerprint() { return fingerprint; } public long expectedVersion() { return expectedVersion; } public MovementOperationStatus status() { return status; }
@@ -108,4 +125,5 @@ public final class MovementResolutionOperation {
     public java.util.Optional<Boolean> checkOutcome(UUID featureId) { return checkOutcomes.stream().filter(value -> value.featureId().equals(featureId)).reduce((first, ignored) -> ignored).map(MovementCheckOutcome::success); }
     public MovementOperationStatus retryResumeStatus() { return retryResumeStatus; }
     public long persistenceVersion() { return persistenceVersion; } public void markPersisted(long value) { persistenceVersion = value; }
+    public UUID cancelCommandId() { return cancelCommandId; }
 }

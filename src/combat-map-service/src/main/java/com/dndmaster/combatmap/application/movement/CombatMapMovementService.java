@@ -182,7 +182,27 @@ public final class CombatMapMovementService {
     public java.util.Optional<MovementOperationResponse> latest(MapId mapId) {
         return operations.findLatestByMapId(mapId).map(CombatMapMovementService::response);
     }
-    public MovementOperationResponse cancel(MapId mapId, UUID operationId) { MovementResolutionOperation operation = operations.findById(operationId).orElseThrow(() -> new IllegalArgumentException("movement reservation not found")); requireMap(operation, mapId); if (operation.status().active()) { operation.cancel(cancelledResult(operation, "CANCELLED")); operations.save(operation); } return response(operation); }
+    public MovementOperationResponse cancel(MapId mapId, UUID operationId, UUID cancelCommandId) {
+        MovementResolutionOperation operation = operations.findById(operationId)
+                .orElseThrow(() -> new IllegalArgumentException("movement reservation not found"));
+        requireMap(operation, mapId);
+        Objects.requireNonNull(cancelCommandId, "cancel command id must not be null");
+        operations.findOperationByCancelCommandId(cancelCommandId).ifPresent(existing -> {
+            if (!existing.operationId().equals(operationId)) throw new MovementCommandConflictException();
+        });
+        if (operation.cancelCommandId() != null && !operation.cancelCommandId().equals(cancelCommandId)) {
+            throw new MovementCommandConflictException();
+        }
+        boolean firstCancellationCommand = operation.cancelCommandId() == null;
+        if (firstCancellationCommand) operation.recordCancelCommand(cancelCommandId);
+        if (operation.status().active()) {
+            operation.cancel(cancelledResult(operation, "CANCELLED"));
+            operations.save(operation);
+        } else if (firstCancellationCommand) {
+            operations.save(operation);
+        }
+        return response(operation);
+    }
 
     private MovementOperationResponse resolve(CombatMap map, MovementResolutionOperation operation) {
         try {
@@ -199,7 +219,8 @@ public final class CombatMapMovementService {
                             .findFirst();
                     if (discovered.isPresent()) return commitDetection(map, operation, discovered.get(), next);
                 }
-                for (SpatialFeature feature : detectionPolicy.candidates(map, operation.playerId(), operation.tokenId())) {
+                for (SpatialFeature feature : detectionPolicy.candidates(map, operation.playerId(), operation.tokenId(),
+                        operation.requestedPath().orderedPositions().get(next))) {
                     java.util.Optional<Boolean> previousCheck = operation.checkOutcome(feature.id());
                     if (previousCheck.isPresent()) {
                         if (previousCheck.get()) return commitDetection(map, operation, feature, next);

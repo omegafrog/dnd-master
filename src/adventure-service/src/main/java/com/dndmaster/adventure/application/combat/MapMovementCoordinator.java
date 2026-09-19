@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.combat;
 
 import com.dndmaster.adventure.application.runtime.DefaultResolutionPort;
 import com.dndmaster.adventure.application.runtime.ResolutionPort;
+import com.dndmaster.adventure.domain.combat.TurnResourceCost;
 import java.util.Objects;
 
 /** Shared Adventure-side boundary for confirmed movement from runtime and map actions. */
@@ -9,6 +10,7 @@ public final class MapMovementCoordinator {
     private final CombatMapPort combatMap;
     private final DiceCombatPort dice;
     private final ResolutionPort resolution;
+    private final SpatialActionAuthorizationPort spatialAuthorization;
 
     public MapMovementCoordinator(CombatMapPort combatMap) {
         this(combatMap, new DiceCombatPort() {
@@ -26,9 +28,15 @@ public final class MapMovementCoordinator {
     }
 
     public MapMovementCoordinator(CombatMapPort combatMap, DiceCombatPort dice, ResolutionPort resolution) {
+        this(combatMap, dice, resolution, SpatialActionAuthorizationPort.requiredPlayerAction());
+    }
+
+    public MapMovementCoordinator(CombatMapPort combatMap, DiceCombatPort dice, ResolutionPort resolution,
+            SpatialActionAuthorizationPort spatialAuthorization) {
         this.combatMap = Objects.requireNonNull(combatMap, "combat map port must not be null");
         this.dice = Objects.requireNonNull(dice, "dice port must not be null");
         this.resolution = Objects.requireNonNull(resolution, "resolution port must not be null");
+        this.spatialAuthorization = Objects.requireNonNull(spatialAuthorization, "spatial action authorization must not be null");
     }
 
     public CombatMapMoveResult resolve(CombatMapMoveCommand command) {
@@ -83,9 +91,23 @@ public final class MapMovementCoordinator {
         }
         return details;
     }
-    public CombatMapMoveResult cancel(java.util.UUID mapId, java.util.UUID operationId) { return combatMap.cancelMovementOperation(mapId, operationId); }
-    public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) { return combatMap.observe(command); }
-    public CombatMapSpatialResult interact(CombatMapSpatialActionCommand command) { return combatMap.interact(command); }
+    public CombatMapMoveResult cancel(java.util.UUID mapId, java.util.UUID operationId, java.util.UUID cancelCommandId) {
+        return combatMap.cancelMovementOperation(mapId, operationId, cancelCommandId);
+    }
+    public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) {
+        authorizeSpatial(command, "OBSERVE");
+        return combatMap.observe(command);
+    }
+    public CombatMapSpatialResult interact(CombatMapSpatialActionCommand command) {
+        authorizeSpatial(command, "INTERACT");
+        return combatMap.interact(command);
+    }
     public CombatMapSpatialResult combatTurnStart(CombatMapSpatialTurnCommand command) { return combatMap.combatTurnStart(command); }
     public CombatMapSpatialResult advanceDurations(CombatMapSpatialTurnCommand command) { return combatMap.advanceDurations(command); }
+
+    private void authorizeSpatial(CombatMapSpatialActionCommand command, String action) {
+        Objects.requireNonNull(command, "spatial action command must not be null");
+        spatialAuthorization.authorize(new SpatialActionAuthorizationPort.SpatialActionAuthorization(
+                command.ownerPlayerId(), action, TurnResourceCost.actionOnly(), command.commandId()));
+    }
 }

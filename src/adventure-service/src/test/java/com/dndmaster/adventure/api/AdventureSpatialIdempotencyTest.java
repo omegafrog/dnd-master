@@ -43,13 +43,11 @@ class AdventureSpatialIdempotencyTest {
     }
 
     @Test
-    void requires_cancel_header_to_match_the_movement_operation_identity() {
-        UUID operationId = UUID.randomUUID();
+    void requires_a_distinct_cancel_command_identity() {
+        UUID commandId = UUID.randomUUID();
 
-        assertDoesNotThrow(() -> AdventureController.requireMovementIdempotencyKey(operationId, operationId));
+        assertDoesNotThrow(() -> AdventureController.requireCancelCommandId(commandId));
         assertThrows(RuntimeException.class,
-                () -> AdventureController.requireMovementIdempotencyKey(UUID.randomUUID(), operationId));
-        assertThrows(RuntimeException.class,
-                () -> AdventureController.requireMovementIdempotencyKey(null, operationId));
+                () -> AdventureController.requireCancelCommandId(null));
     }
 }

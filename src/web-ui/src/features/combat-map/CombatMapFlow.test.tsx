@@ -1004,15 +1004,15 @@ it('passes the runtime turn idempotency key when resuming a saved turn', async (
   } finally { vi.unstubAllGlobals() }
 })
 
-it('passes the movement operation identity when cancelling a saved operation', async () => {
+it('passes a distinct cancel command identity when cancelling a saved operation', async () => {
   const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ operationId: 'operation-1', status: 'CANCELLED', version: 2, requestedPath: [], traversedPath: [], publicEvents: [] }), {
     status: 200, headers: { 'Content-Type': 'application/json' },
   }))
   vi.stubGlobal('fetch', fetchMock)
   try {
-    await new HttpAdventurePlayApi(() => 'player-token').cancelMovementOperation('a1', 'm1', 'operation-1')
+    await new HttpAdventurePlayApi(() => 'player-token').cancelMovementOperation('a1', 'm1', 'operation-1', 'cancel-command-1')
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/a1/combat-map/movement-operations/operation-1?mapId=m1', {
-      method: 'DELETE', headers: { Authorization: 'Bearer player-token', 'Idempotency-Key': 'operation-1' },
+      method: 'DELETE', headers: { Authorization: 'Bearer player-token', 'Idempotency-Key': 'cancel-command-1' },
     })
   } finally { vi.unstubAllGlobals() }
 })

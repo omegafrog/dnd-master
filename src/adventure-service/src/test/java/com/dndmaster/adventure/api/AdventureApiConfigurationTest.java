@@ -118,12 +118,15 @@ class AdventureApiConfigurationTest {
     @Test
     void sends_cancel_command_identity_to_the_combat_map_gateway() throws Exception {
         AtomicReference<String> requestPath = new AtomicReference<>();
+        AtomicReference<String> requestBody = new AtomicReference<>();
         AtomicReference<String> idempotencyKey = new AtomicReference<>();
         UUID mapId = UUID.randomUUID();
         UUID operationId = UUID.randomUUID();
+        UUID cancelCommandId = UUID.randomUUID();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/", exchange -> {
             requestPath.set(exchange.getRequestURI().getPath());
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
             idempotencyKey.set(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
             byte[] body = ("{\"operationId\":\"%s\",\"status\":\"CANCELLED\",\"mapVersion\":1,\"requestedPath\":[],\"traversedPath\":[],\"publicEvents\":[]}").formatted(operationId).getBytes();
             exchange.sendResponseHeaders(200, body.length);
@@ -135,10 +138,12 @@ class AdventureApiConfigurationTest {
             CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
                     "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
 
-            configured.cancelMovementOperation(mapId, operationId);
+            configured.cancelMovementOperation(mapId, operationId, cancelCommandId);
 
             assertEquals("/internal/v1/combat-maps/" + mapId + "/movement-operations/" + operationId, requestPath.get());
-            assertEquals(operationId.toString(), idempotencyKey.get());
+            assertEquals(cancelCommandId.toString(), idempotencyKey.get());
+            assertTrue(requestBody.get().contains("\"operationId\":\"" + operationId + "\""));
+            assertTrue(requestBody.get().contains("\"commandId\":\"" + cancelCommandId + "\""));
         } finally {
             server.stop(0);
         }

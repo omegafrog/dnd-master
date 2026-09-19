@@ -5,6 +5,7 @@ import com.dndmaster.combatmap.application.movement.MovePlayerTokenCommand;
 import com.dndmaster.combatmap.application.movement.MovementPreview;
 import com.dndmaster.combatmap.application.movement.MovementPreviewRequest;
 import com.dndmaster.combatmap.application.movement.MovementOperationResponse;
+import com.dndmaster.combatmap.application.movement.MovementCancelRequest;
 import com.dndmaster.combatmap.application.movement.MovementStartRequest;
 import com.dndmaster.combatmap.application.movement.MovementCheckResultBody;
 import com.dndmaster.combatmap.application.view.CombatMapViewService;
@@ -451,10 +452,12 @@ public class CombatMapController {
     @DeleteMapping("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}")
     public MovementOperationResponseBody cancelMovement(@PathVariable UUID mapId, @PathVariable UUID operationId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
-            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody(required = false) MovementCancelRequest request) {
         requestGuard.internal(token);
-        requireIdempotencyKey(idempotencyKey, operationId);
-        return MovementOperationResponseBody.from(movementService.cancel(new MapId(mapId), operationId));
+        requireCancelRequest(operationId, idempotencyKey, request);
+        return MovementOperationResponseBody.from(movementService.cancel(new MapId(mapId), operationId,
+                request.commandId()));
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/observe")
@@ -536,6 +539,14 @@ public class CombatMapController {
                 || request.expectedVersion() == null || request.expectedVersion() < 0) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_SPATIAL_ACTION");
         }
+    }
+
+    private static void requireCancelRequest(UUID operationId, String idempotencyKey, MovementCancelRequest request) {
+        if (request == null || request.operationId() == null || !operationId.equals(request.operationId())
+                || request.commandId() == null) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_CANCEL");
+        }
+        requireIdempotencyKey(idempotencyKey, request.commandId());
     }
 
     private com.dndmaster.combatmap.application.spatial.SpatialFeatureRuntimeApplicationService requireSpatialRuntime() {

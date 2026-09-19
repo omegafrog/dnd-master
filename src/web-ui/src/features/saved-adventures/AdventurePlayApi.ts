@@ -164,7 +164,7 @@ export interface AdventurePlayApi {
   clearPendingMapMovement?(adventureId: string): Promise<void>
   movementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
   latestMovementOperation?(adventureId: string, mapId: string): Promise<MapMovementResult | null>
-  cancelMovementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
+  cancelMovementOperation?(adventureId: string, mapId: string, operationId: string, cancelCommandId: string): Promise<MapMovementResult>
   resumeMovementOperation?(adventureId: string, mapId: string, operationId: string, check?: { commandId: string; operationId: string; checkId: string; success: boolean; ownerPlayerId: string; actor: 'PLAYER' }): Promise<MapMovementResult>
   rollSpatialCheck?(adventureId: string, expectedVersion: number, spatial: SpatialRollContext): Promise<MapMovementResult>
   resumeRuntimeTurn?(adventureId: string, turnId: string, idempotencyKey: string): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
@@ -372,9 +372,9 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     })
   }
 
-  cancelMovementOperation(adventureId: string, mapId: string, operationId: string) {
+  cancelMovementOperation(adventureId: string, mapId: string, operationId: string, cancelCommandId: string) {
     return request<MapMovementResult>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations/${operationId}?mapId=${mapId}`, {
-      method: 'DELETE', headers: { ...this.authHeaders(), 'Idempotency-Key': operationId },
+      method: 'DELETE', headers: { ...this.authHeaders(), 'Idempotency-Key': cancelCommandId },
     })
   }
 

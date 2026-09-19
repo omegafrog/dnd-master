@@ -159,6 +159,19 @@ class PostgresMovementResolutionOperationRepositoryIntegrationTest {
     }
 
     @Test
+    void cancel_command_identity_round_trips_and_is_queryable_by_operation_identity() {
+        MovementResolutionOperation operation = repository.reserve(operation(commandId, "cancel-identity"));
+        UUID cancelCommandId = UUID.randomUUID();
+        operation.recordCancelCommand(cancelCommandId);
+        repository.save(operation);
+
+        MovementResolutionOperation restored = repository.findById(operation.operationId()).orElseThrow();
+
+        assertEquals(cancelCommandId, restored.cancelCommandId());
+        assertEquals(operation.operationId(), repository.findOperationByCancelCommandId(cancelCommandId).orElseThrow().operationId());
+    }
+
+    @Test
     void check_pending_round_trip_preserves_the_wait_without_expiry() {
         MovementResolutionOperation operation = repository.reserve(operation(commandId, "pending"));
         MovementCheckRequest check = new MovementCheckRequest(UUID.randomUUID(), operation.operationId(), UUID.randomUUID(),
