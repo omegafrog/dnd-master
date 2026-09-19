@@ -2,11 +2,10 @@ package com.dndmaster.adventure.application.runtime;
 
 import java.util.Objects;
 import java.util.UUID;
-import java.util.Set;
-import java.util.HashSet;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 
 /** Adapts one explicitly typed continuation port; it never delegates to GM tools. */
 public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurnCommandAdapter {
@@ -29,43 +28,13 @@ public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurn
         }
         String expected = "movement.continuation." + kind.name().toLowerCase(java.util.Locale.ROOT);
         if (!expected.equals(command.commandType())) return RuntimeTurnCommandExecution.permanentFailure("unexpected continuation command type");
+        final RuntimeContinuationCommandPort.ContinuationCommand typed;
         try {
-            com.fasterxml.jackson.databind.JsonNode payload;
-            try (JsonParser parser = objectMapper.createParser(command.payloadJson())) {
-                payload = objectMapper.reader()
-                        .with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
-                        .readTree(parser);
-                if (parser.nextToken() != null) {
-                    throw new PermanentFollowUpFailure("continuation payload has trailing JSON");
-                }
-            }
-            Set<String> payloadFields = new HashSet<>();
-            if (payload != null && payload.isObject()) {
-                payload.fieldNames().forEachRemaining(payloadFields::add);
-            }
-            payloadFields.remove("kind");
-            if (payload == null || !payload.isObject()
-                    || !Set.of("trigger", "operationId", "turnId", "hostileTokenId")
-                            .equals(payloadFields)) {
-                throw new PermanentFollowUpFailure("continuation payload contains unknown properties");
-            }
-            if (!payload.hasNonNull("kind") || !payload.path("kind").isTextual()
-                    || !kind.name().equals(payload.path("kind").asText())) {
-                throw new PermanentFollowUpFailure("continuation payload kind does not match typed adapter");
-            }
-            UUID operationId = requiredUuid(payload, "operationId");
-            UUID payloadTurnId = requiredUuid(payload, "turnId");
-            UUID hostileTokenId = requiredUuid(payload, "hostileTokenId");
-            if (!command.turnId().equals(payloadTurnId)) {
-                return RuntimeTurnCommandExecution.permanentFailure("continuation payload turn id does not match command turn id");
-            }
-            MovementFollowUpRuntimeConsumer.Continuation typedPayload =
-                    objectMapper.treeToValue(payload, MovementFollowUpRuntimeConsumer.Continuation.class);
-            MovementFollowUpRuntimeConsumer.Continuation continuation = new MovementFollowUpRuntimeConsumer.Continuation(
-                    com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.valueOf(kind.name()),
-                    typedPayload.trigger(), operationId, payloadTurnId, hostileTokenId);
-            RuntimeContinuationCommandPort.ContinuationCommand typed =
-                    new RuntimeContinuationCommandPort.ContinuationCommand(command, continuation);
+            typed = decode(command);
+        } catch (PermanentFollowUpFailure | java.io.IOException | IllegalArgumentException failure) {
+            return RuntimeTurnCommandExecution.permanentFailure(failure.getMessage());
+        }
+        try {
             return switch (kind) {
                 case COMBAT -> port.combat(typed);
                 case WARNING -> port.warning(typed);
@@ -74,9 +43,49 @@ public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurn
             };
         } catch (PermanentFollowUpFailure failure) {
             return RuntimeTurnCommandExecution.permanentFailure(failure.getMessage());
-        } catch (java.io.IOException | RuntimeException failure) {
-            return RuntimeTurnCommandExecution.permanentFailure("continuation payload identity is invalid");
+        } catch (RuntimeException failure) {
+            return RuntimeTurnCommandExecution.transientFailure(failure.getMessage());
         }
+    }
+
+    private RuntimeContinuationCommandPort.ContinuationCommand decode(RuntimeTurnCommand command) throws java.io.IOException {
+        JsonNode payload;
+        try (JsonParser parser = objectMapper.createParser(command.payloadJson())) {
+            payload = objectMapper.reader().with(DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY).readTree(parser);
+            if (parser.nextToken() != null) throw new PermanentFollowUpFailure("continuation payload has trailing JSON");
+        }
+        if (payload == null || !payload.isObject()) {
+            throw new PermanentFollowUpFailure("continuation payload must be an object");
+        }
+        java.util.Set<String> fields = new java.util.HashSet<>();
+        payload.fieldNames().forEachRemaining(fields::add);
+        if (!fields.equals(java.util.Set.of("kind", "trigger", "operationId", "turnId", "hostileTokenId"))) {
+            throw new PermanentFollowUpFailure("continuation payload contains unknown properties");
+        }
+        if (!payload.path("kind").isTextual() || !kind.name().equals(payload.path("kind").asText())) {
+            throw new PermanentFollowUpFailure("continuation payload kind does not match typed adapter");
+        }
+        String trigger = requiredText(payload, "trigger");
+        UUID operationId = requiredUuid(payload, "operationId");
+        UUID payloadTurnId = requiredUuid(payload, "turnId");
+        UUID hostileTokenId = requiredUuid(payload, "hostileTokenId");
+        if (!command.turnId().equals(payloadTurnId)) {
+            throw new PermanentFollowUpFailure("continuation payload turn id does not match command turn id");
+        }
+        MovementFollowUpRuntimeConsumer.Continuation continuation = new MovementFollowUpRuntimeConsumer.Continuation(
+                com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.valueOf(kind.name()),
+                trigger, operationId, payloadTurnId, hostileTokenId);
+        if (!objectMapper.writeValueAsString(continuation).equals(command.payloadJson())) {
+            throw new PermanentFollowUpFailure("continuation payload is not canonical");
+        }
+        return new RuntimeContinuationCommandPort.ContinuationCommand(command, continuation);
+    }
+
+    private static String requiredText(JsonNode payload, String field) {
+        if (!payload.hasNonNull(field) || !payload.path(field).isTextual() || payload.path(field).asText().isBlank()) {
+            throw new PermanentFollowUpFailure("continuation payload field " + field + " is required");
+        }
+        return payload.path(field).asText();
     }
 
     private static UUID requiredUuid(com.fasterxml.jackson.databind.JsonNode payload, String field) {

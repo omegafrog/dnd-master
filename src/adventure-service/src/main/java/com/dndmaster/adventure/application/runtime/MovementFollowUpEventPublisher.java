@@ -33,6 +33,8 @@ public final class MovementFollowUpEventPublisher {
             try {
                 events.appendNext(sessionId, command.commandId(), "MOVEMENT_FOLLOW_UP", payload);
                 return MovementFollowUpPort.Result.done(command.kind().name());
+            } catch (SessionEventIdentityConflictException conflict) {
+                return MovementFollowUpPort.Result.permanentFailure(conflict.getMessage());
             } catch (RuntimeException conflict) {
                 if (attempt == MAX_APPEND_ATTEMPTS - 1) return MovementFollowUpPort.Result.retry(conflict.getMessage());
             }

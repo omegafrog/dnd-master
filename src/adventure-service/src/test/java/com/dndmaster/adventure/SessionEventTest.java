@@ -45,6 +45,25 @@ class SessionEventTest {
     }
 
     @Test
+    void event_identity_collision_with_different_payload_is_permanent_not_retryable() {
+        InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+        MovementFollowUpEventPublisher publisher = new MovementFollowUpEventPublisher(events, new ObjectMapper());
+        UUID sessionId = UUID.randomUUID();
+        UUID eventId = UUID.randomUUID();
+        MovementFollowUpCommand first = new MovementFollowUpCommand(eventId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), MovementFollowUpCommand.Kind.COMBAT, "HOSTILE_OBSERVED");
+        MovementFollowUpCommand collision = new MovementFollowUpCommand(eventId, UUID.randomUUID(), UUID.randomUUID(),
+                first.turnId(), MovementFollowUpCommand.Kind.WARNING, "FEATURE_REVEALED");
+
+        assertEquals(MovementFollowUpPort.Result.Status.DONE,
+                publisher.publish(first, UUID.randomUUID(), sessionId, UUID.randomUUID()).status());
+        MovementFollowUpPort.Result result = publisher.publish(collision, UUID.randomUUID(), sessionId, UUID.randomUUID());
+
+        assertEquals(MovementFollowUpPort.Result.Status.PERMANENT_FAILURE, result.status());
+        assertEquals(1, events.after(sessionId, -1).size());
+    }
+
+    @Test
     void movement_follow_ups_allocate_monotonic_versions_and_retry_conflicts_without_loss() {
         InMemorySessionEventRepository events = new InMemorySessionEventRepository();
         MovementFollowUpEventPublisher publisher = new MovementFollowUpEventPublisher(events, new ObjectMapper());

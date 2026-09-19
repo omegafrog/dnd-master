@@ -2,6 +2,7 @@ package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.runtime.RuntimeContinuationCommandPort;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
@@ -16,7 +17,7 @@ class TypedRuntimeContinuationCommandAdapterTest {
     void rejects_missing_or_malformed_continuation_ids_as_permanent_without_calling_port() {
         AtomicReference<RuntimeContinuationCommandPort.ContinuationCommand> called = new AtomicReference<>();
         RuntimeContinuationCommandPort port = port(called);
-        RuntimeTurnCommand command = command("{\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\"not-a-uuid\",\"turnId\":\""
+        RuntimeTurnCommand command = command("{\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\"not-a-uuid\",\"turnId\":\""
                 + UUID.randomUUID() + "\",\"hostileTokenId\":null}");
 
         RuntimeTurnCommandExecution result = adapter(port).execute(command);
@@ -55,6 +56,46 @@ class TypedRuntimeContinuationCommandAdapterTest {
         assertEquals(turnId, called.get().continuation().turnId());
     }
 
+    @Test
+    void maps_provider_failures_to_retry_without_treating_them_as_payload_corruption() {
+        UUID turnId = UUID.randomUUID();
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.continuation.combat",
+                payload(UUID.randomUUID(), turnId, UUID.randomUUID()), 1);
+
+        RuntimeTurnCommandExecution result = adapter(new RuntimeContinuationCommandPort() {
+            @Override public RuntimeTurnCommandExecution combat(ContinuationCommand command) {
+                throw new IllegalStateException("provider unavailable");
+            }
+            @Override public RuntimeTurnCommandExecution warning(ContinuationCommand command) { return combat(command); }
+            @Override public RuntimeTurnCommandExecution dialogue(ContinuationCommand command) { return combat(command); }
+            @Override public RuntimeTurnCommandExecution chase(ContinuationCommand command) { return combat(command); }
+        }).execute(command);
+
+        assertEquals(RuntimeTurnCommandExecution.Status.TRANSIENT_FAILURE, result.status());
+        assertTrue(result.value().contains("provider unavailable"));
+    }
+
+    @Test
+    void rejects_noncanonical_continuation_payload_text_permanently() {
+        UUID turnId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID hostileTokenId = UUID.randomUUID();
+        String canonical = payload(operationId, turnId, hostileTokenId);
+        for (String nonCanonical : new String[] {
+                " " + canonical,
+                canonical.replace("\"trigger\"", " \"trigger\""),
+                "{\"trigger\":\"HOSTILE_OBSERVED\",\"kind\":\"COMBAT\",\"operationId\":\""
+                        + operationId + "\",\"turnId\":\"" + turnId + "\",\"hostileTokenId\":\""
+                        + hostileTokenId + "\"}"
+        }) {
+            RuntimeTurnCommandExecution result = adapter(port(new AtomicReference<>())).execute(
+                    RuntimeTurnCommand.create(turnId, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                            UUID.randomUUID(), "external", "movement.continuation.combat", nonCanonical, 1));
+            assertEquals(RuntimeTurnCommandExecution.Status.PERMANENT_FAILURE, result.status());
+        }
+    }
+
     private static RuntimeContinuationCommandPort port(AtomicReference<RuntimeContinuationCommandPort.ContinuationCommand> called) {
         return new RuntimeContinuationCommandPort() {
             @Override public RuntimeTurnCommandExecution combat(ContinuationCommand command) {
@@ -77,7 +118,8 @@ class TypedRuntimeContinuationCommandAdapterTest {
     }
 
     private static String payload(UUID operationId, UUID turnId, UUID hostileTokenId) {
-        return "{\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\"" + operationId
+        return "{\"kind\":\"COMBAT\",\"trigger\":\"HOSTILE_OBSERVED\",\"operationId\":\"" + operationId
                 + "\",\"turnId\":\"" + turnId + "\",\"hostileTokenId\":\"" + hostileTokenId + "\"}";
     }
+
 }

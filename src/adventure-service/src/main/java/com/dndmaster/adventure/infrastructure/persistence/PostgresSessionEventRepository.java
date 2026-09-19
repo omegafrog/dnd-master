@@ -17,6 +17,12 @@ public final class PostgresSessionEventRepository implements SessionEventReposit
     @Override public void append(SessionEvent event) {
         try (Connection connection = transaction()) {
             if (findById(connection, event.eventId()) != null) {
+                SessionEvent existing = findById(connection, event.eventId());
+                if (!existing.sessionId().equals(event.sessionId()) || !existing.type().equals(event.type())
+                        || !existing.payload().equals(event.payload())) {
+                    throw new com.dndmaster.adventure.application.runtime.SessionEventIdentityConflictException(
+                            "session event identity conflict");
+                }
                 connection.commit();
                 return;
             }
@@ -38,7 +44,10 @@ public final class PostgresSessionEventRepository implements SessionEventReposit
             SessionEvent existing = findById(connection, eventId);
             if (existing != null) {
                 if (!existing.sessionId().equals(sessionId) || !existing.type().equals(type)
-                        || !existing.payload().equals(payload)) throw new IllegalStateException("session event identity conflict");
+                        || !existing.payload().equals(payload)) {
+                    throw new com.dndmaster.adventure.application.runtime.SessionEventIdentityConflictException(
+                            "session event identity conflict");
+                }
                 connection.commit();
                 return existing;
             }

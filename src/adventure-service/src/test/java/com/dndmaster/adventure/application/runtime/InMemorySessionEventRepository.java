@@ -12,8 +12,12 @@ public final class InMemorySessionEventRepository implements SessionEventReposit
     private final ConcurrentHashMap<UUID, List<SessionEvent>> events = new ConcurrentHashMap<>();
 
     @Override public synchronized void append(SessionEvent event) {
+        SessionEvent existingByGlobalId = findById(event.eventId());
+        if (existingByGlobalId != null) {
+            ensureSameIdentity(existingByGlobalId, event.sessionId(), event.type(), event.payload());
+            return;
+        }
         List<SessionEvent> current = events.computeIfAbsent(event.sessionId(), ignored -> new ArrayList<>());
-        if (current.stream().anyMatch(existing -> existing.eventId().equals(event.eventId()))) return;
         if (current.stream().anyMatch(existing -> existing.version() == event.version())) {
             throw new IllegalStateException("session event version already exists");
         }
@@ -24,14 +28,28 @@ public final class InMemorySessionEventRepository implements SessionEventReposit
     }
 
     @Override public synchronized SessionEvent appendNext(UUID sessionId, UUID eventId, String type, String payload) {
-        List<SessionEvent> current = events.computeIfAbsent(sessionId, ignored -> new ArrayList<>());
-        for (SessionEvent existing : current) {
-            if (existing.eventId().equals(eventId)) return existing;
+        SessionEvent existingByGlobalId = findById(eventId);
+        if (existingByGlobalId != null) {
+            ensureSameIdentity(existingByGlobalId, sessionId, type, payload);
+            return existingByGlobalId;
         }
+        List<SessionEvent> current = events.computeIfAbsent(sessionId, ignored -> new ArrayList<>());
         long nextVersion = current.stream().mapToLong(SessionEvent::version).max().orElse(-1) + 1;
         SessionEvent event = new SessionEvent(sessionId, eventId, nextVersion, type, payload);
         current.add(event);
         return event;
+    }
+
+    private static void ensureSameIdentity(SessionEvent existing, UUID sessionId, String type, String payload) {
+        if (!existing.sessionId().equals(sessionId) || !existing.type().equals(type)
+                || !existing.payload().equals(payload)) {
+            throw new SessionEventIdentityConflictException("session event identity conflict");
+        }
+    }
+
+    private SessionEvent findById(UUID eventId) {
+        return events.values().stream().flatMap(List::stream)
+                .filter(existing -> existing.eventId().equals(eventId)).findFirst().orElse(null);
     }
 
     @Override public List<SessionEvent> after(UUID sessionId, long version) {
