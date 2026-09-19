@@ -94,7 +94,7 @@ class AdventureApiConfigurationTest {
             var configured = new AdventureApiConfiguration().enemyObservationRollPort(
                     "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
             var command = new EnemyObservationRollCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                    new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                    new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                     "dnd5e.perception", "1d20", 0, 12, 1L);
             assertEquals(12, configured.rollEnemyObservation(command));
             assertEquals("/internal/v1/dice-rolls/enemy-observation", requestPath.get());

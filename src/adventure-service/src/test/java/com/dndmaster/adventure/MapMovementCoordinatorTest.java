@@ -39,7 +39,7 @@ class MapMovementCoordinatorTest {
                 SpatialActionAuthorizationPort.requiredPlayerAction(), enemyRoll);
 
         coordinator.rollEnemyAndResume(new EnemyObservationRollCommand(UUID.randomUUID(), mapId, UUID.randomUUID(),
-                new RuleSetId(UUID.randomUUID()), owner, checkId, operationId, UUID.randomUUID(),
+                new RuleSetId(UUID.randomUUID()), owner, UUID.randomUUID(), checkId, operationId, UUID.randomUUID(),
                 "monster.perception", "1d20", 2, 15, 0));
 
         assertEquals(0, received.get().modifier());

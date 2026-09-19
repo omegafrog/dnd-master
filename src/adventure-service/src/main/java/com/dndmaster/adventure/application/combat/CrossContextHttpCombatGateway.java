@@ -218,7 +218,7 @@ public final class CrossContextHttpCombatGateway
             TypedCheckRule.DiceExpression dice = TypedCheckRule.DiceExpression.parse(command.diceExpression(), command.modifier());
             EnemyObservationRollRequest request = new EnemyObservationRollRequest(command.adventureId(), command.ruleSetId().value(),
                     "ENEMY", command.ruleReference(), command.difficulty(), dice.count(), dice.sides(), dice.modifier(),
-                    command.sessionId(), command.operationId(), command.commandId(), command.expectedVersion());
+                    command.sessionId(), command.turnId(), command.commandId(), command.expectedVersion());
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/dice-rolls/enemy-observation"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
@@ -484,9 +484,11 @@ public final class CrossContextHttpCombatGateway
                             details.hasNonNull("difficulty") ? details.path("difficulty").asInt() : null,
                             java.util.UUID.fromString(details.path("ownerPlayerId").asText()),
                             CombatMapCheckActor.valueOf(details.path("actor").asText("PLAYER"))) : null;
+            java.util.UUID hostileTokenId = body.hasNonNull("hostileTokenId")
+                    ? java.util.UUID.fromString(body.path("hostileTokenId").asText()) : null;
             return new CombatMapMoveResult(version, operationId, status, requested, traversed, finalCell, events,
                     body.hasNonNull("interruptionReason") ? body.path("interruptionReason").asText() : null, pendingCheck,
-                    pendingCheckDetails);
+                    pendingCheckDetails).withHostileTokenId(hostileTokenId);
         } catch (IOException exception) { throw new CrossContextCallException("combat map returned malformed movement result", exception); }
     }
 

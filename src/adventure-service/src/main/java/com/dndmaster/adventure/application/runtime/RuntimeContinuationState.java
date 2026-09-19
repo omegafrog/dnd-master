@@ -5,8 +5,12 @@ import java.util.Objects;
 import java.util.UUID;
 
 /** Typed record of the Runtime transition requested by a movement follow-up. */
-public record RuntimeContinuationState(UUID commandId, UUID turnId, UUID operationId,
+public record RuntimeContinuationState(UUID commandId, UUID turnId, UUID operationId, UUID hostileTokenId,
         MovementFollowUpCommand.Kind kind, Status status) {
+    public RuntimeContinuationState(UUID commandId, UUID turnId, UUID operationId,
+            MovementFollowUpCommand.Kind kind, Status status) {
+        this(commandId, turnId, operationId, null, kind, status);
+    }
     public enum Status { APPLIED }
 
     public RuntimeContinuationState {

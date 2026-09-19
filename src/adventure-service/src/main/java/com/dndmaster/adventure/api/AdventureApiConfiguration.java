@@ -351,24 +351,32 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimeContinuationStatePort runtimeContinuationStatePort() {
-        return new InMemoryRuntimeContinuationStatePort();
+    RuntimeContinuationStatePort runtimeContinuationStatePort(RuntimeTurnCommandRepository commands, ObjectMapper objectMapper) {
+        return new RuntimeCommandContinuationStatePort(commands, objectMapper);
     }
 
     @Bean
-    RuntimeContinuationCommandPort runtimeContinuationCommandPort(RuntimeContinuationStatePort statePort) {
+    RuntimeContinuationCommandPort runtimeContinuationCommandPort(RuntimeContinuationStatePort statePort, ObjectMapper objectMapper) {
+        java.util.function.Function<RuntimeContinuationCommandPort.ContinuationCommand, RuntimeTurnCommandExecution> transition = command -> {
+            RuntimeContinuationState state = statePort.apply(command);
+            try {
+                return RuntimeTurnCommandExecution.done(objectMapper.writeValueAsString(state));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+                return RuntimeTurnCommandExecution.transientFailure("continuation state serialization failed");
+            }
+        };
         return new RuntimeContinuationCommandPort() {
             @Override public RuntimeTurnCommandExecution combat(ContinuationCommand command) {
-                return RuntimeTurnCommandExecution.done(statePort.apply(command).toString());
+                return transition.apply(command);
             }
             @Override public RuntimeTurnCommandExecution warning(ContinuationCommand command) {
-                return RuntimeTurnCommandExecution.done(statePort.apply(command).toString());
+                return transition.apply(command);
             }
             @Override public RuntimeTurnCommandExecution dialogue(ContinuationCommand command) {
-                return RuntimeTurnCommandExecution.done(statePort.apply(command).toString());
+                return transition.apply(command);
             }
             @Override public RuntimeTurnCommandExecution chase(ContinuationCommand command) {
-                return RuntimeTurnCommandExecution.done(statePort.apply(command).toString());
+                return transition.apply(command);
             }
         };
     }

@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.Set;
 import javax.sql.DataSource;
 
 /** PostgreSQL-backed coordinator record. It deliberately stores no public map mutation. */
@@ -130,17 +131,20 @@ public final class PostgresMovementResolutionOperationRepository implements Move
         List<GridPosition> requested = decode(row.getString("requested_path")); List<GridPosition> traversed = decode(row.getString("traversed_path"));
         MovementOperationStatus status = MovementOperationStatus.valueOf(row.getString("status"));
         long expectedVersion = row.getLong("expected_version");
+        Set<HostileObservationState> hostileObservations = decodeHostileObservations(row.getString("hostile_observations"));
+        UUID hostileTokenId = hostileObservations.stream().filter(value -> value.status() == HostileObservationStatus.AWARE)
+                .map(value -> value.hostileTokenId().value()).findFirst().orElse(null);
         MovementResolutionResult result = row.getObject("result_final_x") != null
                 ? new MovementResolutionResult(new MovementPath(requested, row.getInt("path_distance")), decode(row.getString("result_traversed_path")),
                         new GridPosition(row.getInt("result_final_x"), row.getInt("result_final_y")), row.getLong("result_map_version"),
-                        row.getString("result_public_events") == null || row.getString("result_public_events").isEmpty() ? List.of() : List.of(row.getString("result_public_events").split("\\u001f")), row.getString("result_interruption_reason"), resultStatus(row))
+                        row.getString("result_public_events") == null || row.getString("result_public_events").isEmpty() ? List.of() : List.of(row.getString("result_public_events").split("\\u001f")), row.getString("result_interruption_reason"), resultStatus(row), hostileTokenId)
                 : null;
         UUID operationId = (UUID) row.getObject("operation_id");
         UUID ownerPlayerId = row.getObject("pending_owner_player_id", UUID.class);
         if (ownerPlayerId == null) ownerPlayerId = row.getObject("player_id", UUID.class);
         MovementCheckRequest pending = row.getObject("pending_check_id") == null ? null : pendingCheck(row, operationId, requested, ownerPlayerId);
         List<MovementCheckOutcome> outcomes = decodeOutcomes(row.getString("check_outcomes"));
-        return MovementResolutionOperation.restore(operationId, new MapId((UUID) row.getObject("map_id")), (UUID) row.getObject("command_id"), new PlayerId((UUID) row.getObject("player_id")), new TokenId((UUID) row.getObject("token_id")), new MovementPath(requested, row.getInt("path_distance")), row.getString("fingerprint"), expectedVersion, status, row.getInt("cursor"), new GridPosition(row.getInt("current_x"), row.getInt("current_y")), traversed, result, row.getInt("retry_count"), row.getLong("operation_version"), MovementOperationStatus.valueOf(row.getString("retry_resume_status")), pending, outcomes, decodeHostileObservations(row.getString("hostile_observations")), (UUID) row.getObject("cancel_command_id"));
+        return MovementResolutionOperation.restore(operationId, new MapId((UUID) row.getObject("map_id")), (UUID) row.getObject("command_id"), new PlayerId((UUID) row.getObject("player_id")), new TokenId((UUID) row.getObject("token_id")), new MovementPath(requested, row.getInt("path_distance")), row.getString("fingerprint"), expectedVersion, status, row.getInt("cursor"), new GridPosition(row.getInt("current_x"), row.getInt("current_y")), traversed, result, row.getInt("retry_count"), row.getLong("operation_version"), MovementOperationStatus.valueOf(row.getString("retry_resume_status")), pending, outcomes, hostileObservations, (UUID) row.getObject("cancel_command_id"));
     }
     private static MovementCheckRequest pendingCheck(ResultSet row, UUID operationId, List<GridPosition> requested,
             UUID ownerPlayerId) throws SQLException {

@@ -793,9 +793,9 @@ public class CombatMapController {
 
     public record CombatMapMoveResponse(UUID mapId, long version, UUID operationId, String status, String outcomeStatus,
             List<PositionRequest> requestedPath, List<PositionRequest> traversedPath, PositionRequest finalPosition,
-            List<String> publicEvents, String interruptionReason) {
+            List<String> publicEvents, String interruptionReason, UUID hostileTokenId) {
         public CombatMapMoveResponse(UUID mapId, long version) {
-            this(mapId, version, null, "COMMITTED", "COMMITTED", List.of(), List.of(), null, List.of(), null);
+            this(mapId, version, null, "COMMITTED", "COMMITTED", List.of(), List.of(), null, List.of(), null, null);
         }
         public CombatMapMoveResponse(UUID mapId) { this(mapId, 0); }
         static CombatMapMoveResponse from(UUID mapId, MovementOperationResponse response) {
@@ -807,7 +807,8 @@ public class CombatMapController {
                     result == null ? List.of() : result.traversedPath().stream()
                             .map(position -> new PositionRequest(position.x(), position.y())).toList(),
                     result == null ? null : new PositionRequest(result.finalPosition().x(), result.finalPosition().y()),
-                    result == null ? List.of() : result.publicEvents(), result == null ? null : result.interruptionReason());
+                    result == null ? List.of() : result.publicEvents(), result == null ? null : result.interruptionReason(),
+                    result == null ? null : result.hostileTokenId());
         }
     }
 
@@ -822,7 +823,7 @@ public class CombatMapController {
 
     public record MovementOperationResponseBody(UUID operationId, String status, String outcomeStatus,
             List<PositionRequest> requestedPath, List<PositionRequest> traversedPath, PositionRequest finalPosition, Long mapVersion,
-            List<String> publicEvents, String interruptionReason, PendingCheckResponse pendingCheck,
+            List<String> publicEvents, String interruptionReason, UUID hostileTokenId, PendingCheckResponse pendingCheck,
             PendingCheckDetailsResponse pendingCheckDetails) {
         public record PendingCheckResponse(UUID checkId, UUID operationId, String label, String diceExpression,
                 UUID ownerPlayerId, com.dndmaster.combatmap.application.movement.MovementCheckActor actor) {}
@@ -836,7 +837,7 @@ public class CombatMapController {
                     result == null ? List.of() : result.traversedPath().stream().map(position -> new PositionRequest(position.x(), position.y())).toList(),
                     result == null ? null : new PositionRequest(result.finalPosition().x(), result.finalPosition().y()),
                     result == null ? null : result.mapVersion(), result == null ? List.of() : result.publicEvents(),
-                    result == null ? null : result.interruptionReason(), response.pendingCheck() == null ? null
+                    result == null ? null : result.interruptionReason(), result == null ? null : result.hostileTokenId(), response.pendingCheck() == null ? null
                             : new PendingCheckResponse(response.pendingCheck().checkId(), response.pendingCheck().operationId(),
                                     response.pendingCheck().label(), response.pendingCheck().diceExpression(),
                                     response.pendingCheck().owner().playerId().value(), response.pendingCheck().owner().actor()),

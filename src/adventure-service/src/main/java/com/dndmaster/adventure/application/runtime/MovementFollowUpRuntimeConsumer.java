@@ -49,7 +49,8 @@ public final class MovementFollowUpRuntimeConsumer {
             }
             int order = commands.findByTurnId(source.turnId()).stream()
                     .mapToInt(RuntimeTurnCommand::executionOrder).max().orElse(source.executionOrder()) + 1;
-            String payload = objectMapper.writeValueAsString(new Continuation(kind, followUp.trigger(), followUp.operationId(), source.turnId()));
+            String payload = objectMapper.writeValueAsString(new Continuation(kind, followUp.trigger(), followUp.operationId(),
+                    source.turnId(), followUp.hostileTokenId()));
             RuntimeTurnCommand continuation = existing == null
                     ? RuntimeTurnCommand.create(source.turnId(), continuationId, source.adventureId(), source.sessionId(),
                             source.ownerPlayerId(), source.targetContext(),
@@ -59,7 +60,7 @@ public final class MovementFollowUpRuntimeConsumer {
             RuntimeContinuationOutcome outcome;
             try {
                 outcome = continuationPort.execute(continuation,
-                        new Continuation(kind, followUp.trigger(), followUp.operationId(), source.turnId()));
+                        new Continuation(kind, followUp.trigger(), followUp.operationId(), source.turnId(), followUp.hostileTokenId()));
             } catch (RuntimeException failure) {
                 commands.save(continuation.failed(failure.getMessage(), failure.getMessage()));
                 return MovementFollowUpPort.Result.retry(failure.getMessage());
@@ -75,5 +76,10 @@ public final class MovementFollowUpRuntimeConsumer {
         }
     }
 
-    public record Continuation(MovementFollowUpCommand.Kind kind, String trigger, UUID operationId, UUID turnId) { }
+    public record Continuation(MovementFollowUpCommand.Kind kind, String trigger, UUID operationId, UUID turnId,
+            UUID hostileTokenId) {
+        public Continuation(MovementFollowUpCommand.Kind kind, String trigger, UUID operationId, UUID turnId) {
+            this(kind, trigger, operationId, turnId, null);
+        }
+    }
 }

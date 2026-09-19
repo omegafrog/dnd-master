@@ -63,7 +63,7 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
                     var details = pending.pendingCheckDetails();
                     var roll = new com.dndmaster.adventure.application.combat.EnemyObservationRollCommand(
                             command.adventureId(), requiredUuid(context, "combatMapId"), command.sessionId(),
-                            new RuleSetId(requiredUuid(context, "ruleSetId")), command.ownerPlayerId(), details.checkId(),
+                            new RuleSetId(requiredUuid(context, "ruleSetId")), command.ownerPlayerId(), command.turnId(), details.checkId(),
                             details.operationId(), command.commandId(), details.ruleReference(), details.diceExpression(),
                             details.modifier(), details.difficulty(), requiredNonNegativeLong(context, "expectedVersion"));
                     var resumed = movementCoordinator.rollEnemyAndResume(roll);
@@ -131,7 +131,7 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
         var followUp = (movement.interruptionReason() != null && movement.interruptionReason().equals("HOSTILE_OBSERVED"))
                 || movement.publicEvents().contains("HOSTILE_OBSERVED")
                 ? com.dndmaster.adventure.application.combat.MovementFollowUpCommand.forTrigger(movement.operationId(),
-                        "HOSTILE_OBSERVED", followUpPolicy) : null;
+                        movement.hostileTokenId(), "HOSTILE_OBSERVED", followUpPolicy) : null;
         var enriched = followUp == null ? movement : movement.withFollowUp(followUp);
         String enrichedOutcome = followUp == null ? outcome : serialize(enriched);
         return switch (movement.status()) {

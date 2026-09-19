@@ -269,7 +269,7 @@ public final class CombatMapMovementService {
                     publicEvents.addAll(value.publicEvents());
                     MovementResolutionResult result = new MovementResolutionResult(operation.requestedPath(), operation.traversedPath(),
                             operation.currentCell(), operation.expectedVersion() + 1, publicEvents, value.reason(),
-                            MovementResolutionOutcomeStatus.INTERRUPTED);
+                            MovementResolutionOutcomeStatus.INTERRUPTED, hostile.hostileTokenId().value());
                     operation.readyToCommit(result);
                     operations.save(operation);
                     return commitPrepared(map, operation);
@@ -352,7 +352,7 @@ public final class CombatMapMovementService {
                     publicEvents.addAll(value.publicEvents());
                     MovementResolutionResult result = new MovementResolutionResult(operation.requestedPath(), operation.traversedPath(),
                             operation.currentCell(), operation.expectedVersion() + 1, publicEvents, value.reason(),
-                            MovementResolutionOutcomeStatus.INTERRUPTED);
+                            MovementResolutionOutcomeStatus.INTERRUPTED, hostile.hostileTokenId().value());
                     operation.readyToCommit(result);
                     operations.save(operation);
                     return commitPrepared(map, operation);

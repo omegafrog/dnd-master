@@ -6,7 +6,7 @@ import java.util.List;
 
 public record MovementResolutionResult(MovementPath requestedPath, List<GridPosition> traversedPath,
         GridPosition finalPosition, long mapVersion, List<String> publicEvents, String interruptionReason,
-        MovementResolutionOutcomeStatus status) {
+        MovementResolutionOutcomeStatus status, java.util.UUID hostileTokenId) {
     public MovementResolutionResult {
         traversedPath = List.copyOf(traversedPath);
         publicEvents = List.copyOf(publicEvents);
@@ -17,6 +17,12 @@ public record MovementResolutionResult(MovementPath requestedPath, List<GridPosi
 
     public MovementResolutionResult(MovementPath requestedPath, List<GridPosition> traversedPath,
             GridPosition finalPosition, long mapVersion, List<String> publicEvents, String interruptionReason) {
-        this(requestedPath, traversedPath, finalPosition, mapVersion, publicEvents, interruptionReason, null);
+        this(requestedPath, traversedPath, finalPosition, mapVersion, publicEvents, interruptionReason, null, null);
+    }
+
+    public MovementResolutionResult(MovementPath requestedPath, List<GridPosition> traversedPath,
+            GridPosition finalPosition, long mapVersion, List<String> publicEvents, String interruptionReason,
+            MovementResolutionOutcomeStatus status) {
+        this(requestedPath, traversedPath, finalPosition, mapVersion, publicEvents, interruptionReason, status, null);
     }
 }

@@ -29,7 +29,7 @@ public final class TypedRuntimeContinuationCommandAdapter implements RuntimeTurn
         }
         MovementFollowUpRuntimeConsumer.Continuation continuation = new MovementFollowUpRuntimeConsumer.Continuation(
                 com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.valueOf(kind.name()),
-                payload.trigger(), payload.operationId(), command.turnId());
+                payload.trigger(), payload.operationId(), command.turnId(), payload.hostileTokenId());
         RuntimeContinuationCommandPort.ContinuationCommand typed =
                 new RuntimeContinuationCommandPort.ContinuationCommand(command, continuation);
         return switch (kind) {
