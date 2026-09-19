@@ -539,6 +539,28 @@ it('gives each visible token type a stable styling hook', async () => {
   expect(screen.getByLabelText('지도 공개 범례')).toHaveTextContent('전에 확인했지만 지금은 시야 밖인 영역')
 })
 
+it('renders local token assets and keeps overlapping interaction states readable', async () => {
+  const api = fakeApi()
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    currentTurnTokenId: 'enemy-1', grid: { width: 3, height: 1 }, tokens: [
+      { id: 'p1', type: 'PLAYER', x: 0, y: 0, selected: true },
+      { id: 'enemy-1', type: 'ENEMY', x: 1, y: 0, currentTurn: true, lastSeen: true },
+      { id: 'friend-1', type: 'FRIENDLY_NPC', x: 2, y: 0 },
+    ], current: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }], explored: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }],
+  })
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  const map = await screen.findByLabelText('tactical-map')
+  const enemy = map.querySelector('[data-token-type="ENEMY"]')
+  expect(enemy).toHaveAttribute('data-token-asset', '/assets/tokens/enemy.svg')
+  expect(enemy).toHaveAttribute('data-token-faction', 'HOSTILE')
+  expect(enemy).toHaveAttribute('data-token-status', 'CURRENT_TURN')
+  expect(enemy).toHaveClass('token-status-current-turn', 'token-status-last-seen')
+  expect(enemy?.querySelector('img')).toHaveAttribute('src', '/assets/tokens/enemy.svg')
+  expect(map.querySelector('[data-token-type="FRIENDLY_NPC"]')).toHaveAttribute('data-token-faction', 'FRIENDLY')
+})
+
 it('fails closed when visibility metadata is missing and only shows visible token types in the legend', async () => {
   const api = fakeApi()
   api.getCombatMap = async () => ({

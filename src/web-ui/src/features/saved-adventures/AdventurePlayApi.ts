@@ -55,7 +55,8 @@ export type CombatMapView = {
   adventureId: string
   status: string
   mapId?: string
-  tokens?: Array<{ id: string; type: string; x: number; y: number; lastSeen?: boolean }>
+  tokens?: Array<{ id: string; type: string; x: number; y: number; lastSeen?: boolean; selected?: boolean; currentTurn?: boolean }>
+  currentTurnTokenId?: string
   layers?: Array<{ type: string; value: string; visibility?: string }>
   doors?: Array<{ x: number; y: number; open: boolean }>
   current?: Array<{ x: number; y: number }>
