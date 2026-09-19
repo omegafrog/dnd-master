@@ -14,6 +14,7 @@ import com.dndmaster.adventure.application.combat.CombatMapPreviewPosition;
 import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
 import com.dndmaster.adventure.application.combat.CombatMapMovementStatus;
 import com.dndmaster.adventure.application.combat.SpatialCheckRollCommand;
+import com.dndmaster.adventure.application.combat.EnemyObservationRollCommand;
 import com.dndmaster.adventure.application.combat.CombatMapSpatialTurnCommand;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
@@ -72,6 +73,31 @@ class AdventureApiConfigurationTest {
             assertTrue(requestBody.get().contains("\"sides\":6"));
             assertTrue(requestBody.get().contains("\"modifier\":3"));
             assertTrue(requestBody.get().contains("\"commandId\":\"" + commandId + "\""));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void wires_enemy_observation_roll_to_the_dice_roll_service_url() throws Exception {
+        AtomicReference<String> requestPath = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/", exchange -> {
+            requestPath.set(exchange.getRequestURI().getPath());
+            byte[] body = "{\"total\":12}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            var configured = new AdventureApiConfiguration().enemyObservationRollPort(
+                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
+            var command = new EnemyObservationRollCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                    new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                    "dnd5e.perception", "1d20", 0, 12, 1L);
+            assertEquals(12, configured.rollEnemyObservation(command));
+            assertEquals("/internal/v1/dice-rolls/enemy-observation", requestPath.get());
         } finally {
             server.stop(0);
         }

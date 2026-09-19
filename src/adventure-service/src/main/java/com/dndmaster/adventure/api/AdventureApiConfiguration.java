@@ -340,7 +340,8 @@ public class AdventureApiConfiguration {
             CombatMapPort combatMapPort,
             @Qualifier("enemyObservationRollPort") com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort) {
         return new RuntimeTurnCommandAdapterRegistry(
-                Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, enemyObservationRollPort, objectMapper)),
+                Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, enemyObservationRollPort,
+                        objectMapper, MovementFollowUpPolicy.defaultPolicy())),
                 new GmToolRuntimeTurnCommandAdapter(gateway, objectMapper));
     }
 
@@ -355,9 +356,15 @@ public class AdventureApiConfiguration {
         };
     }
 
+    @Bean
+    MovementFollowUpRuntimeConsumer movementFollowUpRuntimeConsumer(SessionEventRepository events,
+            RuntimeTurnCommandRepository commands, ObjectMapper objectMapper) {
+        return new MovementFollowUpRuntimeConsumer(events, commands, objectMapper, MovementFollowUpPolicy.defaultPolicy());
+    }
+
     @Bean(name = "enemyObservationRollPort")
     com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort(
-            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.dice-roll.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(
                 HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
@@ -367,8 +374,8 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimeTurnCommitOrchestrator runtimeTurnCommitOrchestrator(RuntimeTurnRepository turnRepository,
             RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter adapter,
-            MovementFollowUpPort movementFollowUpPort) {
-        return new RuntimeTurnCommitOrchestrator(turnRepository, commandRepository, adapter, movementFollowUpPort);
+            MovementFollowUpPort movementFollowUpPort, MovementFollowUpRuntimeConsumer followUpConsumer) {
+        return new RuntimeTurnCommitOrchestrator(turnRepository, commandRepository, adapter, movementFollowUpPort, followUpConsumer);
     }
 
     @Bean

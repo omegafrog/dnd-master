@@ -11,7 +11,12 @@ public record MovementFollowUpCommand(UUID commandId, UUID operationId, Kind kin
         if (trigger == null || trigger.isBlank()) throw new IllegalArgumentException("follow-up trigger must not be blank");
     }
     public static MovementFollowUpCommand hostileObserved(UUID operationId) {
+        return forTrigger(operationId, "HOSTILE_OBSERVED",
+                com.dndmaster.adventure.application.runtime.MovementFollowUpPolicy.defaultPolicy());
+    }
+    public static MovementFollowUpCommand forTrigger(UUID operationId, String trigger,
+            com.dndmaster.adventure.application.runtime.MovementFollowUpPolicy policy) {
         return new MovementFollowUpCommand(UUID.nameUUIDFromBytes(("movement-follow-up:" + operationId)
-                .getBytes(java.nio.charset.StandardCharsets.UTF_8)), operationId, Kind.COMBAT, "HOSTILE_OBSERVED");
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8)), operationId, policy.determine(trigger), trigger);
     }
 }

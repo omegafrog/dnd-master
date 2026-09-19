@@ -21,13 +21,19 @@ import java.util.UUID;
 public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnCommandAdapter {
     private final MapMovementCoordinator movementCoordinator;
     private final ObjectMapper mapper;
+    private final MovementFollowUpPolicy followUpPolicy;
 
     public CombatMapRuntimeTurnCommandAdapter(CombatMapPort mapPort, ObjectMapper mapper) {
-        this(mapPort, mapPort::rollEnemyObservation, mapper);
+        this(mapPort, mapPort::rollEnemyObservation, mapper, MovementFollowUpPolicy.defaultPolicy());
     }
 
     public CombatMapRuntimeTurnCommandAdapter(CombatMapPort mapPort, EnemyObservationRollPort enemyObservationRoll,
             ObjectMapper mapper) {
+        this(mapPort, enemyObservationRoll, mapper, MovementFollowUpPolicy.defaultPolicy());
+    }
+
+    public CombatMapRuntimeTurnCommandAdapter(CombatMapPort mapPort, EnemyObservationRollPort enemyObservationRoll,
+            ObjectMapper mapper, MovementFollowUpPolicy followUpPolicy) {
         this.movementCoordinator = new MapMovementCoordinator(mapPort, new com.dndmaster.adventure.application.combat.DiceCombatPort() {
             @Override public int roll(com.dndmaster.adventure.application.combat.CombatActionCommand command) {
                 throw new UnsupportedOperationException("combat dice roll is unavailable");
@@ -37,6 +43,7 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
             }
         }, new DefaultResolutionPort(), SpatialActionAuthorizationPort.requiredPlayerAction(), enemyObservationRoll);
         this.mapper = java.util.Objects.requireNonNull(mapper, "object mapper must not be null");
+        this.followUpPolicy = java.util.Objects.requireNonNull(followUpPolicy, "follow-up policy must not be null");
     }
 
     @Override public RuntimeTurnCommandExecution execute(RuntimeTurnCommand command) {
@@ -123,7 +130,8 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
             com.dndmaster.adventure.application.combat.CombatMapMoveResult movement, String outcome) {
         var followUp = (movement.interruptionReason() != null && movement.interruptionReason().equals("HOSTILE_OBSERVED"))
                 || movement.publicEvents().contains("HOSTILE_OBSERVED")
-                ? com.dndmaster.adventure.application.combat.MovementFollowUpCommand.hostileObserved(movement.operationId()) : null;
+                ? com.dndmaster.adventure.application.combat.MovementFollowUpCommand.forTrigger(movement.operationId(),
+                        "HOSTILE_OBSERVED", followUpPolicy) : null;
         var enriched = followUp == null ? movement : movement.withFollowUp(followUp);
         String enrichedOutcome = followUp == null ? outcome : serialize(enriched);
         return switch (movement.status()) {

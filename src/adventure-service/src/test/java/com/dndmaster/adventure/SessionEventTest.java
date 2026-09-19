@@ -6,6 +6,9 @@ import com.dndmaster.adventure.application.runtime.InMemorySessionEventRepositor
 import com.dndmaster.adventure.application.runtime.MovementFollowUpEventPublisher;
 import com.dndmaster.adventure.application.runtime.MovementFollowUpPort;
 import com.dndmaster.adventure.application.runtime.SessionEventRepository;
+import com.dndmaster.adventure.application.runtime.InMemoryRuntimeTurnCommandRepository;
+import com.dndmaster.adventure.application.runtime.MovementFollowUpRuntimeConsumer;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
 import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -99,5 +102,27 @@ class SessionEventTest {
         }
         assertEquals(java.util.stream.LongStream.range(0, count).boxed().toList(),
                 events.after(session, -1).stream().map(SessionEvent::version).toList());
+    }
+
+    @Test
+    void runtime_consumes_durable_follow_up_into_one_typed_continuation_and_replays_it_idempotently() {
+        InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        MovementFollowUpCommand followUp = new MovementFollowUpCommand(UUID.randomUUID(), UUID.randomUUID(),
+                MovementFollowUpCommand.Kind.CONTINUATION, "NPC_CONTACT");
+        RuntimeTurnCommand source = RuntimeTurnCommand.create(UUID.randomUUID(), followUp.commandId(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
+        new MovementFollowUpEventPublisher(events, new ObjectMapper()).publish(followUp, source.adventureId(),
+                source.sessionId(), source.ownerPlayerId());
+        MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands,
+                new ObjectMapper(), trigger -> MovementFollowUpCommand.Kind.DIALOGUE);
+
+        assertEquals(MovementFollowUpPort.Result.Status.DONE, consumer.consume(source, followUp).status());
+        assertEquals(MovementFollowUpPort.Result.Status.DONE, consumer.consume(source, followUp).status());
+        var continuation = commands.findByTurnId(source.turnId()).stream()
+                .filter(command -> command.commandType().startsWith("movement.continuation.")).toList();
+        assertEquals(1, continuation.size());
+        assertEquals("movement.continuation.dialogue", continuation.getFirst().commandType());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, continuation.getFirst().executionStatus());
     }
 }
