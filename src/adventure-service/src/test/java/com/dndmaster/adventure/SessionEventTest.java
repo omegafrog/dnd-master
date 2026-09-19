@@ -9,11 +9,16 @@ import com.dndmaster.adventure.application.runtime.SessionEventRepository;
 import com.dndmaster.adventure.application.runtime.InMemoryRuntimeTurnCommandRepository;
 import com.dndmaster.adventure.application.runtime.MovementFollowUpRuntimeConsumer;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
+import com.dndmaster.adventure.application.runtime.RuntimeContinuationHandlerRegistry;
+import com.dndmaster.adventure.application.runtime.RuntimeContinuationOutcome;
+import com.dndmaster.adventure.application.runtime.MovementFollowUpPolicy;
 import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
 import java.util.UUID;
+import java.util.EnumMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.Executors;
 import org.junit.jupiter.api.Test;
 
@@ -74,7 +79,8 @@ class SessionEventTest {
             }
             @Override public List<SessionEvent> after(UUID sessionId, long version) { return stored.after(sessionId, version); }
         };
-        MovementFollowUpCommand followUp = MovementFollowUpCommand.hostileObserved(UUID.randomUUID());
+        MovementFollowUpCommand followUp = new MovementFollowUpCommand(UUID.randomUUID(), UUID.randomUUID(),
+                MovementFollowUpCommand.Kind.CONTINUATION, "NPC_CONTACT");
 
         MovementFollowUpPort.Result result = new MovementFollowUpEventPublisher(conflicting, new ObjectMapper()).publish(
                 followUp, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
@@ -108,8 +114,7 @@ class SessionEventTest {
     void runtime_consumes_durable_follow_up_into_one_typed_continuation_and_replays_it_idempotently() {
         InMemorySessionEventRepository events = new InMemorySessionEventRepository();
         InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
-        MovementFollowUpCommand followUp = new MovementFollowUpCommand(UUID.randomUUID(), UUID.randomUUID(),
-                MovementFollowUpCommand.Kind.CONTINUATION, "NPC_CONTACT");
+        MovementFollowUpCommand followUp = MovementFollowUpCommand.hostileObserved(UUID.randomUUID());
         RuntimeTurnCommand source = RuntimeTurnCommand.create(UUID.randomUUID(), followUp.commandId(), UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
         new MovementFollowUpEventPublisher(events, new ObjectMapper()).publish(followUp, source.adventureId(),
@@ -124,5 +129,41 @@ class SessionEventTest {
         assertEquals(1, continuation.size());
         assertEquals("movement.continuation.dialogue", continuation.getFirst().commandType());
         assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, continuation.getFirst().executionStatus());
+        assertEquals("DIALOGUE:transitioned:" + followUp.operationId(), continuation.getFirst().outcomeJson());
+    }
+
+    @Test
+    void runtime_calls_the_typed_handler_and_retries_a_failed_transition_idempotently() {
+        InMemorySessionEventRepository events = new InMemorySessionEventRepository();
+        InMemoryRuntimeTurnCommandRepository commands = new InMemoryRuntimeTurnCommandRepository();
+        MovementFollowUpCommand followUp = MovementFollowUpCommand.hostileObserved(UUID.randomUUID());
+        RuntimeTurnCommand source = RuntimeTurnCommand.create(UUID.randomUUID(), followUp.commandId(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), "external", "movement.follow-up", "{}", 1);
+        new MovementFollowUpEventPublisher(events, new ObjectMapper()).publish(followUp, source.adventureId(),
+                source.sessionId(), source.ownerPlayerId());
+
+        AtomicInteger calls = new AtomicInteger();
+        EnumMap<MovementFollowUpCommand.Kind, com.dndmaster.adventure.application.runtime.RuntimeContinuationHandler> handlers =
+                new EnumMap<>(MovementFollowUpCommand.Kind.class);
+        handlers.put(MovementFollowUpCommand.Kind.COMBAT, (command, continuation) -> {
+            if (calls.getAndIncrement() == 0) return RuntimeContinuationOutcome.retry("combat temporarily unavailable");
+            return RuntimeContinuationOutcome.applied("COMBAT:state-changed");
+        });
+        MovementFollowUpRuntimeConsumer consumer = new MovementFollowUpRuntimeConsumer(events, commands,
+                new ObjectMapper(), MovementFollowUpPolicy.defaultPolicy(),
+                new RuntimeContinuationHandlerRegistry(handlers));
+
+        assertEquals(MovementFollowUpPort.Result.Status.RETRY, consumer.consume(source, followUp).status());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.FAILED,
+                commands.findByTurnId(source.turnId()).getFirst().executionStatus());
+        MovementFollowUpPort.Result second = consumer.consume(source, followUp);
+        org.junit.jupiter.api.Assertions.assertTrue(second.status() == MovementFollowUpPort.Result.Status.DONE,
+                second.status() + ":" + second.value() + ":calls=" + calls.get());
+        RuntimeTurnCommand continuation = commands.findByTurnId(source.turnId()).getFirst();
+        assertEquals(2, calls.get());
+        assertEquals(RuntimeTurnCommand.ExecutionStatus.DONE, continuation.executionStatus());
+        assertEquals("COMBAT:state-changed", continuation.outcomeJson());
+        assertEquals(MovementFollowUpPort.Result.Status.DONE, consumer.consume(source, followUp).status());
+        assertEquals(2, calls.get());
     }
 }

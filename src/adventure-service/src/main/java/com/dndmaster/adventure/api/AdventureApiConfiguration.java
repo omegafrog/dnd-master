@@ -357,9 +357,15 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    RuntimeContinuationPort runtimeContinuationPort() {
+        return RuntimeContinuationHandlerRegistry.standard();
+    }
+
+    @Bean
     MovementFollowUpRuntimeConsumer movementFollowUpRuntimeConsumer(SessionEventRepository events,
-            RuntimeTurnCommandRepository commands, ObjectMapper objectMapper) {
-        return new MovementFollowUpRuntimeConsumer(events, commands, objectMapper, MovementFollowUpPolicy.defaultPolicy());
+            RuntimeTurnCommandRepository commands, ObjectMapper objectMapper, RuntimeContinuationPort continuationPort) {
+        return new MovementFollowUpRuntimeConsumer(events, commands, objectMapper,
+                MovementFollowUpPolicy.defaultPolicy(), continuationPort);
     }
 
     @Bean(name = "enemyObservationRollPort")
