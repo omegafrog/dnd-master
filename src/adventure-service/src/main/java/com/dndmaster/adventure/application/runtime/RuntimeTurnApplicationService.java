@@ -189,9 +189,21 @@ public class RuntimeTurnApplicationService {
 
     /** Client/recovery entry point sharing the same forward-resume orchestrator. */
     public RuntimeTurnCommitOrchestrator.Result resumeRuntimeTurn(UUID turnId) {
+        return resumeRuntimeTurn(turnId, null);
+    }
+
+    /** HTTP resume entry point also binds the request key to the saved turn command. */
+    public RuntimeTurnCommitOrchestrator.Result resumeRuntimeTurn(UUID turnId, UUID idempotencyKey) {
         if (commitOrchestrator == null) throw new IllegalStateException("runtime turn commit orchestrator is not configured");
         RuntimeTurn turn = runtimeTurnRepository.findByTurnId(Objects.requireNonNull(turnId, "turn id must not be null"))
                 .orElseThrow(() -> new IllegalStateException("runtime turn not found"));
+        if (idempotencyKey != null && !turn.commandId().equals(idempotencyKey)) {
+            throw new IllegalArgumentException("idempotency key does not match runtime turn command");
+        }
+        return resumeRuntimeTurn(turn);
+    }
+
+    private RuntimeTurnCommitOrchestrator.Result resumeRuntimeTurn(RuntimeTurn turn) {
         Adventure adventure = adventureRepository.findById(turn.adventureId())
                 .orElseThrow(() -> new IllegalStateException("adventure not found"));
         if (turn.pendingState() == null || turn.completionProposal() == null) {

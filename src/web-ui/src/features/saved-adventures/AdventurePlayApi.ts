@@ -165,7 +165,7 @@ export interface AdventurePlayApi {
   latestMovementOperation?(adventureId: string, mapId: string): Promise<MapMovementResult | null>
   resumeMovementOperation?(adventureId: string, mapId: string, operationId: string, check?: { commandId: string; operationId: string; checkId: string; success: boolean; ownerPlayerId: string; actor: 'PLAYER' }): Promise<MapMovementResult>
   rollSpatialCheck?(adventureId: string, expectedVersion: number, spatial: SpatialRollContext): Promise<MapMovementResult>
-  resumeRuntimeTurn?(adventureId: string, turnId: string): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
+  resumeRuntimeTurn?(adventureId: string, turnId: string, idempotencyKey: string): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
   submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
   observeSpatial?(adventureId: string, request: SpatialActionRequest): Promise<SpatialActionResult>
   interactSpatial?(adventureId: string, request: SpatialActionRequest): Promise<SpatialActionResult>
@@ -385,9 +385,9 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     })
   }
 
-  resumeRuntimeTurn(adventureId: string, turnId: string) {
+  resumeRuntimeTurn(adventureId: string, turnId: string, idempotencyKey: string) {
     return request<{ turnId: string; version: number; movementResult?: MapMovementResult }>(`/api/v1/adventures/${adventureId}/turns/${turnId}/resume`, {
-      method: 'POST', headers: this.authHeaders(),
+      method: 'POST', headers: { ...this.authHeaders(), 'Idempotency-Key': idempotencyKey },
     })
   }
 

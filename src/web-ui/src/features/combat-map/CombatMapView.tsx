@@ -341,7 +341,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         : await operationApi(adventureId, pendingMovement.mapId, operationId)
       const refreshed = await api.getCombatMap(adventureId)
       if (resume && pendingMovement.turnId && api.resumeRuntimeTurn) {
-        await api.resumeRuntimeTurn(adventureId, pendingMovement.turnId)
+        await api.resumeRuntimeTurn(adventureId, pendingMovement.turnId, pendingMovement.commandId ?? pendingMovement.turnId)
       }
       await applyMovementResult(result, pendingMovement.mapId, pendingMovement.tokenId, pendingMovement.turnId,
         pendingMovement.commandId, map, refreshed)

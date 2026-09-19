@@ -14,6 +14,12 @@ public record SpatialCheckRollCommand(UUID adventureId, UUID mapId, UUID session
                 checkId, "legacy.spatial-check", "1d20", 0, null, expectedVersion);
     }
 
+    public SpatialCheckRollCommand(UUID adventureId, UUID mapId, UUID sessionId, RuleSetId ruleSetId,
+            UUID ownerPlayerId, UUID checkId, UUID operationId, UUID commandId, long expectedVersion) {
+        this(adventureId, mapId, sessionId, ruleSetId, ownerPlayerId, checkId, operationId,
+                commandId, "legacy.spatial-check", "1d20", 0, null, expectedVersion);
+    }
+
     public SpatialCheckRollCommand {
         Objects.requireNonNull(adventureId, "adventure id must not be null");
         Objects.requireNonNull(mapId, "map id must not be null");

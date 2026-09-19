@@ -20,7 +20,10 @@ public class DiceRollController {
     }
 
     @PostMapping("/internal/v1/dice-rolls/player")
-    DiceRollResponse playerRoll(@RequestBody DiceRollRequest request) {
+    DiceRollResponse playerRoll(@RequestHeader("X-Internal-Token") String token,
+            @RequestHeader("Idempotency-Key") String idempotencyKey, @RequestBody DiceRollRequest request) {
+        requestGuard.internal(token);
+        requestGuard.idempotencyKey(idempotencyKey, request.commandId());
         RollCommand command = toCommand(request);
         return DiceRollResponse.from(diceRollService.executePlayerRoll(command));
     }

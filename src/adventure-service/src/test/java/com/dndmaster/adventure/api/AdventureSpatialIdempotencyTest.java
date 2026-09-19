@@ -30,4 +30,15 @@ class AdventureSpatialIdempotencyTest {
         assertThrows(RuntimeException.class,
                 () -> AdventureController.requireSpatialIdempotencyKey(UUID.randomUUID(), request));
     }
+
+    @Test
+    void rejects_a_spatial_roll_when_header_and_command_identity_differ() {
+        UUID commandId = UUID.randomUUID();
+        AdventureController.SpatialCheckRollRequest request = new AdventureController.SpatialCheckRollRequest(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), commandId, 0L);
+
+        assertDoesNotThrow(() -> AdventureController.requireSpatialIdempotencyKey(commandId, request));
+        assertThrows(RuntimeException.class,
+                () -> AdventureController.requireSpatialIdempotencyKey(UUID.randomUUID(), request));
+    }
 }

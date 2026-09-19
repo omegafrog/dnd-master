@@ -31,6 +31,7 @@ class OpenApiSchemaTest {
                 "/api/v1/adventures/{adventureId}/combat-map/spatial/combat-turn-start",
                 "/api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations",
                 "/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}/roll");
+        assertResumeTurnIdempotencyContract();
         assertCombatMapTriggerQualification();
         assertMovementContracts();
         assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/{rulebookId}/source-preview", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",
@@ -38,6 +39,7 @@ class OpenApiSchemaTest {
                 "/internal/v1/rule-evidence/search");
         assertPaths("character-management", "/internal/v1/character-sheets/{sheetId}");
         assertPaths("dice-roll", "/internal/v1/dice-rolls/player", "/internal/v1/dice-rolls/ai");
+        assertDiceRollSecurityContract();
         assertPaths("combat-map", "/internal/v1/combat-maps/{mapId}/player-view",
                 "/internal/v1/combat-maps/{mapId}/moves", "/internal/v1/combat-maps/{mapId}/ai-state",
                 "/internal/v1/combat-maps/{mapId}/spatial/observe",
@@ -46,6 +48,29 @@ class OpenApiSchemaTest {
                 "/internal/v1/combat-maps/{mapId}/spatial/advance-durations");
         assertPaths("ai-game-master", "/internal/v1/gm/scenes", "/internal/v1/gm/judgments",
                 "/internal/v1/gm/rule-answers", "/internal/v1/gm/maps", "/internal/v1/gm/intent-classifications");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertResumeTurnIdempotencyContract() throws IOException {
+        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve("adventure/openapi.yaml")));
+        Map<String, Object> paths = (Map<String, Object>) root.get("paths");
+        Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths
+                .get("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/resume")).get("post");
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) operation.get("parameters");
+        assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertDiceRollSecurityContract() throws IOException {
+        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve("dice-roll/openapi.yaml")));
+        Map<String, Object> paths = (Map<String, Object>) root.get("paths");
+        Map<String, Object> player = (Map<String, Object>) ((Map<String, Object>) paths.get("/internal/v1/dice-rolls/player")).get("post");
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) player.get("parameters");
+        assertTrue(parameters.stream().anyMatch(parameter -> "X-Internal-Token".equals(parameter.get("name"))
+                && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))));
+        assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))));
     }
 
     @SuppressWarnings("unchecked")

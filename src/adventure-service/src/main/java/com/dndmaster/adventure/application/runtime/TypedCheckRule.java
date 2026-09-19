@@ -12,6 +12,7 @@ public record TypedCheckRule(String ruleReference, String diceExpression, int mo
         ruleReference = required(ruleReference, "check rule reference");
         diceExpression = required(diceExpression, "dice expression");
         DiceExpression parsed = DiceExpression.parse(diceExpression, modifier);
+        diceExpression = parsed.baseExpression();
         modifier = parsed.modifier();
         if (difficulty == null || difficulty < 0) {
             throw new IllegalArgumentException("check difficulty must be present and non-negative");
@@ -36,6 +37,8 @@ public record TypedCheckRule(String ruleReference, String diceExpression, int mo
         public DiceExpression {
             if (count < 1 || sides < 2) throw new IllegalArgumentException("invalid dice expression");
         }
+
+        public String baseExpression() { return count + "d" + sides; }
 
         public static DiceExpression parse(String expression, int modifier) {
             Matcher matcher = DICE.matcher(expression.replace(" ", ""));

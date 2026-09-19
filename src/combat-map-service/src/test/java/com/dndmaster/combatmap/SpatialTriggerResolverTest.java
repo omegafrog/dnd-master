@@ -122,6 +122,20 @@ class SpatialTriggerResolverTest {
         assertEquals(List.of(), resolver.resolveVisible(map, new GridPosition(1, 1)));
     }
 
+    @Test
+    void resolves_each_multi_cell_become_visible_feature_once_across_all_new_cells() {
+        UUID featureId = UUID.randomUUID();
+        SpatialFeature feature = SpatialFeature.hidden(featureId, SpatialFeatureType.TRAP,
+                List.of(new GridPosition(2, 2), new GridPosition(2, 3)), null,
+                Set.of(SpatialTrigger.BECOME_VISIBLE), SpatialFeatureProvenance.runtime("runtime", 1, 0));
+        CombatMap map = map(feature);
+
+        assertEquals(List.of("TRAP_DISCOVERED:2,2"),
+                new SpatialTriggerResolver().resolveVisible(map,
+                        List.of(new GridPosition(2, 2), new GridPosition(2, 3))));
+        assertEquals(SpatialFeatureVisibility.DISCOVERED, feature.visibility());
+    }
+
     private static CombatMap map(SpatialFeature feature) {
         return map(List.of(feature));
     }

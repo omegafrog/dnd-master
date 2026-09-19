@@ -108,6 +108,7 @@ paths:
       operationId: resumePendingAdventureTurn
       parameters:
         - { name: pendingTurnId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
       responses:
         '202': { description: accepted or forward-recovered turn result }
         '403': { description: adventure is not owned by bearer }

@@ -589,7 +589,7 @@ it('keeps a typed retry operation available for reconnect and resume', async () 
   expect(await screen.findByText('이동 재시도 필요')).toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '이동 재개' }))
   expect(api.resumeMovementOperation).toHaveBeenCalledWith('a1', 'm1', 'operation-1')
-  expect(api.resumeRuntimeTurn).toHaveBeenCalledWith('a1', 't1')
+  expect(api.resumeRuntimeTurn).toHaveBeenCalledWith('a1', 't1', expect.any(String))
   window.localStorage.removeItem('dnd-master:movement-operation:a1')
 })
 
@@ -924,5 +924,18 @@ it('saves only an alignment draft through the dedicated endpoint', async () => {
   try {
     await new HttpAdventurePlayApi(() => 'player-token').applyMapGridAlignment('a1', { mapId: 'm1', commandId: 'c1', expectedVersion: 1, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 })
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/a1/combat-map/alignment', expect.objectContaining({ method: 'PUT', body: JSON.stringify({ mapId: 'm1', commandId: 'c1', expectedVersion: 1, imageRevision: 'r1', originX: 12.25, originY: 8.5, cellSize: 31.75 }) }))
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('passes the runtime turn idempotency key when resuming a saved turn', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ turnId: 't1', version: 2 }), {
+    status: 202, headers: { 'Content-Type': 'application/json' },
+  }))
+  vi.stubGlobal('fetch', fetchMock)
+  try {
+    await new HttpAdventurePlayApi(() => 'player-token').resumeRuntimeTurn('a1', 't1', 'command-1')
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/a1/turns/t1/resume', {
+      method: 'POST', headers: { Authorization: 'Bearer player-token', 'Idempotency-Key': 'command-1' },
+    })
   } finally { vi.unstubAllGlobals() }
 })

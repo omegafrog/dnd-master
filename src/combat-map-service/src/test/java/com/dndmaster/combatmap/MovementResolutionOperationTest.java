@@ -240,6 +240,17 @@ class MovementResolutionOperationTest {
                 Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
         return map;
     }
+
+    private static CombatMap mapWithNewlyVisibleMultiCellFeature(Fixture fixture) {
+        CombatMap map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.player, fixture.map.tokens(), fixture.map.obstacles(), fixture.map.layers(), 0, null, null,
+                List.of(SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.TRAP,
+                        List.of(new GridPosition(4, 1), new GridPosition(4, 2)), null,
+                        Set.of(SpatialTrigger.BECOME_VISIBLE), SpatialFeatureProvenance.runtime("runtime", 1, 0))));
+        map.replaceVisibility(new VisibilitySnapshot(Set.of(new GridPosition(1, 1)),
+                Set.of(new GridPosition(1, 1), new GridPosition(2, 1), new GridPosition(3, 1)), Set.of(), List.of(), 0));
+        return map;
+    }
     @Test
     void resolves_cells_in_order_and_commits_position_visibility_and_version_once() {
         Fixture fixture = new Fixture();
@@ -258,6 +269,35 @@ class MovementResolutionOperationTest {
         MovementOperationResponse replay = fixture.service().start(fixture.start("fingerprint-1"));
         assertEquals(response, replay);
         assertEquals(1, fixture.mapSaves);
+    }
+
+    @Test
+    void resolves_become_visible_features_on_all_newly_visible_cells_after_each_step() {
+        Fixture fixture = new Fixture();
+        fixture.map = mapWithNewlyVisibleMultiCellFeature(fixture);
+
+        MovementOperationResponse response = fixture.service().start(fixture.start("fingerprint-1"));
+
+        assertEquals(MovementOperationStatus.COMMITTED, response.status());
+        assertEquals(List.of("TRAP_DISCOVERED:4,1"), response.result().publicEvents());
+        assertEquals(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), response.result().traversedPath());
+        assertEquals(SpatialFeatureVisibility.DISCOVERED, fixture.map.spatialFeatures().getFirst().visibility());
+    }
+
+    @Test
+    void restart_rebuilds_become_visible_features_from_all_newly_visible_cells() {
+        Fixture fixture = new Fixture();
+        fixture.map = mapWithNewlyVisibleMultiCellFeature(fixture);
+        MovementResolutionOperation operation = MovementResolutionOperation.start(UUID.randomUUID(), fixture.map.id(),
+                fixture.commandId, fixture.player, fixture.tokenId, fixture.path, "fingerprint-1", 0);
+        operation.advanceTo(1, new GridPosition(2, 1));
+        fixture.save(operation);
+
+        MovementOperationResponse response = fixture.service().resume(fixture.map.id(), operation.operationId());
+
+        assertEquals(MovementOperationStatus.COMMITTED, response.status());
+        assertEquals(SpatialFeatureVisibility.DISCOVERED, fixture.map.spatialFeatures().getFirst().visibility());
+        assertEquals(new GridPosition(3, 1), fixture.map.tokens().getFirst().position());
     }
 
     @Test

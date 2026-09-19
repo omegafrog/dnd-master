@@ -233,10 +233,9 @@ public final class CombatMapMovementService {
                 }
                 publicEvents.addAll(triggerResolver.resolve(map, SpatialTrigger.LEAVE_CELL, operation.currentCell()));
                 map.advancePlayerToken(operation.playerId(), operation.tokenId(), operation.requestedPath().orderedPositions().get(next));
-                map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
+                publicEvents.addAll(resolveNewlyVisibleFeatures(map));
                 publicEvents.addAll(triggerResolver.resolve(map, SpatialTrigger.ENTER_CELL,
                         operation.requestedPath().orderedPositions().get(next)));
-                publicEvents.addAll(triggerResolver.resolveVisible(map, operation.requestedPath().orderedPositions().get(next)));
                 operation.advanceTo(next, map.playerTokenPosition(operation.playerId(), operation.tokenId()));
                 operations.save(operation);
                 if (!publicEvents.isEmpty()) {
@@ -355,13 +354,24 @@ public final class CombatMapMovementService {
             triggerResolver.resolve(map, SpatialTrigger.LEAVE_CELL,
                     operation.requestedPath().orderedPositions().get(index - 1));
             map.advancePlayerToken(operation.playerId(), operation.tokenId(), operation.requestedPath().orderedPositions().get(index));
-            map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
+            resolveNewlyVisibleFeatures(map, triggerResolver);
             triggerResolver.resolve(map, SpatialTrigger.ENTER_CELL,
                     operation.requestedPath().orderedPositions().get(index));
-            triggerResolver.resolveVisible(map, operation.requestedPath().orderedPositions().get(index));
         }
         if (!map.playerTokenPosition(operation.playerId(), operation.tokenId()).equals(operation.currentCell()))
             throw new IllegalStateException("movement reservation cursor does not match its current cell");
+    }
+    private List<String> resolveNewlyVisibleFeatures(CombatMap map) {
+        return resolveNewlyVisibleFeatures(map, triggerResolver);
+    }
+    private static List<String> resolveNewlyVisibleFeatures(CombatMap map,
+            com.dndmaster.combatmap.application.spatial.SpatialTriggerResolver triggerResolver) {
+        Set<GridPosition> previouslyVisible = map.visibilitySnapshot() == null
+                ? Set.of() : Set.copyOf(map.visibilitySnapshot().current());
+        map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
+        List<GridPosition> newlyVisible = map.visibilitySnapshot().current().stream()
+                .filter(cell -> !previouslyVisible.contains(cell)).toList();
+        return triggerResolver.resolveVisible(map, newlyVisible);
     }
     private static void requireMap(MovementResolutionOperation operation, MapId mapId) {
         if (!operation.mapId().equals(mapId)) throw new IllegalArgumentException("movement reservation does not belong to this map");

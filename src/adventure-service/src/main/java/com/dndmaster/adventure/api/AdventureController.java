@@ -291,7 +291,8 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/resume")
-    public ResponseEntity<?> resumePendingTurn(@PathVariable UUID adventureId, @PathVariable UUID pendingTurnId) {
+    public ResponseEntity<?> resumePendingTurn(@PathVariable UUID adventureId, @PathVariable UUID pendingTurnId,
+            @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
         UUID owner = playerResolver.playerId();
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         if (!adventure.ownerPlayerId().value().equals(owner)) {
@@ -301,7 +302,11 @@ public class AdventureController {
         if (!pending.adventureId().value().equals(adventureId)) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         }
-        var resumed = runtimeTurnService.resumeRuntimeTurn(pendingTurnId);
+        if (!pending.commandId().equals(idempotencyKey)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "IDEMPOTENCY_KEY_MISMATCH");
+        }
+        var resumed = runtimeTurnService.resumeRuntimeTurn(pendingTurnId, idempotencyKey);
         if (resumed.status() == com.dndmaster.adventure.application.runtime.RuntimeTurnCommitOrchestrator.Status.REPAIR_REQUIRED) {
             return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
                     .body(Map.of("error", "RUNTIME_TURN_REPAIR_REQUIRED"));
@@ -458,15 +463,16 @@ public class AdventureController {
         if (request == null || request.mapId() == null || request.operationId() == null
                 || !operationId.equals(request.operationId()) || request.checkId() == null
                 || request.ownerPlayerId() == null || !owner.equals(request.ownerPlayerId())
-                || request.commandId() == null || !idempotencyKey.equals(request.commandId())) {
+                || request.commandId() == null) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_SPATIAL_CHECK_ROLL");
         }
+        requireSpatialIdempotencyKey(idempotencyKey, request);
         if (combatMapViewPort.playerView(adventureId, owner).filter(view -> request.mapId().equals(view.mapId())).isEmpty()) {
             throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
         }
         var result = mapMovementCoordinator.rollAndResume(new com.dndmaster.adventure.application.combat.SpatialCheckRollCommand(
                 adventure.id().value(), request.mapId(), adventure.sessionId().value(), adventure.ruleSetId(), owner,
-                request.checkId(), operationId, request.expectedVersion()));
+                request.checkId(), operationId, request.commandId(), request.expectedVersion()));
         return AdventureMovementOperationResponse.from(result);
     }
 
@@ -551,6 +557,12 @@ public class AdventureController {
     }
 
     static void requireSpatialIdempotencyKey(UUID header, SpatialTurnRequest request) {
+        if (request == null || header == null || request.commandId() == null || !header.equals(request.commandId())) {
+            throw new ApiRequestGuard.ApiContractException(400, "IDEMPOTENCY_KEY_MISMATCH");
+        }
+    }
+
+    static void requireSpatialIdempotencyKey(UUID header, SpatialCheckRollRequest request) {
         if (request == null || header == null || request.commandId() == null || !header.equals(request.commandId())) {
             throw new ApiRequestGuard.ApiContractException(400, "IDEMPOTENCY_KEY_MISMATCH");
         }

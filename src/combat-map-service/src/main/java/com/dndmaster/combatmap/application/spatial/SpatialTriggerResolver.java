@@ -52,16 +52,28 @@ public final class SpatialTriggerResolver {
     public List<String> resolveVisible(CombatMap map, GridPosition cell) {
         Objects.requireNonNull(map, "combat map must not be null");
         Objects.requireNonNull(cell, "trigger cell must not be null");
+        return resolveVisible(map, List.of(cell));
+    }
+
+    /** Newly visible cells are one observation; a multi-cell feature fires once by feature id. */
+    public List<String> resolveVisible(CombatMap map, java.util.Collection<GridPosition> cells) {
+        Objects.requireNonNull(map, "combat map must not be null");
+        Objects.requireNonNull(cells, "visible cells must not be null");
         List<String> events = new ArrayList<>();
-        for (SpatialFeature feature : map.spatialFeatures()) {
-            if (!feature.cells().contains(cell) || !feature.triggers().contains(SpatialTrigger.BECOME_VISIBLE)
-                    || !feature.canTrigger()) continue;
-            if (feature.visibility() == SpatialFeatureVisibility.HIDDEN) feature.discover();
-            if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.SECRET_DOOR) {
-                events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
-            } else {
-                feature.trigger();
-                events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
+        Set<UUID> resolvedFeatureIds = new HashSet<>();
+        List<GridPosition> orderedCells = cells.stream().filter(Objects::nonNull).distinct()
+                .sorted(Comparator.comparingInt(GridPosition::x).thenComparingInt(GridPosition::y)).toList();
+        for (GridPosition cell : orderedCells) {
+            for (SpatialFeature feature : map.spatialFeatures()) {
+                if (!feature.cells().contains(cell) || !feature.triggers().contains(SpatialTrigger.BECOME_VISIBLE)
+                        || !feature.canTrigger() || !resolvedFeatureIds.add(feature.id())) continue;
+                if (feature.visibility() == SpatialFeatureVisibility.HIDDEN) feature.discover();
+                if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.SECRET_DOOR) {
+                    events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
+                } else {
+                    feature.trigger();
+                    events.add(eventName(feature, SpatialTrigger.BECOME_VISIBLE, cell));
+                }
             }
         }
         return List.copyOf(events);
