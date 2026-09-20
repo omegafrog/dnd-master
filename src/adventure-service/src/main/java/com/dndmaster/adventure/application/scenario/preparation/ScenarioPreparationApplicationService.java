@@ -333,7 +333,7 @@ public final class ScenarioPreparationApplicationService {
                 if (topicExcerpts.isEmpty()) throw new IllegalStateException("character blueprint extraction evidence is missing for field " + candidate.key());
                 List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> result = characterTagExtraction.extract(
                         new CharacterInputTagExtractionPort.Request(
-                                packageId + ":character-blueprint-refine:" + candidate.key() + ":" + UUID.randomUUID(),
+                                ownerPlayerId.value(), packageId + ":character-blueprint-refine:" + candidate.key() + ":" + UUID.randomUUID(),
                                 topicExcerpts, "character-input-tag-v1", "character-input-tag-prompt-v1",
                                 (spec == null
                                         ? "Keep key exactly '" + candidate.key() + "'."
@@ -376,7 +376,7 @@ public final class ScenarioPreparationApplicationService {
             if (excerpts.isEmpty()) continue;
             List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> extracted = characterTagExtraction.extract(
                     new CharacterInputTagExtractionPort.Request(
-                            packageId + ":character-blueprint-discovery:" + UUID.randomUUID(), excerpts,
+                            ownerPlayerId.value(), packageId + ":character-blueprint-discovery:" + UUID.randomUUID(), excerpts,
                             "character-input-tag-v1", "character-input-tag-prompt-v1",
                             "Discover source-grounded character-creation fields and directly visible selectable values for this retrieval topic: "
                                     + spec.extractionPolicy() + " A partial list is valid. Treat explicit choose/select language as evidence. "
@@ -401,7 +401,7 @@ public final class ScenarioPreparationApplicationService {
         if (excerpts.isEmpty()) return List.of();
         List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> extracted = characterTagExtraction.extract(
                 new CharacterInputTagExtractionPort.Request(
-                        packageId + ":storybook-character-sheet-additions:" + UUID.randomUUID(), excerpts,
+                        ownerPlayerId.value(), packageId + ":storybook-character-sheet-additions:" + UUID.randomUUID(), excerpts,
                         "character-input-tag-v1", "character-input-tag-prompt-v1",
                         "Extract only character-sheet fields affected by this storybook. For a finite list from which player must choose exactly one, emit SINGLE_SELECT with every allowed option. "
                                 + "For a value player must author, emit FREE_TEXT with empty options. Do not emit MULTI_SELECT unless storybook explicitly allows multiple choices. "
@@ -513,7 +513,7 @@ public final class ScenarioPreparationApplicationService {
                         java.util.Map.of("RULEBOOK", .50), 0)));
         if (excerpts.isEmpty()) return blueprint;
         List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates = characterTagExtraction.extract(
-                new CharacterInputTagExtractionPort.Request(packageId + ":class-equipment:" + UUID.randomUUID(), excerpts,
+                new CharacterInputTagExtractionPort.Request(ownerPlayerId.value(), packageId + ":class-equipment:" + UUID.randomUUID(), excerpts,
                         "character-input-tag-v1", "character-input-tag-prompt-v1",
                         "Extract only field 'class.startingEquipment' for selected class '" + selectedClass + "'. "
                                 + "Return selectable starting-equipment choices directly supported by excerpts, with one optionDetails item and exact evidence per option."));

@@ -1,0 +1,71 @@
+@startuml
+' 관련 요구사항: G-02, G-03, UC-03, BR-13, BR-15, AC-09, AC-16
+title 공간 요소의 종류별 업무 상태
+
+hide empty description
+state "공통 공개 상태" as Visibility {
+  state "숨김" as CommonHidden
+  state "공개됨" as CommonRevealed
+  CommonHidden --> CommonRevealed : 발견 또는 관찰 가능한 공개
+}
+
+state "함정" as Trap {
+  state "숨김" as TrapHidden
+  state "발견됨" as TrapFound
+  state "해제됨" as TrapDisarmed
+  state "발동됨" as TrapTriggered
+  state "반복 발동 가능 상태" as TrapRepeat
+  TrapHidden --> TrapFound : 발견
+  TrapFound --> TrapDisarmed : 해제 성공
+  TrapHidden --> TrapTriggered : 진입 등 발동 조건 충족
+  TrapFound --> TrapTriggered : 진입 등 발동 조건 충족
+  TrapTriggered --> TrapRepeat : 룰북이 반복 발동을 허용
+  TrapRepeat --> TrapTriggered : 발동 조건 다시 충족
+  TrapRepeat --> TrapDisarmed : 해제 성공
+}
+
+state "비밀문" as SecretDoor {
+  state "숨김" as DoorHidden
+  state "발견됨\n통행·시야 변화 없음" as DoorFound
+  state "열림\n통행·시야 변화" as DoorOpen
+  DoorHidden --> DoorFound : 발견
+  DoorFound --> DoorOpen : 별도 상호작용
+}
+
+state "위험 지역" as Hazard {
+  state "숨김 또는 공개됨" as HazardVisibility
+  state "활성" as HazardActive
+  state "해결됨" as HazardResolved
+  HazardVisibility --> HazardActive : 구성된 조건 충족
+  HazardActive --> HazardActive : 시나리오·룰북에 따라 지속
+  HazardActive --> HazardResolved : 해결
+}
+
+state "상호작용 대상" as InteractiveObject {
+  state "숨김 또는 공개됨" as ObjectVisibility
+  state "상호작용 가능" as ObjectAvailable
+  state "상호작용 결과 반영됨" as ObjectReflected
+  ObjectVisibility --> ObjectAvailable : 공개 또는 접근 가능
+  ObjectAvailable --> ObjectReflected : 상호작용 결과 확정
+}
+
+state "마법 범위 효과" as MagicArea {
+  state "생성됨·활성" as MagicActive
+  state "지속" as MagicPersisting
+  state "만료 또는 제거됨" as MagicEnded
+  MagicActive --> MagicPersisting : 효과 지속
+  MagicPersisting --> MagicPersisting : 진입·이탈·전투 턴 시작에 반응
+  MagicPersisting --> MagicEnded : 지속 시간 만료 또는 제거
+}
+
+note right of Visibility
+공개 여부는 공통 관점이지만,
+이후 업무 상태는 종류별로 다르다.
+하나의 공통 생명주기를 강제하지 않는다.
+end note
+
+note right of MagicArea
+생성 시 점유 칸은 고정된다.
+여러 마법 범위 효과가 겹칠 수 있다.
+end note
+@enduml

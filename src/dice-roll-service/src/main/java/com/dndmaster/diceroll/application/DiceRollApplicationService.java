@@ -34,6 +34,8 @@ public final class DiceRollApplicationService {
                     || !existing.ruleSetId().equals(command.ruleSetId())
                     || !existing.scope().equals(command.scope())
                     || !existing.expression().equals(command.expression())
+                    || !Objects.equals(existing.ruleReference(), command.ruleReference())
+                    || !Objects.equals(existing.difficulty(), command.difficulty())
                     || !existing.sessionId().equals(command.sessionId())
                     || !existing.turnId().equals(command.turnId())
                     || existing.expectedVersion() != command.expectedVersion()) {
@@ -64,6 +66,7 @@ public final class DiceRollApplicationService {
         Objects.requireNonNull(command, "command must not be null");
         return new DiceRoll(
                 RollId.generate(), command.adventureId(), command.ruleSetId(), command.scope(), command.expression(),
-                command.sessionId(), command.turnId(), command.commandId(), command.expectedVersion());
+                command.sessionId(), command.turnId(), command.commandId(), command.expectedVersion(),
+                command.ruleReference(), command.difficulty());
     }
 }

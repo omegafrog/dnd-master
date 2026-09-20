@@ -23,7 +23,13 @@ public class GmTurnFailureRecorder {
     public void record(GmTurn turn, UUID adventureId, UUID sessionId, Throwable failure, long version) {
         String safeFailure = safeFailure(failure);
         turns.save(turn.process().failRetryable(safeFailure), adventureId);
-        events.append(new SessionEvent(sessionId, UUID.randomUUID(), version + 1, "GM_TURN_FAILED", safeFailure));
+        events.appendNext(sessionId, UUID.randomUUID(), "GM_TURN_FAILED", safeFailure);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void recordResultProcessingFailure(UUID sessionId, UUID turnId, UUID commandId, long version, Throwable failure) {
+        events.append(new SessionEvent(sessionId, UUID.randomUUID(), version, "GM_TURN_RESULT_PROCESSING_FAILED",
+                "turnId=" + turnId + ";commandId=" + commandId + ";reason=" + safeFailure(failure)));
     }
 
     private static String safeFailure(Throwable failure) {

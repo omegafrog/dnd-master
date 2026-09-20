@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /** Enforces the authoritative lookup order and keeps source access behind typed ports. */
 public final class RuntimeFactLookupService {
@@ -21,14 +22,25 @@ public final class RuntimeFactLookupService {
     }
 
     public RuntimeFactLookupResult lookup(RuntimeFactLookupRequest request) {
+        return lookup(request, List.of(), null);
+    }
+
+    public RuntimeFactLookupResult lookup(UUID soloPlayerId, RuntimeFactLookupRequest request, List<RuntimeEvidence> storybookEvidence) {
+        return lookup(request, storybookEvidence, Objects.requireNonNull(soloPlayerId, "solo player id must not be null"));
+    }
+
+    private RuntimeFactLookupResult lookup(RuntimeFactLookupRequest request, List<RuntimeEvidence> storybookEvidence, UUID soloPlayerId) {
         Objects.requireNonNull(request, "lookup request must not be null");
+        storybookEvidence = List.copyOf(Objects.requireNonNull(storybookEvidence, "storybook evidence must not be null"));
         String query = lookupTopic(request.query());
 
         Optional<RuntimeFactLookupResult> established = findEstablished(request, query);
         if (established.isPresent()) return established.get();
 
         ScenarioLookupResult modelResult = Objects.requireNonNull(
-                scenarioModelLookup.lookup(new ScenarioModelLookupRequest(request.query(), request.lockedScenarioModel())),
+                soloPlayerId == null
+                        ? scenarioModelLookup.lookup(new ScenarioModelLookupRequest(request.query(), request.lockedScenarioModel()))
+                        : scenarioModelLookup.lookup(soloPlayerId, new ScenarioModelLookupRequest(request.query(), request.lockedScenarioModel())),
                 "scenario lookup result must not be null");
         if (modelResult.status() == ScenarioLookupResult.Status.FOUND) {
             validateSupportingElementIds(modelResult, request);
@@ -51,27 +63,7 @@ public final class RuntimeFactLookupService {
      * from dialogue generation while preserving the same precedence order.
      */
     public RuntimeFactLookupResult lookup(RuntimeFactLookupRequest request, List<RuntimeEvidence> storybookEvidence) {
-        Objects.requireNonNull(request, "lookup request must not be null");
-        storybookEvidence = List.copyOf(Objects.requireNonNull(storybookEvidence, "storybook evidence must not be null"));
-        String query = lookupTopic(request.query());
-        Optional<RuntimeFactLookupResult> established = findEstablished(request, query);
-        if (established.isPresent()) return established.get();
-
-        ScenarioLookupResult modelResult = Objects.requireNonNull(
-                scenarioModelLookup.lookup(new ScenarioModelLookupRequest(request.query(), request.lockedScenarioModel())),
-                "scenario lookup result must not be null");
-        if (modelResult.status() == ScenarioLookupResult.Status.FOUND) {
-            validateSupportingElementIds(modelResult, request);
-            return RuntimeFactLookupResult.foundScenario(modelResult.answer(), modelResult.supportingElementIds());
-        }
-        List<RuntimeEvidence> matches = storybookEvidence.stream()
-                .filter(evidence -> evidence != null && (contains(evidence.excerpt(), query)
-                        || contains(evidence.locator(), query) || (evidence.citationKey() != null && contains(evidence.citationKey(), query))))
-                .toList();
-        if (!matches.isEmpty()) {
-            return RuntimeFactLookupResult.foundRag(matches.getFirst().excerpt(), matches);
-        }
-        return RuntimeFactLookupResult.notFound();
+        return lookup(request, storybookEvidence, null);
     }
 
     private static Optional<RuntimeFactLookupResult> findEstablished(RuntimeFactLookupRequest request, String query) {

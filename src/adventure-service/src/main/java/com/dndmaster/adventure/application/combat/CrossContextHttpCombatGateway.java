@@ -1,5 +1,6 @@
 package com.dndmaster.adventure.application.combat;
 
+import com.dndmaster.adventure.application.runtime.TypedCheckRule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -19,7 +20,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class CrossContextHttpCombatGateway
-        implements CharacterCombatPort, DiceCombatPort, CombatMapPort, AiCombatPort {
+        implements CharacterCombatPort, DiceCombatPort, EnemyObservationRollPort, CombatMapPort, AiCombatPort {
     private static final int GRID_DISTANCE_UNIT = 5;
     private final HttpClient client;
     private final URI baseUri;
@@ -184,6 +185,59 @@ public final class CrossContextHttpCombatGateway
     }
 
     @Override
+    public int rollSpatialCheck(SpatialCheckRollCommand command) {
+        Objects.requireNonNull(command, "spatial check roll command must not be null");
+        try {
+            TypedCheckRule.DiceExpression dice = TypedCheckRule.DiceExpression.parse(
+                    command.diceExpression(), command.modifier());
+            PlayerCheckRollRequest request = new PlayerCheckRollRequest(command.adventureId(), command.ruleSetId().value(),
+                    "PLAYER_ACTION", command.ruleReference(), command.difficulty(), dice.count(), dice.sides(), dice.modifier(),
+                    command.sessionId(), command.operationId(), command.commandId(), command.expectedVersion());
+            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/dice-rolls/player"))
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
+                    .header("Idempotency-Key", command.commandId().toString())
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request))).build();
+            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("spatial check dice roll failed with status " + response.statusCode());
+            }
+            return objectMapper.readTree(response.body()).path("total").asInt(-1);
+        } catch (IOException exception) {
+            throw new CrossContextCallException("spatial check dice roll serialization failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("spatial check dice roll interrupted", exception);
+        }
+    }
+
+    @Override
+    public int rollEnemyObservation(EnemyObservationRollCommand command) {
+        Objects.requireNonNull(command, "enemy observation roll command must not be null");
+        try {
+            TypedCheckRule.DiceExpression dice = TypedCheckRule.DiceExpression.parse(command.diceExpression(), command.modifier());
+            EnemyObservationRollRequest request = new EnemyObservationRollRequest(command.adventureId(), command.ruleSetId().value(),
+                    "ENEMY", command.ruleReference(), command.difficulty(), dice.count(), dice.sides(), dice.modifier(),
+                    command.sessionId(), command.turnId(), command.commandId(), command.expectedVersion());
+            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/dice-rolls/enemy-observation"))
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
+                    .header("Idempotency-Key", command.commandId().toString())
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request))).build();
+            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("enemy observation dice roll failed with status " + response.statusCode());
+            }
+            return objectMapper.readTree(response.body()).path("total").asInt(-1);
+        } catch (IOException exception) {
+            throw new CrossContextCallException("enemy observation dice roll serialization failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("enemy observation dice roll interrupted", exception);
+        }
+    }
+
+    @Override
     public void validateAndMove(CombatActionCommand command) {
         move(new CombatMapMoveCommand(command, movementDistance(command), expectedMapVersion(command)));
     }
@@ -194,14 +248,190 @@ public final class CrossContextHttpCombatGateway
         if (command.combatMapId() == null || command.ownerPlayerId() == null || command.tokenId() == null) {
             throw new IllegalStateException("movement command requires ownerPlayerId and tokenId");
         }
-        String appliedEdition = characterSheetViews.computeIfAbsent(command.operationId(), ignored -> readCharacterSheet(command))
-                .edition();
+        String appliedEdition = moveCommand.appliedEdition() == null
+                ? characterSheetViews.computeIfAbsent(command.operationId(), ignored -> readCharacterSheet(command)).edition()
+                : moveCommand.appliedEdition();
         List<PositionRequest> positions = movementPositions(command.movementPath());
         MoveRequest request = new MoveRequest(
                 command.ownerPlayerId(), command.tokenId(), positions,
-                moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion());
-        String response = send("internal/v1/combat-maps/" + command.combatMapId() + "/moves", "POST", request, command);
-        return new CombatMapMoveResult(mapVersion(response, moveCommand.expectedVersion()));
+                moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion(),
+                moveCommand.previewFingerprint(), moveCommand.waypoints().stream().map(position -> new PositionRequest(position.x(), position.y())).toList());
+        String route = "internal/v1/combat-maps/" + command.combatMapId() + "/movement-operations";
+        Object body = new MovementOperationStartRequest(command.ownerPlayerId(), command.tokenId(), positions,
+                moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion(),
+                moveCommand.previewFingerprint() == null ? "legacy:" + command.operationId() : moveCommand.previewFingerprint(),
+                moveCommand.previewFingerprint(),
+                moveCommand.waypoints().stream().map(position -> new PositionRequest(position.x(), position.y())).toList());
+        String response = sendMovement(route, body, command);
+        return movementResult(response, moveCommand.expectedVersion());
+    }
+
+    @Override
+    public CombatMapPreviewResult preview(CombatMapPreviewCommand previewCommand) {
+        PreviewRequest request = new PreviewRequest(previewCommand.ownerPlayerId(), previewCommand.tokenId(),
+                new PositionRequest(previewCommand.destination().x(), previewCommand.destination().y()),
+                previewCommand.waypoints().stream().map(position -> new PositionRequest(position.x(), position.y())).toList(),
+                previewCommand.appliedEdition(), previewCommand.expectedVersion());
+        try {
+            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve(
+                            "internal/v1/combat-maps/" + previewCommand.mapId() + "/movement-previews"))
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request))).build();
+            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                if (response.statusCode() == 409 || response.statusCode() == 422) {
+                    throw new CombatMapMovementPreviewRejectedException(response.statusCode(), previewErrorCode(response.body()));
+                }
+                throw new CrossContextCallException("combat map movement preview failed with status " + response.statusCode());
+            }
+            PreviewResponse result = objectMapper.readValue(response.body(), PreviewResponse.class);
+            return new CombatMapPreviewResult(previewCommand.mapId(), result.orderedPositions().stream()
+                    .map(position -> new CombatMapPreviewPosition(position.x(), position.y())).toList(),
+                    result.distance(), result.baseMapVersion(), result.fingerprint());
+        } catch (IOException exception) {
+            throw new CrossContextCallException("combat map movement preview transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("combat map movement preview interrupted", exception);
+        }
+    }
+
+    @Override public CombatMapMoveResult movementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "GET"); }
+    @Override public CombatMapMoveResult latestMovementOperation(java.util.UUID mapId) { return latestOperationRequest(mapId); }
+    @Override public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) { return operationRequest(mapId, operationId, "POST", null); }
+    @Override public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId, CombatMapCheckSubmission submission) { return operationRequest(mapId, operationId, "POST", submission); }
+    @Override public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId,
+            java.util.UUID cancelCommandId) { return operationRequest(mapId, operationId, "DELETE", null, cancelCommandId); }
+
+    @Override public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) {
+        return spatialRequest(command.mapId(), "observe", command.commandId(), new SpatialActionRequest(command.ownerPlayerId(), command.tokenId(),
+                command.cell().x(), command.cell().y(), command.expectedVersion(), command.commandId()));
+    }
+
+    @Override public CombatMapSpatialResult interact(CombatMapSpatialActionCommand command) {
+        return spatialRequest(command.mapId(), "interact", command.commandId(), new SpatialActionRequest(command.ownerPlayerId(), command.tokenId(),
+                command.cell().x(), command.cell().y(), command.expectedVersion(), command.commandId()));
+    }
+
+    @Override public CombatMapSpatialResult combatTurnStart(CombatMapSpatialTurnCommand command) {
+        return spatialRequest(command.mapId(), "combat-turn-start", command.commandId(), new SpatialTurnRequest(command.ownerPlayerId(),
+                command.expectedVersion(), command.commandId()));
+    }
+
+    @Override public CombatMapSpatialResult advanceDurations(CombatMapSpatialTurnCommand command) {
+        return spatialRequest(command.mapId(), "advance-durations", command.commandId(), new SpatialTurnRequest(command.ownerPlayerId(),
+                command.expectedVersion(), command.commandId()));
+    }
+
+    private CombatMapSpatialResult spatialRequest(java.util.UUID mapId, String action, java.util.UUID commandId, Object body) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/spatial/" + action))
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .header("Idempotency-Key", commandId.toString()).POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body))).build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("combat map spatial action failed with status " + response.statusCode());
+            }
+            JsonNode value = objectMapper.readTree(response.body());
+            List<String> events = new ArrayList<>();
+            value.path("publicEvents").forEach(event -> events.add(event.asText()));
+            CombatMapPendingCheck pendingCheck = spatialPendingCheck(value.path("pendingCheck"));
+            return new CombatMapSpatialResult(java.util.UUID.fromString(value.path("mapId").asText()),
+                    value.path("mapVersion").asLong(), events,
+                    value.hasNonNull("operationId") ? java.util.UUID.fromString(value.path("operationId").asText()) : null,
+                    value.hasNonNull("status") ? value.path("status").asText() : null, pendingCheck);
+        } catch (IOException exception) {
+            throw new CrossContextCallException("combat map spatial action transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("combat map spatial action interrupted", exception);
+        }
+    }
+    private CombatMapPendingCheck spatialPendingCheck(JsonNode pending) {
+        return pending != null && pending.isObject() && pending.hasNonNull("checkId")
+                ? new CombatMapPendingCheck(java.util.UUID.fromString(pending.path("checkId").asText()),
+                        java.util.UUID.fromString(pending.path("operationId").asText()), pending.path("label").asText("판정"),
+                        pending.path("diceExpression").asText(), java.util.UUID.fromString(pending.path("ownerPlayerId").asText()),
+                        CombatMapCheckActor.valueOf(pending.path("actor").asText("PLAYER"))) : null;
+    }
+    private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method) { return operationRequest(mapId, operationId, method, null, operationId); }
+    private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method, CombatMapCheckSubmission submission) {
+        return operationRequest(mapId, operationId, method, submission, submission == null ? operationId : submission.commandId());
+    }
+    private CombatMapMoveResult operationRequest(java.util.UUID mapId, java.util.UUID operationId, String method,
+            CombatMapCheckSubmission submission, java.util.UUID cancelCommandId) {
+        try {
+            String route = "internal/v1/combat-maps/" + mapId + "/movement-operations/" + operationId + ("POST".equals(method) ? "/resume" : "");
+            HttpRequest.Builder request = HttpRequest.newBuilder(baseUri.resolve(route)).timeout(timeout).header("X-Internal-Token", internalToken);
+            if ("POST".equals(method)) request.header("Content-Type", "application/json")
+                    .header("Idempotency-Key", (submission == null ? operationId : submission.commandId()).toString())
+                    .POST(HttpRequest.BodyPublishers.ofString(submission == null ? "" : objectMapper.writeValueAsString(submission)));
+            else if ("DELETE".equals(method)) request.header("Content-Type", "application/json")
+                    .header("Idempotency-Key", cancelCommandId.toString())
+                    .method("DELETE", HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(
+                            new MovementCancelRequest(operationId, cancelCommandId)))); else request.GET();
+            HttpResponse<String> response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                if (response.statusCode() == 409 || response.statusCode() == 422) {
+                    throw new CombatMapMovementPreviewRejectedException(response.statusCode(), previewErrorCode(response.body()));
+                }
+                throw new CrossContextCallException("combat map movement operation failed with status " + response.statusCode());
+            }
+            return movementResult(response.body(), 0);
+        } catch (IOException exception) { throw new CrossContextCallException("combat map movement operation transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new CrossContextCallException("combat map movement operation interrupted", exception); }
+    }
+
+    private CombatMapMoveResult latestOperationRequest(java.util.UUID mapId) {
+        try {
+            String route = "internal/v1/combat-maps/" + mapId + "/movement-operations";
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve(route)).timeout(timeout)
+                    .header("X-Internal-Token", internalToken).GET().build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 204 || response.statusCode() == 404) return null;
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                if (response.statusCode() == 409 || response.statusCode() == 422) {
+                    throw new CombatMapMovementPreviewRejectedException(response.statusCode(), previewErrorCode(response.body()));
+                }
+                throw new CrossContextCallException("latest combat map movement operation failed with status " + response.statusCode());
+            }
+            return movementResult(response.body(), 0);
+        } catch (IOException exception) { throw new CrossContextCallException("latest combat map movement operation transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new CrossContextCallException("latest combat map movement operation interrupted", exception); }
+    }
+
+    private String previewErrorCode(String responseBody) {
+        try {
+            JsonNode body = objectMapper.readTree(responseBody == null ? "" : responseBody);
+            String code = body == null ? "" : body.path("code").asText();
+            return code.isBlank() ? "MOVEMENT_PREVIEW_REJECTED" : code;
+        } catch (IOException ignored) {
+            return "MOVEMENT_PREVIEW_REJECTED";
+        }
+    }
+
+    private String sendMovement(String path, Object body, CombatActionCommand command) {
+        try {
+            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve(path))
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
+                    .header("Idempotency-Key", command.operationId().toString())
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body))).build();
+            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                if (response.statusCode() == 409 || response.statusCode() == 422) {
+                    throw new CombatMapMovementPreviewRejectedException(response.statusCode(), previewErrorCode(response.body()));
+                }
+                throw new CrossContextCallException("combat map movement failed with status " + response.statusCode());
+            }
+            return response.body();
+        } catch (IOException exception) {
+            throw new CrossContextCallException("combat map movement transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("combat map movement interrupted", exception);
+        }
     }
 
     private static int movementDistance(CombatActionCommand command) {
@@ -220,6 +450,46 @@ public final class CrossContextHttpCombatGateway
         } catch (IOException exception) {
             throw new CrossContextCallException("combat map returned malformed movement result", exception);
         }
+    }
+    private CombatMapMoveResult movementResult(String response, long fallback) {
+        try {
+            JsonNode body = objectMapper.readTree(response);
+            String outcomeStatus = body.hasNonNull("outcomeStatus")
+                    ? body.path("outcomeStatus").asText() : body.path("status").asText("RETRY_WAIT");
+            CombatMapMovementStatus status = CombatMapMovementStatus.fromCombatMapStatus(outcomeStatus);
+            long version = body.hasNonNull("mapVersion") ? body.path("mapVersion").asLong() : fallback;
+            java.util.UUID operationId = body.hasNonNull("operationId") ? java.util.UUID.fromString(body.path("operationId").asText()) : null;
+            java.util.List<CombatMapPreviewPosition> traversed = new java.util.ArrayList<>();
+            for (JsonNode position : body.path("traversedPath")) traversed.add(new CombatMapPreviewPosition(position.path("x").asInt(), position.path("y").asInt()));
+            java.util.List<CombatMapPreviewPosition> requested = new java.util.ArrayList<>();
+            for (JsonNode position : body.path("requestedPath")) requested.add(new CombatMapPreviewPosition(position.path("x").asInt(), position.path("y").asInt()));
+            JsonNode finalPosition = body.path("finalPosition");
+            CombatMapPreviewPosition finalCell = finalPosition.isObject() ? new CombatMapPreviewPosition(finalPosition.path("x").asInt(), finalPosition.path("y").asInt()) : null;
+            java.util.List<String> events = new java.util.ArrayList<>();
+            for (JsonNode event : body.path("publicEvents")) events.add(event.asText());
+            JsonNode pending = body.path("pendingCheck");
+            CombatMapPendingCheck pendingCheck = pending.isObject() && pending.hasNonNull("checkId")
+                    ? new CombatMapPendingCheck(java.util.UUID.fromString(pending.path("checkId").asText()),
+                            java.util.UUID.fromString(pending.path("operationId").asText()), pending.path("label").asText("판정"),
+                            pending.path("diceExpression").asText(),
+                            java.util.UUID.fromString(pending.path("ownerPlayerId").asText()),
+                            CombatMapCheckActor.valueOf(pending.path("actor").asText("PLAYER"))) : null;
+            JsonNode details = body.path("pendingCheckDetails");
+            CombatMapCheckDetails pendingCheckDetails = details.isObject() && details.hasNonNull("checkId")
+                    ? new CombatMapCheckDetails(java.util.UUID.fromString(details.path("checkId").asText()),
+                            java.util.UUID.fromString(details.path("operationId").asText()),
+                            details.path("ruleReference").asText(),
+                            details.path("diceExpression").asText(),
+                            details.path("modifier").asInt(),
+                            details.hasNonNull("difficulty") ? details.path("difficulty").asInt() : null,
+                            java.util.UUID.fromString(details.path("ownerPlayerId").asText()),
+                            CombatMapCheckActor.valueOf(details.path("actor").asText("PLAYER"))) : null;
+            java.util.UUID hostileTokenId = body.hasNonNull("hostileTokenId")
+                    ? java.util.UUID.fromString(body.path("hostileTokenId").asText()) : null;
+            return new CombatMapMoveResult(version, operationId, status, requested, traversed, finalCell, events,
+                    body.hasNonNull("interruptionReason") ? body.path("interruptionReason").asText() : null, pendingCheck,
+                    pendingCheckDetails).withHostileTokenId(hostileTokenId);
+        } catch (IOException exception) { throw new CrossContextCallException("combat map returned malformed movement result", exception); }
     }
 
     @Override
@@ -340,10 +610,30 @@ public final class CrossContextHttpCombatGateway
             String startingAbilities, String derivedStatistics, String characterBuild, String characterState,
             java.util.Map<String, String> blueprintValues) {}
     private record RuntimeMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems, List<String> removeItems) {}
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
     private record MoveRequest(
             java.util.UUID playerId, java.util.UUID tokenId, List<PositionRequest> positions, int distance,
-            String appliedEdition, java.util.UUID commandId, long expectedVersion) {}
+            String appliedEdition, java.util.UUID commandId, long expectedVersion,
+            String fingerprint, List<PositionRequest> waypoints) {}
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
+    private record MovementOperationStartRequest(
+            java.util.UUID playerId, java.util.UUID tokenId, List<PositionRequest> positions, int distance,
+            String appliedEdition, java.util.UUID commandId, long expectedVersion, String fingerprint,
+            String previewFingerprint, List<PositionRequest> waypoints) {}
+    private record PreviewRequest(java.util.UUID playerId, java.util.UUID tokenId, PositionRequest destination,
+            List<PositionRequest> waypoints, String appliedEdition, long expectedVersion) {}
+    private record PreviewResponse(List<PositionRequest> orderedPositions, int distance, long baseMapVersion, String fingerprint) {}
     private record PositionRequest(int x, int y) {}
+    private record SpatialActionRequest(java.util.UUID ownerId, java.util.UUID tokenId, int x, int y,
+            long expectedVersion, java.util.UUID commandId) {}
+    private record MovementCancelRequest(java.util.UUID operationId, java.util.UUID commandId) {}
+    private record SpatialTurnRequest(java.util.UUID ownerId, long expectedVersion, java.util.UUID commandId) {}
+    private record PlayerCheckRollRequest(java.util.UUID adventureId, java.util.UUID ruleSetId, String scope,
+            String ruleReference, Integer difficulty, int count, int sides, int modifier, java.util.UUID sessionId, java.util.UUID turnId,
+            java.util.UUID commandId, long expectedVersion) {}
+    private record EnemyObservationRollRequest(java.util.UUID adventureId, java.util.UUID ruleSetId, String scope,
+            String ruleReference, Integer difficulty, int count, int sides, int modifier, java.util.UUID sessionId,
+            java.util.UUID turnId, java.util.UUID commandId, long expectedVersion) {}
     private record AiStateRequest(
             java.util.UUID ownerId, java.util.UUID tokenId, int x, int y, java.util.UUID commandId,
             long expectedVersion, List<LayerRequest> layers) {}

@@ -24,17 +24,166 @@ class OpenApiSchemaTest {
         assertPaths("adventure", "/api/v1/adventures/{adventureId}/turns", "/api/v1/adventures/{adventureId}/rule-inquiries",
                 "/internal/v1/adventures", "/internal/v1/adventures/{adventureId}/edition",
                 "/internal/v1/adventures/{adventureId}/roll-conditions",
-                "/internal/v1/adventures/{adventureId}/movement-validations");
+                "/internal/v1/adventures/{adventureId}/movement-validations",
+                "/api/v1/adventures/{adventureId}/map-movement/pending",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/observe",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/interact",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/combat-turn-start",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations",
+                "/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}",
+                "/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}/roll");
+        assertResumeTurnIdempotencyContract();
         assertCombatMapTriggerQualification();
+        assertMovementContracts();
         assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/{rulebookId}/source-preview", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",
                 "/internal/v1/rulebook-indexes", "/internal/v1/rulebooks/{rulebookId}/ownership",
                 "/internal/v1/rule-evidence/search");
         assertPaths("character-management", "/internal/v1/character-sheets/{sheetId}");
         assertPaths("dice-roll", "/internal/v1/dice-rolls/player", "/internal/v1/dice-rolls/ai");
+        assertDiceRollSecurityContract();
         assertPaths("combat-map", "/internal/v1/combat-maps/{mapId}/player-view",
-                "/internal/v1/combat-maps/{mapId}/moves", "/internal/v1/combat-maps/{mapId}/ai-state");
+                "/internal/v1/combat-maps/{mapId}/moves", "/internal/v1/combat-maps/{mapId}/ai-state",
+                "/internal/v1/combat-maps/{mapId}/spatial/observe",
+                "/internal/v1/combat-maps/{mapId}/spatial/interact",
+                "/internal/v1/combat-maps/{mapId}/spatial/combat-turn-start",
+                "/internal/v1/combat-maps/{mapId}/spatial/advance-durations");
         assertPaths("ai-game-master", "/internal/v1/gm/scenes", "/internal/v1/gm/judgments",
                 "/internal/v1/gm/rule-answers", "/internal/v1/gm/maps", "/internal/v1/gm/intent-classifications");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertResumeTurnIdempotencyContract() throws IOException {
+        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve("adventure/openapi.yaml")));
+        Map<String, Object> paths = (Map<String, Object>) root.get("paths");
+        Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths
+                .get("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/resume")).get("post");
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) operation.get("parameters");
+        assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertDiceRollSecurityContract() throws IOException {
+        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve("dice-roll/openapi.yaml")));
+        Map<String, Object> paths = (Map<String, Object>) root.get("paths");
+        Map<String, Object> player = (Map<String, Object>) ((Map<String, Object>) paths.get("/internal/v1/dice-rolls/player")).get("post");
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) player.get("parameters");
+        assertTrue(parameters.stream().anyMatch(parameter -> "X-Internal-Token".equals(parameter.get("name"))
+                && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))));
+        assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))));
+        Map<String, Object> components = (Map<String, Object>) root.get("components");
+        Map<String, Object> enemyRequest = (Map<String, Object>) ((Map<String, Object>) components.get("schemas"))
+                .get("EnemyObservationRollRequest");
+        Map<String, Object> sides = (Map<String, Object>) ((Map<String, Object>) enemyRequest.get("properties")).get("sides");
+        assertEquals(2, sides.get("minimum"), "dice sides must match DiceExpression runtime validation");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertMovementContracts() throws IOException {
+        Map<String, Object> combatMap = new Yaml().load(Files.readString(CONTRACTS.resolve("combat-map").resolve("openapi.yaml")));
+        Map<String, Object> paths = (Map<String, Object>) combatMap.get("paths");
+        for (String path : List.of("/internal/v1/combat-maps/{mapId}/spatial/observe",
+                "/internal/v1/combat-maps/{mapId}/spatial/interact",
+                "/internal/v1/combat-maps/{mapId}/spatial/combat-turn-start",
+                "/internal/v1/combat-maps/{mapId}/spatial/advance-durations")) {
+            Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths.get(path)).get("post");
+            List<Map<String, Object>> spatialParameters = (List<Map<String, Object>>) operation.get("parameters");
+            assertTrue(spatialParameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                    && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))),
+                    path + " must require Idempotency-Key");
+        }
+        Map<String, Object> legacyMove = (Map<String, Object>) ((Map<String, Object>) paths.get("/internal/v1/combat-maps/{mapId}/moves")).get("post");
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) legacyMove.get("parameters");
+        assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                && Boolean.TRUE.equals(parameter.get("required"))),
+                "legacy move contract must require Idempotency-Key");
+        Map<String, Object> internalCancel = (Map<String, Object>) ((Map<String, Object>) paths
+                .get("/internal/v1/combat-maps/{mapId}/movement-operations/{operationId}")).get("delete");
+        assertRequiredHeader(internalCancel, "internal cancel");
+        assertTrue(internalCancel.toString().contains("Distinct cancel command identity"));
+        assertRequiredJsonBody(internalCancel, "MovementCancelRequest", "internal cancel");
+
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) combatMap.get("components")).get("schemas");
+        Map<String, Object> operation = (Map<String, Object>) schemas.get("MovementOperationResponse");
+        Map<String, Object> properties = (Map<String, Object>) operation.get("properties");
+        assertNullableFinalPosition(properties, "staged movement");
+        assertTrue(properties.containsKey("pendingCheck"), "staged movement must expose a safe pending check projection");
+        Map<String, Object> submission = (Map<String, Object>) schemas.get("MovementCheckResultSubmission");
+        assertEquals(List.of("commandId", "operationId", "checkId", "success", "ownerPlayerId", "actor"), submission.get("required"));
+
+        Map<String, Object> adventure = new Yaml().load(Files.readString(CONTRACTS.resolve("adventure").resolve("openapi.yaml")));
+        Map<String, Object> adventurePaths = (Map<String, Object>) adventure.get("paths");
+        for (String path : List.of("/api/v1/adventures/{adventureId}/combat-map/spatial/observe",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/interact",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/combat-turn-start",
+                "/api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations")) {
+            Map<String, Object> spatialOperation = (Map<String, Object>) ((Map<String, Object>) adventurePaths.get(path)).get("post");
+            List<Map<String, Object>> spatialParameters = (List<Map<String, Object>>) spatialOperation.get("parameters");
+            assertTrue(spatialParameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                    && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))),
+                    path + " must require Idempotency-Key");
+        }
+        Map<String, Object> adventureCancel = (Map<String, Object>) ((Map<String, Object>) adventurePaths
+                .get("/api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}")).get("delete");
+        assertRequiredHeader(adventureCancel, "adventure cancel");
+        assertTrue(adventureCancel.toString().contains("Distinct cancel command identity"));
+        Map<String, Object> adventureSchemas = (Map<String, Object>) ((Map<String, Object>) adventure.get("components")).get("schemas");
+        Map<String, Object> followUp = (Map<String, Object>) adventureSchemas.get("MovementFollowUpCommand");
+        Map<String, Object> followUpProperties = (Map<String, Object>) followUp.get("properties");
+        assertEquals(List.of("commandId", "operationId", "hostileTokenId", "turnId", "kind", "trigger"),
+                followUp.get("required"));
+        assertEquals("uuid", ((Map<String, Object>) followUpProperties.get("hostileTokenId")).get("format"));
+        assertEquals("uuid", ((Map<String, Object>) followUpProperties.get("turnId")).get("format"));
+        assertEquals(List.of("COMBAT"), ((Map<String, Object>) followUpProperties.get("kind")).get("enum"));
+        assertEquals(List.of("HOSTILE_OBSERVED"), ((Map<String, Object>) followUpProperties.get("trigger")).get("enum"));
+        assertNullableFinalPosition(schemaProperties(adventureSchemas, "MovementResult"), "Adventure movement result");
+        assertNullableFinalPosition(schemaProperties(adventureSchemas, "AdventureMovementOperationResponse"),
+                "Adventure movement operation response");
+        assertNullableProperty(schemaProperties(adventureSchemas, "RuntimeTurnResponse"), "movementResult",
+                "Runtime turn response movement result");
+        assertTrue(schemaProperties(adventureSchemas, "AdventureMovementOperationResponse").containsKey("pendingCheck"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> schemaProperties(Map<String, Object> schemas, String schemaName) {
+        Map<String, Object> schema = (Map<String, Object>) schemas.get(schemaName);
+        return (Map<String, Object>) schema.get("properties");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertRequiredHeader(Map<String, Object> operation, String contractName) {
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) operation.get("parameters");
+        assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                && "header".equals(parameter.get("in")) && Boolean.TRUE.equals(parameter.get("required"))),
+                contractName + " must require Idempotency-Key");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertRequiredJsonBody(Map<String, Object> operation, String schemaName, String contractName) {
+        Map<String, Object> body = (Map<String, Object>) operation.get("requestBody");
+        assertTrue(Boolean.TRUE.equals(body.get("required")), contractName + " must require a request body");
+        Map<String, Object> content = (Map<String, Object>) body.get("content");
+        Map<String, Object> json = (Map<String, Object>) content.get("application/json");
+        Map<String, Object> schema = (Map<String, Object>) json.get("schema");
+        assertEquals("#/components/schemas/" + schemaName, schema.get("$ref"), contractName + " body schema");
+    }
+
+    private static void assertNullableFinalPosition(Map<String, Object> properties, String contractName) {
+        Map<String, Object> finalPosition = (Map<String, Object>) properties.get("finalPosition");
+        assertTrue(finalPosition.containsKey("oneOf") || finalPosition.containsKey("nullable"),
+                contractName + " finalPosition must allow null before a terminal result");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertNullableProperty(Map<String, Object> properties, String propertyName, String contractName) {
+        Map<String, Object> property = (Map<String, Object>) properties.get(propertyName);
+        boolean oneOfNull = property.get("oneOf") instanceof List<?> variants
+                && variants.stream().anyMatch(variant -> variant instanceof Map<?, ?> schema
+                        && "null".equals(schema.get("type")));
+        assertTrue(oneOfNull || Boolean.TRUE.equals(property.get("nullable"))
+                        || (property.get("type") instanceof List<?> types && types.contains("null")),
+                contractName + " must allow null");
     }
 
     @SuppressWarnings("unchecked")
@@ -73,6 +222,11 @@ class OpenApiSchemaTest {
         assertEquals(1, candidate.at("/properties/sources/minItems").asInt());
         assertEquals("PLAYER_VISIBLE", playerMap.at("/properties/layers/items/properties/visibility/const").asText());
         assertFalse(playerMap.toString().contains("AI_ONLY"));
+        assertTrue(playerMap.at("/required").toString().contains("spatialFeatures"));
+        assertTrue(playerMap.at("/properties/spatialFeatures/items/required").toString().contains("interactable"));
+        assertFalse(playerMap.at("/properties/spatialFeatures").toString().contains("difficulty"));
+        assertFalse(playerMap.at("/properties/spatialFeatures").toString().contains("ruleReference"));
+        assertFalse(playerMap.at("/properties/spatialFeatures").toString().contains("payload"));
         assertTrue(evidenceSearch.at("/required").toString().contains("queryIntent"));
     }
 
@@ -104,6 +258,20 @@ class OpenApiSchemaTest {
         assertTrue(parameters.stream().anyMatch(parameter ->
                 "ownerId".equals(parameter.get("name")) && "query".equals(parameter.get("in"))
                         && Boolean.TRUE.equals(parameter.get("required"))));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    void combat_map_internal_movement_contract_keeps_enemy_check_details_out_of_player_pending_check() throws IOException {
+        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve("combat-map/openapi.yaml")));
+        Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) root.get("components")).get("schemas");
+        Map<String, Object> pending = (Map<String, Object>) schemas.get("MovementCheckPending");
+        Map<String, Object> details = (Map<String, Object>) schemas.get("MovementCheckDetails");
+        Map<String, Object> pendingActor = (Map<String, Object>) ((Map<String, Object>) pending.get("properties")).get("actor");
+        Map<String, Object> detailsActor = (Map<String, Object>) ((Map<String, Object>) details.get("properties")).get("actor");
+        assertEquals(List.of("PLAYER"), pendingActor.get("enum"));
+        assertEquals(List.of("PLAYER", "ENEMY"), detailsActor.get("enum"));
+        assertTrue(details.get("description").toString().contains("Internal-only"));
     }
 
     @SuppressWarnings("unchecked")

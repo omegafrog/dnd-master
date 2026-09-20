@@ -41,7 +41,7 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map view failed");
             Payload payload = mapper.readValue(response.body(), Payload.class);
             return Optional.of(new View(payload.mapId(), new Grid(payload.grid().width(), payload.grid().height(), payload.grid().cellSize(), payload.grid().distanceUnit()),
-                    payload.tokens(), payload.obstacles(), payload.doors(), payload.layers(), payload.current(), payload.explored(), payload.version(), startCandidates(payload.playerStartCandidates())));
+                    payload.tokens(), payload.obstacles(), payload.doors(), payload.layers(), payload.current(), payload.explored(), payload.version(), startCandidates(payload.playerStartCandidates()), spatialFeatures(payload.spatialFeatures())));
         } catch (IOException exception) { throw new IllegalStateException("combat map view transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map view interrupted", exception); }
     }
@@ -55,7 +55,7 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             if (response.statusCode() == 404 || response.statusCode() == 403) return Optional.empty();
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map preparation view failed");
             Payload payload = mapper.readValue(response.body(), Payload.class);
-            return Optional.of(new View(payload.mapId(), new Grid(payload.grid().width(), payload.grid().height(), payload.grid().cellSize(), payload.grid().distanceUnit()), payload.tokens(), payload.obstacles(), payload.doors(), payload.layers(), payload.current(), payload.explored(), payload.version(), startCandidates(payload.playerStartCandidates())));
+            return Optional.of(new View(payload.mapId(), new Grid(payload.grid().width(), payload.grid().height(), payload.grid().cellSize(), payload.grid().distanceUnit()), payload.tokens(), payload.obstacles(), payload.doors(), payload.layers(), payload.current(), payload.explored(), payload.version(), startCandidates(payload.playerStartCandidates()), spatialFeatures(payload.spatialFeatures())));
         } catch (IOException exception) { throw new IllegalStateException("combat map preparation view transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map preparation view interrupted", exception); }
     }
@@ -201,12 +201,14 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
 
     private record Payload(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Door> doors, List<Layer> layers,
-            List<Position> current, List<Position> explored, long version, List<StartCandidatePayload> playerStartCandidates) {
+            List<Position> current, List<Position> explored, long version, List<StartCandidatePayload> playerStartCandidates,
+            List<SpatialFeaturePayload> spatialFeatures) {
         private Payload { playerStartCandidates = playerStartCandidates == null ? List.of() : List.copyOf(playerStartCandidates); }
     }
     private record StartCandidatePayload(int x, int y, double confidence, List<String> evidence, String source) {
         private StartCandidatePayload { evidence = evidence == null ? List.of() : List.copyOf(evidence); }
     }
+    private record SpatialFeaturePayload(UUID id, String type, List<Position> cells, String visibility, String state, boolean interactable) {}
     private record Calibration(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     private record Layout(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors,
@@ -251,5 +253,10 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
     private static List<StartCandidate> startCandidates(List<StartCandidatePayload> values) {
         return values == null ? List.of() : values.stream().map(value -> new StartCandidate(value.x(), value.y(), value.confidence(), value.evidence(), value.source())).toList();
+    }
+    private static List<SpatialFeature> spatialFeatures(List<SpatialFeaturePayload> values) {
+        return values == null ? List.of() : values.stream()
+                .map(value -> new SpatialFeature(value.id(), value.type(), value.cells(), value.visibility(), value.state(), value.interactable()))
+                .toList();
     }
 }

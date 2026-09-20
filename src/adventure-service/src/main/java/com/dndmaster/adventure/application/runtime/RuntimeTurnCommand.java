@@ -63,10 +63,14 @@ public record RuntimeTurnCommand(
     }
 
     public RuntimeTurnCommand failed(String error) {
+        return failed(error, outcomeJson);
+    }
+
+    public RuntimeTurnCommand failed(String error, String outcome) {
         return new RuntimeTurnCommand(commandId, turnId, adventureId, sessionId, ownerPlayerId, targetContext,
                 commandType, payloadJson, ExecutionStatus.FAILED, executionOrder, idempotencyKey,
                 required(error == null || error.isBlank() ? "unknown command failure" : error, "command error"),
-                attemptCount + 1, outcomeJson);
+                attemptCount + 1, outcome == null ? "" : outcome);
     }
 
     private static String required(String value, String name) {

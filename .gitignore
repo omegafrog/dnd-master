@@ -56,6 +56,10 @@ docs/plans/plans.md
 !docs/specs/**
 !docs/plans/
 !docs/plans/*.md
+!docs/plans/**/
+!docs/plans/**/*.md
+docs/plans/.runtime/
+docs/plans/.runtime/**
 
 # Generated Graphify knowledge graph
 /graphify-out/

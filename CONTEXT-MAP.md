@@ -15,7 +15,7 @@
 | AI Game Master | Resolution 후보, 시작 위치 후보, Runtime Plan, narration, 안전 검사 제안 | 제한된 근거와 버전된 스키마 | 저장 권한 없는 AI 후보·제안 | `ai-game-master-service` |
 | Dice Roll | 주사위 실행과 결과 정본 | 멱등 Roll Command | 불변 Roll Result | `dice-roll-service` |
 | Character Management | 캐릭터 HP, 인벤토리, 효과, 자원 | 버전 조건부 Character Command | 캐릭터 상태 | `character-management-service` |
-| Combat Map | 지도, 토큰, 이동 상태 | 버전 조건부 Map Command | 전투 지도 상태 | `combat-map-service` |
+| Combat Map | 지도, 토큰, 공간 요소, 칸별 이동 해결, 시야·탐험 상태 | 버전 조건부 Map Command | 전술 지도 상태와 공간적 사실 | `combat-map-service` |
 
 ## 3. 관계
 
@@ -27,4 +27,8 @@
 - Adventure Runtime은 Dice Roll, Character Management, Combat Map의 상태를 복제하지 않고 Runtime Command Saga로 조정한다.
 - Adventure Runtime의 `CombatEncounter` Aggregate는 전투 lifecycle과 순서를 소유한다. Dice Roll은 굴림 결과, Character Management는 캐릭터 상태, Combat Map은 지도·위치 상태의 정본을 계속 소유한다.
 - AI Game Master는 전투 시작·종료, Free-form Action, AI Turn과 AI Reaction에 대해 구조화된 제안만 제공한다. Adventure Runtime의 Game Engine과 `CombatEncounter`가 제안을 검증하고 상태 변경을 확정한다.
+- AI Game Master는 자연어 이동과 공간 요소 위치를 구조화된 후보로만 제안한다. Combat Map은 확인된 이동과 검증된 배치만 지도 상태에 반영한다.
+- Combat Map은 확인된 이동을 칸 순서대로 해결하고 공간 요소 반응과 적의 인지 같은 공간적 사실을 Adventure Runtime에 전달한다. Adventure Runtime은 룰북 판정, 행동 비용, 전투·경고·대화·추격 같은 진행 결과를 확정한다.
+- Adventure Runtime은 Combat Map의 이동 예약을 조정하고, 요청된 지각·해제·내성·피해 판정을 해결한 결과를 돌려준다. Combat Map은 최종 반영 전 실패에서 예약을 취소하고, 최종 반영 뒤의 캐릭터 HP·상태·자원 변경은 Adventure Runtime이 기존 Runtime Command Saga로 완료한다.
+- Combat Map은 함정의 위치·공개 상태·발동 상태와 이동 중단을 소유한다. Dice Roll은 주사위 결과를, Character Management는 HP·상태·자원 변경을 계속 소유한다.
 - Adventure Runtime은 Combat snapshot과 Event를 적 비공개 정보가 제거된 player projection으로 변환해 REST와 SSE로 제공한다.

@@ -33,6 +33,8 @@ class RulebookTimeDefinitionGatewayTest {
                 UUID.randomUUID(), 1, 1, configuration);
         AdventureSessionRepository sessions = new AdventureSessionRepository() {
             public Optional<AdventureSession> findById(SessionId id) { return id.equals(session.id()) ? Optional.of(session) : Optional.empty(); }
+            public boolean tryAcquireAiRequest(SessionId id, OwnerPlayerId owner, UUID requestId) { return false; }
+            public boolean releaseAiRequest(SessionId id, OwnerPlayerId owner, UUID requestId) { return false; }
             public void save(AdventureSession value, long expectedVersion) {}
         };
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);

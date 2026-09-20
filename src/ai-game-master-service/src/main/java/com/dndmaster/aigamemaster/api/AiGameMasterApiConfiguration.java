@@ -3,6 +3,8 @@ package com.dndmaster.aigamemaster.api;
 import com.dndmaster.aigamemaster.application.ports.AdjudicationModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapEntryPlacementModelPort;
+import com.dndmaster.aigamemaster.application.ports.SpatialFeaturePlacementModelPort;
+import com.dndmaster.aigamemaster.application.ports.MovementPlacementModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationOutput;
 import com.dndmaster.aigamemaster.application.rule.*;
@@ -11,7 +13,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionRouter;
-import com.dndmaster.aigamemaster.infrastructure.ai.CodexAppServerClient;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt;
 import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
 import com.dndmaster.aigamemaster.configuration.LocalOllamaProperties;
@@ -52,19 +54,10 @@ public class AiGameMasterApiConfiguration {
         return registry;
     }
 
-    @Bean(destroyMethod = "close")
-    CodexAppServerClient codexAppServerClient(
-            @Value("${ai.codex.executable:codex}") String codexExecutable,
-            @Value("${ai.codex.work-directory:/tmp}") String codexWorkDirectory,
-            @Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout,
-            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
-        return CodexAppServerClient.shared(codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout, objectMapper);
-    }
-
     @Bean
     SceneModelPort sceneModelPort(GmCompletionAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper mapper) {
         return prompt -> {
-            String grounded = adapter.complete("scene-" + UUID.randomUUID(), prompt.value(),
+            String grounded = adapter.complete(prompt.soloPlayerId(), "scene-" + UUID.randomUUID(), prompt.value(),
                     text -> groundedScene(mapper, text, evidenceCount(prompt.value())));
             ScenarioAlignment alignment = grounded.lines().anyMatch(line -> line.startsWith("[RUNTIME_FACT]"))
                     ? ScenarioAlignment.RUNTIME_INTERACTION : ScenarioAlignment.WITHIN_SELECTED_SCENARIO;
@@ -117,7 +110,7 @@ public class AiGameMasterApiConfiguration {
     @Bean
     RuleAnswerModelPort ruleAnswerModelPort(GmCompletionAdapter adapter) {
         return request -> adapter.complete(
-                "rule-" + UUID.randomUUID(), request.situation(), text -> {
+                request.soloPlayerId(), "rule-" + UUID.randomUUID(), request.situation(), text -> {
                     // TODO: implement real JSON parsing from AI response
                     return new RuleAnswerOutput(EvidenceStatus.INSUFFICIENT, null, List.of(), List.of(), true);
                 });
@@ -126,7 +119,7 @@ public class AiGameMasterApiConfiguration {
     @Bean
     AdjudicationModelPort adjudicationModelPort(GmCompletionAdapter adapter) {
         return input -> adapter.complete(
-                "adjudicate-" + UUID.randomUUID(), input.toString(), text -> {
+                input.soloPlayerId(), "adjudicate-" + UUID.randomUUID(), input.toString(), text -> {
                     // TODO: implement real JSON parsing from AI response
                     return new AdjudicationModelPort.AdjudicationOutput(text, "parsed-rule-basis");
                 });
@@ -138,7 +131,7 @@ public class AiGameMasterApiConfiguration {
             String raw;
             try {
                 raw = java.util.concurrent.CompletableFuture.supplyAsync(() -> adapter.complete(
-                "map-" + UUID.randomUUID(),
+                input.soloPlayerId(), "map-" + UUID.randomUUID(),
                 new GmPrompt("ROLE=" + mapRole(input) + "\n"
                         + "SCENARIO=" + input.selectedScenario() + "\n"
                         + "CURRENT_CONTEXT=" + input.currentContext() + "\n"
@@ -206,7 +199,7 @@ public class AiGameMasterApiConfiguration {
         return input -> {
             try {
                 MapEntryPlacementModelPort.EntryPlacementOutput output = java.util.concurrent.CompletableFuture.supplyAsync(() -> adapter.complete(
-                    "map-entry-placement-" + UUID.randomUUID(),
+                    input.soloPlayerId(), "map-entry-placement-" + UUID.randomUUID(),
                             new GmPrompt("ROLE=MAP_ENTRY_PLACEMENT_AGENT\n"
                             + "TARGET_SCENE=" + input.targetScene() + "\n"
                             + "LOCATION=" + input.location() + "\n"
@@ -229,6 +222,89 @@ public class AiGameMasterApiConfiguration {
                         List.of(), "진입 위치 분석 제공자가 응답하지 않았습니다.");
             }
         };
+    }
+
+    @Bean
+    MovementPlacementModelPort movementPlacementModelPort(GmCompletionAdapter adapter,
+            com.fasterxml.jackson.databind.ObjectMapper mapper) {
+        return context -> {
+            try {
+                return java.util.concurrent.CompletableFuture.supplyAsync(() -> adapter.complete(
+                        "movement-placement-" + UUID.randomUUID(),
+                        new GmPrompt("ROLE=MOVEMENT_PLACEMENT_AGENT\n"
+                                + "SOURCE_TEXT=" + context.sourceText() + "\n"
+                                + "CURRENT_POSITION=" + context.currentPosition() + "\n"
+                                + "TACTICAL_CONTEXT=" + context.tacticalContext() + "\n"
+                                + "PUBLIC_MAP=" + context.publicMap() + "\n"
+                                + "TASK=Map the player's requested destination only against the supplied public map. Never infer or mention hidden creatures, hidden spatial features, difficulty values, or private map state. Do not change state.\n"
+                                + "OUTPUT_CONTRACT=Return one JSON object with status, destination, candidates, and playerMessage. status must be RESOLVED, AMBIGUOUS, or UNRESOLVED. RESOLVED must contain exactly one destination {x,y}; AMBIGUOUS and UNRESOLVED must not choose destination. candidates may contain public alternatives with destination, confidence, and reason. Ask a clarifying question or guide direct selection when not resolved.\n"
+                                + "Do not return markdown or hidden information.", null),
+                        text -> parseMovementPlacement(mapper, text)))
+                        .orTimeout(180, java.util.concurrent.TimeUnit.SECONDS).join();
+            } catch (java.util.concurrent.CompletionException | java.util.concurrent.CancellationException failure) {
+                return new MovementPlacementModelPort.MovementPlacementProposal("UNRESOLVED", null, List.of(), "목적지를 해석하지 못했습니다. 지도에서 목적지를 눌러 선택해주세요.");
+            }
+        };
+    }
+
+    private static MovementPlacementModelPort.MovementPlacementProposal parseMovementPlacement(
+            com.fasterxml.jackson.databind.ObjectMapper mapper, String text) {
+        try {
+            var root = mapper.readTree(text);
+            String status = root.path("status").asText("UNRESOLVED");
+            MovementPlacementModelPort.Position destination = position(root.path("destination"));
+            List<MovementPlacementModelPort.Candidate> candidates = new java.util.ArrayList<>();
+            if (root.path("candidates").isArray()) for (var item : root.path("candidates")) {
+                var point = position(item.path("destination"));
+                if (point != null) candidates.add(new MovementPlacementModelPort.Candidate(point,
+                        item.path("confidence").asDouble(0), item.path("reason").asText("")));
+            }
+            return new MovementPlacementModelPort.MovementPlacementProposal(status, destination, candidates,
+                    root.path("playerMessage").asText(""));
+        } catch (Exception invalid) {
+            return new MovementPlacementModelPort.MovementPlacementProposal("UNRESOLVED", null, List.of(), "목적지를 해석하지 못했습니다. 지도에서 목적지를 눌러 선택해주세요.");
+        }
+    }
+
+    private static MovementPlacementModelPort.Position position(com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null || !node.isObject() || !node.has("x") || !node.has("y")) return null;
+        return new MovementPlacementModelPort.Position(node.path("x").asInt(-1), node.path("y").asInt(-1));
+    }
+
+    @Bean
+    SpatialFeaturePlacementModelPort spatialFeaturePlacementModelPort(GmCompletionAdapter adapter,
+            com.fasterxml.jackson.databind.ObjectMapper mapper) {
+        return input -> adapter.complete("spatial-feature-placement-" + UUID.randomUUID(),
+                "ROLE=SPATIAL_FEATURE_PLACEMENT_AGENT\n"
+                        + "STORY_PLAN_REFERENCE=" + input.scenarioPackageVersion() + "\n"
+                        + "ATTEMPT=" + input.attempt() + "\n"
+                        + "PREVIOUS_FAILURES=" + input.previousFailureReasons() + "\n"
+                        + "GRID=" + input.gridWidth() + "x" + input.gridHeight() + "\n"
+                        + "OBSTACLES=" + input.obstacles() + "\n"
+                        + "REQUIREMENTS=" + input.requirements() + "\n"
+                        + "TASK=Return only occupied cells from each requirement's authoritativeCells. Never invent a feature id, type, evidence reference, or coordinate.\n"
+                        + "OUTPUT_CONTRACT={\"candidates\":[{\"featureId\":\"uuid\",\"type\":\"TRAP\",\"cells\":[\"x,y\"],\"required\":true,\"evidenceReference\":\"exact supplied reference\"}]}\n"
+                        + "Do not use markdown or text outside the JSON object.",
+                text -> parseSpatialFeaturePlacement(mapper, text));
+    }
+
+    private static SpatialFeaturePlacementModelPort.PlacementOutput parseSpatialFeaturePlacement(
+            com.fasterxml.jackson.databind.ObjectMapper mapper, String text) {
+        try {
+            var root = mapper.readTree(text);
+            if (root == null || !root.path("candidates").isArray()) throw new IllegalArgumentException("candidates are required");
+            List<SpatialFeaturePlacementModelPort.PlacementCandidate> candidates = new java.util.ArrayList<>();
+            for (var item : root.path("candidates")) {
+                List<String> cells = new java.util.ArrayList<>();
+                if (item.path("cells").isArray()) item.path("cells").forEach(cell -> cells.add(cell.asText()));
+                candidates.add(new SpatialFeaturePlacementModelPort.PlacementCandidate(
+                        UUID.fromString(item.path("featureId").asText()), item.path("type").asText(), cells,
+                        item.path("required").asBoolean(), item.path("evidenceReference").asText("")));
+            }
+            return new SpatialFeaturePlacementModelPort.PlacementOutput(candidates);
+        } catch (RuntimeException | java.io.IOException exception) {
+            throw new IllegalArgumentException("invalid spatial feature placement response", exception);
+        }
     }
 
     private static MapEntryPlacementModelPort.EntryPlacementOutput parseEntryPlacement(
@@ -518,7 +594,7 @@ public class AiGameMasterApiConfiguration {
     @Bean
     IntentClassificationModelPort intentClassificationModelPort(GmCompletionAdapter adapter) {
         return input -> adapter.complete(
-                "intent-" + UUID.randomUUID(), input.question(), IntentClassificationOutput::fromModelText);
+                input.soloPlayerId(), "intent-" + UUID.randomUUID(), input.question(), IntentClassificationOutput::fromModelText);
     }
 
     @Bean
@@ -542,10 +618,8 @@ public class AiGameMasterApiConfiguration {
             com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter adapter,
             com.fasterxml.jackson.databind.ObjectMapper objectMapper,
             AgentEndpointRegistry endpointRegistry,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
-        return new ResolutionCandidateController(adapter, objectMapper, endpointRegistry, codexExecutable, codexWorkDirectory, codexTimeout);
+            AiExecutionPort aiExecutionPort) {
+        return new ResolutionCandidateController(adapter, objectMapper, endpointRegistry, aiExecutionPort);
     }
 
     @Bean
@@ -560,19 +634,19 @@ public class AiGameMasterApiConfiguration {
             GroundedRuleAnswerService ruleAnswerService,
             MapModelPort mapPort,
             IntentClassificationModelPort intentClassificationPort,
-            MapEntryPlacementModelPort mapEntryPlacementPort) {
+            MapEntryPlacementModelPort mapEntryPlacementPort,
+            SpatialFeaturePlacementModelPort spatialFeaturePlacementPort,
+            MovementPlacementModelPort movementPlacementPort) {
         return new AiGameMasterController(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort,
-                mapEntryPlacementPort);
+                mapEntryPlacementPort, spatialFeaturePlacementPort, movementPlacementPort);
     }
 
     @Bean
     @Primary
     GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties, AgentEndpointRegistry endpointRegistry,
-                                             @Value("${ai.codex.executable:codex}") String codexExecutable,
-                                             @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-                                             @Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
+                                             AiExecutionPort aiExecutionPort) {
         properties.validate();
-        return new GmCompletionRouter(ollama, properties, endpointRegistry, codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout);
+        return new GmCompletionRouter(ollama, properties, endpointRegistry, aiExecutionPort);
     }
 
 }

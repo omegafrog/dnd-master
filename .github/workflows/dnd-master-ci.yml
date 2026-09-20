@@ -25,6 +25,7 @@ jobs:
           - dice-roll-service
           - combat-map-service
           - ai-game-master-service
+          - agent-connection-relay-service
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4

@@ -1,0 +1,34 @@
+@startuml
+' UC-02 사용자 PC 에이전트 연결 유지
+skinparam shadowing false
+start
+
+:사용자 PC 에이전트가
+Bearer 토큰으로 /ws/agent 연결;
+:중계 서비스가 identity-access에
+토큰 확인 요청;
+
+if (인증 성공?) then (예)
+  :Solo Player 식별자 확인;
+  :연결 ID와 중계 위치를
+  Redis 임대로 기록;
+  if (기존 연결이 있는가?) then (예)
+    :기존 연결의 진행 중 요청을
+    연결 끊김으로 종료;
+    :기존 연결 대체;
+  endif
+  repeat
+    :웹소켓 실행 요청 수신;
+    :PC의 Codex로 실행;
+    :같은 requestId의 최종 결과 반환;
+    :20초마다 60초 임대 갱신;
+  repeat while (연결 유지?) is (예)
+  :웹소켓 종료·오류 또는
+  임대 갱신 실패;
+  :현재 connectionId가 일치하면
+  Redis 임대 삭제;
+else (아니오)
+  :연결 등록 안 함;
+endif
+stop
+@enduml

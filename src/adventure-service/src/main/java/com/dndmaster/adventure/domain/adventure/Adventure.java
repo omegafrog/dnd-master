@@ -9,8 +9,8 @@ import com.dndmaster.adventure.domain.runtime.DisclosureState;
 import com.dndmaster.adventure.domain.runtime.GameState;
 import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
 import com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState;
-import com.dndmaster.adventure.application.runtime.CompletionProposal;
-import com.dndmaster.adventure.application.runtime.PendingRuntimeState;
+import com.dndmaster.adventure.domain.runtime.CompletionProposal;
+import com.dndmaster.adventure.domain.runtime.PendingRuntimeState;
 import java.util.Locale;
 
 public final class Adventure {

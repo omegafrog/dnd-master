@@ -1,0 +1,116 @@
+@startuml
+title Combat Map 공간 이동 해결 구조\nUC-02~07 · BR-01~19 · ADR-018
+skinparam linetype ortho
+skinparam packageStyle rectangle
+
+package "Combat Map 정본" {
+  class CombatMap {
+    +validatePath(path)
+    +advanceOneCell(step)
+    +commitResolution(result)
+    -version
+    -tokens
+    -spatialFeatures
+    -visibility
+  }
+  class SpatialFeature {
+    -featureId
+    -cells
+    -state
+    -trigger
+    -provenance
+  }
+  class MovementResolutionEngine {
+    +prepare(operation, checkResult)
+    +requestCheck(step)
+    +prepareResult(operation)
+  }
+  class SpatialTriggerResolver {
+    +resolve(stepContext)
+  }
+  class HostileObservationResolver {
+    +resolve(stepContext)
+  }
+  interface LineOfSightQuery {
+    +query(origin, target, blockers)
+  }
+  class VisibilityPolicy {
+    +project(playerOrigin, map)
+  }
+  CombatMap *-- "0..*" SpatialFeature : 공간 요소는 aggregate 내부 entity
+  MovementResolutionEngine --> CombatMap : 단계별 primitive 사용
+  MovementResolutionEngine --> SpatialTriggerResolver
+  MovementResolutionEngine --> HostileObservationResolver
+  SpatialTriggerResolver --> LineOfSightQuery
+  HostileObservationResolver --> LineOfSightQuery
+  VisibilityPolicy --> LineOfSightQuery
+}
+
+package "Combat Map application layer" {
+  class MovementResolutionOperation {
+    -commandId
+    -fingerprint
+    -baseVersion
+    -requestedPath
+    -cursor
+    -status
+    -priorActiveState
+    -pendingCheck
+    -results
+    -result
+  }
+  interface MovementResolutionOperationRepository {
+    +reserve(operation)
+    +loadById(operationId)
+    +save(operation)
+    +cancel(operationId)
+  }
+  class MovementResolutionCoordinator {
+    +start(request)
+    +resume(request)
+    +query(query)
+    +cancel(request)
+  }
+  MovementResolutionCoordinator --> MovementResolutionOperationRepository
+  MovementResolutionCoordinator --> MovementResolutionEngine
+  MovementResolutionCoordinator --> CombatMap : 최종 로컬 트랜잭션 조정
+  MovementResolutionOperationRepository --> MovementResolutionOperation
+  MovementResolutionOperation --> CombatMap : mapId/baseVersion 참조
+}
+
+package "Adventure Runtime" {
+  class MapMovementCoordinator {
+    +preview(request)
+    +start(request)
+    +resume(request)
+  }
+  interface CombatMapPort {
+    +preview(MovementPreviewRequest request)
+    +start(MovementStartRequest request)
+    +resume(MovementResumeRequest request)
+    +query(MovementOperationQuery query)
+    +cancel(MovementCancelRequest request)
+  }
+  MapMovementCoordinator --> CombatMapPort
+}
+
+package "외부 소유 경계" {
+  class "Dice Roll" as DiceRoll <<경계>>
+  class "Character Management" as CharacterManagement <<경계>>
+  MapMovementCoordinator --> DiceRoll : 판정 조정
+  MapMovementCoordinator --> CharacterManagement : commit 이후 Saga
+}
+
+CombatMapPort ..> MovementResolutionCoordinator : 내부 HTTP adapter
+note right of MovementResolutionOperation
+  durable application work record
+  플레이어 판정 대기·재시작·멱등 replay 보존
+  새 bounded context/service/module 아님
+end note
+note bottom of CombatMap
+  지도·공간 요소·시야·탐험의 정본
+  최종 commit에서 위치·공간 요소·visibility·version·결과/history 원자 반영
+end note
+note "의존 방향: Adventure Runtime → CombatMapPort → Combat Map application/domain\nDomain은 HTTP·DB·AI에 의존하지 않음; Combat Map이 숨은 상태를 Adventure에 복제하지 않음\n추적성: UC-02~07 · BR-01~19 · ADR-018" as N1
+N1 .. MovementResolutionEngine
+@enduml

@@ -15,7 +15,14 @@ public record RollCommand(
         UUID sessionId,
         UUID turnId,
         UUID commandId,
-        long expectedVersion) {
+        long expectedVersion,
+        String ruleReference,
+        Integer difficulty) {
+    public RollCommand(AdventureId adventureId, RuleSetId ruleSetId, RollScope scope, DiceExpression expression,
+            UUID sessionId, UUID turnId, UUID commandId, long expectedVersion) {
+        this(adventureId, ruleSetId, scope, expression, sessionId, turnId, commandId, expectedVersion, null, null);
+    }
+
     public RollCommand {
         Objects.requireNonNull(adventureId, "adventure id must not be null");
         Objects.requireNonNull(ruleSetId, "rule set id must not be null");
@@ -25,5 +32,9 @@ public record RollCommand(
         Objects.requireNonNull(turnId, "turn id must not be null");
         Objects.requireNonNull(commandId, "command id must not be null");
         if (expectedVersion < 0) throw new IllegalArgumentException("expected version must not be negative");
+        if (ruleReference != null && ruleReference.isBlank()) {
+            throw new IllegalArgumentException("rule reference must not be blank when provided");
+        }
+        if (difficulty != null && difficulty < 0) throw new IllegalArgumentException("difficulty must not be negative");
     }
 }

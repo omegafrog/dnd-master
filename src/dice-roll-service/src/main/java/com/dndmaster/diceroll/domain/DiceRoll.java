@@ -14,12 +14,15 @@ public final class DiceRoll {
     private final UUID turnId;
     private final UUID commandId;
     private final long expectedVersion;
+    private final String ruleReference;
+    private final Integer difficulty;
     private DiceResult result;
 
     public DiceRoll(
             RollId id, AdventureId adventureId, RuleSetId ruleSetId,
             RollScope scope, DiceExpression expression,
-            UUID sessionId, UUID turnId, UUID commandId, long expectedVersion) {
+            UUID sessionId, UUID turnId, UUID commandId, long expectedVersion,
+            String ruleReference, Integer difficulty) {
         this.id = Objects.requireNonNull(id, "roll id must not be null");
         this.adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
         this.ruleSetId = Objects.requireNonNull(ruleSetId, "rule set id must not be null");
@@ -30,6 +33,18 @@ public final class DiceRoll {
         this.commandId = Objects.requireNonNull(commandId, "command id must not be null");
         if (expectedVersion < 0) throw new IllegalArgumentException("expected version must not be negative");
         this.expectedVersion = expectedVersion;
+        if (ruleReference != null && ruleReference.isBlank()) {
+            throw new IllegalArgumentException("rule reference must not be blank when provided");
+        }
+        if (difficulty != null && difficulty < 0) throw new IllegalArgumentException("difficulty must not be negative");
+        this.ruleReference = ruleReference;
+        this.difficulty = difficulty;
+    }
+
+    public DiceRoll(RollId id, AdventureId adventureId, RuleSetId ruleSetId,
+            RollScope scope, DiceExpression expression, UUID sessionId, UUID turnId, UUID commandId,
+            long expectedVersion) {
+        this(id, adventureId, ruleSetId, scope, expression, sessionId, turnId, commandId, expectedVersion, null, null);
     }
 
     public void authorizePlayerExecution() {
@@ -59,6 +74,8 @@ public final class DiceRoll {
     public UUID turnId() { return turnId; }
     public UUID commandId() { return commandId; }
     public long expectedVersion() { return expectedVersion; }
+    public String ruleReference() { return ruleReference; }
+    public Integer difficulty() { return difficulty; }
     public Optional<DiceResult> result() { return Optional.ofNullable(result); }
 
     @Override
@@ -74,11 +91,14 @@ public final class DiceRoll {
                 && sessionId.equals(roll.sessionId)
                 && turnId.equals(roll.turnId)
                 && commandId.equals(roll.commandId)
+                && Objects.equals(ruleReference, roll.ruleReference)
+                && Objects.equals(difficulty, roll.difficulty)
                 && Objects.equals(result, roll.result);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, adventureId, ruleSetId, scope, expression, sessionId, turnId, commandId, expectedVersion, result);
+        return Objects.hash(id, adventureId, ruleSetId, scope, expression, sessionId, turnId, commandId,
+                expectedVersion, ruleReference, difficulty, result);
     }
 }

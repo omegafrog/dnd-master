@@ -4,6 +4,7 @@ import com.dndmaster.combatmap.application.view.CombatMapViewStore;
 import com.dndmaster.combatmap.application.view.CombatMapAccessDeniedException;
 import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.VersionedOwnedCombatMap;
+import com.dndmaster.combatmap.application.movement.MovementResolutionOperation;
 import com.dndmaster.combatmap.domain.AdventureId;
 import com.dndmaster.combatmap.domain.CombatMap;
 import com.dndmaster.combatmap.domain.CombatToken;
@@ -22,6 +23,16 @@ import com.dndmaster.combatmap.domain.TokenType;
 import com.dndmaster.combatmap.domain.TokenDiscovery;
 import com.dndmaster.combatmap.domain.VisibilitySnapshot;
 import com.dndmaster.combatmap.domain.TacticalRuntimeState;
+import com.dndmaster.combatmap.domain.SpatialFeature;
+import com.dndmaster.combatmap.domain.SpatialFeatureOrigin;
+import com.dndmaster.combatmap.domain.SpatialFeatureProvenance;
+import com.dndmaster.combatmap.domain.SpatialFeatureType;
+import com.dndmaster.combatmap.domain.SpatialFeatureVisibility;
+import com.dndmaster.combatmap.domain.SpatialTrigger;
+import com.dndmaster.combatmap.domain.DetectionSpec;
+import com.dndmaster.combatmap.domain.HostileObservationRule;
+import com.dndmaster.combatmap.domain.HostileObservationState;
+import com.dndmaster.combatmap.domain.HostileObservationStatus;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -42,11 +53,19 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     private static final String OBSTACLE_TABLE = "combat_map_obstacle";
     private static final String LAYER_TABLE = "combat_map_layer";
     private static final String DOOR_TABLE = "combat_map_door";
+    private static final String FEATURE_TABLE = "combat_map_spatial_feature";
+    private static final String FEATURE_CELL_TABLE = "combat_map_spatial_feature_cell";
+    private static final String FEATURE_TRIGGER_TABLE = "combat_map_spatial_feature_trigger";
     private static final String HISTORY_TABLE = "combat_map_command_history";
     private static final String HISTORY_TOKEN_TABLE = "combat_map_command_token_history";
     private static final String HISTORY_OBSTACLE_TABLE = "combat_map_command_obstacle_history";
     private static final String HISTORY_LAYER_TABLE = "combat_map_command_layer_history";
     private static final String HISTORY_DOOR_TABLE = "combat_map_command_door_history";
+    private static final String HISTORY_FEATURE_TABLE = "combat_map_command_spatial_feature_history";
+    private static final String HISTORY_FEATURE_CELL_TABLE = "combat_map_command_spatial_feature_cell_history";
+    private static final String HISTORY_FEATURE_TRIGGER_TABLE = "combat_map_command_spatial_feature_trigger_history";
+    private static final String HOSTILE_OBSERVATION_TABLE = "combat_map_hostile_observation";
+    private static final String HISTORY_HOSTILE_OBSERVATION_TABLE = "combat_map_command_hostile_observation_history";
 
     private final DataSource dataSource;
 
@@ -81,6 +100,42 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         write(owner, map, expected, false, persistedVersion, operationKey, operationFingerprint);
         map.markPersisted(persistedVersion, operationKey, operationFingerprint);
         return persistedVersion;
+    }
+
+    /** The final map snapshot and its reservation terminal state are one local transaction. */
+    public void commitMovementResolution(MapOwnerId owner, CombatMap map, long expectedVersion,
+            long persistedVersion, MovementResolutionOperation operation, com.dndmaster.combatmap.application.movement.MovementResolutionResult result) {
+        if (persistedVersion != expectedVersion + 1) throw new IllegalArgumentException("persisted version must advance by one");
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                updateMap(connection, owner, map, expectedVersion, persistedVersion, operation.commandId(), operation.fingerprint());
+                replaceCurrentChildren(connection, map);
+                writeVisibility(connection, map);
+                recordHistory(connection, owner, map, persistedVersion, operation.commandId(), operation.fingerprint());
+                try (PreparedStatement statement = connection.prepareStatement(
+                        "UPDATE combat_map_movement_operation SET status='COMMITTED',result_traversed_path=?,result_status=?,result_final_x=?,result_final_y=?,result_map_version=?,result_public_events=?,result_interruption_reason=?,operation_version=operation_version+1,updated_at=CURRENT_TIMESTAMP WHERE operation_id=? AND status='READY_TO_COMMIT' AND operation_version=?")) {
+                    statement.setString(1, result.traversedPath().stream().map(p -> p.x() + "," + p.y()).collect(java.util.stream.Collectors.joining(";")));
+                    statement.setString(2, result.status().name());
+                    statement.setInt(3, result.finalPosition().x()); statement.setInt(4, result.finalPosition().y()); statement.setLong(5, result.mapVersion());
+                    statement.setString(6, String.join("\u001f", result.publicEvents())); statement.setString(7, result.interruptionReason()); statement.setObject(8, operation.operationId()); statement.setLong(9, operation.persistenceVersion());
+                    if (statement.executeUpdate() != 1) throw new com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException();
+                }
+                connection.commit();
+                operation.committed(result);
+                operation.markPersisted(operation.persistenceVersion() + 1);
+                map.markPersisted(persistedVersion, operation.commandId(), operation.fingerprint());
+            } catch (SQLException | RuntimeException exception) {
+                connection.rollback();
+                if (exception instanceof OptimisticCombatMapLockException) {
+                    throw new com.dndmaster.combatmap.application.movement.MovementFinalCommitConflictException();
+                }
+                if (exception instanceof com.dndmaster.combatmap.application.movement.MovementOperationConcurrentUpdateException concurrent) throw concurrent;
+                throw new CombatMapPersistenceException("movement resolution commit failed", exception);
+            }
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("movement resolution commit DB failed", exception);
+        }
     }
 
     @Override
@@ -257,7 +312,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     private static void insertMap(Connection connection, MapOwnerId owner, CombatMap map, UUID operationKey, String operationFingerprint)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO combat_map(map_id,owner_player_id,adventure_id,rule_set_id,grid_width,grid_height,cell_size,distance_unit,version,operation_key,operation_fingerprint,runtime_combat_entered,runtime_alarm_raised,runtime_reinforcements_activated,runtime_boss_activated,runtime_reward_discovered,runtime_outcome,runtime_transition_id) VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?)")) {
+                        "INSERT INTO combat_map(map_id,owner_player_id,adventure_id,rule_set_id,grid_width,grid_height,cell_size,distance_unit,version,operation_key,operation_fingerprint,runtime_combat_entered,runtime_alarm_raised,runtime_reinforcements_activated,runtime_boss_activated,runtime_reward_discovered,runtime_outcome,runtime_transition_id,spatial_preparation_blocked) VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,?)")) {
             statement.setObject(1, map.id().value());
             statement.setObject(2, owner.value());
             statement.setObject(3, map.adventureId().value());
@@ -269,6 +324,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             statement.setObject(9, operationKey);
             statement.setString(10, operationFingerprint);
             bindRuntime(statement, 11, map.runtimeState());
+            statement.setBoolean(18, map.spatialPreparationBlocked());
             statement.executeUpdate();
         }
     }
@@ -282,7 +338,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             UUID operationKey,
             String operationFingerprint) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE combat_map SET grid_width=?,grid_height=?,cell_size=?,distance_unit=?,operation_key=?,operation_fingerprint=?,runtime_combat_entered=?,runtime_alarm_raised=?,runtime_reinforcements_activated=?,runtime_boss_activated=?,runtime_reward_discovered=?,runtime_outcome=?,runtime_transition_id=?,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE map_id=? AND owner_player_id=? AND version=?")) {
+                        "UPDATE combat_map SET grid_width=?,grid_height=?,cell_size=?,distance_unit=?,operation_key=?,operation_fingerprint=?,runtime_combat_entered=?,runtime_alarm_raised=?,runtime_reinforcements_activated=?,runtime_boss_activated=?,runtime_reward_discovered=?,runtime_outcome=?,runtime_transition_id=?,spatial_preparation_blocked=?,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE map_id=? AND owner_player_id=? AND version=?")) {
             statement.setInt(1, map.grid().width());
             statement.setInt(2, map.grid().height());
             statement.setInt(3, map.grid().cellSize());
@@ -290,9 +346,10 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             statement.setObject(5, operationKey);
             statement.setString(6, operationFingerprint);
             bindRuntime(statement, 7, map.runtimeState());
-            statement.setObject(14, map.id().value());
-            statement.setObject(15, owner.value());
-            statement.setLong(16, expectedVersion);
+            statement.setBoolean(14, map.spatialPreparationBlocked());
+            statement.setObject(15, map.id().value());
+            statement.setObject(16, owner.value());
+            statement.setLong(17, expectedVersion);
             if (statement.executeUpdate() != 1) {
                 throw new OptimisticCombatMapLockException();
             }
@@ -300,13 +357,16 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     }
 
     private static void replaceCurrentChildren(Connection connection, CombatMap map) throws SQLException {
-        for (String table : List.of(TOKEN_TABLE, OBSTACLE_TABLE, LAYER_TABLE, DOOR_TABLE)) {
+        if (map.tokens().stream().anyMatch(token -> token.type() == TokenType.TRAP || token.type() == TokenType.OBJECT)) {
+            throw new IllegalArgumentException("new TRAP/OBJECT token writes are not allowed; use spatial features");
+        }
+        for (String table : List.of(TOKEN_TABLE, OBSTACLE_TABLE, LAYER_TABLE, DOOR_TABLE, FEATURE_TRIGGER_TABLE, FEATURE_CELL_TABLE, FEATURE_TABLE, HOSTILE_OBSERVATION_TABLE)) {
             try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + table + " WHERE map_id=?")) {
                 statement.setObject(1, map.id().value());
                 statement.executeUpdate();
             }
         }
-        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO combat_map_token VALUES (?,?,?,?,?,?,?,?)")) {
+        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO combat_map_token(map_id,token_id,token_type,x,y,controller,owner_player_id,discovery,hostile_rule_reference,hostile_dice_expression,hostile_modifier,hostile_difficulty,hostile_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
             for (CombatToken token : map.tokens()) {
                 statement.setObject(1, map.id().value());
                 statement.setObject(2, token.id().value());
@@ -316,6 +376,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 statement.setString(6, token.controller().name());
                 statement.setObject(7, token.ownerPlayerId().map(PlayerId::value).orElse(null));
                 statement.setString(8, token.discovery().name());
+                bindHostileRule(statement, 9, token.hostileObservationRule().orElse(null));
                 statement.addBatch();
             }
             statement.executeBatch();
@@ -345,6 +406,43 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         try (PreparedStatement statement=connection.prepareStatement("INSERT INTO combat_map_door(map_id,x,y,open) VALUES (?,?,?,?)")) {
             for(Door door:map.doors()){statement.setObject(1,map.id().value());statement.setInt(2,door.position().x());statement.setInt(3,door.position().y());statement.setBoolean(4,door.open());statement.addBatch();} statement.executeBatch();
         }
+        writeFeatures(connection, map, map.id().value(), FEATURE_TABLE, FEATURE_CELL_TABLE, FEATURE_TRIGGER_TABLE);
+        writeHostileObservations(connection, map, map.id().value(), HOSTILE_OBSERVATION_TABLE);
+    }
+
+    private static void writeFeatures(Connection connection, CombatMap map, UUID mapId, String featureTable,
+            String cellTable, String triggerTable) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO " + featureTable + " (map_id,feature_id,feature_type,visibility,state,detection_rule_reference,detection_difficulty,detection_mode,detection_dice_expression,detection_modifier,origin,source_reference,created_turn,created_map_version,repeatable,remaining_duration_turns,removal_policy,overlap_allowed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+            for (SpatialFeature feature : map.spatialFeatures()) {
+                statement.setObject(1, mapId); statement.setObject(2, feature.id()); statement.setString(3, feature.type().name());
+                statement.setString(4, feature.visibility().name()); statement.setString(5, feature.state().name());
+                DetectionSpec detection = feature.detectionSpec();
+                statement.setString(6, detection == null ? null : detection.ruleReference());
+                if (detection == null || detection.difficulty() == null) statement.setObject(7, null); else statement.setInt(7, detection.difficulty());
+                statement.setString(8, detection == null ? null : detection.mode());
+                statement.setString(9, detection == null ? null : detection.diceExpression());
+                statement.setInt(10, detection == null ? 0 : detection.modifier());
+                statement.setString(11, feature.provenance().origin().name());
+                statement.setString(12, feature.provenance().sourceReference()); statement.setLong(13, feature.provenance().createdTurn());
+                statement.setLong(14, feature.provenance().createdMapVersion()); statement.setBoolean(15, feature.repeatable());
+                statement.setInt(16, feature.remainingDurationTurns()); statement.setString(17, feature.removalPolicy());
+                statement.setBoolean(18, feature.overlapAllowed()); statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO " + cellTable + " (" + (featureTable.equals(FEATURE_TABLE) ? "map_id" : "command_id") + ",feature_id,x,y) VALUES (?,?,?,?)")) {
+            for (SpatialFeature feature : map.spatialFeatures()) for (GridPosition cell : feature.cells()) {
+                statement.setObject(1, mapId); statement.setObject(2, feature.id()); statement.setInt(3, cell.x()); statement.setInt(4, cell.y()); statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO " + triggerTable + " (" + (featureTable.equals(FEATURE_TABLE) ? "map_id" : "command_id") + ",feature_id,trigger_name) VALUES (?,?,?)")) {
+            for (SpatialFeature feature : map.spatialFeatures()) for (SpatialTrigger trigger : feature.triggers()) {
+                statement.setObject(1, mapId); statement.setObject(2, feature.id()); statement.setString(3, trigger.name()); statement.addBatch();
+            }
+            statement.executeBatch();
+        }
     }
 
     private void recordHistory(
@@ -359,8 +457,8 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         }
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO " + HISTORY_TABLE
-                        + " (command_id, map_id, owner_player_id, adventure_id, rule_set_id, grid_width, grid_height, cell_size, distance_unit, version, operation_key, operation_fingerprint, runtime_combat_entered, runtime_alarm_raised, runtime_reinforcements_activated, runtime_boss_activated, runtime_reward_discovered, runtime_outcome, runtime_transition_id)"
-                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                        + " (command_id, map_id, owner_player_id, adventure_id, rule_set_id, grid_width, grid_height, cell_size, distance_unit, version, operation_key, operation_fingerprint, runtime_combat_entered, runtime_alarm_raised, runtime_reinforcements_activated, runtime_boss_activated, runtime_reward_discovered, runtime_outcome, runtime_transition_id, spatial_preparation_blocked)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                         + " ON CONFLICT (command_id) DO UPDATE SET"
                         + " map_id = EXCLUDED.map_id,"
                         + " owner_player_id = EXCLUDED.owner_player_id,"
@@ -372,7 +470,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                         + " distance_unit = EXCLUDED.distance_unit,"
                         + " version = EXCLUDED.version,"
                         + " operation_key = EXCLUDED.operation_key,"
-                        + " operation_fingerprint = EXCLUDED.operation_fingerprint, runtime_combat_entered = EXCLUDED.runtime_combat_entered, runtime_alarm_raised = EXCLUDED.runtime_alarm_raised, runtime_reinforcements_activated = EXCLUDED.runtime_reinforcements_activated, runtime_boss_activated = EXCLUDED.runtime_boss_activated, runtime_reward_discovered = EXCLUDED.runtime_reward_discovered, runtime_outcome = EXCLUDED.runtime_outcome, runtime_transition_id = EXCLUDED.runtime_transition_id")) {
+                        + " operation_fingerprint = EXCLUDED.operation_fingerprint, runtime_combat_entered = EXCLUDED.runtime_combat_entered, runtime_alarm_raised = EXCLUDED.runtime_alarm_raised, runtime_reinforcements_activated = EXCLUDED.runtime_reinforcements_activated, runtime_boss_activated = EXCLUDED.runtime_boss_activated, runtime_reward_discovered = EXCLUDED.runtime_reward_discovered, runtime_outcome = EXCLUDED.runtime_outcome, runtime_transition_id = EXCLUDED.runtime_transition_id, spatial_preparation_blocked = EXCLUDED.spatial_preparation_blocked")) {
             statement.setObject(1, operationKey);
             statement.setObject(2, map.id().value());
             statement.setObject(3, owner.value());
@@ -386,6 +484,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             statement.setObject(11, operationKey);
             statement.setString(12, operationFingerprint);
             bindRuntime(statement, 13, map.runtimeState());
+            statement.setBoolean(20, map.spatialPreparationBlocked());
             statement.executeUpdate();
         }
         try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + HISTORY_TOKEN_TABLE + " WHERE command_id=?")) {
@@ -393,7 +492,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             statement.executeUpdate();
         }
         try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO " + HISTORY_TOKEN_TABLE + " (command_id, sequence, token_id, token_type, x, y, controller, owner_player_id, discovery) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO " + HISTORY_TOKEN_TABLE + " (command_id, sequence, token_id, token_type, x, y, controller, owner_player_id, discovery, hostile_rule_reference, hostile_dice_expression, hostile_modifier, hostile_difficulty, hostile_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
             int index = 0;
             for (CombatToken token : map.tokens()) {
                 statement.setObject(1, operationKey);
@@ -405,6 +504,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 statement.setString(7, token.controller().name());
                 statement.setObject(8, token.ownerPlayerId().map(PlayerId::value).orElse(null));
                 statement.setString(9, token.discovery().name());
+                bindHostileRule(statement, 10, token.hostileObservationRule().orElse(null));
                 statement.addBatch();
             }
             statement.executeBatch();
@@ -425,6 +525,8 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             }
             statement.executeBatch();
         }
+        writeHistoryFeatures(connection, map, operationKey);
+        writeHostileObservations(connection, map, operationKey, HISTORY_HOSTILE_OBSERVATION_TABLE);
         try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + HISTORY_LAYER_TABLE + " WHERE command_id=?")) {
             statement.setObject(1, operationKey);
             statement.executeUpdate();
@@ -447,12 +549,52 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         }
     }
 
+    private static void writeHistoryFeatures(Connection connection, CombatMap map, UUID commandId) throws SQLException {
+        for (String table : List.of(HISTORY_FEATURE_TRIGGER_TABLE, HISTORY_FEATURE_CELL_TABLE, HISTORY_FEATURE_TABLE)) {
+            try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + table + " WHERE command_id=?")) {
+                statement.setObject(1, commandId); statement.executeUpdate();
+            }
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO " + HISTORY_FEATURE_TABLE + " (command_id,sequence,feature_id,feature_type,visibility,state,detection_rule_reference,detection_difficulty,detection_mode,detection_dice_expression,detection_modifier,origin,source_reference,created_turn,created_map_version,repeatable,remaining_duration_turns,removal_policy,overlap_allowed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+            int sequence = 0;
+            for (SpatialFeature feature : map.spatialFeatures()) {
+                DetectionSpec detection = feature.detectionSpec();
+                statement.setObject(1, commandId); statement.setInt(2, sequence++); statement.setObject(3, feature.id());
+                statement.setString(4, feature.type().name()); statement.setString(5, feature.visibility().name()); statement.setString(6, feature.state().name());
+                statement.setString(7, detection == null ? null : detection.ruleReference());
+                if (detection == null || detection.difficulty() == null) statement.setObject(8, null); else statement.setInt(8, detection.difficulty());
+                statement.setString(9, detection == null ? null : detection.mode());
+                statement.setString(10, detection == null ? null : detection.diceExpression());
+                statement.setInt(11, detection == null ? 0 : detection.modifier()); statement.setString(12, feature.provenance().origin().name());
+                statement.setString(13, feature.provenance().sourceReference()); statement.setLong(14, feature.provenance().createdTurn());
+                statement.setLong(15, feature.provenance().createdMapVersion()); statement.setBoolean(16, feature.repeatable());
+                statement.setInt(17, feature.remainingDurationTurns()); statement.setString(18, feature.removalPolicy());
+                statement.setBoolean(19, feature.overlapAllowed()); statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO " + HISTORY_FEATURE_CELL_TABLE + " (command_id,feature_id,x,y) VALUES (?,?,?,?)")) {
+            for (SpatialFeature feature : map.spatialFeatures()) for (GridPosition cell : feature.cells()) {
+                statement.setObject(1, commandId); statement.setObject(2, feature.id()); statement.setInt(3, cell.x()); statement.setInt(4, cell.y()); statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO " + HISTORY_FEATURE_TRIGGER_TABLE + " (command_id,feature_id,trigger_name) VALUES (?,?,?)")) {
+            for (SpatialFeature feature : map.spatialFeatures()) for (SpatialTrigger trigger : feature.triggers()) {
+                statement.setObject(1, commandId); statement.setObject(2, feature.id()); statement.setString(3, trigger.name()); statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+    }
+
     private VersionedOwnedCombatMap readCurrent(Connection connection, ResultSet row) throws SQLException {
         GridSpec grid = new GridSpec(row.getInt("grid_width"), row.getInt("grid_height"), row.getInt("cell_size"), row.getInt("distance_unit"));
         List<CombatToken> tokens = readTokens(connection, TOKEN_TABLE, "map_id", row.getObject("map_id", UUID.class));
         Set<GridPosition> obstacles = new HashSet<>(readPositions(connection, OBSTACLE_TABLE, "map_id", row.getObject("map_id", UUID.class)));
         List<MapLayer> layers = readLayers(connection, LAYER_TABLE, "map_id", row.getObject("map_id", UUID.class));
         Set<Door> doors = readDoors(connection, DOOR_TABLE, "map_id", row.getObject("map_id", UUID.class));
+        List<SpatialFeature> features = readFeatures(connection, FEATURE_TABLE, FEATURE_CELL_TABLE, FEATURE_TRIGGER_TABLE, "map_id", row.getObject("map_id", UUID.class));
         UUID ownerId = row.getObject("owner_player_id", UUID.class);
         CombatMap map = new CombatMap(
                 new MapId(row.getObject("map_id", UUID.class)),
@@ -465,10 +607,11 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 layers,
                 row.getLong("version"),
                 row.getString("operation_key") == null ? null : UUID.fromString(row.getString("operation_key")),
-                row.getString("operation_fingerprint"));
+                row.getString("operation_fingerprint"), features, row.getBoolean("spatial_preparation_blocked"));
         readVisibility(row, map);
         map.replaceRuntimeState(readRuntime(row));
         map.replaceDoors(doors);
+        map.replaceHostileObservations(readHostileObservations(connection, HOSTILE_OBSERVATION_TABLE, "map_id", row.getObject("map_id", UUID.class)));
         return new VersionedOwnedCombatMap(map, new MapOwnerId(ownerId), row.getLong("version"));
     }
 
@@ -479,6 +622,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         Set<GridPosition> obstacles = new HashSet<>(readHistoryPositions(connection, commandId));
         List<MapLayer> layers = readHistoryLayers(connection, commandId);
         Set<Door> doors = readDoors(connection, HISTORY_DOOR_TABLE, "command_id", commandId);
+        List<SpatialFeature> features = readFeatures(connection, HISTORY_FEATURE_TABLE, HISTORY_FEATURE_CELL_TABLE, HISTORY_FEATURE_TRIGGER_TABLE, "command_id", commandId);
         UUID ownerId = row.getObject("owner_player_id", UUID.class);
         CombatMap map = new CombatMap(
                 new MapId(row.getObject("map_id", UUID.class)),
@@ -491,10 +635,11 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 layers,
                 row.getLong("version"),
                 row.getString("operation_key") == null ? null : UUID.fromString(row.getString("operation_key")),
-                row.getString("operation_fingerprint"));
+                row.getString("operation_fingerprint"), features, row.getBoolean("spatial_preparation_blocked"));
         readVisibility(row, map);
         map.replaceRuntimeState(readRuntime(row));
         map.replaceDoors(doors);
+        map.replaceHostileObservations(readHostileObservations(connection, HISTORY_HOSTILE_OBSERVATION_TABLE, "command_id", commandId));
         return new VersionedOwnedCombatMap(map, new MapOwnerId(ownerId), row.getLong("version"));
     }
 
@@ -540,6 +685,45 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         Set<Door> doors=new HashSet<>(); try(PreparedStatement statement=connection.prepareStatement("SELECT x,y,open FROM "+table+" WHERE "+fkColumn+"=?")){statement.setObject(1,fkValue);try(ResultSet rows=statement.executeQuery()){while(rows.next())doors.add(new Door(new GridPosition(rows.getInt(1),rows.getInt(2)),rows.getBoolean(3)));}} return doors;
     }
 
+    private List<SpatialFeature> readFeatures(Connection connection, String featureTable, String cellTable,
+            String triggerTable, String keyColumn, UUID key) throws SQLException {
+        List<SpatialFeature> features = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM " + featureTable + " WHERE " + keyColumn + "=? ORDER BY feature_id")) {
+            statement.setObject(1, key);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    UUID featureId = rows.getObject("feature_id", UUID.class);
+                    List<GridPosition> cells = new ArrayList<>();
+                    try (PreparedStatement cellStatement = connection.prepareStatement("SELECT x,y FROM " + cellTable + " WHERE " + keyColumn + "=? AND feature_id=? ORDER BY x,y")) {
+                        cellStatement.setObject(1, key); cellStatement.setObject(2, featureId);
+                        try (ResultSet cellRows = cellStatement.executeQuery()) { while (cellRows.next()) cells.add(new GridPosition(cellRows.getInt(1), cellRows.getInt(2))); }
+                    }
+                    Set<SpatialTrigger> triggers = new HashSet<>();
+                    try (PreparedStatement triggerStatement = connection.prepareStatement("SELECT trigger_name FROM " + triggerTable + " WHERE " + keyColumn + "=? AND feature_id=?")) {
+                        triggerStatement.setObject(1, key); triggerStatement.setObject(2, featureId);
+                        try (ResultSet triggerRows = triggerStatement.executeQuery()) { while (triggerRows.next()) triggers.add(SpatialTrigger.valueOf(triggerRows.getString(1))); }
+                    }
+                    String ruleReference = rows.getString("detection_rule_reference");
+                    Integer difficulty = rows.getObject("detection_difficulty", Integer.class);
+                    String mode = rows.getString("detection_mode");
+                    String diceExpression = rows.getString("detection_dice_expression");
+                    Integer modifier = rows.getObject("detection_modifier", Integer.class);
+                    DetectionSpec detection = ruleReference == null || ruleReference.isBlank() || mode == null || mode.isBlank()
+                            ? null : new DetectionSpec(ruleReference, diceExpression == null ? "1d20" : diceExpression,
+                                    modifier == null ? 0 : modifier, difficulty, mode);
+                    SpatialFeatureProvenance provenance = new SpatialFeatureProvenance(
+                            SpatialFeatureOrigin.valueOf(rows.getString("origin")), rows.getString("source_reference"),
+                            rows.getLong("created_turn"), rows.getLong("created_map_version"));
+                    features.add(new SpatialFeature(featureId, SpatialFeatureType.valueOf(rows.getString("feature_type")), cells,
+                            SpatialFeatureVisibility.valueOf(rows.getString("visibility")), SpatialFeature.State.valueOf(rows.getString("state")),
+                            detection, triggers, provenance, rows.getBoolean("repeatable"), rows.getInt("remaining_duration_turns"),
+                            rows.getString("removal_policy"), rows.getBoolean("overlap_allowed")));
+                }
+            }
+        }
+        return features;
+    }
+
     private List<CombatToken> readHistoryTokens(Connection connection, UUID commandId) throws SQLException {
         List<CombatToken> tokens = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
@@ -583,13 +767,63 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     }
 
     private static CombatToken readToken(ResultSet row) throws SQLException {
+        String hostileRuleReference = row.getString("hostile_rule_reference");
+        HostileObservationRule hostileRule = hostileRuleReference == null || hostileRuleReference.isBlank()
+                ? null : new HostileObservationRule(hostileRuleReference,
+                        row.getString("hostile_dice_expression") == null ? "1d20" : row.getString("hostile_dice_expression"),
+                        row.getObject("hostile_modifier", Integer.class) == null ? 0 : row.getInt("hostile_modifier"),
+                        row.getObject("hostile_difficulty", Integer.class), row.getString("hostile_mode"));
         return new CombatToken(
                 new TokenId(row.getObject("token_id", UUID.class)),
                 TokenType.valueOf(row.getString("token_type")),
                 new GridPosition(row.getInt("x"), row.getInt("y")),
                 TokenController.valueOf(row.getString("controller")),
                 row.getObject("owner_player_id") == null ? null : new PlayerId(row.getObject("owner_player_id", UUID.class)),
-                row.getString("discovery") == null ? TokenDiscovery.DISCOVERED : TokenDiscovery.valueOf(row.getString("discovery")));
+                row.getString("discovery") == null ? TokenDiscovery.DISCOVERED : TokenDiscovery.valueOf(row.getString("discovery")), hostileRule);
+    }
+
+    private static void bindHostileRule(PreparedStatement statement, int start, HostileObservationRule rule) throws SQLException {
+        if (rule == null) {
+            statement.setObject(start, null); statement.setObject(start + 1, null); statement.setInt(start + 2, 0);
+            statement.setObject(start + 3, null); statement.setObject(start + 4, null);
+            return;
+        }
+        statement.setString(start, rule.ruleReference()); statement.setString(start + 1, rule.diceExpression());
+        statement.setInt(start + 2, rule.modifier());
+        if (rule.difficulty() == null) statement.setObject(start + 3, null); else statement.setInt(start + 3, rule.difficulty());
+        statement.setString(start + 4, rule.mode());
+    }
+
+    private static void writeHostileObservations(Connection connection, CombatMap map, UUID key, String table) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + table + " WHERE "
+                + (table.equals(HOSTILE_OBSERVATION_TABLE) ? "map_id" : "command_id") + "=?")) {
+            statement.setObject(1, key);
+            statement.executeUpdate();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO " + table + " (" + (table.equals(HOSTILE_OBSERVATION_TABLE) ? "map_id" : "command_id")
+                        + ",hostile_token_id,player_token_id,status) VALUES (?,?,?,?)")) {
+            for (HostileObservationState observation : map.hostileObservations()) {
+                statement.setObject(1, key); statement.setObject(2, observation.hostileTokenId().value());
+                statement.setObject(3, observation.playerTokenId().value()); statement.setString(4, observation.status().name());
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+    }
+
+    private static Set<HostileObservationState> readHostileObservations(Connection connection, String table,
+            String keyColumn, UUID key) throws SQLException {
+        Set<HostileObservationState> observations = new HashSet<>();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT hostile_token_id,player_token_id,status FROM "
+                + table + " WHERE " + keyColumn + "=?")) {
+            statement.setObject(1, key);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) observations.add(new HostileObservationState(new TokenId(rows.getObject(1, UUID.class)),
+                        new TokenId(rows.getObject(2, UUID.class)), HostileObservationStatus.valueOf(rows.getString(3))));
+            }
+        }
+        return observations;
     }
 
     private static void writeVisibility(Connection connection, CombatMap map) throws SQLException {

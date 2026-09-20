@@ -30,17 +30,46 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
             return sessions;
         } catch (SQLException e) { throw new AdventurePersistenceException("could not list adventure sessions", e); }
     }
+    @Override public boolean tryAcquireAiRequest(SessionId sessionId, OwnerPlayerId ownerPlayerId, UUID requestId) {
+        java.util.Objects.requireNonNull(requestId, "AI request id must not be null");
+        return updateAiRequest("""
+                UPDATE adventure_session
+                SET active_ai_request_id=?, version=version+1
+                WHERE session_id=? AND owner_player_id=? AND status='STARTED' AND active_ai_request_id IS NULL
+                """, requestId, sessionId, ownerPlayerId);
+    }
+    @Override public boolean releaseAiRequest(SessionId sessionId, OwnerPlayerId ownerPlayerId, UUID requestId) {
+        java.util.Objects.requireNonNull(requestId, "AI request id must not be null");
+        return updateAiRequest("""
+                UPDATE adventure_session
+                SET active_ai_request_id=NULL, version=version+1
+                WHERE session_id=? AND owner_player_id=? AND active_ai_request_id=?
+                """, null, sessionId, ownerPlayerId, requestId);
+    }
+    private boolean updateAiRequest(String sql, UUID value, SessionId sessionId, OwnerPlayerId ownerPlayerId,
+            UUID... matchingRequestId) {
+        try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement(sql)) {
+            int offset = 1;
+            if (value != null) s.setObject(offset++, value);
+            s.setObject(offset++, sessionId.value());
+            s.setObject(offset++, ownerPlayerId.value());
+            if (matchingRequestId.length == 1) s.setObject(offset, matchingRequestId[0]);
+            return s.executeUpdate() == 1;
+        } catch (SQLException e) {
+            throw new AdventurePersistenceException("could not update active AI request", e);
+        }
+    }
     @Override public void save(AdventureSession session, long expectedVersion) {
         try (Connection c = dataSource.getConnection()) {
             boolean managed = org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive();
             boolean autoCommit = c.getAutoCommit(); if (!managed) c.setAutoCommit(false);
             try {
                 String sql = expectedVersion == 0 && session.version() == 0
-                        ? "INSERT INTO adventure_session(session_id, owner_player_id, scenario_package_id, scenario_package_revision, blueprint_id, blueprint_revision, character_edition, character_limit, runtime_scenario_id, runtime_rule_set_id, runtime_rulebook_ids_json, runtime_engine_id, runtime_tool_ids_json, runtime_initial_scene, status, started_adventure_id, start_request_id, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                        : "UPDATE adventure_session SET blueprint_id=?, blueprint_revision=?, character_edition=?, character_limit=?, runtime_scenario_id=?, runtime_rule_set_id=?, runtime_rulebook_ids_json=?, runtime_engine_id=?, runtime_tool_ids_json=?, runtime_initial_scene=?, status=?, started_adventure_id=?, start_request_id=?, version=? WHERE session_id=? AND version=?";
+                        ? "INSERT INTO adventure_session(session_id, owner_player_id, scenario_package_id, scenario_package_revision, blueprint_id, blueprint_revision, character_edition, character_limit, runtime_scenario_id, runtime_rule_set_id, runtime_rulebook_ids_json, runtime_engine_id, runtime_tool_ids_json, runtime_initial_scene, status, started_adventure_id, start_request_id, active_ai_request_id, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                        : "UPDATE adventure_session SET blueprint_id=?, blueprint_revision=?, character_edition=?, character_limit=?, runtime_scenario_id=?, runtime_rule_set_id=?, runtime_rulebook_ids_json=?, runtime_engine_id=?, runtime_tool_ids_json=?, runtime_initial_scene=?, status=?, started_adventure_id=?, start_request_id=?, active_ai_request_id=?, version=? WHERE session_id=? AND version=?";
                 try (PreparedStatement s = c.prepareStatement(sql)) {
-                    if (expectedVersion == 0 && session.version() == 0) { s.setObject(1, session.id().value()); s.setObject(2, session.ownerPlayerId().value()); s.setObject(3, session.scenarioPackageId()); s.setLong(4, session.scenarioPackageRevision()); s.setObject(5, session.blueprintId()); s.setLong(6, session.blueprintRevision()); s.setString(7, session.characterEdition()); s.setInt(8, session.characterLimit()); bindConfiguration(s, 9, session.runtimeConfiguration()); bindStart(s, 15, session); s.setLong(18, session.version()); }
-                    else { s.setObject(1, session.blueprintId()); s.setLong(2, session.blueprintRevision()); s.setString(3, session.characterEdition()); s.setInt(4, session.characterLimit()); bindConfiguration(s, 5, session.runtimeConfiguration()); bindStart(s, 11, session); s.setLong(14, session.version()); s.setObject(15, session.id().value()); s.setLong(16, expectedVersion); }
+                    if (expectedVersion == 0 && session.version() == 0) { s.setObject(1, session.id().value()); s.setObject(2, session.ownerPlayerId().value()); s.setObject(3, session.scenarioPackageId()); s.setLong(4, session.scenarioPackageRevision()); s.setObject(5, session.blueprintId()); s.setLong(6, session.blueprintRevision()); s.setString(7, session.characterEdition()); s.setInt(8, session.characterLimit()); bindConfiguration(s, 9, session.runtimeConfiguration()); bindStart(s, 15, session); s.setLong(19, session.version()); }
+                    else { s.setObject(1, session.blueprintId()); s.setLong(2, session.blueprintRevision()); s.setString(3, session.characterEdition()); s.setInt(4, session.characterLimit()); bindConfiguration(s, 5, session.runtimeConfiguration()); bindStart(s, 11, session); s.setLong(15, session.version()); s.setObject(16, session.id().value()); s.setLong(17, expectedVersion); }
                     if (s.executeUpdate() != 1) throw new OptimisticAdventureLockException();
                 }
                 try (PreparedStatement s = c.prepareStatement("DELETE FROM adventure_session_party_member WHERE session_id=?")) { s.setObject(1, session.id().value()); s.executeUpdate(); }
@@ -58,7 +87,15 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
             s.setObject(1, id.value()); try (ResultSet members = s.executeQuery()) { while (members.next()) party.add(new AdventurePartyMember(new CharacterSheetId(members.getObject("character_sheet_id", UUID.class)), ControlMode.valueOf(members.getString("control_mode")), members.getBoolean("name_mutable_after_start"), members.getBoolean("race_mutable_after_start"), members.getBoolean("class_mutable_after_start"), members.getBoolean("background_mutable_after_start"), members.getBoolean("abilities_mutable_after_start"), members.getBoolean("level_mutable_after_start"))); }
         }
         UUID adventureId = row.getObject("started_adventure_id", UUID.class);
-        return AdventureSession.rehydrate(id, new OwnerPlayerId(row.getObject("owner_player_id", UUID.class)), row.getObject("scenario_package_id", UUID.class), row.getLong("scenario_package_revision"), row.getObject("blueprint_id", UUID.class), row.getLong("blueprint_revision"), row.getString("character_edition"), row.getInt("character_limit"), party, configuration(row), AdventureSession.Status.valueOf(row.getString("status")), adventureId == null ? null : new AdventureId(adventureId), row.getObject("start_request_id", UUID.class), row.getLong("version"));
+        return AdventureSession.rehydrateWithActiveAiRequest(id,
+                new OwnerPlayerId(row.getObject("owner_player_id", UUID.class)),
+                row.getObject("scenario_package_id", UUID.class), row.getLong("scenario_package_revision"),
+                row.getObject("blueprint_id", UUID.class), row.getLong("blueprint_revision"),
+                row.getString("character_edition"), row.getInt("character_limit"), party, configuration(row),
+                AdventureSession.Status.valueOf(row.getString("status")),
+                adventureId == null ? null : new AdventureId(adventureId),
+                row.getObject("start_request_id", UUID.class), row.getObject("active_ai_request_id", UUID.class),
+                row.getLong("version"));
     }
     private void bindConfiguration(PreparedStatement s, int offset, AdventureSessionRuntimeConfiguration c) throws SQLException {
         if (c == null) { for (int i = 0; i < 6; i++) s.setObject(offset + i, null); return; }
@@ -70,5 +107,5 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
         UUID scenarioId = row.getObject("runtime_scenario_id", UUID.class); if (scenarioId == null) return null;
         try { return new AdventureSessionRuntimeConfiguration(new ScenarioId(scenarioId), new RuleSetId(row.getObject("runtime_rule_set_id", UUID.class)), objectMapper.readValue(row.getString("runtime_rulebook_ids_json"), new TypeReference<List<UUID>>() {}), row.getString("runtime_engine_id"), objectMapper.readValue(row.getString("runtime_tool_ids_json"), new TypeReference<List<String>>() {}), row.getString("runtime_initial_scene")); } catch (Exception e) { throw new SQLException("could not read runtime configuration", e); }
     }
-    private static void bindStart(PreparedStatement s, int offset, AdventureSession session) throws SQLException { s.setString(offset, session.status().name()); s.setObject(offset + 1, session.startedAdventureId() == null ? null : session.startedAdventureId().value()); s.setObject(offset + 2, session.startRequestId()); }
+    private static void bindStart(PreparedStatement s, int offset, AdventureSession session) throws SQLException { s.setString(offset, session.status().name()); s.setObject(offset + 1, session.startedAdventureId() == null ? null : session.startedAdventureId().value()); s.setObject(offset + 2, session.startRequestId()); s.setObject(offset + 3, session.activeAiRequestId()); }
 }

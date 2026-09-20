@@ -2,21 +2,23 @@ package com.dndmaster.aigamemaster.application.ports;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Structured map placement proposal owned by the AI Game Master boundary. */
 public interface MapModelPort {
     MapOutput generate(MapInput input);
 
-    record MapInput(String selectedScenario, String currentContext, String mapData, String imageDataUri) {
-        public MapInput(String selectedScenario, String currentContext) {
-            this(selectedScenario, currentContext, "", "");
+    record MapInput(UUID soloPlayerId, String selectedScenario, String currentContext, String mapData, String imageDataUri) {
+        public MapInput(UUID soloPlayerId, String selectedScenario, String currentContext) {
+            this(soloPlayerId, selectedScenario, currentContext, "", "");
         }
 
-        public MapInput(String selectedScenario, String currentContext, String mapData) {
-            this(selectedScenario, currentContext, mapData, "");
+        public MapInput(UUID soloPlayerId, String selectedScenario, String currentContext, String mapData) {
+            this(soloPlayerId, selectedScenario, currentContext, mapData, "");
         }
 
         public MapInput {
+            Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             selectedScenario = required(selectedScenario, "selected scenario");
             currentContext = required(currentContext, "current context");
             mapData = mapData == null ? "" : mapData.trim();

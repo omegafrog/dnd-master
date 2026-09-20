@@ -13,7 +13,12 @@ import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.*;
 import com.dndmaster.combatmap.api.CombatMapController;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
+import com.dndmaster.combatmap.application.movement.MovementOperationResponse;
+import com.dndmaster.combatmap.application.movement.MovementOperationStatus;
 import com.dndmaster.combatmap.application.view.*;
+import com.dndmaster.combatmap.application.spatial.SpatialFeatureApplicationService;
+import com.dndmaster.combatmap.application.spatial.SpatialFeaturePlacementBatch;
+import com.dndmaster.combatmap.application.spatial.SpatialPreparationCommand;
 import com.dndmaster.combatmap.domain.*;
 import java.util.List;
 import java.util.Set;
@@ -21,6 +26,77 @@ import java.util.Optional;
 import org.mockito.ArgumentCaptor;
 
 class GmViewAuthorizationTest {
+    @Test
+    void starts_a_durable_movement_reservation_through_the_internal_boundary() {
+        var movement = mock(CombatMapMovementService.class);
+        var controller = new CombatMapController(mock(CombatMapViewService.class), movement, new ApiRequestGuard("service-secret"));
+        UUID mapId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        var request = new CombatMapController.MovementStartRequestBody(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
+                5, "DND_5E_2024", commandId, 0L, "fingerprint", "preview-fingerprint", List.of());
+        when(movement.start(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new MovementOperationResponse(operationId, MovementOperationStatus.PREPARING, null));
+
+        var response = controller.startMovement(mapId, "service-secret", commandId.toString(), request);
+
+        assertEquals(operationId, response.operationId());
+        assertEquals("PREPARING", response.status());
+        verify(movement).start(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void returns_a_typed_compatibility_move_state_when_the_reservation_is_not_terminal() {
+        var movement = mock(CombatMapMovementService.class);
+        var controller = new CombatMapController(mock(CombatMapViewService.class), movement, new ApiRequestGuard("service-secret"));
+        UUID mapId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        var request = new CombatMapController.MoveRequest(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
+                5, "DND_5E_2024", commandId, 0L, "operation-fingerprint", "preview-fingerprint", List.of());
+        when(movement.start(org.mockito.ArgumentMatchers.any())).thenReturn(
+                new MovementOperationResponse(operationId, MovementOperationStatus.RETRY_WAIT, null));
+
+        var response = controller.movePlayer(mapId, "service-secret", commandId.toString(), request);
+
+        assertEquals(mapId, response.mapId());
+        assertEquals(operationId, response.operationId());
+        assertEquals("RETRY_WAIT", response.status());
+        assertEquals("RETRY_REQUIRED", response.outcomeStatus());
+    }
+
+    @Test
+    void rejects_a_compatibility_move_without_a_server_preview_fingerprint() {
+        var movement = mock(CombatMapMovementService.class);
+        var controller = new CombatMapController(mock(CombatMapViewService.class), movement, new ApiRequestGuard("service-secret"));
+        var request = new CombatMapController.MoveRequest(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
+                5, "DND_5E_2024", UUID.randomUUID(), 0L, "operation-fingerprint", null, List.of());
+
+        var error = assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.movePlayer(UUID.randomUUID(), "service-secret", request));
+
+        assertEquals(400, error.status());
+        assertEquals("MOVEMENT_PREVIEW_REQUIRED", error.code());
+        verifyNoInteractions(movement);
+    }
+
+    @Test
+    void rejects_a_staged_move_without_a_preview_fingerprint() {
+        var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        var request = new CombatMapController.MovementStartRequestBody(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
+                5, "DND_5E_2024", UUID.randomUUID(), 0L, "operation-fingerprint", null, List.of());
+
+        var error = assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.startMovement(UUID.randomUUID(), "service-secret", request.commandId().toString(), request));
+
+        assertEquals(400, error.status());
+        assertEquals("MOVEMENT_PREVIEW_REQUIRED", error.code());
+    }
+
     @Test
     void rejectsUnauthenticatedAndWrongServiceRequestsButAllowsTheConfiguredInternalService() {
         var guard = new ApiRequestGuard("service-secret");
@@ -88,11 +164,32 @@ class GmViewAuthorizationTest {
     }
 
     @Test
+    void replays_a_preparation_command_before_attempting_map_generation() {
+        var maps = mock(CombatMapViewService.class);
+        var controller = new CombatMapController(maps, mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        UUID adventureId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        var request = new CombatMapController.PrepareRequest(adventureId, ownerId, UUID.randomUUID(), UUID.randomUUID(),
+                "asset", "locator", null, null);
+        var replay = new SpatialFeatureApplicationService.Result(new MapId(UUID.randomUUID()), 0,
+                SpatialFeatureApplicationService.Status.READY, 0);
+        when(maps.replaySpatialPreparation(eq(new AdventureId(adventureId)), eq(new MapOwnerId(ownerId)),
+                any())).thenReturn(Optional.of(replay));
+
+        var response = controller.prepare("service-secret", request);
+
+        assertEquals(replay.mapId().value(), response.mapId());
+        verify(maps).replaySpatialPreparation(eq(new AdventureId(adventureId)), eq(new MapOwnerId(ownerId)), any());
+        verify(maps, never()).prepareGenerated(any(), any(), any(), any(MapGenerationRequest.class));
+    }
+
+    @Test
     void mapPreparationUsesGeometryDetectedFromTheSourceImageInsteadOfAFixedTwentyByTwentyGrid() {
         var maps = mock(CombatMapViewService.class);
-        var preparedMap = mock(CombatMap.class);
-        when(preparedMap.id()).thenReturn(new MapId(UUID.randomUUID()));
-        when(maps.prepareGenerated(any(), any(), any(), any(MapGenerationRequest.class))).thenReturn(preparedMap);
+        var preparedMap = new SpatialFeatureApplicationService.Result(new MapId(UUID.randomUUID()), 0,
+                SpatialFeatureApplicationService.Status.READY, 0);
+        when(maps.prepareGenerated(any(), any(), any(), any(MapGenerationRequest.class), anyBoolean(),
+                any(SpatialFeaturePlacementBatch.class), anyLong(), any(SpatialPreparationCommand.class))).thenReturn(preparedMap);
         MapFilePreparationPort preparation = ignored -> new PreparedMapData(new GridSpec(13, 9, 16, 5), List.of(), Set.of(), List.of(
                 new MapLayer("MAP_IMAGE", "data:image/png;base64,AAECAw==", LayerVisibility.PLAYER_VISIBLE),
                 new MapLayer("GRID_BOUNDS", "7,11,208,144,240,180", LayerVisibility.PLAYER_VISIBLE)));
@@ -106,7 +203,8 @@ class GmViewAuthorizationTest {
         controller.prepare("service-secret", request);
 
         var captured = ArgumentCaptor.forClass(MapGenerationRequest.class);
-        verify(maps).prepareGenerated(any(), any(), any(), captured.capture());
+        verify(maps).prepareGenerated(any(), any(), any(), captured.capture(), eq(true),
+                any(SpatialFeaturePlacementBatch.class), eq(0L), any(SpatialPreparationCommand.class));
         assertEquals(13, captured.getValue().gridWidth());
         assertEquals(9, captured.getValue().gridHeight());
         assertEquals(7, captured.getValue().gridOriginX());
@@ -165,5 +263,44 @@ class GmViewAuthorizationTest {
                 () -> controller.reveal(mapId, "service-secret", null)).getStatusCode().value());
         assertEquals(400, assertThrows(org.springframework.web.server.ResponseStatusException.class,
                 () -> controller.gameTime(mapId, "service-secret", null)).getStatusCode().value());
+    }
+
+    @Test
+    void rejects_a_move_without_command_id_before_dereferencing_the_request() {
+        var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        var request = new CombatMapController.MoveRequest(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
+                1, "DND_5E_2024", null, 0L, "preview", List.of());
+
+        var error = assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.movePlayer(UUID.randomUUID(), "service-secret", request));
+        assertEquals(400, error.status());
+        assertEquals("INVALID_MAP_MOVE_PREVIEW", error.code());
+    }
+
+    @Test
+    void rejects_a_blank_preview_fingerprint_as_a_typed_bad_request() {
+        var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        var request = new CombatMapController.MoveRequest(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(0, 0), new CombatMapController.PositionRequest(1, 0)),
+                1, "DND_5E_2024", UUID.randomUUID(), 0L, "", List.of());
+
+        var error = assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.movePlayer(UUID.randomUUID(), "service-secret", request));
+        assertEquals(400, error.status());
+        assertEquals("INVALID_MAP_MOVE_PREVIEW", error.code());
+    }
+
+    @Test
+    void rejects_missing_numeric_confirmation_fields_as_a_typed_bad_request() {
+        var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        var request = new CombatMapController.MoveRequest(UUID.randomUUID(), UUID.randomUUID(),
+                List.of(new CombatMapController.PositionRequest(null, 0), new CombatMapController.PositionRequest(1, 0)),
+                1, "DND_5E_2024", UUID.randomUUID(), null, "preview", List.of());
+
+        var error = assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.movePlayer(UUID.randomUUID(), "service-secret", request));
+        assertEquals(400, error.status());
+        assertEquals("INVALID_MAP_MOVE_PREVIEW", error.code());
     }
 }

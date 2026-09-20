@@ -3,17 +3,20 @@ package com.dndmaster.adventure.application.scenario.compilation;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance;
 import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 
 public interface ResolutionExtractionPort {
     List<ResolutionCandidate> extract(ResolutionExtractionRequest request);
 
     default ResolutionCandidate retryCandidate(CandidateRetryRequest request) {
-        return extract(new ResolutionExtractionRequest(request.operationId(), request.excerpts(), request.schemaVersion(), request.promptVersion(),
+        return extract(new ResolutionExtractionRequest(request.soloPlayerId(), request.operationId(), request.excerpts(), request.schemaVersion(), request.promptVersion(),
                         request.failedCandidate(), request.attempt(), request.diagnostics()))
                 .stream().findFirst().orElse(request.failedCandidate());
     }
 
     record ResolutionExtractionRequest(
+            UUID soloPlayerId,
             String operationId,
             List<SourceExcerpt> excerpts,
             String schemaVersion,
@@ -21,11 +24,12 @@ public interface ResolutionExtractionPort {
             ResolutionCandidate failedCandidate,
             int attempt,
             List<String> diagnostics) {
-        public ResolutionExtractionRequest(String operationId, List<SourceExcerpt> excerpts,
+        public ResolutionExtractionRequest(UUID soloPlayerId, String operationId, List<SourceExcerpt> excerpts,
                 String schemaVersion, String promptVersion) {
-            this(operationId, excerpts, schemaVersion, promptVersion, null, 0, List.of());
+            this(soloPlayerId, operationId, excerpts, schemaVersion, promptVersion, null, 0, List.of());
         }
         public ResolutionExtractionRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "solo player id must not be null");
             diagnostics = diagnostics == null ? List.of() : List.copyOf(diagnostics);
             if (attempt < 0) throw new IllegalArgumentException("attempt must not be negative");
         }
@@ -60,5 +64,9 @@ public interface ResolutionExtractionPort {
         }
     }
 
-    record CandidateRetryRequest(String operationId, ResolutionCandidate failedCandidate, List<SourceExcerpt> excerpts, String schemaVersion, String promptVersion, int attempt, List<String> diagnostics) { }
+    record CandidateRetryRequest(UUID soloPlayerId, String operationId, ResolutionCandidate failedCandidate, List<SourceExcerpt> excerpts, String schemaVersion, String promptVersion, int attempt, List<String> diagnostics) {
+        public CandidateRetryRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "solo player id must not be null");
+        }
+    }
 }

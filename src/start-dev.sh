@@ -22,6 +22,7 @@ require_env() {
 # Local-only defaults keep this developer launcher runnable without exporting
 # production credentials. Deployments must provide their own values.
 export INTERNAL_SERVICE_TOKEN="${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}"
+export AGENT_CONNECTION_RELAY_URL="${AGENT_CONNECTION_RELAY_URL:-http://127.0.0.1:8081}"
 export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:-/home/jiwoo/workspace/dnd-master/docs/assets}"
 # Keep the repository's local catalog-admin marker and the seeded demo player's
 # actual identity together. The browser Backoffice sends the authenticated
@@ -29,6 +30,7 @@ export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:
 # with 403 before a Solo Player can select a published Rulebook.
 export RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS="${RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS:-local-catalog-admin,00000000-0000-0000-0000-000000000001}"
 export CODEX_EXECUTABLE="${CODEX_EXECUTABLE:-/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex}"
+export CODEX_CHARACTER_TAG_MODEL="${CODEX_CHARACTER_TAG_MODEL:-gpt-5.6-luna}"
 export RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE="${RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE:-/home/jiwoo/workspace/dnd-master/.venv-docling/bin/python}"
 export RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY="${RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY:-$ROOT/..}"
 # The WSL-local Tesseract installation is linked against libraries kept next

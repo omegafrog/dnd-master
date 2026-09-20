@@ -1,0 +1,3 @@
+ALTER TABLE combat_map_movement_operation
+    ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS operation_version BIGINT NOT NULL DEFAULT 0;

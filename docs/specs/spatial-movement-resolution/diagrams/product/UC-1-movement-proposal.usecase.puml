@@ -1,0 +1,84 @@
+@startuml
+' 관련 요구사항: G-01, G-03, UC-01, UC-04, BR-02, BR-04~BR-06, BR-12, BR-18, AC-01, AC-02, AC-08
+title UC-01·UC-04 — 이동 제안 확인과 자세히 살피기
+left to right direction
+
+actor "A-01\nSolo Player" as Player
+actor "A-02\nAI Game Master" as AI
+actor "A-03\nCombat Map" as Map
+actor "A-04\nAdventure Runtime" as Runtime
+
+rectangle "전술 지도에서의 플레이" {
+  usecase "직접 드래그로\n이동 제안 만들기" as Drag
+  usecase "자연어 이동 의도를\n공개된 지도에 대응하기" as Natural
+  usecase "모호한 목적지를 질문하거나\n드래그 안내하기" as Clarify
+  usecase "드롭한 목적지 선택" as DragDestination
+  usecase "해석된 목적지 제안" as NaturalDestination
+  usecase "플레이어가 아는 통행 정보로\n서버에서 경로 계산" as Route
+  usecase "유령 토큰과 경로\n미리 보기" as Preview
+  usecase "목적지 또는 경로 조정" as Adjust
+  usecase "이동 제안 확인" as Confirm
+  usecase "기준 지도 상태의\n최신 여부 검사" as Freshness
+  usecase "검증된 경로를\n칸별로 해결" as Resolve
+  usecase "주변을 자세히 살피기" as Observe
+  usecase "공개된 공간 요소와\n상호작용하기" as Interact
+  usecase "룰북 비용·굴림과\n플레이어 굴림 대기 적용" as Check
+  usecase "공개가 확정된 사실만\n전달하기" as Reveal
+}
+
+Player --> Drag
+Player --> Natural
+Player --> Adjust
+Player --> Confirm
+Player --> Observe
+Player --> Interact
+
+AI --> Natural : 위치 후보만 제안
+Natural .> Clarify : <<extend>>\n목적지가 모호함
+Drag .> DragDestination : <<include>>
+Natural .> NaturalDestination : <<include>>
+DragDestination .> Route : <<include>>
+NaturalDestination .> Route : <<include>>
+Route .> Preview : <<include>>
+Adjust .> Route : <<include>>\n다시 계산
+Preview .> Adjust : <<extend>>
+Preview .> Confirm : <<include>>
+Confirm .> Freshness : <<include>>
+Freshness .> Resolve : <<include>>\n최신 상태일 때
+
+Map --> Freshness : 정본 상태로 검증
+Map --> Route : 공개된 통행 정보만 제공
+Map --> Resolve : 확인된 이동만 반영
+Runtime --> Check
+Observe .> Check : <<include>>
+Observe .> Reveal : <<include>>
+Interact .> Check : <<include>>
+Interact .> Reveal : <<include>>
+
+note bottom of AI
+AI는 후보와 서술만 제안한다.
+지도 상태를 직접 변경하지 않는다.
+end note
+
+note bottom of Preview
+숨겨진 적과 공간 요소는 경로 계산에 영향을 주지 않고,
+미리보기나 응답에도 나타나지 않는다.
+end note
+
+note bottom of Confirm
+확인은 상태 변경의 관문이다.
+확인 전에는 위치·전장의 안개·공간 요소·
+모험 진행을 바꾸지 않는다.
+end note
+
+note bottom of Freshness
+기준 지도 상태가 오래되었으면 확인을 거부하고
+경로를 다시 계산·미리 본 뒤 재확인한다.
+end note
+
+note bottom of Reveal
+살피기 실패는 특이한 점을 찾지 못했다는
+뜻만 전달하며, 숨겨진 존재·판정 난이도·
+내부 결과를 드러내지 않는다.
+end note
+@enduml
