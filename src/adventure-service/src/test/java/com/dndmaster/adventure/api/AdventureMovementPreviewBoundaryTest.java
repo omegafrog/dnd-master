@@ -98,9 +98,9 @@ class AdventureMovementPreviewBoundaryTest {
     }
 
     @Test
-    void rejects_natural_language_preview_for_an_unknown_token_before_calling_placement_adapter() {
+    void rejects_natural_language_preview_for_a_canonical_party_id_absent_from_the_map_before_calling_placement_adapter() {
         UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID mapId = UUID.randomUUID();
-        UUID unknownTokenId = UUID.randomUUID(); UUID characterSheetId = UUID.randomUUID();
+        UUID characterSheetId = UUID.randomUUID();
         AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
         CombatMapViewPort mapViews = mock(CombatMapViewPort.class); AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
         var pending = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class);
@@ -119,7 +119,7 @@ class AdventureMovementPreviewBoundaryTest {
         controller.setMovementPlacementModelPort(placement);
 
         var thrown = assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.previewNaturalLanguageMovement(adventureId,
-                new AdventureController.NaturalLanguageMovementPreviewRequest(mapId, 4L, unknownTokenId, "문으로 가", "")));
+                new AdventureController.NaturalLanguageMovementPreviewRequest(mapId, 4L, characterSheetId, "문으로 가", "")));
 
         assertEquals("INVALID_MOVEMENT_PLACEMENT", thrown.code());
         verifyNoInteractions(placement, combatMap, pending);
@@ -128,7 +128,8 @@ class AdventureMovementPreviewBoundaryTest {
     @Test
     void rejects_natural_language_preview_for_a_non_player_token_before_calling_placement_adapter() {
         UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID mapId = UUID.randomUUID();
-        UUID enemyTokenId = UUID.randomUUID(); UUID characterSheetId = UUID.randomUUID();
+        UUID characterSheetId = UUID.randomUUID();
+        UUID enemyTokenId = characterSheetId;
         AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
         CombatMapViewPort mapViews = mock(CombatMapViewPort.class); AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
         var pending = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class);
@@ -239,6 +240,9 @@ class AdventureMovementPreviewBoundaryTest {
         when(adventure.party()).thenReturn(List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
                 new com.dndmaster.adventure.domain.adventure.CharacterSheetId(tokenId), com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT,
                 true, true, true, true, true, true)));
+        when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(mapId,
+                new CombatMapViewPort.Grid(3, 3, 50, 5), List.of(new CombatMapViewPort.Token(tokenId, "PLAYER", 0, 0)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), 4)));
         when(players.playerId()).thenReturn(ownerId); when(pendingRepository.findByAdventureId(adventureId, ownerId)).thenReturn(Optional.of(pending));
         when(ruleSetService.readRuleSet(any(), any())).thenReturn(appliedRuleSet);
         when(appliedRuleSet.edition()).thenReturn(new com.dndmaster.adventure.domain.ruleset.DndEdition("DND_5E_2024"));
@@ -285,10 +289,15 @@ class AdventureMovementPreviewBoundaryTest {
         when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId)); when(adventure.id()).thenReturn(new AdventureId(adventureId));
         when(adventure.sessionId()).thenReturn(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId));
         when(adventure.ruleSetId()).thenReturn(new com.dndmaster.adventure.domain.adventure.RuleSetId(UUID.randomUUID()));
+        when(adventure.party()).thenReturn(List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                new com.dndmaster.adventure.domain.adventure.CharacterSheetId(tokenId), com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT,
+                true, true, true, true, true, true)));
         when(players.playerId()).thenReturn(ownerId); when(pendingRepository.findByAdventureId(adventureId, ownerId)).thenReturn(Optional.of(pending));
         when(runtimeTurns.findByTurnId(pendingTurnId)).thenReturn(Optional.of(turn)); when(runtimeTurns.findAllByAdventureId(new AdventureId(adventureId))).thenReturn(List.of(turn));
         when(ruleSetService.readRuleSet(any(), any())).thenReturn(appliedRuleSet); when(appliedRuleSet.edition()).thenReturn(new com.dndmaster.adventure.domain.ruleset.DndEdition("DND_5E_2024"));
-        when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(mapId, new CombatMapViewPort.Grid(3, 3, 50, 5), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 4)));
+        when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(mapId,
+                new CombatMapViewPort.Grid(3, 3, 50, 5), List.of(new CombatMapViewPort.Token(tokenId, "PLAYER", 0, 0)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), 4)));
 
         AdventureController controller = controller(adventures, combatMap, mapViews, players, pendingRepository, ruleSetService, runtimeTurns);
         var first = controller.confirmNaturalLanguageMovement(adventureId,
@@ -333,6 +342,12 @@ class AdventureMovementPreviewBoundaryTest {
         when(players.playerId()).thenReturn(ownerId); when(pendingRepository.findByAdventureId(adventureId, ownerId)).thenReturn(Optional.of(pending));
         when(runtimeTurns.findByTurnId(pendingTurnId)).thenReturn(Optional.of(originalTurn));
         when(runtimeTurns.findAllByAdventureId(new AdventureId(adventureId))).thenReturn(List.of(originalTurn, laterTurn));
+        when(adventure.party()).thenReturn(List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                new com.dndmaster.adventure.domain.adventure.CharacterSheetId(tokenId), com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT,
+                true, true, true, true, true, true)));
+        when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(mapId,
+                new CombatMapViewPort.Grid(3, 3, 50, 5), List.of(new CombatMapViewPort.Token(tokenId, "PLAYER", 0, 0)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), 4)));
 
         AdventureController controller = controller(adventures, combatMap, mapViews, players, pendingRepository, ruleSetService, runtimeTurns);
         var response = controller.confirmNaturalLanguageMovement(adventureId,

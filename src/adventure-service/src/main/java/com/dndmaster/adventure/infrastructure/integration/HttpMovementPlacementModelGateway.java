@@ -33,11 +33,13 @@ public final class HttpMovementPlacementModelGateway implements MovementPlacemen
             HttpResponse<String> response = client.send(builder.POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new CrossContextCallException("movement placement failed with status " + response.statusCode());
             Wire payload = objectMapper.readValue(response.body(), Wire.class);
+            if (payload == null) throw new IllegalArgumentException("movement placement response must be an object");
             MovementPlacementModelPort.Position destination = payload.destination() == null ? null : new MovementPlacementModelPort.Position(payload.destination().x(), payload.destination().y());
             List<MovementPlacementModelPort.Candidate> candidates = payload.candidates() == null ? List.of() : payload.candidates().stream()
                     .filter(item -> item != null && item.destination() != null).map(item -> new MovementPlacementModelPort.Candidate(new MovementPlacementModelPort.Position(item.destination().x(), item.destination().y()), item.confidence(), item.reason())).toList();
             return new MovementPlacementProposal(payload.status(), destination, candidates, payload.playerMessage());
         } catch (IOException exception) { throw new CrossContextCallException("movement placement failed", exception); }
+        catch (IllegalArgumentException exception) { throw new CrossContextCallException("movement placement returned an invalid response", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new CrossContextCallException("movement placement interrupted", exception); }
     }
 
