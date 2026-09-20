@@ -485,7 +485,6 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
         PendingMapMovementConfirmation pending = pendingMapMovementConfirmationRepository.findByAdventureId(adventureId, owner)
                 .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_NOT_FOUND"));
-        validatePendingRuntimeTurn(adventure, pending.pendingTurnId());
         if (request == null || request.commandId() == null || request.pendingTurnId() == null || request.tokenId() == null
                 || !request.pendingTurnId().equals(pending.pendingTurnId()) || request.mapVersion() == null
                 || request.mapVersion() != pending.mapVersion() || !request.tokenId().equals(pending.tokenId())) {
@@ -497,6 +496,7 @@ public class AdventureController {
         if (pending.terminal()) {
             return NaturalLanguageMovementConfirmationResponse.from(readTerminalMovementResult(pending));
         }
+        validatePendingRuntimeTurn(adventure, pending.pendingTurnId());
         var destination = pending.destination() == null ? pending.path().getLast() : pending.destination();
         CombatMapPreviewResult preview = null;
         if (!pending.terminal()) {
@@ -1230,8 +1230,7 @@ public class AdventureController {
         return runtimeTurnRepository.findAllByAdventureId(adventure.id()).stream()
                 .filter(turn -> turn.adventureId().equals(adventure.id())
                         && turn.sessionId().equals(adventure.sessionId().value())
-                        && turn.lifecycle() != com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.DISCARDED
-                        && turn.lifecycle() != com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMIT_REPAIR_REQUIRED)
+                        && isActivePlayerRuntimeTurn(adventure, turn))
                 .reduce((first, second) -> second)
                 .map(com.dndmaster.adventure.application.runtime.RuntimeTurn::turnId)
                 .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_TURN_NOT_FOUND"));
@@ -1241,14 +1240,29 @@ public class AdventureController {
         if (pendingTurnId == null) throw new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_TURN_NOT_FOUND");
         var turn = runtimeTurnRepository.findByTurnId(pendingTurnId)
                 .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_TURN_NOT_FOUND"));
-        if (!turn.adventureId().equals(adventure.id()) || !turn.sessionId().equals(adventure.sessionId().value())
-                || !pendingTurnId.equals(currentRuntimeTurnId(adventure))) {
+        if (!turn.adventureId().equals(adventure.id()) || !turn.sessionId().equals(adventure.sessionId().value())) {
             throw new ApiRequestGuard.ApiContractException(409, "STALE_MOVEMENT_PROPOSAL");
         }
         if (turn.lifecycle() == com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.DISCARDED
                 || turn.lifecycle() == com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMIT_REPAIR_REQUIRED) {
             throw new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_TURN_NOT_FOUND");
         }
+        if (!isActivePlayerRuntimeTurn(adventure, turn)) {
+            throw new ApiRequestGuard.ApiContractException(409, "STALE_MOVEMENT_PROPOSAL");
+        }
+    }
+
+    private boolean isActivePlayerRuntimeTurn(Adventure adventure,
+            com.dndmaster.adventure.application.runtime.RuntimeTurn turn) {
+        var lifecycle = turn.lifecycle();
+        return turn.origin() == com.dndmaster.adventure.application.runtime.RuntimeTurnOrigin.PLAYER
+                && turn.playerOrigin() && !turn.gmOnly() && !turn.agentOrigin()
+                && lifecycle != null && !lifecycle.isCommitted()
+                && lifecycle != com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.DISCARDED
+                && lifecycle != com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMIT_REPAIR_REQUIRED
+                && (turn.turnCharacterSheetId() == null || adventure.party().stream()
+                        .anyMatch(member -> member.controlMode() == com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT
+                                && member.characterSheetId().equals(turn.turnCharacterSheetId())));
     }
 
     private CombatMapMoveResult readTerminalMovementResult(PendingMapMovementConfirmation pending) {

@@ -22,6 +22,8 @@ import com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder;
 import com.dndmaster.adventure.application.runtime.GmTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnOrigin;
 import com.dndmaster.adventure.application.runtime.SessionEventRepository;
 import com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
@@ -106,7 +108,9 @@ class AdventureMovementPreviewBoundaryTest {
         UUID sessionId = UUID.randomUUID();
         var turn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
         when(turn.adventureId()).thenReturn(new AdventureId(adventureId)); when(turn.sessionId()).thenReturn(sessionId);
-        when(turn.turnId()).thenReturn(UUID.randomUUID()); when(turn.lifecycle()).thenReturn(com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.PRESENTED);
+        when(turn.turnId()).thenReturn(UUID.randomUUID()); when(turn.lifecycle()).thenReturn(RuntimeTurnLifecycle.RESOLVING);
+        when(turn.origin()).thenReturn(RuntimeTurnOrigin.PLAYER); when(turn.playerOrigin()).thenReturn(true);
+        when(turn.gmOnly()).thenReturn(false); when(turn.agentOrigin()).thenReturn(false);
         when(adventure.sessionId()).thenReturn(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId));
         when(runtimeTurns.findAllByAdventureId(new AdventureId(adventureId))).thenReturn(List.of(turn));
         when(adventure.ruleSetId()).thenReturn(new com.dndmaster.adventure.domain.adventure.RuleSetId(UUID.randomUUID()));
@@ -162,7 +166,9 @@ class AdventureMovementPreviewBoundaryTest {
         UUID sessionId = adventure.sessionId().value();
         var turn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
         when(turn.turnId()).thenReturn(pendingTurnId); when(turn.adventureId()).thenReturn(new AdventureId(adventureId));
-        when(turn.sessionId()).thenReturn(sessionId); when(turn.lifecycle()).thenReturn(com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.PRESENTED);
+        when(turn.sessionId()).thenReturn(sessionId); when(turn.lifecycle()).thenReturn(RuntimeTurnLifecycle.RESOLVING);
+        when(turn.origin()).thenReturn(RuntimeTurnOrigin.PLAYER); when(turn.playerOrigin()).thenReturn(true);
+        when(turn.gmOnly()).thenReturn(false); when(turn.agentOrigin()).thenReturn(false);
         when(runtimeTurns.findByTurnId(pendingTurnId)).thenReturn(Optional.of(turn)); when(runtimeTurns.findAllByAdventureId(new AdventureId(adventureId))).thenReturn(List.of(turn));
         when(adventure.ruleSetId()).thenReturn(new com.dndmaster.adventure.domain.adventure.RuleSetId(UUID.randomUUID()));
         when(adventure.party()).thenReturn(List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
@@ -209,7 +215,7 @@ class AdventureMovementPreviewBoundaryTest {
         var turn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
         UUID sessionId = UUID.randomUUID();
         when(turn.turnId()).thenReturn(pendingTurnId); when(turn.adventureId()).thenReturn(new AdventureId(adventureId));
-        when(turn.sessionId()).thenReturn(sessionId); when(turn.lifecycle()).thenReturn(com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.PRESENTED);
+        when(turn.sessionId()).thenReturn(sessionId); when(turn.lifecycle()).thenReturn(RuntimeTurnLifecycle.DISCARDED);
         when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
         when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId)); when(adventure.id()).thenReturn(new AdventureId(adventureId));
         when(adventure.sessionId()).thenReturn(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId));
@@ -227,6 +233,113 @@ class AdventureMovementPreviewBoundaryTest {
 
         assertEquals(first.operationId(), second.operationId());
         verify(combatMap, times(0)).move(any());
+    }
+
+    @Test
+    void terminal_natural_confirmation_replays_after_a_later_runtime_turn_exists() throws Exception {
+        UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID mapId = UUID.randomUUID(); UUID tokenId = UUID.randomUUID();
+        UUID pendingTurnId = UUID.randomUUID(); UUID laterTurnId = UUID.randomUUID(); UUID commandId = UUID.randomUUID(); UUID operationId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class); AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        RuntimeTurnRepository runtimeTurns = mock(RuntimeTurnRepository.class);
+        var pendingRepository = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class);
+        var ruleSetService = mock(AppliedRuleSetApplicationService.class); Adventure adventure = mock(Adventure.class);
+        var path = List.of(new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(0, 0),
+                new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(1, 0));
+        var savedResult = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(5, operationId,
+                com.dndmaster.adventure.application.combat.CombatMapMovementStatus.COMMITTED,
+                List.of(new CombatMapPreviewPosition(0, 0), new CombatMapPreviewPosition(1, 0)),
+                List.of(new CombatMapPreviewPosition(0, 0), new CombatMapPreviewPosition(1, 0)),
+                new CombatMapPreviewPosition(1, 0), List.of("이동 완료"), null);
+        var pending = new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation(adventureId, ownerId, mapId, tokenId,
+                4, path, 5, "natural-preview", List.of(), "문으로 가", path.getLast(), pendingTurnId, commandId, true,
+                new ObjectMapper().writeValueAsString(savedResult));
+        var originalTurn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        var laterTurn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        UUID sessionId = UUID.randomUUID();
+        when(originalTurn.turnId()).thenReturn(pendingTurnId); when(originalTurn.adventureId()).thenReturn(new AdventureId(adventureId));
+        when(originalTurn.sessionId()).thenReturn(sessionId); when(originalTurn.lifecycle()).thenReturn(RuntimeTurnLifecycle.PRESENTED);
+        when(laterTurn.turnId()).thenReturn(laterTurnId); when(laterTurn.adventureId()).thenReturn(new AdventureId(adventureId));
+        when(laterTurn.sessionId()).thenReturn(sessionId); when(laterTurn.lifecycle()).thenReturn(RuntimeTurnLifecycle.RESOLVING);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId)); when(adventure.id()).thenReturn(new AdventureId(adventureId));
+        when(adventure.sessionId()).thenReturn(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId));
+        when(adventure.ruleSetId()).thenReturn(new com.dndmaster.adventure.domain.adventure.RuleSetId(UUID.randomUUID()));
+        when(players.playerId()).thenReturn(ownerId); when(pendingRepository.findByAdventureId(adventureId, ownerId)).thenReturn(Optional.of(pending));
+        when(runtimeTurns.findByTurnId(pendingTurnId)).thenReturn(Optional.of(originalTurn));
+        when(runtimeTurns.findAllByAdventureId(new AdventureId(adventureId))).thenReturn(List.of(originalTurn, laterTurn));
+
+        AdventureController controller = controller(adventures, combatMap, mapViews, players, pendingRepository, ruleSetService, runtimeTurns);
+        var response = controller.confirmNaturalLanguageMovement(adventureId,
+                new AdventureController.NaturalLanguageMovementConfirmationRequest(pendingTurnId, commandId, tokenId, 4L));
+
+        assertEquals(savedResult.operationId(), response.operationId());
+        verify(combatMap, times(0)).move(any());
+    }
+
+    @Test
+    void rejects_nonterminal_confirmation_when_the_runtime_turn_is_completed() {
+        UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID mapId = UUID.randomUUID(); UUID tokenId = UUID.randomUUID();
+        UUID pendingTurnId = UUID.randomUUID(); UUID commandId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class); AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        RuntimeTurnRepository runtimeTurns = mock(RuntimeTurnRepository.class);
+        var pendingRepository = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class);
+        Adventure adventure = mock(Adventure.class);
+        var path = List.of(new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(0, 0),
+                new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(1, 0));
+        var pending = new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation(adventureId, ownerId, mapId, tokenId,
+                4, path, 5, "natural-preview", List.of(), "문으로 가", path.getLast(), pendingTurnId, commandId, false);
+        var turn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        UUID sessionId = UUID.randomUUID();
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.id()).thenReturn(new AdventureId(adventureId)); when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(adventure.sessionId()).thenReturn(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId));
+        when(players.playerId()).thenReturn(ownerId); when(pendingRepository.findByAdventureId(adventureId, ownerId)).thenReturn(Optional.of(pending));
+        when(runtimeTurns.findByTurnId(pendingTurnId)).thenReturn(Optional.of(turn));
+        when(turn.turnId()).thenReturn(pendingTurnId); when(turn.adventureId()).thenReturn(new AdventureId(adventureId));
+        when(turn.sessionId()).thenReturn(sessionId); when(turn.lifecycle()).thenReturn(RuntimeTurnLifecycle.PRESENTED);
+
+        AdventureController controller = controller(adventures, combatMap, mapViews, players, pendingRepository,
+                mock(AppliedRuleSetApplicationService.class), runtimeTurns);
+        var thrown = assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.confirmNaturalLanguageMovement(adventureId,
+                new AdventureController.NaturalLanguageMovementConfirmationRequest(pendingTurnId, commandId, tokenId, 4L)));
+
+        assertEquals("STALE_MOVEMENT_PROPOSAL", thrown.getMessage());
+        verifyNoInteractions(combatMap);
+    }
+
+    @Test
+    void rejects_nonterminal_confirmation_for_a_gm_runtime_turn() {
+        UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID mapId = UUID.randomUUID(); UUID tokenId = UUID.randomUUID();
+        UUID pendingTurnId = UUID.randomUUID(); UUID commandId = UUID.randomUUID(); UUID sessionId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class); AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        RuntimeTurnRepository runtimeTurns = mock(RuntimeTurnRepository.class);
+        var pendingRepository = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class);
+        Adventure adventure = mock(Adventure.class);
+        var path = List.of(new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(0, 0),
+                new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(1, 0));
+        var pending = new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation(adventureId, ownerId, mapId, tokenId,
+                4, path, 5, "natural-preview", List.of(), "문으로 가", path.getLast(), pendingTurnId, commandId, false);
+        var turn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.id()).thenReturn(new AdventureId(adventureId)); when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(adventure.sessionId()).thenReturn(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId));
+        when(players.playerId()).thenReturn(ownerId); when(pendingRepository.findByAdventureId(adventureId, ownerId)).thenReturn(Optional.of(pending));
+        when(runtimeTurns.findByTurnId(pendingTurnId)).thenReturn(Optional.of(turn));
+        when(turn.turnId()).thenReturn(pendingTurnId); when(turn.adventureId()).thenReturn(new AdventureId(adventureId));
+        when(turn.sessionId()).thenReturn(sessionId); when(turn.lifecycle()).thenReturn(RuntimeTurnLifecycle.RESOLVING);
+        when(turn.origin()).thenReturn(RuntimeTurnOrigin.GM); when(turn.playerOrigin()).thenReturn(false);
+        when(turn.gmOnly()).thenReturn(true); when(turn.agentOrigin()).thenReturn(false);
+
+        AdventureController controller = controller(adventures, combatMap, mapViews, players, pendingRepository,
+                mock(AppliedRuleSetApplicationService.class), runtimeTurns);
+        var thrown = assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.confirmNaturalLanguageMovement(adventureId,
+                new AdventureController.NaturalLanguageMovementConfirmationRequest(pendingTurnId, commandId, tokenId, 4L)));
+
+        assertEquals("STALE_MOVEMENT_PROPOSAL", thrown.getMessage());
+        verifyNoInteractions(combatMap);
     }
 
     @Test
