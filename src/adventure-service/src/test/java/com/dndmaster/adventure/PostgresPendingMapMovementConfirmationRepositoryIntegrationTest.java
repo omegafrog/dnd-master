@@ -63,6 +63,22 @@ class PostgresPendingMapMovementConfirmationRepositoryIntegrationTest {
         assertTrue(repository.findByAdventureId(adventureId, ownerId).isEmpty());
     }
 
+    @Test
+    void persists_terminal_confirmation_identity_for_idempotent_replay() {
+        UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID commandId = UUID.randomUUID();
+        PendingMapMovementConfirmation confirmation = new PendingMapMovementConfirmation(adventureId, ownerId,
+                UUID.randomUUID(), UUID.randomUUID(), 8,
+                List.of(new PendingMapMovementConfirmation.Position(1, 1), new PendingMapMovementConfirmation.Position(2, 1)),
+                5, "terminal-fingerprint", List.of(), "문으로 가", new PendingMapMovementConfirmation.Position(2, 1),
+                UUID.randomUUID(), commandId, true);
+
+        repository.save(confirmation);
+
+        var reloaded = repository.findByAdventureId(adventureId, ownerId).orElseThrow();
+        assertEquals(commandId, reloaded.confirmationCommandId());
+        assertTrue(reloaded.terminal());
+    }
+
     private record DriverManagerDataSource(String url, String username, String password) implements DataSource {
         @Override public Connection getConnection() throws SQLException { return DriverManager.getConnection(url, username, password); }
         @Override public Connection getConnection(String user, String pass) throws SQLException { return DriverManager.getConnection(url, user, pass); }

@@ -203,7 +203,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     setPreviewing(true)
     try {
       if (!api.previewMapMovement) throw new Error('서버 이동 경로 미리보기를 사용할 수 없습니다.')
-      const preview = await api.previewMapMovement(adventureId, { mapId: sourceMap.mapId, mapVersion: sourceMap.version ?? 0, tokenId, destination, waypoints })
+      const preview = await api.previewMapMovement(adventureId, { mapId: sourceMap.mapId, mapVersion: sourceMap.version ?? 0, tokenId, destination, waypoints,
+        pendingTurnId: base.pendingTurnId, sourceText: base.sourceText })
       if (sequence !== previewSequence.current) return
       setCandidate(current => current === base || (current?.tokenId === tokenId && current?.action === 'MOVE')
         ? { ...base, mapVersion: preview.baseMapVersion, path: preview.orderedPositions, distance: preview.distance, fingerprint: preview.fingerprint, waypoints }
@@ -238,8 +239,10 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     if (candidate.action === 'MOVE' && candidate.pendingTurnId && api.confirmNaturalLanguageMovement) {
       try {
         const command = createMapCommandIdentity()
-        const result = await api.confirmNaturalLanguageMovement(adventureId, { pendingTurnId: candidate.pendingTurnId, commandId: command.commandId, tokenId: candidate.tokenId, mapVersion: candidate.mapVersion })
-        setMap(await api.getCombatMap(adventureId)); setCandidate(null); setSelectedToken(null); setMessage(result.publicEvents.length ? `공개된 결과: ${result.publicEvents.join(', ')}` : '이동 확인을 처리했습니다.')
+        const result = await api.confirmNaturalLanguageMovement(adventureId, { pendingTurnId: candidate.pendingTurnId, commandId: command.commandId,
+          tokenId: candidate.tokenId, mapVersion: candidate.mapVersion })
+        const refreshed = await api.getCombatMap(adventureId)
+        await applyMovementResult(result, candidate.mapId, candidate.tokenId, undefined, command.commandId, map, refreshed)
       } catch (error) { setMessage(error instanceof Error ? error.message : '이동 확인을 처리하지 못했습니다.') }
       finally { setSubmitting(false) }
       return

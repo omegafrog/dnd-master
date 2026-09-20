@@ -97,6 +97,8 @@ export type MapMovementPreviewRequest = {
   destination: { x: number; y: number }
   waypoints?: Array<{ x: number; y: number }>
   commandId?: string
+  pendingTurnId?: string
+  sourceText?: string
 }
 
 export type MapMovementPreview = {
@@ -122,7 +124,7 @@ export type PendingMapMovement = {
 export type NaturalLanguageMovementPreviewRequest = { mapId: string; mapVersion: number; tokenId: string; sourceText: string; tacticalContext?: string }
 export type NaturalLanguageMovementPreview = { status: 'RESOLVED' | 'AMBIGUOUS' | 'UNRESOLVED'; destination?: { x: number; y: number }; candidates: Array<{ destination: { x: number; y: number }; confidence: number; reason: string }>; playerMessage: string; pendingTurnId?: string; path: Array<{ x: number; y: number }>; distance?: number; baseMapVersion?: number; fingerprint?: string }
 export type NaturalLanguageMovementConfirmation = { pendingTurnId: string; commandId: string; tokenId: string; mapVersion: number }
-export type NaturalLanguageMovementConfirmationResult = { operationId?: string; status: string; version: number; publicEvents: string[] }
+export type NaturalLanguageMovementConfirmationResult = MapMovementResult
 
 export type MapMovementResult = {
   version: number

@@ -17,11 +17,20 @@ public record PendingMapMovementConfirmation(
         List<Position> waypoints,
         String sourceText,
         Position destination,
-        UUID pendingTurnId) {
+        UUID pendingTurnId,
+        UUID confirmationCommandId,
+        boolean terminal) {
     public PendingMapMovementConfirmation(UUID adventureId, UUID ownerPlayerId, UUID mapId, UUID tokenId, long mapVersion,
             List<Position> path, int distance, String fingerprint, List<Position> waypoints) {
         this(adventureId, ownerPlayerId, mapId, tokenId, mapVersion, path, distance, fingerprint, waypoints, "",
-                path == null || path.isEmpty() ? null : path.getLast(), null);
+                path == null || path.isEmpty() ? null : path.getLast(), null, null, false);
+    }
+
+    public PendingMapMovementConfirmation(UUID adventureId, UUID ownerPlayerId, UUID mapId, UUID tokenId, long mapVersion,
+            List<Position> path, int distance, String fingerprint, List<Position> waypoints, String sourceText,
+            Position destination, UUID pendingTurnId) {
+        this(adventureId, ownerPlayerId, mapId, tokenId, mapVersion, path, distance, fingerprint, waypoints,
+                sourceText, destination, pendingTurnId, null, false);
     }
 
     public PendingMapMovementConfirmation {
@@ -37,6 +46,7 @@ public record PendingMapMovementConfirmation(
         waypoints = copyPositions(waypoints, "waypoints");
         sourceText = sourceText == null ? "" : sourceText.trim();
         if (destination != null && (destination.x() < 0 || destination.y() < 0)) throw new IllegalArgumentException("destination must not be negative");
+        if (terminal && confirmationCommandId == null) throw new IllegalArgumentException("terminal confirmation needs a command id");
     }
 
     private static List<Position> copyPositions(List<Position> positions, String name) {

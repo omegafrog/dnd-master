@@ -91,6 +91,88 @@ class AdventureMovementPreviewBoundaryTest {
     }
 
     @Test
+    void resolved_natural_language_preview_persists_the_server_route_and_confirmation_identity() {
+        UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID mapId = UUID.randomUUID(); UUID tokenId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class); AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        var pending = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class);
+        var ruleSetService = mock(AppliedRuleSetApplicationService.class); Adventure adventure = mock(Adventure.class);
+        var appliedRuleSet = mock(com.dndmaster.adventure.domain.ruleset.AppliedRuleSet.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.id()).thenReturn(new AdventureId(adventureId));
+        when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(adventure.ruleSetId()).thenReturn(new com.dndmaster.adventure.domain.adventure.RuleSetId(UUID.randomUUID()));
+        when(players.playerId()).thenReturn(ownerId);
+        when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(
+                mapId, new CombatMapViewPort.Grid(3, 3, 50, 5), List.of(new CombatMapViewPort.Token(tokenId, "PLAYER", 0, 0)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), 4)));
+        when(ruleSetService.readRuleSet(any(), any())).thenReturn(appliedRuleSet);
+        when(appliedRuleSet.edition()).thenReturn(new com.dndmaster.adventure.domain.ruleset.DndEdition("DND_5E_2024"));
+        when(combatMap.preview(any())).thenReturn(new CombatMapPreviewResult(mapId,
+                List.of(new CombatMapPreviewPosition(0, 0), new CombatMapPreviewPosition(1, 0), new CombatMapPreviewPosition(1, 1)),
+                10, 4, "natural-preview"));
+
+        AdventureController controller = controller(adventures, combatMap, mapViews, players, pending, ruleSetService);
+        controller.setMovementPlacementModelPort(context -> new com.dndmaster.adventure.application.combat.MovementPlacementModelPort.MovementPlacementProposal(
+                "RESOLVED", new com.dndmaster.adventure.application.combat.MovementPlacementModelPort.Position(1, 1), List.of(), "목적지를 찾았습니다."));
+
+        controller.previewNaturalLanguageMovement(adventureId,
+                new AdventureController.NaturalLanguageMovementPreviewRequest(mapId, 4L, tokenId, "오른쪽 문으로 가", ""));
+
+        verify(pending).save(org.mockito.ArgumentMatchers.argThat(saved ->
+                saved.path().equals(List.of(new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(0, 0),
+                        new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(1, 0),
+                        new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(1, 1)))
+                        && saved.distance() == 10 && saved.pendingTurnId() != null
+                        && saved.destination().equals(new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(1, 1))));
+    }
+
+    @Test
+    void confirmation_keeps_active_pending_state_and_returns_the_shared_movement_result() {
+        UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID mapId = UUID.randomUUID(); UUID tokenId = UUID.randomUUID();
+        UUID pendingTurnId = UUID.randomUUID(); UUID commandId = UUID.randomUUID(); UUID operationId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class); AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        var pendingRepository = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class);
+        var ruleSetService = mock(AppliedRuleSetApplicationService.class); Adventure adventure = mock(Adventure.class);
+        var appliedRuleSet = mock(com.dndmaster.adventure.domain.ruleset.AppliedRuleSet.class);
+        var path = List.of(new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(0, 0),
+                new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation.Position(1, 0));
+        var pending = new com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation(adventureId, ownerId, mapId, tokenId,
+                4, path, 5, "natural-preview", List.of(), "문으로 가",
+                path.getLast(), pendingTurnId);
+        var check = new com.dndmaster.adventure.application.combat.CombatMapPendingCheck(UUID.randomUUID(), operationId,
+                "지각 판정", "d20", ownerId, com.dndmaster.adventure.application.combat.CombatMapCheckActor.PLAYER);
+        var result = new com.dndmaster.adventure.application.combat.CombatMapMoveResult(4, operationId,
+                com.dndmaster.adventure.application.combat.CombatMapMovementStatus.CHECK_REQUIRED,
+                List.of(new CombatMapPreviewPosition(0, 0), new CombatMapPreviewPosition(1, 0)),
+                List.of(new CombatMapPreviewPosition(0, 0)), new CombatMapPreviewPosition(0, 0), List.of(), "판정 대기", check);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.id()).thenReturn(new AdventureId(adventureId)); when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(adventure.sessionId()).thenReturn(new com.dndmaster.adventure.domain.adventure.SessionId(UUID.randomUUID()));
+        when(adventure.ruleSetId()).thenReturn(new com.dndmaster.adventure.domain.adventure.RuleSetId(UUID.randomUUID()));
+        when(adventure.party()).thenReturn(List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                new com.dndmaster.adventure.domain.adventure.CharacterSheetId(tokenId), com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT,
+                true, true, true, true, true, true)));
+        when(players.playerId()).thenReturn(ownerId); when(pendingRepository.findByAdventureId(adventureId, ownerId)).thenReturn(Optional.of(pending));
+        when(ruleSetService.readRuleSet(any(), any())).thenReturn(appliedRuleSet);
+        when(appliedRuleSet.edition()).thenReturn(new com.dndmaster.adventure.domain.ruleset.DndEdition("DND_5E_2024"));
+        when(combatMap.preview(any())).thenReturn(new CombatMapPreviewResult(mapId,
+                List.of(new CombatMapPreviewPosition(0, 0), new CombatMapPreviewPosition(1, 0)), 5, 4, "natural-preview"));
+        when(combatMap.move(any())).thenReturn(result);
+
+        AdventureController controller = controller(adventures, combatMap, mapViews, players, pendingRepository, ruleSetService);
+
+        var response = controller.confirmNaturalLanguageMovement(adventureId,
+                new AdventureController.NaturalLanguageMovementConfirmationRequest(pendingTurnId, commandId, tokenId, 4L));
+
+        assertEquals("CHECK_REQUIRED", response.status()); assertEquals(path.size(), response.requestedPath().size());
+        assertEquals(4L, response.resultingVersion()); assertEquals(check, response.pendingCheck());
+        verify(pendingRepository).save(org.mockito.ArgumentMatchers.argThat(saved -> !saved.terminal()
+                && commandId.equals(saved.confirmationCommandId()) && saved.path().equals(path)));
+    }
+
+    @Test
     void rejects_malformed_preview_before_calling_combat_map() {
         UUID adventureId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();

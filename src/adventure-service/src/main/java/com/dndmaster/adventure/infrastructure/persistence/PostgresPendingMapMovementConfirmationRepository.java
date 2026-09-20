@@ -24,7 +24,7 @@ public final class PostgresPendingMapMovementConfirmationRepository implements P
 
     @Override
     public Optional<PendingMapMovementConfirmation> findByAdventureId(UUID adventureId, UUID ownerPlayerId) {
-        String sql = "SELECT owner_player_id, map_id, token_id, map_version, path_json, distance, fingerprint, waypoints_json, source_text, destination_x, destination_y, pending_turn_id "
+        String sql = "SELECT owner_player_id, map_id, token_id, map_version, path_json, distance, fingerprint, waypoints_json, source_text, destination_x, destination_y, pending_turn_id, confirmation_command_id, terminal "
                 + "FROM adventure_pending_map_movement_confirmation WHERE adventure_id = ? AND owner_player_id = ?";
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, adventureId);
@@ -42,8 +42,8 @@ public final class PostgresPendingMapMovementConfirmationRepository implements P
     public void save(PendingMapMovementConfirmation confirmation) {
         String sql = """
                 INSERT INTO adventure_pending_map_movement_confirmation
-                    (adventure_id, owner_player_id, map_id, token_id, map_version, path_json, distance, fingerprint, waypoints_json, source_text, destination_x, destination_y, pending_turn_id, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    (adventure_id, owner_player_id, map_id, token_id, map_version, path_json, distance, fingerprint, waypoints_json, source_text, destination_x, destination_y, pending_turn_id, confirmation_command_id, terminal, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT (adventure_id) DO UPDATE SET
                     owner_player_id = EXCLUDED.owner_player_id,
                     map_id = EXCLUDED.map_id,
@@ -57,6 +57,8 @@ public final class PostgresPendingMapMovementConfirmationRepository implements P
                     destination_x = EXCLUDED.destination_x,
                     destination_y = EXCLUDED.destination_y,
                     pending_turn_id = EXCLUDED.pending_turn_id,
+                    confirmation_command_id = EXCLUDED.confirmation_command_id,
+                    terminal = EXCLUDED.terminal,
                     updated_at = CURRENT_TIMESTAMP
                 """;
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -73,6 +75,8 @@ public final class PostgresPendingMapMovementConfirmationRepository implements P
             if (confirmation.destination() == null) { statement.setObject(11, null); statement.setObject(12, null); }
             else { statement.setInt(11, confirmation.destination().x()); statement.setInt(12, confirmation.destination().y()); }
             statement.setObject(13, confirmation.pendingTurnId());
+            statement.setObject(14, confirmation.confirmationCommandId());
+            statement.setBoolean(15, confirmation.terminal());
             statement.executeUpdate();
         } catch (SQLException exception) {
             throw failure("could not save pending map movement confirmation", exception);
@@ -105,7 +109,8 @@ public final class PostgresPendingMapMovementConfirmationRepository implements P
             return new PendingMapMovementConfirmation(adventureId, ownerPlayerId,
                     row.getObject("map_id", UUID.class), row.getObject("token_id", UUID.class),
                     row.getLong("map_version"), path, row.getInt("distance"), row.getString("fingerprint"), waypoints,
-                    row.getString("source_text"), destination, row.getObject("pending_turn_id", UUID.class));
+                    row.getString("source_text"), destination, row.getObject("pending_turn_id", UUID.class),
+                    row.getObject("confirmation_command_id", UUID.class), row.getBoolean("terminal"));
         } catch (Exception exception) {
             throw new SQLException("could not decode pending map movement confirmation", exception);
         }

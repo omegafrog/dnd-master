@@ -601,6 +601,47 @@ it('submits exactly one typed map action after confirmation', async () => {
   expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }], fingerprint: 'server-preview', waypoints: [] }), expect.objectContaining({ commandId: expect.any(String) }), 7)
 })
 
+it('keeps the natural-language confirmation identity when a waypoint changes the preview', async () => {
+  const api = fakeApi()
+  const previewNaturalLanguageMovement = vi.fn(async () => ({
+    status: 'RESOLVED' as const, destination: { x: 2, y: 1 }, candidates: [], playerMessage: '',
+    pendingTurnId: 'pending-natural-1', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }], distance: 5, baseMapVersion: 0, fingerprint: 'natural-preview',
+  }))
+  const previewMapMovement = vi.fn(async (_adventureId: string, request: { mapId: string; mapVersion: number; tokenId: string; destination: { x: number; y: number }; waypoints?: Array<{ x: number; y: number }>; pendingTurnId?: string }) => ({
+    mapId: request.mapId, orderedPositions: [{ x: 1, y: 1 }, ...(request.waypoints ?? []), request.destination], distance: 10,
+    baseMapVersion: request.mapVersion, fingerprint: 'adjusted-preview',
+  }))
+  const confirmNaturalLanguageMovement = vi.fn(async () => ({
+    version: 1, operationId: 'natural-operation-1', status: 'COMMITTED' as const,
+    requestedPath: [{ x: 1, y: 1 }, { x: 2, y: 0 }, { x: 2, y: 1 }], traversedPath: [{ x: 1, y: 1 }, { x: 2, y: 0 }, { x: 2, y: 1 }],
+    finalPosition: { x: 2, y: 1 }, publicEvents: [],
+  }))
+  api.previewNaturalLanguageMovement = previewNaturalLanguageMovement
+  api.previewMapMovement = previewMapMovement
+  api.confirmNaturalLanguageMovement = confirmNaturalLanguageMovement
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, sessionVersion: 7,
+    grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }],
+    current: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+    explored: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }, { x: 2, y: 1 }],
+  })
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  const input = await screen.findByLabelText('어디로 이동할까요?')
+  await user.type(input, '오른쪽 문으로 가')
+  await user.click(screen.getByRole('button', { name: '목적지 미리보기' }))
+  await user.click(screen.getByRole('button', { name: '경유 지점 추가' }))
+  await user.click(screen.getByRole('button', { name: '격자 2,0' }))
+  await waitFor(() => expect(screen.getAllByText(/거리: 10/).length).toBeGreaterThan(0))
+  await user.click(screen.getByRole('button', { name: '확인' }))
+
+  expect(previewMapMovement).toHaveBeenCalledWith('a1', expect.objectContaining({ pendingTurnId: 'pending-natural-1', waypoints: [{ x: 2, y: 0 }] }))
+  await waitFor(() => expect(confirmNaturalLanguageMovement).toHaveBeenCalledWith('a1', expect.objectContaining({ pendingTurnId: 'pending-natural-1' })))
+  expect(api.submitMapAction).not.toHaveBeenCalled()
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '맵 행동 확인' })).not.toBeInTheDocument())
+})
+
 it('reuses the first command identity when the confirmation response is lost', async () => {
   window.localStorage.removeItem('dnd-master:movement-command:a1')
   const api = fakeApi()
