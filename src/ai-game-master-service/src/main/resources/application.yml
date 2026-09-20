@@ -1,6 +1,9 @@
 ai-game-master:
   integration:
     internal-token: ${INTERNAL_SERVICE_TOKEN:}
+  relay:
+    base-url: ${AGENT_CONNECTION_RELAY_URL:http://agent-connection-relay-service:8080}
+    timeout: ${AI_EXECUTION_TIMEOUT:PT3M}
 
 ai:
   codex:

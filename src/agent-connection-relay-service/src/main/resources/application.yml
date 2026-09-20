@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: agent-connection-relay-service
+  codec:
+    max-in-memory-size: ${RELAY_MAX_PAYLOAD_BYTES:16777216}
+relay:
+  instance-id: ${RELAY_INSTANCE_ID:relay-local}
+  internal-address: ${RELAY_INTERNAL_ADDRESS:http://127.0.0.1:8080}
+  identity-access:
+    base-url: ${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}
+    timeout: ${RELAY_IDENTITY_ACCESS_TIMEOUT:PT2S}
+  internal-token: ${INTERNAL_SERVICE_TOKEN:}
+  peer-token: ${RELAY_INTERNAL_SERVICE_TOKEN:${INTERNAL_SERVICE_TOKEN:}}
+  execution-timeout: ${RELAY_EXECUTION_TIMEOUT:PT3M}
+  max-payload-bytes: ${RELAY_MAX_PAYLOAD_BYTES:16777216}
+  redis-timeout: ${RELAY_REDIS_TIMEOUT:PT2S}
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus

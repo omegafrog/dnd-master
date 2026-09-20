@@ -26,6 +26,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnOrigin;
 import com.dndmaster.adventure.application.runtime.SessionEventRepository;
 import com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService;
+import com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
@@ -675,7 +676,8 @@ class AdventureMovementPreviewBoundaryTest {
                 provider(mock(com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort.class)),
                 provider(mock(CharacterCombatPort.class)), new ObjectMapper(), provider(mapViews),
                 provider(mock(CombatMapPreparationPort.class)), pendingRepository, mock(ScenarioPackageRepository.class),
-                mock(CombatLifecycleApplicationService.class), ruleSetService);
+                mock(CombatLifecycleApplicationService.class), ruleSetService,
+                mock(AdventureAiRequestApplicationService.class));
     }
 
     private static AdventureController controller(AdventureRepository adventures, CombatMapPort combatMap,
@@ -691,7 +693,8 @@ class AdventureMovementPreviewBoundaryTest {
                 provider(mock(com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort.class)),
                 provider(mock(CharacterCombatPort.class)), new ObjectMapper(), provider(mapViews),
                 provider(mock(CombatMapPreparationPort.class)), pendingRepository, mock(ScenarioPackageRepository.class),
-                mock(CombatLifecycleApplicationService.class), ruleSetService);
+                mock(CombatLifecycleApplicationService.class), ruleSetService,
+                mock(AdventureAiRequestApplicationService.class));
     }
 
     private static <T> ObjectProvider<T> provider(T value) {

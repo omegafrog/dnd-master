@@ -8,6 +8,7 @@ import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatReactionApplicationService;
 import com.dndmaster.adventure.application.combat.ResolveReactionCommand;
 import com.dndmaster.adventure.application.combat.FreeFormCombatCommand;
+import com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService;
 import com.dndmaster.adventure.domain.combat.ReactionChoice;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
@@ -36,6 +37,7 @@ public final class CombatController {
     private final com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems;
     private final com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler;
     private final com.dndmaster.adventure.application.combat.CharacterCombatPort characterCombatPort;
+    private final AdventureAiRequestApplicationService aiRequestService;
     public CombatController(CombatEncounterRepository repository, AuthenticatedPlayerResolver playerResolver,
                             com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository,
                             com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository,
@@ -43,9 +45,11 @@ public final class CombatController {
                             CombatReactionApplicationService reactionService,
                             com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems,
                             com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler,
-                            com.dndmaster.adventure.application.combat.CharacterCombatPort characterCombatPort) {
+                            com.dndmaster.adventure.application.combat.CharacterCombatPort characterCombatPort,
+                            AdventureAiRequestApplicationService aiRequestService) {
         this.repository = repository; this.playerResolver = playerResolver; this.adventureRepository = adventureRepository; this.eventRepository = eventRepository;
         this.actionService = actionService; this.reactionService = reactionService; this.workItems = workItems; this.workItemScheduler = workItemScheduler; this.characterCombatPort = characterCombatPort;
+        this.aiRequestService = java.util.Objects.requireNonNull(aiRequestService, "AI request service must not be null");
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/reactions/{reactionId}")
@@ -75,14 +79,20 @@ public final class CombatController {
             @RequestBody CombatActionRequest request) {
         var adventure = assertOwnerAndLoad(adventureId);
         UUID commandId = uuidHeader(idempotencyKey, "Idempotency-Key");
-        return ResponseEntity.accepted().body(actionService.submit(new CombatActionCommand(commandId,
-                adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(),
-                new CharacterSheetId(request.characterSheetId()), request.combatMapId(), CombatActorRole.PLAYER,
-                request.action(), path(request.movementPath()), playerResolver.playerId(), request.tokenId() == null
-                        ? request.characterSheetId() : request.tokenId(), expectedVersion,
-                request.targetArmorClass(), request.attackModifier(), request.targetCharacterSheetId() == null
-                        ? null : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), false,
-                request.narrativePosition() == null ? null : request.narrativePosition().toDomain(), request.movementDistance(), request.mapVersion())));
+        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
+                adventure.sessionId(), adventure.ownerPlayerId(), commandId)) {
+            CombatActionCommand command = new CombatActionCommand(commandId,
+                    adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(),
+                    new CharacterSheetId(request.characterSheetId()), request.combatMapId(), CombatActorRole.PLAYER,
+                    request.action(), path(request.movementPath()), playerResolver.playerId(), request.tokenId() == null
+                            ? request.characterSheetId() : request.tokenId(), expectedVersion,
+                    request.targetArmorClass(), request.attackModifier(), request.targetCharacterSheetId() == null
+                            ? null : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), false,
+                    request.narrativePosition() == null ? null : request.narrativePosition().toDomain(), request.movementDistance(), request.mapVersion());
+            CombatActionResponse response = actionService.submit(command);
+            handOffToScheduledAiFollowUp(adventure, command, permit);
+            return ResponseEntity.accepted().body(response);
+        }
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/free-form")
@@ -96,8 +106,13 @@ public final class CombatController {
         var base = new CombatActionCommand(commandId, adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(),
                 actor, null, CombatActorRole.PLAYER, "FREE_FORM", null, playerResolver.playerId(), actor.value(),
                 expectedVersion, null, null, null, null, false);
-        return ResponseEntity.accepted().body(actionService.submitFreeForm(new FreeFormCombatCommand(base,
-                FreeFormInterpretationPolicy.accept(actor.value(), request.declaration()))));
+        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
+                adventure.sessionId(), adventure.ownerPlayerId(), commandId)) {
+            CombatActionResponse response = actionService.submitFreeForm(new FreeFormCombatCommand(base,
+                    FreeFormInterpretationPolicy.accept(actor.value(), request.declaration())));
+            handOffToScheduledAiFollowUp(adventure, base, permit);
+            return ResponseEntity.accepted().body(response);
+        }
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/turn/end")
@@ -112,49 +127,59 @@ public final class CombatController {
                 new CharacterSheetId(request.characterSheetId()), null, CombatActorRole.PLAYER,
                 "END_TURN", null, playerResolver.playerId(), request.characterSheetId(), expectedVersion,
                 null, null, null, null, false);
-        CombatActionResponse response = actionService.endTurn(command);
-        repository.findActive(adventureId).ifPresent(encounter -> workItemScheduler.scheduleNext(command, encounter, 0,
-                com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none()));
-        return ResponseEntity.accepted().body(response);
+        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
+                adventure.sessionId(), adventure.ownerPlayerId(), commandId)) {
+            CombatActionResponse response = actionService.endTurn(command);
+            handOffToScheduledAiFollowUp(adventure, command, permit);
+            return ResponseEntity.accepted().body(response);
+        }
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/retry")
     public ResponseEntity<CombatActionResponse> retry(@PathVariable UUID adventureId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody RetryRequest request) {
-        assertOwner(adventureId);
+        var adventure = assertOwnerAndLoad(adventureId);
+        UUID requestId = uuidHeader(idempotencyKey, "Idempotency-Key");
         var failed = workItems.findByOperationId(request.operationId())
-                .filter(item -> item.encounterId() != null && item.status() == com.dndmaster.adventure.application.combat.CombatWorkItem.Status.FAILED)
+                .filter(item -> item.encounterId() != null
+                        && item.status() == com.dndmaster.adventure.application.combat.CombatWorkItem.Status.FAILED
+                        && item.command() != null
+                        && adventure.id().equals(item.command().adventureId())
+                        && adventure.sessionId().value().equals(item.command().sessionId())
+                        && adventure.ownerPlayerId().value().equals(item.command().ownerPlayerId()))
                 .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
                         org.springframework.http.HttpStatus.CONFLICT, "COMBAT_RETRY_NOT_AVAILABLE"));
-        var resumed = failed.manualRetry(Instant.now());
-        workItems.save(resumed);
-        return ResponseEntity.accepted().body(new CombatActionResponse(failed.encounterId(), failed.operationId(),
-                failed.expectedEncounterVersion(), "RETRY_SCHEDULED", null, null, List.of()));
+        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
+                adventure.sessionId(), adventure.ownerPlayerId(), requestId)) {
+            var resumed = failed.manualRetry(Instant.now(), requestId);
+            workItems.save(resumed);
+            permit.handOffToCombatFollowUp();
+            return ResponseEntity.accepted().body(new CombatActionResponse(failed.encounterId(), failed.operationId(),
+                    failed.expectedEncounterVersion(), "RETRY_SCHEDULED", null, null, List.of()));
+        }
     }
     @GetMapping("/api/v1/adventures/{adventureId}/combat")
     public ResponseEntity<?> snapshot(@PathVariable UUID adventureId) {
         var adventure = assertOwnerAndLoad(adventureId);
         return repository.findActive(adventureId)
-                .map(e -> {
-                    ensureCurrentAiTurnIsScheduled(adventure, e);
-                    return ResponseEntity.ok(withCharacterNames(PlayerCombatProjectionPolicy.toSnapshot(e, playerResolver.playerId(),
+                .map(e -> ResponseEntity.ok(withCharacterNames(PlayerCombatProjectionPolicy.toSnapshot(e, playerResolver.playerId(),
                         workItems.findFailedByEncounterId(e.encounterId()).map(item ->
                                 new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot.ProcessingFailure(
-                                        item.operationId(), item.failure(), item.attemptCount())).orElse(null)), adventure));
-                })
+                                        item.operationId(), item.failure(), item.attemptCount())).orElse(null)), adventure)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    private void ensureCurrentAiTurnIsScheduled(com.dndmaster.adventure.domain.adventure.Adventure adventure,
-                                                com.dndmaster.adventure.domain.combat.CombatEncounter encounter) {
-        if (encounter.currentParticipant().controller() != com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI
-                || workItems.hasPendingForEncounter(encounter.encounterId())) return;
-        UUID actorId = encounter.currentParticipantId();
-        CombatActionCommand template = new CombatActionCommand(UUID.randomUUID(), adventure.id(), adventure.sessionId().value(),
-                adventure.ruleSetId(), new CharacterSheetId(actorId), null, CombatActorRole.AI, "AI_TURN", null,
-                adventure.ownerPlayerId().value(), actorId, encounter.version());
-        workItemScheduler.scheduleNext(template, encounter, 0,
-                com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none());
+    private void handOffToScheduledAiFollowUp(com.dndmaster.adventure.domain.adventure.Adventure adventure,
+                                                CombatActionCommand command,
+                                                AdventureAiRequestApplicationService.Permit permit) {
+        repository.findActive(adventure.id().value()).ifPresent(encounter -> {
+            if (workItemScheduler.scheduleNext(command, encounter, 0,
+                    com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none(), command.operationId())
+                    == com.dndmaster.adventure.application.combat.CombatWorkItemScheduler.OptionalSchedule.SCHEDULED) {
+                permit.handOffToCombatFollowUp();
+            }
+        });
     }
 
     private com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot withCharacterNames(

@@ -1,13 +1,10 @@
-package com.dndmaster.adventure.application.runtime;
+package com.dndmaster.adventure.domain.runtime;
 
-import com.dndmaster.adventure.domain.runtime.CurrentSituation;
-import com.dndmaster.adventure.domain.runtime.DisclosureState;
-import com.dndmaster.adventure.domain.runtime.GameStateDelta;
-import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
+import com.dndmaster.adventure.domain.adventure.Adventure;
 import java.util.List;
 import java.util.Objects;
 
-/** Complete uncommitted Adventure changes carried by a fixed RuntimeTurn. */
+/** 안전한 턴 반영 전에 보관하는 모험 변경 내용. */
 public record PendingRuntimeState(GameStateDelta gameStateDelta, DisclosureState disclosureState,
         CurrentSituation situation, List<RuntimeAddedFact> runtimeAddedFacts) {
     public PendingRuntimeState {
@@ -17,7 +14,7 @@ public record PendingRuntimeState(GameStateDelta gameStateDelta, DisclosureState
         runtimeAddedFacts = List.copyOf(Objects.requireNonNull(runtimeAddedFacts, "runtime facts must not be null"));
     }
 
-    public static PendingRuntimeState unchanged(com.dndmaster.adventure.domain.adventure.Adventure adventure) {
+    public static PendingRuntimeState unchanged(Adventure adventure) {
         return new PendingRuntimeState(GameStateDelta.empty(), adventure.disclosureState(), adventure.currentSituation(), List.of());
     }
 }

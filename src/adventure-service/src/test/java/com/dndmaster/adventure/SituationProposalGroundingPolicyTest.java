@@ -3,7 +3,7 @@ package com.dndmaster.adventure;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.dndmaster.adventure.application.runtime.CompletionProposal;
+import com.dndmaster.adventure.domain.runtime.CompletionProposal;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.runtime.RuntimeResolutionProposal;

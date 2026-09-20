@@ -61,7 +61,7 @@ public class AiGameMasterController {
                 .map(e -> new SourceEvidence(e.rulebookId(), e.locator(), e.excerpt(), e.citationKey()))
                 .toList();
         ScenarioRequest scenarioRequest = new ScenarioRequest(
-                request.scenarioId(), request.selectedScenario(),
+                request.soloPlayerId(), request.scenarioId(), request.selectedScenario(),
                 request.currentContext(), request.ruleSetId(), evidence,
                 request.playerAction(), request.recentActions(), request.runtimeFacts());
         var output = sceneService.generate(scenarioRequest);
@@ -73,7 +73,7 @@ public class AiGameMasterController {
     @PostMapping("/internal/v1/gm/judgments")
     JudgmentResponse adjudicate(@RequestBody JudgmentRequest request) {
         var input = new AdjudicationModelPort.AdjudicationInput(
-                request.action(), request.context(), request.ruleSetId());
+                request.soloPlayerId(), request.action(), request.context(), request.ruleSetId());
         var output = adjudicationPort.adjudicate(input);
         return new JudgmentResponse(output.outcome(), output.ruleBasis());
     }
@@ -85,7 +85,7 @@ public class AiGameMasterController {
                 .map(e -> new SourceEvidence(e.rulebookId(), e.locator(), e.excerpt(), e.citationKey()))
                 .toList();
         RuleAnswerRequest ruleRequest = new RuleAnswerRequest(
-                request.ruleSetId(), request.situation(), status, evidence);
+                request.soloPlayerId(), request.ruleSetId(), request.situation(), status, evidence);
         RuleAnswerOutput output = ruleAnswerService.compose(ruleRequest);
         return new RuleAnswerResponse(
                 output.conclusion(), output.conclusionCitations(),
@@ -96,13 +96,13 @@ public class AiGameMasterController {
     @PostMapping("/internal/v1/gm/intent-classifications")
     IntentClassificationResponse classifyIntent(@RequestBody IntentClassificationRequest request) {
         var output = intentClassificationPort.classify(
-                new IntentClassificationModelPort.IntentClassificationInput(request.question()));
+                new IntentClassificationModelPort.IntentClassificationInput(request.soloPlayerId(), request.question()));
         return new IntentClassificationResponse(output.intent().name());
     }
 
     @PostMapping("/internal/v1/gm/maps")
     MapResponse generateMap(@RequestBody MapRequest request) {
-        var input = new MapModelPort.MapInput(request.selectedScenario(), request.currentContext(), request.mapData(), request.imageDataUri());
+        var input = new MapModelPort.MapInput(request.soloPlayerId(), request.selectedScenario(), request.currentContext(), request.mapData(), request.imageDataUri());
         var output = mapPort.generate(input);
         return new MapResponse(output.width(), output.height(), output.structuredLayers(),
                 output.obstacles(), output.doors(), output.boundaries(), output.playerStart(), output.candidates(), output.playerStartProposal());
@@ -112,7 +112,7 @@ public class AiGameMasterController {
     MapEntryPlacementResponse proposeMapEntryPlacement(@RequestBody MapEntryPlacementRequest request) {
         if (mapEntryPlacementPort == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
         var output = mapEntryPlacementPort.propose(new MapEntryPlacementModelPort.EntryPlacementInput(
-                request.targetScene(), request.location(), request.firstNarration(),
+                request.soloPlayerId(), request.targetScene(), request.location(), request.firstNarration(),
                 request.action(), request.judgment(), request.narration(),
                 request.mapData(), request.imageDataUri()));
         return MapEntryPlacementResponse.from(output);
@@ -166,18 +166,18 @@ public class AiGameMasterController {
     }
 
     public record SceneRequest(
-            UUID scenarioId, String selectedScenario, String currentContext,
+            UUID soloPlayerId, UUID scenarioId, String selectedScenario, String currentContext,
             UUID ruleSetId, List<EvidenceRef> evidence, String playerAction,
             List<String> recentActions, List<String> runtimeFacts) {
-        public SceneRequest(UUID scenarioId, String selectedScenario, String currentContext,
+        public SceneRequest(UUID soloPlayerId, UUID scenarioId, String selectedScenario, String currentContext,
                 UUID ruleSetId, List<EvidenceRef> evidence) {
-            this(scenarioId, selectedScenario, currentContext, ruleSetId, evidence, "", List.of(), List.of());
+            this(soloPlayerId, scenarioId, selectedScenario, currentContext, ruleSetId, evidence, "", List.of(), List.of());
         }
 
-        public SceneRequest(UUID scenarioId, String selectedScenario, String currentContext,
+        public SceneRequest(UUID soloPlayerId, UUID scenarioId, String selectedScenario, String currentContext,
                 UUID ruleSetId, List<EvidenceRef> evidence, String playerAction,
                 List<String> recentActions) {
-            this(scenarioId, selectedScenario, currentContext, ruleSetId, evidence, playerAction, recentActions, List.of());
+            this(soloPlayerId, scenarioId, selectedScenario, currentContext, ruleSetId, evidence, playerAction, recentActions, List.of());
         }
     }
 
@@ -202,12 +202,12 @@ public class AiGameMasterController {
     public record SpatialFeaturePlacementResponse(List<Candidate> candidates) {}
     public record Candidate(UUID featureId, String type, List<String> cells, boolean required, String evidenceReference) {}
 
-    public record JudgmentRequest(String action, String context, String ruleSetId) {}
+    public record JudgmentRequest(UUID soloPlayerId, String action, String context, String ruleSetId) {}
 
     public record JudgmentResponse(String outcome, String ruleBasis) {}
 
     public record RuleAnswerHttpRequest(
-            UUID ruleSetId, String situation, String evidenceStatus,
+            UUID soloPlayerId, UUID ruleSetId, String situation, String evidenceStatus,
             List<EvidenceRef> evidence) {}
 
     public record RuleAnswerResponse(
@@ -221,16 +221,16 @@ public class AiGameMasterController {
         }
     }
 
-    public record IntentClassificationRequest(String question) {}
+    public record IntentClassificationRequest(UUID soloPlayerId, String question) {}
 
     public record IntentClassificationResponse(String queryIntent) {}
 
-    public record MapRequest(String selectedScenario, String currentContext, String mapData, String imageDataUri) {
-        public MapRequest(String selectedScenario, String currentContext) {
-            this(selectedScenario, currentContext, "", "");
+    public record MapRequest(UUID soloPlayerId, String selectedScenario, String currentContext, String mapData, String imageDataUri) {
+        public MapRequest(UUID soloPlayerId, String selectedScenario, String currentContext) {
+            this(soloPlayerId, selectedScenario, currentContext, "", "");
         }
-        public MapRequest(String selectedScenario, String currentContext, String mapData) {
-            this(selectedScenario, currentContext, mapData, "");
+        public MapRequest(UUID soloPlayerId, String selectedScenario, String currentContext, String mapData) {
+            this(soloPlayerId, selectedScenario, currentContext, mapData, "");
         }
     }
 
@@ -255,12 +255,12 @@ public class AiGameMasterController {
         }
     }
 
-    public record MapEntryPlacementRequest(String targetScene, String location, String firstNarration,
+    public record MapEntryPlacementRequest(UUID soloPlayerId, String targetScene, String location, String firstNarration,
                                            String action, String judgment, String narration,
                                            String mapData, String imageDataUri) {
-        public MapEntryPlacementRequest(String targetScene, String action, String judgment,
+        public MapEntryPlacementRequest(UUID soloPlayerId, String targetScene, String action, String judgment,
                                         String narration, String mapData, String imageDataUri) {
-            this(targetScene, "", "", action, judgment, narration, mapData, imageDataUri);
+            this(soloPlayerId, targetScene, "", "", action, judgment, narration, mapData, imageDataUri);
         }
     }
 

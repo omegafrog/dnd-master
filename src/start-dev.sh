@@ -22,6 +22,7 @@ require_env() {
 # Local-only defaults keep this developer launcher runnable without exporting
 # production credentials. Deployments must provide their own values.
 export INTERNAL_SERVICE_TOKEN="${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}"
+export AGENT_CONNECTION_RELAY_URL="${AGENT_CONNECTION_RELAY_URL:-http://127.0.0.1:8081}"
 export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:-/home/jiwoo/workspace/dnd-master/docs/assets}"
 # Keep the repository's local catalog-admin marker and the seeded demo player's
 # actual identity together. The browser Backoffice sends the authenticated

@@ -11,6 +11,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Adapter for the AI ScenarioModel lookup endpoint; it sends no RAG or mutation capability. */
 public final class HttpScenarioModelLookupAgentPort implements ScenarioModelLookupAgentPort {
@@ -31,8 +32,13 @@ public final class HttpScenarioModelLookupAgentPort implements ScenarioModelLook
 
     @Override
     public ScenarioLookupResult lookup(ScenarioModelLookupRequest request) {
+        return lookup(new UUID(0, 0), request);
+    }
+
+    @Override
+    public ScenarioLookupResult lookup(UUID soloPlayerId, ScenarioModelLookupRequest request) {
         try {
-            String body = mapper.writeValueAsString(new LookupRequest(request.query(), request.lockedScenarioModel()));
+            String body = mapper.writeValueAsString(new LookupRequest(soloPlayerId, request.query(), request.lockedScenarioModel()));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/gm/scenario-lookup"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
@@ -53,7 +59,7 @@ public final class HttpScenarioModelLookupAgentPort implements ScenarioModelLook
         }
     }
 
-    record LookupRequest(String query, Object lockedScenarioModel) { }
+    record LookupRequest(UUID soloPlayerId, String query, Object lockedScenarioModel) { }
     record LookupResponse(String status, String answer, List<String> supportingElementIds) {
         LookupResponse {
             supportingElementIds = supportingElementIds == null ? List.of() : List.copyOf(supportingElementIds);

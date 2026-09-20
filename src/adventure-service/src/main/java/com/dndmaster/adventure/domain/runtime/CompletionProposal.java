@@ -1,6 +1,6 @@
-package com.dndmaster.adventure.application.runtime;
+package com.dndmaster.adventure.domain.runtime;
 
-/** GM proposal; it becomes canonical only together with a safe turn commit. */
+/** 게임 마스터가 제안한 모험 완료 상태. 모험 집계가 안전한 턴과 함께 반영한다. */
 public record CompletionProposal(boolean complete, String concludingScene) {
     public CompletionProposal {
         concludingScene = concludingScene == null ? "" : concludingScene.trim();
@@ -9,5 +9,7 @@ public record CompletionProposal(boolean complete, String concludingScene) {
         }
     }
 
-    public static CompletionProposal continueAdventure() { return new CompletionProposal(false, ""); }
+    public static CompletionProposal continueAdventure() {
+        return new CompletionProposal(false, "");
+    }
 }

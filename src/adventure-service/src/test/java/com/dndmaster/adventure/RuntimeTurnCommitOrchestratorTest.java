@@ -474,13 +474,13 @@ class RuntimeTurnCommitOrchestratorTest {
                     new com.dndmaster.adventure.domain.adventure.AdventureContext("scene", "npc", "action", "judgment"),
                     List.of(), 0, List.of(), List.of(), false, false,
                     com.dndmaster.adventure.application.runtime.RuntimeTurnOrigin.GM, false);
-            var pending = new com.dndmaster.adventure.application.runtime.PendingRuntimeState(
+            var pending = new com.dndmaster.adventure.domain.runtime.PendingRuntimeState(
                     com.dndmaster.adventure.domain.runtime.GameStateDelta.empty(),
                     com.dndmaster.adventure.domain.runtime.DisclosureState.empty(),
                     com.dndmaster.adventure.domain.runtime.CurrentSituation.initial("problem"), List.of());
             return base.asRequested().beginResolving()
                     .fixResolution(new com.dndmaster.adventure.application.runtime.RuntimeTurnResolution("ok", null, List.of()), pending,
-                            com.dndmaster.adventure.application.runtime.CompletionProposal.continueAdventure())
+                            com.dndmaster.adventure.domain.runtime.CompletionProposal.continueAdventure())
                     .beginNarration().beginSafetyCheck().readyToCommit("safe");
         }
 

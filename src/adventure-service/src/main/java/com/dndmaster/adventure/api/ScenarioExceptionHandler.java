@@ -26,6 +26,12 @@ import java.util.Map;
 
 @RestControllerAdvice
 public final class ScenarioExceptionHandler {
+    @ExceptionHandler(com.dndmaster.adventure.application.session.AdventureAiRequestInProgressException.class)
+    public ResponseEntity<Map<String, String>> aiRequestInProgress(
+            com.dndmaster.adventure.application.session.AdventureAiRequestInProgressException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", exception.getMessage()));
+    }
+
     @ExceptionHandler(RuntimeCombatRejectionException.class)
     public ResponseEntity<Map<String, String>> combatRejection(RuntimeCombatRejectionException exception) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(

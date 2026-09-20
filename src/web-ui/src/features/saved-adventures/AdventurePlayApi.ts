@@ -446,6 +446,7 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
 
   submitMapAction(adventureId: string, candidate: MapActionCandidate, command = createMapCommandIdentity(), expectedVersion = candidate.mapVersion) {
     const { commandId: _commandId, ...requestCandidate } = candidate
+    void _commandId
     return request<{ turnId: string; version: number; movementResult?: MapMovementResult }>(`/api/v1/adventures/${adventureId}/turns`, {
       method: 'POST',
       headers: {

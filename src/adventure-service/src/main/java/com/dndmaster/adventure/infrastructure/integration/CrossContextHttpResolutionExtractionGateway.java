@@ -39,14 +39,7 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
     public List<ResolutionCandidate> extract(ResolutionExtractionRequest request) {
         try {
             String operationId = operationId(request.operationId(), request.attempt() > 0);
-            String body = objectMapper.writeValueAsString(new ResolutionExtractionWireRequest(
-                    operationId,
-                    request.excerpts().stream()
-                            .map(excerpt -> new ResolutionExcerpt(
-                                    excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator(), excerpt.text()))
-                            .toList(),
-                    request.schemaVersion(),
-                    request.promptVersion(), request.failedCandidate(), request.attempt(), request.diagnostics()));
+            String body = objectMapper.writeValueAsString(wireRequest(request, operationId));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/resolution-candidates"))
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
@@ -78,6 +71,19 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
         String prefixed = base.startsWith(SCENARIO_COMPILATION_OPERATION_PREFIX)
                 ? base : SCENARIO_COMPILATION_OPERATION_PREFIX + base;
         return repair ? prefixed + ":resolution-candidate-repair" : prefixed + ":resolution-candidates";
+    }
+
+    static ResolutionExtractionWireRequest wireRequest(ResolutionExtractionRequest request) {
+        return wireRequest(request, operationId(request.operationId(), request.attempt() > 0));
+    }
+
+    private static ResolutionExtractionWireRequest wireRequest(ResolutionExtractionRequest request, String operationId) {
+        return new ResolutionExtractionWireRequest(request.soloPlayerId(), operationId,
+                request.excerpts().stream()
+                        .map(excerpt -> new ResolutionExcerpt(
+                                excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator(), excerpt.text()))
+                        .toList(),
+                request.schemaVersion(), request.promptVersion(), request.failedCandidate(), request.attempt(), request.diagnostics());
     }
 
     private static ResolutionCandidate toCandidate(CandidateResponse candidate) {
@@ -117,7 +123,7 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
     record SourceReferenceResponse(java.util.UUID documentId, long extractionVersion, String locator) {}
 
     record ResolutionExtractionWireRequest(
-            String operationId, List<ResolutionExcerpt> excerpts, String schemaVersion, String promptVersion,
+            java.util.UUID soloPlayerId, String operationId, List<ResolutionExcerpt> excerpts, String schemaVersion, String promptVersion,
             ResolutionCandidate failedCandidate, int attempt, List<String> diagnostics) {}
 
     record ResolutionExcerpt(java.util.UUID documentId, long extractionVersion, String locator, String text) {}

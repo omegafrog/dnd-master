@@ -10,6 +10,9 @@ dice:
 ai-game-master:
   integration:
     internal-token: ${INTERNAL_SERVICE_TOKEN:}
+  relay:
+    base-url: ${AGENT_CONNECTION_RELAY_URL:http://127.0.0.1:8081}
+    timeout: ${AI_EXECUTION_TIMEOUT:PT3M}
 
 logging:
   level:

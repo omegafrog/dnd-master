@@ -44,7 +44,7 @@ class SessionEventVersionMigrationTest {
     }
 
     @Test
-    void V72_preserves_existing_versions_and_appends_legacy_duplicates_deterministically() throws SQLException {
+    void V74_preserves_existing_versions_and_appends_legacy_duplicates_deterministically() throws SQLException {
         UUID session = UUID.randomUUID();
         UUID firstEvent = UUID.fromString("00000000-0000-0000-0000-000000000001");
         UUID duplicateEvent = UUID.fromString("00000000-0000-0000-0000-000000000002");
@@ -57,7 +57,7 @@ class SessionEventVersionMigrationTest {
                     + "('" + laterEvent + "', '" + session + "', 7, 'THIRD', '{}')");
         }
 
-        flyway("72").migrate();
+        flyway("74").migrate();
 
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
             var rows = statement.executeQuery("SELECT event_id, version FROM " + schema

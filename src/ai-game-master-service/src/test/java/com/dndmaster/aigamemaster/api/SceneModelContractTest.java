@@ -19,7 +19,7 @@ class SceneModelContractTest {
     void acceptsRuntimeFactsAndChoicesOnlyWithACompleteNumberedContract() {
         UUID scenario = UUID.randomUUID();
         UUID rules = UUID.randomUUID();
-        ScenarioPrompt prompt = new ScenarioPrompt("scene [E1]", scenario, rules);
+        ScenarioPrompt prompt = new ScenarioPrompt("scene [E1]", UUID.randomUUID(), scenario, rules);
         String response = "{\"facts\":[{\"evidence\":1,\"text\":\"문이 보인다.\",\"grounding\":\"CANONICAL\"},"
                 + "{\"evidence\":0,\"text\":\"수문장이 잠시 망설인다.\",\"grounding\":\"RUNTIME\"}],"
                 + "\"choices\":[{\"evidence\":0,\"number\":1,\"text\":\"조건을 협상한다.\",\"grounding\":\"RUNTIME\"},"
@@ -38,7 +38,7 @@ class SceneModelContractTest {
     void rejectsMissingFactsOrDuplicateChoiceNumbersBeforeGrounding() {
         UUID scenario = UUID.randomUUID();
         UUID rules = UUID.randomUUID();
-        ScenarioPrompt prompt = new ScenarioPrompt("scene [E1]", scenario, rules);
+        ScenarioPrompt prompt = new ScenarioPrompt("scene [E1]", UUID.randomUUID(), scenario, rules);
         String response = "{\"facts\":[{\"evidence\":1,\"text\":\"문이 보인다.\"}],"
                 + "\"choices\":[{\"evidence\":1,\"number\":1,\"text\":\"첫째\"},"
                 + "{\"evidence\":1,\"number\":1,\"text\":\"둘째\"},"

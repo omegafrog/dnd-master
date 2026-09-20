@@ -4,18 +4,21 @@ import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.InputMode;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.List;
+import java.util.Objects;
+import java.util.UUID;
 
 /** Agent boundary for source-grounded, dynamic character input tags. */
 public interface CharacterInputTagExtractionPort {
     List<CharacterInputTagCandidate> extract(Request request);
 
-    record Request(String operationId, List<SourceExcerpt> excerpts,
+    record Request(UUID soloPlayerId, String operationId, List<SourceExcerpt> excerpts,
                    String schemaVersion, String promptVersion, String instruction) {
-        public Request(String operationId, List<SourceExcerpt> excerpts,
+        public Request(UUID soloPlayerId, String operationId, List<SourceExcerpt> excerpts,
                        String schemaVersion, String promptVersion) {
-            this(operationId, excerpts, schemaVersion, promptVersion, "");
+            this(soloPlayerId, operationId, excerpts, schemaVersion, promptVersion, "");
         }
         public Request {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "solo player id required");
             if (operationId == null || operationId.isBlank()) throw new IllegalArgumentException("operation id required");
             excerpts = List.copyOf(excerpts == null ? List.of() : excerpts);
             if (schemaVersion == null || schemaVersion.isBlank()) throw new IllegalArgumentException("schema version required");

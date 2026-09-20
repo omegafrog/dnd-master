@@ -1,6 +1,8 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder;
 import com.dndmaster.adventure.application.runtime.GmTurnRepository;
@@ -27,6 +29,25 @@ class GmTurnFailureRecorderTest {
         assertEquals("GM_TURN_FAILED", events.saved.type());
         assertEquals("GM_PROVIDER_UNAVAILABLE", events.saved.payload());
         assertEquals(0, events.saved.version());
+    }
+
+    @Test
+    void records_result_processing_failure_without_changing_the_committed_turn() {
+        RecordingTurns turns = new RecordingTurns();
+        RecordingEvents events = new RecordingEvents();
+        UUID sessionId = UUID.randomUUID();
+        UUID turnId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+
+        new GmTurnFailureRecorder(turns, events).recordResultProcessingFailure(
+                sessionId, turnId, commandId, 4, new IllegalStateException("event store unavailable"));
+
+        assertNull(turns.saved);
+        assertEquals("GM_TURN_RESULT_PROCESSING_FAILED", events.saved.type());
+        assertEquals(4, events.saved.version());
+        assertTrue(events.saved.payload().contains("turnId=" + turnId));
+        assertTrue(events.saved.payload().contains("commandId=" + commandId));
+        assertTrue(events.saved.payload().contains("GM_TURN_FAILED_RETRYABLE"));
     }
 
     private static final class RecordingTurns implements GmTurnRepository {

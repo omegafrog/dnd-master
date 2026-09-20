@@ -2,15 +2,17 @@ package com.dndmaster.aigamemaster.application.ports;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /** 지도 자체가 아니라, 진입 서술을 지도 안의 시작 칸으로 연결하는 전용 계약. */
 public interface MapEntryPlacementModelPort {
     EntryPlacementOutput propose(EntryPlacementInput input);
 
-    record EntryPlacementInput(String targetScene, String location, String firstNarration,
+    record EntryPlacementInput(UUID soloPlayerId, String targetScene, String location, String firstNarration,
                                String action, String judgment, String narration,
                                String mapData, String imageDataUri) {
         public EntryPlacementInput {
+            Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             targetScene = required(targetScene, "target scene");
             location = clean(location);
             firstNarration = clean(firstNarration);
@@ -21,9 +23,9 @@ public interface MapEntryPlacementModelPort {
             imageDataUri = clean(imageDataUri);
         }
 
-        public EntryPlacementInput(String targetScene, String action, String judgment, String narration,
+        public EntryPlacementInput(UUID soloPlayerId, String targetScene, String action, String judgment, String narration,
                                    String mapData, String imageDataUri) {
-            this(targetScene, "", "", action, judgment, narration, mapData, imageDataUri);
+            this(soloPlayerId, targetScene, "", "", action, judgment, narration, mapData, imageDataUri);
         }
 
         private static String clean(String value) { return value == null ? "" : value.trim(); }

@@ -15,6 +15,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
+import com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
 import com.dndmaster.adventure.application.scenario.ScenarioUpload;
 import com.dndmaster.adventure.domain.adventure.*;
@@ -80,6 +81,7 @@ public class AdventureController {
     private final ObjectMapper objectMapper;
     private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
     private final AppliedRuleSetApplicationService appliedRuleSetService;
+    private final AdventureAiRequestApplicationService aiRequestService;
     private MovementPlacementModelPort movementPlacementModelPort = context ->
             new MovementPlacementModelPort.MovementPlacementProposal("UNRESOLVED", null, List.of(), "목적지를 해석하지 못했습니다. 지도에서 목적지를 선택해주세요.");
 
@@ -134,7 +136,8 @@ public class AdventureController {
             PendingMapMovementConfirmationRepository pendingMapMovementConfirmationRepository,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService,
-            AppliedRuleSetApplicationService appliedRuleSetService) {
+            AppliedRuleSetApplicationService appliedRuleSetService,
+            AdventureAiRequestApplicationService aiRequestService) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
         this.adventureRepository = adventureRepository;
@@ -166,6 +169,7 @@ public class AdventureController {
         this.objectMapper = objectMapper;
         this.combatLifecycleService = combatLifecycleService;
         this.appliedRuleSetService = appliedRuleSetService;
+        this.aiRequestService = Objects.requireNonNull(aiRequestService, "AI request service must not be null");
     }
 
     /** Player read boundary; canonical runtime snapshots and ScenarioModel are intentionally absent. */
@@ -226,85 +230,107 @@ public class AdventureController {
                     prior, prior.context(), prior.conversation(), prior.version(), null,
                     runtimeTurnService.movementResultForTurn(prior.turnId()))));
         }
-        GmTurn turn = GmTurn.start(request.turnId(), commandId, expectedVersion, input);
-        gmTurnRepository.save(turn, adventureId);
-        RuntimeTurnResult result;
-        try {
-            gmTurnRepository.save(turn.process(), adventureId);
-            List<com.dndmaster.adventure.application.runtime.RuntimeTurnCommand> externalCommands = List.of();
-            if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput mapAction) {
-                if (adventure.status() == AdventureStatus.ACTIVE && adventure.currentSituation() != null) {
-                    externalCommands = List.of(prepareMapCommand(adventure, owner, request.turnId(), commandId, mapAction));
-                } else {
-                    applyMapAction(adventure, owner, commandId, mapAction);
+        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
+                adventure.sessionId(), new OwnerPlayerId(owner), commandId)) {
+            GmTurn turn = GmTurn.start(request.turnId(), commandId, expectedVersion, input);
+            gmTurnRepository.save(turn, adventureId);
+            RuntimeTurnResult result;
+            try {
+                gmTurnRepository.save(turn.process(), adventureId);
+                List<com.dndmaster.adventure.application.runtime.RuntimeTurnCommand> externalCommands = List.of();
+                if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput mapAction) {
+                    if (adventure.status() == AdventureStatus.ACTIVE && adventure.currentSituation() != null) {
+                        externalCommands = List.of(prepareMapCommand(adventure, owner, request.turnId(), commandId, mapAction));
+                    } else {
+                        applyMapAction(adventure, owner, commandId, mapAction);
+                    }
                 }
+                result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
+                        new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
+                        input.actionText(), expectedVersion,
+                        null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), false, false,
+                        externalCommands));
+                if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput) {
+                    pendingMapMovementConfirmationRepository.deleteByAdventureId(adventureId, owner);
+                }
+            } catch (RuntimeException exception) {
+                LOGGER.error("gm_turn_request_failed stage=GM_TURN_CONTROLLER turnId={} commandId={} adventureId={} exceptionClass={} exceptionMessage={}",
+                        request.turnId(), commandId, adventureId, exception.getClass().getName(), exception.getMessage(), exception);
+                gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception, expectedVersion);
+                if (exception instanceof RuntimeCombatRejectionException
+                        || exception instanceof ApiRequestGuard.ApiContractException
+                        || exception instanceof com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException) {
+                    throw exception;
+                }
+                String message = exception.getMessage() == null ? "" : exception.getMessage();
+                if (message.contains("ADVENTURE_VERSION_CONFLICT")) {
+                    return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).build();
+                }
+                if (message.contains("GM_TURN_ALREADY_IN_PROGRESS")) {
+                    return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).build();
+                }
+                return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).body(runtimeTurnFailure(exception));
             }
-            result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
-                    new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
-                    input.actionText(), expectedVersion,
-                    null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), false, false,
-                    externalCommands));
-            if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput) {
-                pendingMapMovementConfirmationRepository.deleteByAdventureId(adventureId, owner);
+            if (result.turn().lifecycle() != com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMITTED) {
+                return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
             }
-        } catch (RuntimeException exception) {
-            LOGGER.error("gm_turn_request_failed stage=GM_TURN_CONTROLLER turnId={} commandId={} adventureId={} exceptionClass={} exceptionMessage={}",
-                    request.turnId(), commandId, adventureId, exception.getClass().getName(), exception.getMessage(), exception);
-            gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception, expectedVersion);
-            if (exception instanceof RuntimeCombatRejectionException
-                    || exception instanceof ApiRequestGuard.ApiContractException
-                    || exception instanceof com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException) {
-                throw exception;
+            try {
+                String providerMetadata = "provider=" + result.turn().plan().provider()
+                        + ";model=" + result.turn().plan().model()
+                        + ";reasoning=" + result.turn().plan().reasoning()
+                        + ";validation=accepted";
+                gmTurnRepository.save(turn.process().commit(providerMetadata), adventureId);
+                GmTurn committedTurn = turn.process().commit(providerMetadata);
+                com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(committedTurn, result.version());
+                Adventure committedAdventure = adventureRepository.findById(new AdventureId(adventureId))
+                        .orElseThrow(() -> new IllegalStateException("adventure disappeared after runtime commit"));
+                boolean combatStartRequested = result.turn().plan().combatStartRequested();
+                boolean mapEntryRequested = result.turn().plan().mapEntryRequested();
+                LOGGER.info("gm_turn_committed adventureId={} turnId={} scene={} situationLocation={} mapEntryRequested={} combatStart={} action={} narration={}",
+                        adventureId, turn.turnId(), result.turn().plan().scene(), committedAdventure.currentSituation().location(),
+                        mapEntryRequested, combatStartRequested, turn.input().actionText(), result.turn().plan().narration());
+                if (combatStartRequested) {
+                    CombatStartTransitionPolicy.requireCommittedCombatSituation(committedAdventure.currentSituation(),
+                            result.turn().plan().combatEnemies());
+                }
+                if (combatStartRequested || mapEntryRequested) {
+                    // A prepared draft is activated once, at the committed map entry.
+                    // Combat is only one possible reason to enter a map; exploration
+                    // and investigation must use the same authoritative projection.
+                    if (combatMapViewPort.preparationView(adventureId, owner).isPresent()) {
+                        activatePreparedMap(committedAdventure, result);
+                    }
+                }
+                com.dndmaster.adventure.domain.combat.CombatEncounter combat = null;
+                if (combatStartRequested) {
+                    combat = combatLifecycleService.startFromCommittedGmTurn(adventureId, committedTurn,
+                            new com.dndmaster.adventure.domain.combat.CombatStartProposal(true,
+                                    CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, adventure.party(),
+                                            result.turn().plan().combatEnemies(), member -> characterCombatPort.displayName(
+                                                    member.characterSheetId().value(), adventure.ownerPlayerId().value(),
+                                                    adventure.sessionId().value()))));
+                }
+                sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
+                        result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
+                if (combat != null && combatLifecycleService.scheduleFirstAiTurn(combat, commandId)) {
+                    permit.handOffToCombatFollowUp();
+                }
+                return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
+            } catch (RuntimeException exception) {
+                LOGGER.error("gm_turn_result_processing_failed turnId={} commandId={} adventureId={} exceptionClass={} exceptionMessage={}",
+                        request.turnId(), commandId, adventureId, exception.getClass().getName(), exception.getMessage(), exception);
+                try {
+                    gmTurnFailureRecorder.recordResultProcessingFailure(result.turn().sessionId(), result.turn().turnId(),
+                            commandId, result.version(), exception);
+                } catch (RuntimeException recordingFailure) {
+                    LOGGER.error("gm_turn_result_processing_failure_recording_failed turnId={} commandId={} adventureId={} exceptionClass={}",
+                            request.turnId(), commandId, adventureId, recordingFailure.getClass().getName(), recordingFailure);
+                }
+                return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY)
+                        .body(Map.of("error", "GM_TURN_RESULT_PROCESSING_FAILED",
+                                "message", "최종 결과를 반영하는 중 오류가 발생했습니다. 현재 저장된 모험 상태를 다시 확인해주세요."));
             }
-            String message = exception.getMessage() == null ? "" : exception.getMessage();
-            if (message.contains("ADVENTURE_VERSION_CONFLICT")) {
-                return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).build();
-            }
-            if (message.contains("GM_TURN_ALREADY_IN_PROGRESS")) {
-                return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).build();
-            }
-            return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).body(runtimeTurnFailure(exception));
         }
-        if (result.turn().lifecycle() != com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMITTED) {
-            return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
-        }
-        String providerMetadata = "provider=" + result.turn().plan().provider()
-                + ";model=" + result.turn().plan().model()
-                + ";reasoning=" + result.turn().plan().reasoning()
-                + ";validation=accepted";
-        gmTurnRepository.save(turn.process().commit(providerMetadata), adventureId);
-        GmTurn committedTurn = turn.process().commit(providerMetadata);
-        com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(committedTurn, result.version());
-        Adventure committedAdventure = adventureRepository.findById(new AdventureId(adventureId))
-                .orElseThrow(() -> new IllegalStateException("adventure disappeared after runtime commit"));
-        boolean combatStartRequested = result.turn().plan().combatStartRequested();
-        boolean mapEntryRequested = result.turn().plan().mapEntryRequested();
-        LOGGER.info("gm_turn_committed adventureId={} turnId={} scene={} situationLocation={} mapEntryRequested={} combatStart={} action={} narration={}",
-                adventureId, turn.turnId(), result.turn().plan().scene(), committedAdventure.currentSituation().location(),
-                mapEntryRequested, combatStartRequested, turn.input().actionText(), result.turn().plan().narration());
-        if (combatStartRequested) {
-            CombatStartTransitionPolicy.requireCommittedCombatSituation(committedAdventure.currentSituation(),
-                    result.turn().plan().combatEnemies());
-        }
-        if (combatStartRequested || mapEntryRequested) {
-            // A prepared draft is activated once, at the committed map entry.
-            // Combat is only one possible reason to enter a map; exploration
-            // and investigation must use the same authoritative projection.
-            if (combatMapViewPort.preparationView(adventureId, owner).isPresent()) {
-                activatePreparedMap(committedAdventure, result);
-            }
-        }
-        if (combatStartRequested) {
-            combatLifecycleService.startFromCommittedGmTurn(adventureId, committedTurn,
-                    new com.dndmaster.adventure.domain.combat.CombatStartProposal(true,
-                            CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, adventure.party(),
-                                    result.turn().plan().combatEnemies(), member -> characterCombatPort.displayName(
-                                            member.characterSheetId().value(), adventure.ownerPlayerId().value(),
-                                            adventure.sessionId().value()))));
-        }
-        sessionEventRepository.appendNext(result.turn().sessionId(), UUID.randomUUID(), "GM_TURN_COMMITTED",
-                result.turn().turnId().toString());
-        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/resume")

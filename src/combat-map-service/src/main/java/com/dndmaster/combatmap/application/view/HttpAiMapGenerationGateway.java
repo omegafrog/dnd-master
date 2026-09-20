@@ -67,7 +67,8 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                     java.util.Map.entry("authoredBoundaries", request.authoredBoundaries().stream().map(com.dndmaster.combatmap.domain.MapBoundary::encoded).toList()),
                     java.util.Map.entry("authoredPlayerStart", request.authoredPlayerStart() == null ? "" : position(request.authoredPlayerStart())),
                     java.util.Map.entry("mapImageAvailable", request.mapImage() != null)));
-            String body = mapper.writeValueAsString(new Request(request.selectedScenario(), request.currentContext(), mapData,
+            String body = mapper.writeValueAsString(new Request(request.soloPlayerId() == null ? new java.util.UUID(0, 0) : request.soloPlayerId(),
+                    request.selectedScenario(), request.currentContext(), mapData,
                     request.mapImage() == null ? "" : request.mapImage().dataUri()));
             LOGGER.info("map_placement_agent_request scenario={} currentContext={} grid={}x{} cellSize={} distanceUnit={} origin=({}, {}) gridCellSize={} crop={} imageRevision={} mapImage={} authoredObstacles={} authoredDoors={} authoredBoundaries={}",
                     request.selectedScenario(), compactLogValue(request.currentContext()), request.gridWidth(), request.gridHeight(),
@@ -82,7 +83,11 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                     .build();
             HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException("AI Game Master map proposal failed with status " + response.statusCode());
+                // 지도 초안 생성에서 AI 분석은 선택 기능이다. 분석 실패가
+                // 이미지·사용자 격자·사용자 선까지 버리고 모험 전체를 막으면
+                // 준비 화면에서 사용자가 직접 검수할 수 없다.
+                LOGGER.warn("map_placement_agent_unavailable status={} response={}", response.statusCode(), compactLogValue(response.body()));
+                return deterministicFallback(request);
             }
             JsonNode root = mapper.readTree(response.body());
             LOGGER.info("map_placement_agent_response scenario={} status={} responseChars={} responseBody={} dimensions={}x{} boundaries={} obstacles={} doors={} playerStart={} proposalStatus={} proposalPosition={} proposalConfidence={} proposalEvidence={} proposalSource={} rationale={}",
@@ -119,7 +124,7 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
                     java.util.Map.entry("doors", request.authoredDoors().stream().map(door -> position(door.position())).toList()),
                     java.util.Map.entry("boundaries", request.authoredBoundaries().stream().map(com.dndmaster.combatmap.domain.MapBoundary::encoded).toList())));
             EntryPlacementRequest payload = new EntryPlacementRequest(
-                    entryTargetScene(request.currentContext()), request.entryLocation(), request.entryFirstNarration(),
+                    request.soloPlayerId(), entryTargetScene(request.currentContext()), request.entryLocation(), request.entryFirstNarration(),
                     request.entryAction(), request.entryJudgment(), request.entryNarration(),
                     mapData, request.mapImage() == null ? "" : request.mapImage().dataUri());
             LOGGER.info("map_entry_localization_request scene={} location={} firstNarration={} action={} judgment={} narration={} mapData={} image={}",
@@ -236,7 +241,7 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         return result;
     }
 
-    private record EntryPlacementRequest(String targetScene, String location, String firstNarration,
+    private record EntryPlacementRequest(java.util.UUID soloPlayerId, String targetScene, String location, String firstNarration,
                                          String action, String judgment, String narration,
                                          String mapData, String imageDataUri) {}
     private record MapEntryCandidate(GridPosition position, double xNormalized, double yNormalized,
@@ -394,6 +399,29 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         return compact.length() <= 2000 ? compact : compact.substring(0, 2000) + "…";
     }
 
+    /** AI 제공자가 실패해도 사용자가 검수·저장할 수 있는 최소 초안. */
+    private PreparedMapData deterministicFallback(MapGenerationRequest request) {
+        int width = Math.max(1, request.gridWidth());
+        int height = Math.max(1, request.gridHeight());
+        Set<GridPosition> obstacles = new HashSet<>(request.authoredObstacles());
+        List<Door> doors = new ArrayList<>(request.authoredDoors());
+        List<String> boundaries = request.authoredBoundaries().stream()
+                .map(com.dndmaster.combatmap.domain.MapBoundary::encoded).toList();
+        List<MapLayer> layers = new ArrayList<>();
+        if (request.mapImage() != null) {
+            layers.add(new MapLayer("MAP_IMAGE", request.mapImage().dataUri(), LayerVisibility.PLAYER_VISIBLE));
+            layers.add(new MapLayer("GRID_BOUNDS", initialGridBounds(request, width, height), LayerVisibility.PLAYER_VISIBLE));
+            detectedContentCrop(request.mapImage()).ifPresent(crop ->
+                    layers.add(new MapLayer("MAP_CROP", crop, LayerVisibility.PLAYER_VISIBLE)));
+        }
+        layers.add(new MapLayer("GRID_SOURCE", "GM_UNAVAILABLE", LayerVisibility.PLAYER_VISIBLE));
+        if (!boundaries.isEmpty()) {
+            layers.add(new MapLayer("MAP_BOUNDARIES", String.join(";", boundaries), LayerVisibility.PLAYER_VISIBLE));
+        }
+        return new PreparedMapData(new GridSpec(width, height, request.cellSize(), request.distanceUnit()),
+                List.of(), obstacles, layers, doors, List.of());
+    }
+
     private static Set<GridPosition> parsePositions(JsonNode values, int width, int height, String field) {
         if (!values.isArray()) throw new IllegalArgumentException("AI map proposal " + field + " must be an array");
         Set<GridPosition> result = new HashSet<>();
@@ -469,5 +497,5 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
 
     private static String position(GridPosition position) { return position.x() + "," + position.y(); }
 
-    private record Request(String selectedScenario, String currentContext, String mapData, String imageDataUri) {}
+    private record Request(java.util.UUID soloPlayerId, String selectedScenario, String currentContext, String mapData, String imageDataUri) {}
 }

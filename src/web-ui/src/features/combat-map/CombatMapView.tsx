@@ -175,6 +175,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       }
     })()
     return () => { active = false }
+  // Loading is keyed by external inputs. Movement application deliberately
+  // stays inside this request lifecycle and must not retrigger the load.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adventureId, api, preparationMode, refreshToken])
 
   async function chooseCell(cell: { x: number; y: number }) {
@@ -790,6 +793,8 @@ function clearPendingMovementCommand(adventureId: string) {
  * committed path in its fixed order, so a player never sees the final token or
  * fog state jump ahead of the traversed cells.
  */
+// Exported for deterministic path-animation tests.
+// eslint-disable-next-line react-refresh/only-export-components
 export async function animateCommittedMovement(
   apply: (next: CombatMapState | null | ((current: CombatMapState | null) => CombatMapState | null)) => void,
   before: CombatMapState, committed: CombatMapState, tokenId: string, traversedPath: Array<{ x: number; y: number }>,
