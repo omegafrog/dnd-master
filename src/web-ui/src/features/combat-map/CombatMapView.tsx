@@ -342,6 +342,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       }
       setMap(refreshed)
       setPendingMovement(pending)
+      setCandidate(null); setSelectedToken(null); setWaypointMode(false)
       try { window.localStorage.setItem(pendingMovementKey(adventureId), JSON.stringify(pending)) } catch { /* reconnect is best effort */ }
       setMessage(`${movementStatusMessage(result.status)} 작업 번호: ${result.operationId ?? '없음'}`)
       return
