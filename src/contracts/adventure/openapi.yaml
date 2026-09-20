@@ -86,11 +86,33 @@ paths:
       requestBody:
         required: true
         content:
-          application/json: { schema: { type: object, required: [turnId, input], properties: { turnId: { type: string, format: uuid }, input: { type: object } } } }
+          application/json:
+            schema:
+              type: object
+              required: [turnId, input]
+              properties:
+                turnId: { type: string, format: uuid }
+                input:
+                  oneOf:
+                    - $ref: '#/components/schemas/AdventureTextInput'
+                    - $ref: '#/components/schemas/AdventureMapMovementInput'
+                    - $ref: '#/components/schemas/AdventureMetaQuestionInput'
       responses:
-        '202': { description: accepted }
+        '202':
+          description: accepted with typed movement result when the input is a map action
+          content: { application/json: { schema: { $ref: '#/components/schemas/RuntimeTurnResponse' } } }
         '403': { description: adventure is not owned by bearer }
         '409': { description: stale version or idempotency conflict }
+  /api/v1/adventures/{adventureId}/turns/{pendingTurnId}/resume:
+    post:
+      operationId: resumePendingAdventureTurn
+      parameters:
+        - { name: pendingTurnId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '202': { description: accepted or forward-recovered turn result }
+        '403': { description: adventure is not owned by bearer }
+        '409': { description: repair is required }
   /api/v1/adventures/scenarios:
     post: { operationId: uploadScenario, requestBody: { required: true, content: { multipart/form-data: { schema: { $ref: '../rule-knowledge/schemas/multipart-upload.json' } } } }, responses: { '202': { description: accepted } } }
   /api/v1/adventures/{adventureId}/rule-inquiries:
@@ -136,3 +158,286 @@ paths:
     get: { operationId: rollConditions, responses: { '200': { description: conditions } } }
   /internal/v1/adventures/{adventureId}/movement-validations:
     post: { operationId: validateMovement, responses: { '200': { description: validation } } }
+  /api/v1/adventures/{adventureId}/combat-map/movement-preview:
+    post:
+      operationId: previewAdventureMapMovement
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mapId, mapVersion, tokenId, destination]
+              properties:
+                mapId: { type: string, format: uuid }
+                mapVersion: { type: integer, format: int64, minimum: 0 }
+                tokenId: { type: string, format: uuid }
+                destination: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } }
+                waypoints: { type: array, maxItems: 16, items: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } } }
+      responses:
+        '200':
+          description: public deterministic movement preview
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [mapId, orderedPositions, distance, baseMapVersion, fingerprint]
+                properties:
+                  mapId: { type: string, format: uuid }
+                  orderedPositions: { type: array, items: { type: object, required: [x, y], properties: { x: { type: integer }, y: { type: integer } } } }
+                  distance: { type: integer, minimum: 0 }
+                  baseMapVersion: { type: integer, format: int64, minimum: 0 }
+                  fingerprint: { type: string, minLength: 1 }
+        '409': { description: stale map version, content: { application/json: { schema: { type: object, required: [error], properties: { error: { type: string, example: STALE_MOVEMENT_PROPOSAL } } } } } }
+        '422': { description: invalid movement preview, content: { application/json: { schema: { type: object, required: [error], properties: { error: { type: string, example: MOVEMENT_NOT_ALLOWED } } } } } }
+  /api/v1/adventures/{adventureId}/map-movement/pending:
+    get:
+      operationId: pendingAdventureMapMovement
+      responses:
+        '200': { description: durable movement confirmation for reconnect, content: { application/json: { schema: { $ref: '#/components/schemas/PendingMapMovement' } } } }
+        '204': { description: no pending movement confirmation }
+        '403': { description: adventure is not owned by bearer }
+    delete:
+      operationId: clearPendingAdventureMapMovement
+      responses:
+        '204': { description: pending movement confirmation cleared }
+        '403': { description: adventure is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/movement-operations:
+    get:
+      operationId: latestAdventureMovementOperation
+      parameters:
+        - { name: mapId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: latest durable movement operation for reconnect, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
+        '204': { description: no durable movement operation exists for this map }
+        '403': { description: adventure is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}:
+    get:
+      operationId: queryAdventureMovementOperation
+      parameters:
+        - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: mapId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: durable typed movement operation and result, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
+        '403': { description: adventure is not owned by bearer }
+    delete:
+      operationId: cancelAdventureMovementOperation
+      parameters:
+        - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: mapId, in: query, required: true, schema: { type: string, format: uuid } }
+        - name: Idempotency-Key
+          description: Distinct cancel command identity; reuse is valid only for the same movement operation.
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: cancelled or replayed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
+        '403': { description: adventure is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}/resume:
+    post:
+      operationId: resumeAdventureMovementOperation
+      parameters:
+        - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: mapId, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CombatMapCheckResultSubmission' }
+      responses:
+        '200': { description: resumed durable movement result, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
+        '403': { description: adventure is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/movement-operations/{operationId}/roll:
+    post:
+      operationId: rollAdventureMovementCheck
+      parameters:
+        - { name: operationId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SpatialCheckRollRequest' }
+      responses:
+        '200': { description: server-rolled and resumed movement result, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureMovementOperationResponse' } } } }
+        '403': { description: adventure or check is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/spatial/observe:
+    post:
+      operationId: observeAdventureSpatialFeature
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialActionRequest' } } } }
+      responses:
+        '200': { description: owner-scoped spatial observation, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
+        '403': { description: adventure or map is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/spatial/interact:
+    post:
+      operationId: interactAdventureSpatialFeature
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialActionRequest' } } } }
+      responses:
+        '200': { description: owner-scoped spatial interaction, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
+        '403': { description: adventure or map is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/spatial/combat-turn-start:
+    post:
+      operationId: startAdventureSpatialCombatTurn
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialTurnRequest' } } } }
+      responses:
+        '200': { description: spatial combat-turn triggers, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
+        '403': { description: adventure or map is not owned by bearer }
+  /api/v1/adventures/{adventureId}/combat-map/spatial/advance-durations:
+    post:
+      operationId: advanceAdventureSpatialDurations
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialTurnRequest' } } } }
+      responses:
+        '200': { description: advanced spatial durations, content: { application/json: { schema: { $ref: '#/components/schemas/AdventureSpatialResponse' } } } }
+        '403': { description: adventure or map is not owned by bearer }
+
+components:
+  schemas:
+    AdventureTextInput:
+      type: object
+      required: [type, text]
+      properties:
+        type: { type: string, const: TEXT }
+        text: { type: string }
+    AdventureMetaQuestionInput:
+      type: object
+      required: [type, question]
+      properties:
+        type: { type: string, const: META_QUESTION }
+        question: { type: string }
+    AdventureMapMovementInput:
+      type: object
+      required: [type, mapId, mapVersion, action, previewFingerprint]
+      properties:
+        type: { type: string, const: MAP_ACTION }
+        mapId: { type: string, format: uuid }
+        mapVersion: { type: integer, format: int64, minimum: 0 }
+        action: { type: string, description: JSON encoded confirmed movement action }
+        previewFingerprint: { type: string, minLength: 1, description: server-issued movement preview fingerprint }
+    MovementPosition:
+      type: object
+      required: [x, y]
+      properties:
+        x: { type: integer, minimum: 0 }
+        y: { type: integer, minimum: 0 }
+    PendingMapMovement:
+      type: object
+      required: [mapId, tokenId, mapVersion, path, distance, fingerprint, waypoints]
+      properties:
+        mapId: { type: string, format: uuid }
+        tokenId: { type: string, format: uuid }
+        mapVersion: { type: integer, format: int64, minimum: 0 }
+        path: { type: array, minItems: 2, items: { $ref: '#/components/schemas/MovementPosition' } }
+        distance: { type: integer, minimum: 0 }
+        fingerprint: { type: string, minLength: 1 }
+        waypoints: { type: array, maxItems: 16, items: { $ref: '#/components/schemas/MovementPosition' } }
+    MovementResult:
+      type: object
+      required: [version, operationId, status, requestedPath, traversedPath, publicEvents]
+      properties:
+        version: { type: integer, format: int64, minimum: 0 }
+        operationId: { type: string, format: uuid }
+        status: { type: string, enum: [RETRY_REQUIRED, CHECK_REQUIRED, COMMITTED, INTERRUPTED, CANCELLED] }
+        requestedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
+        traversedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
+        finalPosition: { oneOf: [{ $ref: '#/components/schemas/MovementPosition' }, { type: 'null' }] }
+        publicEvents: { type: array, items: { type: string } }
+        interruptionReason: { type: [string, 'null'] }
+        followUp: { oneOf: [{ $ref: '#/components/schemas/MovementFollowUpCommand' }, { type: 'null' }] }
+    MovementFollowUpCommand:
+      type: object
+      required: [commandId, operationId, hostileTokenId, turnId, kind, trigger]
+      properties:
+        commandId: { type: string, format: uuid }
+        operationId: { type: string, format: uuid }
+        hostileTokenId: { type: string, format: uuid }
+        turnId: { type: string, format: uuid }
+        kind: { type: string, enum: [COMBAT] }
+        trigger: { type: string, enum: [HOSTILE_OBSERVED] }
+    AdventureMovementOperationResponse:
+      type: object
+      required: [operationId, status, outcomeStatus, version, requestedPath, traversedPath, publicEvents]
+      properties:
+        operationId: { type: string, format: uuid }
+        status: { type: string, enum: [RETRY_REQUIRED, CHECK_REQUIRED, COMMITTED, INTERRUPTED, CANCELLED] }
+        outcomeStatus: { type: string, enum: [RETRY_REQUIRED, CHECK_REQUIRED, COMMITTED, INTERRUPTED, CANCELLED] }
+        version: { type: integer, format: int64, minimum: 0 }
+        requestedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
+        traversedPath: { type: array, items: { $ref: '#/components/schemas/MovementPosition' } }
+        finalPosition: { oneOf: [{ $ref: '#/components/schemas/MovementPosition' }, { type: 'null' }] }
+        publicEvents: { type: array, items: { type: string } }
+        interruptionReason: { type: [string, 'null'] }
+        pendingCheck: { oneOf: [{ $ref: '#/components/schemas/CombatMapPendingCheck' }, { type: 'null' }] }
+        followUp: { oneOf: [{ $ref: '#/components/schemas/MovementFollowUpCommand' }, { type: 'null' }] }
+    CombatMapCheckResultSubmission:
+      type: object
+      required: [commandId, operationId, checkId, success, ownerPlayerId, actor]
+      properties:
+        commandId: { type: string, format: uuid }
+        operationId: { type: string, format: uuid }
+        checkId: { type: string, format: uuid }
+        success: { type: boolean }
+        ownerPlayerId: { type: string, format: uuid }
+        actor: { type: string, enum: [PLAYER] }
+    SpatialCheckRollRequest:
+      type: object
+      required: [mapId, operationId, checkId, ownerPlayerId, commandId, expectedVersion]
+      properties:
+        mapId: { type: string, format: uuid }
+        operationId: { type: string, format: uuid }
+        checkId: { type: string, format: uuid }
+        ownerPlayerId: { type: string, format: uuid }
+        commandId: { type: string, format: uuid }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+    CombatMapPendingCheck:
+      type: object
+      required: [checkId, operationId, label, diceExpression, ownerPlayerId, actor]
+      properties:
+        checkId: { type: string, format: uuid }
+        operationId: { type: string, format: uuid }
+        label: { type: string }
+        diceExpression: { type: string }
+        ownerPlayerId: { type: string, format: uuid }
+        actor: { type: string, enum: [PLAYER] }
+    AdventureSpatialActionRequest:
+      type: object
+      required: [mapId, tokenId, x, y, expectedVersion, commandId]
+      properties:
+        mapId: { type: string, format: uuid }
+        tokenId: { type: string, format: uuid }
+        x: { type: integer, minimum: 0 }
+        y: { type: integer, minimum: 0 }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+        commandId: { type: string, format: uuid }
+    AdventureSpatialTurnRequest:
+      type: object
+      required: [mapId, expectedVersion, commandId]
+      properties:
+        mapId: { type: string, format: uuid }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+        commandId: { type: string, format: uuid }
+    AdventureSpatialResponse:
+      type: object
+      required: [mapId, mapVersion, publicEvents]
+      properties:
+        mapId: { type: string, format: uuid }
+        mapVersion: { type: integer, format: int64, minimum: 0 }
+        publicEvents: { type: array, items: { type: string } }
+        operationId: { type: string, format: uuid, nullable: true }
+        status: { type: string, nullable: true }
+        pendingCheck: { oneOf: [{ $ref: '#/components/schemas/CombatMapPendingCheck' }, { type: 'null' }] }
+    RuntimeTurnResponse:
+      type: object
+      properties:
+        turnId: { type: string, format: uuid }
+        adventureId: { type: string, format: uuid }
+        version: { type: integer, format: int64, minimum: 0 }
+        movementResult: { oneOf: [{ $ref: '#/components/schemas/MovementResult' }, { type: 'null' }] }

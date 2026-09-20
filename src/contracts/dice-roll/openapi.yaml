@@ -2,6 +2,42 @@ openapi: 3.1.0
 info: { title: Dice Roll API, version: 1.0.0 }
 paths:
   /internal/v1/dice-rolls/player:
-    post: { operationId: playerRoll, responses: { '200': { description: player result } } }
+    post:
+      operationId: playerRoll
+      parameters:
+        - { name: X-Internal-Token, in: header, required: true, schema: { type: string, minLength: 1 } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      responses: { '200': { description: player result } }
   /internal/v1/dice-rolls/ai:
     post: { operationId: aiRoll, responses: { '200': { description: AI role result } } }
+  /internal/v1/dice-rolls/enemy-observation:
+    post:
+      operationId: enemyObservationRoll
+      parameters:
+        - { name: X-Internal-Token, in: header, required: true, schema: { type: string, minLength: 1 } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnemyObservationRollRequest'
+      responses: { '200': { description: enemy-owned observation result } }
+components:
+  schemas:
+    EnemyObservationRollRequest:
+      type: object
+      required: [adventureId, ruleSetId, scope, count, sides, modifier, sessionId, turnId, commandId, expectedVersion, ruleReference, difficulty]
+      properties:
+        adventureId: { type: string, format: uuid }
+        ruleSetId: { type: string, format: uuid }
+        scope: { type: string, const: ENEMY }
+        count: { type: integer, minimum: 1 }
+        sides: { type: integer, minimum: 2 }
+        modifier: { type: integer }
+        sessionId: { type: string, format: uuid }
+        turnId: { type: string, format: uuid }
+        commandId: { type: string, format: uuid }
+        expectedVersion: { type: integer, format: int64, minimum: 0 }
+        ruleReference: { type: string, minLength: 1 }
+        difficulty: { type: integer, minimum: 0 }

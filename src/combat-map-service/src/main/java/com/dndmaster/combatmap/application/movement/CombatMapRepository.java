@@ -11,4 +11,14 @@ public interface CombatMapRepository {
     void save(CombatMap map);
 
     void save(CombatMap map, long persistedVersion, UUID operationKey, String operationFingerprint);
+
+    /**
+     * Commits the public map and the durable operation together when the
+     * persistence adapter owns both records.  The default preserves small
+     * in-memory adapters used by focused domain tests.
+     */
+    default void commitMovementResolution(CombatMap map, long persistedVersion,
+            MovementResolutionOperation operation, MovementResolutionResult result) {
+        save(map, persistedVersion, operation.commandId(), operation.fingerprint());
+    }
 }

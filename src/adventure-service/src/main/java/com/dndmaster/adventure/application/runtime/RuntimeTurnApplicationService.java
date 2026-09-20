@@ -184,11 +184,28 @@ public class RuntimeTurnApplicationService {
                 "runtime fact lookup service must not be null");
     }
 
+    /** Returns the saved map movement outcome for duplicate or resumed runtime commands. */
+    public com.dndmaster.adventure.application.combat.CombatMapMoveResult movementResultForTurn(UUID turnId) {
+        return commitOrchestrator == null ? null : commitOrchestrator.movementResultForTurn(turnId);
+    }
+
     /** Client/recovery entry point sharing the same forward-resume orchestrator. */
     public RuntimeTurnCommitOrchestrator.Result resumeRuntimeTurn(UUID turnId) {
+        return resumeRuntimeTurn(turnId, null);
+    }
+
+    /** HTTP resume entry point also binds the request key to the saved turn command. */
+    public RuntimeTurnCommitOrchestrator.Result resumeRuntimeTurn(UUID turnId, UUID idempotencyKey) {
         if (commitOrchestrator == null) throw new IllegalStateException("runtime turn commit orchestrator is not configured");
         RuntimeTurn turn = runtimeTurnRepository.findByTurnId(Objects.requireNonNull(turnId, "turn id must not be null"))
                 .orElseThrow(() -> new IllegalStateException("runtime turn not found"));
+        if (idempotencyKey != null && !turn.commandId().equals(idempotencyKey)) {
+            throw new IllegalArgumentException("idempotency key does not match runtime turn command");
+        }
+        return resumeRuntimeTurn(turn);
+    }
+
+    private RuntimeTurnCommitOrchestrator.Result resumeRuntimeTurn(RuntimeTurn turn) {
         Adventure adventure = adventureRepository.findById(turn.adventureId())
                 .orElseThrow(() -> new IllegalStateException("adventure not found"));
         if (turn.pendingState() == null || turn.completionProposal() == null) {
@@ -244,11 +261,19 @@ public class RuntimeTurnApplicationService {
                 throw new IllegalStateException("runtime turn is terminal: " + existing.lifecycle());
             }
             if (!existing.lifecycle().isCommitted()) {
+                if (existing.lifecycle() == RuntimeTurnLifecycle.COMMITTING && commitOrchestrator != null) {
+                    RuntimeTurnCommitOrchestrator.Result resumed = resumeRuntimeTurn(existing.turnId());
+                    Adventure recovered = adventureRepository.findById(command.adventureId())
+                            .orElseThrow(() -> new IllegalStateException("adventure not found after runtime recovery"));
+                    return new RuntimeTurnResult(resumed.turn(), recovered.currentContext(), recovered.conversation(),
+                            recovered.version(), null, resumed.movementResult());
+                }
                 RuntimeTurn resumed = resumeCommittedTurn(command, adventure, existing);
-                return new RuntimeTurnResult(resumed, resumed.context(), resumed.conversation(), resumed.version());
+                return new RuntimeTurnResult(resumed, resumed.context(), resumed.conversation(), resumed.version(), null,
+                        movementResultForTurn(resumed.turnId()));
             }
             return new RuntimeTurnResult(existing, existing.context(), existing.conversation(), existing.version(),
-                    publicProjectionForExisting(command, adventure, existing));
+                    publicProjectionForExisting(command, adventure, existing), movementResultForTurn(existing.turnId()));
         }
         if (command.expectedVersion() >= 0 && adventure.version() != command.expectedVersion()) {
             throw new IllegalStateException("ADVENTURE_VERSION_CONFLICT expected=" + command.expectedVersion() + " actual=" + adventure.version());
@@ -616,11 +641,16 @@ public class RuntimeTurnApplicationService {
             });
         }
         if (commitResult.status() != RuntimeTurnCommitOrchestrator.Status.COMMITTED) {
-            throw new IllegalStateException("runtime turn commit requires recovery: " + commitResult.status());
+            if (commitResult.status() == RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED) {
+                return new RuntimeTurnResult(commitResult.turn(), adventure.currentContext(), adventure.conversation(),
+                        adventure.version(), visibleInput, commitResult.movementResult());
+            }
+            throw new IllegalStateException("runtime turn commit requires repair: " + commitResult.status());
         }
         RuntimeTurn committed = commitResult.turn();
         PlayerVisibleTurn visible = new PlayerVisibleTurn(ready.narration(), plan.scene(), List.of(), visibleInput.stateDelta(), narrativeContext);
-        return new RuntimeTurnResult(committed, adventure.currentContext(), adventure.conversation(), adventure.version(), visible);
+        return new RuntimeTurnResult(committed, adventure.currentContext(), adventure.conversation(), adventure.version(), visible,
+                commitResult.movementResult());
     }
 
     public static StateDelta deltaFor(NarrativeState state, SubmitRuntimeTurnCommand command, RuntimePlan plan) {

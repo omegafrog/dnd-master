@@ -37,6 +37,7 @@ class CombatMapMovementTest {
         CombatMapMovementService service = fixture.service(10);
         MovementPath path = new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5);
         MovePlayerTokenCommand command = command(fixture, path, 0);
+        assertEquals(fixture.map.id()+"|"+fixture.player+"|"+fixture.playerToken.id()+"|"+path+"|5E|0", command.fingerprint());
 
         CombatMap first = service.movePlayerToken(command);
         CombatMap second = service.movePlayerToken(command);
@@ -74,8 +75,18 @@ class CombatMapMovementTest {
         MovementPath path = new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5);
         service.movePlayerToken(command(fixture, path, 0));
 
-        assertThrows(IllegalStateException.class, () -> service.movePlayerToken(new MovePlayerTokenCommand(
+        assertThrows(CombatMapMovementStaleException.class, () -> service.movePlayerToken(new MovePlayerTokenCommand(
                 fixture.map.id(), fixture.player, fixture.playerToken.id(), path, "5E", UUID.randomUUID(), 0)));
+    }
+
+    @Test
+    void rejects_a_move_that_does_not_match_the_confirmed_preview_fingerprint() {
+        Fixture fixture = new Fixture();
+        MovementPath path = new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5);
+
+        assertThrows(CombatMapMovementPreviewMismatchException.class, () -> fixture.service(30).movePlayerToken(
+                new MovePlayerTokenCommand(fixture.map.id(), fixture.player, fixture.playerToken.id(), path,
+                        "5E", UUID.randomUUID(), 0, List.of(), "preview-that-does-not-match")));
     }
 
     @Test
@@ -89,8 +100,28 @@ class CombatMapMovementTest {
                 fixture.map.id(), fixture.player, fixture.playerToken.id(), firstPath, "5E", commandId, 0));
 
         MovementPath differentPath = new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(1, 2)), 5);
-        assertThrows(IllegalStateException.class, () -> service.movePlayerToken(new MovePlayerTokenCommand(
+        assertThrows(MovementCommandConflictException.class, () -> service.movePlayerToken(new MovePlayerTokenCommand(
                 fixture.map.id(), fixture.player, fixture.playerToken.id(), differentPath, "5E", commandId, 1)));
+    }
+
+    @Test
+    void rejects_reusing_a_preview_command_id_with_different_waypoints() {
+        Fixture fixture = new Fixture();
+        CombatMapMovementService service = fixture.service(30);
+        UUID commandId = fixture.commandId;
+        List<GridPosition> waypoints = List.of(new GridPosition(2, 1));
+        MovementPreview preview = service.preview(new MovementPreviewRequest(fixture.map.id(), fixture.player,
+                fixture.playerToken.id(), new GridPosition(2, 1), waypoints, "5E", 0));
+        MovePlayerTokenCommand first = new MovePlayerTokenCommand(fixture.map.id(), fixture.player,
+                fixture.playerToken.id(), new MovementPath(preview.orderedPositions(), preview.distance()), "5E",
+                commandId, 0, waypoints, preview.fingerprint());
+        service.movePlayerToken(first);
+
+        MovePlayerTokenCommand changedWaypoints = new MovePlayerTokenCommand(fixture.map.id(), fixture.player,
+                fixture.playerToken.id(), first.path(), "5E", commandId, 0,
+                List.of(new GridPosition(1, 2)), preview.fingerprint());
+
+        assertThrows(IllegalStateException.class, () -> service.movePlayerToken(changedWaypoints));
     }
 
     @Test
@@ -115,6 +146,16 @@ class CombatMapMovementTest {
         assertThrows(CombatMapMovementDeniedException.class, () -> fixture.service(5).movePlayerToken(command(fixture, tooFar, 0)));
         MovementPath blocked = new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(1, 2)), 5);
         assertThrows(CombatMapMovementDeniedException.class, () -> fixture.service(30).movePlayerToken(command(fixture, blocked, 0)));
+    }
+
+    @Test
+    void rejects_confirmation_through_a_cell_not_known_to_the_player() {
+        Fixture fixture = new Fixture();
+        fixture.map.replaceVisibility(new VisibilitySnapshot(Set.of(new GridPosition(1, 1)),
+                Set.of(new GridPosition(1, 1)), Set.of(), List.of(), 0));
+
+        assertThrows(CombatMapMovementDeniedException.class, () -> fixture.service(30).movePlayerToken(command(fixture,
+                new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5), 0)));
     }
 
     @Test
@@ -164,6 +205,14 @@ class CombatMapMovementTest {
                         new MapLayer("FOG", "hidden", LayerVisibility.AI_ONLY)));
         int saves;
         final Map<UUID, CombatMap> history = new HashMap<>();
+
+        Fixture() {
+            Set<GridPosition> known = new HashSet<>();
+            for (int y = 0; y < map.grid().height(); y++) for (int x = 0; x < map.grid().width(); x++) {
+                known.add(new GridPosition(x, y));
+            }
+            map.replaceVisibility(new VisibilitySnapshot(known, known, Set.of(), List.of(), 0));
+        }
 
         CombatMapMovementService service(int allowance) {
             return new CombatMapMovementService(this, (ruleSet, edition) -> allowance);

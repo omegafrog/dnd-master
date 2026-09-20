@@ -262,6 +262,17 @@ const playApi: AdventurePlayApi = {
       status: 'authoritative-map',
     }
   },
+  async previewMapMovement(_adventureId, request) {
+    const position = JSON.parse(sessionStorage.getItem('dnd-master-e2e-map-position') ?? '{"x":0,"y":0}') as { x: number; y: number }
+    const orderedPositions = [position, ...(request.waypoints ?? []), request.destination]
+    return {
+      mapId: request.mapId,
+      orderedPositions,
+      distance: orderedPositions.length - 1,
+      baseMapVersion: request.mapVersion,
+      fingerprint: `e2e-${request.mapVersion}-${orderedPositions.map(cell => `${cell.x},${cell.y}`).join('-')}`,
+    }
+  },
   async submitMapAction(_adventureId, candidate) {
     const to = candidate.location ?? candidate.path?.at(-1)
     if (to) sessionStorage.setItem('dnd-master-e2e-map-position', JSON.stringify(to))

@@ -5,7 +5,7 @@ import com.dndmaster.combatmap.domain.LayerVisibility;
 import java.util.List;
 import java.util.UUID;
 
-public record PlayerCombatMapResponse(UUID mapId, GridResponse grid, List<TokenResponse> tokens, List<ObstacleResponse> obstacles, List<DoorResponse> doors, List<LayerResponse> layers, List<PositionResponse> current, List<PositionResponse> explored, long version, List<PlayerStartResponse> playerStartCandidates) {
+public record PlayerCombatMapResponse(UUID mapId, GridResponse grid, List<TokenResponse> tokens, List<ObstacleResponse> obstacles, List<DoorResponse> doors, List<LayerResponse> layers, List<PositionResponse> current, List<PositionResponse> explored, long version, List<PlayerStartResponse> playerStartCandidates, List<SpatialFeatureResponse> spatialFeatures) {
     public static PlayerCombatMapResponse from(PlayerCombatMapView v) {
         return new PlayerCombatMapResponse(
                 v.mapId().value(), new GridResponse(v.grid().width(), v.grid().height(), v.grid().cellSize(), v.grid().distanceUnit()),
@@ -17,10 +17,11 @@ public record PlayerCombatMapResponse(UUID mapId, GridResponse grid, List<TokenR
                 v.layers().stream().map(l -> new LayerResponse(l.type(), l.value(), LayerVisibility.PLAYER_VISIBLE.name())).toList(),
                 v.current().stream().map(p -> new PositionResponse(p.x(), p.y())).toList(),
                 v.explored().stream().map(p -> new PositionResponse(p.x(), p.y())).toList(),
-                v.version(), v.playerStartCandidates().stream().map(PlayerStartResponse::from).toList());
+                v.version(), v.playerStartCandidates().stream().map(PlayerStartResponse::from).toList(),
+                v.spatialFeatures().stream().map(SpatialFeatureResponse::from).toList());
     }
     public PlayerCombatMapResponse(UUID mapId, GridResponse grid, List<TokenResponse> tokens, List<ObstacleResponse> obstacles, List<DoorResponse> doors, List<LayerResponse> layers, List<PositionResponse> current, List<PositionResponse> explored, long version) {
-        this(mapId, grid, tokens, obstacles, doors, layers, current, explored, version, List.of());
+        this(mapId, grid, tokens, obstacles, doors, layers, current, explored, version, List.of(), List.of());
     }
 
     public record GridResponse(int width, int height, int cellSize, int distanceUnit) {}
@@ -32,6 +33,14 @@ public record PlayerCombatMapResponse(UUID mapId, GridResponse grid, List<TokenR
     public record PlayerStartResponse(int x, int y, double confidence, List<String> evidence, String source) {
         static PlayerStartResponse from(com.dndmaster.combatmap.application.view.PlayerStartCandidate candidate) {
             return new PlayerStartResponse(candidate.position().x(), candidate.position().y(), candidate.confidence(), candidate.evidence(), candidate.source());
+        }
+    }
+    public record SpatialFeatureResponse(UUID id, String type, List<PositionResponse> cells, String visibility,
+            String state, boolean interactable) {
+        static SpatialFeatureResponse from(PlayerCombatMapView.SpatialFeature feature) {
+            return new SpatialFeatureResponse(feature.id(), feature.type(),
+                    feature.cells().stream().map(cell -> new PositionResponse(cell.x(), cell.y())).toList(),
+                    feature.visibility(), feature.state(), feature.interactable());
         }
     }
 }

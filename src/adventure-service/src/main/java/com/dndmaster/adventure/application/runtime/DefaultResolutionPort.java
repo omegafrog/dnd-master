@@ -14,4 +14,19 @@ public final class DefaultResolutionPort implements ResolutionPort {
         }
         return new ResolutionResult(selection.unit(), systemRoll, systemRoll >= fixed.value());
     }
+
+    @Override
+    public PlayerCheckResult resolvePlayerCheck(PlayerCheckRequest request) {
+        if (request == null) throw new IllegalArgumentException("player check request is required");
+        TypedCheckRule rule = request.rule();
+        return new PlayerCheckResult(rule.ruleReference(), request.diceExpression(), rule.modifier(),
+                rule.difficulty(), request.rollTotal(), rule.accepts(request.rollTotal()));
+    }
+    @Override
+    public EnemyObservationCheckResult resolveEnemyObservation(EnemyObservationCheckRequest request) {
+        if (request == null) throw new IllegalArgumentException("enemy observation check request is required");
+        TypedCheckRule rule = request.rule();
+        return new EnemyObservationCheckResult(rule.ruleReference(), request.diceExpression(), rule.modifier(),
+                rule.difficulty(), request.rollTotal(), rule.accepts(request.rollTotal()));
+    }
 }

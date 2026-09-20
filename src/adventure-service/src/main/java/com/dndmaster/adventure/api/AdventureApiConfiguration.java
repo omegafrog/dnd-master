@@ -28,6 +28,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompil
 import com.dndmaster.adventure.infrastructure.persistence.PostgresCompilationCandidateRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresPendingMapMovementConfirmationRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnCommandRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnFailureRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresNarrativeStateRepository;
@@ -330,22 +331,100 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository pendingMapMovementConfirmationRepository(
+            DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresPendingMapMovementConfirmationRepository(dataSource, objectMapper);
+    }
+
+    @Bean
     RuntimeTurnCommandRepository runtimeTurnCommandRepository(DataSource dataSource) {
         return new PostgresRuntimeTurnCommandRepository(dataSource);
     }
 
     @Bean
-    RuntimeTurnCommandAdapter runtimeTurnCommandAdapter(GmToolGateway gateway, ObjectMapper objectMapper,
-            CombatMapPort combatMapPort) {
+    ResolutionPort resolutionPort() {
+        return new DefaultResolutionPort();
+    }
+
+    @Bean
+    RuntimeTurnCommandAdapter runtimeTurnCommandAdapter(ObjectMapper objectMapper,
+            CombatMapPort combatMapPort,
+            @Qualifier("enemyObservationRollPort") com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort,
+            RuntimeContinuationCommandPort continuationPort,
+            ResolutionPort resolutionPort, MovementFollowUpPolicy movementFollowUpPolicy) {
         return new RuntimeTurnCommandAdapterRegistry(
-                Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, objectMapper)),
-                new GmToolRuntimeTurnCommandAdapter(gateway, objectMapper));
+                Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, enemyObservationRollPort,
+                                objectMapper, resolutionPort, movementFollowUpPolicy),
+                        "movement.continuation.combat", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.COMBAT, continuationPort)));
+    }
+
+    @Bean
+    MovementFollowUpPolicy movementFollowUpPolicy() {
+        return trigger -> switch (trigger) {
+            case "HOSTILE_OBSERVED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT;
+            default -> throw new IllegalArgumentException("unknown movement follow-up trigger: " + trigger);
+        };
+    }
+
+    @Bean
+    RuntimeContinuationCommandOutcomePort runtimeContinuationCommandOutcomePort(RuntimeTurnCommandRepository commands,
+            ObjectMapper objectMapper) {
+        return new PostgresRuntimeContinuationCommandOutcomePort(commands, objectMapper);
+    }
+
+    @Bean
+    RuntimeContinuationCommandPort runtimeContinuationCommandPort(RuntimeContinuationCommandOutcomePort outcomePort,
+            ObjectMapper objectMapper) {
+        java.util.function.Function<RuntimeContinuationCommandOutcome, RuntimeTurnCommandExecution> transition = outcome -> {
+            try {
+                return RuntimeTurnCommandExecution.done(objectMapper.writeValueAsString(outcome));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+                return RuntimeTurnCommandExecution.transientFailure("typed continuation command serialization failed");
+            }
+        };
+        return new RuntimeContinuationCommandPort() {
+            @Override public RuntimeTurnCommandExecution combat(ContinuationCommand command) {
+                return transition.apply(outcomePort.combat(command));
+            }
+        };
+    }
+
+    @Bean
+    MovementFollowUpPort movementFollowUpPort(SessionEventRepository events, ObjectMapper objectMapper) {
+        return (command, adventureId, sessionId, ownerPlayerId) -> {
+            try {
+                return new MovementFollowUpEventPublisher(events, objectMapper).publish(command, adventureId, sessionId, ownerPlayerId);
+            } catch (RuntimeException failure) {
+                return MovementFollowUpPort.Result.retry(failure.getMessage());
+            }
+        };
+    }
+
+    @Bean
+    RuntimeContinuationPort runtimeContinuationPort(RuntimeTurnCommandAdapter runtimeTurnCommandAdapter) {
+        return RuntimeContinuationHandlerRegistry.standard((RuntimeTurnCommandAdapterRegistry) runtimeTurnCommandAdapter);
+    }
+
+    @Bean
+    MovementFollowUpRuntimeConsumer movementFollowUpRuntimeConsumer(SessionEventRepository events,
+            RuntimeTurnCommandRepository commands, ObjectMapper objectMapper, RuntimeContinuationPort continuationPort) {
+        return new MovementFollowUpRuntimeConsumer(events, commands, objectMapper, continuationPort);
+    }
+
+    @Bean(name = "enemyObservationRollPort")
+    com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort(
+            @Value("${adventure.integration.dice-roll.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
+        return gateway::rollEnemyObservation;
     }
 
     @Bean
     RuntimeTurnCommitOrchestrator runtimeTurnCommitOrchestrator(RuntimeTurnRepository turnRepository,
-            RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter adapter) {
-        return new RuntimeTurnCommitOrchestrator(turnRepository, commandRepository, adapter);
+            RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter adapter,
+            MovementFollowUpPort movementFollowUpPort, MovementFollowUpRuntimeConsumer followUpConsumer) {
+        return new RuntimeTurnCommitOrchestrator(turnRepository, commandRepository, adapter, movementFollowUpPort, followUpConsumer);
     }
 
     @Bean
@@ -642,6 +721,15 @@ public class AdventureApiConfiguration {
                 URI.create(baseUrl),
                 Duration.ofSeconds(2),
                 objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.MovementPlacementModelPort movementPlacementModelPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
+        return new com.dndmaster.adventure.infrastructure.integration.HttpMovementPlacementModelGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(180), objectMapper, token);
     }
 
     @Bean
@@ -953,6 +1041,69 @@ public class AdventureApiConfiguration {
             public CombatMapMoveResult move(CombatMapMoveCommand command) {
                 return gateway.move(command);
             }
+
+            @Override
+            public int rollSpatialCheck(SpatialCheckRollCommand command) {
+                return gateway.rollSpatialCheck(command);
+            }
+
+            @Override
+            public int rollEnemyObservation(com.dndmaster.adventure.application.combat.EnemyObservationRollCommand command) {
+                return gateway.rollEnemyObservation(command);
+            }
+
+            @Override
+            public com.dndmaster.adventure.application.combat.CombatMapPreviewResult preview(
+                    com.dndmaster.adventure.application.combat.CombatMapPreviewCommand command) {
+                return gateway.preview(command);
+            }
+
+            @Override
+            public CombatMapMoveResult movementOperation(java.util.UUID mapId, java.util.UUID operationId) {
+                return gateway.movementOperation(mapId, operationId);
+            }
+
+            @Override
+            public CombatMapMoveResult latestMovementOperation(java.util.UUID mapId) {
+                return gateway.latestMovementOperation(mapId);
+            }
+
+            @Override
+            public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId) {
+                return gateway.resumeMovementOperation(mapId, operationId);
+            }
+
+            @Override
+            public CombatMapMoveResult resumeMovementOperation(java.util.UUID mapId, java.util.UUID operationId,
+                    CombatMapCheckSubmission submission) {
+                return gateway.resumeMovementOperation(mapId, operationId, submission);
+            }
+
+            @Override
+            public CombatMapMoveResult cancelMovementOperation(java.util.UUID mapId, java.util.UUID operationId,
+                    java.util.UUID cancelCommandId) {
+                return gateway.cancelMovementOperation(mapId, operationId, cancelCommandId);
+            }
+
+            @Override
+            public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) {
+                return gateway.observe(command);
+            }
+
+            @Override
+            public CombatMapSpatialResult interact(CombatMapSpatialActionCommand command) {
+                return gateway.interact(command);
+            }
+
+            @Override
+            public CombatMapSpatialResult combatTurnStart(CombatMapSpatialTurnCommand command) {
+                return gateway.combatTurnStart(command);
+            }
+
+            @Override
+            public CombatMapSpatialResult advanceDurations(CombatMapSpatialTurnCommand command) {
+                return gateway.advanceDurations(command);
+            }
         };
     }
 
@@ -970,9 +1121,21 @@ public class AdventureApiConfiguration {
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             ObjectMapper objectMapper,
-            @Value("${adventure.integration.combat-map.prepare-timeout:300s}") Duration timeout) {
+            @Value("${adventure.integration.combat-map.prepare-timeout:300s}") Duration timeout,
+            com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationService spatialPreparation) {
         return new com.dndmaster.adventure.application.combat.HttpCombatMapPreparationGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken);
+                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken, spatialPreparation);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationService scenarioSpatialFeaturePreparationService(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            @Value("${adventure.integration.ai-game-master.map-generation-timeout:300s}") Duration timeout) {
+        return new com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationService(
+                new com.dndmaster.adventure.infrastructure.integration.HttpScenarioSpatialFeaturePlacementGateway(
+                        HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken));
     }
 
     @Bean
@@ -1045,6 +1208,13 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.combat.CombatActionOperationRepository combatActionOperationRepository(DataSource dataSource) {
         return new com.dndmaster.adventure.infrastructure.persistence.PostgresCombatActionOperationRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort spatialActionAuthorizationPort(
+            com.dndmaster.adventure.application.combat.CombatEncounterRepository encounters,
+            com.dndmaster.adventure.application.combat.CombatActionOperationRepository operations) {
+        return new com.dndmaster.adventure.application.combat.CombatEncounterSpatialActionAuthorization(encounters, operations);
     }
 
     @Bean
@@ -1157,16 +1327,19 @@ public class AdventureApiConfiguration {
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver,
             org.springframework.beans.factory.ObjectProvider<CombatMapPort> combatMapPort,
+            org.springframework.beans.factory.ObjectProvider<com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort> spatialActionAuthorization,
             org.springframework.beans.factory.ObjectProvider<CharacterCombatPort> characterCombatPort,
             ObjectMapper objectMapper,
             org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort,
             org.springframework.beans.factory.ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapPreparationPort> combatMapPreparationPort,
+            com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository pendingMapMovementConfirmationRepository,
             org.springframework.beans.factory.ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService,
+            com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService appliedRuleSetService,
             com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService aiRequestService) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatMapPreparationPort, scenarioPackageRepository, combatLifecycleService, aiRequestService);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, spatialActionAuthorization, characterCombatPort, objectMapper, combatMapViewPort, combatMapPreparationPort, pendingMapMovementConfirmationRepository, scenarioPackageRepository, combatLifecycleService, appliedRuleSetService, aiRequestService);
     }
 
     @Bean

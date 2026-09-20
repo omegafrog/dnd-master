@@ -100,6 +100,31 @@ class BattlefieldModePolicyTest {
     }
 
     @Test
+    void retry_required_map_result_does_not_complete_step_or_consume_movement() {
+        UUID adventureId = UUID.randomUUID();
+        UUID heroId = UUID.randomUUID();
+        EncounterStore encounters = encounters(adventureId, heroId);
+        CountingMapPort map = new CountingMapPort();
+        map.status = CombatMapMovementStatus.RETRY_REQUIRED;
+        OperationStore operations = new OperationStore();
+        CombatActionApplicationService service = service(encounters, operations, map);
+        UUID commandId = UUID.randomUUID();
+        CombatActionCommand command = new CombatActionCommand(commandId, new AdventureId(adventureId),
+                UUID.randomUUID(), new RuleSetId(UUID.randomUUID()), new CharacterSheetId(heroId), UUID.randomUUID(),
+                CombatActorRole.PLAYER, "MOVE", "0,0;1,0", UUID.randomUUID(), UUID.randomUUID(), 1,
+                null, null, null, null, false);
+
+        CombatCommandRejectedException rejected = assertThrows(CombatCommandRejectedException.class,
+                () -> service.submit(command));
+
+        assertEquals("RETRY_REQUIRED", rejected.code());
+        assertEquals(1, encounters.value.version());
+        assertEquals(30, encounters.value.currentParticipant().resources().movement());
+        assertFalse(operations.values.get(commandId).steps().stream()
+                .anyMatch(step -> step.status() == CombatActionStep.Status.DONE));
+    }
+
+    @Test
     void mapless_position_must_reference_an_encounter_participant() {
         UUID adventureId = UUID.randomUUID();
         UUID heroId = UUID.randomUUID();
@@ -136,6 +161,7 @@ class BattlefieldModePolicyTest {
     private static final class CountingMapPort implements CombatMapPort {
         int calls;
         boolean reject;
+        CombatMapMovementStatus status = CombatMapMovementStatus.COMMITTED;
         CombatMapMoveCommand received;
         @Override public void validateAndMove(CombatActionCommand command) {
             calls++;
@@ -145,7 +171,8 @@ class BattlefieldModePolicyTest {
             received = command;
             calls++;
             if (reject) throw new IllegalStateException("destination blocked");
-            return new CombatMapMoveResult(command.expectedVersion() + 1);
+            return new CombatMapMoveResult(command.expectedVersion() + 1, UUID.randomUUID(), status,
+                    List.of(), null, List.of(), null);
         }
     }
     private static final class EncounterStore implements CombatEncounterRepository {

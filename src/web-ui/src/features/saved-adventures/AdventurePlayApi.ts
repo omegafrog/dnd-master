@@ -55,7 +55,8 @@ export type CombatMapView = {
   adventureId: string
   status: string
   mapId?: string
-  tokens?: Array<{ id: string; type: string; x: number; y: number; lastSeen?: boolean }>
+  tokens?: Array<{ id: string; type: string; x: number; y: number; lastSeen?: boolean; selected?: boolean; currentTurn?: boolean }>
+  currentTurnTokenId?: string
   layers?: Array<{ type: string; value: string; visibility?: string }>
   doors?: Array<{ x: number; y: number; open: boolean }>
   current?: Array<{ x: number; y: number }>
@@ -65,6 +66,7 @@ export type CombatMapView = {
   grid?: { width: number; height: number }
   obstacles?: Array<{ x: number; y: number }>
   objects?: Array<{ id: string; type: string; x: number; y: number }>
+  spatialFeatures?: Array<{ id: string; type: string; cells: Array<{ x: number; y: number }>; visibility: string; state: string; interactable: boolean }>
   playerStartCandidates?: Array<{ x: number; y: number; confidence: number; evidence: string[]; source?: string }>
 }
 
@@ -81,9 +83,68 @@ export type MapActionCandidate = {
   tokenId: string
   action: 'MOVE' | 'INTERACT' | 'TARGET' | 'LOCATION'
   path?: Array<{ x: number; y: number }>
+  waypoints?: Array<{ x: number; y: number }>
+  fingerprint?: string
+  commandId?: string
   targetId?: string
   location?: { x: number; y: number }
 }
+
+export type MapMovementPreviewRequest = {
+  mapId: string
+  mapVersion: number
+  tokenId: string
+  destination: { x: number; y: number }
+  waypoints?: Array<{ x: number; y: number }>
+  commandId?: string
+  pendingTurnId?: string
+  sourceText?: string
+}
+
+export type MapMovementPreview = {
+  mapId: string
+  orderedPositions: Array<{ x: number; y: number }>
+  distance: number
+  baseMapVersion: number
+  fingerprint: string
+}
+
+export type PendingMapMovement = {
+  mapId: string
+  tokenId: string
+  mapVersion: number
+  path: Array<{ x: number; y: number }>
+  distance: number
+  fingerprint: string
+  waypoints: Array<{ x: number; y: number }>
+  sourceText?: string
+  destination?: { x: number; y: number }
+  pendingTurnId?: string
+  confirmationCommandId?: string
+  terminal?: boolean
+}
+export type NaturalLanguageMovementPreviewRequest = { mapId: string; mapVersion: number; tokenId: string; sourceText: string; tacticalContext?: string }
+export type NaturalLanguageMovementPreview = { status: 'RESOLVED' | 'AMBIGUOUS' | 'UNRESOLVED'; destination?: { x: number; y: number }; candidates: Array<{ destination: { x: number; y: number }; confidence: number; reason: string }>; playerMessage: string; pendingTurnId?: string; confirmationCommandId?: string; path: Array<{ x: number; y: number }>; distance?: number; baseMapVersion?: number; fingerprint?: string }
+export type NaturalLanguageMovementConfirmation = { pendingTurnId: string; commandId: string; tokenId: string; mapVersion: number }
+export type NaturalLanguageMovementConfirmationResult = MapMovementResult
+
+export type MapMovementResult = {
+  version: number
+  operationId?: string
+  status: 'RETRY_REQUIRED' | 'CHECK_REQUIRED' | 'COMMITTED' | 'INTERRUPTED' | 'CANCELLED'
+  requestedPath: Array<{ x: number; y: number }>
+  traversedPath: Array<{ x: number; y: number }>
+  finalPosition?: { x: number; y: number }
+  publicEvents: string[]
+  interruptionReason?: string
+  followUp?: { commandId: string; operationId: string; kind: 'COMBAT' | 'WARNING' | 'CONTINUATION'; trigger: 'HOSTILE_OBSERVED' }
+  pendingCheck?: { checkId: string; operationId: string; label: string; diceExpression: string; ownerPlayerId: string; actor: 'PLAYER' }
+}
+
+export type SpatialActionRequest = { mapId: string; tokenId: string; x: number; y: number; expectedVersion: number; commandId: string }
+export type SpatialTurnRequest = { mapId: string; expectedVersion: number; commandId: string }
+export type SpatialActionResult = { mapId: string; mapVersion: number; publicEvents: string[]; operationId?: string; status?: string; pendingCheck?: { checkId: string; operationId: string; label: string; diceExpression: string; ownerPlayerId: string; actor: 'PLAYER' } }
+export type SpatialRollContext = { mapId: string; operationId: string; checkId: string; ownerPlayerId: string; actor: 'PLAYER' }
 
 export type CombatResolutionStatus = 'RESOLVED' | 'PENDING_RULE_INPUT'
 export type DiceRollResponse = {
@@ -111,7 +172,22 @@ export interface AdventurePlayApi {
   getMapGridAlignment?(adventureId: string): Promise<MapGridAlignment>
   applyMapGridAlignment?(adventureId: string, alignment: MapGridAlignmentRequest): Promise<MapGridAlignment>
   updateCombatMapLayout?(adventureId: string, draft: CombatMapLayoutDraft): Promise<void>
-  submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number }>
+  previewMapMovement?(adventureId: string, request: MapMovementPreviewRequest): Promise<MapMovementPreview>
+  getPendingMapMovement?(adventureId: string): Promise<PendingMapMovement | null>
+  clearPendingMapMovement?(adventureId: string): Promise<void>
+  previewNaturalLanguageMovement?(adventureId: string, request: NaturalLanguageMovementPreviewRequest): Promise<NaturalLanguageMovementPreview>
+  confirmNaturalLanguageMovement?(adventureId: string, request: NaturalLanguageMovementConfirmation): Promise<NaturalLanguageMovementConfirmationResult>
+  movementOperation?(adventureId: string, mapId: string, operationId: string): Promise<MapMovementResult>
+  latestMovementOperation?(adventureId: string, mapId: string): Promise<MapMovementResult | null>
+  cancelMovementOperation?(adventureId: string, mapId: string, operationId: string, cancelCommandId: string): Promise<MapMovementResult>
+  resumeMovementOperation?(adventureId: string, mapId: string, operationId: string, check?: { commandId: string; operationId: string; checkId: string; success: boolean; ownerPlayerId: string; actor: 'PLAYER' }): Promise<MapMovementResult>
+  rollSpatialCheck?(adventureId: string, expectedVersion: number, spatial: SpatialRollContext): Promise<MapMovementResult>
+  resumeRuntimeTurn?(adventureId: string, turnId: string, idempotencyKey: string): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
+  submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number; movementResult?: MapMovementResult }>
+  observeSpatial?(adventureId: string, request: SpatialActionRequest): Promise<SpatialActionResult>
+  interactSpatial?(adventureId: string, request: SpatialActionRequest): Promise<SpatialActionResult>
+  combatTurnStartSpatial?(adventureId: string, request: SpatialTurnRequest): Promise<SpatialActionResult>
+  advanceSpatialDurations?(adventureId: string, request: SpatialTurnRequest): Promise<SpatialActionResult>
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -277,8 +353,101 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     })
   }
 
+  previewMapMovement(adventureId: string, preview: MapMovementPreviewRequest) {
+    return request<MapMovementPreview>(`/api/v1/adventures/${adventureId}/combat-map/movement-preview`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(preview),
+    })
+  }
+
+  getPendingMapMovement(adventureId: string) {
+    return request<PendingMapMovement | null>(`/api/v1/adventures/${adventureId}/map-movement/pending`, {
+      headers: this.authHeaders(),
+    }).then(pending => pending ?? null)
+  }
+
+  clearPendingMapMovement(adventureId: string) {
+    return request<void>(`/api/v1/adventures/${adventureId}/map-movement/pending`, {
+      method: 'DELETE', headers: this.authHeaders(),
+    })
+  }
+
+  previewNaturalLanguageMovement(adventureId: string, preview: NaturalLanguageMovementPreviewRequest) {
+    return request<NaturalLanguageMovementPreview>(`/api/v1/adventures/${adventureId}/map-movement/preview`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(preview),
+    })
+  }
+
+  confirmNaturalLanguageMovement(adventureId: string, confirmation: NaturalLanguageMovementConfirmation) {
+    return request<NaturalLanguageMovementConfirmationResult>(`/api/v1/adventures/${adventureId}/map-movement/confirm`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(confirmation),
+    })
+  }
+
+  movementOperation(adventureId: string, mapId: string, operationId: string) {
+    return request<MapMovementResult>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations/${operationId}?mapId=${mapId}`, {
+      headers: this.authHeaders(),
+    })
+  }
+
+  latestMovementOperation(adventureId: string, mapId: string) {
+    return request<MapMovementResult | null>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations?mapId=${mapId}`, {
+      headers: this.authHeaders(),
+    }).catch(error => {
+      // A map with no durable movement operation is a normal reconnect state.
+      if (error instanceof AdventureRequestError && error.status === 404) return null
+      throw error
+    })
+  }
+
+  cancelMovementOperation(adventureId: string, mapId: string, operationId: string, cancelCommandId: string) {
+    return request<MapMovementResult>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations/${operationId}?mapId=${mapId}`, {
+      method: 'DELETE', headers: { ...this.authHeaders(), 'Idempotency-Key': cancelCommandId },
+    })
+  }
+
+  resumeMovementOperation(adventureId: string, mapId: string, operationId: string, check?: { commandId: string; operationId: string; checkId: string; success: boolean; ownerPlayerId: string; actor: 'PLAYER' }) {
+    return request<MapMovementResult>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations/${operationId}/resume?mapId=${mapId}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': check?.commandId ?? operationId, ...this.authHeaders() }, body: check ? JSON.stringify(check) : undefined,
+    })
+  }
+
+  rollSpatialCheck(adventureId: string, expectedVersion: number, spatial: SpatialRollContext) {
+    const commandId = spatial.checkId
+    return request<MapMovementResult>(`/api/v1/adventures/${adventureId}/combat-map/movement-operations/${spatial.operationId}/roll`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders(), 'Idempotency-Key': commandId },
+      body: JSON.stringify({ mapId: spatial.mapId, operationId: spatial.operationId, checkId: spatial.checkId,
+        ownerPlayerId: spatial.ownerPlayerId, commandId, expectedVersion }),
+    })
+  }
+
+  resumeRuntimeTurn(adventureId: string, turnId: string, idempotencyKey: string) {
+    return request<{ turnId: string; version: number; movementResult?: MapMovementResult }>(`/api/v1/adventures/${adventureId}/turns/${turnId}/resume`, {
+      method: 'POST', headers: { ...this.authHeaders(), 'Idempotency-Key': idempotencyKey },
+    })
+  }
+
+  observeSpatial(adventureId: string, action: SpatialActionRequest) {
+    return request<SpatialActionResult>(`/api/v1/adventures/${adventureId}/combat-map/spatial/observe`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders(), 'Idempotency-Key': action.commandId }, body: JSON.stringify(action),
+    })
+  }
+
+  interactSpatial(adventureId: string, action: SpatialActionRequest) {
+    return request<SpatialActionResult>(`/api/v1/adventures/${adventureId}/combat-map/spatial/interact`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders(), 'Idempotency-Key': action.commandId }, body: JSON.stringify(action),
+    })
+  }
+
+  combatTurnStartSpatial(adventureId: string, action: SpatialTurnRequest) {
+    return request<SpatialActionResult>(`/api/v1/adventures/${adventureId}/combat-map/spatial/combat-turn-start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders(), 'Idempotency-Key': action.commandId }, body: JSON.stringify(action),
+    })
+  }
+
   submitMapAction(adventureId: string, candidate: MapActionCandidate, command = createMapCommandIdentity(), expectedVersion = candidate.mapVersion) {
-    return request<{ turnId: string; version: number }>(`/api/v1/adventures/${adventureId}/turns`, {
+    const { commandId: _commandId, ...requestCandidate } = candidate
+    void _commandId
+    return request<{ turnId: string; version: number; movementResult?: MapMovementResult }>(`/api/v1/adventures/${adventureId}/turns`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json', ...this.authHeaders(),
@@ -286,9 +455,16 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
       },
       body: JSON.stringify({ turnId: command.turnId, input: {
         type: 'MAP_ACTION', mapId: candidate.mapId, mapVersion: candidate.mapVersion,
-        action: JSON.stringify(candidate),
+        action: JSON.stringify(requestCandidate),
+        previewFingerprint: candidate.action === 'MOVE' ? candidate.fingerprint : undefined,
       } }),
-    }).then(result => ({ turnId: result.turnId, version: result.version }))
+    }).then(result => ({ turnId: result.turnId, version: result.version, movementResult: result.movementResult }))
+  }
+
+  advanceSpatialDurations(adventureId: string, action: SpatialTurnRequest) {
+    return request<SpatialActionResult>(`/api/v1/adventures/${adventureId}/combat-map/spatial/advance-durations`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders(), 'Idempotency-Key': action.commandId }, body: JSON.stringify(action),
+    })
   }
 }
 

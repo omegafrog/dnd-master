@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { BookOpen, ChevronLeft, ChevronRight, Dice5, FileText, Map, MoreHorizontal, NotebookPen, Settings, Shield, Users } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { Separator } from '../../components/ui/separator'
@@ -26,6 +26,34 @@ export type RuntimeHandout = {
 
 export type RuntimeHandoutPreviewLoader = (knowledgeDocumentId: string) => Promise<SourcePreviewView>
 
+export function SpatialTurnRuntime({ adventureId, playApi, combatSnapshot }: { adventureId: string; playApi: AdventurePlayApi; combatSnapshot?: CombatSnapshot | null }) {
+  const spatialTurnKey = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!combatSnapshot || combatSnapshot.status !== 'ACTIVE' || !playApi.combatTurnStartSpatial) return
+    let active = true
+    void playApi.getCombatMap(adventureId).then(map => {
+      if (!active || !map.mapId) return
+      const key = `${map.mapId}:${combatSnapshot.round}:${combatSnapshot.currentParticipantId}`
+      if (spatialTurnKey.current === key) return
+      spatialTurnKey.current = key
+      const commandId = globalThis.crypto && 'randomUUID' in globalThis.crypto
+        ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+      return playApi.combatTurnStartSpatial!(adventureId, {
+        mapId: map.mapId, expectedVersion: map.version ?? 0, commandId,
+      }).then(result => playApi.advanceSpatialDurations
+        ? playApi.advanceSpatialDurations(adventureId, {
+          mapId: map.mapId!, expectedVersion: result.mapVersion, commandId: globalThis.crypto && 'randomUUID' in globalThis.crypto
+            ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+        })
+        : result)
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [adventureId, combatSnapshot, playApi])
+
+  return null
+}
+
 export function SessionRuntime({ adventureId, adventureApi, expectedVersion, playApi, combatSnapshot, mapRefreshToken, onTurnCommitted, adventureTitle, sessionLabel, initialScene, partyCharacters = [], handouts = [], handoutsLoading = false, handoutsMessage = '', getHandoutPreview }: { adventureId: string; adventureApi: AdventureApi; expectedVersion?: number | null; playApi: AdventurePlayApi; combatSnapshot?: CombatSnapshot | null; mapRefreshToken?: number; onTurnCommitted?: () => void; adventureTitle?: string; sessionLabel?: string; initialScene?: string | null; partyCharacters?: RuntimePartyCharacter[]; handouts?: RuntimeHandout[]; handoutsLoading?: boolean; handoutsMessage?: string; getHandoutPreview?: RuntimeHandoutPreviewLoader }) {
   const [mapOpen, setMapOpen] = useState(false)
   const [noteOpen, setNoteOpen] = useState(false)
@@ -41,7 +69,7 @@ export function SessionRuntime({ adventureId, adventureApi, expectedVersion, pla
     return () => { active = false }
   }, [adventureId, mapRefreshToken, playApi])
 
-  return <section className="session-runtime" aria-labelledby="session-runtime-title">
+  return <><SpatialTurnRuntime adventureId={adventureId} playApi={playApi} combatSnapshot={combatSnapshot} /><section className="session-runtime" aria-labelledby="session-runtime-title">
     <header className="session-runtime-header">
       <a className="session-runtime-exit" href={`#/adventures/${encodeURIComponent(adventureId)}?tab=sessions`}><ChevronLeft size={16} aria-hidden="true" />세션 종료</a>
       <div className="session-runtime-title-block"><p className="eyebrow">SESSION</p><h1 id="session-runtime-title">{adventureTitle || '모험 세션'}</h1><p>{sessionLabel || '플레이 기록'}</p></div>
@@ -54,7 +82,7 @@ export function SessionRuntime({ adventureId, adventureApi, expectedVersion, pla
         <ContextPanel initialScene={initialScene} combatSnapshot={combatSnapshot} mapOpen={mapOpen} setMapOpen={setMapOpen} noteOpen={noteOpen} setNoteOpen={setNoteOpen} map={mapOpen ? <CombatMapView adventureId={adventureId} api={playApi} refreshToken={mapRefreshToken} compact /> : null} handouts={handouts} handoutsLoading={handoutsLoading} handoutsMessage={handoutsMessage} getHandoutPreview={getHandoutPreview} />
       </aside>
     </div>
-  </section>
+  </section></>
 }
 
 function PartyPanel({ snapshot, currentParticipant, characters, open, onToggle }: { snapshot?: CombatSnapshot | null; currentParticipant?: string; characters: RuntimePartyCharacter[]; open: boolean; onToggle: () => void }) {

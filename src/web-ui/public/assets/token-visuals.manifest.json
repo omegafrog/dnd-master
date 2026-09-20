@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    { "id": "token-frame", "path": "/assets/tokens/token-frame.svg", "source": "dnd-master original artwork", "author": "dnd-master contributors", "license": "CC0-1.0", "originalUrl": "https://github.com/omegafrog/dnd-master", "redistributable": true },
+    { "id": "player", "path": "/assets/tokens/player.svg", "source": "dnd-master original artwork", "author": "dnd-master contributors", "license": "CC0-1.0", "originalUrl": "https://github.com/omegafrog/dnd-master", "redistributable": true },
+    { "id": "friendly-npc", "path": "/assets/tokens/friendly-npc.svg", "source": "dnd-master original artwork", "author": "dnd-master contributors", "license": "CC0-1.0", "originalUrl": "https://github.com/omegafrog/dnd-master", "redistributable": true },
+    { "id": "neutral-npc", "path": "/assets/tokens/neutral-npc.svg", "source": "dnd-master original artwork", "author": "dnd-master contributors", "license": "CC0-1.0", "originalUrl": "https://github.com/omegafrog/dnd-master", "redistributable": true },
+    { "id": "enemy", "path": "/assets/tokens/enemy.svg", "source": "dnd-master original artwork", "author": "dnd-master contributors", "license": "CC0-1.0", "originalUrl": "https://github.com/omegafrog/dnd-master", "redistributable": true },
+    { "id": "boss", "path": "/assets/tokens/boss.svg", "source": "dnd-master original artwork", "author": "dnd-master contributors", "license": "CC0-1.0", "originalUrl": "https://github.com/omegafrog/dnd-master", "redistributable": true },
+    { "id": "trap", "path": "/assets/tokens/trap.svg", "source": "dnd-master original artwork", "author": "dnd-master contributors", "license": "CC0-1.0", "originalUrl": "https://github.com/omegafrog/dnd-master", "redistributable": true },
+    { "id": "object", "path": "/assets/tokens/object.svg", "source": "dnd-master original artwork", "author": "dnd-master contributors", "license": "CC0-1.0", "originalUrl": "https://github.com/omegafrog/dnd-master", "redistributable": true }
+  ]
+}

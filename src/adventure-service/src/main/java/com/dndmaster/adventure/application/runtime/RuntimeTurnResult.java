@@ -6,13 +6,19 @@ import java.util.List;
 
 // 턴 처리 후 세션에 남는 최종 결과다.
 public record RuntimeTurnResult(RuntimeTurn turn, AdventureContext context, List<ConversationEntry> conversation, long version,
-                                PlayerVisibleTurn visibleTurn) {
+                                PlayerVisibleTurn visibleTurn,
+                                com.dndmaster.adventure.application.combat.CombatMapMoveResult movementResult) {
     public RuntimeTurnResult {
         conversation = List.copyOf(conversation);
         visibleTurn = visibleTurn == null ? new PlayerVisibleTurn("", context.currentScene(), List.of(), null) : visibleTurn;
     }
 
     public RuntimeTurnResult(RuntimeTurn turn, AdventureContext context, List<ConversationEntry> conversation, long version) {
-        this(turn, context, conversation, version, null);
+        this(turn, context, conversation, version, null, null);
+    }
+
+    public RuntimeTurnResult(RuntimeTurn turn, AdventureContext context, List<ConversationEntry> conversation, long version,
+            PlayerVisibleTurn visibleTurn) {
+        this(turn, context, conversation, version, visibleTurn, null);
     }
 }

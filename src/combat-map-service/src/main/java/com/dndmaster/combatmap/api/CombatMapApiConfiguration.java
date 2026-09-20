@@ -3,11 +3,14 @@ package com.dndmaster.combatmap.api;
 import com.dndmaster.combatmap.application.movement.AppliedEditionMovementPort;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementService;
 import com.dndmaster.combatmap.application.movement.CombatMapRepository;
+import com.dndmaster.combatmap.application.movement.MovementResolutionOperationRepository;
+import com.dndmaster.combatmap.application.movement.MovementResolutionRecoveryWorker;
 import com.dndmaster.combatmap.application.view.*;
 import com.dndmaster.combatmap.domain.*;
 import com.dndmaster.combatmap.infrastructure.persistence.PostgresCombatMapViewStore;
 import com.dndmaster.combatmap.infrastructure.persistence.PostgresMapGridAlignmentStore;
 import com.dndmaster.combatmap.infrastructure.persistence.PostgresPublicMapImageArtifactStore;
+import com.dndmaster.combatmap.infrastructure.persistence.PostgresMovementResolutionOperationRepository;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
@@ -97,7 +100,21 @@ public class CombatMapApiConfiguration {
                         operationKey,
                         operationFingerprint);
             }
+
+            @Override
+            public void commitMovementResolution(CombatMap map, long persistedVersion,
+                    com.dndmaster.combatmap.application.movement.MovementResolutionOperation operation,
+                    com.dndmaster.combatmap.application.movement.MovementResolutionResult result) {
+                if (map.ownerPlayerId() == null) throw new IllegalStateException("combat map owner is required for persistence");
+                store.commitMovementResolution(new com.dndmaster.combatmap.application.view.MapOwnerId(map.ownerPlayerId().value()),
+                        map, map.version(), persistedVersion, operation, result);
+            }
         };
+    }
+
+    @Bean
+    MovementResolutionOperationRepository movementResolutionOperationRepository(DataSource dataSource) {
+        return new PostgresMovementResolutionOperationRepository(dataSource);
     }
 
     @Bean
@@ -110,8 +127,26 @@ public class CombatMapApiConfiguration {
 
     @Bean
     CombatMapMovementService combatMapMovementService(
-            CombatMapRepository repository, AppliedEditionMovementPort movementPort) {
-        return new CombatMapMovementService(repository, movementPort);
+            CombatMapRepository repository, AppliedEditionMovementPort movementPort,
+            MovementResolutionOperationRepository operations) {
+        return new CombatMapMovementService(repository, movementPort, operations,
+                com.dndmaster.combatmap.application.movement.MovementInterruptionPolicy.publicSpatialFeatures());
+    }
+
+    @Bean
+    com.dndmaster.combatmap.application.spatial.SpatialFeatureRuntimeApplicationService spatialFeatureRuntimeApplicationService(
+            CombatMapViewStore store) {
+        return new com.dndmaster.combatmap.application.spatial.SpatialFeatureRuntimeApplicationService(store);
+    }
+
+    @Bean
+    org.springframework.boot.ApplicationRunner movementResolutionRecoveryRunner(CombatMapMovementService movementService) {
+        return arguments -> movementService.recoverIncompleteOperations();
+    }
+
+    @Bean
+    MovementResolutionRecoveryWorker movementResolutionRecoveryWorker(CombatMapMovementService movementService) {
+        return new MovementResolutionRecoveryWorker(movementService);
     }
 
     @Bean
@@ -168,8 +203,9 @@ public class CombatMapApiConfiguration {
     CombatMapController combatMapController(
             CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
             MapImageEvidencePort mapImageEvidence, MapGridAlignmentService mapGridAlignmentService,
-            PublicMapImageArtifactService publicMapImages, MapFilePreparationPort mapFilePreparation) {
+            PublicMapImageArtifactService publicMapImages, MapFilePreparationPort mapFilePreparation,
+            com.dndmaster.combatmap.application.spatial.SpatialFeatureRuntimeApplicationService spatialRuntime) {
         return new CombatMapController(mapViewService, movementService, requestGuard, mapImageEvidence, mapGridAlignmentService,
-                publicMapImages, mapFilePreparation);
+                publicMapImages, mapFilePreparation, spatialRuntime);
     }
 }

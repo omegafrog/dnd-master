@@ -28,7 +28,7 @@ class GmTurnFailureRecorderTest {
         assertEquals("FAILED_RETRYABLE", turns.saved.status().name());
         assertEquals("GM_TURN_FAILED", events.saved.type());
         assertEquals("GM_PROVIDER_UNAVAILABLE", events.saved.payload());
-        assertEquals(5, events.saved.version());
+        assertEquals(0, events.saved.version());
     }
 
     @Test
@@ -59,6 +59,10 @@ class GmTurnFailureRecorderTest {
     private static final class RecordingEvents implements SessionEventRepository {
         SessionEvent saved;
         @Override public void append(SessionEvent event) { saved = event; }
+        @Override public SessionEvent appendNext(UUID sessionId, UUID eventId, String type, String payload) {
+            saved = new SessionEvent(sessionId, eventId, 0, type, payload);
+            return saved;
+        }
         @Override public List<SessionEvent> after(UUID sessionId, long version) { return new ArrayList<>(); }
     }
 }

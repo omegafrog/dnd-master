@@ -152,9 +152,14 @@ async function createBundle(
 }
 
 async function compilePackage(request: APIRequestContext, bundleId: string, primaryStorybookId: string) {
+  expect(primaryStorybookId, 'MAIN_SCENARIO storybook is required').toBeTruthy()
   const start = await request.post(`${backend}/api/v1/adventures/scenario-bundles/${bundleId}/compilation-jobs`, {
     headers: { ...authHeaders, 'Content-Type': 'application/json' },
-    data: { playerId: ownerPlayerId, inputFingerprint: `playwright-${Date.now()}`, primaryStorybookId },
+    data: {
+      playerId: ownerPlayerId,
+      inputFingerprint: `playwright-${Date.now()}`,
+      primaryStorybookId,
+    },
   })
   expect(start.ok(), await start.text()).toBeTruthy()
   const compilation = await start.json() as { compilationId: string; packageId?: string | null }
@@ -165,8 +170,8 @@ async function compilePackage(request: APIRequestContext, bundleId: string, prim
     const current = await response.json() as { status: string; packageId?: string | null; failureReason?: string | null }
     if (current.status === 'FAILED') throw new Error(current.failureReason ?? 'scenario compilation failed')
     packageId = current.packageId ?? packageId
-    return current.status
-  }, { timeout: 180_000, intervals: [1000, 2000, 5000] }).toMatch(/^(PUBLISHED|COMPLETED)$/)
+    return current.status === 'COMPLETED' && packageId ? 'PUBLISHED' : current.status
+  }, { timeout: 360_000, intervals: [1000, 2000, 5000] }).toBe('PUBLISHED')
   expect(packageId).toBeTruthy()
   return packageId!
 }

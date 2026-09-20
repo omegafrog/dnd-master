@@ -4,6 +4,7 @@ import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionExceptio
 import com.dndmaster.adventure.application.combat.CombatCommandRejectedException;
 import com.dndmaster.adventure.application.combat.CombatExternalFailureException;
 import com.dndmaster.adventure.application.combat.CombatMapPlacementRequiredException;
+import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
 import com.dndmaster.adventure.domain.combat.CombatEndRejectedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleAccessDeniedException;
@@ -40,7 +41,8 @@ public final class ScenarioExceptionHandler {
 
     @ExceptionHandler(CombatCommandRejectedException.class)
     public ResponseEntity<Map<String, Object>> combatCommandRejected(CombatCommandRejectedException exception) {
-        return ResponseEntity.status(exception.code().equals("COMBAT_VERSION_CONFLICT") ? HttpStatus.CONFLICT : HttpStatus.UNPROCESSABLE_ENTITY)
+        return ResponseEntity.status(exception.code().equals("COMBAT_VERSION_CONFLICT")
+                        || exception.code().equals("RETRY_REQUIRED") ? HttpStatus.CONFLICT : HttpStatus.UNPROCESSABLE_ENTITY)
                 .body(Map.of("error", exception.code(), "violations", exception.violations()));
     }
 
@@ -54,6 +56,11 @@ public final class ScenarioExceptionHandler {
     public ResponseEntity<Map<String, String>> combatMapPlacementRequired(CombatMapPlacementRequiredException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                 "error", "MAP_PLACEMENT_REQUIRED", "message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(CombatMapMovementPreviewRejectedException.class)
+    public ResponseEntity<Map<String, String>> combatMapMovementPreviewRejected(CombatMapMovementPreviewRejectedException exception) {
+        return ResponseEntity.status(exception.status()).body(Map.of("error", exception.code()));
     }
 
     @ExceptionHandler(CombatEndRejectedException.class)

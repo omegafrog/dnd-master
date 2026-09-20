@@ -59,7 +59,8 @@ class CrossContextHttpIntegrationTest {
                          "unknownFutureField":{"source":"character-service"}}
                         """)));
         server.stubFor(post(urlEqualTo("/rolls")).willReturn(aResponse().withStatus(200).withBody("17")));
-        server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/moves")).willReturn(aResponse().withStatus(200)));
+        server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/movement-operations"))
+                .willReturn(aResponse().withStatus(200).withBody("{\"status\":\"COMMITTED\",\"mapVersion\":8}")));
         server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/ai-state")).willReturn(aResponse().withStatus(200)));
         server.stubFor(post(urlEqualTo("/ai/adjudications"))
                 .inScenario("partial failure").whenScenarioStateIs(Scenario.STARTED)
@@ -95,11 +96,12 @@ class CrossContextHttpIntegrationTest {
                 .withHeader("X-Session-ID", equalTo(sessionId.toString()))
                 .withHeader("X-Owner-Player-ID", equalTo(ownerId.toString())));
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/rolls")).withHeader("Idempotency-Key", equalTo(key)));
-        server.verify(exactly(1), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/moves"))
+        server.verify(exactly(1), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/movement-operations"))
                 .withRequestBody(equalToJson("""
                         {"playerId":"%s","tokenId":"%s","positions":[{"x":0,"y":0},{"x":1,"y":0},{"x":2,"y":0}],
-                         "distance":10,"appliedEdition":"DND_5E_2024","commandId":"%s","expectedVersion":7}
-                        """.formatted(ownerId, tokenId, key))));
+                         "distance":10,"appliedEdition":"DND_5E_2024","commandId":"%s","expectedVersion":7,
+                         "fingerprint":"legacy:%s"}
+                        """.formatted(ownerId, tokenId, key, key))));
         server.verify(exactly(1), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/ai-state"))
                 .withRequestBody(equalToJson("""
                         {"ownerId":"%s","tokenId":"%s","x":2,"y":0,"commandId":"%s","expectedVersion":8,"layers":[]}
@@ -128,7 +130,7 @@ class CrossContextHttpIntegrationTest {
 
         assertThrows(RuntimeCombatRejectionException.class, () -> service.resolveCombatAction(command));
         server.verify(exactly(0), postRequestedFor(urlEqualTo("/rolls")));
-        server.verify(exactly(0), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/moves")));
+        server.verify(exactly(0), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/movement-operations")));
         server.verify(exactly(0), postRequestedFor(urlEqualTo("/ai/adjudications")));
     }
 

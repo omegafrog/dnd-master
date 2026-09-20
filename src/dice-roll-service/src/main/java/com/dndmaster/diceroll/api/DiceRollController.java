@@ -20,7 +20,10 @@ public class DiceRollController {
     }
 
     @PostMapping("/internal/v1/dice-rolls/player")
-    DiceRollResponse playerRoll(@RequestBody DiceRollRequest request) {
+    DiceRollResponse playerRoll(@RequestHeader("X-Internal-Token") String token,
+            @RequestHeader("Idempotency-Key") String idempotencyKey, @RequestBody DiceRollRequest request) {
+        requestGuard.internal(token);
+        requestGuard.idempotencyKey(idempotencyKey, request.commandId());
         RollCommand command = toCommand(request);
         return DiceRollResponse.from(diceRollService.executePlayerRoll(command));
     }
@@ -30,6 +33,21 @@ public class DiceRollController {
         requestGuard.internal(token);
         RollCommand command = toCommand(request);
         return DiceRollResponse.from(diceRollService.executeAiRoll(command));
+    }
+
+    @PostMapping("/internal/v1/dice-rolls/enemy-observation")
+    DiceRollResponse enemyObservationRoll(@RequestHeader("X-Internal-Token") String token,
+            @RequestHeader("Idempotency-Key") String idempotencyKey, @RequestBody DiceRollRequest request) {
+        requestGuard.internal(token);
+        requestGuard.idempotencyKey(idempotencyKey, request.commandId());
+        if (!"ENEMY".equals(request.scope())) throw new ApiRequestGuard.ApiContractException(400, "ENEMY_SCOPE_REQUIRED");
+        if (request.ruleReference() == null || request.ruleReference().isBlank()) {
+            throw new ApiRequestGuard.ApiContractException(400, "RULE_REFERENCE_REQUIRED");
+        }
+        if (request.difficulty() == null || request.difficulty() < 0) {
+            throw new ApiRequestGuard.ApiContractException(400, "DIFFICULTY_REQUIRED");
+        }
+        return DiceRollResponse.from(diceRollService.executeAiRoll(toCommand(request)));
     }
 
     @GetMapping("/internal/v1/dice-rolls/commands/{commandId}")
@@ -47,11 +65,12 @@ public class DiceRollController {
                 request.sessionId(),
                 request.turnId(),
                 request.commandId(),
-                request.expectedVersion());
+                request.expectedVersion(), request.ruleReference(), request.difficulty());
     }
 
     public record DiceRollRequest(
             UUID adventureId, UUID ruleSetId, String scope,
             int count, int sides, int modifier,
-            UUID sessionId, UUID turnId, UUID commandId, long expectedVersion) {}
+            UUID sessionId, UUID turnId, UUID commandId, long expectedVersion,
+            String ruleReference, Integer difficulty) {}
 }

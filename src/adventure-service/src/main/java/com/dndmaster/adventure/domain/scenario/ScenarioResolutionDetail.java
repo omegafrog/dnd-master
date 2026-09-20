@@ -1,6 +1,8 @@
 package com.dndmaster.adventure.domain.scenario;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import java.util.List;
+import java.util.Locale;
 
 public record ScenarioResolutionDetail(
         TriggerContract trigger,
@@ -80,7 +82,21 @@ public record ScenarioResolutionDetail(
                 && tableCoverage == null;
     }
 
-    public enum TriggerType { WORLD_EVENT, PLAYER_ACTION }
+    public enum TriggerType {
+        WORLD_EVENT,
+        PLAYER_ACTION;
+
+        /** Provider alias: combat is a world change, not a player action. */
+        @JsonCreator
+        public static TriggerType fromJson(String value) {
+            if (value == null) return null;
+            return switch (value.trim().toUpperCase(Locale.ROOT)) {
+                case "WORLD_EVENT", "COMBAT_EVENT" -> WORLD_EVENT;
+                case "PLAYER_ACTION" -> PLAYER_ACTION;
+                default -> throw new IllegalArgumentException("unsupported trigger type: " + value);
+            };
+        }
+    }
     public enum RollMethod { SYSTEM, PLAYER }
     public enum RevealCondition { ON_SUCCESS, ON_FAILURE, ALWAYS }
     public enum RevealLevel { NONE, CLUE, FACT, FULL }

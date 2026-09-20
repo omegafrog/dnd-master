@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRuntime } from './SessionRuntime'
@@ -48,5 +48,33 @@ describe('SessionRuntime', () => {
     await user.click(handoutButton)
     expect(await screen.findByText('문 안쪽에 숨겨진 단서')).toBeVisible()
     expect(getHandoutPreview).toHaveBeenCalledWith('document-1')
+  })
+
+  it('현재 차례의 공간 발동 뒤 최신 지도 버전으로 지속 시간을 진행한다', async () => {
+    const combatTurnStartSpatial = vi.fn().mockResolvedValue({ mapId: 'map-1', mapVersion: 8, publicEvents: [] })
+    const advanceSpatialDurations = vi.fn().mockResolvedValue({ mapId: 'map-1', mapVersion: 9, publicEvents: [] })
+    const playApi = {
+      getCombatMap: vi.fn().mockResolvedValue({ mapId: 'map-1', version: 7, status: 'authoritative-map' }),
+      combatTurnStartSpatial,
+      advanceSpatialDurations,
+    } as unknown as AdventurePlayApi
+    render(
+      <SessionRuntime
+        adventureId="adventure-1"
+        adventureApi={{} as AdventureApi}
+        playApi={playApi}
+        combatSnapshot={{
+          encounterId: 'encounter-1', adventureId: 'adventure-1', status: 'ACTIVE', round: 2,
+          currentParticipantId: 'character-1', version: 4, eventCursor: 3,
+          resources: { movement: 30, actionAvailable: true, bonusActionAvailable: false, reactionAvailable: true },
+          initiative: [],
+        }}
+      />,
+    )
+
+    await waitFor(() => expect(advanceSpatialDurations).toHaveBeenCalledTimes(1))
+    expect(combatTurnStartSpatial).toHaveBeenCalledWith('adventure-1', expect.objectContaining({ mapId: 'map-1', expectedVersion: 7 }))
+    expect(advanceSpatialDurations).toHaveBeenCalledWith('adventure-1', expect.objectContaining({ mapId: 'map-1', expectedVersion: 8 }))
+    expect(combatTurnStartSpatial.mock.calls[0][1].commandId).not.toBe(advanceSpatialDurations.mock.calls[0][1].commandId)
   })
 })

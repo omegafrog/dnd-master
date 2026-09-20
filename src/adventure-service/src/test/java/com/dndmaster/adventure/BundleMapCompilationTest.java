@@ -91,6 +91,34 @@ class BundleMapCompilationTest {
         assertEquals(0, result.mapDefinitions().size());
     }
 
+    @Test
+    void compilesEvidenceBoundSpatialFeatureRequirementsWithAuthoritativeCells() {
+        var documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        UUID featureId = UUID.randomUUID();
+        var bundle = ScenarioSourceBundle.create(new ScenarioBundleId(UUID.randomUUID()),
+                new OwnerPlayerId(UUID.randomUUID()), new ScenarioSourceBundleRevision(4, List.of(
+                        new ScenarioBundleDocumentSelection(documentId, ScenarioBundleDocumentRole.MAP,
+                                com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED,
+                                "crypt.png", "IMAGE", 7))));
+
+        var result = new ScenarioPackageCompilationService(new PackageRepository()).compile(bundle, List.of(),
+                List.of(new ResolutionExtractionPort.SourceExcerpt(documentId, 7, "asset:map-1",
+                        "MAP asset=map-1 image=crypt.png grid=1 confidence=0.98 safety=SAFE "
+                                + "FEATURE id=" + featureId + " type=TRAP required=true resolutionUnitId=resolution-7 cells=2,2 "
+                                + "rule=rulebook:perception difficulty=15 mode=PASSIVE triggers=ENTER_CELL")));
+
+        var requirement = result.mapDefinitions().getFirst().spatialFeatures().getFirst();
+        assertEquals(featureId, requirement.featureId());
+        assertEquals("TRAP", requirement.type());
+        assertEquals(List.of("document:" + documentId.value() + ":7:asset:map-1"), requirement.evidenceReferences());
+        assertEquals("resolution-7", requirement.resolutionUnitId());
+        assertEquals(List.of("2,2"), requirement.authoritativeCells());
+        assertEquals("rulebook:perception", requirement.detectionRuleReference());
+        assertEquals(15, requirement.detectionDifficulty());
+        assertEquals("PASSIVE", requirement.detectionMode());
+        assertEquals(List.of("ENTER_CELL"), requirement.triggers());
+    }
+
     private static final class PackageRepository implements ScenarioPackageRepository {
         private final Map<String, com.dndmaster.adventure.domain.scenario.ScenarioPackage> packages = new HashMap<>();
         public Optional<com.dndmaster.adventure.domain.scenario.ScenarioPackage> findByInputFingerprint(String key) { return Optional.ofNullable(packages.get(key)); }

@@ -33,6 +33,7 @@ import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -160,8 +161,11 @@ class AdventureAiRequestControllerTest {
                 "장면", null, "판정", "서술", null, java.util.List.of(), java.util.List.of());
         var resultTurn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
         when(resultTurn.plan()).thenReturn(plan);
+        when(resultTurn.adventureId()).thenReturn(fixture.adventure().id());
         when(resultTurn.sessionId()).thenReturn(fixture.adventure().sessionId().value());
         when(resultTurn.turnId()).thenReturn(UUID.randomUUID());
+        when(resultTurn.lifecycle()).thenReturn(
+                com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMITTED);
         when(fixture.runtimeTurns().submitTurn(any())).thenReturn(
                 new com.dndmaster.adventure.application.runtime.RuntimeTurnResult(resultTurn,
                         fixture.adventure().currentContext(), java.util.List.of(), fixture.adventure().version()));
@@ -219,10 +223,17 @@ class AdventureAiRequestControllerTest {
                 mock(com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService.class),
                 mock(AdventureCombatApplicationService.class), combatActions,
                 mock(com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService.class),
-                playerResolver, mock(ObjectProvider.class), mock(ObjectProvider.class), new ObjectMapper(),
-                mock(ObjectProvider.class), mock(ObjectProvider.class),
+                playerResolver,
+                provider(mock(com.dndmaster.adventure.application.combat.CombatMapPort.class)),
+                provider(mock(com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort.class)),
+                provider(mock(com.dndmaster.adventure.application.combat.CharacterCombatPort.class)),
+                new ObjectMapper(),
+                provider(mock(com.dndmaster.adventure.application.combat.CombatMapViewPort.class)),
+                provider(mock(com.dndmaster.adventure.application.combat.CombatMapPreparationPort.class)),
+                mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class),
                 mock(com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository.class),
-                mock(com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService.class), aiRequests);
+                mock(com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService.class),
+                mock(com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService.class), aiRequests);
         CombatController combatController = new CombatController(
                 encounters, playerResolver,
                 adventures, mock(com.dndmaster.adventure.application.combat.CombatEventRepository.class), combatActions,
@@ -231,6 +242,20 @@ class AdventureAiRequestControllerTest {
                 mock(com.dndmaster.adventure.application.combat.CharacterCombatPort.class), aiRequests);
         return new Fixture(adventure, adventureController, combatController, aiRequests, gmTurns, runtimeTurns,
                 combatActions, encounters, workItems, scheduler, gmTurnFailures, sessionEvents);
+    }
+
+    private static <T> ObjectProvider<T> provider(T value) {
+        return new ObjectProvider<>() {
+            @Override
+            public T getObject() {
+                return value;
+            }
+
+            @Override
+            public T getIfAvailable(Supplier<T> defaultSupplier) {
+                return value;
+            }
+        };
     }
 
     private record Fixture(Adventure adventure, AdventureController adventureController,

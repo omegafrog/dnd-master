@@ -1,0 +1,15 @@
+package com.dndmaster.adventure.application.runtime;
+
+import com.dndmaster.adventure.application.combat.MovementFollowUpCommand;
+import java.util.UUID;
+
+/** A typed command payload that the Adventure Runtime can consume after movement interruption. */
+public sealed interface RuntimeContinuationCommandOutcome
+        permits CombatContinuationCommand {
+    UUID commandId();
+    UUID turnId();
+    UUID operationId();
+    UUID hostileTokenId();
+    String trigger();
+    MovementFollowUpCommand.Kind kind();
+}

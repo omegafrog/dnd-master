@@ -3,6 +3,8 @@ package com.dndmaster.adventure.application.combat;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.scenario.MapDefinition;
+import com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationResult;
+import com.dndmaster.adventure.application.scenario.preparation.ScenarioSpatialFeaturePreparationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
@@ -13,6 +15,7 @@ import java.time.Duration;
 import java.util.UUID;
 import java.util.List;
 import com.fasterxml.jackson.databind.JsonNode;
+import java.nio.charset.StandardCharsets;
 
 /** HTTP adapter for the combat-map prepare-and-activate boundary. */
 public final class HttpCombatMapPreparationGateway implements CombatMapPreparationPort {
@@ -21,14 +24,21 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
     private final Duration timeout;
     private final ObjectMapper mapper;
     private final String internalToken;
+    private final ScenarioSpatialFeaturePreparationService spatialPreparation;
 
     public HttpCombatMapPreparationGateway(HttpClient client, URI baseUri, Duration timeout,
             ObjectMapper mapper, String internalToken) {
+        this(client, baseUri, timeout, mapper, internalToken, null);
+    }
+
+    public HttpCombatMapPreparationGateway(HttpClient client, URI baseUri, Duration timeout,
+            ObjectMapper mapper, String internalToken, ScenarioSpatialFeaturePreparationService spatialPreparation) {
         this.client = client;
         this.baseUri = baseUri;
         this.timeout = timeout;
         this.mapper = mapper;
         this.internalToken = internalToken;
+        this.spatialPreparation = spatialPreparation;
     }
 
     @Override
@@ -99,18 +109,33 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
 
     private UUID sendPrepare(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
             MapDefinition mapDefinition, Integer stagePosition, CombatMapPreparationPort.ActivationContext context) {
+        String identity = commandIdentity(adventureId, mapDefinition, stagePosition, context);
+        UUID commandId = UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8));
+        Response replayed = replayPrepare(adventureId, ownerPlayerId, commandId, identity);
+        if (replayed != null) {
+            if (replayed.status() == Status.BLOCKED) throw new CombatMapPreparationBlockedException();
+            return replayed.mapId();
+        }
+        ScenarioSpatialFeaturePreparationResult spatial = prepareSpatialFeatures(mapDefinition);
         Request payload = new Request(adventureId.value(), ownerPlayerId, ruleSetId.value(), mapDefinition == null ? null : mapDefinition.id(),
                 mapDefinition == null ? null : mapDefinition.assetId(), mapDefinition == null ? null : mapDefinition.assetLocator(), stagePosition,
                 context.placementProposalX(), context.placementProposalY(), context.playerTokenId(), context.situationId(),
                 context.situationRevision(), context.turnIndex(), context.currentScene(), context.location(), context.entryEvidence(),
                 mapDefinition == null ? List.of() : mapDefinition.walls(), mapDefinition == null ? List.of() : mapDefinition.doors(), mapDefinition == null ? List.of() : mapDefinition.obstacles(),
                 mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().knowledgeDocumentId().value(),
-                mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().locator());
+                mapDefinition == null || mapDefinition.source() == null ? null : mapDefinition.source().locator(),
+                mapDefinition == null || mapDefinition.source() == null ? "story-plan:unknown" : mapDefinition.source().scenarioPackageVersion(),
+                spatial.placements(), spatial.activationAllowed() ? false : true, spatial.warnings(), spatial.failures(), null, 0, "unassigned");
         try {
+            long expectedVersion = mapDefinition == null ? preparationVersion(adventureId, ownerPlayerId) : 0;
+            String fingerprint = identity + "|spatial=" + mapper.writeValueAsString(
+                    List.of(spatial.placements(), spatial.warnings(), spatial.failures()));
+            payload = payload.withCommand(commandId, expectedVersion, fingerprint);
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/prepare"))
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
+                    .header("Idempotency-Key", commandId.toString())
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(payload)))
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -120,7 +145,9 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
                 }
                 throw new IllegalStateException("combat map preparation failed with status " + response.statusCode());
             }
-            return mapper.readValue(response.body(), Response.class).mapId();
+            Response result = mapper.readValue(response.body(), Response.class);
+            if (result.status() == Status.BLOCKED) throw new CombatMapPreparationBlockedException();
+            return result.mapId();
         } catch (IOException exception) {
             throw new IllegalStateException("combat map preparation transport failed", exception);
         } catch (InterruptedException exception) {
@@ -129,11 +156,91 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
         }
     }
 
+    private Response replayPrepare(AdventureId adventureId, UUID ownerPlayerId, UUID commandId, String commandFingerprint) {
+        URI uri = baseUri.resolve("internal/v1/combat-maps/preparation-replay");
+        try {
+            String body = mapper.writeValueAsString(new ReplayRequest(adventureId.value(), ownerPlayerId, commandId, commandFingerprint));
+            HttpRequest request = HttpRequest.newBuilder(uri).timeout(timeout)
+                    .header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 404) return null;
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("combat map preparation replay failed with status " + response.statusCode());
+            }
+            return mapper.readValue(response.body(), Response.class);
+        } catch (IOException exception) {
+            throw new IllegalStateException("combat map preparation replay transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("combat map preparation replay interrupted", exception);
+        }
+    }
+
+    private static String commandIdentity(AdventureId adventureId, MapDefinition mapDefinition, Integer stagePosition,
+            CombatMapPreparationPort.ActivationContext context) {
+        return phase(mapDefinition, stagePosition) + "|" + adventureId.value() + "|"
+                + (mapDefinition == null ? "prepared" : mapDefinition.id() + "|" + mapDefinition.spatialFeatures()) + "|"
+                + stagePosition + "|" + context.situationId() + "|" + context.situationRevision() + "|"
+                + context.entryEvidence();
+    }
+
+    private ScenarioSpatialFeaturePreparationResult prepareSpatialFeatures(MapDefinition mapDefinition) {
+        if (mapDefinition == null || mapDefinition.spatialFeatures().isEmpty()) {
+            return new ScenarioSpatialFeaturePreparationResult(true, List.of(), List.of(), List.of(), 0);
+        }
+        if (spatialPreparation == null) {
+            throw new IllegalStateException("spatial feature preparation service is required for maps with spatial features");
+        }
+        return spatialPreparation.prepare(mapDefinition);
+    }
+
+    private long preparationVersion(AdventureId adventureId, UUID ownerPlayerId) {
+        URI uri = baseUri.resolve("internal/v1/adventures/" + adventureId.value()
+                + "/combat-map/preparation-view?ownerId=" + ownerPlayerId);
+        try {
+            HttpRequest request = HttpRequest.newBuilder(uri).timeout(timeout)
+                    .header("X-Internal-Token", internalToken).GET().build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("combat map preparation version lookup failed with status " + response.statusCode());
+            }
+            long version = mapper.readTree(response.body()).path("version").asLong(-1);
+            if (version < 0) throw new IllegalStateException("combat map preparation version is missing");
+            return version;
+        } catch (IOException exception) {
+            throw new IllegalStateException("combat map preparation version lookup failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("combat map preparation version lookup interrupted", exception);
+        }
+    }
+
+    private static String phase(MapDefinition mapDefinition, Integer stagePosition) {
+        return mapDefinition == null ? "ACTIVATE" : stagePosition == null ? "DRAFT" : "INITIAL";
+    }
+
     private record Request(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId,
             String assetId, String assetLocator, Integer stagePosition, Integer playerSpawnX, Integer playerSpawnY,
             UUID playerTokenId, UUID situationId, long situationRevision, int turnIndex,
             String currentScene, String location, String entryEvidence,
             List<String> walls, List<String> doors, List<String> obstacles,
-            UUID sourceDocumentId, String sourceAssetLocator) {}
-    private record Response(UUID mapId) {}
+            UUID sourceDocumentId, String sourceAssetLocator, String spatialPreparationReference,
+            List<ScenarioSpatialFeaturePreparationResult.Placement> spatialPlacements, boolean spatialPreparationBlocked,
+            List<String> spatialWarnings, List<String> spatialFailures,
+            UUID commandId, long expectedVersion, String operationFingerprint) {
+        Request withCommand(UUID commandId, long expectedVersion, String operationFingerprint) {
+            return new Request(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, stagePosition,
+                    playerSpawnX, playerSpawnY, playerTokenId, situationId, situationRevision, turnIndex, currentScene,
+                    location, entryEvidence, walls, doors, obstacles, sourceDocumentId, sourceAssetLocator,
+                    spatialPreparationReference, spatialPlacements, spatialPreparationBlocked, spatialWarnings, spatialFailures,
+                    commandId, expectedVersion, operationFingerprint);
+        }
+    }
+    /** Response-recovery request; the stored operation still contains the complete batch fingerprint. */
+    private record ReplayRequest(UUID adventureId, UUID ownerId, UUID commandId, String commandFingerprint) {}
+    private enum Status { READY, BLOCKED }
+    private record Response(UUID mapId, Status status, int warningCount) {
+        Response(UUID mapId) { this(mapId, Status.READY, 0); }
+    }
 }

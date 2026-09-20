@@ -15,17 +15,22 @@ public final class CombatMapPlayerTokenResolver {
         Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
         Objects.requireNonNull(mapViewPort, "combat map view port must not be null");
         if (tokenId == null) {
-            return adventure.party().stream().findFirst()
-                    .orElseThrow(() -> new IllegalStateException("map action requires a party member"));
+            throw new IllegalArgumentException("map action token does not belong to the party");
         }
+
+        boolean isOwnedPlayerToken = mapViewPort.playerView(adventure.id().value(), ownerPlayerId)
+                .map(view -> view.tokens() != null && view.tokens().stream()
+                        .anyMatch(token -> token != null && tokenId.equals(token.id()) && "PLAYER".equals(token.type())))
+                .orElse(false);
+        if (!isOwnedPlayerToken) {
+            throw new IllegalArgumentException("map action token does not belong to the party");
+        }
+
         AdventurePartyMember canonical = adventure.party().stream()
                 .filter(candidate -> matchesCanonicalToken(candidate, tokenId))
                 .findFirst().orElse(null);
         if (canonical != null) return canonical;
 
-        boolean isOwnedPlayerToken = mapViewPort.playerView(adventure.id().value(), ownerPlayerId)
-                .map(view -> view.tokens().stream().anyMatch(token -> tokenId.equals(token.id()) && "PLAYER".equals(token.type())))
-                .orElse(false);
         if (isOwnedPlayerToken && adventure.party().size() == 1) {
             return adventure.party().stream().findFirst()
                     .orElseThrow(() -> new IllegalStateException("map action requires a party member"));
