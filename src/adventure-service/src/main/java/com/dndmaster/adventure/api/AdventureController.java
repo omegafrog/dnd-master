@@ -101,13 +101,14 @@ public class AdventureController {
 
     public record PendingMapMovementResponse(UUID mapId, UUID tokenId, long mapVersion,
             List<PositionPayload> path, int distance, String fingerprint, List<PositionPayload> waypoints,
-            String sourceText, PositionPayload destination, UUID pendingTurnId) {
+            String sourceText, PositionPayload destination, UUID pendingTurnId, UUID confirmationCommandId, boolean terminal) {
         static PendingMapMovementResponse from(PendingMapMovementConfirmation pending) {
             return new PendingMapMovementResponse(pending.mapId(), pending.tokenId(), pending.mapVersion(),
                     pending.path().stream().map(position -> new PositionPayload(position.x(), position.y())).toList(),
                     pending.distance(), pending.fingerprint(),
                     pending.waypoints().stream().map(position -> new PositionPayload(position.x(), position.y())).toList(), pending.sourceText(),
-                    pending.destination() == null ? null : new PositionPayload(pending.destination().x(), pending.destination().y()), pending.pendingTurnId());
+                    pending.destination() == null ? null : new PositionPayload(pending.destination().x(), pending.destination().y()), pending.pendingTurnId(),
+                    pending.confirmationCommandId(), pending.terminal());
         }
     }
 
@@ -450,16 +451,30 @@ public class AdventureController {
                 .orElseThrow(() -> new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_PLACEMENT"));
         var proposal = movementPlacementModelPort.interpret(new MovementPlacementModelPort.MovementPlacementContext(
                 request.sourceText(), publicMovementMap(view), currentPosition(view, request.tokenId()), request.tacticalContext()));
-        if (!"RESOLVED".equals(proposal.status())) return NaturalLanguageMovementPreviewResponse.from(proposal, null, null);
+        if (!"RESOLVED".equals(proposal.status())) return NaturalLanguageMovementPreviewResponse.from(proposal, null, null, null);
+        var existing = pendingMapMovementConfirmationRepository.findByAdventureId(adventureId, owner)
+                .filter(item -> !item.terminal() && item.mapId().equals(request.mapId()) && item.tokenId().equals(request.tokenId())
+                        && item.mapVersion() == request.mapVersion() && item.sourceText().equals(request.sourceText().trim()));
+        if (existing.isPresent()) {
+            var saved = existing.get();
+            var savedDestination = saved.destination();
+            var savedProposal = new MovementPlacementModelPort.MovementPlacementProposal("RESOLVED",
+                    savedDestination == null ? null : new MovementPlacementModelPort.Position(savedDestination.x(), savedDestination.y()),
+                    List.of(), "저장된 이동 확인을 복원했습니다.");
+            return NaturalLanguageMovementPreviewResponse.from(savedProposal, new CombatMapPreviewResult(saved.mapId(),
+                    saved.path().stream().map(position -> new CombatMapPreviewPosition(position.x(), position.y())).toList(),
+                    saved.distance(), saved.mapVersion(), saved.fingerprint()), saved.pendingTurnId(), saved.confirmationCommandId());
+        }
         var destination = proposal.destination();
         CombatMapPreviewResult preview = combatMapPort.preview(new CombatMapPreviewCommand(request.mapId(), owner, request.tokenId(),
                 new CombatMapPreviewPosition(destination.x(), destination.y()), List.of(), appliedEdition(adventure).edition(), request.mapVersion()));
-        UUID pendingTurnId = UUID.randomUUID();
+        UUID pendingTurnId = currentRuntimeTurnId(adventure);
+        UUID confirmationCommandId = UUID.randomUUID();
         pendingMapMovementConfirmationRepository.save(new PendingMapMovementConfirmation(adventureId, owner, preview.mapId(), request.tokenId(),
                 preview.baseMapVersion(), preview.orderedPositions().stream()
                         .map(position -> new PendingMapMovementConfirmation.Position(position.x(), position.y())).toList(), preview.distance(), preview.fingerprint(), List.of(), request.sourceText(),
-                new PendingMapMovementConfirmation.Position(destination.x(), destination.y()), pendingTurnId));
-        return NaturalLanguageMovementPreviewResponse.from(proposal, preview, pendingTurnId);
+                new PendingMapMovementConfirmation.Position(destination.x(), destination.y()), pendingTurnId, confirmationCommandId, false));
+        return NaturalLanguageMovementPreviewResponse.from(proposal, preview, pendingTurnId, confirmationCommandId);
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/map-movement/confirm")
@@ -470,15 +485,17 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
         PendingMapMovementConfirmation pending = pendingMapMovementConfirmationRepository.findByAdventureId(adventureId, owner)
                 .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_NOT_FOUND"));
+        validatePendingRuntimeTurn(adventure, pending.pendingTurnId());
         if (request == null || request.commandId() == null || request.pendingTurnId() == null || request.tokenId() == null
                 || !request.pendingTurnId().equals(pending.pendingTurnId()) || request.mapVersion() == null
                 || request.mapVersion() != pending.mapVersion() || !request.tokenId().equals(pending.tokenId())) {
             throw new ApiRequestGuard.ApiContractException(409, "STALE_MOVEMENT_PROPOSAL");
         }
+        if (pending.confirmationCommandId() != null && !request.commandId().equals(pending.confirmationCommandId())) {
+            throw new ApiRequestGuard.ApiContractException(409, "STALE_MOVEMENT_PROPOSAL");
+        }
         if (pending.terminal()) {
-            if (!request.commandId().equals(pending.confirmationCommandId())) {
-                throw new ApiRequestGuard.ApiContractException(409, "STALE_MOVEMENT_PROPOSAL");
-            }
+            return NaturalLanguageMovementConfirmationResponse.from(readTerminalMovementResult(pending));
         }
         var destination = pending.destination() == null ? pending.path().getLast() : pending.destination();
         CombatMapPreviewResult preview = null;
@@ -509,7 +526,8 @@ public class AdventureController {
                 || result.status() == CombatMapMovementStatus.CANCELLED;
         pendingMapMovementConfirmationRepository.save(new PendingMapMovementConfirmation(adventureId, owner, pending.mapId(), pending.tokenId(),
                 pending.mapVersion(), pending.path(), pending.distance(), pending.fingerprint(), pending.waypoints(), pending.sourceText(),
-                pending.destination(), pending.pendingTurnId(), request.commandId(), terminal));
+                pending.destination(), pending.pendingTurnId(), pending.confirmationCommandId() == null ? request.commandId() : pending.confirmationCommandId(), terminal,
+                terminal ? writeTerminalMovementResult(result) : null));
         return NaturalLanguageMovementConfirmationResponse.from(result);
     }
 
@@ -521,7 +539,7 @@ public class AdventureController {
             throw new ApiRequestGuard.ApiContractException(403, "OWNERSHIP_DENIED");
         }
         return pendingMapMovementConfirmationRepository.findByAdventureId(adventureId, owner)
-                .filter(pending -> !pending.terminal())
+                .filter(pending -> pending.pendingTurnId() != null)
                 .map(pending -> ResponseEntity.ok(PendingMapMovementResponse.from(pending)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }
@@ -1208,6 +1226,50 @@ public class AdventureController {
         return CombatMapPlayerTokenResolver.resolve(adventure, owner, tokenId, combatMapViewPort);
     }
 
+    private UUID currentRuntimeTurnId(Adventure adventure) {
+        return runtimeTurnRepository.findAllByAdventureId(adventure.id()).stream()
+                .filter(turn -> turn.adventureId().equals(adventure.id())
+                        && turn.sessionId().equals(adventure.sessionId().value())
+                        && turn.lifecycle() != com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.DISCARDED
+                        && turn.lifecycle() != com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMIT_REPAIR_REQUIRED)
+                .reduce((first, second) -> second)
+                .map(com.dndmaster.adventure.application.runtime.RuntimeTurn::turnId)
+                .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_TURN_NOT_FOUND"));
+    }
+
+    private void validatePendingRuntimeTurn(Adventure adventure, UUID pendingTurnId) {
+        if (pendingTurnId == null) throw new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_TURN_NOT_FOUND");
+        var turn = runtimeTurnRepository.findByTurnId(pendingTurnId)
+                .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_TURN_NOT_FOUND"));
+        if (!turn.adventureId().equals(adventure.id()) || !turn.sessionId().equals(adventure.sessionId().value())
+                || !pendingTurnId.equals(currentRuntimeTurnId(adventure))) {
+            throw new ApiRequestGuard.ApiContractException(409, "STALE_MOVEMENT_PROPOSAL");
+        }
+        if (turn.lifecycle() == com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.DISCARDED
+                || turn.lifecycle() == com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMIT_REPAIR_REQUIRED) {
+            throw new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_TURN_NOT_FOUND");
+        }
+    }
+
+    private CombatMapMoveResult readTerminalMovementResult(PendingMapMovementConfirmation pending) {
+        if (pending.movementResultJson() == null || pending.movementResultJson().isBlank()) {
+            throw new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_NOT_FOUND");
+        }
+        try {
+            return objectMapper.readValue(pending.movementResultJson(), CombatMapMoveResult.class);
+        } catch (java.io.IOException exception) {
+            throw new ApiRequestGuard.ApiContractException(409, "MOVEMENT_CONFIRMATION_NOT_FOUND");
+        }
+    }
+
+    private String writeTerminalMovementResult(CombatMapMoveResult result) {
+        try {
+            return objectMapper.writeValueAsString(result);
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("could not persist terminal movement result", exception);
+        }
+    }
+
     private CombatMapPreviewResult validateConfirmedMapPreview(Adventure adventure, UUID owner, MapActionPayload payload) {
         if (payload.mapVersion() == null || payload.mapVersion() < 0) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PREVIEW");
@@ -1321,11 +1383,12 @@ public class AdventureController {
     public record NaturalLanguageMovementConfirmationRequest(UUID pendingTurnId, UUID commandId, UUID tokenId, Long mapVersion) {}
     public record NaturalLanguageMovementPreviewResponse(String status, PositionPayload destination,
             List<MovementPlacementModelPort.Candidate> candidates, String playerMessage, UUID pendingTurnId,
-            List<PositionPayload> path, Integer distance, Long baseMapVersion, String fingerprint) {
+            UUID confirmationCommandId, List<PositionPayload> path, Integer distance, Long baseMapVersion, String fingerprint) {
         static NaturalLanguageMovementPreviewResponse from(MovementPlacementModelPort.MovementPlacementProposal proposal,
-                CombatMapPreviewResult preview, UUID pendingTurnId) {
+                CombatMapPreviewResult preview, UUID pendingTurnId, UUID confirmationCommandId) {
             return new NaturalLanguageMovementPreviewResponse(proposal.status(), proposal.destination() == null ? null
                     : new PositionPayload(proposal.destination().x(), proposal.destination().y()), proposal.candidates(), proposal.playerMessage(), pendingTurnId,
+                    confirmationCommandId,
                     preview == null ? List.of() : preview.orderedPositions().stream().map(position -> new PositionPayload(position.x(), position.y())).toList(),
                     preview == null ? null : preview.distance(), preview == null ? null : preview.baseMapVersion(), preview == null ? null : preview.fingerprint());
         }

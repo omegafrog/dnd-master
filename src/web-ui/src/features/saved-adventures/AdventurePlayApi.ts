@@ -120,9 +120,11 @@ export type PendingMapMovement = {
   sourceText?: string
   destination?: { x: number; y: number }
   pendingTurnId?: string
+  confirmationCommandId?: string
+  terminal?: boolean
 }
 export type NaturalLanguageMovementPreviewRequest = { mapId: string; mapVersion: number; tokenId: string; sourceText: string; tacticalContext?: string }
-export type NaturalLanguageMovementPreview = { status: 'RESOLVED' | 'AMBIGUOUS' | 'UNRESOLVED'; destination?: { x: number; y: number }; candidates: Array<{ destination: { x: number; y: number }; confidence: number; reason: string }>; playerMessage: string; pendingTurnId?: string; path: Array<{ x: number; y: number }>; distance?: number; baseMapVersion?: number; fingerprint?: string }
+export type NaturalLanguageMovementPreview = { status: 'RESOLVED' | 'AMBIGUOUS' | 'UNRESOLVED'; destination?: { x: number; y: number }; candidates: Array<{ destination: { x: number; y: number }; confidence: number; reason: string }>; playerMessage: string; pendingTurnId?: string; confirmationCommandId?: string; path: Array<{ x: number; y: number }>; distance?: number; baseMapVersion?: number; fingerprint?: string }
 export type NaturalLanguageMovementConfirmation = { pendingTurnId: string; commandId: string; tokenId: string; mapVersion: number }
 export type NaturalLanguageMovementConfirmationResult = MapMovementResult
 

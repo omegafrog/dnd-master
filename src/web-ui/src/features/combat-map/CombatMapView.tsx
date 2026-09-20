@@ -98,7 +98,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
               const path = pending.path?.length ? pending.path : (currentToken && pending.destination ? [{ x: currentToken.x, y: currentToken.y }, pending.destination] : [])
               setCandidate({ mapId: pending.mapId, mapVersion: pending.mapVersion, tokenId: pending.tokenId,
                 action: 'MOVE', from: path[0], to: path[path.length - 1], path, distance: pending.distance,
-                fingerprint: pending.fingerprint, waypoints: pending.waypoints, sourceText: pending.sourceText, pendingTurnId: pending.pendingTurnId })
+                fingerprint: pending.fingerprint, waypoints: pending.waypoints, sourceText: pending.sourceText, pendingTurnId: pending.pendingTurnId,
+                commandId: pending.confirmationCommandId, terminal: pending.terminal })
             }
           } catch {
             // local candidate state remains a best-effort fallback.
@@ -230,7 +231,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   async function confirm() {
     if (!candidate) return
     if (submitting) return
-    if (candidate.action === 'MOVE' && candidate.mapVersion !== (map?.version ?? candidate.mapVersion)) {
+    if (candidate.action === 'MOVE' && !candidate.terminal && candidate.mapVersion !== (map?.version ?? candidate.mapVersion)) {
       if (candidate.to) await previewMovement(candidate.tokenId, candidate.to, candidate.waypoints ?? [], candidate)
       setMessage('지도 상태가 바뀌었습니다. 최신 이동 경로를 다시 확인해주세요.')
       return
@@ -238,7 +239,9 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     setSubmitting(true)
     if (candidate.action === 'MOVE' && candidate.pendingTurnId && api.confirmNaturalLanguageMovement) {
       try {
-        const command = createMapCommandIdentity()
+        const command = candidate.commandId
+          ? { turnId: candidate.commandId, commandId: candidate.commandId }
+          : createMapCommandIdentity()
         const result = await api.confirmNaturalLanguageMovement(adventureId, { pendingTurnId: candidate.pendingTurnId, commandId: command.commandId,
           tokenId: candidate.tokenId, mapVersion: candidate.mapVersion })
         const refreshed = await api.getCombatMap(adventureId)
@@ -324,7 +327,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       const result = await api.previewNaturalLanguageMovement(adventureId, { mapId: map.mapId, mapVersion: map.version ?? 0, tokenId: token.id, sourceText: naturalMovementText.trim() })
       if (result.status !== 'RESOLVED' || !result.destination) { setCandidate(null); setMessage(result.playerMessage || '목적지를 다시 설명하거나 지도에서 선택해주세요.'); return }
       setSelectedToken(token.id)
-      setCandidate({ mapId: map.mapId, mapVersion: result.baseMapVersion ?? map.version ?? 0, tokenId: token.id, action: 'MOVE', from: { x: token.x, y: token.y }, to: result.destination, path: result.path, distance: result.distance, fingerprint: result.fingerprint, waypoints: [], sourceText: naturalMovementText.trim(), pendingTurnId: result.pendingTurnId })
+      setCandidate({ mapId: map.mapId, mapVersion: result.baseMapVersion ?? map.version ?? 0, tokenId: token.id, action: 'MOVE', from: { x: token.x, y: token.y }, to: result.destination, path: result.path, distance: result.distance, fingerprint: result.fingerprint, waypoints: [], sourceText: naturalMovementText.trim(), pendingTurnId: result.pendingTurnId, commandId: result.confirmationCommandId })
       setMessage('자연어 목적지의 이동 경로를 미리 보았습니다. 확인 전에는 지도 상태가 바뀌지 않습니다.')
     } catch (error) { setMessage(error instanceof Error ? error.message : '자연어 목적지를 해석하지 못했습니다.') }
     finally { setPreviewing(false) }

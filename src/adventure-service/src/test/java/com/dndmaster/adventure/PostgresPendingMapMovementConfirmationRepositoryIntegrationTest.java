@@ -64,19 +64,23 @@ class PostgresPendingMapMovementConfirmationRepositoryIntegrationTest {
     }
 
     @Test
-    void persists_terminal_confirmation_identity_for_idempotent_replay() {
+    void persists_terminal_confirmation_identity_for_idempotent_replay() throws Exception {
         UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID commandId = UUID.randomUUID();
         PendingMapMovementConfirmation confirmation = new PendingMapMovementConfirmation(adventureId, ownerId,
                 UUID.randomUUID(), UUID.randomUUID(), 8,
                 List.of(new PendingMapMovementConfirmation.Position(1, 1), new PendingMapMovementConfirmation.Position(2, 1)),
                 5, "terminal-fingerprint", List.of(), "문으로 가", new PendingMapMovementConfirmation.Position(2, 1),
-                UUID.randomUUID(), commandId, true);
+                UUID.randomUUID(), commandId, true,
+                new ObjectMapper().writeValueAsString(new com.dndmaster.adventure.application.combat.CombatMapMoveResult(8, UUID.randomUUID(),
+                        com.dndmaster.adventure.application.combat.CombatMapMovementStatus.COMMITTED, List.of(), List.of(),
+                        new com.dndmaster.adventure.application.combat.CombatMapPreviewPosition(2, 1), List.of(), null)));
 
         repository.save(confirmation);
 
         var reloaded = repository.findByAdventureId(adventureId, ownerId).orElseThrow();
         assertEquals(commandId, reloaded.confirmationCommandId());
         assertTrue(reloaded.terminal());
+        assertEquals(new ObjectMapper().readTree(confirmation.movementResultJson()), new ObjectMapper().readTree(reloaded.movementResultJson()));
     }
 
     private record DriverManagerDataSource(String url, String username, String password) implements DataSource {

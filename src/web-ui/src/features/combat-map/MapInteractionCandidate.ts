@@ -16,6 +16,7 @@ export type MapInteractionCandidate = {
   waypoints?: GridCell[]
   sourceText?: string
   pendingTurnId?: string
+  terminal?: boolean
 }
 
 export function actionCandidate(mapId: string, mapVersion: number, tokenId: string, action: MapInteractionCandidate['action'], location?: GridCell, targetId?: string): MapInteractionCandidate {

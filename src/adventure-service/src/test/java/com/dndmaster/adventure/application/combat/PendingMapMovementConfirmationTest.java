@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import com.dndmaster.adventure.domain.runtime.PendingMapMovementConfirmation;
 import java.util.List;
 import java.util.UUID;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import org.junit.jupiter.api.Test;
 
 class PendingMapMovementConfirmationTest {
@@ -40,5 +41,15 @@ class PendingMapMovementConfirmationTest {
         assertEquals(0, pending.path().size());
         assertEquals(9, pending.mapVersion());
         assertNotNull(pending.pendingTurnId());
+    }
+
+    @Test
+    void terminal_confirmation_requires_the_replayed_result() {
+        var path = List.of(new PendingMapMovementConfirmation.Position(1, 1),
+                new PendingMapMovementConfirmation.Position(2, 1));
+        assertThrows(IllegalArgumentException.class, () -> new PendingMapMovementConfirmation(
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 4,
+                path, 1, "fingerprint", List.of(), "문으로 가", path.getLast(), UUID.randomUUID(),
+                UUID.randomUUID(), true, null));
     }
 }
