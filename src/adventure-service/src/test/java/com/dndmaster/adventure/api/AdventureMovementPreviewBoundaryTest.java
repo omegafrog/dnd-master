@@ -78,7 +78,11 @@ class AdventureMovementPreviewBoundaryTest {
         AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
         CombatMapViewPort mapViews = mock(CombatMapViewPort.class); AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
         var pending = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class); Adventure adventure = mock(Adventure.class);
-        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure)); when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure)); when(adventure.id()).thenReturn(new AdventureId(adventureId));
+        when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(adventure.party()).thenReturn(List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                new com.dndmaster.adventure.domain.adventure.CharacterSheetId(UUID.randomUUID()),
+                com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT, true, true, true, true, true, true)));
         when(players.playerId()).thenReturn(ownerId); when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(
                 mapId, new CombatMapViewPort.Grid(3, 3, 50, 5), List.of(new CombatMapViewPort.Token(tokenId, "PLAYER", 0, 0)), List.of(), List.of(), List.of(), List.of(), List.of(), 4)));
         AdventureController controller = controller(adventures, combatMap, mapViews, players, pending, mock(AppliedRuleSetApplicationService.class));
@@ -94,6 +98,64 @@ class AdventureMovementPreviewBoundaryTest {
     }
 
     @Test
+    void rejects_natural_language_preview_for_an_unknown_token_before_calling_placement_adapter() {
+        UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID mapId = UUID.randomUUID();
+        UUID unknownTokenId = UUID.randomUUID(); UUID characterSheetId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class); AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        var pending = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class);
+        Adventure adventure = mock(Adventure.class);
+        var placement = mock(com.dndmaster.adventure.application.combat.MovementPlacementModelPort.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.id()).thenReturn(new AdventureId(adventureId)); when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(adventure.party()).thenReturn(List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                new com.dndmaster.adventure.domain.adventure.CharacterSheetId(characterSheetId),
+                com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT, true, true, true, true, true, true)));
+        when(players.playerId()).thenReturn(ownerId);
+        when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(
+                mapId, new CombatMapViewPort.Grid(3, 3, 50, 5), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), 4)));
+        AdventureController controller = controller(adventures, combatMap, mapViews, players, pending,
+                mock(AppliedRuleSetApplicationService.class));
+        controller.setMovementPlacementModelPort(placement);
+
+        var thrown = assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.previewNaturalLanguageMovement(adventureId,
+                new AdventureController.NaturalLanguageMovementPreviewRequest(mapId, 4L, unknownTokenId, "문으로 가", "")));
+
+        assertEquals("INVALID_MOVEMENT_PLACEMENT", thrown.code());
+        verifyNoInteractions(placement, combatMap, pending);
+    }
+
+    @Test
+    void rejects_natural_language_preview_for_a_non_player_token_before_calling_placement_adapter() {
+        UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID mapId = UUID.randomUUID();
+        UUID enemyTokenId = UUID.randomUUID(); UUID characterSheetId = UUID.randomUUID();
+        AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
+        CombatMapViewPort mapViews = mock(CombatMapViewPort.class); AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
+        var pending = mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class);
+        Adventure adventure = mock(Adventure.class);
+        var placement = mock(com.dndmaster.adventure.application.combat.MovementPlacementModelPort.class);
+        when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
+        when(adventure.id()).thenReturn(new AdventureId(adventureId)); when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(adventure.party()).thenReturn(List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                new com.dndmaster.adventure.domain.adventure.CharacterSheetId(characterSheetId),
+                com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT, true, true, true, true, true, true)));
+        when(players.playerId()).thenReturn(ownerId);
+        when(mapViews.playerView(adventureId, ownerId)).thenReturn(Optional.of(new CombatMapViewPort.View(
+                mapId, new CombatMapViewPort.Grid(3, 3, 50, 5),
+                List.of(new CombatMapViewPort.Token(enemyTokenId, "ENEMY", 1, 1)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), 4)));
+        AdventureController controller = controller(adventures, combatMap, mapViews, players, pending,
+                mock(AppliedRuleSetApplicationService.class));
+        controller.setMovementPlacementModelPort(placement);
+
+        var thrown = assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.previewNaturalLanguageMovement(adventureId,
+                new AdventureController.NaturalLanguageMovementPreviewRequest(mapId, 4L, enemyTokenId, "문으로 가", "")));
+
+        assertEquals("INVALID_MOVEMENT_PLACEMENT", thrown.code());
+        verifyNoInteractions(placement, combatMap, pending);
+    }
+
+    @Test
     void resolved_natural_language_preview_persists_the_server_route_and_confirmation_identity() {
         UUID adventureId = UUID.randomUUID(); UUID ownerId = UUID.randomUUID(); UUID mapId = UUID.randomUUID(); UUID tokenId = UUID.randomUUID();
         AdventureRepository adventures = mock(AdventureRepository.class); CombatMapPort combatMap = mock(CombatMapPort.class);
@@ -105,6 +167,9 @@ class AdventureMovementPreviewBoundaryTest {
         when(adventures.findById(new AdventureId(adventureId))).thenReturn(Optional.of(adventure));
         when(adventure.id()).thenReturn(new AdventureId(adventureId));
         when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(ownerId));
+        when(adventure.party()).thenReturn(List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                new com.dndmaster.adventure.domain.adventure.CharacterSheetId(UUID.randomUUID()),
+                com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT, true, true, true, true, true, true)));
         UUID sessionId = UUID.randomUUID();
         var turn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
         when(turn.adventureId()).thenReturn(new AdventureId(adventureId)); when(turn.sessionId()).thenReturn(sessionId);

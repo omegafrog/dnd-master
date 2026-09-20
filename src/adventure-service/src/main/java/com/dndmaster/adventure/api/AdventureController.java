@@ -449,6 +449,11 @@ public class AdventureController {
         var view = combatMapViewPort.playerView(adventureId, owner)
                 .filter(item -> item.mapId().equals(request.mapId()))
                 .orElseThrow(() -> new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_PLACEMENT"));
+        try {
+            characterSheetForToken(adventure, owner, request.tokenId());
+        } catch (IllegalArgumentException | IllegalStateException exception) {
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_MOVEMENT_PLACEMENT");
+        }
         var proposal = movementPlacementModelPort.interpret(new MovementPlacementModelPort.MovementPlacementContext(
                 request.sourceText(), publicMovementMap(view), currentPosition(view, request.tokenId()), request.tacticalContext()));
         if (!"RESOLVED".equals(proposal.status())) return NaturalLanguageMovementPreviewResponse.from(proposal, null, null, null);
