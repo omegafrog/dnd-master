@@ -27,6 +27,12 @@ import com.dndmaster.ruleknowledge.application.search.CharacterContextDocumentSc
 import com.dndmaster.ruleknowledge.application.search.CharacterContextEvidence;
 import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchQuery;
+import com.dndmaster.ruleknowledge.application.search.AuthorizedDocumentScope;
+import com.dndmaster.ruleknowledge.application.search.EvidenceCandidate;
+import com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest;
+import com.dndmaster.ruleknowledge.application.search.EvidenceSearchResult;
+import com.dndmaster.ruleknowledge.application.search.EvidenceSearchUnavailableException;
+import com.dndmaster.ruleknowledge.application.search.HybridEvidenceSearchService;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -60,13 +66,14 @@ public class RuleKnowledgeController {
     private final String internalToken;
     private final CatalogRulebookRepository catalogRepository;
     private final PlayerSessionLookupPort playerSessionLookup;
+    private final HybridEvidenceSearchService hybridEvidenceSearchService;
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
             RulebookRegistrationRepository registrationRepository,
             RuleEvidenceSearchApplicationService evidenceSearchService,
             ObjectMapper objectMapper) {
-        this(pipelineService, registrationRepository, evidenceSearchService, null, null, null, objectMapper, null, null, null, null);
+        this(pipelineService, registrationRepository, evidenceSearchService, null, null, null, objectMapper, null, null, null, null, null);
     }
 
     public RuleKnowledgeController(
@@ -89,6 +96,7 @@ public class RuleKnowledgeController {
         this.internalToken = "";
         this.catalogRepository = null;
         this.playerSessionLookup = null;
+        this.hybridEvidenceSearchService = null;
     }
 
     public RuleKnowledgeController(
@@ -102,7 +110,7 @@ public class RuleKnowledgeController {
             GameSystemDefinitionRepository definitionRepository,
             String internalToken) {
         this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
-                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, null, null);
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, null, null, null);
     }
 
     public RuleKnowledgeController(
@@ -117,7 +125,7 @@ public class RuleKnowledgeController {
             String internalToken,
             CatalogRulebookRepository catalogRepository) {
         this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
-                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, catalogRepository, null);
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, catalogRepository, null, null);
     }
 
     public RuleKnowledgeController(
@@ -132,6 +140,23 @@ public class RuleKnowledgeController {
             String internalToken,
             CatalogRulebookRepository catalogRepository,
             PlayerSessionLookupPort playerSessionLookup) {
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService, characterContextSearchService,
+                indexRepository, objectMapper, definitionRepository, internalToken, catalogRepository, playerSessionLookup, null);
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            RulebookIndexRepository indexRepository,
+            ObjectMapper objectMapper,
+            GameSystemDefinitionRepository definitionRepository,
+            String internalToken,
+            CatalogRulebookRepository catalogRepository,
+            PlayerSessionLookupPort playerSessionLookup,
+            HybridEvidenceSearchService hybridEvidenceSearchService) {
         this.pipelineService = pipelineService;
         this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
@@ -144,6 +169,7 @@ public class RuleKnowledgeController {
         this.internalToken = internalToken == null ? "" : internalToken;
         this.catalogRepository = catalogRepository;
         this.playerSessionLookup = playerSessionLookup;
+        this.hybridEvidenceSearchService = hybridEvidenceSearchService;
     }
 
     public RuleKnowledgeController(
@@ -419,6 +445,63 @@ public class RuleKnowledgeController {
                 .map(r -> r.ownerPlayerId().value().equals(playerId))
                 .orElse(false);
         return new OwnershipResponse(rulebookId, playerId, owned);
+    }
+
+    @PostMapping("/internal/v1/evidence-candidates/search")
+    ResponseEntity<?> searchEvidenceCandidates(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody UnifiedEvidenceCandidateSearchRequest request) {
+        try {
+            if (hybridEvidenceSearchService == null) {
+                return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
+            }
+            UUID authenticatedOwner = authenticatedPlayerId(authorization);
+            requireOwner(authenticatedOwner, request.ownerId());
+            if (request.sessionId() == null || request.scenarioPackageId() == null || request.stageKey() == null
+                    || request.stageKey().isBlank() || request.query() == null || request.query().isBlank()
+                    || request.scope() == null || request.scope().isEmpty()) {
+                return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+            }
+            Set<String> scopeKeys = new HashSet<>();
+            List<AuthorizedDocumentScope> scope = new java.util.ArrayList<>();
+            for (EvidenceCandidateScopeRequest item : request.scope()) {
+                if (item == null || item.documentId() == null || item.documentType() == null || item.extractionVersion() <= 0
+                        || !scopeKeys.add(item.documentId() + ":" + item.extractionVersion())) {
+                    return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+                }
+                StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(item.documentId()))
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "document scope is not authorized"));
+                if (!registration.ownerPlayerId().value().equals(request.ownerId())) {
+                    return evidenceSearchError(HttpStatus.FORBIDDEN, "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
+                }
+                if (registration.processingStatus() != ProcessingStatus.INDEXED || registration.version() != item.extractionVersion()
+                        || registration.documentType() != item.documentType()) {
+                    return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+                }
+                scope.add(new AuthorizedDocumentScope(new KnowledgeDocumentId(item.documentId()), item.extractionVersion(), item.documentType()));
+            }
+            EvidenceSearchResult result = hybridEvidenceSearchService.search(new com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest(
+                    new OwnerPlayerId(request.ownerId()), scope, request.query(), request.denseLimit(), request.bm25Limit()));
+            return ResponseEntity.ok(new UnifiedEvidenceCandidateSearchResponse(request.ownerId(), request.sessionId(),
+                    request.scenarioPackageId(), result.candidates().stream().map(this::candidateResponse).toList()));
+        } catch (EvidenceSearchUnavailableException exception) {
+            return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
+        } catch (ResponseStatusException exception) {
+            return evidenceSearchError(exception.getStatusCode().value() == 401 ? HttpStatus.UNAUTHORIZED : HttpStatus.FORBIDDEN,
+                    exception.getStatusCode().value() == 401 ? "EVIDENCE_SEARCH_UNAUTHENTICATED" : "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
+        } catch (IllegalArgumentException exception) {
+            return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+        }
+    }
+
+    private static ResponseEntity<EvidenceSearchErrorResponse> evidenceSearchError(HttpStatus status, String code) {
+        return ResponseEntity.status(status).body(new EvidenceSearchErrorResponse(code));
+    }
+
+    private UnifiedEvidenceCandidateResponse candidateResponse(EvidenceCandidate candidate) {
+        return new UnifiedEvidenceCandidateResponse(candidate.chunkId().value(), candidate.documentId().value(),
+                candidate.extractionVersion(), candidate.documentType(), candidate.locator(), candidate.excerpt(), candidate.provenance(),
+                candidate.denseRank(), candidate.bm25Rank(), candidate.rrfScore());
     }
 
     @PostMapping("/internal/v1/rule-evidence/search")
@@ -708,6 +791,16 @@ public class RuleKnowledgeController {
     public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score,
             String chapter, String section, ProvenanceView provenance, String citationKey) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}
+    public record UnifiedEvidenceCandidateSearchRequest(
+            UUID ownerId, UUID sessionId, UUID scenarioPackageId, String stageKey, String actionIntent,
+            List<EvidenceCandidateScopeRequest> scope, List<String> activeLocators, String query, int denseLimit, int bm25Limit) {}
+    public record EvidenceCandidateScopeRequest(UUID documentId, long extractionVersion, DocumentType documentType) {}
+    public record UnifiedEvidenceCandidateSearchResponse(
+            UUID ownerId, UUID sessionId, UUID scenarioPackageId, List<UnifiedEvidenceCandidateResponse> candidates) {}
+    public record UnifiedEvidenceCandidateResponse(
+            UUID chunkId, UUID documentId, long extractionVersion, DocumentType documentType, String locator, String excerpt,
+            SourceProvenance provenance, Integer denseRank, Integer bm25Rank, double rrfScore) {}
+    public record EvidenceSearchErrorResponse(String code) {}
     public record StorySourceSearchRequest(
             UUID ownerId,
             List<StorySourceScopeRequest> documents,

@@ -278,9 +278,11 @@ public class RuleKnowledgeApiConfiguration {
             com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository definitionRepository,
             CatalogRulebookRepository catalogRulebookRepository,
             com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort playerSessionLookup,
+            HybridEvidenceSearchService hybridEvidenceSearchService,
             @Value("${rule-knowledge.internal-token:}") String internalToken) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
-                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, catalogRulebookRepository, playerSessionLookup);
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, catalogRulebookRepository,
+                playerSessionLookup, hybridEvidenceSearchService);
     }
 }
