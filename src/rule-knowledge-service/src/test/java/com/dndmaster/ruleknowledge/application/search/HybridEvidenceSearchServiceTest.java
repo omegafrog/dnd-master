@@ -11,6 +11,8 @@ import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -47,7 +49,21 @@ class HybridEvidenceSearchServiceTest {
     }
 
     @Test
-    void retriesAFailedRetrieverOnceAndNeverReturnsDenseOnlyCandidates() {
+    void executesDenseAndBm25InParallelBeforeFusingTheDeterministicResult() {
+        CountDownLatch bothRetrieversStarted = new CountDownLatch(2);
+        DenseEvidenceCandidateSearchPort dense = request -> awaitBoth(bothRetrieversStarted, List.of(candidate("dense")));
+        Bm25EvidenceCandidateSearchPort bm25 = request -> awaitBoth(bothRetrieversStarted, List.of(candidate("bm25")));
+
+        HybridEvidenceSearchService service = new HybridEvidenceSearchService(dense, bm25, new RrfFusionPolicy());
+        EvidenceSearchResult result = service.search(request());
+        EvidenceSearchResult repeatedResult = service.search(request());
+
+        assertEquals(2, result.candidates().size());
+        assertEquals(result.candidates(), repeatedResult.candidates());
+    }
+
+    @Test
+    void retriesTheWholeParallelRetrievalOnceWhenBm25FailsAndNeverReturnsPartialCandidates() {
         AtomicInteger denseCalls = new AtomicInteger();
         AtomicInteger bm25Calls = new AtomicInteger();
         DenseEvidenceCandidateSearchPort dense = request -> {
@@ -65,7 +81,30 @@ class HybridEvidenceSearchServiceTest {
                 () -> service.search(request()));
 
         assertEquals("Evidence candidate search is unavailable", error.getMessage());
-        assertEquals(1, denseCalls.get());
+        assertEquals(2, denseCalls.get());
+        assertEquals(2, bm25Calls.get());
+    }
+
+    @Test
+    void retriesTheWholeParallelRetrievalOnceWhenDenseFailsAndNeverReturnsPartialCandidates() {
+        AtomicInteger denseCalls = new AtomicInteger();
+        AtomicInteger bm25Calls = new AtomicInteger();
+        DenseEvidenceCandidateSearchPort dense = request -> {
+            denseCalls.incrementAndGet();
+            throw new IllegalStateException("database unavailable");
+        };
+        Bm25EvidenceCandidateSearchPort bm25 = request -> {
+            bm25Calls.incrementAndGet();
+            return List.of(candidate("bm25"));
+        };
+
+        HybridEvidenceSearchService service = new HybridEvidenceSearchService(dense, bm25, new RrfFusionPolicy());
+
+        EvidenceSearchUnavailableException error = assertThrows(EvidenceSearchUnavailableException.class,
+                () -> service.search(request()));
+
+        assertEquals("Evidence candidate search is unavailable", error.getMessage());
+        assertEquals(2, denseCalls.get());
         assertEquals(2, bm25Calls.get());
     }
 
@@ -86,6 +125,19 @@ class HybridEvidenceSearchServiceTest {
         return new EvidenceCandidate(SCOPE.documentId(), ChunkId.fromStableValue(stableId), SCOPE.extractionVersion(),
                 SCOPE.documentType(), "page:1", stableId, new SourceProvenance(1, List.of("Combat"), List.of(), null, "page:1"),
                 null, null, 0.0);
+    }
+
+    private static List<EvidenceCandidate> awaitBoth(CountDownLatch bothRetrieversStarted, List<EvidenceCandidate> candidates) {
+        bothRetrieversStarted.countDown();
+        try {
+            if (!bothRetrieversStarted.await(1, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("retrievers did not start in parallel");
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("test interrupted", exception);
+        }
+        return candidates;
     }
 
     private static EvidenceSearchRequest request() {

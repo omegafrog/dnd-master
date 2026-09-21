@@ -5,7 +5,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.function.Supplier;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /** Collects both required scoped candidate lists and fuses them deterministically with RRF. */
 public final class HybridEvidenceSearchService {
@@ -24,8 +27,9 @@ public final class HybridEvidenceSearchService {
 
     public EvidenceSearchResult search(EvidenceSearchRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        List<EvidenceCandidate> denseCandidates = retrieve(request, () -> denseSearch.search(request));
-        List<EvidenceCandidate> bm25Candidates = retrieve(request, () -> bm25Search.search(request));
+        RetrievalCandidates retrievalCandidates = retrieveTogether(request);
+        List<EvidenceCandidate> denseCandidates = retrievalCandidates.denseCandidates();
+        List<EvidenceCandidate> bm25Candidates = retrievalCandidates.bm25Candidates();
 
         Map<String, EvidenceCandidate> candidatesByStableId = new LinkedHashMap<>();
         addCandidates(candidatesByStableId, denseCandidates);
@@ -39,18 +43,42 @@ public final class HybridEvidenceSearchService {
                 .toList());
     }
 
-    private static List<EvidenceCandidate> retrieve(EvidenceSearchRequest request, Supplier<List<EvidenceCandidate>> search) {
+    private RetrievalCandidates retrieveTogether(EvidenceSearchRequest request) {
         RuntimeException firstFailure;
         try {
-            return validatedCandidates(request, search.get());
+            return retrieveOnce(request);
         } catch (RuntimeException exception) {
             firstFailure = exception;
         }
         try {
-            return validatedCandidates(request, search.get());
+            return retrieveOnce(request);
         } catch (RuntimeException retryFailure) {
             retryFailure.addSuppressed(firstFailure);
             throw new EvidenceSearchUnavailableException(retryFailure);
+        }
+    }
+
+    private RetrievalCandidates retrieveOnce(EvidenceSearchRequest request) {
+        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+            Future<List<EvidenceCandidate>> dense = executor.submit(() -> denseSearch.search(request));
+            Future<List<EvidenceCandidate>> bm25 = executor.submit(() -> bm25Search.search(request));
+            List<EvidenceCandidate> denseCandidates = await(dense);
+            List<EvidenceCandidate> bm25Candidates = await(bm25);
+            return new RetrievalCandidates(
+                    validatedCandidates(request, denseCandidates), validatedCandidates(request, bm25Candidates));
+        }
+    }
+
+    private static List<EvidenceCandidate> await(Future<List<EvidenceCandidate>> retrieval) {
+        try {
+            return retrieval.get();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("candidate retrieval was interrupted", exception);
+        } catch (ExecutionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof RuntimeException runtimeException) throw runtimeException;
+            throw new IllegalStateException("candidate retrieval failed", cause);
         }
     }
 
@@ -83,4 +111,6 @@ public final class HybridEvidenceSearchService {
                 candidate.documentType(), candidate.locator(), candidate.excerpt(), candidate.provenance(),
                 rank.denseRank(), rank.bm25Rank(), rank.rrfScore());
     }
+
+    private record RetrievalCandidates(List<EvidenceCandidate> denseCandidates, List<EvidenceCandidate> bm25Candidates) {}
 }
