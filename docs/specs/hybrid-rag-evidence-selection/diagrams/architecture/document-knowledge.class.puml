@@ -1,0 +1,52 @@
+@startuml
+title Document Knowledge 내부 capability 구조
+skinparam classAttributeIconSize 0
+
+package "Document Knowledge 내부 package capability" {
+  class RuleKnowledgeController
+  class HybridEvidenceSearchService {
+    +EvidenceSearchResult search(EvidenceSearchRequest request)
+  }
+  interface DenseEvidenceCandidateSearchPort
+  interface Bm25EvidenceCandidateSearchPort
+  class PgvectorDenseEvidenceCandidateSearchAdapter
+  class PostgreSQLBm25EvidenceCandidateSearchAdapter
+  class RrfFusionPolicy {
+    +List<EvidenceCandidate> fuse(List<EvidenceCandidate> dense, List<EvidenceCandidate> bm25)
+  }
+  class EvidenceSearchRequest
+  class EvidenceSearchResult
+  class EvidenceCandidate
+  class RagExtractionPublicationService {
+    +void publish(...)
+  }
+  class PublicationRepository
+  class PublishedRagChunk {
+    document_length
+  }
+  class ChunkTermFrequency
+}
+
+RuleKnowledgeController --> HybridEvidenceSearchService : UC-HR-001 / 검색 요청
+HybridEvidenceSearchService --> DenseEvidenceCandidateSearchPort : Dense 최대 30
+HybridEvidenceSearchService --> Bm25EvidenceCandidateSearchPort : BM25 최대 30
+DenseEvidenceCandidateSearchPort <|.. PgvectorDenseEvidenceCandidateSearchAdapter
+Bm25EvidenceCandidateSearchPort <|.. PostgreSQLBm25EvidenceCandidateSearchAdapter
+HybridEvidenceSearchService --> RrfFusionPolicy : RRF k=60
+HybridEvidenceSearchService ..> EvidenceSearchRequest
+HybridEvidenceSearchService ..> EvidenceSearchResult
+EvidenceSearchResult o-- EvidenceCandidate
+
+RagExtractionPublicationService --> PublicationRepository : atomic publication
+PublicationRepository --> PublishedRagChunk : vector + document_length
+PublicationRepository --> ChunkTermFrequency : term frequency
+note right of PublicationRepository
+vector + BM25 terms + status를 같은 transaction으로 커밋한다.
+둘 다 완료될 때만 INDEXED 소유권을 부여한다.
+end note
+note bottom of HybridEvidenceSearchService
+BR-HR-001~004 / AC-HR-001~004
+Document Knowledge가 검색·RRF·출처와 색인 원자성을 소유한다.
+배포는 existing rule-knowledge-service를 유지한다.
+end note
+@enduml

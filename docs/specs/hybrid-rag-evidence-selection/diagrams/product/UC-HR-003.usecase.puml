@@ -1,0 +1,50 @@
+@startuml
+title UC-HR-003 상황별 근거 충분성 판단 정책
+caption 관련 BR: BR-HR-011~BR-HR-015 / AC: AC-HR-012~AC-HR-015
+left to right direction
+actor "AI Game Master" as GM
+actor "Solo Player" as Player
+rectangle "Document Knowledge 검색 시스템" as DKS {
+  usecase "모험 준비·진행 근거 검색" as Search
+  usecase "검색 대상 유형 선택\n(STORYBOOK / RULEBOOK / 둘 다)" as Types
+  usecase "Dense + BM25 → RRF →\n관련도 재정렬" as Common
+  usecase "Judge 1회 호출\n선택·불필요성 판단" as Judge
+  usecase "sufficient / selectedEvidenceIds /\nselectionReasons / missing 반환" as Output
+  usecase "상황별 충분성 정책 선택" as Policy
+  usecase "추가 검색 최대 2회\n선택 근거 고정" as Retry
+  usecase "플레이어 행동: 제한된 임시 판정" as PlayerFallback
+  usecase "시나리오 준비: PARTIAL/INVALID\n및 누락, 자율 보완 금지" as ScenarioFallback
+  usecase "시작 장면: 시작 준비 실패\n또는 Rulebook-Only 기존 계획 기반 생성" as OpeningFallback
+  usecase "규칙 안내: 근거 부족 응답\n자율 규칙 생성 금지" as RuleFallback
+}
+GM --> Search
+Search .> Common : <<include>>
+Search .> Types : <<include>>
+Common .> Policy : <<include>>
+Policy .> Judge : <<include>>
+Judge .> Output : <<include>>
+Output .> Retry : 부족하면
+Retry .> Common : missing으로 공통 추가 검색
+Policy .> PlayerFallback : 플레이어 행동 판정
+Policy .> ScenarioFallback : 시나리오 준비
+Policy .> OpeningFallback : 시작 장면
+Policy .> RuleFallback : 규칙 안내
+PlayerFallback --> Player : 근거 부족·임시 판정 표시
+Judge --> GM : 충분성 결과와 선택 근거
+note right of Judge
+  한 번의 Judge 호출에서 선택과
+  불필요성 판단을 함께 수행한다.
+  부분집합별 운영 재호출 없음.
+  선택된 각 근거에 selectionReasons 필수.
+end note
+note bottom of Policy
+  네 정책은 각자의 충분함 기준과
+  최종 부족 결과를 사용한다.
+  necessity/useThroughRank는 사용하지 않는다.
+end note
+note right of Common
+  Dense/BM25/RRF/관련도 재정렬에는
+  유형 가중치나 고정 할당이 없다.
+  최종 조합은 충분성 정책이 선택한다.
+end note
+@enduml

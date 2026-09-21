@@ -1,0 +1,83 @@
+@startuml
+title 근거 선택 capability 구조
+skinparam classAttributeIconSize 0
+
+package "Adventure 내부 shared application package capability" {
+  class EvidenceAcquisitionApplicationService {
+    +EvidenceAcquisitionResult acquire(EvidenceSearchRequest request)
+  }
+  interface UnifiedCandidateSearchPort
+  interface EvidenceRerankerPort
+  interface EvidenceSufficiencyJudgePort
+  interface EvidenceSufficiencyPolicy {
+    +PolicyId policyId()
+    +Set<DocumentType> selectDocumentTypes(PolicyInput input)
+    +EvidenceTaskContext buildTaskContext(PolicyInput input)
+    +SufficiencyInstruction buildInstruction(EvidenceTaskContext context)
+    +FinalInsufficiency mapFinalInsufficiency(SufficiencyDecision d, PolicyInput input)
+  }
+  class PlayerActionEvidenceSufficiencyPolicy
+  class ScenarioPreparationEvidenceSufficiencyPolicy
+  class OpeningSceneEvidenceSufficiencyPolicy
+  class RuleGuidanceEvidenceSufficiencyPolicy
+  class EvidenceCandidatePool
+  class EvidenceRerankRequest
+  class EvidenceRerankResult
+  class EvidenceSufficiencyRequest
+  class SufficiencyDecision
+  class FinalInsufficiency
+  class EvidenceAcquisitionResult
+  class AdventureValidatorAndFinalizer
+}
+
+package "AI Game Master (stateless)" {
+  class EvidenceController
+  class EvidenceRerankerService
+  class EvidenceSufficiencyJudgeService
+  interface ModelPort
+  class ModelAdapter
+  EvidenceController --> EvidenceRerankerService : internal rerank API
+  EvidenceController --> EvidenceSufficiencyJudgeService : internal judge API
+  EvidenceRerankerService --> ModelPort
+  EvidenceSufficiencyJudgeService --> ModelPort
+  ModelPort <|.. ModelAdapter
+}
+
+class RuleKnowledgeHttpGateway
+class AiGameMasterHttpGateway
+UnifiedCandidateSearchPort <|.. RuleKnowledgeHttpGateway
+EvidenceRerankerPort <|.. AiGameMasterHttpGateway
+EvidenceSufficiencyJudgePort <|.. AiGameMasterHttpGateway
+
+EvidenceAcquisitionApplicationService --> UnifiedCandidateSearchPort : /internal/v1/evidence-candidates/search
+EvidenceAcquisitionApplicationService --> EvidenceRerankerPort : rerank
+EvidenceAcquisitionApplicationService --> EvidenceSufficiencyJudgePort : judge
+EvidenceAcquisitionApplicationService --> EvidenceSufficiencyPolicy : 정책 선택
+EvidenceSufficiencyPolicy <|.. PlayerActionEvidenceSufficiencyPolicy
+EvidenceSufficiencyPolicy <|.. ScenarioPreparationEvidenceSufficiencyPolicy
+EvidenceSufficiencyPolicy <|.. OpeningSceneEvidenceSufficiencyPolicy
+EvidenceSufficiencyPolicy <|.. RuleGuidanceEvidenceSufficiencyPolicy
+EvidenceAcquisitionApplicationService o-- EvidenceCandidatePool
+EvidenceCandidatePool o-- EvidenceRerankRequest
+EvidenceCandidatePool o-- EvidenceRerankResult
+EvidenceCandidatePool o-- EvidenceSufficiencyRequest
+EvidenceSufficiencyJudgePort ..> SufficiencyDecision
+EvidenceSufficiencyPolicy ..> FinalInsufficiency
+EvidenceAcquisitionApplicationService --> AdventureValidatorAndFinalizer : ID/형식 검증·최종화
+EvidenceAcquisitionApplicationService ..> EvidenceAcquisitionResult : 최종 정책 결과
+AiGameMasterHttpGateway --> EvidenceController : internal HTTP API
+
+note bottom of EvidenceAcquisitionApplicationService
+UC-HR-002/003 · BR-HR-005~016 · AC-HR-005~017
+검색·재시도·병합·재판단·최종화를 조정한다.
+재시도는 orchestration 소유이며 adapter 안에 중첩 재시도를 두지 않는다.
+end note
+note right of EvidenceRerankerService
+AI Game Master는 stateless 제안만 수행한다.
+저장·최종 확정은 하지 않는다.
+end note
+note right of AdventureValidatorAndFinalizer
+Adventure가 모든 ID/형식을 검증하고 최종 결과를 소유한다.
+AI Game Master는 제안만 반환한다.
+end note
+@enduml

@@ -22,7 +22,8 @@
 - Scenario Preparation은 Document Knowledge의 Customer다. Document와 Extraction Version을 ID로 참조하며 원문을 복제하지 않는다.
 - Scenario Preparation은 AI Game Master를 후보 생성 Provider로 사용한다. AI 결과는 반드시 Scenario Preparation에서 검증한 뒤 저장한다.
 - Adventure Runtime은 Scenario Preparation의 게시된 Package Version만 사용한다.
-- Adventure Runtime은 Document Knowledge의 STORYBOOK Evidence와 Session Knowledge Set의 RULEBOOK Evidence를 분리 조회한다.
+- Adventure Runtime과 Scenario Preparation은 Document Knowledge의 통합 근거 후보 검색 계약을 사용한다. 각 작업의 상황별 근거 충분성 정책이 STORYBOOK, RULEBOOK 또는 두 유형을 검색 대상으로 선택하며, Document Knowledge는 선택된 범위 안에서 Dense·BM25 후보를 RRF 방식으로 통합한다.
+- Adventure Runtime과 Scenario Preparation은 AI Game Master를 관련도 재정렬과 근거 충분성 판단의 제안 Provider로 사용한다. AI 결과의 후보 식별자, 범위, 형식은 Adventure 서비스가 검증하고, 상황별 최종 결과도 Adventure 서비스가 확정한다.
 - Adventure Runtime은 AI Game Master의 제안을 검증되지 않은 상태 변경으로 취급한다.
 - Adventure Runtime은 Dice Roll, Character Management, Combat Map의 상태를 복제하지 않고 Runtime Command Saga로 조정한다.
 - Adventure Runtime의 `CombatEncounter` Aggregate는 전투 lifecycle과 순서를 소유한다. Dice Roll은 굴림 결과, Character Management는 캐릭터 상태, Combat Map은 지도·위치 상태의 정본을 계속 소유한다.
