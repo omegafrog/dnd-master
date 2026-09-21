@@ -115,6 +115,35 @@ class RulebookPgvectorIntegrationTest {
                 owner, List.of(documentId), new float[] {1, 0, 0}, QueryIntent.RULE, 10).getFirst().locator());
     }
 
+    @Test
+    void publishedChunksExposeLengthAndTermFrequencyStorageForBm25Indexing() throws SQLException {
+        try (Connection connection = dataSource.getConnection()) {
+            assertEquals(1, countRows(connection, """
+                    SELECT 1
+                      FROM information_schema.columns
+                     WHERE table_name = 'published_rag_chunk'
+                       AND column_name = 'document_length'
+                    """));
+            assertEquals(1, countRows(connection, """
+                    SELECT 1
+                      FROM information_schema.tables
+                     WHERE table_name = 'chunk_term_frequency'
+                    """));
+            assertEquals(1, countRows(connection, """
+                    SELECT 1
+                      FROM pg_indexes
+                     WHERE tablename = 'chunk_term_frequency'
+                       AND indexname = 'chunk_term_frequency_term_idx'
+                    """));
+            assertEquals(1, countRows(connection, """
+                    SELECT 1
+                      FROM pg_indexes
+                     WHERE tablename = 'chunk_term_frequency'
+                       AND indexname = 'chunk_term_frequency_chunk_id_idx'
+                    """));
+        }
+    }
+
     private static RagExtractionPublicationRequest publicationRequest(
             RulebookId documentId, OwnerPlayerId owner, String version, int pageNumber) {
         return new RagExtractionPublicationRequest(
@@ -255,6 +284,13 @@ class RulebookPgvectorIntegrationTest {
         try (Connection connection = dataSource.getConnection();
                 Statement statement = connection.createStatement();
                 ResultSet rows = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
+            rows.next();
+            return rows.getLong(1);
+        }
+    }
+
+    private static long countRows(Connection connection, String sql) throws SQLException {
+        try (Statement statement = connection.createStatement(); ResultSet rows = statement.executeQuery(sql)) {
             rows.next();
             return rows.getLong(1);
         }
