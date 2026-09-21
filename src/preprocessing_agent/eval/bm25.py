@@ -74,7 +74,7 @@ class Bm25IndexAdapter:
             raise Bm25InputError("query is required")
         if limit <= 0 or not self._chunks:
             return ()
-        query_terms = tokenize_bm25(query)
+        query_terms = tuple(dict.fromkeys(tokenize_bm25(query)))
         document_count = len(self._chunks)
         scores: dict[str, float] = {chunk_id: 0.0 for chunk_id in self._chunks}
         for term in query_terms:
@@ -87,7 +87,8 @@ class Bm25IndexAdapter:
                 length = self._lengths[chunk_id]
                 normalization = 1 - self.b + self.b * length / self._average_length if self._average_length else 1.0
                 scores[chunk_id] += idf * (term_frequency * (self.k1 + 1)) / (term_frequency + self.k1 * normalization)
-        ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:limit]
+        ranked = sorted(((chunk_id, score) for chunk_id, score in scores.items() if score > 0),
+                        key=lambda item: (-item[1], item[0]))[:limit]
         return tuple(RankedChunk(chunk_id, rank, score, {
             "retriever": "bm25", "evaluator_chunk_id": chunk_id,
             "embedding_text_hash": hashlib.sha256(self._chunks[chunk_id].embedding_text.encode("utf-8")).hexdigest(),

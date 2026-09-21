@@ -24,6 +24,8 @@ FAILURE_TAXONOMY = (
     "RETRIEVAL_MISS", "RANKING_ERROR", "CHUNK_BOUNDARY", "QUERY_MISMATCH",
     "METADATA_MISMATCH", "MULTI_EVIDENCE_MISS", "TABLE_RETRIEVAL_FAILURE",
 )
+MAX_RESULTS_PER_RETRIEVER = 30
+MAX_UNIQUE_CANDIDATES = 60
 
 
 def _source_name(item: RankedChunk, fallback: str) -> str:
@@ -47,8 +49,8 @@ class RrfHybridRetriever:
         if limit <= 0:
             return ()
         streams = (
-            ("dense", tuple(self.dense.retrieve(query, limit))),
-            ("bm25", tuple(self.bm25.retrieve(query, limit))),
+            ("dense", tuple(self.dense.retrieve(query, min(limit, MAX_RESULTS_PER_RETRIEVER)))),
+            ("bm25", tuple(self.bm25.retrieve(query, min(limit, MAX_RESULTS_PER_RETRIEVER)))),
         )
         fused: dict[str, dict[str, object]] = {}
         for fallback, ranked in streams:
@@ -59,14 +61,14 @@ class RrfHybridRetriever:
                 if not isinstance(item, RankedChunk) or not item.chunk_id:
                     raise RetrievalInputError(f"invalid ordering for query: {query}")
                 if item.chunk_id in seen:
-                    raise RetrievalInputError(f"duplicate result for query: {query}")
+                    continue
                 seen.add(item.chunk_id)
                 entry = fused.setdefault(item.chunk_id, {"score": 0.0, "sources": set(), "metadata": {}})
                 entry["score"] = float(entry["score"]) + 1 / (self.rrf_k + position)
                 entry["sources"].add(_source_name(item, fallback))
                 if isinstance(item.metadata, Mapping):
                     entry["metadata"].update(item.metadata)
-        ordered = sorted(fused.items(), key=lambda pair: (-float(pair[1]["score"]), pair[0]))[:limit]
+        ordered = sorted(fused.items(), key=lambda pair: (-float(pair[1]["score"]), pair[0]))[:min(limit, MAX_UNIQUE_CANDIDATES)]
         return tuple(
             RankedChunk(chunk_id, rank, float(value["score"]), {
                 **dict(value["metadata"]), "retriever": "hybrid_rrf",

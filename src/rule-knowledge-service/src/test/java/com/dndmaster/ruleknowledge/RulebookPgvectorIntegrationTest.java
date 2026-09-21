@@ -3,6 +3,8 @@ package com.dndmaster.ruleknowledge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.dndmaster.ruleknowledge.api.SourceLocationResponse;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.index.ExtractedContentRange;
@@ -39,7 +41,13 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
@@ -225,6 +233,27 @@ class RulebookPgvectorIntegrationTest {
         assertEquals("page=2:current", candidate.locator());
         assertEquals(2, candidate.provenance().pageNumber());
         assertEquals(List.of("Chapter", "selected-current"), candidate.provenance().sectionPath());
+    }
+
+    @Test
+    void bm25CandidateSearchMatchesSharedDeterministicContract() throws SQLException, IOException {
+        JsonNode contract = sharedRetrievalContract().path("bm25");
+        OwnerPlayerId owner = owner();
+        List<AuthorizedDocumentScope> scope = new ArrayList<>();
+        Map<String, String> chunkIdsByExcerpt = new LinkedHashMap<>();
+        for (JsonNode document : contract.path("documents")) {
+            RulebookId documentId = RulebookId.generate();
+            register(documentId, owner);
+            publish(documentId, owner, "contract-" + document.path("id").asText(),
+                    document.path("text").asText(), "page=1:" + document.path("id").asText());
+            scope.add(new AuthorizedDocumentScope(KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK));
+            chunkIdsByExcerpt.put(document.path("text").asText(), document.path("id").asText());
+        }
+
+        assertEquals(stringList(contract.path("expected_order")), bm25EvidenceRepository.search(
+                evidenceRequest(owner, scope, List.of(), contract.path("query").asText())).stream()
+                .map(candidate -> chunkIdsByExcerpt.get(candidate.excerpt()))
+                .toList());
     }
 
     @Test
@@ -504,6 +533,22 @@ class RulebookPgvectorIntegrationTest {
 
     private static OwnerPlayerId owner() {
         return new OwnerPlayerId(UUID.randomUUID());
+    }
+
+    private static JsonNode sharedRetrievalContract() throws IOException {
+        Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath();
+        while (current != null) {
+            Path candidate = current.resolve("tests/fixtures/hybrid-retrieval-deterministic-contract.json");
+            if (Files.isRegularFile(candidate)) return new ObjectMapper().readTree(candidate.toFile());
+            current = current.getParent();
+        }
+        throw new IOException("shared deterministic retrieval contract was not found");
+    }
+
+    private static List<String> stringList(JsonNode values) {
+        List<String> result = new ArrayList<>();
+        values.forEach(value -> result.add(value.asText()));
+        return result;
     }
 
     private static long countRows(String table) throws SQLException {

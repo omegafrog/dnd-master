@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +15,22 @@ from preprocessing_agent.eval.gold import GoldCase
 
 def _chunk(chunk_id, embedding_text):
     return Chunk(chunk_id, chunk_id, ContentType.RULE, "source", embedding_text, 1, ())
+
+
+def _contract():
+    return json.loads((Path(__file__).parents[1] / "fixtures" / "hybrid-retrieval-deterministic-contract.json").read_text())
+
+
+def test_bm25_matches_shared_deterministic_contract():
+    contract = _contract()
+    bm25 = contract["bm25"]
+    adapter = Bm25IndexAdapter(k1=bm25["k1"], b=bm25["b"])
+    adapter.index(tuple(_chunk(document["id"], document["text"]) for document in bm25["documents"]))
+
+    assert tokenize_bm25(contract["tokenizer"]["input"]) == tuple(contract["tokenizer"]["expected_terms"])
+    ranked = adapter.retrieve(bm25["query"], len(bm25["documents"]))
+    assert [item.chunk_id for item in ranked] == bm25["expected_order"]
+    assert {item.chunk_id: item.score for item in ranked} == pytest.approx(bm25["expected_scores"])
 
 
 def test_bm25_tokenizes_normalized_text_and_ranks_exact_numeric_terms():

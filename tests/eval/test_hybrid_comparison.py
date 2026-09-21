@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -25,6 +26,23 @@ class FixtureRetriever:
 
     def retrieve(self, query, limit=20):
         return self.values[query][:limit]
+
+
+def _contract():
+    return json.loads((Path(__file__).parents[1] / "fixtures" / "hybrid-retrieval-deterministic-contract.json").read_text())
+
+
+def test_rrf_matches_shared_deterministic_contract():
+    contract = _contract()["rrf"]
+    hybrid = RrfHybridRetriever(
+        FixtureRetriever({"q": _ranked(*contract["dense"])}),
+        FixtureRetriever({"q": _ranked(*contract["bm25"])}),
+        rrf_k=contract["k"],
+    )
+
+    result = hybrid.retrieve("q", 60)
+    assert [item.chunk_id for item in result] == [item["id"] for item in contract["expected"]]
+    assert [item.score for item in result] == pytest.approx([item["score"] for item in contract["expected"]])
 
 
 def test_rrf_uses_reciprocal_rank_and_deterministic_ties():
