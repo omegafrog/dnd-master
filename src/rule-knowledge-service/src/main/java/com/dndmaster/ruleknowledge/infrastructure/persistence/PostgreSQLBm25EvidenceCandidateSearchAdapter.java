@@ -99,6 +99,8 @@ public final class PostgreSQLBm25EvidenceCandidateSearchAdapter implements Bm25E
                              THEN c.extraction_version::bigint ELSE GREATEST(r.version, 1) END
                          AND scope.document_type = r.document_type
                      WHERE c.owner_player_id = ?
+                       AND c.document_length > 0
+                       AND EXISTS (SELECT 1 FROM chunk_term_frequency frequency WHERE frequency.chunk_id = c.chunk_id)
                 ), corpus AS (
                     SELECT COUNT(*)::double precision AS document_count,
                            COALESCE(AVG(document_length), 0)::double precision AS average_length

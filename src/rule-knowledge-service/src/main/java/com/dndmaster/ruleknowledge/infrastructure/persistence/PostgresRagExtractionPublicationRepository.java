@@ -142,7 +142,7 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
                     var chunk = embedded.chunk();
                     var provenance = chunk.provenance();
                     var chunkId = com.dndmaster.ruleknowledge.domain.index.ChunkId
-                            .fromStableValue(chunk.processorChunkId()).value();
+                            .fromPublicationValue(request.documentId(), request.extractionVersion(), chunk.processorChunkId()).value();
                     setUuid(insert, 1, request.documentId().value());
                     setUuid(insert, 2, request.ownerPlayerId().value());
                     insert.setString(3, request.extractionVersion());
@@ -173,7 +173,8 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
                 deleteTerms.executeBatch();
                 for (EmbeddedPublishedRagChunk embedded : immutableChunks) {
                     var chunkId = com.dndmaster.ruleknowledge.domain.index.ChunkId
-                            .fromStableValue(embedded.chunk().processorChunkId()).value();
+                            .fromPublicationValue(request.documentId(), request.extractionVersion(),
+                                    embedded.chunk().processorChunkId()).value();
                     for (var term : bm25TermFrequencies(embedded.chunk().embeddingText()).entrySet()) {
                         setUuid(insertTerm, 1, chunkId);
                         insertTerm.setString(2, term.getKey());

@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.ruleknowledge.application.indexing.ChunkEmbedding;
 import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
-import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.index.ExtractedContentRange;
 import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
@@ -41,7 +40,7 @@ class RagExtractionPublicationServiceTest {
                         List.of(10d, 20d, 100d, 140d), "table-1:r2:c1", "page=1;block=b7")));
         RagExtractionPublicationService service = service(repository, (embeddingInputs, model, dimension) -> {
             assertEquals(requestDocument(), embeddingInputs.getFirst().rulebookId());
-            return embeddings(requestDocument(), chunks);
+            return embeddings(embeddingInputs);
         });
 
         RagExtractionVersion published = service.publish(request(
@@ -93,10 +92,9 @@ class RagExtractionPublicationServiceTest {
 
     private static final RulebookId REQUEST_DOCUMENT = new RulebookId(UUID.fromString("00000000-0000-0000-0000-000000000015"));
 
-    private static List<ChunkEmbedding> embeddings(RulebookId documentId, List<PublishedRagChunk> chunks) {
+    private static List<ChunkEmbedding> embeddings(List<RulebookChunk> chunks) {
         return chunks.stream()
-                .map(chunk -> new ChunkEmbedding(
-                        ChunkId.fromStableValue(chunk.processorChunkId()), new float[] {1f, 0f, 0f}))
+                .map(chunk -> new ChunkEmbedding(chunk.chunkId(), new float[] {1f, 0f, 0f}))
                 .toList();
     }
 

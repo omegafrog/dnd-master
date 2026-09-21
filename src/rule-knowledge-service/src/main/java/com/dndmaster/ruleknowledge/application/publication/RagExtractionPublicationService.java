@@ -40,7 +40,7 @@ public final class RagExtractionPublicationService {
         try {
             validatePages(effectiveRequest);
             List<RulebookChunk> embeddingInputs = effectiveRequest.chunks().stream()
-                    .map(chunk -> toRulebookChunk(effectiveRequest.documentId(), chunk))
+                    .map(chunk -> toRulebookChunk(effectiveRequest.documentId(), effectiveRequest.extractionVersion(), chunk))
                     .toList();
             List<ChunkEmbedding> embeddings = new ArrayList<>(embeddingInputs.size());
             for (int start = 0; start < embeddingInputs.size(); start += EMBEDDING_BATCH_SIZE) {
@@ -57,7 +57,8 @@ public final class RagExtractionPublicationService {
                     }));
             Set<ChunkId> seen = new HashSet<>();
             List<EmbeddedPublishedRagChunk> publishedChunks = effectiveRequest.chunks().stream().map(chunk -> {
-                ChunkId id = ChunkId.fromStableValue(chunk.processorChunkId());
+                ChunkId id = ChunkId.fromPublicationValue(
+                        effectiveRequest.documentId(), effectiveRequest.extractionVersion(), chunk.processorChunkId());
                 if (!seen.add(id)) throw new IllegalStateException("duplicate processor chunk id");
                 ChunkEmbedding embedding = embeddingsByChunkId.get(id);
                 if (embedding == null) {
@@ -92,11 +93,11 @@ public final class RagExtractionPublicationService {
     }
 
     private static RulebookChunk toRulebookChunk(com.dndmaster.ruleknowledge.domain.rulebook.RulebookId documentId,
-            PublishedRagChunk chunk) {
+            String extractionVersion, PublishedRagChunk chunk) {
         String section = String.join(" / ", chunk.provenance().sectionPath());
         return new RulebookChunk(
                 documentId,
-                ChunkId.fromStableValue(chunk.processorChunkId()),
+                ChunkId.fromPublicationValue(documentId, extractionVersion, chunk.processorChunkId()),
                 chunk.sequence(),
                 new ExtractedContentRange(0, chunk.embeddingText().length()),
                 chunk.embeddingText(),

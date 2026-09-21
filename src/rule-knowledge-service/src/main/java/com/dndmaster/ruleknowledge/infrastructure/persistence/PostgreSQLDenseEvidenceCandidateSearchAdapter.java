@@ -104,11 +104,13 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
                      AND r.published_extraction_version = c.extraction_version
                   JOIN rag_extraction_version v ON v.document_id = c.document_id
                      AND v.extraction_version = c.extraction_version AND v.status = 'INDEXED'
-                  JOIN authorized_scope scope ON scope.document_id = c.document_id
+                 JOIN authorized_scope scope ON scope.document_id = c.document_id
                      AND scope.extraction_version = CASE WHEN c.extraction_version ~ '^[0-9]+$'
                          THEN c.extraction_version::bigint ELSE GREATEST(r.version, 1) END
                      AND scope.document_type = r.document_type
                  WHERE c.owner_player_id = ?
+                   AND c.document_length > 0
+                   AND EXISTS (SELECT 1 FROM chunk_term_frequency frequency WHERE frequency.chunk_id = c.chunk_id)
                  ORDER BY c.embedding <=> CAST(? AS vector), c.chunk_id
                  LIMIT ?
                 """.formatted(placeholders);

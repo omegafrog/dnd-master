@@ -265,13 +265,65 @@ class RulebookPgvectorIntegrationTest {
         assertEquals(List.of("Chapter", "selected-current"), candidate.provenance().sectionPath());
     }
 
+    @Test
+    void publishesSameProcessorChunkIdForDifferentDocumentsWithDistinctStableChunkIds() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId firstDocument = RulebookId.generate();
+        RulebookId secondDocument = RulebookId.generate();
+        register(firstDocument, owner);
+        register(secondDocument, owner);
+
+        RagExtractionPublicationRequest first = publicationRequest(firstDocument, owner, "first", 1, "shared-processor-id");
+        RagExtractionPublicationRequest second = publicationRequest(secondDocument, owner, "second", 1, "shared-processor-id");
+        publicationRepository.beginCandidate(first);
+        publicationRepository.publish(first, List.of(publicationChunk(first, 1)));
+        publicationRepository.beginCandidate(second);
+        publicationRepository.publish(second, List.of(publicationChunk(second, 1)));
+
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement("""
+                        SELECT COUNT(DISTINCT chunk_id)
+                          FROM published_rag_chunk
+                         WHERE processor_chunk_id = 'shared-processor-id'
+                        """)) {
+            try (ResultSet rows = statement.executeQuery()) {
+                assertEquals(true, rows.next());
+                assertEquals(2, rows.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    void excludesIndexedExtractionWithoutBm25StatisticsUntilItIsReindexed() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+        publish(documentId, owner, "legacy", "clockwork legacy evidence", "page=1:legacy");
+        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
+            statement.executeUpdate("DELETE FROM chunk_term_frequency");
+            statement.executeUpdate("UPDATE published_rag_chunk SET document_length = 0");
+        }
+        var scope = List.of(new AuthorizedDocumentScope(
+                KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK));
+
+        assertEquals(List.of(), bm25EvidenceRepository.search(owner, scope, "clockwork", 30));
+        assertEquals(List.of(), new PostgreSQLDenseEvidenceCandidateSearchAdapter(
+                dataSource, new RecordingQueryEmbeddingPort(), "mock-embedding", 3)
+                .search(owner, scope, "clockwork", 30));
+    }
+
     private static RagExtractionPublicationRequest publicationRequest(
             RulebookId documentId, OwnerPlayerId owner, String version, int pageNumber) {
+        return publicationRequest(documentId, owner, version, pageNumber, "processor-" + version);
+    }
+
+    private static RagExtractionPublicationRequest publicationRequest(
+            RulebookId documentId, OwnerPlayerId owner, String version, int pageNumber, String processorChunkId) {
         return new RagExtractionPublicationRequest(
                 documentId, owner, "operation-" + version, version, "a".repeat(64), "policy-1", "b".repeat(64),
                 List.of(new RagExtractionPage(pageNumber, "VALIDATED", 1, List.of())),
                 List.of(new PublishedRagChunk(
-                        "processor-" + version, 0, "published content", "published content",
+                        processorChunkId, 0, "published content", "published content",
                         new SourceProvenance(pageNumber, List.of("Chapter", version), List.of(1d, 2d, 3d, 4d), "r1:c1", "page=" + pageNumber))),
                 "mock-embedding");
     }
