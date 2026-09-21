@@ -4,6 +4,10 @@ import com.dndmaster.ruleknowledge.application.indexing.*;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.*;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
+import com.dndmaster.ruleknowledge.application.search.Bm25EvidenceCandidateSearchPort;
+import com.dndmaster.ruleknowledge.application.search.DenseEvidenceCandidateSearchPort;
+import com.dndmaster.ruleknowledge.application.search.HybridEvidenceSearchService;
+import com.dndmaster.ruleknowledge.application.search.RrfFusionPolicy;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchPort;
@@ -26,6 +30,8 @@ import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorCharacterContextSearchRepository;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLBm25EvidenceCandidateSearchAdapter;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLDenseEvidenceCandidateSearchAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.storage.LocalFileSystemRulebookStorage;
 import com.dndmaster.ruleknowledge.infrastructure.storage.RulebookStorageProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -150,6 +156,27 @@ public class RuleKnowledgeApiConfiguration {
     @Bean
     RuleEvidenceSearchPort evidenceSearchRepository(DataSource dataSource) {
         return new PgvectorRuleEvidenceSearchRepository(dataSource);
+    }
+
+    @Bean
+    DenseEvidenceCandidateSearchPort denseEvidenceCandidateSearchPort(
+            DataSource dataSource,
+            EmbeddingPort embeddingPort,
+            @Value("${rule-knowledge.embedding-model:qwen3-embedding:0.6b}") String embeddingModel,
+            @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
+        return new PostgreSQLDenseEvidenceCandidateSearchAdapter(
+                dataSource, embeddingPort, embeddingModel, embeddingDimension);
+    }
+
+    @Bean
+    Bm25EvidenceCandidateSearchPort bm25EvidenceCandidateSearchPort(DataSource dataSource) {
+        return new PostgreSQLBm25EvidenceCandidateSearchAdapter(dataSource);
+    }
+
+    @Bean
+    HybridEvidenceSearchService hybridEvidenceSearchService(
+            DenseEvidenceCandidateSearchPort denseSearch, Bm25EvidenceCandidateSearchPort bm25Search) {
+        return new HybridEvidenceSearchService(denseSearch, bm25Search, new RrfFusionPolicy());
     }
 
     @Bean

@@ -27,6 +27,9 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceSearchQuery;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.RuleVectorPersistenceException;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLBm25EvidenceCandidateSearchAdapter;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLDenseEvidenceCandidateSearchAdapter;
+import com.dndmaster.ruleknowledge.application.indexing.ChunkEmbedding;
+import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
 import java.sql.Connection;
@@ -225,6 +228,43 @@ class RulebookPgvectorIntegrationTest {
         assertEquals(List.of("Chapter", "selected-current"), candidate.provenance().sectionPath());
     }
 
+    @Test
+    void denseCandidateSearchEmbedsQueryAndRestrictsResultsToOwnerScopeAndActivePublishedExtraction() throws SQLException {
+        OwnerPlayerId owner = owner();
+        OwnerPlayerId otherOwner = owner();
+        RulebookId selectedDocument = RulebookId.generate();
+        RulebookId unselectedDocument = RulebookId.generate();
+        RulebookId foreignDocument = RulebookId.generate();
+        register(selectedDocument, owner);
+        register(unselectedDocument, owner);
+        register(foreignDocument, otherOwner);
+
+        publish(selectedDocument, owner, "selected-old", "old vector source", "page=1:old");
+        publish(selectedDocument, owner, "selected-current", "selected vector source", "page=2:current");
+        publish(unselectedDocument, owner, "unselected", "unselected vector source", "page=3:unselected");
+        publish(foreignDocument, otherOwner, "foreign", "foreign vector source", "page=4:foreign");
+
+        RecordingQueryEmbeddingPort embeddingPort = new RecordingQueryEmbeddingPort();
+        var candidates = new PostgreSQLDenseEvidenceCandidateSearchAdapter(
+                dataSource, embeddingPort, "mock-embedding", 3).search(
+                owner,
+                List.of(new AuthorizedDocumentScope(
+                        KnowledgeDocumentId.fromRulebookId(selectedDocument), 1, DocumentType.RULEBOOK)),
+                "find selected vector",
+                30);
+
+        assertEquals(List.of("find selected vector"), embeddingPort.embeddedContents);
+        assertEquals(1, candidates.size());
+        var candidate = candidates.getFirst();
+        assertEquals(KnowledgeDocumentId.fromRulebookId(selectedDocument), candidate.documentId());
+        assertEquals(1, candidate.extractionVersion());
+        assertEquals(DocumentType.RULEBOOK, candidate.documentType());
+        assertEquals("selected vector source", candidate.excerpt());
+        assertEquals("page=2:current", candidate.locator());
+        assertEquals(2, candidate.provenance().pageNumber());
+        assertEquals(List.of("Chapter", "selected-current"), candidate.provenance().sectionPath());
+    }
+
     private static RagExtractionPublicationRequest publicationRequest(
             RulebookId documentId, OwnerPlayerId owner, String version, int pageNumber) {
         return new RagExtractionPublicationRequest(
@@ -274,6 +314,16 @@ class RulebookPgvectorIntegrationTest {
             statement.setString(4, ("c".repeat(32) + documentId.value().toString().replace("-", "")).substring(0, 64));
             statement.setString(5, "storage/" + documentId.value());
             statement.executeUpdate();
+        }
+    }
+
+    private static final class RecordingQueryEmbeddingPort implements EmbeddingPort {
+        private final java.util.ArrayList<String> embeddedContents = new java.util.ArrayList<>();
+
+        @Override
+        public List<ChunkEmbedding> embed(List<RulebookChunk> chunks, String embeddingModel, int expectedDimension) {
+            embeddedContents.addAll(chunks.stream().map(RulebookChunk::content).toList());
+            return chunks.stream().map(chunk -> new ChunkEmbedding(chunk.chunkId(), new float[] {1, 0, 0})).toList();
         }
     }
 
