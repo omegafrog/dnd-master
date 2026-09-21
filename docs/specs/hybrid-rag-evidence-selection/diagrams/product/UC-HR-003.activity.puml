@@ -1,0 +1,49 @@
+@startuml
+title UC-HR-003 상황별 근거 충분성 판단 흐름
+caption 관련 BR: BR-HR-011~BR-HR-015 / AC: AC-HR-012~AC-HR-015
+start
+:실제 모험 준비·진행 검색 요청;
+:상황별 전략 선택\n(플레이어 행동 / 시나리오 준비 / 시작 장면 / 규칙 안내);
+:검색 대상 유형 선택\n(STORYBOOK / RULEBOOK / 둘 다);
+:시나리오 활성 원문 위치 우선 유지\n(유형 가중치·고정 할당 없음);
+:Dense 최대 30개와 BM25 최대 30개 검색;
+:중복 병합·RRF 통합 후 관련도 재정렬;
+:Judge 1회 호출\n(선택과 불필요성 판단을 함께 수행);
+:sufficient / selectedEvidenceIds /\n선택된 각 근거의 selectionReasons / missing 반환;
+:최종 조합은 충분성 정책이 선택\n(검색 유형 가중치로 결정하지 않음);
+if (충분한가?) then (예)
+  :선택 정책의 정상 결과 반환;
+  stop
+else (부족)
+  repeat
+    if (추가 검색 횟수 < 2?) then (예)
+      :missing으로 추가 Dense+BM25 검색;
+      :이전 전체 후보와 새 후보를 병합·중복 제거;
+      :관련도 재정렬;
+      :이전 selectedEvidenceIds 고정,\n나머지를 채워 최대 30개 구성;
+      :Judge 1회 재호출 후\n동일 출력 반환;
+      if (충분한가?) then (예)
+        :선택 정책의 정상 결과 반환;
+        stop
+      endif
+    else (아니오)
+      break
+    endif
+  repeat while (추가 검색 후 재판단)
+  if (선택 정책?) then (플레이어 행동 판정)
+    :확보 근거와 현재 게임 상태에 한정한\n제한된 임시 판정;
+    :플레이어에게 근거 부족과 임시 판정 표시;
+  elseif (시나리오 준비)
+    :기존 PARTIAL 또는 INVALID 후보와\n누락 정보를 반환; 자율 보완 금지;
+  elseif (시작 장면)
+    if (시나리오 자료 기반?) then (예)
+      :시작 준비 실패;
+    else (Rulebook-Only Bundle)
+      :기존 Adventure Brief와 Adventure Story Plan에\n따른 AI 생성 허용;
+    endif
+  else (규칙 안내)
+    :근거 부족 응답; 자율 규칙 생성 금지;
+  endif
+  stop
+endif
+@enduml

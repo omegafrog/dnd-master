@@ -1,0 +1,54 @@
+@startuml
+title UC-HR-001 근거 검색 및 충분성 판단
+caption 관련 BR: BR-HR-002~BR-HR-009 / AC: AC-HR-002~AC-HR-006, AC-HR-008~AC-HR-010
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Solo Player" as Player
+actor "AI Game Master" as GM
+rectangle "Document Knowledge 검색 시스템" as DKS {
+  usecase "실제 모험 준비·진행\n근거 검색 요청" as Search
+  usecase "세션 고정 문서 범위와\n검색 대상 유형 선택" as Scope
+  usecase "Dense + BM25 복합 검색\n(RRF 통합, 최대 60개 후보)" as Hybrid
+  usecase "관련도 재정렬\n(상위 최대 30개)" as Rerank
+  usecase "근거 충분성 판단 및\n최소 충분 근거 선택" as Sufficiency
+  usecase "부족한 근거 추가 검색\n(최대 2회, 선택 근거 유지)" as More
+  usecase "선택 정책의 최종 부족 결과" as FinalInsufficient
+  usecase "정상 빈 결과 반환" as Empty
+  usecase "단계 1회 재시도 후\n전체 요청 오류" as Failure
+}
+
+GM --> Search
+Search .> Scope : <<include>>
+Search .> Hybrid : <<include>>
+Hybrid .> Rerank : <<include>>
+Rerank .> Sufficiency : <<include>>
+Sufficiency .> More : 부족하면
+More .> Rerank : 이전 전체+새 후보
+Sufficiency .> FinalInsufficient : 최대 2회 후에도 부족
+Search .> Empty : 후보 0개
+Search .> Failure : Dense/BM25/재정렬/판단 오류
+Sufficiency --> GM : 판정 근거
+FinalInsufficient --> GM : 선택 정책별 결과
+note right of FinalInsufficient
+  플레이어 행동 판정 정책일 때만
+  제한된 임시 판정과 플레이어 표시를 적용
+end note
+GM --> Player : 최종 판정 결과
+
+note right of Sufficiency
+  BR-HR-005~006: 임의 부분집합 중
+  가능한 한 작은 조합을 선택하고
+  sufficient / selectedEvidenceIds / missing 반환
+end note
+note right of Scope
+  상황별 작업이 STORYBOOK, RULEBOOK,
+  또는 둘 다를 선택한다.
+  검색 단계에는 유형 가중치나 고정 할당이 없다.
+  시나리오 활성 원문 위치 우선은 유지한다.
+end note
+note bottom of Hybrid
+  BR-HR-003: 후보 부족은 정상이며
+  추가 채움 검색을 하지 않음
+end note
+@enduml

@@ -1,0 +1,56 @@
+@startuml
+title UC-HR-001 근거 검색 및 충분성 판단 흐름
+caption 관련 BR: BR-HR-001~BR-HR-009 / AC: AC-HR-001~AC-HR-010
+start
+:AI Game Master가 현재 게임 상태와 질의로 요청;
+:세션에 고정된 문서 범위와\n검색 대상 유형 선택(STORYBOOK/RULEBOOK/둘 다);
+:시나리오 활성 원문 위치 우선 유지\n(검색 유형 가중치·고정 할당 없음);
+
+ :Dense 최대 30개 + BM25 최대 30개 검색;
+ if (검색 단계 오류?) then (예)
+   :해당 단계 1회 재시도;
+   if (재시도도 실패?) then (예)
+     :부분 진행 없이 전체 요청 오류;
+     stop
+   endif
+ endif
+ :같은 청크 중복 병합 및 RRF 통합\n(고유 후보 최대 60개, 부족하면 있는 만큼);
+ :최초 RRF 결과 전체를 관련도 재정렬\n(점수 threshold로 제거하지 않음);
+ if (재정렬 오류?) then (예)
+   :1회 재시도 후 실패하면 전체 요청 오류;
+   stop
+ endif
+ if (후보 0개?) then (예)
+   :정상 빈 결과로 반환하고 추적;
+   stop
+ endif
+ :상위 30개(또는 있는 만큼)를 판단 후보로 전달;
+
+repeat
+  :근거 충분성 판단\n(현재 게임 상태+후보, 임의 부분집합의 최소 조합);
+  if (판단 오류 또는 출력 형식 오류?) then (예)
+    :1회 재시도 후 실패하면 전체 요청 오류;
+    stop
+  endif
+  if (충분한가?) then (예)
+    :최소 충분 근거 묶음과 sufficient 반환;
+    :AI Game Master가 근거로 다음 판정;
+    stop
+  else (부족)
+    :selectedEvidenceIds 유지 및 missing 반환;
+    if (추가 검색 횟수 < 2?) then (예)
+      :missing으로 추가 복합 검색;
+      :이전 전체 후보+새 후보 중복 제거 후 재정렬;
+      :선택 근거 고정, 나머지를 채워 최대 30개 구성;
+      :재정렬 결과를 다음 근거 충분성 판단 후보로 전달;
+    else (아니오)
+      :선택된 근거 충분성 정책의\n최종 부족 결과로 위임;
+      note right
+        플레이어 행동 판정 정책일 때만
+        제한된 임시 판정과 플레이어 표시
+      end note
+      stop
+    endif
+  endif
+repeat while (추가 검색 후 재판단)
+@enduml
