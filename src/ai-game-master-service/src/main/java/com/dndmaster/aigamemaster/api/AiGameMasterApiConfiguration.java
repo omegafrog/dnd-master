@@ -7,12 +7,15 @@ import com.dndmaster.aigamemaster.application.ports.SpatialFeaturePlacementModel
 import com.dndmaster.aigamemaster.application.ports.MovementPlacementModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationOutput;
+import com.dndmaster.aigamemaster.application.evidence.EvidenceRerankerService;
+import com.dndmaster.aigamemaster.application.evidence.EvidenceSufficiencyJudgeService;
 import com.dndmaster.aigamemaster.application.rule.*;
 import com.dndmaster.aigamemaster.application.scene.*;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionRouter;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmEvidenceModelAdapter;
 import com.dndmaster.aigamemaster.application.ai.AiExecutionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt;
 import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
@@ -625,6 +628,15 @@ public class AiGameMasterApiConfiguration {
     @Bean
     CharacterInputTagController characterInputTagController(CharacterTagCompletionPort adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         return new CharacterInputTagController(adapter, objectMapper);
+    }
+
+    @Bean
+    EvidenceModelController evidenceModelController(GmCompletionAdapter adapter,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            @Value("${INTERNAL_SERVICE_TOKEN:typed-agent-local-token}") String internalToken) {
+        var model = new GmEvidenceModelAdapter(adapter);
+        return new EvidenceModelController(new EvidenceRerankerService(model, objectMapper),
+                new EvidenceSufficiencyJudgeService(model, objectMapper), new ApiRequestGuard(internalToken));
     }
 
     @Bean
