@@ -35,6 +35,9 @@ import com.dndmaster.ruleknowledge.application.indexing.ChunkEmbedding;
 import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -198,6 +201,69 @@ class RulebookPgvectorIntegrationTest {
                 assertEquals(true, rows.next());
                 assertEquals("published", rows.getString("term"));
                 assertEquals(1, rows.getInt("term_frequency"));
+                assertEquals(false, rows.next());
+            }
+        }
+    }
+
+    @Test
+    void publicationFaultAtEveryIndexWriteRollsBackCandidateAndKeepsPriorPublicVersion() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+        RagExtractionPublicationRequest prior = publicationRequest(documentId, owner, "prior-public", 1);
+        publicationRepository.beginCandidate(prior);
+        publicationRepository.publish(prior, List.of(publicationChunk(prior, 1)));
+
+        for (PublicationFault fault : PublicationFault.values()) {
+            RagExtractionPublicationRequest candidate = publicationRequest(
+                    documentId, owner, "candidate-" + fault.name().toLowerCase(), 2);
+            publicationRepository.beginCandidate(candidate);
+
+            assertThrows(RuntimeException.class, () -> new PostgresRagExtractionPublicationRepository(
+                    new FaultInjectingDataSource(dataSource, fault)).publish(candidate, List.of(publicationChunk(candidate, 2))));
+
+            assertEquals("prior-public", publishedExtractionVersion(documentId));
+            assertEquals(1, countRows("published_rag_chunk"));
+            assertEquals(0, countRowsForExtraction("published_rag_chunk", documentId, candidate.extractionVersion()));
+            assertEquals(0, countRowsForExtraction("chunk_term_frequency", documentId, candidate.extractionVersion()));
+            assertEquals(0, countRows("""
+                    SELECT COUNT(*)
+                      FROM chunk_term_frequency frequency
+                     WHERE NOT EXISTS (
+                           SELECT 1 FROM published_rag_chunk chunk WHERE chunk.chunk_id = frequency.chunk_id)
+                    """));
+        }
+    }
+
+    @Test
+    void republishingSameExtractionReplacesStaleTermFrequencies() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+        RagExtractionPublicationRequest request = publicationRequest(documentId, owner, "republished", 1);
+        publicationRepository.beginCandidate(request);
+        publicationRepository.publish(request, List.of(publicationChunk(request, 1)));
+
+        PublishedRagChunk replacement = new PublishedRagChunk(
+                request.chunks().getFirst().processorChunkId(), 0, "lantern lantern", "lantern lantern",
+                request.chunks().getFirst().provenance());
+        publicationRepository.publish(request, List.of(new EmbeddedPublishedRagChunk(replacement, new float[] {1, 0, 0})));
+
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement terms = connection.prepareStatement("""
+                        SELECT frequency.term, frequency.term_frequency
+                          FROM chunk_term_frequency frequency
+                          JOIN published_rag_chunk chunk ON chunk.chunk_id = frequency.chunk_id
+                         WHERE chunk.document_id = ? AND chunk.extraction_version = ?
+                         ORDER BY frequency.term
+                        """)) {
+            terms.setObject(1, documentId.value());
+            terms.setString(2, request.extractionVersion());
+            try (ResultSet rows = terms.executeQuery()) {
+                assertEquals(true, rows.next());
+                assertEquals("lantern", rows.getString("term"));
+                assertEquals(2, rows.getInt("term_frequency"));
                 assertEquals(false, rows.next());
             }
         }
@@ -554,9 +620,41 @@ class RulebookPgvectorIntegrationTest {
     private static long countRows(String table) throws SQLException {
         try (Connection connection = dataSource.getConnection();
                 Statement statement = connection.createStatement();
-                ResultSet rows = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
+                ResultSet rows = statement.executeQuery(table.startsWith("SELECT") ? table : "SELECT COUNT(*) FROM " + table)) {
             rows.next();
             return rows.getLong(1);
+        }
+    }
+
+    private static String publishedExtractionVersion(RulebookId documentId) throws SQLException {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT published_extraction_version FROM rulebook_registration WHERE rulebook_id = ?")) {
+            statement.setObject(1, documentId.value());
+            try (ResultSet rows = statement.executeQuery()) {
+                assertEquals(true, rows.next());
+                return rows.getString(1);
+            }
+        }
+    }
+
+    private static long countRowsForExtraction(String table, RulebookId documentId, String extractionVersion)
+            throws SQLException {
+        String sql = table.equals("published_rag_chunk")
+                ? "SELECT COUNT(*) FROM published_rag_chunk WHERE document_id = ? AND extraction_version = ?"
+                : """
+                        SELECT COUNT(*)
+                          FROM chunk_term_frequency frequency
+                          JOIN published_rag_chunk chunk ON chunk.chunk_id = frequency.chunk_id
+                         WHERE chunk.document_id = ? AND chunk.extraction_version = ?
+                        """;
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, documentId.value());
+            statement.setString(2, extractionVersion);
+            try (ResultSet rows = statement.executeQuery()) {
+                rows.next();
+                return rows.getLong(1);
+            }
         }
     }
 
@@ -564,6 +662,105 @@ class RulebookPgvectorIntegrationTest {
         try (Statement statement = connection.createStatement(); ResultSet rows = statement.executeQuery(sql)) {
             rows.next();
             return rows.getLong(1);
+        }
+    }
+
+    private enum PublicationFault {
+        DENSE_VECTOR,
+        BM25_TERMS,
+        DOCUMENT_STATISTICS,
+        INDEX_STATUS
+    }
+
+    /** Injects a JDBC write failure at each publication phase without changing production wiring. */
+    private record FaultInjectingDataSource(DataSource delegate, PublicationFault fault) implements DataSource {
+        @Override
+        public Connection getConnection() throws SQLException {
+            return connectionProxy(delegate.getConnection(), fault);
+        }
+
+        @Override
+        public Connection getConnection(String username, String password) throws SQLException {
+            return connectionProxy(delegate.getConnection(username, password), fault);
+        }
+
+        @Override
+        public <T> T unwrap(Class<T> iface) throws SQLException {
+            return delegate.unwrap(iface);
+        }
+
+        @Override
+        public boolean isWrapperFor(Class<?> iface) throws SQLException {
+            return delegate.isWrapperFor(iface);
+        }
+
+        @Override
+        public java.io.PrintWriter getLogWriter() throws SQLException {
+            return delegate.getLogWriter();
+        }
+
+        @Override
+        public void setLogWriter(java.io.PrintWriter out) throws SQLException {
+            delegate.setLogWriter(out);
+        }
+
+        @Override
+        public void setLoginTimeout(int seconds) throws SQLException {
+            delegate.setLoginTimeout(seconds);
+        }
+
+        @Override
+        public int getLoginTimeout() throws SQLException {
+            return delegate.getLoginTimeout();
+        }
+
+        @Override
+        public java.util.logging.Logger getParentLogger() {
+            return java.util.logging.Logger.getGlobal();
+        }
+    }
+
+    private static Connection connectionProxy(Connection delegate, PublicationFault fault) {
+        return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(), new Class<?>[] {Connection.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("prepareStatement") && arguments != null && arguments.length > 0
+                            && arguments[0] instanceof String sql) {
+                        return statementProxy((PreparedStatement) invoke(delegate, method, arguments), sql, fault);
+                    }
+                    return invoke(delegate, method, arguments);
+                });
+    }
+
+    private static PreparedStatement statementProxy(PreparedStatement delegate, String sql, PublicationFault fault) {
+        return (PreparedStatement) Proxy.newProxyInstance(PreparedStatement.class.getClassLoader(),
+                new Class<?>[] {PreparedStatement.class}, (proxy, method, arguments) -> {
+                    if (shouldFail(method, arguments, sql, fault)) {
+                        throw new SQLException("injected publication " + fault + " failure");
+                    }
+                    return invoke(delegate, method, arguments);
+                });
+    }
+
+    private static boolean shouldFail(Method method, Object[] arguments, String sql, PublicationFault fault) {
+        if (fault == PublicationFault.DENSE_VECTOR && method.getName().equals("setString")
+                && parameterIndex(arguments) == 9 && sql.contains("INSERT INTO published_rag_chunk")) return true;
+        if (fault == PublicationFault.DOCUMENT_STATISTICS && method.getName().equals("setInt")
+                && parameterIndex(arguments) == 18 && sql.contains("INSERT INTO published_rag_chunk")) return true;
+        if (fault == PublicationFault.BM25_TERMS && method.getName().equals("executeBatch")
+                && sql.contains("INSERT INTO chunk_term_frequency")) return true;
+        return fault == PublicationFault.INDEX_STATUS && method.getName().equals("executeUpdate")
+                && sql.contains("UPDATE rag_extraction_version") && sql.contains("SET status = 'INDEXED'");
+    }
+
+    private static int parameterIndex(Object[] arguments) {
+        return arguments != null && arguments.length > 0 && arguments[0] instanceof Integer index ? index : -1;
+    }
+
+    private static Object invoke(Object delegate, Method method, Object[] arguments) throws Throwable {
+        try {
+            return method.invoke(delegate, arguments);
+        } catch (InvocationTargetException exception) {
+            throw exception.getCause();
         }
     }
 
