@@ -17,6 +17,7 @@ import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRagExtract
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
 import com.dndmaster.ruleknowledge.application.search.QueryIntent;
 import com.dndmaster.ruleknowledge.application.search.AuthorizedDocumentScope;
+import com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest;
 import com.dndmaster.ruleknowledge.application.publication.EmbeddedPublishedRagChunk;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPage;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRequest;
@@ -210,12 +211,10 @@ class RulebookPgvectorIntegrationTest {
         publish(unselectedDocument, owner, "unselected", "clockwork spoiler", "page=3:unselected");
         publish(foreignDocument, otherOwner, "foreign", "clockwork foreign", "page=4:foreign");
 
-        var candidates = bm25EvidenceRepository.search(
-                owner,
+        var candidates = bm25EvidenceRepository.search(evidenceRequest(owner,
                 List.of(new AuthorizedDocumentScope(
                         KnowledgeDocumentId.fromRulebookId(selectedDocument), 1, DocumentType.RULEBOOK)),
-                "clockwork",
-                30);
+                List.of(), "clockwork"));
 
         assertEquals(1, candidates.size());
         var candidate = candidates.getFirst();
@@ -246,12 +245,10 @@ class RulebookPgvectorIntegrationTest {
 
         RecordingQueryEmbeddingPort embeddingPort = new RecordingQueryEmbeddingPort();
         var candidates = new PostgreSQLDenseEvidenceCandidateSearchAdapter(
-                dataSource, embeddingPort, "mock-embedding", 3).search(
-                owner,
+                dataSource, embeddingPort, "mock-embedding", 3).search(evidenceRequest(owner,
                 List.of(new AuthorizedDocumentScope(
                         KnowledgeDocumentId.fromRulebookId(selectedDocument), 1, DocumentType.RULEBOOK)),
-                "find selected vector",
-                30);
+                List.of(), "find selected vector"));
 
         assertEquals(List.of("find selected vector"), embeddingPort.embeddedContents);
         assertEquals(1, candidates.size());
@@ -263,6 +260,31 @@ class RulebookPgvectorIntegrationTest {
         assertEquals("page=2:current", candidate.locator());
         assertEquals(2, candidate.provenance().pageNumber());
         assertEquals(List.of("Chapter", "selected-current"), candidate.provenance().sectionPath());
+    }
+
+    @Test
+    void activeSourceLocatorsRankFirstInBothCandidateRetrieversWithoutEscapingAuthorizedScope() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+        RagExtractionPublicationRequest publication = new RagExtractionPublicationRequest(
+                documentId, owner, "operation-active", "active-source", "a".repeat(64), "policy-1", "b".repeat(64),
+                List.of(new RagExtractionPage(1, "VALIDATED", 2, List.of())),
+                List.of(
+                        new PublishedRagChunk("first", 0, "clockwork first", "clockwork first",
+                                new SourceProvenance(1, List.of("Scene"), List.of(), null, "page=1:first")),
+                        new PublishedRagChunk("active", 1, "clockwork active", "clockwork active",
+                                new SourceProvenance(1, List.of("Scene"), List.of(), null, "page=1:active"))),
+                "mock-embedding");
+        publicationRepository.beginCandidate(publication);
+        publicationRepository.publish(publication, publication.chunks().stream()
+                .map(chunk -> new EmbeddedPublishedRagChunk(chunk, new float[] {1, 0, 0})).toList());
+        var request = evidenceRequest(owner, List.of(new AuthorizedDocumentScope(
+                KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK)), List.of("page=1:active"), "clockwork");
+
+        assertEquals("page=1:active", bm25EvidenceRepository.search(request).getFirst().locator());
+        assertEquals("page=1:active", new PostgreSQLDenseEvidenceCandidateSearchAdapter(
+                dataSource, new RecordingQueryEmbeddingPort(), "mock-embedding", 3).search(request).getFirst().locator());
     }
 
     @Test
@@ -306,10 +328,16 @@ class RulebookPgvectorIntegrationTest {
         var scope = List.of(new AuthorizedDocumentScope(
                 KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK));
 
-        assertEquals(List.of(), bm25EvidenceRepository.search(owner, scope, "clockwork", 30));
+        assertEquals(List.of(), bm25EvidenceRepository.search(evidenceRequest(owner, scope, List.of(), "clockwork")));
         assertEquals(List.of(), new PostgreSQLDenseEvidenceCandidateSearchAdapter(
                 dataSource, new RecordingQueryEmbeddingPort(), "mock-embedding", 3)
-                .search(owner, scope, "clockwork", 30));
+                .search(evidenceRequest(owner, scope, List.of(), "clockwork")));
+    }
+
+    private static EvidenceSearchRequest evidenceRequest(
+            OwnerPlayerId owner, List<AuthorizedDocumentScope> scope, List<String> activeLocators, String query) {
+        return new EvidenceSearchRequest(owner, UUID.randomUUID(), UUID.randomUUID(), "opening", "STORY", scope,
+                activeLocators, query, 30, 30);
     }
 
     private static RagExtractionPublicationRequest publicationRequest(

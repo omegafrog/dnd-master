@@ -24,10 +24,8 @@ public final class HybridEvidenceSearchService {
 
     public EvidenceSearchResult search(EvidenceSearchRequest request) {
         Objects.requireNonNull(request, "request must not be null");
-        List<EvidenceCandidate> denseCandidates = retrieve(() -> denseSearch.search(
-                request.ownerPlayerId(), request.scope(), request.query(), request.denseLimit()));
-        List<EvidenceCandidate> bm25Candidates = retrieve(() -> bm25Search.search(
-                request.ownerPlayerId(), request.scope(), request.query(), request.bm25Limit()));
+        List<EvidenceCandidate> denseCandidates = retrieve(request, () -> denseSearch.search(request));
+        List<EvidenceCandidate> bm25Candidates = retrieve(request, () -> bm25Search.search(request));
 
         Map<String, EvidenceCandidate> candidatesByStableId = new LinkedHashMap<>();
         addCandidates(candidatesByStableId, denseCandidates);
@@ -41,25 +39,29 @@ public final class HybridEvidenceSearchService {
                 .toList());
     }
 
-    private static List<EvidenceCandidate> retrieve(Supplier<List<EvidenceCandidate>> search) {
+    private static List<EvidenceCandidate> retrieve(EvidenceSearchRequest request, Supplier<List<EvidenceCandidate>> search) {
         RuntimeException firstFailure;
         try {
-            return validatedCandidates(search.get());
+            return validatedCandidates(request, search.get());
         } catch (RuntimeException exception) {
             firstFailure = exception;
         }
         try {
-            return validatedCandidates(search.get());
+            return validatedCandidates(request, search.get());
         } catch (RuntimeException retryFailure) {
             retryFailure.addSuppressed(firstFailure);
             throw new EvidenceSearchUnavailableException(retryFailure);
         }
     }
 
-    private static List<EvidenceCandidate> validatedCandidates(List<EvidenceCandidate> candidates) {
+    private static List<EvidenceCandidate> validatedCandidates(EvidenceSearchRequest request, List<EvidenceCandidate> candidates) {
         candidates = List.copyOf(Objects.requireNonNull(candidates, "retriever candidates must not be null"));
         if (candidates.size() > RrfFusionPolicy.MAX_RESULTS_PER_RETRIEVER || candidates.stream().anyMatch(Objects::isNull)) {
             throw new IllegalStateException("retriever returned invalid candidate list");
+        }
+        if (candidates.stream().anyMatch(candidate -> !request.scope().contains(new AuthorizedDocumentScope(
+                candidate.documentId(), candidate.extractionVersion(), candidate.documentType())))) {
+            throw new IllegalStateException("retriever returned a candidate outside the authorized document scope");
         }
         return candidates;
     }

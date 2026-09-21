@@ -21,22 +21,23 @@ class HybridEvidenceSearchServiceTest {
 
     @Test
     void searchesBothRetrieversWithTheAuthorizedScopeAndFusesTheirThirtyCandidates() {
-        List<SearchInvocation> denseInvocations = new ArrayList<>();
-        List<SearchInvocation> bm25Invocations = new ArrayList<>();
-        DenseEvidenceCandidateSearchPort dense = (owner, scope, query, limit) -> {
-            denseInvocations.add(new SearchInvocation(owner, scope, query, limit));
+        List<EvidenceSearchRequest> denseInvocations = new ArrayList<>();
+        List<EvidenceSearchRequest> bm25Invocations = new ArrayList<>();
+        DenseEvidenceCandidateSearchPort dense = request -> {
+            denseInvocations.add(request);
             return List.of(candidate("dense-first"), candidate("shared"));
         };
-        Bm25EvidenceCandidateSearchPort bm25 = (owner, scope, query, limit) -> {
-            bm25Invocations.add(new SearchInvocation(owner, scope, query, limit));
+        Bm25EvidenceCandidateSearchPort bm25 = request -> {
+            bm25Invocations.add(request);
             return List.of(candidate("shared"), candidate("bm25-second"));
         };
 
+        EvidenceSearchRequest request = request();
         EvidenceSearchResult result = new HybridEvidenceSearchService(dense, bm25, new RrfFusionPolicy())
-                .search(new EvidenceSearchRequest(OWNER, List.of(SCOPE), "find the armor class", 30, 30));
+                .search(request);
 
-        assertEquals(List.of(new SearchInvocation(OWNER, List.of(SCOPE), "find the armor class", 30)), denseInvocations);
-        assertEquals(List.of(new SearchInvocation(OWNER, List.of(SCOPE), "find the armor class", 30)), bm25Invocations);
+        assertEquals(List.of(request), denseInvocations);
+        assertEquals(List.of(request), bm25Invocations);
         assertEquals(List.of("shared", "dense-first", "bm25-second"), result.candidates().stream()
                 .map(candidate -> candidate.excerpt()).toList());
         assertEquals(2, result.candidates().get(0).denseRank());
@@ -49,11 +50,11 @@ class HybridEvidenceSearchServiceTest {
     void retriesAFailedRetrieverOnceAndNeverReturnsDenseOnlyCandidates() {
         AtomicInteger denseCalls = new AtomicInteger();
         AtomicInteger bm25Calls = new AtomicInteger();
-        DenseEvidenceCandidateSearchPort dense = (owner, scope, query, limit) -> {
+        DenseEvidenceCandidateSearchPort dense = request -> {
             denseCalls.incrementAndGet();
             return List.of(candidate("dense"));
         };
-        Bm25EvidenceCandidateSearchPort bm25 = (owner, scope, query, limit) -> {
+        Bm25EvidenceCandidateSearchPort bm25 = request -> {
             bm25Calls.incrementAndGet();
             throw new IllegalStateException("database unavailable");
         };
@@ -61,11 +62,24 @@ class HybridEvidenceSearchServiceTest {
         HybridEvidenceSearchService service = new HybridEvidenceSearchService(dense, bm25, new RrfFusionPolicy());
 
         EvidenceSearchUnavailableException error = assertThrows(EvidenceSearchUnavailableException.class,
-                () -> service.search(new EvidenceSearchRequest(OWNER, List.of(SCOPE), "find the armor class", 30, 30)));
+                () -> service.search(request()));
 
         assertEquals("Evidence candidate search is unavailable", error.getMessage());
         assertEquals(1, denseCalls.get());
         assertEquals(2, bm25Calls.get());
+    }
+
+    @Test
+    void rejectsRetrieverCandidatesOutsideTheServerConfirmedDocumentScope() {
+        AuthorizedDocumentScope foreignScope = new AuthorizedDocumentScope(
+                new KnowledgeDocumentId(UUID.randomUUID()), 1, DocumentType.STORYBOOK);
+        DenseEvidenceCandidateSearchPort dense = request -> List.of(new EvidenceCandidate(foreignScope.documentId(),
+                ChunkId.fromStableValue("foreign"), foreignScope.extractionVersion(), foreignScope.documentType(), "page:9",
+                "foreign", new SourceProvenance(9, List.of(), List.of(), null, "page:9"), null, null, 0d));
+        Bm25EvidenceCandidateSearchPort bm25 = request -> List.of(candidate("local"));
+
+        assertThrows(EvidenceSearchUnavailableException.class,
+                () -> new HybridEvidenceSearchService(dense, bm25, new RrfFusionPolicy()).search(request()));
     }
 
     private static EvidenceCandidate candidate(String stableId) {
@@ -74,5 +88,8 @@ class HybridEvidenceSearchServiceTest {
                 null, null, 0.0);
     }
 
-    private record SearchInvocation(OwnerPlayerId owner, List<AuthorizedDocumentScope> scope, String query, int limit) { }
+    private static EvidenceSearchRequest request() {
+        return new EvidenceSearchRequest(OWNER, UUID.randomUUID(), UUID.randomUUID(), "opening", "STORY", List.of(SCOPE),
+                List.of("page:1"), "find the armor class", 30, 30);
+    }
 }

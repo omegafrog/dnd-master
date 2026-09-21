@@ -5,12 +5,12 @@ import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
 import com.dndmaster.ruleknowledge.application.search.AuthorizedDocumentScope;
 import com.dndmaster.ruleknowledge.application.search.DenseEvidenceCandidateSearchPort;
 import com.dndmaster.ruleknowledge.application.search.EvidenceCandidate;
+import com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.index.ExtractedContentRange;
 import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
-import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -42,15 +42,11 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
     }
 
     @Override
-    public List<EvidenceCandidate> search(
-            OwnerPlayerId ownerPlayerId, List<AuthorizedDocumentScope> scope, String query, int limit) {
-        Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
-        List<AuthorizedDocumentScope> authorizedScope = List.copyOf(Objects.requireNonNull(scope, "scope must not be null"));
-        if (authorizedScope.isEmpty()) throw new IllegalArgumentException("scope must not be empty");
-        if (query == null || query.isBlank()) throw new IllegalArgumentException("query must not be blank");
-        if (limit < 1 || limit > 30) throw new IllegalArgumentException("limit must be between 1 and 30");
+    public List<EvidenceCandidate> search(EvidenceSearchRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        var authorizedScope = request.scope();
 
-        String vector = vectorLiteral(embedQuery(query, authorizedScope.getFirst()));
+        String vector = vectorLiteral(embedQuery(request.query(), authorizedScope.getFirst()));
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(searchSql(authorizedScope.size()))) {
             int parameter = 1;
@@ -59,9 +55,10 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
                 statement.setLong(parameter++, item.extractionVersion());
                 statement.setString(parameter++, item.documentType().name());
             }
-            statement.setObject(parameter++, ownerPlayerId.value(), Types.OTHER);
+            statement.setObject(parameter++, request.ownerPlayerId().value(), Types.OTHER);
+            statement.setArray(parameter++, connection.createArrayOf("text", request.activeLocators().toArray(String[]::new)));
             statement.setString(parameter++, vector);
-            statement.setInt(parameter, limit);
+            statement.setInt(parameter, request.denseLimit());
             try (ResultSet rows = statement.executeQuery()) {
                 List<EvidenceCandidate> candidates = new ArrayList<>();
                 int rank = 1;
@@ -111,7 +108,8 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
                  WHERE c.owner_player_id = ?
                    AND c.document_length > 0
                    AND EXISTS (SELECT 1 FROM chunk_term_frequency frequency WHERE frequency.chunk_id = c.chunk_id)
-                 ORDER BY c.embedding <=> CAST(? AS vector), c.chunk_id
+                 ORDER BY CASE WHEN c.original_locator = ANY (?) THEN 0 ELSE 1 END,
+                          c.embedding <=> CAST(? AS vector), c.chunk_id
                  LIMIT ?
                 """.formatted(placeholders);
     }

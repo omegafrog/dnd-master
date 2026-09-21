@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -27,6 +28,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
@@ -55,6 +57,15 @@ class UnifiedEvidenceCandidateSearchControllerTest {
                 .andExpect(jsonPath("$.candidates[0].provenance.pageNumber").value(2))
                 .andExpect(jsonPath("$.candidates[0].bm25Rank").value(2));
         verify(hybrid).search(any());
+        ArgumentCaptor<com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest> requestCaptor =
+                ArgumentCaptor.forClass(com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest.class);
+        verify(hybrid).search(requestCaptor.capture());
+        var captured = requestCaptor.getValue();
+        assertEquals(OWNER, captured.ownerPlayerId().value());
+        assertEquals(DocumentType.STORYBOOK, captured.scope().getFirst().documentType());
+        assertEquals(List.of("page:1"), captured.activeLocators());
+        assertEquals("opening", captured.stageKey());
+        assertEquals("STORY", captured.actionIntent());
     }
 
     @Test
@@ -93,6 +104,20 @@ class UnifiedEvidenceCandidateSearchControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content(request(documentId, 5, 7)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("EVIDENCE_SEARCH_SCOPE_FORBIDDEN"));
+    }
+
+    @Test
+    void rejectsBlankOrDuplicateActiveLocatorsWithoutCallingSearch() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
+
+        controller(registration(documentId, ProcessingStatus.INDEXED), hybrid)
+                .perform(post("/internal/v1/evidence-candidates/search").header("Authorization", "Bearer " + OWNER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request(documentId, 5, 7).replace("[\"page:1\"]", "[\"page:1\",\"page:1\"]")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EVIDENCE_SEARCH_INVALID_REQUEST"));
+        org.mockito.Mockito.verifyNoInteractions(hybrid);
     }
 
     @Test

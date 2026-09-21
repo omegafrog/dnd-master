@@ -4,10 +4,10 @@ import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
 import com.dndmaster.ruleknowledge.application.search.AuthorizedDocumentScope;
 import com.dndmaster.ruleknowledge.application.search.Bm25EvidenceCandidateSearchPort;
 import com.dndmaster.ruleknowledge.application.search.EvidenceCandidate;
+import com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
-import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -35,14 +35,10 @@ public final class PostgreSQLBm25EvidenceCandidateSearchAdapter implements Bm25E
     }
 
     @Override
-    public List<EvidenceCandidate> search(
-            OwnerPlayerId ownerPlayerId, List<AuthorizedDocumentScope> scope, String query, int limit) {
-        Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
-        List<AuthorizedDocumentScope> authorizedScope = List.copyOf(Objects.requireNonNull(scope, "scope must not be null"));
-        if (authorizedScope.isEmpty()) throw new IllegalArgumentException("scope must not be empty");
-        if (query == null || query.isBlank()) throw new IllegalArgumentException("query must not be blank");
-        if (limit < 1 || limit > 30) throw new IllegalArgumentException("limit must be between 1 and 30");
-        List<String> terms = tokenize(query);
+    public List<EvidenceCandidate> search(EvidenceSearchRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        var authorizedScope = request.scope();
+        List<String> terms = tokenize(request.query());
         if (terms.isEmpty()) return List.of();
 
         String sql = searchSql(authorizedScope.size());
@@ -53,11 +49,12 @@ public final class PostgreSQLBm25EvidenceCandidateSearchAdapter implements Bm25E
                 statement.setLong(parameter++, item.extractionVersion());
                 statement.setString(parameter++, item.documentType().name());
             }
-            statement.setObject(parameter++, ownerPlayerId.value(), Types.OTHER);
+            statement.setObject(parameter++, request.ownerPlayerId().value(), Types.OTHER);
             statement.setArray(parameter++, connection.createArrayOf("text", terms.toArray(String[]::new)));
             statement.setDouble(parameter++, K1);
             statement.setDouble(parameter++, K1);
-            statement.setInt(parameter, limit);
+            statement.setArray(parameter++, connection.createArrayOf("text", request.activeLocators().toArray(String[]::new)));
+            statement.setInt(parameter, request.bm25Limit());
             try (ResultSet rows = statement.executeQuery()) {
                 List<EvidenceCandidate> candidates = new ArrayList<>();
                 int rank = 1;
@@ -131,7 +128,7 @@ public final class PostgreSQLBm25EvidenceCandidateSearchAdapter implements Bm25E
                 SELECT document_id, chunk_id, numeric_extraction_version AS extraction_version, document_type,
                        original_locator, content, page_number, section_path, bbox, table_cell
                   FROM scored
-                 ORDER BY score DESC, chunk_id
+                 ORDER BY CASE WHEN original_locator = ANY (?) THEN 0 ELSE 1 END, score DESC, chunk_id
                  LIMIT ?
                 """.formatted(placeholders, B, B);
     }

@@ -481,7 +481,8 @@ public class RuleKnowledgeController {
                 scope.add(new AuthorizedDocumentScope(new KnowledgeDocumentId(item.documentId()), item.extractionVersion(), item.documentType()));
             }
             EvidenceSearchResult result = hybridEvidenceSearchService.search(new com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest(
-                    new OwnerPlayerId(request.ownerId()), scope, request.query(), request.denseLimit(), request.bm25Limit()));
+                    new OwnerPlayerId(request.ownerId()), request.sessionId(), request.scenarioPackageId(), request.stageKey(),
+                    request.actionIntent(), scope, request.activeLocators(), request.query(), request.denseLimit(), request.bm25Limit()));
             return ResponseEntity.ok(new UnifiedEvidenceCandidateSearchResponse(request.ownerId(), request.sessionId(),
                     request.scenarioPackageId(), result.candidates().stream().map(this::candidateResponse).toList()));
         } catch (EvidenceSearchUnavailableException exception) {
