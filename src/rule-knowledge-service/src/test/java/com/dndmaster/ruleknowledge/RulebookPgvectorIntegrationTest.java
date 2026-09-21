@@ -16,6 +16,7 @@ import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleSearch
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRagExtractionPublicationRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
 import com.dndmaster.ruleknowledge.application.search.QueryIntent;
+import com.dndmaster.ruleknowledge.application.search.AuthorizedDocumentScope;
 import com.dndmaster.ruleknowledge.application.publication.EmbeddedPublishedRagChunk;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPage;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRequest;
@@ -25,6 +26,8 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceScope;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchQuery;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.RuleVectorPersistenceException;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLBm25EvidenceCandidateSearchAdapter;
+import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -55,6 +58,7 @@ class RulebookPgvectorIntegrationTest {
     private static PostgresRagExtractionPublicationRepository publicationRepository;
     private static PgvectorRuleEvidenceSearchRepository evidenceRepository;
     private static PgvectorStorySourceSearchRepository storySourceRepository;
+    private static PostgreSQLBm25EvidenceCandidateSearchAdapter bm25EvidenceRepository;
 
     @BeforeAll
     static void startDatabase() {
@@ -65,6 +69,7 @@ class RulebookPgvectorIntegrationTest {
         publicationRepository = new PostgresRagExtractionPublicationRepository(dataSource);
         evidenceRepository = new PgvectorRuleEvidenceSearchRepository(dataSource);
         storySourceRepository = new PgvectorStorySourceSearchRepository(dataSource);
+        bm25EvidenceRepository = new PostgreSQLBm25EvidenceCandidateSearchAdapter(dataSource);
     }
 
     @AfterAll
@@ -186,6 +191,40 @@ class RulebookPgvectorIntegrationTest {
         }
     }
 
+    @Test
+    void bm25CandidateSearchRestrictsResultsToOwnerScopeAndActivePublishedExtraction() throws SQLException {
+        OwnerPlayerId owner = owner();
+        OwnerPlayerId otherOwner = owner();
+        RulebookId selectedDocument = RulebookId.generate();
+        RulebookId unselectedDocument = RulebookId.generate();
+        RulebookId foreignDocument = RulebookId.generate();
+        register(selectedDocument, owner);
+        register(unselectedDocument, owner);
+        register(foreignDocument, otherOwner);
+
+        publish(selectedDocument, owner, "selected-old", "old clockwork source", "page=1:old");
+        publish(selectedDocument, owner, "selected-current", "clockwork lantern rules", "page=2:current");
+        publish(unselectedDocument, owner, "unselected", "clockwork spoiler", "page=3:unselected");
+        publish(foreignDocument, otherOwner, "foreign", "clockwork foreign", "page=4:foreign");
+
+        var candidates = bm25EvidenceRepository.search(
+                owner,
+                List.of(new AuthorizedDocumentScope(
+                        KnowledgeDocumentId.fromRulebookId(selectedDocument), 1, DocumentType.RULEBOOK)),
+                "clockwork",
+                30);
+
+        assertEquals(1, candidates.size());
+        var candidate = candidates.getFirst();
+        assertEquals(KnowledgeDocumentId.fromRulebookId(selectedDocument), candidate.documentId());
+        assertEquals(1, candidate.extractionVersion());
+        assertEquals(DocumentType.RULEBOOK, candidate.documentType());
+        assertEquals("clockwork lantern rules", candidate.excerpt());
+        assertEquals("page=2:current", candidate.locator());
+        assertEquals(2, candidate.provenance().pageNumber());
+        assertEquals(List.of("Chapter", "selected-current"), candidate.provenance().sectionPath());
+    }
+
     private static RagExtractionPublicationRequest publicationRequest(
             RulebookId documentId, OwnerPlayerId owner, String version, int pageNumber) {
         return new RagExtractionPublicationRequest(
@@ -207,6 +246,21 @@ class RulebookPgvectorIntegrationTest {
         return new EmbeddedPublishedRagChunk(withPage, new float[] {1, 0, 0});
     }
 
+    private static void publish(
+            RulebookId documentId, OwnerPlayerId owner, String version, String content, String locator) {
+        RagExtractionPublicationRequest request = new RagExtractionPublicationRequest(
+                documentId, owner, "operation-" + version, version, "a".repeat(64), "policy-1", "b".repeat(64),
+                List.of(new RagExtractionPage(1, "VALIDATED", 1, List.of()), new RagExtractionPage(2, "VALIDATED", 1, List.of()),
+                        new RagExtractionPage(3, "VALIDATED", 1, List.of()), new RagExtractionPage(4, "VALIDATED", 1, List.of())),
+                List.of(new PublishedRagChunk(
+                        "processor-" + version, 0, content, content,
+                        new SourceProvenance(Integer.parseInt(locator.substring(5, 6)), List.of("Chapter", version),
+                                List.of(), null, locator))),
+                "mock-embedding");
+        publicationRepository.beginCandidate(request);
+        publicationRepository.publish(request, List.of(new EmbeddedPublishedRagChunk(request.chunks().getFirst(), new float[] {1, 0, 0})));
+    }
+
     private static void register(RulebookId documentId, OwnerPlayerId owner) throws SQLException {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("""
                 INSERT INTO rulebook_registration
@@ -217,7 +271,7 @@ class RulebookPgvectorIntegrationTest {
             statement.setObject(1, documentId.value());
             statement.setObject(2, owner.value());
             statement.setString(3, "registration-" + documentId.value());
-            statement.setString(4, "c".repeat(64));
+            statement.setString(4, ("c".repeat(32) + documentId.value().toString().replace("-", "")).substring(0, 64));
             statement.setString(5, "storage/" + documentId.value());
             statement.executeUpdate();
         }
