@@ -144,6 +144,48 @@ class RulebookPgvectorIntegrationTest {
         }
     }
 
+    @Test
+    void publishingChunkStoresDocumentLengthAndTermFrequenciesTogether() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+        RagExtractionPublicationRequest request = publicationRequest(documentId, owner, "bm25-statistics", 1);
+        publicationRepository.beginCandidate(request);
+        publicationRepository.publish(request, List.of(publicationChunk(request, 1)));
+
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement chunk = connection.prepareStatement("""
+                        SELECT document_length
+                          FROM published_rag_chunk
+                         WHERE document_id = ? AND extraction_version = ?
+                        """);
+                PreparedStatement frequencies = connection.prepareStatement("""
+                        SELECT frequency.term, frequency.term_frequency
+                          FROM chunk_term_frequency frequency
+                          JOIN published_rag_chunk chunk ON chunk.chunk_id = frequency.chunk_id
+                         WHERE chunk.document_id = ? AND chunk.extraction_version = ?
+                         ORDER BY frequency.term
+                        """)) {
+            chunk.setObject(1, documentId.value());
+            chunk.setString(2, request.extractionVersion());
+            try (ResultSet rows = chunk.executeQuery()) {
+                assertEquals(true, rows.next());
+                assertEquals(2, rows.getInt("document_length"));
+            }
+            frequencies.setObject(1, documentId.value());
+            frequencies.setString(2, request.extractionVersion());
+            try (ResultSet rows = frequencies.executeQuery()) {
+                assertEquals(true, rows.next());
+                assertEquals("content", rows.getString("term"));
+                assertEquals(1, rows.getInt("term_frequency"));
+                assertEquals(true, rows.next());
+                assertEquals("published", rows.getString("term"));
+                assertEquals(1, rows.getInt("term_frequency"));
+                assertEquals(false, rows.next());
+            }
+        }
+    }
+
     private static RagExtractionPublicationRequest publicationRequest(
             RulebookId documentId, OwnerPlayerId owner, String version, int pageNumber) {
         return new RagExtractionPublicationRequest(

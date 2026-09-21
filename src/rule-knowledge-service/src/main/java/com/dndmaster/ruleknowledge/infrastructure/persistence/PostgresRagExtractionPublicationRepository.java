@@ -10,12 +10,17 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import javax.sql.DataSource;
 
 /** PostgreSQL boundary for immutable extraction candidates and their public pointer. */
 public final class PostgresRagExtractionPublicationRepository implements RagExtractionPublicationRepository {
+    private static final Pattern BM25_TOKEN = Pattern.compile("[\\p{L}\\p{N}_]+");
     private static final String INSERT_VERSION = """
             INSERT INTO rag_extraction_version
                 (document_id, extraction_version, owner_player_id, operation_id, source_hash,
@@ -51,15 +56,22 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
             INSERT INTO published_rag_chunk
                 (document_id, owner_player_id, extraction_version, processor_chunk_id, chunk_id,
                  sequence, content, embedding_text, embedding, embedding_model, embedding_dimension,
-                 section_path, page_number, bbox, table_cell, original_locator, parent_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?, ?, ?, ?, ?, ?, ?)
+                 section_path, page_number, bbox, table_cell, original_locator, parent_key, document_length)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (document_id, extraction_version, processor_chunk_id) DO UPDATE SET
                 chunk_id = EXCLUDED.chunk_id, sequence = EXCLUDED.sequence, content = EXCLUDED.content,
                 embedding_text = EXCLUDED.embedding_text, embedding = EXCLUDED.embedding,
                 embedding_model = EXCLUDED.embedding_model, embedding_dimension = EXCLUDED.embedding_dimension,
                 section_path = EXCLUDED.section_path, page_number = EXCLUDED.page_number,
                 bbox = EXCLUDED.bbox, table_cell = EXCLUDED.table_cell,
-                original_locator = EXCLUDED.original_locator, parent_key = EXCLUDED.parent_key
+                original_locator = EXCLUDED.original_locator, parent_key = EXCLUDED.parent_key,
+                document_length = EXCLUDED.document_length
+            """;
+    private static final String DELETE_TERM_FREQUENCIES = "DELETE FROM chunk_term_frequency WHERE chunk_id = ?";
+    private static final String INSERT_TERM_FREQUENCY = """
+            INSERT INTO chunk_term_frequency (chunk_id, term, term_frequency)
+            VALUES (?, ?, ?)
+            ON CONFLICT (chunk_id, term) DO UPDATE SET term_frequency = EXCLUDED.term_frequency
             """;
     private static final String MARK_INDEXED = """
             UPDATE rag_extraction_version
@@ -123,16 +135,19 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
             verifyDocumentIdentity(connection, request);
             verifyVersionIdentity(connection, request);
             verifyAllPagesValidated(connection, request);
-            try (PreparedStatement insert = connection.prepareStatement(INSERT_CHUNK)) {
+            try (PreparedStatement insert = connection.prepareStatement(INSERT_CHUNK);
+                    PreparedStatement deleteTerms = connection.prepareStatement(DELETE_TERM_FREQUENCIES);
+                    PreparedStatement insertTerm = connection.prepareStatement(INSERT_TERM_FREQUENCY)) {
                 for (EmbeddedPublishedRagChunk embedded : immutableChunks) {
                     var chunk = embedded.chunk();
                     var provenance = chunk.provenance();
+                    var chunkId = com.dndmaster.ruleknowledge.domain.index.ChunkId
+                            .fromStableValue(chunk.processorChunkId()).value();
                     setUuid(insert, 1, request.documentId().value());
                     setUuid(insert, 2, request.ownerPlayerId().value());
                     insert.setString(3, request.extractionVersion());
                     insert.setString(4, chunk.processorChunkId());
-                    setUuid(insert, 5, com.dndmaster.ruleknowledge.domain.index.ChunkId
-                            .fromStableValue(chunk.processorChunkId()).value());
+                    setUuid(insert, 5, chunkId);
                     insert.setInt(6, chunk.sequence());
                     insert.setString(7, chunk.content());
                     insert.setString(8, chunk.embeddingText());
@@ -147,9 +162,26 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
                     insert.setString(16, provenance.originalLocator());
                     if (chunk.parentKey() == null) insert.setNull(17, Types.VARCHAR);
                     else insert.setString(17, chunk.parentKey());
+                    insert.setInt(18, bm25TermFrequencies(chunk.embeddingText()).values().stream()
+                            .mapToInt(Integer::intValue).sum());
                     insert.addBatch();
+
+                    setUuid(deleteTerms, 1, chunkId);
+                    deleteTerms.addBatch();
                 }
                 insert.executeBatch();
+                deleteTerms.executeBatch();
+                for (EmbeddedPublishedRagChunk embedded : immutableChunks) {
+                    var chunkId = com.dndmaster.ruleknowledge.domain.index.ChunkId
+                            .fromStableValue(embedded.chunk().processorChunkId()).value();
+                    for (var term : bm25TermFrequencies(embedded.chunk().embeddingText()).entrySet()) {
+                        setUuid(insertTerm, 1, chunkId);
+                        insertTerm.setString(2, term.getKey());
+                        insertTerm.setInt(3, term.getValue());
+                        insertTerm.addBatch();
+                    }
+                }
+                insertTerm.executeBatch();
             }
             executeUpdate(connection, MARK_INDEXED, statement -> {
                 statement.setObject(1, request.documentId().value(), Types.OTHER);
@@ -279,6 +311,13 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
             result.append(values[index]);
         }
         return result.append(']').toString();
+    }
+
+    private static Map<String, Integer> bm25TermFrequencies(String text) {
+        Map<String, Integer> frequencies = new LinkedHashMap<>();
+        var matcher = BM25_TOKEN.matcher(text.toLowerCase(Locale.ROOT));
+        while (matcher.find()) frequencies.merge(matcher.group(), 1, Integer::sum);
+        return frequencies;
     }
 
     @FunctionalInterface
