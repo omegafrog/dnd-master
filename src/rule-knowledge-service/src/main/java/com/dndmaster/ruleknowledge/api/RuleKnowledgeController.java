@@ -471,14 +471,17 @@ public class RuleKnowledgeController {
                 }
                 StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(item.documentId()))
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "document scope is not authorized"));
-                if (!registration.ownerPlayerId().value().equals(request.ownerId())) {
+                boolean publishedCatalogRulebook = item.documentType() == DocumentType.RULEBOOK
+                        && isPublishedCatalogScope(List.of(item.documentId()));
+                if (!publishedCatalogRulebook && !registration.ownerPlayerId().value().equals(request.ownerId())) {
                     return evidenceSearchError(HttpStatus.FORBIDDEN, "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
                 }
                 if (registration.processingStatus() != ProcessingStatus.INDEXED || registration.version() != item.extractionVersion()
                         || registration.documentType() != item.documentType()) {
                     return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
                 }
-                scope.add(new AuthorizedDocumentScope(new KnowledgeDocumentId(item.documentId()), item.extractionVersion(), item.documentType()));
+                scope.add(new AuthorizedDocumentScope(new KnowledgeDocumentId(item.documentId()), item.extractionVersion(), item.documentType(),
+                        new OwnerPlayerId(publishedCatalogRulebook ? CATALOG_OWNER : request.ownerId())));
             }
             EvidenceSearchResult result = hybridEvidenceSearchService.search(new com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest(
                     new OwnerPlayerId(request.ownerId()), request.sessionId(), request.scenarioPackageId(), request.stageKey(),
@@ -733,6 +736,22 @@ public class RuleKnowledgeController {
             return published.containsAll(documentIds);
         } catch (RuntimeException unavailable) {
             // Legacy installations may not have run the catalog migration yet; owned documents still work.
+            return false;
+        }
+    }
+
+    private boolean isPublishedCatalogScope(List<UUID> documentIds) {
+        if (catalogRepository == null || documentIds == null || documentIds.isEmpty()
+                || new HashSet<>(documentIds).size() != documentIds.size()) return false;
+        try {
+            Set<UUID> published = catalogRepository.findAll().stream()
+                    .filter(item -> item.status() == com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus.READY
+                            && item.published())
+                    .map(CatalogRulebookRevision::rulebookId)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(java.util.stream.Collectors.toSet());
+            return published.containsAll(documentIds);
+        } catch (RuntimeException unavailable) {
             return false;
         }
     }

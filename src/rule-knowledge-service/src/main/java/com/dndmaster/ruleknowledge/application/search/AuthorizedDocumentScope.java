@@ -2,11 +2,16 @@ package com.dndmaster.ruleknowledge.application.search;
 
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
+import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import java.util.Objects;
 
 /** A caller-authorized document and its currently usable published extraction. */
 public record AuthorizedDocumentScope(
-        KnowledgeDocumentId documentId, long extractionVersion, DocumentType documentType) {
+        KnowledgeDocumentId documentId, long extractionVersion, DocumentType documentType, OwnerPlayerId documentOwner) {
+    public AuthorizedDocumentScope(KnowledgeDocumentId documentId, long extractionVersion, DocumentType documentType) {
+        this(documentId, extractionVersion, documentType, null);
+    }
+
     public AuthorizedDocumentScope {
         Objects.requireNonNull(documentId, "document id must not be null");
         Objects.requireNonNull(documentType, "document type must not be null");

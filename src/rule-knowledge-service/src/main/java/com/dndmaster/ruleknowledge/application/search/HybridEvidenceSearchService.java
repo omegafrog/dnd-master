@@ -87,8 +87,10 @@ public final class HybridEvidenceSearchService {
         if (candidates.size() > RrfFusionPolicy.MAX_RESULTS_PER_RETRIEVER || candidates.stream().anyMatch(Objects::isNull)) {
             throw new IllegalStateException("retriever returned invalid candidate list");
         }
-        if (candidates.stream().anyMatch(candidate -> !request.scope().contains(new AuthorizedDocumentScope(
-                candidate.documentId(), candidate.extractionVersion(), candidate.documentType())))) {
+        if (candidates.stream().anyMatch(candidate -> request.scope().stream().noneMatch(scope ->
+                scope.documentId().equals(candidate.documentId())
+                        && scope.extractionVersion() == candidate.extractionVersion()
+                        && scope.documentType() == candidate.documentType()))) {
             throw new IllegalStateException("retriever returned a candidate outside the authorized document scope");
         }
         return candidates;

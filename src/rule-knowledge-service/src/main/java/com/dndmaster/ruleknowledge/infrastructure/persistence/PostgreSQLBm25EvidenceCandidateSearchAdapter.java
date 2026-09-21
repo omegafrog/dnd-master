@@ -48,8 +48,8 @@ public final class PostgreSQLBm25EvidenceCandidateSearchAdapter implements Bm25E
                 statement.setObject(parameter++, item.documentId().value(), Types.OTHER);
                 statement.setLong(parameter++, item.extractionVersion());
                 statement.setString(parameter++, item.documentType().name());
+                statement.setObject(parameter++, (item.documentOwner() != null ? item.documentOwner() : request.ownerPlayerId()).value(), Types.OTHER);
             }
-            statement.setObject(parameter++, request.ownerPlayerId().value(), Types.OTHER);
             statement.setArray(parameter++, connection.createArrayOf("text", terms.toArray(String[]::new)));
             statement.setDouble(parameter++, K1);
             statement.setDouble(parameter++, K1);
@@ -78,9 +78,9 @@ public final class PostgreSQLBm25EvidenceCandidateSearchAdapter implements Bm25E
     }
 
     private static String searchSql(int scopeSize) {
-        String placeholders = String.join(", ", java.util.Collections.nCopies(scopeSize, "(?, ?, ?)"));
+        String placeholders = String.join(", ", java.util.Collections.nCopies(scopeSize, "(?, ?, ?, ?)"));
         return """
-                WITH authorized_scope(document_id, extraction_version, document_type) AS (VALUES %s),
+                WITH authorized_scope(document_id, extraction_version, document_type, owner_player_id) AS (VALUES %s),
                 scoped_chunks AS (
                     SELECT c.*, r.document_type,
                            CASE WHEN c.extraction_version ~ '^[0-9]+$' THEN c.extraction_version::bigint
@@ -95,8 +95,8 @@ public final class PostgreSQLBm25EvidenceCandidateSearchAdapter implements Bm25E
                          AND scope.extraction_version = CASE WHEN c.extraction_version ~ '^[0-9]+$'
                              THEN c.extraction_version::bigint ELSE GREATEST(r.version, 1) END
                          AND scope.document_type = r.document_type
-                     WHERE c.owner_player_id = ?
-                       AND c.document_length > 0
+                         AND scope.owner_player_id = c.owner_player_id
+                     WHERE c.document_length > 0
                        AND EXISTS (SELECT 1 FROM chunk_term_frequency frequency WHERE frequency.chunk_id = c.chunk_id)
                 ), corpus AS (
                     SELECT COUNT(*)::double precision AS document_count,

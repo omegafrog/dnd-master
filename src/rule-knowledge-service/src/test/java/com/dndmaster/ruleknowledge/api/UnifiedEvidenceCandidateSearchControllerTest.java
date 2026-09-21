@@ -10,6 +10,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
+import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
+import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
 import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
@@ -24,6 +26,8 @@ import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
+import com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus;
+import com.dndmaster.ruleknowledge.domain.catalog.RulebookEdition;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -107,6 +111,30 @@ class UnifiedEvidenceCandidateSearchControllerTest {
     }
 
     @Test
+    void acceptsCallerConfirmedPublishedCatalogRulebookScope() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
+        when(hybrid.search(any())).thenReturn(new EvidenceSearchResult(List.of()));
+        RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
+        when(registrations.findById(any())).thenReturn(java.util.Optional.of(registration(
+                documentId, ProcessingStatus.INDEXED, UUID.fromString("00000000-0000-0000-0000-000000000005"), DocumentType.RULEBOOK)));
+        CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
+        when(catalog.findAll()).thenReturn(List.of(new CatalogRulebookRevision(UUID.randomUUID(), RulebookEdition.DND_5E_2014,
+                "공개 룰북", documentId, 1, CatalogRevisionStatus.READY, true, null, Instant.now(), Instant.now())));
+
+        controller(registrations, catalog, hybrid).perform(post("/internal/v1/evidence-candidates/search")
+                        .header("Authorization", "Bearer " + OWNER).contentType(MediaType.APPLICATION_JSON)
+                        .content(rulebookRequest(documentId)))
+                .andExpect(status().isOk());
+        verify(hybrid).search(any());
+        ArgumentCaptor<com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest> requestCaptor =
+                ArgumentCaptor.forClass(com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest.class);
+        verify(hybrid).search(requestCaptor.capture());
+        assertEquals(UUID.fromString("00000000-0000-0000-0000-000000000005"),
+                requestCaptor.getValue().scope().getFirst().documentOwner().value());
+    }
+
+    @Test
     void rejectsBlankOrDuplicateActiveLocatorsWithoutCallingSearch() throws Exception {
         UUID documentId = UUID.randomUUID();
         HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
@@ -136,9 +164,14 @@ class UnifiedEvidenceCandidateSearchControllerTest {
     private static MockMvc controller(StoredRulebookRegistration registration, HybridEvidenceSearchService hybrid) {
         RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
         when(registrations.findById(any())).thenReturn(java.util.Optional.of(registration));
+        return controller(registrations, null, hybrid);
+    }
+
+    private static MockMvc controller(
+            RulebookRegistrationRepository registrations, CatalogRulebookRepository catalog, HybridEvidenceSearchService hybrid) {
         RuleKnowledgeController controller = new RuleKnowledgeController(mock(RulebookPipelineApplicationService.class), registrations,
                 mock(RuleEvidenceSearchApplicationService.class), null, null, null, new com.fasterxml.jackson.databind.ObjectMapper(),
-                null, "", null, null, hybrid);
+                null, "", catalog, null, hybrid);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper())).build();
     }
@@ -149,11 +182,20 @@ class UnifiedEvidenceCandidateSearchControllerTest {
                 """.formatted(OWNER, UUID.randomUUID(), UUID.randomUUID(), documentId, denseLimit, bm25Limit);
     }
 
+    private static String rulebookRequest(UUID documentId) {
+        return """
+                {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","stageKey":"opening","actionIntent":"RULE","scope":[{"documentId":"%s","extractionVersion":1,"documentType":"RULEBOOK"}],"activeLocators":[],"query":"what is the rule?","denseLimit":5,"bm25Limit":7}
+                """.formatted(OWNER, UUID.randomUUID(), UUID.randomUUID(), documentId);
+    }
+
     private static StoredRulebookRegistration registration(UUID id, ProcessingStatus status) { return registration(id, status, OWNER); }
     private static StoredRulebookRegistration registration(UUID id, ProcessingStatus status, UUID owner) {
+        return registration(id, status, owner, DocumentType.STORYBOOK);
+    }
+    private static StoredRulebookRegistration registration(UUID id, ProcessingStatus status, UUID owner, DocumentType documentType) {
         Instant now = Instant.now();
         return new StoredRulebookRegistration(new RulebookId(id), new OwnerPlayerId(owner), "op", "hash", RulebookFormat.TXT,
                 1, "storage", status, com.dndmaster.ruleknowledge.domain.rulebook.ExtractionStatus.SUCCESS, "content", List.of(),
-                null, 1, now, now, DocumentType.STORYBOOK, "story.txt");
+                null, 1, now, now, documentType, "story.txt");
     }
 }

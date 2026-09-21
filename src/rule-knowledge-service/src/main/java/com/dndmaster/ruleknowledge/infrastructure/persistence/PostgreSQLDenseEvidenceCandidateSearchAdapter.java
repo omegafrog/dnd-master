@@ -54,8 +54,8 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
                 statement.setObject(parameter++, item.documentId().value(), Types.OTHER);
                 statement.setLong(parameter++, item.extractionVersion());
                 statement.setString(parameter++, item.documentType().name());
+                statement.setObject(parameter++, (item.documentOwner() != null ? item.documentOwner() : request.ownerPlayerId()).value(), Types.OTHER);
             }
-            statement.setObject(parameter++, request.ownerPlayerId().value(), Types.OTHER);
             statement.setArray(parameter++, connection.createArrayOf("text", request.activeLocators().toArray(String[]::new)));
             statement.setString(parameter++, vector);
             statement.setInt(parameter, request.denseLimit());
@@ -88,9 +88,9 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
     }
 
     private static String searchSql(int scopeSize) {
-        String placeholders = String.join(", ", java.util.Collections.nCopies(scopeSize, "(?, ?, ?)"));
+        String placeholders = String.join(", ", java.util.Collections.nCopies(scopeSize, "(?, ?, ?, ?)"));
         return """
-                WITH authorized_scope(document_id, extraction_version, document_type) AS (VALUES %s)
+                WITH authorized_scope(document_id, extraction_version, document_type, owner_player_id) AS (VALUES %s)
                 SELECT c.document_id, c.chunk_id,
                        CASE WHEN c.extraction_version ~ '^[0-9]+$' THEN c.extraction_version::bigint
                             ELSE GREATEST(r.version, 1) END AS extraction_version,
@@ -105,8 +105,8 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
                      AND scope.extraction_version = CASE WHEN c.extraction_version ~ '^[0-9]+$'
                          THEN c.extraction_version::bigint ELSE GREATEST(r.version, 1) END
                      AND scope.document_type = r.document_type
-                 WHERE c.owner_player_id = ?
-                   AND c.document_length > 0
+                     AND scope.owner_player_id = c.owner_player_id
+                 WHERE c.document_length > 0
                    AND EXISTS (SELECT 1 FROM chunk_term_frequency frequency WHERE frequency.chunk_id = c.chunk_id)
                  ORDER BY CASE WHEN c.original_locator = ANY (?) THEN 0 ELSE 1 END,
                           c.embedding <=> CAST(? AS vector), c.chunk_id
