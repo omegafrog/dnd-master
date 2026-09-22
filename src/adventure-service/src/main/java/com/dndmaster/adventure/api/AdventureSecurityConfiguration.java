@@ -61,12 +61,26 @@ public class AdventureSecurityConfiguration {
             if (isInternalAdventurePath(request)) {
                 byte[] supplied = java.util.Optional.ofNullable(request.getHeader("X-Internal-Token"))
                         .orElse("").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                if (java.security.MessageDigest.isEqual(internalToken, supplied)) {
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+                if (isOwnedAdventureList(request)) {
+                    String authorization = request.getHeader("Authorization");
+                    UUID principal = bearerPlayerId(authorization);
+                    UUID requestedOwner = parseOwner(request.getParameter("ownerId"));
+                    if (principal != null && requestedOwner != null && principal.equals(requestedOwner)) {
+                        filterChain.doFilter(request, response);
+                        return;
+                    }
+                    response.sendError(principal == null ? HttpServletResponse.SC_UNAUTHORIZED : HttpServletResponse.SC_FORBIDDEN,
+                            principal == null ? "UNAUTHENTICATED" : "OWNERSHIP_DENIED");
+                    return;
+                }
                 if (!java.security.MessageDigest.isEqual(internalToken, supplied)) {
                     response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "INVALID_SERVICE_TOKEN");
                     return;
                 }
-                filterChain.doFilter(request, response);
-                return;
             }
             String authorization = request.getHeader("Authorization");
             if (authorization == null || authorization.isBlank()) {
@@ -97,6 +111,22 @@ public class AdventureSecurityConfiguration {
                     || path.startsWith(context + "/api/v1/internal/adventures/")
                     || path.equals(context + "/api/v1/internal/adventures")
                     || path.startsWith(context + "/api/v1/adventure-sessions/internal/");
+        }
+
+        private boolean isOwnedAdventureList(HttpServletRequest request) {
+            String path = request.getRequestURI();
+            String context = request.getContextPath();
+            return path.equals(context + "/internal/v1/adventures");
+        }
+
+        private UUID bearerPlayerId(String authorization) {
+            if (authorization == null || !authorization.startsWith("Bearer ") || authorization.substring(7).isBlank()) return null;
+            return sessionLookupPort.resolvePlayerId(authorization.substring(7)).orElse(null);
+        }
+
+        private static UUID parseOwner(String value) {
+            try { return value == null ? null : UUID.fromString(value); }
+            catch (IllegalArgumentException ignored) { return null; }
         }
     }
 }
