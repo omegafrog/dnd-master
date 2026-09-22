@@ -31,6 +31,9 @@ public final class InternalServiceTokenFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return !request.getRequestURI().startsWith(request.getContextPath() + "/internal/");
+        String path = request.getRequestURI();
+        String context = request.getContextPath();
+        return !(path.startsWith(context + "/internal/v1/gm/")
+                || path.startsWith(context + "/internal/gm/"));
     }
 }

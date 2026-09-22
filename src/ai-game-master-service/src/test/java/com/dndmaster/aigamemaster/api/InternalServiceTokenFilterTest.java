@@ -34,6 +34,11 @@ class InternalServiceTokenFilterTest {
         var publicChain = new MockFilterChain();
         filter.doFilter(publicRequest, new MockHttpServletResponse(), publicChain);
         org.junit.jupiter.api.Assertions.assertNotNull(publicChain.getRequest());
+
+        var otherInternal = new MockHttpServletRequest("POST", "/internal/v1/auth/introspections");
+        var otherChain = new MockFilterChain();
+        filter.doFilter(otherInternal, new MockHttpServletResponse(), otherChain);
+        org.junit.jupiter.api.Assertions.assertNotNull(otherChain.getRequest());
     }
 
     @Test
