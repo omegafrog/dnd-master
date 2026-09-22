@@ -466,14 +466,6 @@ export type SourcePreviewView = {
   assets: SourceAssetView[]
 }
 
-export type StorySourceEvidenceView = {
-  knowledgeDocumentId: string
-  extractionVersion: number
-  locator: string
-  excerpt: string
-  score: number
-}
-
 export type RulebookUploadDraft = {
   file: File
   documentType: DocumentType
@@ -523,12 +515,6 @@ export interface SetupApi {
   selectRuntimeSourceContext?(adventureId: string, ownerId: string, bindingVersion: number, locator: string): Promise<RuntimeBindingView>
   saveRuleSet(rulebookIds: string[]): Promise<void>
   listKnowledgeDocuments(ownerId: string): Promise<KnowledgeDocumentView[]>
-  searchStorySources?(ownerId: string, documents: StorySourceScopeView[], situation: string, activeLocators?: string[]): Promise<StorySourceEvidenceView[]>
-}
-
-export type StorySourceScopeView = {
-  documentId: string
-  extractionVersion: number
 }
 
 async function request<T>(path: string, init: RequestInit, badRequestMessage = '지원하지 않거나 손상된 파일입니다.'): Promise<T> {
@@ -851,11 +837,4 @@ export class HttpSetupApi implements SetupApi {
     }).then(response => response.rulebooks)
   }
 
-  searchStorySources(ownerId: string, documents: StorySourceScopeView[], situation: string, activeLocators: string[] = []) {
-    return request<{ ownerId: string; evidence: StorySourceEvidenceView[] }>('/internal/v1/story-sources/search', {
-      method: 'POST',
-      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ownerId, documents, activeLocators, situation }),
-    }, '시나리오 원문 검색에 실패했습니다.').then(response => response.evidence)
-  }
 }
