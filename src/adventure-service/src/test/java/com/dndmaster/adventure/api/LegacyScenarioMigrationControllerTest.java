@@ -34,7 +34,8 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.server.ResponseStatusException;
 
-@WebMvcTest(controllers = LegacyScenarioMigrationController.class)
+@WebMvcTest(controllers = LegacyScenarioMigrationController.class,
+        properties = "INTERNAL_SERVICE_TOKEN=test-internal-token")
 @AutoConfigureMockMvc
 @Import(AdventureSecurityConfiguration.class)
 class LegacyScenarioMigrationControllerTest {

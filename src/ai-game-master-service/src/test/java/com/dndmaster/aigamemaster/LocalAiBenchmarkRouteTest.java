@@ -23,7 +23,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "INTERNAL_SERVICE_TOKEN=test-internal-token")
 @EnabledIf("isOllamaAvailable")
 class LocalAiBenchmarkRouteTest {
     private static final int WARMUP_RUNS = 2;

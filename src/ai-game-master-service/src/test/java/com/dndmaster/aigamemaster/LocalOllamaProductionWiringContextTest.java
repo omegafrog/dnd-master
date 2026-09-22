@@ -37,6 +37,7 @@ import org.springframework.test.context.ContextConfiguration;
 @ExtendWith(OutputCaptureExtension.class)
 @ContextConfiguration(initializers = LocalOllamaProductionWiringContextTest.BackendInitializer.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE, properties = {
+        "INTERNAL_SERVICE_TOKEN=test-internal-token",
         "local-ai.ollama.base-url=http://127.0.0.1:18089",
         "local-ai.ollama.request-timeout=3s",
         "local-ai.ollama.circuit-failure-threshold=2",

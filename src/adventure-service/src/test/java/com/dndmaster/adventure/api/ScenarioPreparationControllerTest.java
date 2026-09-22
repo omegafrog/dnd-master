@@ -32,7 +32,8 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 
-@WebMvcTest(controllers = ScenarioPreparationController.class)
+@WebMvcTest(controllers = ScenarioPreparationController.class,
+        properties = "INTERNAL_SERVICE_TOKEN=test-internal-token")
 @AutoConfigureMockMvc
 @Import({AdventureSecurityConfiguration.class, AuthenticatedPlayerResolver.class})
 class ScenarioPreparationControllerTest {

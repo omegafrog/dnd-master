@@ -16,7 +16,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
             "spring.main.lazy-initialization=true",
             "spring.flyway.enabled=false",
             "spring.datasource.url=jdbc:postgresql://127.0.0.1:1/dnd_master",
-            "management.health.db.enabled=false"
+            "management.health.db.enabled=false",
+            "INTERNAL_SERVICE_TOKEN=test-internal-token"
         })
 class OpenApiIntegrationTest {
     @LocalServerPort int port;
