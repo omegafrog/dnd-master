@@ -20,14 +20,21 @@ public final class HttpIdentityServiceAdapter implements IdentityServicePort {
     private final URI introspectionUri;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final String internalToken;
 
     public HttpIdentityServiceAdapter(
             HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper) {
+        this(client, baseUri, timeout, objectMapper, "");
+    }
+
+    public HttpIdentityServiceAdapter(
+            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper, String internalToken) {
         this.client = Objects.requireNonNull(client, "client must not be null");
         this.introspectionUri = withTrailingSlash(Objects.requireNonNull(baseUri, "baseUri must not be null"))
                 .resolve(INTROSPECTION_PATH);
         this.timeout = positive(timeout, "timeout");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+        this.internalToken = internalToken == null ? "" : internalToken.trim();
     }
 
     @Override
@@ -40,6 +47,7 @@ public final class HttpIdentityServiceAdapter implements IdentityServicePort {
             HttpRequest request = HttpRequest.newBuilder(introspectionUri)
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());

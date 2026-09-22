@@ -26,6 +26,7 @@ class HttpIdentityServiceAdapterTest {
             assertEquals("POST", server.method);
             assertEquals("/internal/v1/auth/introspections", server.path);
             assertEquals("{\"token\":\"session-token\"}", server.body);
+            assertEquals("relay-token", server.internalToken);
         }
     }
 
@@ -49,7 +50,7 @@ class HttpIdentityServiceAdapterTest {
 
     private static HttpIdentityServiceAdapter adapter(URI baseUri) {
         return new HttpIdentityServiceAdapter(
-                HttpClient.newHttpClient(), baseUri, Duration.ofSeconds(2), new ObjectMapper());
+                HttpClient.newHttpClient(), baseUri, Duration.ofSeconds(2), new ObjectMapper(), "relay-token");
     }
 
     private static final class StubServer implements AutoCloseable {
@@ -59,6 +60,7 @@ class HttpIdentityServiceAdapterTest {
         private volatile String method;
         private volatile String path;
         private volatile String body;
+        private volatile String internalToken;
 
         private StubServer(int status, String response) throws IOException {
             this.status = status;
@@ -67,6 +69,7 @@ class HttpIdentityServiceAdapterTest {
             this.server.createContext("/", exchange -> {
                 method = exchange.getRequestMethod();
                 path = exchange.getRequestURI().getPath();
+                internalToken = exchange.getRequestHeaders().getFirst("X-Internal-Token");
                 body = new String(exchange.getRequestBody().readAllBytes());
                 byte[] bytes = response.getBytes();
                 exchange.sendResponseHeaders(status, bytes.length);

@@ -79,6 +79,19 @@ paths:
         '200':
           description: preserved character sheet with updated version
         '401': { description: missing or invalid internal service token }
+  /internal/v1/character-sheets/{sheetId}/runtime:
+    get:
+      operationId: getRuntimeCharacterSheet
+      security: [{ internalServiceToken: [] }]
+      parameters:
+        - in: path
+          name: sheetId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: runtime character sheet projection }
+        '401': { description: missing or invalid internal service token }
+        '403': { description: invalid internal service token }
   /internal/v1/character-sheets:
     get:
       operationId: listCharacterSheets

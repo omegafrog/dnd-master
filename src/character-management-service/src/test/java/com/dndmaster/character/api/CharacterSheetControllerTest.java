@@ -234,4 +234,22 @@ class CharacterSheetControllerTest {
                         .content("{\"sessionId\":\"22222222-2222-2222-2222-222222222222\",\"characterSheetIds\":[]}"))
                 .andExpect(status().isUnauthorized());
     }
+
+    @Test
+    void requires_internal_token_for_runtime_character_sheet() throws Exception {
+        UUID sheetId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        when(service.readForRuntime(any(CharacterSheetId.class))).thenReturn(new CharacterSheet(
+                new CharacterSheetId(sheetId), new AdventureId(UUID.randomUUID()), SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Aria", 1, false)));
+        org.mockito.Mockito.doThrow(new ApiRequestGuard.ApiContractException(401, "UNAUTHENTICATED"))
+                .when(requestGuard).internal(null);
+
+        mockMvc.perform(get("/internal/v1/character-sheets/{sheetId}/runtime", sheetId))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/internal/v1/character-sheets/{sheetId}/runtime", sheetId)
+                        .header("X-Internal-Token", "test-internal-token"))
+                .andExpect(status().isOk());
+        verify(requestGuard).internal("test-internal-token");
+    }
 }

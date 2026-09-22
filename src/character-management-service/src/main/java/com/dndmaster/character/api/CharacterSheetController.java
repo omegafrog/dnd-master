@@ -150,7 +150,11 @@ public class CharacterSheetController {
     }
 
     @GetMapping("/internal/v1/character-sheets/{sheetId}/runtime")
-    CharacterSheetResponse getRuntimeCharacterSheet(@PathVariable UUID sheetId) {
+    CharacterSheetResponse getRuntimeCharacterSheet(
+            @PathVariable UUID sheetId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        requestGuard.internal(internalToken);
         return CharacterSheetResponse.from(characterSheetService.readForRuntime(new CharacterSheetId(sheetId)));
     }
 

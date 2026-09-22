@@ -38,7 +38,8 @@ class OpenApiSchemaTest {
         assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/{rulebookId}/source-preview", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",
                 "/internal/v1/rulebook-indexes", "/internal/v1/rulebooks/{rulebookId}/ownership",
                 "/internal/v1/rule-evidence/search");
-        assertPaths("character-management", "/internal/v1/character-sheets/{sheetId}");
+        assertPaths("character-management", "/internal/v1/character-sheets/{sheetId}",
+                "/internal/v1/character-sheets/{sheetId}/runtime");
         assertPaths("dice-roll", "/internal/v1/dice-rolls/player", "/internal/v1/dice-rolls/ai");
         assertDiceRollSecurityContract();
         assertPaths("combat-map", "/internal/v1/combat-maps/{mapId}/player-view",

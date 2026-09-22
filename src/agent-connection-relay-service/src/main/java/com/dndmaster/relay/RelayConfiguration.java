@@ -22,9 +22,10 @@ public class RelayConfiguration {
     @Bean RequestCompletionRegistry requestCompletionRegistry() { return new RequestCompletionRegistry(); }
     @Bean IdentityServicePort identityServicePort(ObjectMapper objectMapper,
             @Value("${relay.identity-access.base-url:http://127.0.0.1:8080/}") URI baseUri,
-            @Value("${relay.identity-access.timeout:PT2S}") Duration timeout) {
+            @Value("${relay.identity-access.timeout:PT2S}") Duration timeout,
+            @Value("${relay.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new HttpIdentityServiceAdapter(
-                HttpClient.newBuilder().connectTimeout(timeout).build(), baseUri, timeout, objectMapper);
+                HttpClient.newBuilder().connectTimeout(timeout).build(), baseUri, timeout, objectMapper, internalToken);
     }
     @Bean LocalConnectionManager localConnectionExecutor(ConnectionLeaseService leases, RequestCompletionRegistry completions,
             RelayMetrics metrics, @Value("${relay.execution-timeout:PT3M}") Duration timeout,
