@@ -28,7 +28,7 @@ export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:
 # actual identity together. The browser Backoffice sends the authenticated
 # player ID, so omitting the seeded ID makes local catalog publication fail
 # with 403 before a Solo Player can select a published Rulebook.
-export RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS="${RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS:-local-catalog-admin,00000000-0000-0000-0000-000000000001}"
+export RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS="${RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS:-local-catalog-admin,00000000-0000-0000-0000-000000000001,aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}"
 export CODEX_EXECUTABLE="${CODEX_EXECUTABLE:-/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex}"
 export CODEX_CHARACTER_TAG_MODEL="${CODEX_CHARACTER_TAG_MODEL:-gpt-5.6-luna}"
 export RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE="${RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE:-/home/jiwoo/workspace/dnd-master/.venv-docling/bin/python}"
