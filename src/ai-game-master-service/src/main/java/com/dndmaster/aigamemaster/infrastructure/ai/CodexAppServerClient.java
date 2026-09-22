@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
@@ -25,6 +26,7 @@ import org.slf4j.LoggerFactory;
 public final class CodexAppServerClient implements AutoCloseable {
     private static final ConcurrentHashMap<String, CodexAppServerClient> SHARED = new ConcurrentHashMap<>();
     private static final Logger LOGGER = LoggerFactory.getLogger(CodexAppServerClient.class);
+    private static final Executor CANCEL_EXECUTOR = command -> Thread.startVirtualThread(command);
 
     public static CodexAppServerClient shared(String executable, Path workDirectory, Duration timeout, ObjectMapper mapper) {
         String key = executable + "|" + workDirectory.toAbsolutePath().normalize();
@@ -178,7 +180,7 @@ public final class CodexAppServerClient implements AutoCloseable {
     /** Sends cancellation best-effort and never makes the caller wait for the app-server acknowledgement. */
     private void cancelTurnAsync(String turnId, String operationId) {
         if (turnId == null || turnId.isBlank() || "unknown".equals(turnId)) return;
-        CompletableFuture.runAsync(() -> {
+        CANCEL_EXECUTOR.execute(() -> {
             try {
                 synchronized (CodexAppServerClient.this) {
                     if (process == null || !process.isAlive() || input == null) return;
