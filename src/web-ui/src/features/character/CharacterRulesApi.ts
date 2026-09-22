@@ -56,22 +56,40 @@ export type CharacterRulesCatalogView = {
   backgrounds: string[]
 }
 
-async function jsonRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function jsonRequest<T>(path: string, getToken: () => string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${getToken()}`,
+      ...(init?.headers ?? {}),
+    },
   })
   if (!response.ok) throw new Error('캐릭터 규칙 엔진 요청을 처리하지 못했습니다.')
   return response.json() as Promise<T>
 }
 
-export function getCharacterRulesCatalog(): Promise<CharacterRulesCatalogView> {
-  return jsonRequest('/internal/v1/character-rules/catalogs/DND_5E_2014')
+export class HttpCharacterRulesApi {
+  constructor(private readonly getToken: () => string = () => '') {}
+
+  getCharacterRulesCatalog(): Promise<CharacterRulesCatalogView> {
+    return jsonRequest('/internal/v1/character-rules/catalogs/DND_5E_2014', this.getToken)
+  }
+
+  evaluateCharacterBuild(sessionId: string, draft: CharacterCreationDraft): Promise<CharacterBuildEvaluationView> {
+    return jsonRequest(`/internal/v1/adventure-sessions/${sessionId}/character-builds/evaluate`, this.getToken, {
+      method: 'POST',
+      body: JSON.stringify(draft),
+    })
+  }
 }
 
-export function evaluateCharacterBuild(sessionId: string, draft: CharacterCreationDraft): Promise<CharacterBuildEvaluationView> {
-  return jsonRequest(`/internal/v1/adventure-sessions/${sessionId}/character-builds/evaluate`, {
-    method: 'POST',
-    body: JSON.stringify(draft),
-  })
+export function getCharacterRulesCatalog(getToken: () => string = () => ''): Promise<CharacterRulesCatalogView> {
+  return new HttpCharacterRulesApi(getToken).getCharacterRulesCatalog()
+}
+
+export function evaluateCharacterBuild(
+  sessionId: string, draft: CharacterCreationDraft, getToken: () => string = () => '',
+): Promise<CharacterBuildEvaluationView> {
+  return new HttpCharacterRulesApi(getToken).evaluateCharacterBuild(sessionId, draft)
 }

@@ -235,7 +235,7 @@ public class RuleKnowledgeApiConfiguration {
     @Bean
     RagDevelopmentResetController ragDevelopmentResetController(
             DevelopmentRagResetService resetService,
-            @Value("${rule-knowledge.internal-token:}") String internalToken) {
+            @Value("${rule-knowledge.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new RagDevelopmentResetController(resetService, internalToken);
     }
 
@@ -279,7 +279,7 @@ public class RuleKnowledgeApiConfiguration {
             CatalogRulebookRepository catalogRulebookRepository,
             com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort playerSessionLookup,
             HybridEvidenceSearchService hybridEvidenceSearchService,
-            @Value("${rule-knowledge.internal-token:}") String internalToken) {
+            @Value("${rule-knowledge.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
                 characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, catalogRulebookRepository,

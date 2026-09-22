@@ -631,14 +631,14 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    InternalServiceTokenFilter internalServiceTokenFilter(@Value("${INTERNAL_SERVICE_TOKEN:}") String internalToken) {
+    InternalServiceTokenFilter internalServiceTokenFilter(@Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new InternalServiceTokenFilter(internalToken);
     }
 
     @Bean
     EvidenceModelController evidenceModelController(GmCompletionAdapter adapter,
             com.fasterxml.jackson.databind.ObjectMapper objectMapper,
-            @Value("${INTERNAL_SERVICE_TOKEN:}") String internalToken) {
+            @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         var model = new GmEvidenceModelAdapter(adapter);
         return new EvidenceModelController(new EvidenceRerankerService(model, objectMapper),
                 new EvidenceSufficiencyJudgeService(model, objectMapper), new ApiRequestGuard(internalToken));

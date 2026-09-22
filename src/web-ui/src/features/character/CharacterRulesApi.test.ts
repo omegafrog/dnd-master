@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { evaluateCharacterBuild, getCharacterRulesCatalog } from './CharacterRulesApi'
+import { evaluateCharacterBuild, getCharacterRulesCatalog, HttpCharacterRulesApi } from './CharacterRulesApi'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -15,7 +15,9 @@ describe('CharacterRulesApi', () => {
 
     expect(catalog.revision).toBe(3)
     expect(catalog.classes).toEqual(['파이터'])
-    expect(fetchMock).toHaveBeenCalledWith('/internal/v1/character-rules/catalogs/DND_5E_2014', expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith('/internal/v1/character-rules/catalogs/DND_5E_2014', expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: 'Bearer ' }),
+    }))
   })
 
   it('posts a non-persisting build evaluation request', async () => {
@@ -38,5 +40,19 @@ describe('CharacterRulesApi', () => {
       '/internal/v1/adventure-sessions/session-1/character-builds/evaluate',
       expect.objectContaining({ method: 'POST' }),
     )
+  })
+
+  it('sends the browser session bearer through the constructible API client', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      edition: 'DND_5E_2014', baseSchema: 'DND_5E_2014', revision: 1,
+      races: [], classes: [], backgrounds: [],
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await new HttpCharacterRulesApi(() => 'session-token').getCharacterRulesCatalog()
+
+    expect(fetchMock).toHaveBeenCalledWith('/internal/v1/character-rules/catalogs/DND_5E_2014', expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: 'Bearer session-token' }),
+    }))
   })
 })

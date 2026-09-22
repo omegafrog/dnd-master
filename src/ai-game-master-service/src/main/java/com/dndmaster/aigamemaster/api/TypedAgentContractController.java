@@ -27,7 +27,7 @@ public final class TypedAgentContractController {
 
     @Autowired
     public TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper,
-            @Value("${INTERNAL_SERVICE_TOKEN:}") String internalToken) {
+            @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         this(adapter, mapper, new ApiRequestGuard(internalToken));
     }
 

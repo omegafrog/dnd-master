@@ -25,7 +25,7 @@ public class AdventureSecurityConfiguration {
     @Bean
     @Order(1)
     SecurityFilterChain adventureSecurityFilterChain(HttpSecurity http, PlayerSessionLookupPort sessionLookupPort,
-            @Value("${INTERNAL_SERVICE_TOKEN:}") String internalToken)
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken)
             throws Exception {
         BearerTokenAuthenticationFilter bearerTokenAuthenticationFilter = new BearerTokenAuthenticationFilter(sessionLookupPort, internalToken);
         return http.securityMatcher(

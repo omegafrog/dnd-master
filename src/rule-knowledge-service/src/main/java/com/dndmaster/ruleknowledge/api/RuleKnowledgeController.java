@@ -778,7 +778,9 @@ public class RuleKnowledgeController {
         Map<DocumentType, List<CharacterContextDocumentScope>> scope = new java.util.EnumMap<>(DocumentType.class);
         List<AuthorizedDocumentScope> hybridScope = new java.util.ArrayList<>();
         Set<String> seen = new HashSet<>();
-        boolean catalogScope = isPublishedCatalogScope(request.documents().stream().map(CharacterContextScopeRequest::documentId).toList());
+        boolean mixedCatalogAndOwnedScope = false;
+        boolean hasCatalogScope = false;
+        boolean hasOwnedScope = false;
         for (CharacterContextScopeRequest document : request.documents()) {
             if (document.documentId() == null || document.extractionVersion() <= 0 || document.documentType() == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope is invalid");
@@ -788,9 +790,13 @@ public class RuleKnowledgeController {
             }
             StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(document.documentId()))
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "document is not registered"));
-            if (!catalogScope && !registration.ownerPlayerId().value().equals(request.ownerId())) {
+            boolean publishedCatalogRulebook = document.documentType() == DocumentType.RULEBOOK
+                    && isPublishedCatalogScope(List.of(document.documentId()));
+            if (!publishedCatalogRulebook && !registration.ownerPlayerId().value().equals(request.ownerId())) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN, "document does not belong to authenticated player");
             }
+            hasCatalogScope |= publishedCatalogRulebook;
+            hasOwnedScope |= !publishedCatalogRulebook;
             if (registration.processingStatus() != ProcessingStatus.INDEXED
                     || registration.version() != document.extractionVersion()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope is not indexed at requested version");
@@ -803,20 +809,25 @@ public class RuleKnowledgeController {
                             new KnowledgeDocumentId(document.documentId()), document.extractionVersion()));
             hybridScope.add(new AuthorizedDocumentScope(new KnowledgeDocumentId(document.documentId()),
                     document.extractionVersion(), document.documentType(),
-                    new OwnerPlayerId(catalogScope ? CATALOG_OWNER : request.ownerId())));
+                    new OwnerPlayerId(publishedCatalogRulebook ? CATALOG_OWNER : request.ownerId())));
         }
+        mixedCatalogAndOwnedScope = hasCatalogScope && hasOwnedScope;
         if (hybridEvidenceSearchService != null) {
             EvidenceSearchResult result = hybridEvidenceSearchService.search(new com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest(
-                    new OwnerPlayerId(catalogScope ? CATALOG_OWNER : request.ownerId()), null, null,
+                    new OwnerPlayerId(request.ownerId()), null, null,
                     "character-context", "CHARACTER_CONTEXT", hybridScope, List.of(), request.situation(), 30, 30));
             return new CharacterContextSearchResponse(request.ownerId(), result.candidates().stream()
                     .map(candidate -> new CharacterContextEvidenceItem(candidate.documentId().value(), candidate.documentType(),
                             candidate.extractionVersion(), candidate.locator(), candidate.excerpt(), candidate.rrfScore()))
                     .toList());
         }
+        if (mixedCatalogAndOwnedScope) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "mixed catalog and owned character context requires hybrid search");
+        }
         Map<DocumentType, Double> thresholds = request.thresholds() == null ? Map.of() : request.thresholds();
         List<CharacterContextEvidence> evidence = characterContextSearchService.search(new CharacterContextSearchQuery(
-                new OwnerPlayerId(catalogScope ? CATALOG_OWNER : request.ownerId()), scope, thresholds, request.situation(),
+                new OwnerPlayerId(hasCatalogScope ? CATALOG_OWNER : request.ownerId()), scope, thresholds, request.situation(),
                 request.tokenBudget() == null ? 2000 : request.tokenBudget()));
         return new CharacterContextSearchResponse(request.ownerId(), evidence.stream()
                 .map(result -> new CharacterContextEvidenceItem(
