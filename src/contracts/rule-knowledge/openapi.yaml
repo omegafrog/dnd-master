@@ -1,203 +1,416 @@
 openapi: 3.1.0
-info: { title: Rule Knowledge API, version: 1.0.0 }
+info:
+  title: Rule Knowledge API
+  version: 1.0.0
+  description: >-
+    Browser calls use an opaque Bearer value issued by the identity service; the
+    value is not a JWT and must not be decoded by a caller. Service-to-service
+    calls use the shared X-Internal-Token header. The public catalog read is
+    intentionally unauthenticated and contains shared rulebook revisions.
+components:
+  securitySchemes:
+    browserBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque player session token
+      description: Opaque player session value. Missing or invalid values return 401.
+    internalToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
+      description: Shared service token. Missing or invalid values return 401 or 403 according to the endpoint contract.
+  schemas:
+    RetryPagesRequest:
+      type: object
+      required: [requestId, pages]
+      properties:
+        requestId: { type: string, format: uuid }
+        pages: { type: array, minItems: 1, items: { type: integer, minimum: 1 } }
+        layoutSelections:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties: { type: integer }
+    GameSystemDefinitionRequest:
+      type: object
+      required: [version, definitionJson]
+      properties:
+        version: { type: integer, minimum: 1 }
+        definitionJson: { type: string, minLength: 2 }
+    CandidateScope:
+      type: object
+      required: [documentId, extractionVersion, documentType]
+      properties:
+        documentId: { type: string, format: uuid }
+        extractionVersion: { type: integer, minimum: 1 }
+        documentType: { type: string, enum: [RULEBOOK, STORYBOOK] }
+    CandidateSearchError:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          enum: [EVIDENCE_SEARCH_UNAUTHENTICATED, EVIDENCE_SEARCH_INVALID_REQUEST, EVIDENCE_SEARCH_SCOPE_FORBIDDEN, EVIDENCE_SEARCH_UNAVAILABLE]
+    PublicCatalogRulebook:
+      type: object
+      required: [catalogRevisionId, edition, displayName, revisionNumber, status, published, extractionVersion]
+      properties:
+        catalogRevisionId: { type: string, format: uuid }
+        edition: { type: string }
+        displayName: { type: string }
+        rulebookId: { type: [string, 'null'], format: uuid }
+        revisionNumber: { type: integer, minimum: 1 }
+        status: { type: string }
+        published: { type: boolean }
+        extractionVersion: { type: integer, minimum: 0 }
 paths:
   /api/v1/rulebooks:
     post:
       operationId: uploadRulebook
+      summary: Accept player STORYBOOK documents as an asynchronous batch
+      description: >-
+        ownerPlayerId must equal the player resolved from the opaque browser
+        Bearer value. A valid internal token may be used by a trusted gateway
+        instead. User uploads are STORYBOOK only; shared RULEBOOK documents are
+        selected from the catalog. Each metadata entry carries its own
+        idempotencyKey. A replay returns the original result; a reused key with
+        different bytes is 409.
+      security:
+        - browserBearer: []
+        - internalToken: []
       parameters:
+        - { name: ownerPlayerId, in: query, required: true, schema: { type: string, format: uuid } }
         - name: Idempotency-Key
           in: header
-          required: true
-          schema: { type: string }
+          required: false
+          description: Optional single-document compatibility fallback; metadata idempotencyKey is authoritative for batches.
+          schema: { type: string, minLength: 1 }
+      requestBody:
+        required: true
+        content: { multipart/form-data: { schema: { $ref: './schemas/batch-multipart-upload.json' } } }
+      responses:
+        '202': { description: Accepted; each document has an independent processing result., content: { application/json: { schema: { $ref: './schemas/batch-upload-response.json' } } } }
+        '400': { description: Invalid metadata, mismatched multipart arrays, blank idempotency key, or RULEBOOK user upload. }
+        '401': { description: Missing or invalid browser Bearer and no valid internal token. }
+        '403': { description: Bearer player does not own ownerPlayerId. }
+        '409': { description: Same idempotency key was already used with different content. }
+  /api/v1/rulebooks/{rulebookId}:
+    get:
+      operationId: rulebookStatus
+      summary: Read the authenticated player's document processing status
+      security: [{ browserBearer: [] }]
+      parameters: [{ name: rulebookId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Status, extraction version, retryability, and preprocessing review state for an owned document., content: { application/json: { schema: { $ref: './schemas/rulebook-status-response.json' } } } }
+        '401': { description: Missing or invalid browser Bearer. }
+        '403': { description: Document exists but belongs to another player. }
+        '404': { description: Unknown document is represented by status NOT_FOUND after authentication. }
+    delete:
+      operationId: deleteRulebook
+      summary: Delete one player-owned document
+      security: [{ browserBearer: [] }]
+      parameters: [{ name: rulebookId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '204': { description: Deleted. A repeated command is a stable 404. }
+        '401': { description: Missing or invalid browser Bearer. }
+        '403': { description: Document belongs to another player. }
+        '404': { description: Document does not exist. }
+  /api/v1/rulebooks/{rulebookId}/source-preview:
+    get:
+      operationId: sourcePreview
+      summary: Read source spans for an owned document
+      security:
+        - browserBearer: []
+        - internalToken: []
+      parameters: [{ name: rulebookId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Source preview at the current extraction version, including locators and assets., content: { application/json: { schema: { $ref: './schemas/source-preview-response.json' } } } }
+        '401': { description: Missing or invalid browser Bearer when no valid internal token is supplied. }
+        '403': { description: Browser player does not own the document. }
+        '404': { description: Document does not exist. }
+        '409': { description: Preview requires extracted content. }
+        '422': { description: Preview is not available for the document format. }
+  /api/v1/rulebooks/{rulebookId}/retry:
+    post:
+      operationId: retryRulebook
+      summary: Retry one failed document
+      security: [{ browserBearer: [] }]
+      parameters: [{ name: rulebookId, in: path, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Updated asynchronous status., content: { application/json: { schema: { $ref: './schemas/rulebook-status-response.json' } } } }
+        '401': { description: Missing or invalid browser Bearer. }
+        '403': { description: Document belongs to another player. }
+        '404': { description: Document does not exist. }
+        '409': { description: Document is not in a retryable failed state. }
+  /api/v1/rulebooks/{rulebookId}/retry-pages:
+    post:
+      operationId: retryRulebookPages
+      summary: Retry selected preprocessing pages
+      security: [{ browserBearer: [] }]
+      parameters: [{ name: rulebookId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RetryPagesRequest' } } } }
+      responses:
+        '200': { description: Updated status with the same document extraction version until retry succeeds., content: { application/json: { schema: { $ref: './schemas/rulebook-status-response.json' } } } }
+        '400': { description: Invalid page selection or layout choice. }
+        '401': { description: Missing or invalid browser Bearer. }
+        '403': { description: Document belongs to another player. }
+        '404': { description: Document does not exist. }
+        '409': { description: Page retry is not allowed in the current processing state. }
+  /api/v1/rulebooks/rule-set:
+    post:
+      operationId: saveRuleSet
+      summary: Validate the player's selected rulebook document set
+      security: [{ browserBearer: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: './schemas/rule-set-save-request.json' } } } }
+      responses:
+        '204': { description: Selection accepted when every document is owned or is a published shared catalog rulebook. }
+        '400': { description: Empty, unknown, wrong-version, or non-owned document selection. }
+        '401': { description: Missing or invalid browser Bearer. }
+        '403': { description: Reserved for explicit ownership denial; clients must not infer ownership from a missing document. }
+  /internal/v1/rulebooks/{rulebookId}/game-system-definition:
+    get:
+      operationId: getPublishedGameSystemDefinition
+      summary: Read the published versioned game system definition
+      security: [{ internalToken: [] }]
+      parameters:
+        - { name: rulebookId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: version, in: query, required: false, schema: { type: integer, minimum: 1 } }
+      responses:
+        '200': { description: Published definition at the requested or current version. }
+        '401': { description: Missing internal token. }
+        '403': { description: Wrong internal token. }
+        '404': { description: No published definition at the requested version. }
+    post:
+      operationId: publishGameSystemDefinition
+      summary: Publish a versioned game system definition
+      security: [{ internalToken: [] }]
+      parameters: [{ name: rulebookId, in: path, required: true, schema: { type: string, format: uuid } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/GameSystemDefinitionRequest' } } } }
+      responses:
+        '200': { description: Published definition with rulebook and version identity. }
+        '401': { description: Missing internal token. }
+        '403': { description: Wrong internal token. }
+        '404': { description: Rulebook does not exist. }
+        '501': { description: Definition storage is not configured. }
+  /internal/v1/rulebooks:
+    get:
+      operationId: ownedRulebooks
+      summary: List rulebooks for one owner
+      description: A gateway may use a valid internal token, or a browser player may request only its own ownerId.
+      security:
+        - internalToken: []
+        - browserBearer: []
+      parameters: [{ name: ownerId, in: query, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Owner-scoped summaries with processing and extraction versions., content: { application/json: { schema: { $ref: './schemas/owned-rulebooks-response.json' } } } }
+        '401': { description: Missing or invalid browser Bearer when no valid internal token is supplied. }
+        '403': { description: Browser player requests another owner's list. }
+  /internal/v1/rulebooks/published-catalog:
+    get:
+      operationId: publishedCatalogRulebooks
+      summary: List indexed published shared rulebooks for trusted gateways
+      security: [{ internalToken: [] }]
+      responses:
+        '200': { description: Only READY, published, indexed RULEBOOK registrations with a positive extraction version., content: { application/json: { schema: { $ref: './schemas/owned-rulebooks-response.json' } } } }
+        '401': { description: Missing internal token. }
+        '403': { description: Wrong internal token. }
+  /internal/v1/rulebook-indexes:
+    get:
+      operationId: ownedIndexes
+      summary: List index state for an owner
+      security: [{ internalToken: [] }]
+      parameters: [{ name: ownerId, in: query, required: true, schema: { type: string, format: uuid } }]
+      responses:
+        '200': { description: Index state is scoped by ownerId., content: { application/json: { schema: { $ref: './schemas/owned-indexes-response.json' } } } }
+        '401': { description: Missing internal token. }
+        '403': { description: Wrong internal token. }
+  /internal/v1/rulebooks/{rulebookId}/ownership:
+    get:
+      operationId: rulebookOwnership
+      summary: Check ownership or published shared-catalog eligibility
+      security: [{ internalToken: [] }]
+      parameters:
+        - { name: rulebookId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: playerId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: owned is true only for an indexed owner match or an indexed published catalog rulebook. }
+        '401': { description: Missing internal token. }
+        '403': { description: Wrong internal token. }
+  /internal/v1/evidence-candidates/search:
+    post:
+      operationId: searchEvidenceCandidates
+      summary: Search scoped evidence candidates for an active session stage
+      security: [{ internalToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerId, sessionId, scenarioPackageId, stageKey, scope, query, denseLimit, bm25Limit]
+              properties:
+                ownerId: { type: string, format: uuid }
+                sessionId: { type: string, format: uuid }
+                scenarioPackageId: { type: string, format: uuid }
+                stageKey: { type: string, minLength: 1 }
+                actionIntent: { type: string }
+                scope: { type: array, minItems: 1, items: { $ref: '#/components/schemas/CandidateScope' } }
+                activeLocators: { type: array, items: { type: string } }
+                query: { type: string, minLength: 1 }
+                denseLimit: { type: integer, minimum: 1 }
+                bm25Limit: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: Candidate list restricted to owner/scope/version or published catalog documents. }
+        '400': { description: Invalid request, duplicate scope, wrong type, or unindexed extraction version. }
+        '401': { description: Missing internal token, reported as EVIDENCE_SEARCH_UNAUTHENTICATED. }
+        '403': { description: Cross-owner or unpublished catalog scope, reported as EVIDENCE_SEARCH_SCOPE_FORBIDDEN. }
+        '503': { description: Search unavailable, reported as EVIDENCE_SEARCH_UNAVAILABLE. }
+  /internal/v1/evidence-candidates/preparation-search:
+    post:
+      operationId: searchPreparationEvidenceCandidates
+      summary: Search scoped evidence candidates during scenario preparation
+      security: [{ internalToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerId, scenarioSourceBundleId, scope, query, denseLimit, bm25Limit]
+              properties:
+                ownerId: { type: string, format: uuid }
+                scenarioSourceBundleId: { type: string, format: uuid }
+                scope: { type: array, minItems: 1, items: { $ref: '#/components/schemas/CandidateScope' } }
+                activeLocators: { type: array, items: { type: string } }
+                query: { type: string, minLength: 1 }
+                denseLimit: { type: integer, minimum: 1 }
+                bm25Limit: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: Preparation candidates restricted to owner/scope/version or published catalog documents. }
+        '400': { description: Invalid request or unindexed/wrong-version scope. }
+        '401': { description: Missing internal token, reported as EVIDENCE_SEARCH_UNAUTHENTICATED. }
+        '403': { description: Cross-owner or unpublished catalog scope, reported as EVIDENCE_SEARCH_SCOPE_FORBIDDEN. }
+        '503': { description: Search unavailable, reported as EVIDENCE_SEARCH_UNAVAILABLE. }
+  /internal/v1/rule-evidence/search:
+    post:
+      operationId: searchRuleEvidence
+      summary: Search rule evidence in an owned or published catalog scope
+      security: [{ internalToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: './schemas/evidence-search-request.json' } } } }
+      responses:
+        '200': { description: Rule evidence for the requested scope and extraction versions. }
+        '400': { description: Empty, duplicate, unindexed, or wrong-type rulebook scope. }
+        '401': { description: Missing internal token. }
+        '403': { description: Cross-owner or unpublished catalog scope. }
+  /internal/v1/story-sources/search:
+    post:
+      operationId: searchStorySources
+      summary: Search story source evidence in an owner-scoped document set
+      security: [{ internalToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: './schemas/story-source-search-request.json' } } } }
+      responses:
+        '200': { description: Story evidence, possibly an explicit empty evidence list. }
+        '400': { description: Invalid or unindexed document/version scope. }
+        '401': { description: Missing internal token. }
+        '403': { description: A requested STORYBOOK belongs to another owner. }
+        '503': { description: Story search is not configured. }
+  /internal/v1/character-context/search:
+    post:
+      operationId: searchCharacterContext
+      summary: Search typed character context in an owner or published catalog scope
+      security: [{ internalToken: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: './schemas/character-context-search-request.json' } } } }
+      responses:
+        '200': { description: Character context evidence with document type and extraction version. }
+        '400': { description: Empty, duplicate, unindexed, or wrong-type document scope. }
+        '401': { description: Missing internal token. }
+        '403': { description: Cross-owner or unpublished catalog scope. }
+        '503': { description: Character context search is not configured. }
+  /internal/v1/story-sources/{documentId}/context:
+    get:
+      operationId: readStorySourceContext
+      summary: Read a story source span and neighboring spans
+      security: [{ internalToken: [] }]
+      parameters:
+        - { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: ownerId, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: extractionVersion, in: query, required: true, schema: { type: integer, minimum: 1 } }
+        - { name: locator, in: query, required: true, schema: { type: string, minLength: 1 } }
+      responses:
+        '200': { description: Context spans for the exact owner, STORYBOOK, indexed extraction version, and locator. }
+        '401': { description: Missing internal token. }
+        '403': { description: Wrong internal token. }
+        '404': { description: Document, owner/version scope, or locator was not found. }
+  /internal/v1/story-sources/{documentId}/assets:
+    get:
+      operationId: readStorySourceAsset
+      summary: Read an asset from an indexed story source document
+      security: [{ internalToken: [] }]
+      parameters:
+        - { name: documentId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: locator, in: query, required: true, schema: { type: string, minLength: 1 } }
+      responses:
+        '200': { description: Binary source asset. }
+        '401': { description: Missing internal token. }
+        '403': { description: Wrong internal token or cross-owner asset scope. }
+        '404': { description: Asset or document was not found. }
+  /internal/v1/rag/reset:
+    post:
+      operationId: resetDevelopmentRag
+      summary: Reset derived development RAG data
+      security: [{ internalToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmation]
+              properties: { confirmation: { type: string, minLength: 1 } }
+      responses:
+        '200': { description: Derived retrieval data reset; catalog, source assets, and ownership records remain. }
+        '401': { description: Missing internal token. }
+        '403': { description: Wrong internal token. }
+        '409': { description: Reset confirmation is missing or does not match the development reset policy. }
+  /api/v1/rulebook-catalog:
+    get:
+      operationId: listRulebookCatalog
+      summary: Publicly list shared rulebook catalog revisions
+      description: >-
+        This is intentionally unauthenticated. End-user selection and retrieval
+        scopes must accept only READY and published indexed rulebooks even when
+        this display list contains queued or unpublished rows.
+      security: []
+      responses:
+        '200': { description: Catalog revisions with published flag, status, revision, and extraction version., content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/PublicCatalogRulebook' } } } } }
+  /api/v1/backoffice/rulebook-catalog:
+    post:
+      operationId: uploadCatalogRulebook
+      summary: Admin-only upload of a shared RULEBOOK PDF
+      security: [{ browserBearer: [] }]
+      parameters: [{ name: edition, in: query, required: true, schema: { type: string, enum: [DND_5E_2014, DND_5E_2024] } }]
       requestBody:
         required: true
         content:
           multipart/form-data:
-            schema: { $ref: './schemas/batch-multipart-upload.json' }
+            schema:
+              type: object
+              required: [file]
+              properties: { file: { type: string, contentEncoding: binary } }
       responses:
-        '202':
-          description: accepted
-          content:
-            application/json:
-              schema: { $ref: './schemas/batch-upload-response.json' }
-        '409':
-          description: conflict - same idempotency key with different file
-  /api/v1/rulebooks/{rulebookId}:
-    get:
-      operationId: rulebookStatus
-      parameters:
-        - name: rulebookId
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200':
-          description: processing status
-          content:
-            application/json:
-              schema: { $ref: './schemas/rulebook-status-response.json' }
-  /api/v1/rulebooks/{rulebookId}/source-preview:
-    get:
-      operationId: sourcePreview
-      parameters:
-        - name: rulebookId
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200':
-          description: source preview
-          content:
-            application/json:
-              schema: { $ref: './schemas/source-preview-response.json' }
-        '404':
-          description: document not found
-        '409':
-          description: preview requires extracted content
-        '422':
-          description: preview only available for TXT documents
-  /api/v1/rulebooks/{rulebookId}/retry:
+        '200': { description: Queued catalog revision. }
+        '400': { description: File is not a PDF. }
+        '401': { description: Missing or invalid Bearer value. }
+        '403': { description: Bearer value is not an authorized catalog administrator. }
+  /api/v1/backoffice/rulebook-catalog/{catalogRevisionId}/publish:
     post:
-      operationId: retryRulebook
-      parameters:
-        - name: rulebookId
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
+      operationId: publishCatalogRulebook
+      summary: Admin-only publish of an indexed catalog revision
+      security: [{ browserBearer: [] }]
+      parameters: [{ name: catalogRevisionId, in: path, required: true, schema: { type: string, format: uuid } }]
       responses:
-        '200':
-          description: retried document status
-          content:
-            application/json:
-              schema: { $ref: './schemas/rulebook-status-response.json' }
-        '404':
-          description: document not found
-        '409':
-          description: retry rejected because document is not failed
-  /api/v1/rulebooks/rule-set:
-    post:
-      operationId: saveRuleSet
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: './schemas/rule-set-save-request.json' }
-      responses:
-        '204':
-          description: rule set saved
-        '400':
-          description: invalid selection
-  /internal/v1/rulebooks:
-    get:
-      operationId: ownedRulebooks
-      parameters:
-        - name: ownerId
-          in: query
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200':
-          description: owned rulebooks
-          content:
-            application/json:
-              schema: { $ref: './schemas/owned-rulebooks-response.json' }
-  /internal/v1/rulebook-indexes:
-    get:
-      operationId: ownedIndexes
-      parameters:
-        - name: ownerId
-          in: query
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200':
-          description: owned indexes
-          content:
-            application/json:
-              schema: { $ref: './schemas/owned-indexes-response.json' }
-  /internal/v1/rulebooks/{rulebookId}/ownership:
-    get:
-      operationId: rulebookOwnership
-      parameters:
-        - name: rulebookId
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - name: playerId
-          in: query
-          required: true
-          schema: { type: string, format: uuid }
-      responses:
-        '200':
-          description: ownership
-          content:
-            application/json:
-              schema: { $ref: './schemas/ownership-response.json' }
-  /internal/v1/rule-evidence/search:
-    post:
-      operationId: searchEvidence
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: './schemas/evidence-search-request.json' }
-      responses:
-        '200':
-          description: scoped evidence
-          content:
-            application/json:
-              schema: { $ref: './schemas/evidence-search-response.json' }
-  /internal/v1/story-sources/search:
-    post:
-      operationId: searchStorySources
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: './schemas/story-source-search-request.json' }
-      responses:
-        '200':
-          description: owner and package scoped story evidence; empty evidence is explicit
-          content:
-            application/json:
-              schema: { $ref: './schemas/story-source-search-response.json' }
-  /internal/v1/character-context/search:
-    post:
-      operationId: searchCharacterContext
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: './schemas/character-context-search-request.json' }
-      responses:
-        '200':
-          description: independently searched, scoped typed character context evidence
-          content:
-            application/json:
-              schema: { $ref: './schemas/character-context-search-response.json' }
-  /internal/v1/story-sources/{documentId}/context:
-    get:
-      operationId: readStorySourceContext
-      parameters:
-        - name: documentId
-          in: path
-          required: true
-          schema: { type: string, format: uuid }
-        - name: ownerId
-          in: query
-          required: true
-          schema: { type: string, format: uuid }
-        - name: extractionVersion
-          in: query
-          required: true
-          schema: { type: integer, minimum: 0 }
-        - name: locator
-          in: query
-          required: true
-          schema: { type: string }
-      responses:
-        '200':
-          description: requested source span and adjacent spans, or empty spans when locator is absent
-          content:
-            application/json:
-              schema: { $ref: './schemas/story-source-context-response.json' }
+        '200': { description: Published READY catalog revision. }
+        '401': { description: Missing or invalid Bearer value. }
+        '403': { description: Bearer value is not an authorized catalog administrator. }
+        '404': { description: Catalog revision does not exist. }
+        '409': { description: Catalog revision is not indexed and cannot be published. }

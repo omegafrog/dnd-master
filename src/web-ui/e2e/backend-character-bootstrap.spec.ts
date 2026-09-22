@@ -16,6 +16,8 @@ const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
 const assetRoot = '/home/jiwoo/workspace/dnd-master/docs/assets/'
+const catalogAdminToken = process.env.BACKEND_E2E_CATALOG_ADMIN_TOKEN
+const catalogPdf = process.env.BACKEND_E2E_CATALOG_PDF ?? `${assetRoot}DnD_BasicRules_2018.pdf`
 const storybooks = parseStorybooks(process.env.BACKEND_E2E_STORYBOOKS_JSON ?? '')
 
 let ownerPlayerId = ''
@@ -82,6 +84,7 @@ async function login(request: APIRequestContext) {
 }
 
 async function uploadDocuments(request: APIRequestContext) {
+  await publishCatalogRevisionWhenConfigured(request)
   // 룰북은 사용자 업로드가 아니라 공유 목록에서 먼저 선택한다.
   const catalogResponse = await request.get(`${backend}/api/v1/rulebook-catalog`)
   expect(catalogResponse.ok(), await catalogResponse.text()).toBeTruthy()
@@ -125,6 +128,32 @@ async function uploadDocuments(request: APIRequestContext) {
     documents: [{ knowledgeDocumentId: rulebook!.rulebookId!, role: 'RULEBOOK' }, ...uploaded],
     primaryStorybookId: primary!.knowledgeDocumentId,
   }
+}
+
+async function publishCatalogRevisionWhenConfigured(request: APIRequestContext) {
+  // The normal local launcher seeds the shared catalog. An optional admin token
+  // enables this same journey to prove upload -> publish without printing or
+  // persisting the credential in the browser.
+  if (!catalogAdminToken) return
+  if (!catalogPdf.startsWith(assetRoot)) {
+    throw new Error('BACKEND_E2E_CATALOG_PDF must use a Linux docs/assets path')
+  }
+  const buffer = await readFile(catalogPdf)
+  const upload = await request.post(`${backend}/api/v1/backoffice/rulebook-catalog`, {
+    headers: { Authorization: `Bearer ${catalogAdminToken}` },
+    multipart: {
+      edition: 'DND_5E_2014',
+      file: { name: basename(catalogPdf), mimeType: 'application/pdf', buffer },
+    },
+  })
+  expect(upload.ok(), await upload.text()).toBeTruthy()
+  const revision = await upload.json() as { id?: string; catalogRevisionId?: string }
+  const revisionId = revision.id ?? revision.catalogRevisionId
+  expect(revisionId, 'catalog upload did not return a revision id').toBeTruthy()
+  const publish = await request.post(`${backend}/api/v1/backoffice/rulebook-catalog/${revisionId}/publish`, {
+    headers: { Authorization: `Bearer ${catalogAdminToken}` },
+  })
+  expect(publish.ok(), await publish.text()).toBeTruthy()
 }
 
 async function waitForDocuments(request: APIRequestContext, ids: string[]) {
@@ -342,4 +371,17 @@ test('fresh database bootstraps scenario package and completes character creatio
     expect.objectContaining({ characterSheetId: created.characterSheetId, controlMode: 'DIRECT' }),
     expect.objectContaining({ characterSheetId: companion.characterSheetId, controlMode: 'AGENT' }),
   ]))
+
+  const startResponse = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/start`, {
+    headers: {
+      ...authHeaders,
+      'If-Match-Version': String(partyWithCompanion.version),
+      'Idempotency-Key': crypto.randomUUID(),
+      'Content-Type': 'application/json',
+    },
+    data: { adventureId: crypto.randomUUID(), prepareMapOnly: true },
+  })
+  expect(startResponse.ok(), await startResponse.text()).toBeTruthy()
+  const started = await startResponse.json() as { status: string }
+  expect(['STARTING', 'STARTED']).toContain(started.status)
 })
