@@ -20,8 +20,9 @@ public record EvidenceSearchRequest(
         int bm25Limit) {
     public EvidenceSearchRequest {
         Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
-        Objects.requireNonNull(sessionId, "session id must not be null");
-        Objects.requireNonNull(scenarioPackageId, "scenario package id must not be null");
+        if ((sessionId == null) != (scenarioPackageId == null)) {
+            throw new IllegalArgumentException("session id and scenario package id must be supplied together");
+        }
         if (stageKey == null || stageKey.isBlank()) throw new IllegalArgumentException("stage key must not be blank");
         if (actionIntent == null || actionIntent.isBlank()) throw new IllegalArgumentException("action intent must not be blank");
         scope = List.copyOf(Objects.requireNonNull(scope, "scope must not be null"));

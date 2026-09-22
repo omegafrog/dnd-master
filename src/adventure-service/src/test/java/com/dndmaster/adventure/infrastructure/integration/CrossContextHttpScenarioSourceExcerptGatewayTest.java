@@ -32,15 +32,16 @@ class CrossContextHttpScenarioSourceExcerptGatewayTest {
         UUID ownerId = UUID.randomUUID();
         List<String> paths = new ArrayList<>();
         List<String> requestBodies = new ArrayList<>();
-        try (EvidenceServer server = new EvidenceServer(paths, requestBodies, storybookId, rulebookId)) {
-            var bundle = ScenarioSourceBundle.create(new ScenarioBundleId(UUID.randomUUID()),
+        UUID bundleId = UUID.randomUUID();
+        try (EvidenceServer server = new EvidenceServer(paths, requestBodies, ownerId, bundleId, storybookId, rulebookId)) {
+            var bundle = ScenarioSourceBundle.create(new ScenarioBundleId(bundleId),
                     new OwnerPlayerId(ownerId), "Test", RulebookEdition.DND_5E_2014,
                     new ScenarioSourceBundleRevision(1, List.of(
                             selection(storybookId, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK"),
                             selection(rulebookId, ScenarioBundleDocumentRole.RULEBOOK, "RULEBOOK"))));
 
             List<ResolutionExtractionPort.SourceExcerpt> excerpts = new CrossContextHttpScenarioSourceExcerptGateway(
-                    HttpClient.newHttpClient(), server.baseUri(), Duration.ofSeconds(2), new ObjectMapper()).load(bundle);
+                    HttpClient.newHttpClient(), server.baseUri(), Duration.ofSeconds(2), new ObjectMapper(), "internal-token").load(bundle);
 
             assertThat(excerpts).hasSize(2);
             assertThat(excerpts).allSatisfy(excerpt -> {
@@ -51,10 +52,12 @@ class CrossContextHttpScenarioSourceExcerptGatewayTest {
                 assertThat(excerpt.provenance().tableCell()).isEqualTo("table-1:r2:c1");
             });
             assertThat(paths).containsExactlyInAnyOrder(
-                    "/internal/v1/story-sources/search",
+                    "/internal/v1/evidence-candidates/preparation-search",
                     "/internal/v1/rule-evidence/search");
             assertThat(paths).doesNotContain("/api/v1/rulebooks/" + rulebookId + "/source-preview");
-            assertThat(requestBodies).anyMatch(body -> body.contains("how player actions are resolved"));
+            assertThat(requestBodies).anyMatch(body -> body.contains("how player actions are resolved")
+                    && body.contains("scenarioSourceBundleId") && !body.contains("sessionId")
+                    && !body.contains("scenarioPackageId"));
         }
     }
 
@@ -67,16 +70,16 @@ class CrossContextHttpScenarioSourceExcerptGatewayTest {
     private static final class EvidenceServer implements AutoCloseable {
         private final HttpServer server;
 
-        private EvidenceServer(List<String> paths, List<String> requestBodies, UUID storybookId, UUID rulebookId) throws IOException {
+        private EvidenceServer(List<String> paths, List<String> requestBodies, UUID ownerId, UUID bundleId, UUID storybookId, UUID rulebookId) throws IOException {
             server = HttpServer.create(new InetSocketAddress(0), 0);
             server.createContext("/", exchange -> {
                 paths.add(exchange.getRequestURI().getPath());
                 requestBodies.add(new String(exchange.getRequestBody().readAllBytes()));
                 String path = exchange.getRequestURI().getPath();
                 String body = switch (path) {
-                    case "/internal/v1/story-sources/search" -> """
-                            {"evidence":[{"knowledgeDocumentId":"%s","extractionVersion":7,"locator":"page=3;block=b7","excerpt":"story evidence","score":0.9,"provenance":{"documentId":"%s","extractionVersion":7,"pageNumber":3,"sectionPath":["Chapter","Checks"],"bbox":[10,20,100,140],"tableCell":"table-1:r2:c1","locator":"page=3;block=b7"}}]}
-                            """.formatted(storybookId, storybookId);
+                    case "/internal/v1/evidence-candidates/preparation-search" -> """
+                            {"ownerId":"%s","scenarioSourceBundleId":"%s","candidates":[{"chunkId":"%s","documentId":"%s","extractionVersion":7,"documentType":"STORYBOOK","locator":"page=3;block=b7","excerpt":"story evidence","provenance":{"documentId":"%s","extractionVersion":7,"pageNumber":3,"sectionPath":["Chapter","Checks"],"bbox":[10,20,100,140],"tableCell":"table-1:r2:c1","locator":"page=3;block=b7"}}]}
+                            """.formatted(ownerId, bundleId, UUID.randomUUID(), storybookId, storybookId);
                     case "/internal/v1/rule-evidence/search" -> """
                             {"evidence":[{"rulebookId":"%s","chunkId":"%s","locator":"page=3;block=b7","excerpt":"rule evidence","score":0.9,"provenance":{"documentId":"%s","extractionVersion":7,"pageNumber":3,"sectionPath":["Chapter","Checks"],"bbox":[10,20,100,140],"tableCell":"table-1:r2:c1","locator":"page=3;block=b7"}}]}
                             """.formatted(rulebookId, UUID.randomUUID(), rulebookId);

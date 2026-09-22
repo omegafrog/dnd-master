@@ -28,13 +28,23 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final String internalToken;
 
     public CrossContextHttpScenarioSourceExcerptGateway(
             HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper) {
+        this(client, baseUri, timeout, objectMapper, "");
+    }
+
+    public CrossContextHttpScenarioSourceExcerptGateway(
+            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper, String internalToken) {
         this.client = Objects.requireNonNull(client, "client must not be null");
         this.baseUri = Objects.requireNonNull(baseUri, "base uri must not be null");
         this.timeout = Objects.requireNonNull(timeout, "timeout must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper must not be null");
+        if (internalToken == null || internalToken.isBlank()) {
+            throw new IllegalArgumentException("internal token must not be blank");
+        }
+        this.internalToken = internalToken;
     }
 
     @Override
@@ -49,8 +59,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                 .toList();
         List<ResolutionExtractionPort.SourceExcerpt> rulebookExcerpts = loadRulebookEvidence(
                 bundle.ownerPlayerId().value(), rulebookIds);
-        List<ResolutionExtractionPort.SourceExcerpt> scenarioExcerpts = searchStorySources(
-                bundle.ownerPlayerId().value(), documents, RESOLUTION_SOURCE_QUERY);
+        List<ResolutionExtractionPort.SourceExcerpt> scenarioExcerpts = searchStorySources(bundle, documents, RESOLUTION_SOURCE_QUERY);
         if (!documents.isEmpty() && scenarioExcerpts.isEmpty()) {
                 throw new ResolutionExtractionException("published storybook evidence is unavailable");
             }
@@ -66,26 +75,38 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     }
 
     private List<ResolutionExtractionPort.SourceExcerpt> searchStorySources(
-            UUID ownerId, List<DocumentRequest> documents, String situation) {
+            ScenarioSourceBundle bundle, List<DocumentRequest> documents, String situation) {
+        if (documents.isEmpty()) return List.of();
         try {
-            String body = objectMapper.writeValueAsString(new ExcerptRequest(
-                    ownerId, documents, List.of(), situation, MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION));
-            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/story-sources/search"))
+            String body = objectMapper.writeValueAsString(new PreparationSearchRequest(
+                    bundle.ownerPlayerId().value(), bundle.id().value(), documents.stream()
+                    .map(document -> new PreparationScope(document.documentId(), document.extractionVersion(), "STORYBOOK")).toList(),
+                    List.of(), situation, MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION, MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION));
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/evidence-candidates/preparation-search"))
                     .timeout(timeout).header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + ownerId)
+                    .header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new ResolutionExtractionException("source excerpt lookup failed with status " + response.statusCode());
             }
-            StorySourceSearchResponse extracted = objectMapper.readValue(response.body(), StorySourceSearchResponse.class);
-            if (extracted.evidence() == null) return List.of();
-            return extracted.evidence().stream()
+            PreparationSearchResponse extracted = objectMapper.readValue(response.body(), PreparationSearchResponse.class);
+            if (!bundle.ownerPlayerId().value().equals(extracted.ownerId()) || !bundle.id().value().equals(extracted.scenarioSourceBundleId())
+                    || extracted.candidates() == null) {
+                throw new ResolutionExtractionException("preparation evidence response scope does not match its request");
+            }
+            return extracted.candidates().stream()
                     .filter(Objects::nonNull)
                     .limit(MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION)
-                    .map(excerpt -> new ResolutionExtractionPort.SourceExcerpt(
-                            "STORYBOOK", toProvenance(excerpt.knowledgeDocumentId(), excerpt.extractionVersion(),
-                                    excerpt.locator(), excerpt.provenance()), excerpt.excerpt())).toList();
+                    .map(candidate -> {
+                        if (!"STORYBOOK".equals(candidate.documentType()) || documents.stream().noneMatch(document ->
+                                document.documentId().equals(candidate.documentId())
+                                        && document.extractionVersion() == candidate.extractionVersion())) {
+                            throw new ResolutionExtractionException("preparation evidence is outside the selected document scope");
+                        }
+                        return new ResolutionExtractionPort.SourceExcerpt("STORYBOOK", toProvenance(candidate.documentId(),
+                                candidate.extractionVersion(), candidate.locator(), candidate.provenance()), candidate.excerpt());
+                    }).toList();
         } catch (IOException exception) {
             throw new ResolutionExtractionException("source excerpt lookup failed", exception);
         } catch (InterruptedException exception) {
@@ -163,19 +184,15 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         }
     }
 
-    record ExcerptRequest(java.util.UUID ownerId, List<DocumentRequest> documents,
-                          List<String> activeLocators, String situation, Integer limit) {
-        ExcerptRequest(java.util.UUID ownerId, List<DocumentRequest> documents) {
-            this(ownerId, documents, List.of(), "Extract source-grounded resolution procedures.",
-                    MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION);
-        }
-    }
+    record PreparationSearchRequest(UUID ownerId, UUID scenarioSourceBundleId, List<PreparationScope> scope,
+                                    List<String> activeLocators, String query, int denseLimit, int bm25Limit) {}
+    record PreparationScope(UUID documentId, long extractionVersion, String documentType) {}
     record DocumentRequest(java.util.UUID documentId, long extractionVersion) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record StorySourceSearchResponse(List<Excerpt> evidence) {}
+    record PreparationSearchResponse(UUID ownerId, UUID scenarioSourceBundleId, List<PreparationCandidate> candidates) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Excerpt(java.util.UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt,
-            ProvenanceResponse provenance) {}
+    record PreparationCandidate(UUID chunkId, UUID documentId, long extractionVersion, String documentType,
+            String locator, String excerpt, ProvenanceResponse provenance) {}
     record RuleEvidenceRequest(UUID ownerId, List<UUID> rulebookIds, String situation, String queryIntent, int limit) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     record RuleEvidenceResponse(List<RuleEvidenceItem> evidence) {}

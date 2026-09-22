@@ -631,15 +631,16 @@ public class AdventureApiConfiguration {
     com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort scenarioSourceExcerptPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout) {
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout,
+            @Value("${adventure.integration.internal-service-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpScenarioSourceExcerptGateway(
                 HttpClient.newHttpClient(), URI.create(baseUrl),
-                timeout, objectMapper);
+                timeout, objectMapper, internalToken);
     }
 
     com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort scenarioSourceExcerptPort(
             ObjectMapper objectMapper, String baseUrl) {
-        return scenarioSourceExcerptPort(objectMapper, baseUrl, Duration.ofSeconds(120));
+        return scenarioSourceExcerptPort(objectMapper, baseUrl, Duration.ofSeconds(120), "test-internal-token");
     }
 
     @Bean
