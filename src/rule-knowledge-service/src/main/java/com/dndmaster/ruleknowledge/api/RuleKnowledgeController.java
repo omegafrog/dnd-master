@@ -435,7 +435,11 @@ public class RuleKnowledgeController {
     }
 
     @GetMapping("/internal/v1/rulebooks/published-catalog")
-    OwnedRulebooksResponse publishedCatalogRulebooks() {
+    ResponseEntity<?> publishedCatalogRulebooks(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        if (internalToken.isBlank() || !internalToken.equals(token)) {
+            return evidenceSearchError(HttpStatus.UNAUTHORIZED, "RULEBOOK_CATALOG_UNAUTHENTICATED");
+        }
         List<RulebookSummary> summaries = catalogRepository == null
                 ? List.of()
                 : catalogRepository.findAll().stream()
@@ -454,7 +458,7 @@ public class RuleKnowledgeController {
                                 .orElse(null))
                         .filter(java.util.Objects::nonNull)
                         .toList();
-        return new OwnedRulebooksResponse(CATALOG_OWNER, summaries);
+        return ResponseEntity.ok(new OwnedRulebooksResponse(CATALOG_OWNER, summaries));
     }
 
     @GetMapping("/internal/v1/rulebook-indexes")

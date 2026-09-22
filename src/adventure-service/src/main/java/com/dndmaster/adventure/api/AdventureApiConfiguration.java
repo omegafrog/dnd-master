@@ -675,12 +675,14 @@ public class AdventureApiConfiguration {
     @Bean
     KnowledgeDocumentLookupPort knowledgeDocumentLookupPort(
             ObjectMapper objectMapper,
-            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpKnowledgeDocumentLookupGateway(
                 HttpClient.newHttpClient(),
                 URI.create(baseUrl),
                 Duration.ofSeconds(2),
-                objectMapper);
+                objectMapper,
+                internalToken);
     }
 
     @Bean

@@ -20,13 +20,18 @@ public final class CrossContextHttpKnowledgeDocumentLookupGateway implements Kno
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final String internalToken;
 
     public CrossContextHttpKnowledgeDocumentLookupGateway(
-            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper) {
+            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper, String internalToken) {
         this.client = Objects.requireNonNull(client, "client must not be null");
         this.baseUri = Objects.requireNonNull(baseUri, "baseUri must not be null");
         this.timeout = Objects.requireNonNull(timeout, "timeout must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+        if (internalToken == null || internalToken.isBlank()) {
+            throw new IllegalArgumentException("internal token must not be blank");
+        }
+        this.internalToken = internalToken;
     }
 
     @Override
@@ -42,6 +47,7 @@ public final class CrossContextHttpKnowledgeDocumentLookupGateway implements Kno
     private List<KnowledgeDocumentRecord> fetchDocuments(String path) {
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve(path))
                 .timeout(timeout)
+                .header("X-Internal-Token", internalToken)
                 .GET()
                 .build();
         try {

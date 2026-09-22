@@ -85,7 +85,8 @@ class SessionKnowledgeSetPostgresIntegrationTest {
                         HttpClient.newHttpClient(),
                         URI.create(wireMock.baseUrl() + "/"),
                         Duration.ofSeconds(2),
-                        new ObjectMapper()));
+                        new ObjectMapper(),
+                        "internal-token"));
     }
 
     @AfterEach

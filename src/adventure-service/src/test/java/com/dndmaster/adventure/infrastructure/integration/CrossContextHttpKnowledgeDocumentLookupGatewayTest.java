@@ -2,8 +2,10 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentLookupPort;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
@@ -31,7 +33,8 @@ class CrossContextHttpKnowledgeDocumentLookupGatewayTest {
                 HttpClient.newHttpClient(),
                 URI.create(wireMock.baseUrl() + "/"),
                 Duration.ofSeconds(2),
-                new ObjectMapper());
+                new ObjectMapper(),
+                "internal-token");
     }
 
     @AfterEach
@@ -67,6 +70,7 @@ class CrossContextHttpKnowledgeDocumentLookupGatewayTest {
     void fetchesPublishedSharedCatalogDocumentsThroughDedicatedEndpoint() {
         UUID publishedId = UUID.randomUUID();
         wireMock.stubFor(get(urlEqualTo("/internal/v1/rulebooks/published-catalog"))
+                .withHeader("X-Internal-Token", equalTo("internal-token"))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")
@@ -83,5 +87,15 @@ class CrossContextHttpKnowledgeDocumentLookupGatewayTest {
         assertEquals(new KnowledgeDocumentId(publishedId), documents.getFirst().knowledgeDocumentId());
         assertEquals(KnowledgeDocumentStatus.INDEXED, documents.getFirst().status());
         assertEquals(3, documents.getFirst().extractionVersion());
+    }
+
+    @Test
+    void requiresConfiguredInternalToken() {
+        assertThrows(IllegalArgumentException.class, () -> new CrossContextHttpKnowledgeDocumentLookupGateway(
+                HttpClient.newHttpClient(),
+                URI.create(wireMock.baseUrl() + "/"),
+                Duration.ofSeconds(2),
+                new ObjectMapper(),
+                " "));
     }
 }
