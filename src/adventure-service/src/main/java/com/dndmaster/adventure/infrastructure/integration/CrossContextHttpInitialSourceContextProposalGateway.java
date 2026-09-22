@@ -19,13 +19,15 @@ public final class CrossContextHttpInitialSourceContextProposalGateway implement
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final String internalToken;
 
     public CrossContextHttpInitialSourceContextProposalGateway(
-            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper) {
+            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper, String internalToken) {
         this.client = Objects.requireNonNull(client, "client must not be null");
         this.baseUri = Objects.requireNonNull(baseUri, "base uri must not be null");
         this.timeout = Objects.requireNonNull(timeout, "timeout must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper must not be null");
+        this.internalToken = requireInternalToken(internalToken);
     }
 
     @Override
@@ -37,6 +39,7 @@ public final class CrossContextHttpInitialSourceContextProposalGateway implement
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/initial-source-contexts"))
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -55,6 +58,11 @@ public final class CrossContextHttpInitialSourceContextProposalGateway implement
             Thread.currentThread().interrupt();
             throw new IllegalStateException("initial source context proposal interrupted", exception);
         }
+    }
+
+    private static String requireInternalToken(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("internal token must not be blank");
+        return value;
     }
 
     record ProposalRequest(String packageId, List<CandidateRequest> candidates) {}

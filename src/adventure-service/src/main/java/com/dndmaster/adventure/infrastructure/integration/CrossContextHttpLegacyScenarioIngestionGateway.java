@@ -23,13 +23,15 @@ public final class CrossContextHttpLegacyScenarioIngestionGateway implements Leg
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final String internalToken;
 
     public CrossContextHttpLegacyScenarioIngestionGateway(
-            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper) {
+            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper, String internalToken) {
         this.client = Objects.requireNonNull(client, "client must not be null");
         this.baseUri = Objects.requireNonNull(baseUri, "baseUri must not be null");
         this.timeout = Objects.requireNonNull(timeout, "timeout must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+        this.internalToken = requireInternalToken(internalToken);
     }
 
     @Override
@@ -40,6 +42,7 @@ public final class CrossContextHttpLegacyScenarioIngestionGateway implements Leg
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("/api/v1/rulebooks?ownerPlayerId=" + ownerPlayerId.value()))
                     .timeout(timeout)
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -65,6 +68,11 @@ public final class CrossContextHttpLegacyScenarioIngestionGateway implements Leg
             Thread.currentThread().interrupt();
             throw new IllegalStateException("legacy source ingestion interrupted", exception);
         }
+    }
+
+    private static String requireInternalToken(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("internal token must not be blank");
+        return value;
     }
 
     private byte[] multipartBody(String boundary, OwnerPlayerId ownerPlayerId, String originalFilename, byte[] content)

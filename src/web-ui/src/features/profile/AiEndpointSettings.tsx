@@ -11,7 +11,7 @@ type Endpoint = {
   active: boolean
 }
 
-const headers = (session: IdentitySession) => ({ Authorization: `Bearer ${session.playerId}` })
+const headers = (session: IdentitySession) => ({ Authorization: `Bearer ${session.accessToken}` })
 const providerLabel = (provider: Endpoint['provider']) => provider === 'CODEX_CLI' ? 'Codex OAuth' : provider === 'OPENAI_COMPATIBLE' ? 'OpenAI 호환' : 'Ollama'
 
 export function AiEndpointSettings({ session }: { session: IdentitySession }) {

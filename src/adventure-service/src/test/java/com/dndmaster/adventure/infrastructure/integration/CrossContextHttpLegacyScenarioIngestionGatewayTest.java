@@ -1,5 +1,6 @@
 package com.dndmaster.adventure.infrastructure.integration;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.dndmaster.adventure.application.scenario.LegacyScenarioIngestionValidationException;
@@ -29,11 +30,13 @@ import org.junit.jupiter.api.Test;
 class CrossContextHttpLegacyScenarioIngestionGatewayTest {
     @Test
     void treatsValidationFailuresAsRecoverable() {
+        var client = new StubHttpClient(422, "{\"message\":\"validation failed\"}");
         var gateway = new CrossContextHttpLegacyScenarioIngestionGateway(
-                new StubHttpClient(422, "{\"message\":\"validation failed\"}"),
+                client,
                 URI.create("http://127.0.0.1:18083/"),
                 Duration.ofSeconds(1),
-                new ObjectMapper());
+                new ObjectMapper(),
+                "internal-token");
 
         assertThatThrownBy(() -> gateway.ingest(
                 new OwnerPlayerId(java.util.UUID.randomUUID()),
@@ -41,11 +44,13 @@ class CrossContextHttpLegacyScenarioIngestionGatewayTest {
                 "legacy".getBytes()))
                 .isInstanceOf(LegacyScenarioIngestionValidationException.class)
                 .hasMessageContaining("validation failed");
+        assertThat(client.request.headers().firstValue("X-Internal-Token")).contains("internal-token");
     }
 
     private static final class StubHttpClient extends HttpClient {
         private final int statusCode;
         private final String body;
+        private HttpRequest request;
 
         private StubHttpClient(int statusCode, String body) {
             this.statusCode = statusCode;
@@ -104,6 +109,7 @@ class CrossContextHttpLegacyScenarioIngestionGatewayTest {
         @Override
         public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> responseBodyHandler)
                 throws IOException {
+            this.request = request;
             @SuppressWarnings("unchecked")
             T castBody = (T) body;
             return new StubHttpResponse<>(request, statusCode, castBody);

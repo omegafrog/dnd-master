@@ -18,13 +18,15 @@ public final class CrossContextHttpRuleIntentClassificationGateway implements Ru
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final String internalToken;
 
     public CrossContextHttpRuleIntentClassificationGateway(
-            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper) {
+            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper, String internalToken) {
         this.client = Objects.requireNonNull(client, "client must not be null");
         this.baseUri = Objects.requireNonNull(baseUri, "baseUri must not be null");
         this.timeout = Objects.requireNonNull(timeout, "timeout must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+        this.internalToken = requireInternalToken(internalToken);
     }
 
     @Override
@@ -34,6 +36,7 @@ public final class CrossContextHttpRuleIntentClassificationGateway implements Ru
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/intent-classifications"))
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
@@ -48,6 +51,11 @@ public final class CrossContextHttpRuleIntentClassificationGateway implements Ru
             Thread.currentThread().interrupt();
             throw new CrossContextCallException("cross-context intent classification interrupted", exception);
         }
+    }
+
+    private static String requireInternalToken(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("internal token must not be blank");
+        return value;
     }
 
     record IntentClassificationRequest(String question) {}

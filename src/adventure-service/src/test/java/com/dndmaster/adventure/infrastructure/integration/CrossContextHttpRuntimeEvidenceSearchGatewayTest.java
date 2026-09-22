@@ -27,9 +27,10 @@ class CrossContextHttpRuntimeEvidenceSearchGatewayTest {
         UUID rulebookId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
         List<String> requests = new ArrayList<>();
-        try (EvidenceServer server = new EvidenceServer(requests, storybookId, rulebookId)) {
+        List<String> tokens = new ArrayList<>();
+        try (EvidenceServer server = new EvidenceServer(requests, tokens, storybookId, rulebookId)) {
             var gateway = new CrossContextHttpRuntimeEvidenceSearchGateway(
-                    HttpClient.newHttpClient(), server.baseUri(), Duration.ofSeconds(2), new ObjectMapper());
+                    HttpClient.newHttpClient(), server.baseUri(), Duration.ofSeconds(2), new ObjectMapper(), "internal-token");
 
             RuntimeEvidenceSearchRequest base = new RuntimeEvidenceSearchRequest(
                     new AdventureId(UUID.randomUUID()), new OwnerPlayerId(ownerId), new SessionId(UUID.randomUUID()),
@@ -45,17 +46,19 @@ class CrossContextHttpRuntimeEvidenceSearchGatewayTest {
             assertThat(rule.extractionVersion()).isEqualTo(4);
             assertThat(requests).containsExactly(
                     "/internal/v1/story-sources/search", "/internal/v1/rule-evidence/search");
+            assertThat(tokens).containsExactly("internal-token", "internal-token");
         }
     }
 
     private static final class EvidenceServer implements AutoCloseable {
         private final HttpServer server;
 
-        private EvidenceServer(List<String> requests, UUID storybookId, UUID rulebookId) throws Exception {
+        private EvidenceServer(List<String> requests, List<String> tokens, UUID storybookId, UUID rulebookId) throws Exception {
             server = HttpServer.create(new InetSocketAddress(0), 0);
             server.createContext("/", exchange -> {
                 String path = exchange.getRequestURI().getPath();
                 requests.add(path);
+                tokens.add(exchange.getRequestHeaders().getFirst("X-Internal-Token"));
                 String body = path.endsWith("story-sources/search")
                         ? "{\"evidence\":[{\"knowledgeDocumentId\":\"" + storybookId
                                 + "\",\"extractionVersion\":12,\"locator\":\"page:4:block:2\",\"excerpt\":\"지하실에는 거대 쥐가 있습니다.\",\"score\":0.9,\"citationKey\":\"story-rat\",\"provenance\":{\"documentId\":\""

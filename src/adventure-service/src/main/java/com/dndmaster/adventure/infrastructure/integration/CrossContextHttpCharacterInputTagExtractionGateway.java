@@ -21,19 +21,22 @@ public final class CrossContextHttpCharacterInputTagExtractionGateway implements
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final String internalToken;
 
-    public CrossContextHttpCharacterInputTagExtractionGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper) {
+    public CrossContextHttpCharacterInputTagExtractionGateway(HttpClient client, URI baseUri, Duration timeout,
+            ObjectMapper objectMapper, String internalToken) {
         this.client = Objects.requireNonNull(client);
         this.baseUri = Objects.requireNonNull(baseUri);
         this.timeout = Objects.requireNonNull(timeout);
         this.objectMapper = Objects.requireNonNull(objectMapper);
+        this.internalToken = requireInternalToken(internalToken);
     }
 
     @Override public List<CharacterInputTagCandidate> extract(Request request) {
         try {
             String body = objectMapper.writeValueAsString(wireRequest(request));
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/character-input-tags"))
-                    .timeout(timeout).header("Content-Type", "application/json")
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new CharacterInputTagExtractionException("character tag extraction failed with status " + response.statusCode());
             Response parsed = objectMapper.readValue(response.body(), Response.class);
@@ -43,6 +46,11 @@ public final class CrossContextHttpCharacterInputTagExtractionGateway implements
                     .filter(candidate -> grounded(candidate, request.excerpts())).toList();
         } catch (IOException e) { throw new CharacterInputTagExtractionException("character tag extraction failed", e); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new CharacterInputTagExtractionException("character tag extraction interrupted", e); }
+    }
+
+    private static String requireInternalToken(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("internal token must not be blank");
+        return value;
     }
 
     static boolean grounded(CharacterInputTagCandidate candidate, List<SourceExcerpt> excerpts) {

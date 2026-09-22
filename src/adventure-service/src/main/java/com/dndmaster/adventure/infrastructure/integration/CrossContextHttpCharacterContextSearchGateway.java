@@ -15,13 +15,15 @@ public final class CrossContextHttpCharacterContextSearchGateway implements Char
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final String internalToken;
 
     public CrossContextHttpCharacterContextSearchGateway(
-            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper) {
+            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper, String internalToken) {
         this.client = Objects.requireNonNull(client);
         this.baseUri = Objects.requireNonNull(baseUri);
         this.timeout = Objects.requireNonNull(timeout);
         this.objectMapper = Objects.requireNonNull(objectMapper);
+        this.internalToken = requireInternalToken(internalToken);
     }
 
     @Override
@@ -33,7 +35,7 @@ public final class CrossContextHttpCharacterContextSearchGateway implements Char
                             .toList(), request.situation(), request.thresholds(), request.tokenBudget()));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/character-context/search"))
                     .timeout(timeout)
-                    .header("Authorization", "Bearer " + request.ownerId())
+                    .header("X-Internal-Token", internalToken)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
@@ -59,6 +61,11 @@ public final class CrossContextHttpCharacterContextSearchGateway implements Char
             Thread.currentThread().interrupt();
             throw new CharacterContextSearchPort.CharacterContextSearchException("character context search interrupted", exception);
         }
+    }
+
+    private static String requireInternalToken(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("internal token must not be blank");
+        return value;
     }
 
     private static String key(UUID documentId, String documentType, long extractionVersion) {

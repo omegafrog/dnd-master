@@ -142,10 +142,11 @@ class CrossContextHttpIntegrationTest {
                 .willReturn(aResponse().withStatus(200).withBody("{\"queryIntent\":\"STORY\"}")));
 
         var gateway = new CrossContextHttpRuleIntentClassificationGateway(
-                HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new com.fasterxml.jackson.databind.ObjectMapper());
+                HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new com.fasterxml.jackson.databind.ObjectMapper(), "internal-token");
 
         assertEquals(RuleQueryIntent.STORY, gateway.classify("What happened in the tavern?"));
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/internal/v1/gm/intent-classifications"))
+                .withHeader("X-Internal-Token", equalTo("internal-token"))
                 .withRequestBody(equalToJson("{\"question\":\"What happened in the tavern?\"}")));
     }
 

@@ -137,7 +137,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         try {
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve(
                             "api/v1/rulebooks/" + document.knowledgeDocumentId().value() + "/source-preview"))
-                    .timeout(timeout).GET().build();
+                    .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new ResolutionExtractionException("map source preview lookup failed with status " + response.statusCode());

@@ -20,13 +20,15 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final String internalToken;
 
     public CrossContextHttpRuntimeEvidenceSearchGateway(
-            HttpClient httpClient, URI baseUri, Duration timeout, ObjectMapper objectMapper) {
+            HttpClient httpClient, URI baseUri, Duration timeout, ObjectMapper objectMapper, String internalToken) {
         this.httpClient = Objects.requireNonNull(httpClient, "http client must not be null");
         this.baseUri = Objects.requireNonNull(baseUri, "base uri must not be null");
         this.timeout = Objects.requireNonNull(timeout, "timeout must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper must not be null");
+        this.internalToken = requireInternalToken(internalToken);
     }
 
     @Override
@@ -36,7 +38,7 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                 RuleSearchResponse response = post("internal/v1/rule-evidence/search",
                     new RuleSearchRequest(request.ownerPlayerId().value(), request.knowledgeDocumentIds(),
                                 request.action(), ruleQueryIntent(request.actionIntent()), request.limit(), request.sessionId().value(),
-                                request.scenarioPackageId(), request.contextKey(), request.actionIntent()), request.ownerPlayerId().value(), RuleSearchResponse.class);
+                                request.scenarioPackageId(), request.contextKey(), request.actionIntent()), RuleSearchResponse.class);
                 return response.evidence().stream()
                         .map(item -> new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
                                 new KnowledgeDocumentId(item.rulebookId()), extractionVersion(item.provenance(), request, item.rulebookId(), item.locator()),
@@ -48,7 +50,7 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                             .map(id -> new StoryDocument(id, extractionVersion(request, id))).toList(),
                             activeLocators(request), request.action(), request.limit(), request.sessionId().value(),
                             request.scenarioPackageId(), request.contextKey(), request.actionIntent()),
-                    request.ownerPlayerId().value(), StorySearchResponse.class);
+                    StorySearchResponse.class);
             return response.evidence().stream()
                     .map(item -> new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
                             new KnowledgeDocumentId(item.knowledgeDocumentId()), item.extractionVersion(), item.locator(), item.excerpt(),
@@ -87,17 +89,22 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                 ? "RULE" : "MIXED";
     }
 
-    private <T> T post(String path, Object payload, UUID ownerId, Class<T> responseType) throws Exception {
+    private <T> T post(String path, Object payload, Class<T> responseType) throws Exception {
         String body = objectMapper.writeValueAsString(payload);
         HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve(path))
                 .timeout(timeout)
-                .header("Authorization", "Bearer " + ownerId)
+                .header("X-Internal-Token", internalToken)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() / 100 != 2) throw new IllegalStateException("runtime evidence search returned " + response.statusCode());
         return objectMapper.readValue(response.body(), responseType);
+    }
+
+    private static String requireInternalToken(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("internal token must not be blank");
+        return value;
     }
 
     record RuleSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, String queryIntent, int limit,

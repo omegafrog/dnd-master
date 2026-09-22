@@ -3,7 +3,7 @@ import type { IdentitySession } from '../auth/IdentityApi'
 
 type Catalog = { catalogRevisionId: string; edition: 'DND_5E_2014' | 'DND_5E_2024'; displayName: string; rulebookId?: string | null; revisionNumber: number; status: string }
 // Backoffice APIs are scoped by the configured ADMIN player-id allowlist until the shared role claim is introduced.
-const headers = (session: IdentitySession) => ({ Authorization: `Bearer ${session.playerId}` })
+const headers = (session: IdentitySession) => ({ Authorization: `Bearer ${session.accessToken}` })
 
 export function BackofficePage({ session }: { session: IdentitySession }) {
   const [catalog, setCatalog] = useState<Catalog[]>([]); const [message, setMessage] = useState('')

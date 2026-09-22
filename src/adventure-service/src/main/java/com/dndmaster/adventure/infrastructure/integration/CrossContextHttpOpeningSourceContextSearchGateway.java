@@ -30,13 +30,15 @@ public final class CrossContextHttpOpeningSourceContextSearchGateway implements 
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final String internalToken;
 
     public CrossContextHttpOpeningSourceContextSearchGateway(
-            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper) {
+            HttpClient client, URI baseUri, Duration timeout, ObjectMapper objectMapper, String internalToken) {
         this.client = Objects.requireNonNull(client, "client must not be null");
         this.baseUri = Objects.requireNonNull(baseUri, "base uri must not be null");
         this.timeout = Objects.requireNonNull(timeout, "timeout must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "object mapper must not be null");
+        this.internalToken = requireInternalToken(internalToken);
     }
 
     @Override
@@ -54,7 +56,7 @@ public final class CrossContextHttpOpeningSourceContextSearchGateway implements 
                     ownerPlayerId.value(), documents, List.of(), OPENING_QUERY, RESULT_LIMIT));
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/story-sources/search"))
                     .timeout(timeout)
-                    .header("Authorization", "Bearer " + ownerPlayerId.value())
+                    .header("X-Internal-Token", internalToken)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
@@ -75,6 +77,11 @@ public final class CrossContextHttpOpeningSourceContextSearchGateway implements 
             Thread.currentThread().interrupt();
             throw new IllegalStateException("opening source search interrupted", exception);
         }
+    }
+
+    private static String requireInternalToken(String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("internal token must not be blank");
+        return value;
     }
 
     record SearchRequest(UUID ownerId, List<DocumentRequest> documents, List<String> activeLocators,

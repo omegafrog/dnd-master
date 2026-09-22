@@ -12,13 +12,14 @@ import java.time.Duration;
 
 /** Rulebook service authorizes both owner documents and READY shared catalog revisions. */
 public final class CrossContextHttpRulebookOwnershipAdapter implements RulebookOwnershipHttpPort {
-    private final HttpClient client; private final URI baseUrl; private final Duration timeout; private final ObjectMapper mapper;
-    public CrossContextHttpRulebookOwnershipAdapter(HttpClient client, URI baseUrl, Duration timeout, ObjectMapper mapper) { this.client = client; this.baseUrl = baseUrl; this.timeout = timeout; this.mapper = mapper; }
+    private final HttpClient client; private final URI baseUrl; private final Duration timeout; private final ObjectMapper mapper; private final String internalToken;
+    public CrossContextHttpRulebookOwnershipAdapter(HttpClient client, URI baseUrl, Duration timeout, ObjectMapper mapper, String internalToken) { this.client = client; this.baseUrl = baseUrl; this.timeout = timeout; this.mapper = mapper; this.internalToken = requireInternalToken(internalToken); }
     @Override public boolean isOwnedBy(RulebookId rulebookId, OwnerPlayerId owner) {
         try {
             URI uri = baseUrl.resolve("/internal/v1/rulebooks/" + rulebookId.value() + "/ownership?playerId=" + owner.value());
-            var response = client.send(HttpRequest.newBuilder(uri).timeout(timeout).GET().build(), HttpResponse.BodyHandlers.ofString());
+            var response = client.send(HttpRequest.newBuilder(uri).timeout(timeout).header("X-Internal-Token", internalToken).GET().build(), HttpResponse.BodyHandlers.ofString());
             return response.statusCode() == 200 && mapper.readTree(response.body()).path("owned").asBoolean(false);
         } catch (Exception ignored) { return false; }
     }
+    private static String requireInternalToken(String value) { if (value == null || value.isBlank()) throw new IllegalArgumentException("internal token must not be blank"); return value; }
 }

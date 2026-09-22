@@ -551,12 +551,14 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.scenario.LegacyScenarioIngestionPort legacyScenarioIngestionPort(
             ObjectMapper objectMapper,
-            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpLegacyScenarioIngestionGateway(
                 HttpClient.newHttpClient(),
                 URI.create(baseUrl),
                 Duration.ofSeconds(15),
-                objectMapper);
+                objectMapper,
+                internalToken);
     }
 
     @Bean
@@ -602,25 +604,28 @@ public class AdventureApiConfiguration {
     com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort resolutionExtractionPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout) {
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpResolutionExtractionGateway(
                 HttpClient.newHttpClient(),
                 URI.create(baseUrl),
                 timeout,
-                objectMapper);
+                objectMapper,
+                internalToken);
     }
 
     @Bean
     com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterInputTagExtractionPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout) {
-        return new CrossContextHttpCharacterInputTagExtractionGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper);
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new CrossContextHttpCharacterInputTagExtractionGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken);
     }
 
     com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort resolutionExtractionPort(
             ObjectMapper objectMapper, String baseUrl) {
-        return resolutionExtractionPort(objectMapper, baseUrl, Duration.ofSeconds(120));
+        return resolutionExtractionPort(objectMapper, baseUrl, Duration.ofSeconds(120), "test-internal-token");
     }
 
     @Bean
@@ -628,7 +633,7 @@ public class AdventureApiConfiguration {
             ObjectMapper objectMapper,
             @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout,
-            @Value("${adventure.integration.internal-service-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpScenarioSourceExcerptGateway(
                 HttpClient.newHttpClient(), URI.create(baseUrl),
                 timeout, objectMapper, internalToken);
@@ -643,9 +648,10 @@ public class AdventureApiConfiguration {
     com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearchPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout) {
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpCharacterContextSearchGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper);
+                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken);
     }
 
     @Bean
@@ -688,12 +694,14 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.auth.PlayerSessionLookupPort playerSessionLookupPort(
             ObjectMapper objectMapper,
-            @Value("${adventure.integration.identity-access.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+            @Value("${adventure.integration.identity-access.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpPlayerSessionLookupGateway(
                 HttpClient.newHttpClient(),
                 URI.create(baseUrl),
                 Duration.ofSeconds(2),
-                objectMapper);
+                objectMapper,
+                internalToken);
     }
 
     @Bean
@@ -714,12 +722,14 @@ public class AdventureApiConfiguration {
     @Bean
     RuleIntentClassificationPort ruleIntentClassificationPort(
             ObjectMapper objectMapper,
-            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpRuleIntentClassificationGateway(
                 HttpClient.newHttpClient(),
                 URI.create(baseUrl),
                 Duration.ofSeconds(2),
-                objectMapper);
+                objectMapper,
+                internalToken);
     }
 
     @Bean
@@ -758,12 +768,14 @@ public class AdventureApiConfiguration {
     @Bean
     InitialSourceContextProposalPort initialSourceContextProposalPort(
             ObjectMapper objectMapper,
-            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpInitialSourceContextProposalGateway(
                 HttpClient.newHttpClient(),
                 URI.create(baseUrl),
                 Duration.ofSeconds(2),
-                objectMapper);
+                objectMapper,
+                internalToken);
     }
 
     @Bean
@@ -795,9 +807,10 @@ public class AdventureApiConfiguration {
     RuntimeEvidenceSearchPort runtimeEvidenceSearchPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds) {
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpRuntimeEvidenceSearchGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }
 
     @Bean
@@ -1312,9 +1325,10 @@ public class AdventureApiConfiguration {
     RulebookOwnershipHttpPort rulebookOwnershipHttpPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds) {
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookOwnershipAdapter(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }
 
     @Bean
