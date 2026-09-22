@@ -1,6 +1,7 @@
 package com.dndmaster.ruleknowledge.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -30,8 +31,21 @@ import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.graphics.image.LosslessFactory;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 
 class RuleKnowledgeAssetControllerTest {
+    @Test
+    void rejects_missing_or_wrong_internal_tokens_before_reading_assets() {
+        var registrations = mock(RulebookRegistrationRepository.class);
+        var storage = mock(RulebookFileStorage.class);
+        var controller = new RuleKnowledgeAssetController(registrations, storage, "token");
+
+        assertEquals(401, assertThrows(ResponseStatusException.class,
+                () -> controller.asset(UUID.randomUUID(), "page 1", null)).getStatusCode().value());
+        assertEquals(401, assertThrows(ResponseStatusException.class,
+                () -> controller.asset(UUID.randomUUID(), "page 1", "wrong")).getStatusCode().value());
+    }
+
     @Test
     void rendersPdfAssetWhenLegacyRegistrationFilenameDoesNotHavePdfExtension() throws Exception {
         RulebookId id = RulebookId.generate();

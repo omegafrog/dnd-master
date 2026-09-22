@@ -16,6 +16,7 @@ import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicat
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
+import com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository;
 import com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus;
 import com.dndmaster.ruleknowledge.domain.catalog.RulebookEdition;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
@@ -260,6 +261,28 @@ class RuleKnowledgeRetrievalAuthorizationTest {
     }
 
     @Test
+    void internal_indexes_and_ownership_routes_require_the_internal_token() throws Exception {
+        UUID id = UUID.randomUUID();
+        MockMvc mockMvc = controllerWith(registration(id, OWNER, ProcessingStatus.INDEXED, DocumentType.STORYBOOK));
+
+        mockMvc.perform(get("/internal/v1/rulebook-indexes").param("ownerId", OWNER.toString()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/internal/v1/rulebook-indexes").param("ownerId", OWNER.toString())
+                        .header("X-Internal-Token", "wrong-token"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/internal/v1/rulebook-indexes").param("ownerId", OWNER.toString())
+                        .header("X-Internal-Token", "internal-token"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/internal/v1/rulebooks/{id}/ownership", id)
+                        .param("playerId", OWNER.toString()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/internal/v1/rulebooks/{id}/ownership", id)
+                        .param("playerId", OWNER.toString()).header("X-Internal-Token", "internal-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.owned").value(true));
+    }
+
+    @Test
     void rejectsUnauthenticatedPublishedCatalogLookup() throws Exception {
         CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
         RuleKnowledgeController controller = new RuleKnowledgeController(
@@ -289,6 +312,23 @@ class RuleKnowledgeRetrievalAuthorizationTest {
                         .header("X-Internal-Token", "wrong-token"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("RULEBOOK_CATALOG_UNAUTHENTICATED"));
+    }
+
+    @Test
+    void game_system_definition_routes_require_the_internal_token() throws Exception {
+        RuleKnowledgeController controller = new RuleKnowledgeController(
+                mock(RulebookPipelineApplicationService.class), mock(RulebookRegistrationRepository.class),
+                mock(RuleEvidenceSearchApplicationService.class), storySearch(), null, null,
+                new com.fasterxml.jackson.databind.ObjectMapper(), mock(GameSystemDefinitionRepository.class), "internal-token");
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
+                .build();
+
+        mockMvc.perform(get("/internal/v1/rulebooks/{id}/game-system-definition", UUID.randomUUID()))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(post("/internal/v1/rulebooks/{id}/game-system-definition", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"version\":1,\"definitionJson\":\"{}\"}"))
+                .andExpect(status().isUnauthorized());
     }
 
     private static MockMvc controllerWith(StoredRulebookRegistration registration) {

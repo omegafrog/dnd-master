@@ -27,7 +27,7 @@ public final class RagDevelopmentResetController {
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody ResetRequest request) {
         if (internalToken.isBlank() || !internalToken.equals(token)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid internal token");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid internal token");
         }
         try {
             DevelopmentRagResetService.ResetResult result = resetService.reset(request == null ? null : request.confirmation());
