@@ -31,7 +31,16 @@ public final class CrossContextHttpKnowledgeDocumentLookupGateway implements Kno
 
     @Override
     public List<KnowledgeDocumentRecord> findOwnedDocuments(UUID ownerPlayerId) {
-        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/rulebooks?ownerId=" + ownerPlayerId))
+        return fetchDocuments("internal/v1/rulebooks?ownerId=" + ownerPlayerId);
+    }
+
+    @Override
+    public List<KnowledgeDocumentRecord> findPublishedSharedCatalogDocuments() {
+        return fetchDocuments("internal/v1/rulebooks/published-catalog");
+    }
+
+    private List<KnowledgeDocumentRecord> fetchDocuments(String path) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve(path))
                 .timeout(timeout)
                 .GET()
                 .build();

@@ -3,6 +3,8 @@ package com.dndmaster.ruleknowledge.api;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -31,6 +33,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class RuleKnowledgeRetrievalAuthorizationTest {
     private static final UUID OWNER = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID FOREIGN = UUID.fromString("22222222-2222-2222-2222-222222222222");
+    private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
 
     @Test
     void rejects_foreign_rulebook_ids() throws Exception {
@@ -110,6 +113,36 @@ class RuleKnowledgeRetrievalAuthorizationTest {
                         .header("Authorization", "Bearer " + OWNER).contentType(MediaType.APPLICATION_JSON)
                         .content(request(catalogRulebook)))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void published_catalog_endpoint_exposes_only_ready_published_rulebooks() throws Exception {
+        UUID published = UUID.randomUUID();
+        UUID unpublished = UUID.randomUUID();
+        CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
+        when(catalog.findAll()).thenReturn(List.of(
+                new CatalogRulebookRevision(UUID.randomUUID(), RulebookEdition.DND_5E_2014, "Published", published, 1,
+                        CatalogRevisionStatus.READY, true, null, Instant.now(), Instant.now()),
+                new CatalogRulebookRevision(UUID.randomUUID(), RulebookEdition.DND_5E_2014, "Unpublished", unpublished, 1,
+                        CatalogRevisionStatus.READY, false, null, Instant.now(), Instant.now())));
+        RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
+        when(registrations.findById(any())).thenAnswer(invocation -> {
+            UUID id = ((RulebookId) invocation.getArgument(0)).value();
+            return java.util.Optional.of(registration(id, CATALOG_OWNER, ProcessingStatus.INDEXED, DocumentType.RULEBOOK));
+        });
+        RuleKnowledgeController controller = new RuleKnowledgeController(
+                mock(RulebookPipelineApplicationService.class), registrations,
+                mock(RuleEvidenceSearchApplicationService.class), storySearch(), null, null,
+                new com.fasterxml.jackson.databind.ObjectMapper(), null, "", catalog);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
+                .build();
+
+        mockMvc.perform(get("/internal/v1/rulebooks/published-catalog"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownerId").value(CATALOG_OWNER.toString()))
+                .andExpect(jsonPath("$.rulebooks.length()").value(1))
+                .andExpect(jsonPath("$.rulebooks[0].knowledgeDocumentId").value(published.toString()));
     }
 
     private static MockMvc controllerWith(StoredRulebookRegistration registration) {

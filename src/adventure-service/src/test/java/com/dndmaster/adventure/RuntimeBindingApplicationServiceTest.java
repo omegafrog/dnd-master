@@ -151,21 +151,63 @@ class RuntimeBindingApplicationServiceTest {
         KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioPackage scenarioPackage = scenarioPackage(bundleId, rulebookId, storyId, "page:1:opening");
 
+        KnowledgeDocumentLookupPort lookup = new KnowledgeDocumentLookupPort() {
+            @Override
+            public List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> findOwnedDocuments(UUID lookupOwner) {
+                return lookupOwner.equals(owner.value())
+                        ? List.of()
+                        : List.of(new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                                rulebookId, KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1));
+            }
+
+            @Override
+            public List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> findPublishedSharedCatalogDocuments() {
+                return List.of(new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                        rulebookId, KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1));
+            }
+        };
         RuntimeBindingApplicationService service = new RuntimeBindingApplicationService(
                 new InMemoryAdventureRepository(adventure),
                 new InMemoryBundleRepository(bundleId, owner),
                 new InMemoryPackageRepository(scenarioPackage),
                 new InMemoryBindingRepository(),
                 (proposalPackage, candidates) -> new InitialSourceContextProposalPort.InitialSourceContextProposalResult("CLEAR", candidates),
-                lookupOwner -> lookupOwner.equals(owner.value()) || lookupOwner.equals(SHARED_CATALOG_OWNER)
-                        ? List.of(new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
-                        rulebookId, KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1))
-                        : List.of());
+                lookup);
 
         RuntimeBinding binding = service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
                 adventure.id(), owner, scenarioPackage.packageId(), List.of(rulebookId.value()), "ollama", List.of("search")));
 
         assertEquals(PlayabilityStatus.PLAYABLE, binding.playabilityReport().status());
+    }
+
+    @Test
+    void rejectsUnpublishedSharedOwnerRegistrationAtRuntimeStart() {
+        ScenarioBundleId bundleId = ScenarioBundleId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(bundleId, rulebookId, storyId, "page:1:opening");
+
+        KnowledgeDocumentLookupPort lookup = new KnowledgeDocumentLookupPort() {
+            @Override
+            public List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> findOwnedDocuments(UUID lookupOwner) {
+                return lookupOwner.equals(SHARED_CATALOG_OWNER)
+                        ? List.of(new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                                rulebookId, KnowledgeDocumentStatus.INDEXED, "unpublished.pdf", "RULEBOOK", 1))
+                        : List.of();
+            }
+        };
+        RuntimeBindingApplicationService service = new RuntimeBindingApplicationService(
+                new InMemoryAdventureRepository(adventure),
+                new InMemoryBundleRepository(bundleId, owner),
+                new InMemoryPackageRepository(scenarioPackage),
+                new InMemoryBindingRepository(),
+                (proposalPackage, candidates) -> new InitialSourceContextProposalPort.InitialSourceContextProposalResult("CLEAR", candidates),
+                lookup);
+
+        assertThrows(IllegalStateException.class, () -> service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
+                adventure.id(), owner, scenarioPackage.packageId(), List.of(rulebookId.value()), "ollama", List.of("search"))));
     }
 
     @Test

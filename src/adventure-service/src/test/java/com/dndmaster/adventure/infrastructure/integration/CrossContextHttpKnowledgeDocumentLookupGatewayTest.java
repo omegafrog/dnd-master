@@ -62,4 +62,26 @@ class CrossContextHttpKnowledgeDocumentLookupGatewayTest {
         assertEquals(KnowledgeDocumentStatus.NEEDS_REVIEW, documents.getFirst().status());
         assertEquals(KnowledgeDocumentStatus.INDEXED, documents.get(1).status());
     }
+
+    @Test
+    void fetchesPublishedSharedCatalogDocumentsThroughDedicatedEndpoint() {
+        UUID publishedId = UUID.randomUUID();
+        wireMock.stubFor(get(urlEqualTo("/internal/v1/rulebooks/published-catalog"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withHeader("Content-Type", "application/json")
+                        .withBody("""
+                                {"ownerId":"00000000-0000-0000-0000-000000000005","rulebooks":[
+                                  {"knowledgeDocumentId":"%s","status":"INDEXED","documentType":"RULEBOOK","originalFilename":"published.pdf","extractionVersion":3}
+                                ]}
+                                """.formatted(publishedId))));
+
+        List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> documents =
+                gateway.findPublishedSharedCatalogDocuments();
+
+        assertEquals(1, documents.size());
+        assertEquals(new KnowledgeDocumentId(publishedId), documents.getFirst().knowledgeDocumentId());
+        assertEquals(KnowledgeDocumentStatus.INDEXED, documents.getFirst().status());
+        assertEquals(3, documents.getFirst().extractionVersion());
+    }
 }

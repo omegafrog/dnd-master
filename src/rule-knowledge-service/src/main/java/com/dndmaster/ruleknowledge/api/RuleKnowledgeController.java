@@ -434,6 +434,29 @@ public class RuleKnowledgeController {
         return new OwnedRulebooksResponse(ownerId, summaries);
     }
 
+    @GetMapping("/internal/v1/rulebooks/published-catalog")
+    OwnedRulebooksResponse publishedCatalogRulebooks() {
+        List<RulebookSummary> summaries = catalogRepository == null
+                ? List.of()
+                : catalogRepository.findAll().stream()
+                        .filter(item -> item.status() == com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus.READY
+                                && item.published() && item.rulebookId() != null)
+                        .map(item -> registrationRepository.findById(new RulebookId(item.rulebookId()))
+                                .filter(registration -> registration.processingStatus() == ProcessingStatus.INDEXED
+                                        && registration.documentType() == DocumentType.RULEBOOK
+                                        && registration.version() > 0)
+                                .map(registration -> new RulebookSummary(
+                                        registration.rulebookId().value(), registration.rulebookId().value(),
+                                        registration.processingStatus().name(), registration.format().name(),
+                                        registration.documentType(), registration.originalFilename(), registration.failureCode(),
+                                        registration.version(), warningsFor(registration), progressFor(registration),
+                                        reviewQuestionsFor(registration), registration.preprocessingPages()))
+                                .orElse(null))
+                        .filter(java.util.Objects::nonNull)
+                        .toList();
+        return new OwnedRulebooksResponse(CATALOG_OWNER, summaries);
+    }
+
     @GetMapping("/internal/v1/rulebook-indexes")
     OwnedIndexesResponse ownedIndexes(@RequestParam UUID ownerId) {
         return new OwnedIndexesResponse(ownerId, List.of());

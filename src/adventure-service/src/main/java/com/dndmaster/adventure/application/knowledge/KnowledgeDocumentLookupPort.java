@@ -8,6 +8,11 @@ import java.util.List;
 public interface KnowledgeDocumentLookupPort {
     List<KnowledgeDocumentRecord> findOwnedDocuments(UUID ownerPlayerId);
 
+    /** Returns only rulebooks currently published in the shared catalog. */
+    default List<KnowledgeDocumentRecord> findPublishedSharedCatalogDocuments() {
+        return List.of();
+    }
+
     record KnowledgeDocumentRecord(
             KnowledgeDocumentId knowledgeDocumentId,
             KnowledgeDocumentStatus status,

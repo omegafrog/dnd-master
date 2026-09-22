@@ -13,7 +13,6 @@ import java.util.Objects;
 import java.util.UUID;
 
 public final class RuntimeBindingApplicationService {
-    private static final UUID SHARED_CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
     private final AdventureRepository adventureRepository;
     private final ScenarioBundleRepository bundleRepository;
     private final ScenarioPackageRepository scenarioPackageRepository;
@@ -394,9 +393,9 @@ public final class RuntimeBindingApplicationService {
     private void validateRulebookAccess(OwnerPlayerId ownerPlayerId, List<UUID> rulebookIds) {
         List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> ownedDocuments = new ArrayList<>(
                 knowledgeDocumentLookupPort.findOwnedDocuments(ownerPlayerId.value()));
-        // Published catalog rulebooks are shared reference data. They are valid
-        // runtime inputs even though they are not copied into the player's documents.
-        ownedDocuments.addAll(knowledgeDocumentLookupPort.findOwnedDocuments(SHARED_CATALOG_OWNER));
+        // Shared catalog membership is an authorization fact, not an owner identity.
+        // The dedicated lookup excludes registrations that have not been published.
+        ownedDocuments.addAll(knowledgeDocumentLookupPort.findPublishedSharedCatalogDocuments());
         List<UUID> ownedRulebookIds = ownedDocuments.stream().map(record -> record.knowledgeDocumentId().value()).toList();
         if (rulebookIds == null || rulebookIds.isEmpty()) {
             throw new IllegalStateException("rulebook knowledge set is missing");
