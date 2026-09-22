@@ -71,7 +71,8 @@ class TransactionBoundaryIntegrationTest {
         try (Connection connection = connection(); var statement = connection.createStatement()) {
             try (var rows = statement.executeQuery("SELECT count(*) FROM combat_operation_checkpoint")) {
                 assertTrue(rows.next());
-                assertEquals(6, rows.getInt(1));
+                // The final checkpoint records the separately committed outcome application.
+                assertEquals(7, rows.getInt(1));
             }
             try (var rows = statement.executeQuery("""
                     SELECT character_verified, dice_total, movement_completed, ai_state_controlled, judgment
