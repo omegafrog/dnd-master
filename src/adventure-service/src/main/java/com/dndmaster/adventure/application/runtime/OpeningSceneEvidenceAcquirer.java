@@ -10,6 +10,7 @@ import com.dndmaster.adventure.evidence.EvidenceSearchScope;
 import com.dndmaster.adventure.evidence.EvidenceSufficiencyPolicy;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -38,7 +39,11 @@ public final class OpeningSceneEvidenceAcquirer {
                         document.knowledgeDocumentId().value(), document.extractionVersion(), document.documentType()))
                 .toList();
         if (documents.isEmpty()) {
-            return insufficient(scenarioPackage, "the selected scenario package has no STORYBOOK opening source");
+            // A Rulebook-Only Bundle is allowed to use its Adventure Brief and
+            // Adventure Story Plan for opening generation. It has no source
+            // document for the common evidence search, but this is not a
+            // failed evidence decision.
+            return Result.rulebookOnly(scenarioPackage.packageId());
         }
 
         EvidenceSearchScope scope = new EvidenceSearchScope(
@@ -46,37 +51,46 @@ public final class OpeningSceneEvidenceAcquirer {
                 documents, List.of());
         var acquisition = acquisitionService.acquire(new EvidenceAcquisitionRequest(
                 POLICY.policyId(), OPENING_QUERY, List.of(), scope));
-        if (!acquisition.decision().sufficient()) {
-            return insufficient(scenarioPackage, acquisition.decision().missing());
-        }
-
         LinkedHashMap<UUID, EvidenceCandidate> candidates = new LinkedHashMap<>();
         acquisition.candidates().forEach(candidate -> candidates.put(candidate.id(), candidate));
         List<EvidenceCandidate> selected = acquisition.decision().selectedEvidenceIds().stream()
                 .map(candidates::get)
                 .filter(Objects::nonNull)
                 .toList();
-        if (selected.isEmpty()) {
-            return insufficient(scenarioPackage, "the opening sufficiency decision selected no evidence");
+        Map<UUID, String> selectionReasons = acquisition.decision().selectionReasons();
+        if (!acquisition.decision().sufficient()) {
+            return new Result(scenarioPackage.packageId(), false, selected, selectionReasons,
+                    acquisition.decision().missing(), POLICY.finalInsufficiency(), false);
         }
-        return new Result(scenarioPackage.packageId(), true, selected, "",
-                POLICY.finalInsufficiency());
-    }
-
-    private static Result insufficient(ScenarioPackage scenarioPackage, String missing) {
-        return new Result(scenarioPackage.packageId(), false, List.of(), missing,
-                POLICY.finalInsufficiency());
+        if (selected.isEmpty()) {
+            return new Result(scenarioPackage.packageId(), false, List.of(), Map.of(),
+                    "the opening sufficiency decision selected no evidence", POLICY.finalInsufficiency(), false);
+        }
+        return new Result(scenarioPackage.packageId(), true, selected, selectionReasons, "",
+                POLICY.finalInsufficiency(), false);
     }
 
     public record Result(UUID scenarioPackageId, boolean sufficient, List<EvidenceCandidate> selectedEvidence,
-                         String missing, EvidenceSufficiencyPolicy.FinalInsufficiency finalInsufficiency) {
+                         Map<UUID, String> selectionReasons, String missing,
+                         EvidenceSufficiencyPolicy.FinalInsufficiency finalInsufficiency, boolean rulebookOnlyGenerationAllowed) {
         public Result {
             Objects.requireNonNull(scenarioPackageId, "scenario package id must not be null");
             selectedEvidence = List.copyOf(Objects.requireNonNull(selectedEvidence, "selected evidence must not be null"));
+            selectionReasons = Map.copyOf(Objects.requireNonNull(selectionReasons, "selection reasons must not be null"));
             missing = missing == null ? "" : missing.trim();
             Objects.requireNonNull(finalInsufficiency, "final insufficiency must not be null");
-            if (sufficient && selectedEvidence.isEmpty()) throw new IllegalArgumentException("sufficient opening result requires evidence");
+            if (!selectionReasons.keySet().equals(selectedEvidence.stream().map(EvidenceCandidate::id).collect(java.util.stream.Collectors.toSet()))) {
+                throw new IllegalArgumentException("selection reasons must match selected opening evidence");
+            }
+            if (sufficient && selectedEvidence.isEmpty() && !rulebookOnlyGenerationAllowed) {
+                throw new IllegalArgumentException("sufficient opening result requires evidence");
+            }
             if (!sufficient && missing.isBlank()) throw new IllegalArgumentException("insufficient opening result requires missing information");
+        }
+
+        public static Result rulebookOnly(UUID scenarioPackageId) {
+            return new Result(scenarioPackageId, true, List.of(), Map.of(), "",
+                    EvidenceSufficiencyPolicy.FinalInsufficiency.OPENING_PREPARATION_FAILED, true);
         }
     }
 }

@@ -449,14 +449,15 @@ public class RuleKnowledgeController {
 
     @PostMapping("/internal/v1/evidence-candidates/search")
     ResponseEntity<?> searchEvidenceCandidates(
-            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalServiceToken,
             @RequestBody UnifiedEvidenceCandidateSearchRequest request) {
         try {
             if (hybridEvidenceSearchService == null) {
                 return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
             }
-            UUID authenticatedOwner = authenticatedPlayerId(authorization);
-            requireOwner(authenticatedOwner, request.ownerId());
+            if (internalToken.isBlank() || !internalToken.equals(internalServiceToken)) {
+                return evidenceSearchError(HttpStatus.UNAUTHORIZED, "EVIDENCE_SEARCH_UNAUTHENTICATED");
+            }
             if (request.sessionId() == null || request.scenarioPackageId() == null || request.stageKey() == null
                     || request.stageKey().isBlank() || request.query() == null || request.query().isBlank()
                     || request.scope() == null || request.scope().isEmpty()) {

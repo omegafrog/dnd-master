@@ -77,10 +77,33 @@ class OpeningSceneEvidenceAcquirerTest {
 
         assertFalse(result.sufficient());
         assertEquals(3, searches.get());
-        assertTrue(result.selectedEvidence().isEmpty());
+        assertEquals(List.of(candidate), result.selectedEvidence());
+        assertEquals(Map.of(candidate.id(), "does not establish a playable opening"), result.selectionReasons());
         assertEquals(EvidenceSufficiencyPolicy.FinalInsufficiency.OPENING_PREPARATION_FAILED,
                 result.finalInsufficiency());
         assertEquals("the first playable location is missing", result.missing());
+    }
+
+    @Test
+    void allows_rulebook_only_generation_without_storybook_evidence() {
+        ScenarioPackage rulebookOnly = ScenarioPackage.publish(
+                ScenarioBundleId.generate(), 1, "rulebook-only", List.of(), List.of(),
+                new ScenarioCompilationReport(
+                        com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE, List.of()));
+
+        var result = new OpeningSceneEvidenceAcquirer(nullSafeAcquisition()).acquire(
+                new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), rulebookOnly);
+
+        assertTrue(result.sufficient());
+        assertTrue(result.selectedEvidence().isEmpty());
+        assertTrue(result.rulebookOnlyGenerationAllowed());
+    }
+
+    private static EvidenceAcquisitionApplicationService nullSafeAcquisition() {
+        EvidenceCandidate candidate = new EvidenceCandidate(UUID.randomUUID(), "doc", "STORYBOOK", "page:1", "unused");
+        return new EvidenceAcquisitionApplicationService(
+                request -> List.of(candidate), request -> List.of(candidate.id()),
+                request -> SufficiencyDecision.sufficient(List.of(candidate.id()), Map.of(candidate.id(), "unused")));
     }
 
     private static ScenarioPackage scenarioPackage(KnowledgeDocumentId storybook) {

@@ -49,10 +49,10 @@ class UnifiedEvidenceCandidateSearchControllerTest {
                 new KnowledgeDocumentId(documentId), new ChunkId(UUID.randomUUID()), 1, DocumentType.STORYBOOK,
                 "page:2", "A hidden passage", new SourceProvenance(2, List.of("Chapter 1"), List.of(), null, "page:2"),
                 1, 2, 0.032))));
-        MockMvc mockMvc = controller(registration(documentId, ProcessingStatus.INDEXED), hybrid);
+        MockMvc mockMvc = controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid);
 
         mockMvc.perform(post("/internal/v1/evidence-candidates/search")
-                        .header("Authorization", "Bearer " + OWNER).contentType(MediaType.APPLICATION_JSON)
+                        .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
                         .content(request(documentId, 5, 7)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ownerId").value(OWNER.toString()))
@@ -77,8 +77,8 @@ class UnifiedEvidenceCandidateSearchControllerTest {
         UUID documentId = UUID.randomUUID();
         HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
 
-        controller(registration(documentId, ProcessingStatus.INDEXED), hybrid).perform(post("/internal/v1/evidence-candidates/search")
-                        .header("Authorization", "Bearer " + OWNER).contentType(MediaType.APPLICATION_JSON)
+        controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid).perform(post("/internal/v1/evidence-candidates/search")
+                        .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
                         .content(request(documentId, 0, 7)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("EVIDENCE_SEARCH_INVALID_REQUEST"));
@@ -163,12 +163,27 @@ class UnifiedEvidenceCandidateSearchControllerTest {
     }
 
     @Test
+    void rejects_player_bearer_without_the_internal_service_token() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
+
+        controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid)
+                .perform(post("/internal/v1/evidence-candidates/search")
+                        .header("Authorization", "Bearer " + OWNER)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request(documentId, 5, 7)))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("EVIDENCE_SEARCH_UNAUTHENTICATED"));
+        org.mockito.Mockito.verifyNoInteractions(hybrid);
+    }
+
+    @Test
     void rejectsForeignDocumentScopeWithStableCode() throws Exception {
         UUID documentId = UUID.randomUUID();
         HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
 
-        controller(registration(documentId, ProcessingStatus.INDEXED, UUID.randomUUID()), hybrid)
-                .perform(post("/internal/v1/evidence-candidates/search").header("Authorization", "Bearer " + OWNER)
+        controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED, UUID.randomUUID()), hybrid)
+                .perform(post("/internal/v1/evidence-candidates/search").header("X-Internal-Token", "internal-token")
                         .contentType(MediaType.APPLICATION_JSON).content(request(documentId, 5, 7)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("EVIDENCE_SEARCH_SCOPE_FORBIDDEN"));
@@ -186,8 +201,8 @@ class UnifiedEvidenceCandidateSearchControllerTest {
         when(catalog.findAll()).thenReturn(List.of(new CatalogRulebookRevision(UUID.randomUUID(), RulebookEdition.DND_5E_2014,
                 "공개 룰북", documentId, 1, CatalogRevisionStatus.READY, true, null, Instant.now(), Instant.now())));
 
-        controller(registrations, catalog, hybrid).perform(post("/internal/v1/evidence-candidates/search")
-                        .header("Authorization", "Bearer " + OWNER).contentType(MediaType.APPLICATION_JSON)
+        controllerWithInternalToken(registrations, catalog, hybrid).perform(post("/internal/v1/evidence-candidates/search")
+                        .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
                         .content(rulebookRequest(documentId)))
                 .andExpect(status().isOk());
         verify(hybrid).search(any());
@@ -203,8 +218,8 @@ class UnifiedEvidenceCandidateSearchControllerTest {
         UUID documentId = UUID.randomUUID();
         HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
 
-        controller(registration(documentId, ProcessingStatus.INDEXED), hybrid)
-                .perform(post("/internal/v1/evidence-candidates/search").header("Authorization", "Bearer " + OWNER)
+        controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid)
+                .perform(post("/internal/v1/evidence-candidates/search").header("X-Internal-Token", "internal-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request(documentId, 5, 7).replace("[\"page:1\"]", "[\"page:1\",\"page:1\"]")))
                 .andExpect(status().isBadRequest())
@@ -218,8 +233,8 @@ class UnifiedEvidenceCandidateSearchControllerTest {
         HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
         when(hybrid.search(any())).thenThrow(new com.dndmaster.ruleknowledge.application.search.EvidenceSearchUnavailableException(new IllegalStateException("down")));
 
-        controller(registration(documentId, ProcessingStatus.INDEXED), hybrid)
-                .perform(post("/internal/v1/evidence-candidates/search").header("Authorization", "Bearer " + OWNER)
+        controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid)
+                .perform(post("/internal/v1/evidence-candidates/search").header("X-Internal-Token", "internal-token")
                         .contentType(MediaType.APPLICATION_JSON).content(request(documentId, 5, 7)))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("EVIDENCE_SEARCH_UNAVAILABLE"));

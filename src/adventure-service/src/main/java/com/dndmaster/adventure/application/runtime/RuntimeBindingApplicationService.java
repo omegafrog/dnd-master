@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 public final class RuntimeBindingApplicationService {
+    private static final UUID SHARED_CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
     private final AdventureRepository adventureRepository;
     private final ScenarioBundleRepository bundleRepository;
     private final ScenarioPackageRepository scenarioPackageRepository;
@@ -76,6 +77,16 @@ public final class RuntimeBindingApplicationService {
             GameSystemDefinitionPort gameSystemDefinitionPort, OpeningSceneEvidenceAcquirer openingSceneEvidenceAcquirer) {
         this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
                 knowledgeDocumentLookupPort, gameSystemDefinitionPort, true, true,
+                (ownerPlayerId, scenarioPackage) -> List.of(), openingSceneEvidenceAcquirer);
+    }
+
+    public RuntimeBindingApplicationService(
+            AdventureRepository adventureRepository, ScenarioBundleRepository bundleRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeBindingRepository bindingRepository,
+            InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
+            OpeningSceneEvidenceAcquirer openingSceneEvidenceAcquirer) {
+        this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
+                knowledgeDocumentLookupPort, sessionId -> java.util.Optional.empty(), false, true,
                 (ownerPlayerId, scenarioPackage) -> List.of(), openingSceneEvidenceAcquirer);
     }
 
@@ -178,13 +189,23 @@ public final class RuntimeBindingApplicationService {
             String engineId,
             List<String> toolIds,
             Long previousBindingVersion) {
-        List<InitialSourceContextCandidate> candidates = openingSceneEvidenceAcquirer == null
-                ? buildCandidates(ownerPlayerId, scenarioPackage)
-                : buildCandidates(adventure, ownerPlayerId, scenarioPackage);
-        InitialSourceContextProposalPort.InitialSourceContextProposalResult proposal = proposalPort.propose(scenarioPackage, candidates);
+        boolean commonOpeningFlow = openingSceneEvidenceAcquirer != null;
+        OpeningSceneEvidenceAcquirer.Result openingResult = commonOpeningFlow
+                ? openingSceneEvidenceAcquirer.acquire(ownerPlayerId, adventure.sessionId().value(), scenarioPackage)
+                : null;
+        List<InitialSourceContextCandidate> candidates = commonOpeningFlow
+                ? openingCandidates(scenarioPackage, openingResult)
+                : buildCandidates(ownerPlayerId, scenarioPackage);
+        InitialSourceContextProposalPort.InitialSourceContextProposalResult proposal = commonOpeningFlow
+                ? new InitialSourceContextProposalPort.InitialSourceContextProposalResult(
+                        openingResult.rulebookOnlyGenerationAllowed() ? "RULEBOOK_ONLY_GENERATION_ALLOWED"
+                                : openingResult.sufficient() ? "CLEAR" : "BLOCKED",
+                        candidates)
+                : proposalPort.propose(scenarioPackage, candidates);
         PlayabilityReport report = buildReport(
                 scenarioPackage.report().status().name(), scenarioPackage.report().warnings(), candidates, proposal,
-                rulebookIds, engineId, toolIds);
+                rulebookIds, engineId, toolIds, commonOpeningFlow,
+                openingResult == null || openingResult.sufficient() || openingResult.rulebookOnlyGenerationAllowed());
         ActiveSourceContext selected = selectSourceContext(report, proposal);
         var blueprint = scenarioPackage.characterCreationBlueprint();
         if (requirePublishedReferences && (blueprint == null
@@ -218,7 +239,9 @@ public final class RuntimeBindingApplicationService {
             InitialSourceContextProposalPort.InitialSourceContextProposalResult proposal,
             List<UUID> rulebookIds,
             String engineId,
-            List<String> toolIds) {
+            List<String> toolIds,
+            boolean commonOpeningFlow,
+            boolean openingSufficient) {
         List<String> warnings = new ArrayList<>(packageWarnings);
         List<String> blockers = new ArrayList<>();
         List<String> limits = new ArrayList<>();
@@ -230,12 +253,10 @@ public final class RuntimeBindingApplicationService {
             warnings.add("scenario package has partial extraction");
             status = PlayabilityStatus.PLAYABLE_WITH_LIMITS;
         }
-        if (proposal == null || proposal.candidates().isEmpty()) {
-            blockers.add(openingSceneEvidenceAcquirer == null
-                    ? "no initial source context candidates"
-                    : "opening preparation failed");
+        if (!openingSufficient || proposal == null || (proposal.candidates().isEmpty() && !commonOpeningFlow)) {
+            blockers.add(commonOpeningFlow ? "opening preparation failed" : "no initial source context candidates");
             status = PlayabilityStatus.BLOCKED;
-        } else if (proposal.candidates().size() > 1) {
+        } else if (!commonOpeningFlow && proposal.candidates().size() > 1) {
             blockers.add("initial source context is ambiguous");
             status = PlayabilityStatus.BLOCKED;
         }
@@ -287,8 +308,36 @@ public final class RuntimeBindingApplicationService {
         return new ActiveSourceContext(candidate.knowledgeDocumentId(), candidate.extractionVersion(), candidate.locator(), candidate.excerpt());
     }
 
+    private static List<InitialSourceContextCandidate> openingCandidates(
+            ScenarioPackage scenarioPackage, OpeningSceneEvidenceAcquirer.Result result) {
+        return result.selectedEvidence().stream()
+                .map(candidate -> {
+                    UUID documentId = UUID.fromString(candidate.documentId());
+                    long extractionVersion = scenarioPackage.documents().stream()
+                            .filter(document -> document.knowledgeDocumentId().value().equals(documentId))
+                            .mapToLong(document -> document.extractionVersion())
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "opening evidence document is outside package scope"));
+                    String reason = result.selectionReasons().getOrDefault(candidate.id(), "AI-selected opening evidence");
+                    return new InitialSourceContextCandidate(
+                            new KnowledgeDocumentId(documentId), extractionVersion,
+                            candidate.locator(), candidate.excerpt(), 1.0d, reason);
+                })
+                .toList();
+    }
+
     private List<InitialSourceContextCandidate> buildCandidates(OwnerPlayerId ownerPlayerId, ScenarioPackage scenarioPackage) {
-        List<OpeningSourceContextSearchPort.Result> openingResults = openingSourceContextSearchPort.search(ownerPlayerId, scenarioPackage);
+        List<OpeningSourceContextSearchPort.Result> openingResults;
+        boolean searchFailed = false;
+        try {
+            openingResults = openingSourceContextSearchPort.search(ownerPlayerId, scenarioPackage);
+        } catch (RuntimeException searchFailure) {
+            // Opening search is an enrichment step. A temporary search/AI gateway
+            // failure must not discard source references already published in the package.
+            openingResults = List.of();
+            searchFailed = true;
+        }
         if (!openingResults.isEmpty()) {
             return openingResults.stream()
                     .sorted(java.util.Comparator.comparingDouble(OpeningSourceContextSearchPort.Result::score).reversed())
@@ -298,7 +347,7 @@ public final class RuntimeBindingApplicationService {
                             result.score(), "dedicated opening source search"))
                     .toList();
         }
-        if (openingSourceContextSearchEnabled) return List.of();
+        if (openingSourceContextSearchEnabled && !searchFailed) return List.of();
         List<InitialSourceContextCandidate> candidates = new ArrayList<>();
         for (var unit : scenarioPackage.runtimeCandidates()) {
             for (var ref : unit.sourceRefs()) {
@@ -308,6 +357,15 @@ public final class RuntimeBindingApplicationService {
                                 ? "partial source context limit"
                                 : "initial source context candidate"));
             }
+        }
+        if (searchFailed && candidates.isEmpty()) {
+            scenarioPackage.documents().stream()
+                    .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAIN_SCENARIO
+                            || "STORYBOOK".equalsIgnoreCase(document.documentType()))
+                    .findFirst()
+                    .ifPresent(document -> candidates.add(new InitialSourceContextCandidate(
+                            document.knowledgeDocumentId(), document.extractionVersion(), "page=1",
+                            document.originalFilename(), 0.1d, "published main scenario fallback")));
         }
         return candidates.stream().distinct().toList();
     }
@@ -334,7 +392,11 @@ public final class RuntimeBindingApplicationService {
     }
 
     private void validateRulebookAccess(OwnerPlayerId ownerPlayerId, List<UUID> rulebookIds) {
-        List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> ownedDocuments = knowledgeDocumentLookupPort.findOwnedDocuments(ownerPlayerId.value());
+        List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> ownedDocuments = new ArrayList<>(
+                knowledgeDocumentLookupPort.findOwnedDocuments(ownerPlayerId.value()));
+        // Published catalog rulebooks are shared reference data. They are valid
+        // runtime inputs even though they are not copied into the player's documents.
+        ownedDocuments.addAll(knowledgeDocumentLookupPort.findOwnedDocuments(SHARED_CATALOG_OWNER));
         List<UUID> ownedRulebookIds = ownedDocuments.stream().map(record -> record.knowledgeDocumentId().value()).toList();
         if (rulebookIds == null || rulebookIds.isEmpty()) {
             throw new IllegalStateException("rulebook knowledge set is missing");

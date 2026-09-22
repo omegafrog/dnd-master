@@ -44,7 +44,6 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowle
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpPlayerSessionLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpLegacyScenarioIngestionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpInitialSourceContextProposalGateway;
-import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpOpeningSourceContextSearchGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterInputTagExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
@@ -220,11 +219,8 @@ public class AdventureApiConfiguration {
     @Bean
     StageArtifactPreparationApplicationService stageArtifactPreparationApplicationService(
             com.dndmaster.adventure.domain.scenario.StageArtifactRepository artifacts,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
-            ScenarioBundleRepository bundleRepository,
-            OpeningSourceContextSearchPort openingSourceContextSearchPort) {
-        var adapter = new ScenarioPackageStageArtifactAdapter(packageRepository, bundleRepository,
-                openingSourceContextSearchPort);
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
+        var adapter = new ScenarioPackageStageArtifactAdapter(packageRepository);
         return new StageArtifactPreparationApplicationService(artifacts, adapter, adapter, adapter);
     }
 
@@ -766,15 +762,6 @@ public class AdventureApiConfiguration {
                 URI.create(baseUrl),
                 Duration.ofSeconds(2),
                 objectMapper);
-    }
-
-    @Bean
-    OpeningSourceContextSearchPort openingSourceContextSearchPort(
-            ObjectMapper objectMapper,
-            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds) {
-        return new CrossContextHttpOpeningSourceContextSearchGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
     }
 
     @Bean

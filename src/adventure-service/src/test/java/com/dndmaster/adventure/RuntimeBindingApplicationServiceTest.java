@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentLookupPort;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.dndmaster.adventure.application.runtime.InitialSourceContextProposalPort;
+import com.dndmaster.adventure.application.runtime.OpeningSceneEvidenceAcquirer;
 import com.dndmaster.adventure.application.runtime.OpeningSourceContextSearchPort;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingRepository;
@@ -39,10 +40,14 @@ import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.evidence.EvidenceCandidate;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class RuntimeBindingApplicationServiceTest {
+    private static final UUID SHARED_CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
+
     @Test
     void bindsPlayablePackageAndAutoSelectsSingleContext() {
         ScenarioBundleId bundleId = ScenarioBundleId.generate();
@@ -67,6 +72,100 @@ class RuntimeBindingApplicationServiceTest {
         assertEquals("page:1:span:1", binding.activeSourceContext().locator());
         assertEquals(1, binding.bindingVersion());
         assertEquals(binding, bindings.current);
+    }
+
+    @Test
+    void consumes_multiple_minimum_sufficient_opening_evidence_without_legacy_ambiguity() {
+        ScenarioBundleId bundleId = ScenarioBundleId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(bundleId, rulebookId, storyId, "page:1:arrival", "page:1:problem");
+        EvidenceCandidate first = new EvidenceCandidate(UUID.randomUUID(), storyId.value().toString(), "STORYBOOK", "page:1:arrival", "arrival");
+        EvidenceCandidate second = new EvidenceCandidate(UUID.randomUUID(), storyId.value().toString(), "STORYBOOK", "page:1:problem", "problem");
+        var acquisition = new com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService(
+                request -> List.of(first, second), request -> List.of(first.id(), second.id()),
+                request -> com.dndmaster.adventure.evidence.SufficiencyDecision.sufficient(
+                        List.of(first.id(), second.id()), Map.of(first.id(), "arrival", second.id(), "problem")));
+        OpeningSceneEvidenceAcquirer opening = new OpeningSceneEvidenceAcquirer(acquisition);
+        AtomicBoolean legacyProposalCalled = new AtomicBoolean();
+        RuntimeBindingApplicationService service = new RuntimeBindingApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBundleRepository(bundleId, owner),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryBindingRepository(),
+                (proposalPackage, candidates) -> {
+                    legacyProposalCalled.set(true);
+                    return new InitialSourceContextProposalPort.InitialSourceContextProposalResult("AMBIGUOUS", candidates);
+                },
+                ownerId -> List.of(new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                        rulebookId, KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1)), opening);
+
+        RuntimeBinding binding = service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
+                adventure.id(), owner, scenarioPackage.packageId(), List.of(rulebookId.value()), "ollama", List.of("search")));
+
+        assertEquals(PlayabilityStatus.PLAYABLE, binding.playabilityReport().status());
+        assertEquals(2, binding.playabilityReport().candidates().size());
+        assertEquals(null, binding.activeSourceContext());
+        assertEquals(false, legacyProposalCalled.get());
+    }
+
+    @Test
+    void keeps_rulebook_only_bundle_playable_for_plan_based_opening_generation() {
+        ScenarioBundleId bundleId = ScenarioBundleId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage rulebookOnly = ScenarioPackage.publish(
+                bundleId, 1, "rulebook-only", List.of(), List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()));
+        AtomicBoolean legacyProposalCalled = new AtomicBoolean();
+        var acquisition = new com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService(
+                request -> { throw new AssertionError("rulebook-only opening must not search story evidence"); },
+                request -> { throw new AssertionError("rulebook-only opening must not rerank story evidence"); },
+                request -> { throw new AssertionError("rulebook-only opening must not judge story evidence"); });
+        RuntimeBindingApplicationService service = new RuntimeBindingApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBundleRepository(bundleId, owner),
+                new InMemoryPackageRepository(rulebookOnly), new InMemoryBindingRepository(),
+                (proposalPackage, candidates) -> {
+                    legacyProposalCalled.set(true);
+                    return new InitialSourceContextProposalPort.InitialSourceContextProposalResult("BLOCKED", candidates);
+                },
+                ownerId -> List.of(new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                        rulebookId, KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1)),
+                new OpeningSceneEvidenceAcquirer(acquisition));
+
+        RuntimeBinding binding = service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
+                adventure.id(), owner, rulebookOnly.packageId(), List.of(rulebookId.value()), "ollama", List.of("search")));
+
+        assertEquals(PlayabilityStatus.PLAYABLE, binding.playabilityReport().status());
+        assertEquals(false, legacyProposalCalled.get());
+        assertEquals(null, binding.activeSourceContext());
+    }
+
+    @Test
+    void acceptsPublishedCatalogRulebookAtRuntimeStart() {
+        ScenarioBundleId bundleId = ScenarioBundleId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(bundleId, rulebookId, storyId, "page:1:opening");
+
+        RuntimeBindingApplicationService service = new RuntimeBindingApplicationService(
+                new InMemoryAdventureRepository(adventure),
+                new InMemoryBundleRepository(bundleId, owner),
+                new InMemoryPackageRepository(scenarioPackage),
+                new InMemoryBindingRepository(),
+                (proposalPackage, candidates) -> new InitialSourceContextProposalPort.InitialSourceContextProposalResult("CLEAR", candidates),
+                lookupOwner -> lookupOwner.equals(owner.value()) || lookupOwner.equals(SHARED_CATALOG_OWNER)
+                        ? List.of(new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                        rulebookId, KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1))
+                        : List.of());
+
+        RuntimeBinding binding = service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
+                adventure.id(), owner, scenarioPackage.packageId(), List.of(rulebookId.value()), "ollama", List.of("search")));
+
+        assertEquals(PlayabilityStatus.PLAYABLE, binding.playabilityReport().status());
     }
 
     @Test
@@ -154,6 +253,29 @@ class RuntimeBindingApplicationServiceTest {
         assertEquals(PlayabilityStatus.BLOCKED, binding.playabilityReport().status());
         assertEquals(List.of("no initial source context candidates"), binding.playabilityReport().blockers());
         assertEquals(0, binding.playabilityReport().candidates().size());
+    }
+
+    @Test
+    void fallsBackToPublishedRuntimeReferencesWhenOpeningSearchIsTemporarilyUnavailable() {
+        ScenarioBundleId bundleId = ScenarioBundleId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(bundleId, rulebookId, storyId, "page:1:opening");
+        RuntimeBindingApplicationService service = service(
+                new InMemoryAdventureRepository(adventure),
+                new InMemoryBundleRepository(bundleId, owner),
+                new InMemoryPackageRepository(scenarioPackage),
+                new InMemoryBindingRepository(), rulebookId,
+                (searchOwner, packageToSearch) -> { throw new IllegalStateException("temporary gateway failure"); });
+
+        RuntimeBinding binding = service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
+                adventure.id(), owner, scenarioPackage.packageId(), List.of(rulebookId.value()),
+                "ollama", List.of("search")));
+
+        assertEquals(PlayabilityStatus.PLAYABLE, binding.playabilityReport().status());
+        assertEquals("page:1:opening", binding.activeSourceContext().locator());
     }
 
     @Test
