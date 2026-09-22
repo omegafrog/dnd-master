@@ -227,7 +227,7 @@ public class AdventureApiConfiguration {
     @Bean
     CharacterSheetDeletionPort characterSheetDeletionPort(ObjectMapper objectMapper,
             @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:}") String token) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
         return new CrossContextHttpCharacterSheetDeletionGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, token);
     }
 
@@ -798,7 +798,7 @@ public class AdventureApiConfiguration {
             AdventureSessionRepository sessions, RuntimeBindingRepository bindings, ObjectMapper objectMapper,
             @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds,
-            @Value("${adventure.integration.internal-token:}") String internalToken) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookTimeDefinitionGateway(
                 sessions, bindings, HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }
@@ -842,7 +842,7 @@ public class AdventureApiConfiguration {
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
-            @Value("${adventure.integration.internal-token:}") String internalToken) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new HttpTypedRuntimeGmAgentPort(
                 HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }
@@ -852,7 +852,7 @@ public class AdventureApiConfiguration {
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
-            @Value("${adventure.integration.internal-token:}") String internalToken) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new HttpScenarioModelLookupAgentPort(
                 HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }
@@ -866,7 +866,7 @@ public class AdventureApiConfiguration {
     OfficialToolPort diceToolPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.dice-roll.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:}") String token) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
         return new HttpDiceToolPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
     }
 
