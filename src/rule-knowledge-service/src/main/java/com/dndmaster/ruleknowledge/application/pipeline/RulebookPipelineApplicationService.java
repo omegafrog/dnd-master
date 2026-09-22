@@ -139,8 +139,11 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         Optional<StoredRulebookRegistration> existing = registrationRepository.findByOperationKey(command.operationKey());
         if (existing.isPresent()) {
             StoredRulebookRegistration previous = existing.get();
-            if (!previous.contentHash().equals(contentHash)) {
-                throw new RulebookPipelineException("conflict: same idempotency key with different file");
+            if (!previous.contentHash().equals(contentHash)
+                    || !previous.ownerPlayerId().equals(command.ownerPlayerId())
+                    || previous.documentType() != command.documentType()
+                    || previous.format() != command.format()) {
+                throw new RulebookPipelineException("conflict: same idempotency key with different request");
             }
             return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
         }
@@ -172,7 +175,28 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 Instant.now(),
                 command.documentType(),
                 command.originalFilename());
-        registrationRepository.save(queued);
+        try {
+            registrationRepository.save(queued);
+        } catch (com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationConflictException collision) {
+            Optional<StoredRulebookRegistration> concurrent = registrationRepository.findByOperationKey(command.operationKey());
+            if (concurrent.isPresent()) {
+                StoredRulebookRegistration previous = concurrent.get();
+                if (!previous.contentHash().equals(contentHash)
+                        || !previous.ownerPlayerId().equals(command.ownerPlayerId())
+                        || previous.documentType() != command.documentType()
+                        || previous.format() != command.format()) {
+                    throw new RulebookPipelineException("conflict: same idempotency key with different request", collision);
+                }
+                return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
+            }
+            Optional<StoredRulebookRegistration> duplicateAfterRace = registrationRepository.findByOwnerAndContentHash(
+                    command.ownerPlayerId(), contentHash);
+            if (duplicateAfterRace.isPresent()) {
+                StoredRulebookRegistration previous = duplicateAfterRace.get();
+                return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
+            }
+            throw collision;
+        }
         return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
     }
 

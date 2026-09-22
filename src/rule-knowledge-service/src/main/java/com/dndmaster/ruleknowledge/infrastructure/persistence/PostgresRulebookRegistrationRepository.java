@@ -120,7 +120,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                  candidate_extraction_version, preprocessing_policy_version,
                  preprocessing_manifest_sha256, preprocessing_pages)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (operation_key) DO UPDATE SET
+            ON CONFLICT (rulebook_id) DO UPDATE SET
                 owner_player_id = EXCLUDED.owner_player_id,
                 content_hash = EXCLUDED.content_hash,
                 format = EXCLUDED.format,
@@ -293,6 +293,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             setJson(ps, 26, registration.preprocessingPages());
             ps.executeUpdate();
         } catch (SQLException e) {
+            if ("23505".equals(e.getSQLState())) {
+                throw new com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationConflictException(e);
+            }
             throw new RuntimeException("failed to save rulebook registration", e);
         }
     }

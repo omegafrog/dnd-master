@@ -276,6 +276,34 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals(1, harness.embeddingPort.calls);
     }
 
+    @Test
+    void idempotencyReplayCannotChangeOwner() {
+        TestHarness harness = new TestHarness();
+        harness.service.process(command("owner-bound", "same"));
+
+        UploadRulebookCommand foreignReplay = new UploadRulebookCommand(
+                "owner-bound",
+                new OwnerPlayerId(UUID.fromString("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa")),
+                DocumentType.RULEBOOK,
+                RulebookFormat.TXT,
+                "same".getBytes(StandardCharsets.UTF_8),
+                "same.txt");
+
+        assertThrows(RulebookPipelineException.class, () -> harness.service.process(foreignReplay));
+    }
+
+    @Test
+    void idempotencyReplayCannotChangeDocumentType() {
+        TestHarness harness = new TestHarness();
+        harness.service.process(command("type-bound", "same"));
+
+        UploadRulebookCommand storybookReplay = new UploadRulebookCommand(
+                "type-bound", OWNER, DocumentType.STORYBOOK, RulebookFormat.TXT,
+                "same".getBytes(StandardCharsets.UTF_8), "same.txt");
+
+        assertThrows(RulebookPipelineException.class, () -> harness.service.process(storybookReplay));
+    }
+
     private static UploadRulebookCommand command(String operationKey, String content) {
         return new UploadRulebookCommand(
                 operationKey,
