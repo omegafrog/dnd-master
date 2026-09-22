@@ -231,6 +231,12 @@ public class RuleKnowledgeController {
                     file.getBytes()));
         }
         List<BatchUploadResult> results = batchUploadService.process(items);
+        results.stream()
+                .filter(result -> "CONFLICT".equals(result.status()))
+                .findFirst()
+                .ifPresent(result -> {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, result.failureReason());
+                });
         return ResponseEntity.accepted().body(new BatchUploadResponse(results));
     }
 
@@ -388,8 +394,11 @@ public class RuleKnowledgeController {
     }
 
     private void requireInternalToken(String token) {
+        if (token == null || token.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "internal token is required");
+        }
         if (internalToken.isBlank() || !internalToken.equals(token)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid internal token");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid internal token");
         }
     }
 
@@ -502,8 +511,11 @@ public class RuleKnowledgeController {
     @GetMapping("/internal/v1/rulebooks/published-catalog")
     ResponseEntity<?> publishedCatalogRulebooks(
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {
-        if (internalToken.isBlank() || !internalToken.equals(token)) {
+        if (token == null || token.isBlank()) {
             return evidenceSearchError(HttpStatus.UNAUTHORIZED, "RULEBOOK_CATALOG_UNAUTHENTICATED");
+        }
+        if (internalToken.isBlank() || !internalToken.equals(token)) {
+            return evidenceSearchError(HttpStatus.FORBIDDEN, "RULEBOOK_CATALOG_FORBIDDEN");
         }
         List<RulebookSummary> summaries = catalogRepository == null
                 ? List.of()
@@ -764,6 +776,7 @@ public class RuleKnowledgeController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not be empty");
         }
         Map<DocumentType, List<CharacterContextDocumentScope>> scope = new java.util.EnumMap<>(DocumentType.class);
+        List<AuthorizedDocumentScope> hybridScope = new java.util.ArrayList<>();
         Set<String> seen = new HashSet<>();
         boolean catalogScope = isPublishedCatalogScope(request.documents().stream().map(CharacterContextScopeRequest::documentId).toList());
         for (CharacterContextScopeRequest document : request.documents()) {
@@ -788,6 +801,18 @@ public class RuleKnowledgeController {
             scope.computeIfAbsent(document.documentType(), ignored -> new java.util.ArrayList<>())
                     .add(new CharacterContextDocumentScope(
                             new KnowledgeDocumentId(document.documentId()), document.extractionVersion()));
+            hybridScope.add(new AuthorizedDocumentScope(new KnowledgeDocumentId(document.documentId()),
+                    document.extractionVersion(), document.documentType(),
+                    new OwnerPlayerId(catalogScope ? CATALOG_OWNER : request.ownerId())));
+        }
+        if (hybridEvidenceSearchService != null) {
+            EvidenceSearchResult result = hybridEvidenceSearchService.search(new com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest(
+                    new OwnerPlayerId(catalogScope ? CATALOG_OWNER : request.ownerId()), null, null,
+                    "character-context", "CHARACTER_CONTEXT", hybridScope, List.of(), request.situation(), 30, 30));
+            return new CharacterContextSearchResponse(request.ownerId(), result.candidates().stream()
+                    .map(candidate -> new CharacterContextEvidenceItem(candidate.documentId().value(), candidate.documentType(),
+                            candidate.extractionVersion(), candidate.locator(), candidate.excerpt(), candidate.rrfScore()))
+                    .toList());
         }
         Map<DocumentType, Double> thresholds = request.thresholds() == null ? Map.of() : request.thresholds();
         List<CharacterContextEvidence> evidence = characterContextSearchService.search(new CharacterContextSearchQuery(

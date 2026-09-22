@@ -37,11 +37,25 @@ class AdventureSecurityConfigurationTest {
         verify(playerSessionLookupPort, never()).resolvePlayerId("token");
     }
 
+    @Test
+    void internalAdventurePathsRequireTheServiceToken() throws Exception {
+        mockMvc.perform(get("/internal/v1/adventures/security-test")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/internal/v1/adventures/security-test").header("X-Internal-Token", "wrong"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/internal/v1/adventures/security-test").header("X-Internal-Token", "test-internal-token"))
+                .andExpect(status().isOk());
+    }
+
     @RestController
     static class PingController {
         @GetMapping("/api/v1/rulebooks")
         ResponseEntity<String> ping() {
             return ResponseEntity.ok("ok");
+        }
+
+        @GetMapping("/internal/v1/adventures/security-test")
+        ResponseEntity<String> internalPing() {
+            return ResponseEntity.ok("internal-ok");
         }
     }
 }

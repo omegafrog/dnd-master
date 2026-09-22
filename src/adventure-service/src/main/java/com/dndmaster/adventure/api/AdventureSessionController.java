@@ -73,8 +73,8 @@ public final class AdventureSessionController {
     @PostMapping("/{sessionId}/complete") SessionView complete(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.complete(new SessionId(sessionId), owner(), version)); }
     @PostMapping("/{sessionId}/start/recover") SessionView recoverStart(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.recoverFailedStart(new SessionId(sessionId), owner(), version)); }
     @DeleteMapping("/{sessionId}") SessionView delete(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.delete(new SessionId(sessionId), owner(), version)); }
-    @GetMapping("/internal/{sessionId}/character-policy") CharacterPolicyView characterPolicy(@PathVariable UUID sessionId, @RequestHeader(value = "X-Internal-Service", required = false) String internalService, @RequestParam(required = false) UUID characterSheetId) {
-        if (!"character-management".equals(internalService)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "internal service header required");
+    @GetMapping("/internal/{sessionId}/character-policy") CharacterPolicyView characterPolicy(@PathVariable UUID sessionId, @RequestHeader(value = "X-Internal-Token", required = false) String internalToken, @RequestParam(name = "characterSheetId", required = false) UUID characterSheetId) {
+        if (internalToken == null || internalToken.isBlank()) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "internal token required");
         AdventureSession session = service.readInternal(new SessionId(sessionId));
         AdventurePartyMember member = characterSheetId == null ? null : session.party().stream().filter(item -> item.characterSheetId().value().equals(characterSheetId)).findFirst().orElse(null);
         boolean mutable = session.status() != AdventureSession.Status.STARTED && session.status() != AdventureSession.Status.STARTING;
