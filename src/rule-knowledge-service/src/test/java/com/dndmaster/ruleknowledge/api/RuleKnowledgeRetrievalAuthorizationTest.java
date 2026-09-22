@@ -269,7 +269,7 @@ class RuleKnowledgeRetrievalAuthorizationTest {
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/internal/v1/rulebook-indexes").param("ownerId", OWNER.toString())
                         .header("X-Internal-Token", "wrong-token"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
         mockMvc.perform(get("/internal/v1/rulebook-indexes").param("ownerId", OWNER.toString())
                         .header("X-Internal-Token", "internal-token"))
                 .andExpect(status().isOk());
@@ -310,8 +310,8 @@ class RuleKnowledgeRetrievalAuthorizationTest {
 
         mockMvc.perform(get("/internal/v1/rulebooks/published-catalog")
                         .header("X-Internal-Token", "wrong-token"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("RULEBOOK_CATALOG_UNAUTHENTICATED"));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("RULEBOOK_CATALOG_FORBIDDEN"));
     }
 
     @Test

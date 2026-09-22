@@ -23,6 +23,6 @@ class RagDevelopmentResetControllerTest {
         mockMvc.perform(post("/internal/v1/rag/reset")
                         .header("X-Internal-Token", "wrong-token")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"confirmation\":\"RESET\"}"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isForbidden());
     }
 }
