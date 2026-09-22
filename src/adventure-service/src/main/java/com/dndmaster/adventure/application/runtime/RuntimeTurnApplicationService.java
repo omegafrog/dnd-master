@@ -780,9 +780,22 @@ public class RuntimeTurnApplicationService {
         List<RuntimeEvidence> storybook = bestEffortScopedSearch(request.forType(RuntimeEvidenceType.STORYBOOK, 5));
         List<RuntimeEvidence> rulebook = rulebookDocumentIds.isEmpty() ? List.of()
                 : bestEffortScopedSearch(request.withDocumentIds(rulebookDocumentIds, RuntimeEvidenceType.RULEBOOK, 5));
-        List<RuntimeEvidence> searchedResolution = hasPartialSkillCheck(scenarioPackage)
-                ? bestEffortScopedSearch(request.withDocumentIds(knowledgeDocumentIds, RuntimeEvidenceType.RESOLUTION, 5))
-                : List.of();
+        List<RuntimeEvidence> searchedResolution;
+        if (!hasPartialSkillCheck(scenarioPackage)) {
+            searchedResolution = List.of();
+        } else {
+            List<UUID> resolutionStorybookIds = documentIdsOfType(scenarioPackage, "STORYBOOK", knowledgeDocumentIds);
+            List<UUID> resolutionRulebookIds = documentIdsOfType(scenarioPackage, "RULEBOOK", knowledgeDocumentIds);
+            searchedResolution = java.util.stream.Stream.concat(
+                            resolutionStorybookIds.isEmpty() ? java.util.stream.Stream.<RuntimeEvidence>empty()
+                                    : bestEffortScopedSearch(request.withDocumentIds(resolutionStorybookIds, RuntimeEvidenceType.STORYBOOK, 5)).stream(),
+                            resolutionRulebookIds.isEmpty() ? java.util.stream.Stream.<RuntimeEvidence>empty()
+                                    : bestEffortScopedSearch(request.withDocumentIds(resolutionRulebookIds, RuntimeEvidenceType.RULEBOOK, 5)).stream())
+                    .map(evidence -> new RuntimeEvidence(RuntimeEvidenceType.RESOLUTION,
+                            evidence.knowledgeDocumentId(), evidence.extractionVersion(), evidence.locator(), evidence.excerpt(),
+                            evidence.citationKey()))
+                    .toList();
+        }
         resolution = java.util.stream.Stream.concat(resolution.stream(), searchedResolution.stream()).distinct().toList();
         // A missing Storybook match is a normal runtime condition. The GM can
         // still react in-world using the current situation and established

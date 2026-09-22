@@ -12,6 +12,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -33,28 +34,34 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
 
     @Override
     public List<RuntimeEvidence> search(RuntimeEvidenceSearchRequest request) {
+        if (request.knowledgeDocumentIds().isEmpty()) return List.of();
         try {
-            if (request.evidenceType() == RuntimeEvidenceType.RULEBOOK) {
-                RuleSearchResponse response = post("internal/v1/rule-evidence/search",
-                    new RuleSearchRequest(request.ownerPlayerId().value(), request.knowledgeDocumentIds(),
-                                request.action(), ruleQueryIntent(request.actionIntent()), request.limit(), request.sessionId().value(),
-                                request.scenarioPackageId(), request.contextKey(), request.actionIntent()), RuleSearchResponse.class);
-                return response.evidence().stream()
-                        .map(item -> new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
-                                new KnowledgeDocumentId(item.rulebookId()), extractionVersion(item.provenance(), request, item.rulebookId(), item.locator()),
-                                item.locator(), item.excerpt(), item.citationKey()))
-                        .toList();
+            CandidateSearchResponse response = post("internal/v1/evidence-candidates/search",
+                    new CandidateSearchRequest(request.ownerPlayerId().value(), request.sessionId().value(),
+                            request.scenarioPackageId(), request.contextKey(), request.actionIntent(),
+                            request.knowledgeDocumentIds().stream().map(id -> new CandidateScope(
+                                    id, extractionVersion(request, id), documentType(request.evidenceType()))).toList(),
+                            activeLocators(request), request.action(), 30, 30), CandidateSearchResponse.class);
+            if (!request.ownerPlayerId().value().equals(response.ownerId())
+                    || !request.sessionId().value().equals(response.sessionId())
+                    || !request.scenarioPackageId().equals(response.scenarioPackageId())
+                    || response.candidates() == null) {
+                throw new IllegalStateException("runtime evidence response scope does not match its request");
             }
-            StorySearchResponse response = post("internal/v1/story-sources/search",
-                    new StorySearchRequest(request.ownerPlayerId().value(), request.knowledgeDocumentIds().stream()
-                            .map(id -> new StoryDocument(id, extractionVersion(request, id))).toList(),
-                            activeLocators(request), request.action(), request.limit(), request.sessionId().value(),
-                            request.scenarioPackageId(), request.contextKey(), request.actionIntent()),
-                    StorySearchResponse.class);
-            return response.evidence().stream()
-                    .map(item -> new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
-                            new KnowledgeDocumentId(item.knowledgeDocumentId()), item.extractionVersion(), item.locator(), item.excerpt(),
-                            item.citationKey()))
+            Map<UUID, Long> requestedVersions = request.knowledgeDocumentIds().stream()
+                    .collect(java.util.stream.Collectors.toMap(id -> id, id -> extractionVersion(request, id), (left, right) -> left));
+            return response.candidates().stream()
+                    .peek(candidate -> {
+                        if (candidate == null || !documentType(request.evidenceType()).equals(candidate.documentType())
+                                || !requestedVersions.containsKey(candidate.documentId())
+                                || requestedVersions.get(candidate.documentId()) != candidate.extractionVersion()) {
+                            throw new IllegalStateException("runtime evidence candidate is outside the requested scope");
+                        }
+                    })
+                    .map(candidate -> new RuntimeEvidence(request.evidenceType(), new KnowledgeDocumentId(candidate.documentId()),
+                            candidate.extractionVersion(), candidate.locator(), candidate.excerpt(),
+                            request.evidenceType().name() + ":" + candidate.documentId() + ":"
+                                    + candidate.extractionVersion() + ":" + candidate.locator()))
                     .toList();
         } catch (Exception exception) {
             throw new IllegalStateException("runtime evidence search failed", exception);
@@ -69,24 +76,12 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                 ? request.activeSourceContext().extractionVersion() : 1L;
     }
 
-    private static long extractionVersion(ProvenanceView provenance, RuntimeEvidenceSearchRequest request, UUID documentId,
-                                         String locator) {
-        if (provenance == null) return extractionVersion(request, documentId);
-        if (!documentId.equals(provenance.documentId()) || provenance.extractionVersion() <= 0
-                || provenance.locator() == null || provenance.locator().isBlank() || !locator.equals(provenance.locator())) {
-            throw new IllegalStateException("runtime evidence provenance does not match its result");
-        }
-        return provenance.extractionVersion();
-    }
-
     private static List<String> activeLocators(RuntimeEvidenceSearchRequest request) {
         return request.activeSourceContext() == null ? List.of() : List.of(request.activeSourceContext().locator());
     }
 
-    private static String ruleQueryIntent(String actionIntent) {
-        String normalized = actionIntent.toUpperCase(java.util.Locale.ROOT).replace('-', '_').replace(' ', '_');
-        return normalized.equals("RULE") || normalized.contains("RULE_QUESTION") || normalized.contains("ADJUDICATION")
-                ? "RULE" : "MIXED";
+    private static String documentType(RuntimeEvidenceType evidenceType) {
+        return evidenceType == RuntimeEvidenceType.STORYBOOK ? "STORYBOOK" : "RULEBOOK";
     }
 
     private <T> T post(String path, Object payload, Class<T> responseType) throws Exception {
@@ -107,17 +102,11 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
         return value;
     }
 
-    record RuleSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, String queryIntent, int limit,
-                             UUID sessionId, UUID scenarioPackageId, String contextKey, String actionIntent) {}
-    record StorySearchRequest(UUID ownerId, List<StoryDocument> documents, List<String> activeLocators, String situation, int limit,
-                              UUID sessionId, UUID scenarioPackageId, String contextKey, String actionIntent) {}
-    record StoryDocument(UUID documentId, long extractionVersion) {}
-    record RuleSearchResponse(UUID ownerId, List<RuleEvidenceItem> evidence) {}
-    record RuleEvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter,
-                            String section, ProvenanceView provenance, String citationKey) {}
-    record StorySearchResponse(UUID ownerId, List<StoryEvidenceItem> evidence) {}
-    record StoryEvidenceItem(UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score,
-                             ProvenanceView provenance, String citationKey) {}
-    record ProvenanceView(UUID documentId, long extractionVersion, int pageNumber, List<String> sectionPath,
-                          List<Double> bbox, String tableCell, String locator) {}
+    record CandidateSearchRequest(UUID ownerId, UUID sessionId, UUID scenarioPackageId, String stageKey, String actionIntent,
+                                  List<CandidateScope> scope, List<String> activeLocators, String query,
+                                  int denseLimit, int bm25Limit) {}
+    record CandidateScope(UUID documentId, long extractionVersion, String documentType) {}
+    record CandidateSearchResponse(UUID ownerId, UUID sessionId, UUID scenarioPackageId, List<Candidate> candidates) {}
+    record Candidate(UUID chunkId, UUID documentId, long extractionVersion, String documentType,
+                     String locator, String excerpt) {}
 }
