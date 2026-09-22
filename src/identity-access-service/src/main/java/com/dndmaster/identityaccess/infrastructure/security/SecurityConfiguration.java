@@ -12,6 +12,8 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.beans.factory.annotation.Value;
+import com.dndmaster.identityaccess.api.ApiRequestGuard;
 
 @Configuration
 public class SecurityConfiguration {
@@ -29,6 +31,11 @@ public class SecurityConfiguration {
     @Bean
     OwnershipAccessPolicy ownershipAccessPolicy() {
         return new OwnershipAccessPolicy();
+    }
+
+    @Bean
+    ApiRequestGuard identityApiRequestGuard(@Value("${INTERNAL_SERVICE_TOKEN:}") String token) {
+        return new ApiRequestGuard(token);
     }
 
     @Bean

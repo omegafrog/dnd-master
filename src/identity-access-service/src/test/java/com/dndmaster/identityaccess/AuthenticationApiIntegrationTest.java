@@ -62,6 +62,7 @@ class AuthenticationApiIntegrationTest extends AbstractPostgresIntegrationTest {
         String token = loginJson.get("token").asText();
 
         mockMvc.perform(post("/internal/v1/auth/introspections")
+                .header("X-Internal-Token", "test-internal-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"token\":\"" + token + "\"}"))
                 .andExpect(status().isOk())
@@ -72,6 +73,7 @@ class AuthenticationApiIntegrationTest extends AbstractPostgresIntegrationTest {
                 .andExpect(status().isNoContent());
 
         mockMvc.perform(post("/internal/v1/auth/introspections")
+                .header("X-Internal-Token", "test-internal-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"token\":\"" + token + "\"}"))
                 .andExpect(status().isOk())

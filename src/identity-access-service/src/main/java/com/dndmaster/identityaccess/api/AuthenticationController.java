@@ -12,9 +12,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping
 public class AuthenticationController {
     private final CredentialAuthenticationService authenticationService;
+    private final ApiRequestGuard requestGuard;
 
-    public AuthenticationController(CredentialAuthenticationService authenticationService) {
+    public AuthenticationController(CredentialAuthenticationService authenticationService, ApiRequestGuard requestGuard) {
         this.authenticationService = authenticationService;
+        this.requestGuard = requestGuard;
     }
 
     @PostMapping("/api/v1/auth/registrations")
@@ -35,7 +37,9 @@ public class AuthenticationController {
     }
 
     @PostMapping("/internal/v1/auth/introspections")
-    IntrospectionResponse introspect(@RequestBody IntrospectionRequest request) {
+    IntrospectionResponse introspect(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody IntrospectionRequest request) {
+        requestGuard.internal(token);
         return authenticationService.introspect(request.token())
                 .map(player -> new IntrospectionResponse(true, player.identify().value()))
                 .orElseGet(() -> new IntrospectionResponse(false, null));

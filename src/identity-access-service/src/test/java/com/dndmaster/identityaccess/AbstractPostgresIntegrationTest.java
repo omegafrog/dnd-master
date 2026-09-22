@@ -6,7 +6,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
-@SpringBootTest(classes = IdentityAccessApplication.class)
+@SpringBootTest(classes = IdentityAccessApplication.class, properties = "INTERNAL_SERVICE_TOKEN=test-internal-token")
 public abstract class AbstractPostgresIntegrationTest {
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
 
