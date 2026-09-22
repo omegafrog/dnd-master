@@ -26,7 +26,7 @@
 ## 2.2 Commands
 | Command | Actor | Target | Input | Preconditions | Result |
 |---|---|---|---|---|---|
-| 근거 확보 | AI Game Master/기존 흐름 | adventure-service | 세션·질의·맥락 | 인증·scope | 정책 결과 |
+| 근거 확보 | AI Game Master/기존 흐름 | adventure-service | 시나리오 준비의 선택 문서 또는 생성된 세션의 고정 문서·질의·맥락 | 인증·scope | 정책 결과 |
 | 후보 검색 | adventure-service | Document Knowledge | search request | 허가 문서 | ≤60 후보 |
 | 재정렬/Judge | adventure-service | AI Game Master | 후보·정책 | ID 검증 가능 | 순위/판정 |
 ## 2.3 Domain Events
@@ -65,7 +65,7 @@
 | 조정 | adventure-service application layer; business outcome owned by calling context policy | context/package | shared application package capability | 소비 흐름 공통 | 독립 상태 없음 |
 | AI 판단 | AI Game Master | service/context | stateless service | provider seam 필요 | 저장·lifecycle 없음 |
 ## 3.2 Context Map
-`Scenario Preparation/Adventure Runtime → shared acquisition capability → /internal/v1/evidence-candidates/search → Document Knowledge`; capability → rerank/Judge → AI Game Master (Published Language, DTO 검증).
+`Scenario Preparation/Adventure Runtime → shared acquisition capability → 준비 전용 또는 세션 전용 내부 검색 계약 → Document Knowledge`; capability → rerank/Judge → AI Game Master (Published Language, DTO 검증).
 ## 3.3 Aggregates / 3.4 Entities
 해당 없음 — 새 aggregate/entity/domain event/message/repository를 adventure에 만들지 않고 요청 결과는 불변 DTO다.
 ## 3.4.1 Class Diagram
@@ -109,7 +109,7 @@ Document Knowledge repository가 벡터·길이·term frequency를 publication �
 ## 4.5 Major Types
 `EvidenceSearchRequest`, `EvidenceCandidate`, `RerankResult`, `SufficiencyDecision`는 불변 DTO; 네 `EvidenceSufficiencyPolicy` 구현은 무상태 strategy다.
 ## 4.6 Type Design
-`EvidenceSearchRequest`: ownerId/sessionId UUID, scenarioPackageId UUID, stageKey String, actionIntent/SearchIntent, scope(documentId UUID, extractionVersion long, DocumentType), activeLocators, query, denseLimit/bm25Limit(각 1..30). DB/provider 의존 금지.
+세션 생성 이후 `EvidenceSearchRequest`: ownerId/sessionId UUID, scenarioPackageId UUID, stageKey String, actionIntent/SearchIntent, scope(documentId UUID, extractionVersion long, DocumentType), activeLocators, query, denseLimit/bm25Limit(각 1..30). 시나리오 준비 전용 요청은 서버가 확인한 Scenario Source Bundle ID·소유자·선택 원문 문서와 추출 버전을 요구하고 sessionId/scenarioPackageId를 받지 않는다. 두 요청은 같은 후보 검색 구현을 공유하되 서로의 범위 검증을 대체하지 않는다. DB/provider 의존 금지.
 ## 4.7 Interfaces and Function Signatures
 ```java
 interface UnifiedCandidateSearchPort { EvidenceSearchResult search(EvidenceSearchRequest request); }
@@ -124,6 +124,8 @@ interface EvidenceSufficiencyPolicy {
 }
 ```
 `EvidenceSearchRequest(ownerId: UUID, sessionId: UUID, scenarioPackageId: UUID, stageKey: String, actionIntent: SearchIntent, scope: List<AuthorizedDocumentScope>, activeLocators: List<Locator>, query: String, denseLimit: int, bm25Limit: int)`이며 scope는 `(documentId: UUID, extractionVersion: long, documentType: DocumentType)`이고 limits는 각 1..30, authorized published extraction만 허용한다. `EvidenceRerankRequest`는 query/task context/candidates≤180, `EvidenceSufficiencyRequest`는 policyId/task context/candidates≤30/pinned IDs를 가진다. Judge는 `sufficient`, `selectedEvidenceIds`, ID별 `selectionReasons`, `missing`만 반환한다. `necessity`/`useThroughRank` 금지; true는 ID≥1, false는 nonblank missing.
+
+위 `EvidenceSearchRequest`는 세션 생성 이후 전용이다. 시나리오 준비 호출자는 원본 Scenario Source Bundle을 조회해 소유권, 선택 문서, 추출 버전과 유형을 확인한 별도 준비 요청을 만든다. Document Knowledge는 전달된 문서·버전의 발행 상태와 소유자·허가 범위를 다시 검증한다. 준비 요청에 세션·Scenario Package 식별자를 위조하거나 선택 문서 밖을 검색하지 않는다.
 ## 4.8 Error Propagation
 transient(timeout/connection/429/5xx/DB/malformed)는 orchestration이 1회 재시도하고 소진 시 전체 오류. auth/authorization/bad request/scope 위반은 즉시 오류.
 ## 4.9 State Transition Implementation
@@ -146,12 +148,16 @@ adventure는 ports만 사용하고 DB 직접 접근 금지. AI는 orchestration 
 | Caller | Provider | Protocol | Operation | Timeout |
 |---|---|---|---|---|
 | adventure | rule-knowledge | internal HTTP | `POST /internal/v1/evidence-candidates/search` | 기존 설정 |
+| adventure | rule-knowledge | internal HTTP | `POST /internal/v1/evidence-candidates/preparation-search` | 기존 설정 |
 | adventure | AI Game Master | internal sync | rerank/Judge | 기존 설정 |
 ## 5.5 API Contracts
 ### `POST /internal/v1/evidence-candidates/search` (rule-knowledge-service)
 Request: `ownerId/sessionId/scenarioPackageId: UUID`, `stageKey: String`, `actionIntent: SearchIntent`, `scope: [{documentId: UUID, extractionVersion: long, documentType: RULEBOOK|STORYBOOK}]`, `activeLocators: Locator[]`, `query: String`, `denseLimit/bm25Limit: int` (각 1..30). Response: unique candidates≤60 with stable ID, document/extraction/type, locator/provenance/citation, excerpt, denseRank, bm25Rank, rrfScore. 기존 internal token/auth와 scope 검증 유지.
 
 Errors: 400 `EVIDENCE_SEARCH_INVALID_REQUEST`, 401 `EVIDENCE_SEARCH_UNAUTHENTICATED`, 403 `EVIDENCE_SEARCH_SCOPE_FORBIDDEN`, 503 `EVIDENCE_SEARCH_UNAVAILABLE` (model error는 이 endpoint에 없음).
+
+### `POST /internal/v1/evidence-candidates/preparation-search` (rule-knowledge-service)
+시나리오 준비 전용. Request: `ownerId/scenarioSourceBundleId: UUID`, `scope: [{documentId: UUID, extractionVersion: long, documentType: STORYBOOK}]`, `activeLocators: Locator[]`, `query: String`, `denseLimit/bm25Limit: int` (각 1..30). Adventure는 저장된 Scenario Source Bundle에서 소유자와 선택 문서·버전을 확인해 요청하며, Document Knowledge는 내부 인증과 발행된 문서·버전의 소유자·허가 범위를 검증한다. 세션·Scenario Package 식별자는 받지 않는다. Response와 오류 코드는 세션 전용 검색 계약과 동일하며 Dense/BM25/RRF 구현을 공유한다.
 
 ### `POST /internal/v1/gm/evidence-rerank` (AI Game Master)
 Request: task context, query, candidates≤180. Response: ordered candidate IDs≤30. Errors: 400 `EVIDENCE_RERANK_INVALID_REQUEST`, 401 `EVIDENCE_GM_UNAUTHENTICATED`, 422 `EVIDENCE_MODEL_OUTPUT_INVALID`, 502 `EVIDENCE_PROVIDER_UNAVAILABLE`.
