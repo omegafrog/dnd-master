@@ -195,7 +195,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 StoredRulebookRegistration previous = duplicateAfterRace.get();
                 return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
             }
-            throw collision;
+            throw new RulebookPipelineException("conflict: rulebook registration uniqueness violation", collision);
         }
         return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
     }
