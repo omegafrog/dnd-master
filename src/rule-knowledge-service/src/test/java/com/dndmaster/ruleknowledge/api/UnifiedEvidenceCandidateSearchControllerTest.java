@@ -108,6 +108,35 @@ class UnifiedEvidenceCandidateSearchControllerTest {
     }
 
     @Test
+    void acceptsSelectedPublishedCatalogRulebookForPreparationWithoutSessionIdentifiers() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        UUID bundleId = UUID.randomUUID();
+        HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
+        when(hybrid.search(any())).thenReturn(new EvidenceSearchResult(List.of()));
+        RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
+        UUID catalogOwner = UUID.fromString("00000000-0000-0000-0000-000000000005");
+        when(registrations.findById(any())).thenReturn(java.util.Optional.of(registration(
+                documentId, ProcessingStatus.INDEXED, catalogOwner, DocumentType.RULEBOOK)));
+        CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
+        when(catalog.findAll()).thenReturn(List.of(new CatalogRulebookRevision(UUID.randomUUID(), RulebookEdition.DND_5E_2014,
+                "공개 룰북", documentId, 1, CatalogRevisionStatus.READY, true, null, Instant.now(), Instant.now())));
+
+        controllerWithInternalToken(registrations, catalog, hybrid)
+                .perform(post("/internal/v1/evidence-candidates/preparation-search")
+                        .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
+                        .content(preparationRulebookRequest(documentId, bundleId)))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest> captured =
+                ArgumentCaptor.forClass(com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest.class);
+        verify(hybrid).search(captured.capture());
+        assertEquals(DocumentType.RULEBOOK, captured.getValue().scope().getFirst().documentType());
+        assertEquals(catalogOwner, captured.getValue().scope().getFirst().documentOwner().value());
+        assertEquals(null, captured.getValue().sessionId());
+        assertEquals(null, captured.getValue().scenarioPackageId());
+    }
+
+    @Test
     void rejects_preparation_search_without_the_internal_token() throws Exception {
         UUID documentId = UUID.randomUUID();
         HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
@@ -205,9 +234,14 @@ class UnifiedEvidenceCandidateSearchControllerTest {
     private static MockMvc controllerWithInternalToken(StoredRulebookRegistration registration, HybridEvidenceSearchService hybrid) {
         RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
         when(registrations.findById(any())).thenReturn(java.util.Optional.of(registration));
+        return controllerWithInternalToken(registrations, null, hybrid);
+    }
+
+    private static MockMvc controllerWithInternalToken(
+            RulebookRegistrationRepository registrations, CatalogRulebookRepository catalog, HybridEvidenceSearchService hybrid) {
         RuleKnowledgeController controller = new RuleKnowledgeController(mock(RulebookPipelineApplicationService.class), registrations,
                 mock(RuleEvidenceSearchApplicationService.class), null, null, null, new com.fasterxml.jackson.databind.ObjectMapper(),
-                null, "internal-token", null, null, hybrid);
+                null, "internal-token", catalog, null, hybrid);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper())).build();
     }
@@ -236,6 +270,12 @@ class UnifiedEvidenceCandidateSearchControllerTest {
     private static String preparationRequest(UUID documentId, UUID bundleId) {
         return """
                 {"ownerId":"%s","scenarioSourceBundleId":"%s","scope":[{"documentId":"%s","extractionVersion":1,"documentType":"STORYBOOK"}],"activeLocators":["page:1"],"query":"where is the passage?","denseLimit":5,"bm25Limit":7}
+                """.formatted(OWNER, bundleId, documentId);
+    }
+
+    private static String preparationRulebookRequest(UUID documentId, UUID bundleId) {
+        return """
+                {"ownerId":"%s","scenarioSourceBundleId":"%s","scope":[{"documentId":"%s","extractionVersion":1,"documentType":"RULEBOOK"}],"activeLocators":[],"query":"what is the rule?","denseLimit":5,"bm25Limit":7}
                 """.formatted(OWNER, bundleId, documentId);
     }
 

@@ -51,13 +51,17 @@ class CrossContextHttpScenarioSourceExcerptGatewayTest {
                 assertThat(excerpt.provenance().sectionPath()).containsExactly("Chapter", "Checks");
                 assertThat(excerpt.provenance().tableCell()).isEqualTo("table-1:r2:c1");
             });
-            assertThat(paths).containsExactlyInAnyOrder(
+            assertThat(paths).containsExactly(
                     "/internal/v1/evidence-candidates/preparation-search",
-                    "/internal/v1/rule-evidence/search");
+                    "/internal/v1/evidence-candidates/preparation-search");
             assertThat(paths).doesNotContain("/api/v1/rulebooks/" + rulebookId + "/source-preview");
             assertThat(requestBodies).anyMatch(body -> body.contains("how player actions are resolved")
                     && body.contains("scenarioSourceBundleId") && !body.contains("sessionId")
                     && !body.contains("scenarioPackageId"));
+            assertThat(requestBodies).anyMatch(body -> body.contains("Extract source-grounded rule procedures.")
+                    && body.contains("\"documentType\":\"RULEBOOK\"")
+                    && body.contains("\"extractionVersion\":7")
+                    && !body.contains("sessionId") && !body.contains("scenarioPackageId"));
         }
     }
 
@@ -76,13 +80,15 @@ class CrossContextHttpScenarioSourceExcerptGatewayTest {
                 paths.add(exchange.getRequestURI().getPath());
                 requestBodies.add(new String(exchange.getRequestBody().readAllBytes()));
                 String path = exchange.getRequestURI().getPath();
+                String requestBody = requestBodies.getLast();
                 String body = switch (path) {
                     case "/internal/v1/evidence-candidates/preparation-search" -> """
-                            {"ownerId":"%s","scenarioSourceBundleId":"%s","candidates":[{"chunkId":"%s","documentId":"%s","extractionVersion":7,"documentType":"STORYBOOK","locator":"page=3;block=b7","excerpt":"story evidence","provenance":{"documentId":"%s","extractionVersion":7,"pageNumber":3,"sectionPath":["Chapter","Checks"],"bbox":[10,20,100,140],"tableCell":"table-1:r2:c1","locator":"page=3;block=b7"}}]}
-                            """.formatted(ownerId, bundleId, UUID.randomUUID(), storybookId, storybookId);
-                    case "/internal/v1/rule-evidence/search" -> """
-                            {"evidence":[{"rulebookId":"%s","chunkId":"%s","locator":"page=3;block=b7","excerpt":"rule evidence","score":0.9,"provenance":{"documentId":"%s","extractionVersion":7,"pageNumber":3,"sectionPath":["Chapter","Checks"],"bbox":[10,20,100,140],"tableCell":"table-1:r2:c1","locator":"page=3;block=b7"}}]}
-                            """.formatted(rulebookId, UUID.randomUUID(), rulebookId);
+                            {"ownerId":"%s","scenarioSourceBundleId":"%s","candidates":[{"chunkId":"%s","documentId":"%s","extractionVersion":7,"documentType":"%s","locator":"page=3;block=b7","excerpt":"%s evidence","provenance":{"documentId":"%s","extractionVersion":7,"pageNumber":3,"sectionPath":["Chapter","Checks"],"bbox":[10,20,100,140],"tableCell":"table-1:r2:c1","locator":"page=3;block=b7"}}]}
+                            """.formatted(ownerId, bundleId, UUID.randomUUID(),
+                                    requestBody.contains("\"documentType\":\"RULEBOOK\"") ? rulebookId : storybookId,
+                                    requestBody.contains("\"documentType\":\"RULEBOOK\"") ? "RULEBOOK" : "STORYBOOK",
+                                    requestBody.contains("\"documentType\":\"RULEBOOK\"") ? "rule" : "story",
+                                    requestBody.contains("\"documentType\":\"RULEBOOK\"") ? rulebookId : storybookId);
                     default -> "{}";
                 };
                 exchange.sendResponseHeaders(path.contains("search") ? 200 : 404, body.getBytes().length);

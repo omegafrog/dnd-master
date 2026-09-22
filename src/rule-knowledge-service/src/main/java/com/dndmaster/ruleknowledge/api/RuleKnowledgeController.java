@@ -516,21 +516,24 @@ public class RuleKnowledgeController {
             Set<String> scopeKeys = new HashSet<>();
             List<AuthorizedDocumentScope> scope = new java.util.ArrayList<>();
             for (EvidenceCandidateScopeRequest item : request.scope()) {
-                if (item == null || item.documentId() == null || item.documentType() != DocumentType.STORYBOOK
+                if (item == null || item.documentId() == null || (item.documentType() != DocumentType.STORYBOOK
+                        && item.documentType() != DocumentType.RULEBOOK)
                         || item.extractionVersion() <= 0 || !scopeKeys.add(item.documentId() + ":" + item.extractionVersion())) {
                     return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
                 }
                 StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(item.documentId()))
                         .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "document scope is not authorized"));
-                if (!registration.ownerPlayerId().value().equals(request.ownerId())) {
+                boolean publishedCatalogRulebook = item.documentType() == DocumentType.RULEBOOK
+                        && isPublishedCatalogScope(List.of(item.documentId()));
+                if (!publishedCatalogRulebook && !registration.ownerPlayerId().value().equals(request.ownerId())) {
                     return evidenceSearchError(HttpStatus.FORBIDDEN, "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
                 }
                 if (registration.processingStatus() != ProcessingStatus.INDEXED || registration.version() != item.extractionVersion()
-                        || registration.documentType() != DocumentType.STORYBOOK) {
+                        || registration.documentType() != item.documentType()) {
                     return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
                 }
                 scope.add(new AuthorizedDocumentScope(new KnowledgeDocumentId(item.documentId()), item.extractionVersion(),
-                        DocumentType.STORYBOOK, new OwnerPlayerId(request.ownerId())));
+                        item.documentType(), new OwnerPlayerId(publishedCatalogRulebook ? CATALOG_OWNER : request.ownerId())));
             }
             EvidenceSearchResult result = hybridEvidenceSearchService.search(
                     new com.dndmaster.ruleknowledge.application.search.PreparationEvidenceSearchRequest(

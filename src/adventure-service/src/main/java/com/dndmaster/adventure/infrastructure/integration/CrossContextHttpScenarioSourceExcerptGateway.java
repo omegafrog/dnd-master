@@ -49,21 +49,24 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
 
     @Override
     public List<ResolutionExtractionPort.SourceExcerpt> load(ScenarioSourceBundle bundle) {
-        List<DocumentRequest> documents = new java.util.ArrayList<>(bundle.currentRevision().documents().stream()
+        List<DocumentRequest> storybookDocuments = new java.util.ArrayList<>(bundle.currentRevision().documents().stream()
                     .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
                     .map(document -> new DocumentRequest(document.knowledgeDocumentId().value(), document.extractionVersion()))
                 .toList());
-        List<UUID> rulebookIds = bundle.currentRevision().documents().stream()
+        List<DocumentRequest> rulebookDocuments = bundle.currentRevision().documents().stream()
                     .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
-                    .map(document -> document.knowledgeDocumentId().value())
+                    .map(document -> new DocumentRequest(document.knowledgeDocumentId().value(), document.extractionVersion()))
                 .toList();
-        List<ResolutionExtractionPort.SourceExcerpt> rulebookExcerpts = loadRulebookEvidence(
-                bundle.ownerPlayerId().value(), rulebookIds);
-        List<ResolutionExtractionPort.SourceExcerpt> scenarioExcerpts = searchStorySources(bundle, documents, RESOLUTION_SOURCE_QUERY);
-        if (!documents.isEmpty() && scenarioExcerpts.isEmpty()) {
+        List<ResolutionExtractionPort.SourceExcerpt> rulebookExcerpts = searchPreparationSources(
+                bundle, rulebookDocuments, "RULEBOOK", "Extract source-grounded rule procedures.",
+                MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION);
+        List<ResolutionExtractionPort.SourceExcerpt> scenarioExcerpts = searchPreparationSources(
+                bundle, storybookDocuments, "STORYBOOK", RESOLUTION_SOURCE_QUERY,
+                MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION);
+        if (!storybookDocuments.isEmpty() && scenarioExcerpts.isEmpty()) {
                 throw new ResolutionExtractionException("published storybook evidence is unavailable");
             }
-        if (!rulebookIds.isEmpty() && rulebookExcerpts.isEmpty()) {
+        if (!rulebookDocuments.isEmpty() && rulebookExcerpts.isEmpty()) {
                 throw new ResolutionExtractionException("published rulebook evidence is unavailable");
             }
         List<ResolutionExtractionPort.SourceExcerpt> mapAssets = bundle.currentRevision().documents().stream()
@@ -74,14 +77,14 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                     .flatMap(List::stream).toList();
     }
 
-    private List<ResolutionExtractionPort.SourceExcerpt> searchStorySources(
-            ScenarioSourceBundle bundle, List<DocumentRequest> documents, String situation) {
+    private List<ResolutionExtractionPort.SourceExcerpt> searchPreparationSources(
+            ScenarioSourceBundle bundle, List<DocumentRequest> documents, String documentType, String situation, int limit) {
         if (documents.isEmpty()) return List.of();
         try {
             String body = objectMapper.writeValueAsString(new PreparationSearchRequest(
                     bundle.ownerPlayerId().value(), bundle.id().value(), documents.stream()
-                    .map(document -> new PreparationScope(document.documentId(), document.extractionVersion(), "STORYBOOK")).toList(),
-                    List.of(), situation, MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION, MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION));
+                    .map(document -> new PreparationScope(document.documentId(), document.extractionVersion(), documentType)).toList(),
+                    List.of(), situation, limit, limit));
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/evidence-candidates/preparation-search"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
@@ -97,14 +100,14 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
             }
             return extracted.candidates().stream()
                     .filter(Objects::nonNull)
-                    .limit(MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION)
+                    .limit(limit)
                     .map(candidate -> {
-                        if (!"STORYBOOK".equals(candidate.documentType()) || documents.stream().noneMatch(document ->
+                        if (!documentType.equals(candidate.documentType()) || documents.stream().noneMatch(document ->
                                 document.documentId().equals(candidate.documentId())
                                         && document.extractionVersion() == candidate.extractionVersion())) {
                             throw new ResolutionExtractionException("preparation evidence is outside the selected document scope");
                         }
-                        return new ResolutionExtractionPort.SourceExcerpt("STORYBOOK", toProvenance(candidate.documentId(),
+                        return new ResolutionExtractionPort.SourceExcerpt(documentType, toProvenance(candidate.documentId(),
                                 candidate.extractionVersion(), candidate.locator(), candidate.provenance()), candidate.excerpt());
                     }).toList();
         } catch (IOException exception) {
@@ -112,36 +115,6 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new ResolutionExtractionException("source excerpt lookup interrupted", exception);
-        }
-    }
-
-    private List<ResolutionExtractionPort.SourceExcerpt> loadRulebookEvidence(UUID ownerId, List<UUID> rulebookIds) {
-        if (rulebookIds.isEmpty()) return List.of();
-        try {
-            String body = objectMapper.writeValueAsString(new RuleEvidenceRequest(
-                    ownerId, rulebookIds, "Extract source-grounded rule procedures.", "MIXED",
-                    MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION));
-            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/rule-evidence/search"))
-                    .timeout(timeout).header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + ownerId)
-                    .POST(HttpRequest.BodyPublishers.ofString(body)).build();
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new ResolutionExtractionException(
-                        "published rulebook evidence lookup failed with status " + response.statusCode());
-            }
-            RuleEvidenceResponse result = objectMapper.readValue(response.body(), RuleEvidenceResponse.class);
-            return result.evidence() == null ? List.of() : result.evidence().stream()
-                    .filter(Objects::nonNull)
-                    .map(evidence -> new ResolutionExtractionPort.SourceExcerpt(
-                            "RULEBOOK", toProvenance(evidence.rulebookId(), evidence.extractionVersion(),
-                                    evidence.locator(), evidence.provenance()), evidence.excerpt()))
-                    .toList();
-        } catch (IOException exception) {
-            throw new ResolutionExtractionException("published rulebook evidence lookup failed", exception);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new ResolutionExtractionException("published rulebook evidence lookup interrupted", exception);
         }
     }
 
@@ -193,14 +166,6 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     @JsonIgnoreProperties(ignoreUnknown = true)
     record PreparationCandidate(UUID chunkId, UUID documentId, long extractionVersion, String documentType,
             String locator, String excerpt, ProvenanceResponse provenance) {}
-    record RuleEvidenceRequest(UUID ownerId, List<UUID> rulebookIds, String situation, String queryIntent, int limit) {}
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record RuleEvidenceResponse(List<RuleEvidenceItem> evidence) {}
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record RuleEvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt,
-            double score, ProvenanceResponse provenance) {
-        long extractionVersion() { return provenance == null ? 0 : provenance.extractionVersion(); }
-    }
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ProvenanceResponse(UUID documentId, long extractionVersion, int pageNumber, List<String> sectionPath,
             List<Double> bbox, String tableCell, String locator) {}
