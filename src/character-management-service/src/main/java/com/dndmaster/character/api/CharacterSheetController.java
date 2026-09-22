@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.UUID;
 import com.dndmaster.character.application.CharacterSheetsDeletionConsumer;
 import com.dndmaster.character.application.CharacterSheetsDeletionRequested;
+import com.dndmaster.character.application.auth.PlayerSessionLookupPort;
 
 @RestController
 @RequestMapping
@@ -34,6 +35,7 @@ public class CharacterSheetController {
     private final CharacterSheetApplicationService characterSheetService;
     private CharacterSheetsDeletionConsumer deletionConsumer;
     private ApiRequestGuard requestGuard;
+    private PlayerSessionLookupPort playerSessionLookupPort;
 
     public CharacterSheetController(CharacterSheetApplicationService characterSheetService) {
         this.characterSheetService = characterSheetService;
@@ -43,6 +45,8 @@ public class CharacterSheetController {
     void setDeletionConsumer(CharacterSheetsDeletionConsumer deletionConsumer) { this.deletionConsumer = deletionConsumer; }
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     void setRequestGuard(ApiRequestGuard requestGuard) { this.requestGuard = requestGuard; }
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setPlayerSessionLookupPort(PlayerSessionLookupPort playerSessionLookupPort) { this.playerSessionLookupPort = playerSessionLookupPort; }
 
     @PostMapping("/internal/v1/character-sheets/deletion-requests")
     void deleteCharacterSheets(@RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody CharacterSheetsDeletionRequest request) {
@@ -52,8 +56,20 @@ public class CharacterSheetController {
         deletionConsumer.consume(new CharacterSheetsDeletionRequested(request.sessionId(), request.characterSheetIds()));
     }
 
-    @GetMapping("/internal/v1/character-rules/catalogs/{edition}")
     CharacterRulesCatalogResponse getCharacterRulesCatalog(@PathVariable String edition) {
+        return characterRulesCatalog(edition);
+    }
+
+    @GetMapping("/internal/v1/character-rules/catalogs/{edition}")
+    CharacterRulesCatalogResponse getCharacterRulesCatalog(
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable String edition) {
+        requireAuthenticatedOrInternal(internalToken, authorization, null);
+        return characterRulesCatalog(edition);
+    }
+
+    private CharacterRulesCatalogResponse characterRulesCatalog(String edition) {
         if (!"DND_5E_2014".equals(edition)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "CHARACTER_RULES_CATALOG_NOT_FOUND");
         }
@@ -69,7 +85,10 @@ public class CharacterSheetController {
     @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-builds/evaluate")
     Dnd5e2014CharacterBuildEvaluator.Evaluation evaluateCharacterBuild(
             @PathVariable UUID sessionId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody CharacterSheetRequest request) {
+        requireAuthenticatedOrInternal(internalToken, authorization, request.ownerPlayerId());
         if (!"DND_5E_2014".equals(request.edition())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "UNSUPPORTED_CHARACTER_BUILD_EVALUATION_EDITION");
         }
@@ -77,7 +96,16 @@ public class CharacterSheetController {
     }
 
     @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-sheets")
-    CharacterSheetResponse createCharacterSheet(@PathVariable UUID sessionId, @RequestBody CharacterSheetRequest request) {
+    CharacterSheetResponse createCharacterSheet(
+            @PathVariable UUID sessionId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody CharacterSheetRequest request) {
+        requireAuthenticatedOrInternal(internalToken, authorization, request.ownerPlayerId());
+        return createCharacterSheet(sessionId, request);
+    }
+
+    private CharacterSheetResponse createCharacterSheet(UUID sessionId, CharacterSheetRequest request) {
         Dnd5e2014CharacterCreationValidator.validateCreation(request);
         Dnd5e2014CharacterBuildEvaluator.Evaluation evaluation = "DND_5E_2014".equals(request.edition())
                 ? Dnd5e2014CharacterBuildEvaluator.evaluate(request)
@@ -112,9 +140,12 @@ public class CharacterSheetController {
     @GetMapping("/internal/v1/character-sheets/{sheetId}")
     CharacterSheetResponse getCharacterSheet(
             @PathVariable UUID sheetId,
-            @RequestParam(defaultValue = "DND_5E_2024") String edition) {
+            @RequestParam(defaultValue = "DND_5E_2024") String edition,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         CharacterSheet sheet = characterSheetService.openSheet(
                 new CharacterSheetId(sheetId), SheetEdition.valueOf(edition));
+        requireAuthenticatedOrInternal(internalToken, authorization, sheet.ownerPlayerId());
         return CharacterSheetResponse.from(sheet);
     }
 
@@ -140,12 +171,20 @@ public class CharacterSheetController {
     }
 
     @GetMapping("/internal/v1/character-sheets")
-    List<CharacterSheetSummaryResponse> listCharacterSheets(@RequestParam UUID ownerPlayerId) {
+    List<CharacterSheetSummaryResponse> listCharacterSheets(
+            @RequestParam UUID ownerPlayerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        requireAuthenticatedOrInternal(internalToken, authorization, ownerPlayerId);
         return characterSheetService.listSheetsOwnedBy(ownerPlayerId).stream().map(CharacterSheetSummaryResponse::from).toList();
     }
 
     @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-sheets/{sheetId}/copy")
-    CharacterSheetResponse copyCharacterSheet(@PathVariable UUID sessionId, @PathVariable UUID sheetId, @RequestBody CopyCharacterSheetRequest request) {
+    CharacterSheetResponse copyCharacterSheet(@PathVariable UUID sessionId, @PathVariable UUID sheetId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestBody CopyCharacterSheetRequest request) {
+        requireAuthenticatedOrInternal(internalToken, authorization, request.ownerPlayerId());
         return CharacterSheetResponse.from(characterSheetService.copyOwnedSheet(new CharacterSheetId(sheetId), new SessionId(sessionId), request.ownerPlayerId()));
     }
 
@@ -194,6 +233,30 @@ public class CharacterSheetController {
     private static boolean structuredPayload(CharacterSheetRequest request) {
         return request.characterBuild() != null && !request.characterBuild().isBlank()
                 || request.characterState() != null && !request.characterState().isBlank();
+    }
+
+    private void requireAuthenticatedOrInternal(String internalToken, String authorization, UUID ownerPlayerId) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        try {
+            requestGuard.internal(internalToken);
+            return;
+        } catch (ApiRequestGuard.ApiContractException ignored) {
+            // Browser calls may use their opaque session token; validate its owner below.
+        }
+        if (ownerPlayerId == null || playerSessionLookupPort == null) {
+            throw new ApiRequestGuard.ApiContractException(401, "UNAUTHENTICATED");
+        }
+        String bearer = bearerToken(authorization);
+        UUID principal = playerSessionLookupPort.resolvePlayerId(bearer)
+                .orElseThrow(() -> new ApiRequestGuard.ApiContractException(401, "UNAUTHENTICATED"));
+        requestGuard.publicOwner(authorization, principal, ownerPlayerId);
+    }
+
+    private static String bearerToken(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ") || authorization.substring(7).isBlank()) {
+            throw new ApiRequestGuard.ApiContractException(401, "UNAUTHENTICATED");
+        }
+        return authorization.substring(7);
     }
 
     private static CharacterSheetData parseData(

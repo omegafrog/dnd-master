@@ -1,13 +1,19 @@
 openapi: 3.1.0
 info: { title: AI Game Master API, version: 1.0.0 }
+components:
+  securitySchemes:
+    internalServiceToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
 paths:
   /internal/v1/gm/scenes:
-    post: { operationId: generateScene, responses: { '200': { description: scenario-bound scene } } }
+    post: { operationId: generateScene, security: [{ internalServiceToken: [] }], responses: { '200': { description: scenario-bound scene }, '401': { description: invalid internal service token } } }
   /internal/v1/gm/judgments:
-    post: { operationId: adjudicate, responses: { '200': { description: rule-set judgment } } }
+    post: { operationId: adjudicate, security: [{ internalServiceToken: [] }], responses: { '200': { description: rule-set judgment }, '401': { description: invalid internal service token } } }
   /internal/v1/gm/rule-answers:
-    post: { operationId: groundedAnswer, responses: { '200': { description: answer with sources or candidates } } }
+    post: { operationId: groundedAnswer, security: [{ internalServiceToken: [] }], responses: { '200': { description: answer with sources or candidates }, '401': { description: invalid internal service token } } }
   /internal/v1/gm/maps:
-    post: { operationId: generateMap, responses: { '200': { description: AI map state } } }
+    post: { operationId: generateMap, security: [{ internalServiceToken: [] }], responses: { '200': { description: AI map state }, '401': { description: invalid internal service token } } }
   /internal/v1/gm/intent-classifications:
-    post: { operationId: classifyIntent, responses: { '200': { description: GM query intent } } }
+    post: { operationId: classifyIntent, security: [{ internalServiceToken: [] }], responses: { '200': { description: GM query intent }, '401': { description: invalid internal service token } } }

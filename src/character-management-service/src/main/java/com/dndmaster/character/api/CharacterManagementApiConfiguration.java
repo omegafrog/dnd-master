@@ -8,6 +8,8 @@ import com.dndmaster.character.application.CharacterSheetsDeletionConsumer;
 import com.dndmaster.character.domain.SheetEdition;
 import com.dndmaster.character.infrastructure.persistence.PostgresCharacterSheetRepository;
 import com.dndmaster.character.infrastructure.CrossContextHttpSessionCharacterPolicyAdapter;
+import com.dndmaster.character.application.auth.PlayerSessionLookupPort;
+import com.dndmaster.character.infrastructure.CrossContextHttpPlayerSessionLookupGateway;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -30,6 +32,14 @@ public class CharacterManagementApiConfiguration {
     }
 
     @Bean
+    PlayerSessionLookupPort playerSessionLookupPort(
+            ObjectMapper objectMapper,
+            @Value("${character.integration.identity.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${character.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new CrossContextHttpPlayerSessionLookupGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), objectMapper, internalToken);
+    }
+
+    @Bean
     AdventureEditionHttpPort adventureEditionHttpPort(
             @Value("${character.default-edition:DND_5E_2014}") String edition) {
         SheetEdition appliedEdition = SheetEdition.valueOf(edition);
@@ -39,8 +49,9 @@ public class CharacterManagementApiConfiguration {
     @Bean
     SessionCharacterPolicyPort sessionCharacterPolicyPort(
             ObjectMapper objectMapper,
-            @Value("${character.integration.adventure.base-url:http://127.0.0.1:8080/}") String baseUrl) {
-        return new CrossContextHttpSessionCharacterPolicyAdapter(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), objectMapper);
+            @Value("${character.integration.adventure.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${character.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new CrossContextHttpSessionCharacterPolicyAdapter(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), objectMapper, internalToken);
     }
 
     @Bean
@@ -57,7 +68,9 @@ public class CharacterManagementApiConfiguration {
 
     @Bean
     CharacterSheetController characterSheetController(
-            CharacterSheetApplicationService characterSheetService) {
-        return new CharacterSheetController(characterSheetService);
+            CharacterSheetApplicationService characterSheetService, PlayerSessionLookupPort playerSessionLookupPort) {
+        var controller = new CharacterSheetController(characterSheetService);
+        controller.setPlayerSessionLookupPort(playerSessionLookupPort);
+        return controller;
     }
 }

@@ -1,9 +1,20 @@
 openapi: 3.1.0
 info: { title: Identity Access API, version: 1.0.0 }
+components:
+  securitySchemes:
+    internalServiceToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
 paths:
   /api/v1/identity/sessions:
     post: { operationId: login, responses: { '200': { description: authenticated } } }
   /api/v1/identity/sessions/current:
     delete: { operationId: logout, responses: { '204': { description: logged out } } }
   /internal/v1/auth/introspections:
-    post: { operationId: introspect, responses: { '200': { description: authenticated principal } } }
+    post:
+      operationId: introspect
+      security: [{ internalServiceToken: [] }]
+      responses:
+        '200': { description: authenticated principal }
+        '401': { description: missing or invalid internal service token }

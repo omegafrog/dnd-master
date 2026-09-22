@@ -1,5 +1,11 @@
 openapi: 3.1.0
 info: { title: Adventure API, version: 1.0.0 }
+components:
+  securitySchemes:
+    internalServiceToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
 paths:
   /api/v1/adventures/{adventureId}/combat:
     get:
@@ -151,13 +157,13 @@ paths:
   /api/v1/adventures/{adventureId}:
     delete: { operationId: deleteAdventure, responses: { '204': { description: deleted } } }
   /internal/v1/adventures:
-    get: { operationId: ownedAdventures, responses: { '200': { description: owned resources } } }
+    get: { operationId: ownedAdventures, security: [{ internalServiceToken: [] }], responses: { '200': { description: owned resources }, '401': { description: invalid internal service token } } }
   /internal/v1/adventures/{adventureId}/edition:
-    get: { operationId: appliedEdition, responses: { '200': { description: edition } } }
+    get: { operationId: appliedEdition, security: [{ internalServiceToken: [] }], responses: { '200': { description: edition }, '401': { description: invalid internal service token } } }
   /internal/v1/adventures/{adventureId}/roll-conditions:
-    get: { operationId: rollConditions, responses: { '200': { description: conditions } } }
+    get: { operationId: rollConditions, security: [{ internalServiceToken: [] }], responses: { '200': { description: conditions }, '401': { description: invalid internal service token } } }
   /internal/v1/adventures/{adventureId}/movement-validations:
-    post: { operationId: validateMovement, responses: { '200': { description: validation } } }
+    post: { operationId: validateMovement, security: [{ internalServiceToken: [] }], responses: { '200': { description: validation }, '401': { description: invalid internal service token } } }
   /api/v1/adventures/{adventureId}/combat-map/movement-preview:
     post:
       operationId: previewAdventureMapMovement

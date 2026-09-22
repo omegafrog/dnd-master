@@ -1,9 +1,19 @@
 openapi: 3.1.0
 info: { title: Character Management API, version: 1.0.0 }
+components:
+  securitySchemes:
+    internalServiceToken:
+      type: apiKey
+      in: header
+      name: X-Internal-Token
+    playerBearer:
+      type: http
+      scheme: bearer
 paths:
   /internal/v1/adventure-sessions/{sessionId}/character-sheets:
     post:
       operationId: createCharacterSheet
+      security: [{ internalServiceToken: [] }, { playerBearer: [] }]
       parameters:
         - in: path
           name: sessionId
@@ -31,12 +41,15 @@ paths:
       responses:
         '200':
           description: created character sheet
+        '401': { description: missing or invalid authentication }
   /internal/v1/character-sheets/{sheetId}:
     get:
       operationId: getCharacterSheet
+      security: [{ internalServiceToken: [] }, { playerBearer: [] }]
       responses:
         '200':
           description: edition sheet with current version
+        '401': { description: missing or invalid authentication }
     put:
       operationId: preserveCharacterSheet
       parameters:
