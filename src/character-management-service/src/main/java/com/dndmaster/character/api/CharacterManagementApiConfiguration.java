@@ -15,6 +15,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -32,7 +33,7 @@ public class CharacterManagementApiConfiguration {
     }
 
     @Bean
-    PlayerSessionLookupPort playerSessionLookupPort(
+    PlayerSessionLookupPort characterPlayerSessionLookupPort(
             ObjectMapper objectMapper,
             @Value("${character.integration.identity.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${character.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
@@ -68,7 +69,8 @@ public class CharacterManagementApiConfiguration {
 
     @Bean
     CharacterSheetController characterSheetController(
-            CharacterSheetApplicationService characterSheetService, PlayerSessionLookupPort playerSessionLookupPort) {
+            CharacterSheetApplicationService characterSheetService,
+            @Qualifier("characterPlayerSessionLookupPort") PlayerSessionLookupPort playerSessionLookupPort) {
         var controller = new CharacterSheetController(characterSheetService);
         controller.setPlayerSessionLookupPort(playerSessionLookupPort);
         return controller;

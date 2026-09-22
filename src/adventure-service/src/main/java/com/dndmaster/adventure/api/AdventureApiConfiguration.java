@@ -692,7 +692,7 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    com.dndmaster.adventure.application.auth.PlayerSessionLookupPort playerSessionLookupPort(
+    com.dndmaster.adventure.application.auth.PlayerSessionLookupPort adventurePlayerSessionLookupPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.identity-access.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
