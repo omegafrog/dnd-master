@@ -46,6 +46,15 @@ class CharacterInternalAuthorizationTest {
         assertEquals(List.of(), controller.listCharacterSheets(OWNER, "service-secret", null));
     }
 
+    @Test
+    void browserCanReadTheEditionCatalogAfterSessionValidation() {
+        var lookup = mock(PlayerSessionLookupPort.class);
+        when(lookup.resolvePlayerId("opaque-session")).thenReturn(java.util.Optional.of(OWNER));
+        var controller = controller(mock(CharacterSheetApplicationService.class), lookup);
+
+        assertEquals("DND_5E_2014", controller.getCharacterRulesCatalog(null, "Bearer opaque-session", "DND_5E_2014").edition());
+    }
+
     private static CharacterSheetController controller(CharacterSheetApplicationService service, PlayerSessionLookupPort lookup) {
         var controller = new CharacterSheetController(service);
         controller.setRequestGuard(new ApiRequestGuard("service-secret"));

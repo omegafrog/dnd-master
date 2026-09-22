@@ -243,13 +243,13 @@ public class CharacterSheetController {
         } catch (ApiRequestGuard.ApiContractException ignored) {
             // Browser calls may use their opaque session token; validate its owner below.
         }
-        if (ownerPlayerId == null || playerSessionLookupPort == null) {
+        if (playerSessionLookupPort == null) {
             throw new ApiRequestGuard.ApiContractException(401, "UNAUTHENTICATED");
         }
         String bearer = bearerToken(authorization);
         UUID principal = playerSessionLookupPort.resolvePlayerId(bearer)
                 .orElseThrow(() -> new ApiRequestGuard.ApiContractException(401, "UNAUTHENTICATED"));
-        requestGuard.publicOwner(authorization, principal, ownerPlayerId);
+        if (ownerPlayerId != null) requestGuard.publicOwner(authorization, principal, ownerPlayerId);
     }
 
     private static String bearerToken(String authorization) {
