@@ -306,7 +306,9 @@ test('fresh database bootstraps scenario package and completes character creatio
 
   await login(request)
   const uploaded = await uploadDocuments(request)
-  await waitForDocuments(request, uploaded.documents.map(document => document.knowledgeDocumentId))
+  await waitForDocuments(request, uploaded.documents
+    .filter(document => document.role !== 'RULEBOOK')
+    .map(document => document.knowledgeDocumentId))
   const bundle = await createBundle(request, uploaded.documents)
   const packageId = await compilePackage(request, bundle.bundleId, uploaded.primaryStorybookId)
   const preparation = await prepareBlueprint(request, packageId)

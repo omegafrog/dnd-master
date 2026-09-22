@@ -95,7 +95,7 @@ test('running session reconnects with switched provider and confirms ending', as
 
   await page.getByLabel('무엇을 하시겠어요?').fill('I inspect the revealed chamber')
   await page.getByRole('button', { name: '행동 보내기' }).click()
-  await expect(page.getByText(/턴 1: 근거를 바탕으로 응답한다\./)).toBeVisible()
+  await expect(page.getByRole('list', { name: '대화 기록' }).getByText(/턴 1: 근거를 바탕으로 응답한다\./)).toBeVisible()
   await page.getByRole('button', { name: '굴리기' }).click()
   await expect(page.getByText('결과: 17')).toBeVisible()
   const map = page.getByRole('region', { name: '플레이어 전투 맵' })
@@ -106,10 +106,10 @@ test('running session reconnects with switched provider and confirms ending', as
 
   await page.reload()
   await expect(provider.locator('details.party-provider-settings').getByText(/openai · gpt-5.6-luna/)).toBeVisible()
-  await expect(page.getByText(/턴 1: 근거를 바탕으로 응답한다\./)).toBeVisible()
+  await expect(page.getByRole('list', { name: '대화 기록' }).getByText(/턴 1: 근거를 바탕으로 응답한다\./)).toBeVisible()
   await page.getByLabel('무엇을 하시겠어요?').fill('I continue after reconnect')
   await page.getByRole('button', { name: '행동 보내기' }).click()
-  await expect(page.getByText(/턴 2: 근거를 바탕으로 응답한다\./)).toBeVisible()
+  await expect(page.getByRole('list', { name: '대화 기록' }).getByText(/턴 2: 근거를 바탕으로 응답한다\./)).toBeVisible()
   await page.getByRole('button', { name: '세션 완료' }).click()
   await page.getByRole('button', { name: '종료 확인' }).click()
   await expect(page.getByText('완료 · 0/1명', { exact: true })).toBeVisible()
