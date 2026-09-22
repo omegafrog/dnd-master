@@ -786,10 +786,10 @@ public class AdventureApiConfiguration {
             InitialSourceContextProposalPort proposalPort,
             KnowledgeDocumentLookupPort lookupPort,
             GameSystemDefinitionPort gameSystemDefinitionPort,
-            OpeningSourceContextSearchPort openingSourceContextSearchPort) {
+            com.dndmaster.adventure.application.runtime.OpeningSceneEvidenceAcquirer openingSceneEvidenceAcquirer) {
         return new RuntimeBindingApplicationService(
                 adventureRepository, bundleRepository, packageRepository, runtimeBindingRepository, proposalPort,
-                lookupPort, gameSystemDefinitionPort, openingSourceContextSearchPort);
+                lookupPort, gameSystemDefinitionPort, openingSceneEvidenceAcquirer);
     }
 
     @Bean
@@ -826,6 +826,13 @@ public class AdventureApiConfiguration {
                         HttpClient.newHttpClient(), URI.create(aiGameMasterBaseUrl), Duration.ofSeconds(aiGameMasterTimeoutSeconds), objectMapper, internalToken),
                 new com.dndmaster.adventure.infrastructure.integration.HttpEvidenceSufficiencyJudgePort(
                         HttpClient.newHttpClient(), URI.create(aiGameMasterBaseUrl), Duration.ofSeconds(aiGameMasterTimeoutSeconds), objectMapper, internalToken));
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.runtime.OpeningSceneEvidenceAcquirer openingSceneEvidenceAcquirer(
+            com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService) {
+        return new com.dndmaster.adventure.application.runtime.OpeningSceneEvidenceAcquirer(
+                evidenceAcquisitionApplicationService);
     }
 
     @Bean

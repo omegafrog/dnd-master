@@ -19,6 +19,7 @@ public final class RuntimeBindingApplicationService {
     private final RuntimeBindingRepository bindingRepository;
     private final InitialSourceContextProposalPort proposalPort;
     private final OpeningSourceContextSearchPort openingSourceContextSearchPort;
+    private final OpeningSceneEvidenceAcquirer openingSceneEvidenceAcquirer;
     private final KnowledgeDocumentLookupPort knowledgeDocumentLookupPort;
     private final GameSystemDefinitionPort gameSystemDefinitionPort;
     private final boolean requirePublishedReferences;
@@ -33,7 +34,7 @@ public final class RuntimeBindingApplicationService {
             KnowledgeDocumentLookupPort knowledgeDocumentLookupPort) {
         this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
                 knowledgeDocumentLookupPort, sessionId -> java.util.Optional.empty(), false, false,
-                (ownerPlayerId, scenarioPackage) -> List.of());
+                (ownerPlayerId, scenarioPackage) -> List.of(), null);
     }
 
     public RuntimeBindingApplicationService(
@@ -46,7 +47,7 @@ public final class RuntimeBindingApplicationService {
             OpeningSourceContextSearchPort openingSourceContextSearchPort) {
         this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
                 knowledgeDocumentLookupPort, sessionId -> java.util.Optional.empty(), false, true,
-                openingSourceContextSearchPort);
+                openingSourceContextSearchPort, null);
     }
 
     public RuntimeBindingApplicationService(
@@ -56,7 +57,7 @@ public final class RuntimeBindingApplicationService {
             GameSystemDefinitionPort gameSystemDefinitionPort) {
         this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
                 knowledgeDocumentLookupPort, gameSystemDefinitionPort, true, false,
-                (ownerPlayerId, scenarioPackage) -> List.of());
+                (ownerPlayerId, scenarioPackage) -> List.of(), null);
     }
 
     public RuntimeBindingApplicationService(
@@ -65,7 +66,17 @@ public final class RuntimeBindingApplicationService {
             InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
             GameSystemDefinitionPort gameSystemDefinitionPort, OpeningSourceContextSearchPort openingSourceContextSearchPort) {
         this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
-                knowledgeDocumentLookupPort, gameSystemDefinitionPort, true, true, openingSourceContextSearchPort);
+                knowledgeDocumentLookupPort, gameSystemDefinitionPort, true, true, openingSourceContextSearchPort, null);
+    }
+
+    public RuntimeBindingApplicationService(
+            AdventureRepository adventureRepository, ScenarioBundleRepository bundleRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeBindingRepository bindingRepository,
+            InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
+            GameSystemDefinitionPort gameSystemDefinitionPort, OpeningSceneEvidenceAcquirer openingSceneEvidenceAcquirer) {
+        this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
+                knowledgeDocumentLookupPort, gameSystemDefinitionPort, true, true,
+                (ownerPlayerId, scenarioPackage) -> List.of(), openingSceneEvidenceAcquirer);
     }
 
     private RuntimeBindingApplicationService(
@@ -74,7 +85,8 @@ public final class RuntimeBindingApplicationService {
             InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
             GameSystemDefinitionPort gameSystemDefinitionPort, boolean requirePublishedReferences,
             boolean openingSourceContextSearchEnabled,
-            OpeningSourceContextSearchPort openingSourceContextSearchPort) {
+            OpeningSourceContextSearchPort openingSourceContextSearchPort,
+            OpeningSceneEvidenceAcquirer openingSceneEvidenceAcquirer) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
@@ -82,6 +94,7 @@ public final class RuntimeBindingApplicationService {
         this.proposalPort = Objects.requireNonNull(proposalPort, "proposal port must not be null");
         this.openingSourceContextSearchPort = Objects.requireNonNull(openingSourceContextSearchPort,
                 "opening source context search port must not be null");
+        this.openingSceneEvidenceAcquirer = openingSceneEvidenceAcquirer;
         this.knowledgeDocumentLookupPort = Objects.requireNonNull(knowledgeDocumentLookupPort, "knowledge document lookup port must not be null");
         this.gameSystemDefinitionPort = Objects.requireNonNull(gameSystemDefinitionPort, "game system definition port must not be null");
         this.requirePublishedReferences = requirePublishedReferences;
@@ -165,7 +178,9 @@ public final class RuntimeBindingApplicationService {
             String engineId,
             List<String> toolIds,
             Long previousBindingVersion) {
-        List<InitialSourceContextCandidate> candidates = buildCandidates(ownerPlayerId, scenarioPackage);
+        List<InitialSourceContextCandidate> candidates = openingSceneEvidenceAcquirer == null
+                ? buildCandidates(ownerPlayerId, scenarioPackage)
+                : buildCandidates(adventure, ownerPlayerId, scenarioPackage);
         InitialSourceContextProposalPort.InitialSourceContextProposalResult proposal = proposalPort.propose(scenarioPackage, candidates);
         PlayabilityReport report = buildReport(
                 scenarioPackage.report().status().name(), scenarioPackage.report().warnings(), candidates, proposal,
@@ -216,7 +231,9 @@ public final class RuntimeBindingApplicationService {
             status = PlayabilityStatus.PLAYABLE_WITH_LIMITS;
         }
         if (proposal == null || proposal.candidates().isEmpty()) {
-            blockers.add("no initial source context candidates");
+            blockers.add(openingSceneEvidenceAcquirer == null
+                    ? "no initial source context candidates"
+                    : "opening preparation failed");
             status = PlayabilityStatus.BLOCKED;
         } else if (proposal.candidates().size() > 1) {
             blockers.add("initial source context is ambiguous");
@@ -293,6 +310,27 @@ public final class RuntimeBindingApplicationService {
             }
         }
         return candidates.stream().distinct().toList();
+    }
+
+    private List<InitialSourceContextCandidate> buildCandidates(
+            Adventure adventure, OwnerPlayerId ownerPlayerId, ScenarioPackage scenarioPackage) {
+        OpeningSceneEvidenceAcquirer.Result result = openingSceneEvidenceAcquirer.acquire(
+                ownerPlayerId, adventure.sessionId().value(), scenarioPackage);
+        return result.selectedEvidence().stream()
+                .map(candidate -> {
+                    UUID documentId = UUID.fromString(candidate.documentId());
+                    long extractionVersion = scenarioPackage.documents().stream()
+                            .filter(document -> document.knowledgeDocumentId().value().equals(documentId))
+                            .mapToLong(document -> document.extractionVersion())
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "opening evidence document is outside package scope"));
+                    return new InitialSourceContextCandidate(
+                            new KnowledgeDocumentId(documentId), extractionVersion,
+                            candidate.locator(), candidate.excerpt(), 1.0d,
+                            "AI-selected opening evidence");
+                })
+                .toList();
     }
 
     private void validateRulebookAccess(OwnerPlayerId ownerPlayerId, List<UUID> rulebookIds) {
