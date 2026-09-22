@@ -513,6 +513,7 @@ public class RuleKnowledgeController {
                         .map(item -> registrationRepository.findById(new RulebookId(item.rulebookId()))
                                 .filter(registration -> registration.processingStatus() == ProcessingStatus.INDEXED
                                         && registration.documentType() == DocumentType.RULEBOOK
+                                        && registration.ownerPlayerId().value().equals(CATALOG_OWNER)
                                         && registration.version() > 0)
                                 .map(registration -> new RulebookSummary(
                                         registration.rulebookId().value(), registration.rulebookId().value(),
@@ -933,6 +934,7 @@ public class RuleKnowledgeController {
                     .filter(id -> registrationRepository.findById(new RulebookId(id))
                             .filter(registration -> registration.processingStatus() == ProcessingStatus.INDEXED)
                             .filter(registration -> registration.documentType() == DocumentType.RULEBOOK)
+                            .filter(registration -> registration.ownerPlayerId().value().equals(CATALOG_OWNER))
                             .filter(registration -> registration.version() > 0)
                             .isPresent())
                     .collect(java.util.stream.Collectors.toSet());

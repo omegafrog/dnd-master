@@ -32,6 +32,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 class RulebookCatalogBackofficeControllerTest {
     private static final UUID ADMIN = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID NON_ADMIN = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
 
     @Test
     void backoffice_resolves_session_then_checks_admin_allowlist() throws Exception {
@@ -75,7 +76,7 @@ class RulebookCatalogBackofficeControllerTest {
 
     private static StoredRulebookRegistration registration(UUID id, ProcessingStatus status) {
         Instant now = Instant.now();
-        return new StoredRulebookRegistration(new RulebookId(id), new OwnerPlayerId(UUID.randomUUID()), "op", "hash",
+        return new StoredRulebookRegistration(new RulebookId(id), new OwnerPlayerId(CATALOG_OWNER), "op", "hash",
                 RulebookFormat.PDF, 1, "storage", status, ExtractionStatus.SUCCESS, "content", List.of(), null,
                 1, now, now, DocumentType.RULEBOOK, "rules.pdf");
     }

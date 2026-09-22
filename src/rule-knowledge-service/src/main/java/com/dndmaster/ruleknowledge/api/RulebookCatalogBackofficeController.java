@@ -70,7 +70,8 @@ public final class RulebookCatalogBackofficeController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "catalog revision not found"));
         if (current.rulebookId() == null || registrations.findById(new RulebookId(current.rulebookId()))
                 .map(item -> item.processingStatus() == ProcessingStatus.INDEXED
-                        && item.documentType() == DocumentType.RULEBOOK && item.version() > 0)
+                        && item.documentType() == DocumentType.RULEBOOK
+                        && item.ownerPlayerId().value().equals(CATALOG_OWNER) && item.version() > 0)
                 .orElse(false) == false) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "catalog revision is not indexed");
         }

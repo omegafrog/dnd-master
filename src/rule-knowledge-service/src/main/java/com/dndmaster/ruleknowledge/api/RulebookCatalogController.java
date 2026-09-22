@@ -9,6 +9,7 @@ import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/rulebook-catalog")
 public final class RulebookCatalogController {
+    private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
     private final CatalogRulebookRepository repository;
     private final RulebookRegistrationRepository registrations;
 
@@ -33,6 +35,7 @@ public final class RulebookCatalogController {
                 .filter(revision -> registrations.findById(new RulebookId(revision.rulebookId()))
                         .filter(registration -> registration.processingStatus() == ProcessingStatus.INDEXED)
                         .filter(registration -> registration.documentType() == DocumentType.RULEBOOK)
+                        .filter(registration -> registration.ownerPlayerId().value().equals(CATALOG_OWNER))
                         .filter(registration -> registration.version() > 0)
                         .isPresent())
                 .map(revision -> CatalogRulebookView.from(revision, registrations))

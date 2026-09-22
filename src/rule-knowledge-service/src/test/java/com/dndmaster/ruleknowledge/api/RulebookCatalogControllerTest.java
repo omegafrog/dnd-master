@@ -23,6 +23,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class RulebookCatalogControllerTest {
+    private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
     @Test
     void public_catalog_contains_only_published_ready_indexed_rulebooks() {
         UUID included = UUID.randomUUID();
@@ -60,7 +61,7 @@ class RulebookCatalogControllerTest {
 
     private static StoredRulebookRegistration registration(UUID id, ProcessingStatus status, DocumentType type) {
         Instant now = Instant.now();
-        return new StoredRulebookRegistration(new RulebookId(id), new OwnerPlayerId(UUID.randomUUID()),
+        return new StoredRulebookRegistration(new RulebookId(id), new OwnerPlayerId(CATALOG_OWNER),
                 "op-" + id, "hash-" + id, RulebookFormat.PDF, 1, "storage-" + id, status,
                 ExtractionStatus.SUCCESS, "content", List.of(), null, 1, now, now, type, "rulebook.pdf");
     }
