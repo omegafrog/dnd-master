@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
+import com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
@@ -23,6 +24,7 @@ import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -171,15 +173,88 @@ class RuleKnowledgeRetrievalAuthorizationTest {
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
                 .build();
 
-        mockMvc.perform(get("/internal/v1/rulebooks").param("ownerId", OWNER.toString()))
+        mockMvc.perform(get("/internal/v1/rulebooks").param("ownerId", OWNER.toString())
+                        .header("X-Internal-Token", "internal-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ownerId").value(OWNER.toString()))
                 .andExpect(jsonPath("$.rulebooks.length()").value(1))
                 .andExpect(jsonPath("$.rulebooks[0].knowledgeDocumentId").value(owned.toString()));
-        mockMvc.perform(get("/internal/v1/rulebooks").param("ownerId", CATALOG_OWNER.toString()))
+        mockMvc.perform(get("/internal/v1/rulebooks").param("ownerId", CATALOG_OWNER.toString())
+                        .header("X-Internal-Token", "internal-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ownerId").value(CATALOG_OWNER.toString()))
                 .andExpect(jsonPath("$.rulebooks.length()").value(0));
+    }
+
+    @Test
+    void browser_owner_lookup_accepts_the_authenticated_owner() throws Exception {
+        UUID owned = UUID.randomUUID();
+        RulebookRegistrationRepository registrations = registrationsFor(registration(owned, OWNER, ProcessingStatus.INDEXED, DocumentType.STORYBOOK));
+
+        mockMvcWithOwnerAuthentication(registrations, Optional.of(OWNER))
+                .perform(get("/internal/v1/rulebooks").param("ownerId", OWNER.toString())
+                        .header("Authorization", "Bearer owner-session"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownerId").value(OWNER.toString()))
+                .andExpect(jsonPath("$.rulebooks[0].knowledgeDocumentId").value(owned.toString()));
+    }
+
+    @Test
+    void browser_owner_lookup_rejects_a_cross_owner_request_without_disclosing_documents() throws Exception {
+        UUID owned = UUID.randomUUID();
+        RulebookRegistrationRepository registrations = registrationsFor(registration(owned, FOREIGN, ProcessingStatus.INDEXED, DocumentType.STORYBOOK));
+
+        mockMvcWithOwnerAuthentication(registrations, Optional.of(OWNER))
+                .perform(get("/internal/v1/rulebooks").param("ownerId", FOREIGN.toString())
+                        .header("Authorization", "Bearer owner-session"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("RULEBOOK_LOOKUP_FORBIDDEN"));
+    }
+
+    @Test
+    void browser_owner_lookup_rejects_missing_or_invalid_credentials() throws Exception {
+        MockMvc mockMvc = mockMvcWithOwnerAuthentication(registrationsFor(null), Optional.empty());
+
+        mockMvc.perform(get("/internal/v1/rulebooks").param("ownerId", OWNER.toString()))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("RULEBOOK_LOOKUP_UNAUTHENTICATED"));
+        mockMvc.perform(get("/internal/v1/rulebooks").param("ownerId", OWNER.toString())
+                        .header("Authorization", "Bearer invalid-session"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("RULEBOOK_LOOKUP_UNAUTHENTICATED"));
+    }
+
+    @Test
+    void internal_owner_lookup_accepts_the_configured_token_without_bearer_credentials() throws Exception {
+        UUID owned = UUID.randomUUID();
+        RulebookRegistrationRepository registrations = registrationsFor(registration(owned, OWNER, ProcessingStatus.INDEXED, DocumentType.STORYBOOK));
+
+        mockMvcWithOwnerAuthentication(registrations, Optional.empty())
+                .perform(get("/internal/v1/rulebooks").param("ownerId", OWNER.toString())
+                        .header("X-Internal-Token", "internal-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rulebooks[0].knowledgeDocumentId").value(owned.toString()));
+    }
+
+    @Test
+    void invalid_internal_token_falls_back_only_to_a_valid_matching_bearer_owner() throws Exception {
+        UUID owned = UUID.randomUUID();
+        RulebookRegistrationRepository registrations = registrationsFor(registration(owned, OWNER, ProcessingStatus.INDEXED, DocumentType.STORYBOOK));
+        MockMvc mockMvc = mockMvcWithOwnerAuthentication(registrations, Optional.of(OWNER));
+
+        mockMvc.perform(get("/internal/v1/rulebooks").param("ownerId", OWNER.toString())
+                        .header("X-Internal-Token", "wrong-token")
+                        .header("Authorization", "Bearer owner-session"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/internal/v1/rulebooks").param("ownerId", OWNER.toString())
+                        .header("X-Internal-Token", "wrong-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("RULEBOOK_LOOKUP_UNAUTHENTICATED"));
+        mockMvc.perform(get("/internal/v1/rulebooks").param("ownerId", FOREIGN.toString())
+                        .header("X-Internal-Token", "wrong-token")
+                        .header("Authorization", "Bearer owner-session"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("RULEBOOK_LOOKUP_FORBIDDEN"));
     }
 
     @Test
@@ -223,6 +298,26 @@ class RuleKnowledgeRetrievalAuthorizationTest {
         return MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
                 .build();
+    }
+
+    private static MockMvc mockMvcWithOwnerAuthentication(
+            RulebookRegistrationRepository registrations, Optional<UUID> authenticatedOwner) {
+        PlayerSessionLookupPort playerSessionLookup = mock(PlayerSessionLookupPort.class);
+        when(playerSessionLookup.resolvePlayerId("owner-session")).thenReturn(authenticatedOwner);
+        RuleKnowledgeController controller = new RuleKnowledgeController(
+                mock(RulebookPipelineApplicationService.class), registrations,
+                mock(RuleEvidenceSearchApplicationService.class), storySearch(), null, null,
+                new com.fasterxml.jackson.databind.ObjectMapper(), null, "internal-token", mock(CatalogRulebookRepository.class),
+                playerSessionLookup);
+        return MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
+                .build();
+    }
+
+    private static RulebookRegistrationRepository registrationsFor(StoredRulebookRegistration registration) {
+        RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
+        when(registrations.findByOwner(any())).thenReturn(registration == null ? List.of() : List.of(registration));
+        return registrations;
     }
 
     private static StorySourceSearchApplicationService storySearch() {

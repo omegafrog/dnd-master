@@ -48,6 +48,7 @@ class CrossContextHttpKnowledgeDocumentLookupGatewayTest {
         UUID needsReviewId = UUID.randomUUID();
         UUID readyId = UUID.randomUUID();
         wireMock.stubFor(get(urlEqualTo("/internal/v1/rulebooks?ownerId=" + owner))
+                .withHeader("X-Internal-Token", equalTo("internal-token"))
                 .willReturn(aResponse()
                         .withStatus(200)
                         .withHeader("Content-Type", "application/json")

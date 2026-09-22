@@ -410,7 +410,20 @@ public class RuleKnowledgeController {
     }
 
     @GetMapping("/internal/v1/rulebooks")
-    OwnedRulebooksResponse ownedRulebooks(@RequestParam UUID ownerId) {
+    ResponseEntity<?> ownedRulebooks(
+            @RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalServiceToken,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        if (!isValidInternalToken(internalServiceToken)) {
+            try {
+                requireOwner(authenticatedPlayerId(authorization), ownerId);
+            } catch (ResponseStatusException exception) {
+                HttpStatus status = exception.getStatusCode().value() == HttpStatus.FORBIDDEN.value()
+                        ? HttpStatus.FORBIDDEN : HttpStatus.UNAUTHORIZED;
+                return evidenceSearchError(status,
+                        status == HttpStatus.FORBIDDEN ? "RULEBOOK_LOOKUP_FORBIDDEN" : "RULEBOOK_LOOKUP_UNAUTHENTICATED");
+            }
+        }
         List<StoredRulebookRegistration> registrations = registrationRepository.findByOwner(new OwnerPlayerId(ownerId));
         List<RulebookSummary> summaries = registrations.stream()
                 .map(r -> new RulebookSummary(
@@ -418,7 +431,11 @@ public class RuleKnowledgeController {
                         r.format().name(), r.documentType(), r.originalFilename(), r.failureCode(),
                         r.version(), warningsFor(r), progressFor(r), reviewQuestionsFor(r), r.preprocessingPages()))
                 .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
-        return new OwnedRulebooksResponse(ownerId, summaries);
+        return ResponseEntity.ok(new OwnedRulebooksResponse(ownerId, summaries));
+    }
+
+    private boolean isValidInternalToken(String token) {
+        return !internalToken.isBlank() && internalToken.equals(token);
     }
 
     @GetMapping("/internal/v1/rulebooks/published-catalog")
