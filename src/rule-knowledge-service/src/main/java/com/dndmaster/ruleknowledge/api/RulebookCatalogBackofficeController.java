@@ -24,6 +24,7 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -48,6 +49,15 @@ public final class RulebookCatalogBackofficeController {
             GameSystemDefinitionRepository definitions,
             @Value("${rule-knowledge.backoffice.admin-player-ids:}") String adminPlayerIds) {
         this(repository, pipeline, registrations, definitions, null, adminPlayerIds);
+    }
+
+    @GetMapping
+    java.util.List<BackofficeCatalogRulebookView> list(
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        requireAdmin(authorization);
+        return repository.findAll().stream()
+                .map(BackofficeCatalogRulebookView::from)
+                .toList();
     }
 
     @Autowired
@@ -123,6 +133,17 @@ public final class RulebookCatalogBackofficeController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid"));
         if (!adminIds.contains(playerId.toString())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ADMIN role is required");
+        }
+    }
+
+    public record BackofficeCatalogRulebookView(
+            String catalogRevisionId, String edition, String displayName, String rulebookId,
+            long revisionNumber, String status, boolean published) {
+        static BackofficeCatalogRulebookView from(CatalogRulebookRevision revision) {
+            return new BackofficeCatalogRulebookView(
+                    revision.id().toString(), revision.edition().name(), revision.displayName(),
+                    revision.rulebookId() == null ? null : revision.rulebookId().toString(),
+                    revision.revisionNumber(), revision.status().name(), revision.published());
         }
     }
 }

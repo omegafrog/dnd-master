@@ -4,6 +4,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort;
@@ -64,6 +66,36 @@ class RulebookCatalogBackofficeControllerTest {
         mockMvc.perform(post("/api/v1/backoffice/rulebook-catalog/" + revisionId + "/publish")
                         .header("Authorization", "Bearer admin-session"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void admin_catalog_list_requires_opaque_admin_session_and_includes_queued_revision() throws Exception {
+        UUID queuedRulebook = UUID.randomUUID();
+        UUID revisionId = UUID.randomUUID();
+        CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
+        when(catalog.findAll()).thenReturn(List.of(new CatalogRulebookRevision(revisionId,
+                RulebookEdition.DND_5E_2014, "Queued D&D 5e", queuedRulebook, 1,
+                CatalogRevisionStatus.QUEUED, false, null, Instant.now(), Instant.now())));
+        PlayerSessionLookupPort sessions = mock(PlayerSessionLookupPort.class);
+        when(sessions.resolvePlayerId("admin-session")).thenReturn(Optional.of(ADMIN));
+        when(sessions.resolvePlayerId("player-session")).thenReturn(Optional.of(NON_ADMIN));
+        MockMvc mockMvc = controller(catalog, mock(RulebookRegistrationRepository.class),
+                mock(GameSystemDefinitionRepository.class), sessions);
+
+        mockMvc.perform(get("/api/v1/backoffice/rulebook-catalog"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/backoffice/rulebook-catalog")
+                        .header("Authorization", "Bearer " + ADMIN))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/v1/backoffice/rulebook-catalog")
+                        .header("Authorization", "Bearer player-session"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/v1/backoffice/rulebook-catalog")
+                        .header("Authorization", "Bearer admin-session"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].catalogRevisionId").value(revisionId.toString()))
+                .andExpect(jsonPath("$[0].status").value("QUEUED"))
+                .andExpect(jsonPath("$[0].published").value(false));
     }
 
     private static MockMvc controller(CatalogRulebookRepository catalog,

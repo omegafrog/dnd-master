@@ -63,6 +63,17 @@ components:
         status: { type: string }
         published: { type: boolean }
         extractionVersion: { type: integer, minimum: 0 }
+    BackofficeCatalogRulebook:
+      type: object
+      required: [catalogRevisionId, edition, displayName, revisionNumber, status, published]
+      properties:
+        catalogRevisionId: { type: string, format: uuid }
+        edition: { type: string }
+        displayName: { type: string }
+        rulebookId: { type: [string, 'null'], format: uuid }
+        revisionNumber: { type: integer, minimum: 1 }
+        status: { type: string }
+        published: { type: boolean }
 paths:
   /api/v1/rulebooks:
     post:
@@ -378,12 +389,23 @@ paths:
       summary: Publicly list shared rulebook catalog revisions
       description: >-
         This is intentionally unauthenticated. End-user selection and retrieval
-        scopes must accept only READY and published indexed rulebooks even when
-        this display list contains queued or unpublished rows.
+        scopes must accept only READY and published indexed rulebooks.
       security: []
       responses:
         '200': { description: Catalog revisions with published flag, status, revision, and extraction version., content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/PublicCatalogRulebook' } } } } }
   /api/v1/backoffice/rulebook-catalog:
+    get:
+      operationId: listBackofficeRulebookCatalog
+      summary: Admin-only list of all shared rulebook catalog revisions
+      description: >-
+        Requires an opaque browser session Bearer value resolved to an active
+        player and an administrator allowlist entry. Includes queued and
+        unpublished revisions for catalog operations.
+      security: [{ browserBearer: [] }]
+      responses:
+        '200': { description: All catalog revisions with processing status and published flag., content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/BackofficeCatalogRulebook' } } } } }
+        '401': { description: Missing or invalid Bearer value. }
+        '403': { description: Bearer value is not an authorized catalog administrator. }
     post:
       operationId: uploadCatalogRulebook
       summary: Admin-only upload of a shared RULEBOOK PDF

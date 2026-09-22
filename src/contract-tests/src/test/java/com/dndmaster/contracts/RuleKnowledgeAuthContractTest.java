@@ -56,6 +56,7 @@ class RuleKnowledgeAuthContractTest {
         assertSecurity(paths, "/api/v1/rulebooks/{rulebookId}", "get", Set.of("browserBearer"));
         assertSecurity(paths, "/api/v1/rulebooks/{rulebookId}/source-preview", "get", Set.of("browserBearer", "internalToken"));
         assertSecurity(paths, "/api/v1/backoffice/rulebook-catalog", "post", Set.of("browserBearer"));
+        assertSecurity(paths, "/api/v1/backoffice/rulebook-catalog", "get", Set.of("browserBearer"));
         assertSecurity(paths, "/api/v1/backoffice/rulebook-catalog/{catalogRevisionId}/publish", "post", Set.of("browserBearer"));
         assertSecurity(paths, "/api/v1/rulebook-catalog", "get", Set.of());
 
