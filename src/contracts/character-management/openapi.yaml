@@ -10,6 +10,20 @@ components:
       type: http
       scheme: bearer
 paths:
+  /internal/v1/character-rules/catalogs/{edition}:
+    get:
+      operationId: getCharacterRulesCatalog
+      security: [{ internalServiceToken: [] }, { playerBearer: [] }]
+      responses:
+        '200': { description: character creation rules catalog }
+        '401': { description: missing or invalid authentication }
+  /internal/v1/adventure-sessions/{sessionId}/character-builds/evaluate:
+    post:
+      operationId: evaluateCharacterBuild
+      security: [{ internalServiceToken: [] }, { playerBearer: [] }]
+      responses:
+        '200': { description: evaluated character build }
+        '401': { description: missing or invalid authentication }
   /internal/v1/adventure-sessions/{sessionId}/character-sheets:
     post:
       operationId: createCharacterSheet
@@ -64,3 +78,25 @@ paths:
       responses:
         '200':
           description: preserved character sheet with updated version
+        '401': { description: missing or invalid internal service token }
+  /internal/v1/character-sheets:
+    get:
+      operationId: listCharacterSheets
+      security: [{ internalServiceToken: [] }, { playerBearer: [] }]
+      responses:
+        '200': { description: owner-scoped character sheets }
+        '401': { description: missing or invalid authentication }
+  /internal/v1/adventure-sessions/{sessionId}/character-sheets/{sheetId}/copy:
+    post:
+      operationId: copyCharacterSheet
+      security: [{ internalServiceToken: [] }, { playerBearer: [] }]
+      responses:
+        '200': { description: copied character sheet }
+        '401': { description: missing or invalid authentication }
+  /internal/v1/character-sheets/deletion-requests:
+    post:
+      operationId: deleteCharacterSheets
+      security: [{ internalServiceToken: [] }]
+      responses:
+        '204': { description: deletion request accepted }
+        '401': { description: missing or invalid internal service token }
