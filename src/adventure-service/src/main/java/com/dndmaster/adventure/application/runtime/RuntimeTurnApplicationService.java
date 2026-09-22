@@ -60,6 +60,7 @@ public class RuntimeTurnApplicationService {
     private RuntimeNarrativeStateApplicationService narrativeStateService;
     private RuntimeTurnCommitOrchestrator commitOrchestrator;
     private RuntimeFactLookupService runtimeFactLookupService;
+    private RuntimePlayerActionEvidenceAcquirer playerActionEvidenceAcquirer;
     private final TriggerDetectionPort triggerDetectionPort = new DefaultTriggerDetection();
     private final CheckSelectionPort checkSelectionPort = CheckSelection::from;
     private final ResolutionPort resolutionPort = new DefaultResolutionPort();
@@ -182,6 +183,11 @@ public class RuntimeTurnApplicationService {
     public void setRuntimeFactLookupService(RuntimeFactLookupService runtimeFactLookupService) {
         this.runtimeFactLookupService = Objects.requireNonNull(runtimeFactLookupService,
                 "runtime fact lookup service must not be null");
+    }
+
+    public void setPlayerActionEvidenceAcquirer(RuntimePlayerActionEvidenceAcquirer playerActionEvidenceAcquirer) {
+        this.playerActionEvidenceAcquirer = Objects.requireNonNull(playerActionEvidenceAcquirer,
+                "player action evidence acquirer must not be null");
     }
 
     /** Returns the saved map movement outcome for duplicate or resumed runtime commands. */
@@ -732,6 +738,26 @@ public class RuntimeTurnApplicationService {
     private EvidencePack prefetchEvidence(
             SubmitRuntimeTurnCommand command, Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage) {
         List<UUID> knowledgeDocumentIds = knowledgeDocumentIds(adventure, scenarioPackage);
+        if (playerActionEvidenceAcquirer != null) {
+            List<RuntimeEvidence> selected = playerActionEvidenceAcquirer.acquire(
+                    playerActionEvidenceScope(command, adventure, binding, scenarioPackage, knowledgeDocumentIds), command.action());
+            List<RuntimeEvidence> storybook = selected.stream()
+                    .filter(evidence -> evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK)
+                    .limit(RuntimeEvidenceSelector.MAX_EVIDENCE)
+                    .toList();
+            int remaining = RuntimeEvidenceSelector.MAX_EVIDENCE - storybook.size();
+            List<RuntimeEvidence> rulebook = selected.stream()
+                    .filter(evidence -> evidence.evidenceType() == RuntimeEvidenceType.RULEBOOK)
+                    .limit(remaining)
+                    .toList();
+            remaining -= rulebook.size();
+            List<RuntimeEvidence> resolution = scenarioPackage.runtimeCandidates().stream()
+                    .flatMap(unit -> resolutionEvidence(unit).stream())
+                    .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
+                    .limit(remaining)
+                    .toList();
+            return new EvidencePack(storybook, rulebook, resolution);
+        }
         List<UUID> storybookDocumentIds = documentIdsOfType(scenarioPackage, "STORYBOOK", knowledgeDocumentIds);
         if (storybookDocumentIds.isEmpty()) {
             storybookDocumentIds = documentIdsOfType(scenarioPackage, "STORYBOOK",
@@ -767,6 +793,29 @@ public class RuntimeTurnApplicationService {
         List<RuntimeEvidence> boundedRulebook = rulebook.stream().limit(remaining).toList();
         remaining = Math.max(0, remaining - boundedRulebook.size());
         return new EvidencePack(boundedStorybook, boundedRulebook, resolution.stream().limit(remaining).toList());
+    }
+
+    private static com.dndmaster.adventure.evidence.EvidenceSearchScope playerActionEvidenceScope(
+            SubmitRuntimeTurnCommand command, Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage,
+            List<UUID> knowledgeDocumentIds) {
+        List<com.dndmaster.adventure.evidence.EvidenceSearchScope.Document> documents = scenarioPackage.documents().stream()
+                .filter(document -> knowledgeDocumentIds.contains(document.knowledgeDocumentId().value()))
+                .map(RuntimeTurnApplicationService::playerActionDocument)
+                .filter(Objects::nonNull)
+                .toList();
+        List<String> activeLocators = binding.activeSourceContext() == null ? List.of()
+                : List.of(binding.activeSourceContext().locator());
+        return new com.dndmaster.adventure.evidence.EvidenceSearchScope(command.ownerPlayerId().value(), adventure.sessionId().value(),
+                binding.scenarioPackageId(), "scene:" + adventure.currentContext().currentScene(), actionIntent(command.action()),
+                documents, activeLocators);
+    }
+
+    private static com.dndmaster.adventure.evidence.EvidenceSearchScope.Document playerActionDocument(
+            com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection document) {
+        String type = document.documentType().trim().toUpperCase(java.util.Locale.ROOT);
+        if (!"RULEBOOK".equals(type) && !"STORYBOOK".equals(type)) return null;
+        return new com.dndmaster.adventure.evidence.EvidenceSearchScope.Document(document.knowledgeDocumentId().value(),
+                document.extractionVersion(), type);
     }
 
     private List<RuntimeEvidence> searchCombatStatEvidence(SubmitRuntimeTurnCommand command, Adventure adventure,

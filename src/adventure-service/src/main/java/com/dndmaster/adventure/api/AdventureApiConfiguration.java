@@ -811,6 +811,23 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String ruleKnowledgeBaseUrl,
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long ruleKnowledgeTimeoutSeconds,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String aiGameMasterBaseUrl,
+            @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long aiGameMasterTimeoutSeconds,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService(
+                new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpEvidenceCandidateSearchGateway(
+                        HttpClient.newHttpClient(), URI.create(ruleKnowledgeBaseUrl), Duration.ofSeconds(ruleKnowledgeTimeoutSeconds), objectMapper),
+                new com.dndmaster.adventure.infrastructure.integration.HttpEvidenceRerankerPort(
+                        HttpClient.newHttpClient(), URI.create(aiGameMasterBaseUrl), Duration.ofSeconds(aiGameMasterTimeoutSeconds), objectMapper, internalToken),
+                new com.dndmaster.adventure.infrastructure.integration.HttpEvidenceSufficiencyJudgePort(
+                        HttpClient.newHttpClient(), URI.create(aiGameMasterBaseUrl), Duration.ofSeconds(aiGameMasterTimeoutSeconds), objectMapper, internalToken));
+    }
+
+    @Bean
     GmAgentPort gmAgentPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
@@ -953,7 +970,8 @@ public class AdventureApiConfiguration {
             ExemplarRetrievalAuditPort exemplarRetrievalAuditPort,
             RuntimeTurnLockService runtimeTurnLockService,
             RuntimeTurnCommitOrchestrator commitOrchestrator,
-            RuntimeFactLookupService runtimeFactLookupService) {
+            RuntimeFactLookupService runtimeFactLookupService,
+            com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, providerBindingRepository,
@@ -964,6 +982,7 @@ public class AdventureApiConfiguration {
         service.setTurnLockService(runtimeTurnLockService);
         service.setCommitOrchestrator(commitOrchestrator);
         service.setRuntimeFactLookupService(runtimeFactLookupService);
+        service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(evidenceAcquisitionApplicationService));
         return service;
     }
 
