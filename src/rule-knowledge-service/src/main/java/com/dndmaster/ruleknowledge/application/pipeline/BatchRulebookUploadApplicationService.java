@@ -36,12 +36,17 @@ public final class BatchRulebookUploadApplicationService {
                     "ACCEPTED",
                     null);
         } catch (Exception exception) {
+            String failureReason = exception.getMessage() != null ? exception.getMessage() : "upload failed";
+            String status = exception instanceof RulebookPipelineException
+                    && failureReason.startsWith("conflict:")
+                    ? "CONFLICT"
+                    : "VALIDATION_FAILED";
             return new BatchUploadResult(
                     null,
                     item.documentType(),
                     item.originalFilename(),
-                    "VALIDATION_FAILED",
-                    exception.getMessage() != null ? exception.getMessage() : "upload failed");
+                    status,
+                    failureReason);
         }
     }
 

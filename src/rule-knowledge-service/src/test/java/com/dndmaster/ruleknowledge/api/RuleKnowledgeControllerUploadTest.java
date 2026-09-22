@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadApplicationService;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
+import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineException;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookProcessingResult;
 import com.dndmaster.ruleknowledge.application.pipeline.UploadRulebookCommand;
 import com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort;
@@ -96,6 +97,30 @@ class RuleKnowledgeControllerUploadTest {
         ArgumentCaptor<UploadRulebookCommand> command = ArgumentCaptor.forClass(UploadRulebookCommand.class);
         verify(pipelineService).process(command.capture());
         org.junit.jupiter.api.Assertions.assertEquals(RulebookFormat.IMAGE, command.getValue().format());
+    }
+
+    @Test
+    void batchUploadReturnsConflictWhenIdempotencyKeyIsBoundToAnotherRequest() throws Exception {
+        RulebookPipelineApplicationService pipelineService = mock(RulebookPipelineApplicationService.class);
+        RulebookRegistrationRepository registrationRepository = mock(RulebookRegistrationRepository.class);
+        RuleEvidenceSearchApplicationService evidenceSearchService = mock(RuleEvidenceSearchApplicationService.class);
+        UUID ownerId = ownerId();
+        RuleKnowledgeController controller = controller(pipelineService, registrationRepository, evidenceSearchService, ownerId);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter())
+                .build();
+        when(pipelineService.process(any())).thenThrow(
+                new RulebookPipelineException("conflict: same idempotency key with different request"));
+
+        mockMvc.perform(multipart("/api/v1/rulebooks")
+                        .file(new MockMultipartFile(
+                                "documents", "documents.json", "application/json",
+                                "[{\"idempotencyKey\":\"same-key\",\"documentType\":\"STORYBOOK\",\"originalFilename\":\"story.pdf\"}]"
+                                        .getBytes(StandardCharsets.UTF_8)))
+                        .file(new MockMultipartFile("files", "story.pdf", "application/pdf", "rules".getBytes(StandardCharsets.UTF_8)))
+                        .param("ownerPlayerId", ownerId.toString())
+                        .header("Authorization", "Bearer owner-session"))
+                .andExpect(status().isConflict());
     }
 
     private static UUID ownerId() {

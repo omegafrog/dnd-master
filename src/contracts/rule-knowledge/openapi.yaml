@@ -104,7 +104,7 @@ paths:
         '400': { description: Invalid metadata, mismatched multipart arrays, blank idempotency key, or RULEBOOK user upload. }
         '401': { description: Missing or invalid browser Bearer and no valid internal token. }
         '403': { description: Bearer player does not own ownerPlayerId. }
-        '409': { description: Same idempotency key was already used with different content. }
+        '409': { description: The idempotency key is already bound to a different upload request. }
   /api/v1/rulebooks/{rulebookId}:
     get:
       operationId: rulebookStatus
