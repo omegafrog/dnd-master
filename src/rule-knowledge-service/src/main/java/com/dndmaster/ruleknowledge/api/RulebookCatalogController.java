@@ -4,6 +4,9 @@ import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
+import com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus;
+import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
+import com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,18 +27,27 @@ public final class RulebookCatalogController {
 
     @GetMapping
     List<CatalogRulebookView> list() {
-        return repository.findAll().stream().map(revision -> CatalogRulebookView.from(revision, registrations)).toList();
+        return repository.findAll().stream()
+                .filter(revision -> revision.status() == CatalogRevisionStatus.READY && revision.published())
+                .filter(revision -> revision.rulebookId() != null)
+                .filter(revision -> registrations.findById(new RulebookId(revision.rulebookId()))
+                        .filter(registration -> registration.processingStatus() == ProcessingStatus.INDEXED)
+                        .filter(registration -> registration.documentType() == DocumentType.RULEBOOK)
+                        .filter(registration -> registration.version() > 0)
+                        .isPresent())
+                .map(revision -> CatalogRulebookView.from(revision, registrations))
+                .toList();
     }
 
     public record CatalogRulebookView(
             String catalogRevisionId, String edition, String displayName, String rulebookId,
-            long revisionNumber, String status, long extractionVersion) {
+            long revisionNumber, String status, boolean published, long extractionVersion) {
         static CatalogRulebookView from(CatalogRulebookRevision revision, RulebookRegistrationRepository registrations) {
             long extractionVersion = revision.rulebookId() == null ? 0 : registrations
                     .findById(new RulebookId(revision.rulebookId())).map(item -> item.version()).orElse(0L);
             return new CatalogRulebookView(revision.id().toString(), revision.edition().name(),
                     revision.displayName(), revision.rulebookId() == null ? null : revision.rulebookId().toString(),
-                    revision.revisionNumber(), revision.status().name(), extractionVersion);
+                    revision.revisionNumber(), revision.status().name(), revision.published(), extractionVersion);
         }
     }
 }

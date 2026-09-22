@@ -43,7 +43,7 @@ class RuleKnowledgeRetrievalAuthorizationTest {
         MockMvc mockMvc = controllerWith(registration(id, FOREIGN, ProcessingStatus.INDEXED, DocumentType.RULEBOOK));
 
         mockMvc.perform(post("/internal/v1/rule-evidence/search")
-                        .header("Authorization", "Bearer " + OWNER)
+                        .header("X-Internal-Token", "internal-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request(id)))
                 .andExpect(status().isForbidden());
@@ -55,7 +55,7 @@ class RuleKnowledgeRetrievalAuthorizationTest {
         MockMvc mockMvc = controllerWith(registration(id, OWNER, ProcessingStatus.PROCESSING, DocumentType.RULEBOOK));
 
         mockMvc.perform(post("/internal/v1/rule-evidence/search")
-                        .header("Authorization", "Bearer " + OWNER)
+                        .header("X-Internal-Token", "internal-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request(id)))
                 .andExpect(status().isBadRequest());
@@ -66,18 +66,17 @@ class RuleKnowledgeRetrievalAuthorizationTest {
         MockMvc mockMvc = controllerWith(null);
 
         mockMvc.perform(post("/internal/v1/rule-evidence/search")
-                        .header("Authorization", "Bearer " + OWNER)
+                        .header("X-Internal-Token", "internal-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request(UUID.randomUUID())))
                 .andExpect(status().isBadRequest());
     }
 
     @Test
-    void rejects_malformed_bearer_credentials() throws Exception {
+    void rejects_missing_internal_token() throws Exception {
         MockMvc mockMvc = controllerWith(null);
 
         mockMvc.perform(post("/internal/v1/rule-evidence/search")
-                        .header("Authorization", "Bearer not-a-uuid")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request(UUID.randomUUID())))
                 .andExpect(status().isUnauthorized());
@@ -89,7 +88,7 @@ class RuleKnowledgeRetrievalAuthorizationTest {
         MockMvc mockMvc = controllerWith(registration(id, OWNER, ProcessingStatus.INDEXED, DocumentType.STORYBOOK));
 
         mockMvc.perform(post("/internal/v1/story-sources/search")
-                        .header("Authorization", "Bearer " + OWNER)
+                        .header("X-Internal-Token", "internal-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"ownerId":"%s","documents":[{"documentId":"%s","extractionVersion":1}],"situation":"find lore","limit":1}
@@ -104,15 +103,18 @@ class RuleKnowledgeRetrievalAuthorizationTest {
         when(catalog.findAll()).thenReturn(List.of(new CatalogRulebookRevision(
                 UUID.randomUUID(), RulebookEdition.DND_5E_2014, "D&D 5e", catalogRulebook, 1,
                 CatalogRevisionStatus.READY, true, null, Instant.now(), Instant.now())));
+        RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
+        when(registrations.findById(any())).thenReturn(Optional.of(
+                registration(catalogRulebook, CATALOG_OWNER, ProcessingStatus.INDEXED, DocumentType.RULEBOOK)));
         RuleKnowledgeController controller = new RuleKnowledgeController(
-                mock(RulebookPipelineApplicationService.class), mock(RulebookRegistrationRepository.class),
+                mock(RulebookPipelineApplicationService.class), registrations,
                 mock(RuleEvidenceSearchApplicationService.class), storySearch(), null, null,
-                new com.fasterxml.jackson.databind.ObjectMapper(), null, "", catalog);
+                new com.fasterxml.jackson.databind.ObjectMapper(), null, "internal-token", catalog);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
                 .build();
         mockMvc.perform(post("/internal/v1/rule-evidence/search")
-                        .header("Authorization", "Bearer " + OWNER).contentType(MediaType.APPLICATION_JSON)
+                        .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
                         .content(request(catalogRulebook)))
                 .andExpect(status().isOk());
     }
@@ -294,7 +296,8 @@ class RuleKnowledgeRetrievalAuthorizationTest {
         when(registrations.findById(any())).thenReturn(java.util.Optional.ofNullable(registration));
         RuleKnowledgeController controller = new RuleKnowledgeController(
                 mock(RulebookPipelineApplicationService.class), registrations,
-                mock(RuleEvidenceSearchApplicationService.class), storySearch(), mock(com.fasterxml.jackson.databind.ObjectMapper.class));
+                mock(RuleEvidenceSearchApplicationService.class), storySearch(), null, null,
+                new com.fasterxml.jackson.databind.ObjectMapper(), null, "internal-token", null);
         return MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
                 .build();

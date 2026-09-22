@@ -12,6 +12,7 @@ import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadAppli
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookProcessingResult;
 import com.dndmaster.ruleknowledge.application.pipeline.UploadRulebookCommand;
+import com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
 import com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus;
@@ -33,11 +34,7 @@ class RuleKnowledgeControllerUploadTest {
         RulebookPipelineApplicationService pipelineService = mock(RulebookPipelineApplicationService.class);
         RulebookRegistrationRepository registrationRepository = mock(RulebookRegistrationRepository.class);
         RuleEvidenceSearchApplicationService evidenceSearchService = mock(RuleEvidenceSearchApplicationService.class);
-        RuleKnowledgeController controller = new RuleKnowledgeController(
-                pipelineService,
-                registrationRepository,
-                evidenceSearchService,
-                new com.fasterxml.jackson.databind.ObjectMapper());
+        RuleKnowledgeController controller = controller(pipelineService, registrationRepository, evidenceSearchService, ownerId());
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter())
                 .build();
@@ -45,7 +42,7 @@ class RuleKnowledgeControllerUploadTest {
         when(pipelineService.process(any())).thenReturn(new RulebookProcessingResult(
                 RulebookId.generate(), ProcessingStatus.QUEUED, List.of()));
 
-        UUID ownerId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID ownerId = ownerId();
 
         mockMvc.perform(multipart("/api/v1/rulebooks")
                         .file(new MockMultipartFile(
@@ -61,7 +58,7 @@ class RuleKnowledgeControllerUploadTest {
                                 "application/pdf",
                                 "rules".getBytes(StandardCharsets.UTF_8)))
                         .param("ownerPlayerId", ownerId.toString())
-                        .header("Authorization", "Bearer " + ownerId))
+                        .header("Authorization", "Bearer owner-session"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.documents[0].status").value("ACCEPTED"))
                 .andExpect(jsonPath("$.documents[0].originalFilename").value("story.pdf"))
@@ -75,18 +72,14 @@ class RuleKnowledgeControllerUploadTest {
         RulebookPipelineApplicationService pipelineService = mock(RulebookPipelineApplicationService.class);
         RulebookRegistrationRepository registrationRepository = mock(RulebookRegistrationRepository.class);
         RuleEvidenceSearchApplicationService evidenceSearchService = mock(RuleEvidenceSearchApplicationService.class);
-        RuleKnowledgeController controller = new RuleKnowledgeController(
-                pipelineService,
-                registrationRepository,
-                evidenceSearchService,
-                new com.fasterxml.jackson.databind.ObjectMapper());
+        UUID ownerId = ownerId();
+        RuleKnowledgeController controller = controller(pipelineService, registrationRepository, evidenceSearchService, ownerId);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter())
                 .build();
         when(pipelineService.process(any())).thenReturn(new RulebookProcessingResult(
                 RulebookId.generate(), ProcessingStatus.QUEUED, List.of()));
 
-        UUID ownerId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         mockMvc.perform(multipart("/api/v1/rulebooks")
                         .file(new MockMultipartFile(
                                 "documents", "documents.json", "application/json",
@@ -96,12 +89,28 @@ class RuleKnowledgeControllerUploadTest {
                         .file(new MockMultipartFile(
                                 "files", "cellar-map.png", "image/png", "png bytes".getBytes(StandardCharsets.UTF_8)))
                         .param("ownerPlayerId", ownerId.toString())
-                        .header("Authorization", "Bearer " + ownerId))
+                        .header("Authorization", "Bearer owner-session"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.documents[0].status").value("ACCEPTED"));
 
         ArgumentCaptor<UploadRulebookCommand> command = ArgumentCaptor.forClass(UploadRulebookCommand.class);
         verify(pipelineService).process(command.capture());
         org.junit.jupiter.api.Assertions.assertEquals(RulebookFormat.IMAGE, command.getValue().format());
+    }
+
+    private static UUID ownerId() {
+        return UUID.fromString("11111111-1111-1111-1111-111111111111");
+    }
+
+    private static RuleKnowledgeController controller(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            UUID ownerId) {
+        PlayerSessionLookupPort sessions = org.mockito.Mockito.mock(PlayerSessionLookupPort.class);
+        when(sessions.resolvePlayerId("owner-session")).thenReturn(java.util.Optional.of(ownerId));
+        return new RuleKnowledgeController(
+                pipelineService, registrationRepository, evidenceSearchService, null, null, null,
+                new com.fasterxml.jackson.databind.ObjectMapper(), null, "internal-token", null, sessions, null);
     }
 }

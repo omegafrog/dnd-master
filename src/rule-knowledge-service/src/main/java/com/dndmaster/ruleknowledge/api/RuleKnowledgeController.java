@@ -196,7 +196,11 @@ public class RuleKnowledgeController {
     ResponseEntity<BatchUploadResponse> uploadRulebooks(
             @RequestParam("ownerPlayerId") UUID ownerPlayerId,
             @RequestPart("documents") MultipartFile documents,
-            @RequestPart("files") List<MultipartFile> files) throws IOException {
+            @RequestPart("files") List<MultipartFile> files,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalServiceToken,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) throws IOException {
+        requireBrowserOwnerOrInternal(authorization, internalServiceToken, ownerPlayerId);
         List<UploadDocumentRequest> uploadDocuments = parseDocuments(documents.getBytes());
         if (uploadDocuments.size() != files.size()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "documents and files must have the same size");
@@ -205,6 +209,13 @@ public class RuleKnowledgeController {
         for (int index = 0; index < files.size(); index++) {
             MultipartFile file = files.get(index);
             UploadDocumentRequest document = uploadDocuments.get(index);
+            String operationKey = document.idempotencyKey();
+            if ((operationKey == null || operationKey.isBlank()) && files.size() == 1) {
+                operationKey = idempotencyKey;
+            }
+            if (operationKey == null || operationKey.isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "idempotency key must not be blank");
+            }
             if (document.documentType() != DocumentType.STORYBOOK) {
                 throw new ResponseStatusException(
                         HttpStatus.BAD_REQUEST,
@@ -212,7 +223,7 @@ public class RuleKnowledgeController {
             }
             String originalFilename = file.getOriginalFilename() != null ? file.getOriginalFilename() : document.originalFilename();
             items.add(new BatchUploadItem(
-                    document.idempotencyKey(),
+                    operationKey,
                     new OwnerPlayerId(ownerPlayerId),
                     document.documentType(),
                     resolveFormat(originalFilename),
@@ -224,8 +235,16 @@ public class RuleKnowledgeController {
     }
 
     @GetMapping("/api/v1/rulebooks/{rulebookId}")
-    RulebookStatusResponse rulebookStatus(@PathVariable UUID rulebookId) {
-        return registrationRepository.findById(new RulebookId(rulebookId))
+    RulebookStatusResponse rulebookStatus(@PathVariable UUID rulebookId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(rulebookId))
+                .orElse(null);
+        if (registration != null) {
+            requireOwner(authenticatedPlayerId(authorization), registration.ownerPlayerId().value());
+        } else {
+            authenticatedPlayerId(authorization);
+        }
+        return java.util.Optional.ofNullable(registration)
                 .map(r -> new RulebookStatusResponse(
                         rulebookId,
                         r.knowledgeDocumentId().value(),
@@ -237,6 +256,21 @@ public class RuleKnowledgeController {
                         warningsFor(r), progressFor(r), r.candidateExtractionVersion(), r.preprocessingPages(), retryabilityFor(r), reviewQuestionsFor(r)))
                 .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null, null, List.of(),
                         new RetryabilityView(false, List.of(), List.of("DOCUMENT_NOT_FOUND")), List.of()));
+    }
+
+    /** Package-local compatibility helper for callers that already hold the registration. */
+    RulebookStatusResponse rulebookStatus(UUID rulebookId) {
+        return statusFor(rulebookId);
+    }
+
+    private RulebookStatusResponse statusFor(UUID rulebookId) {
+        return registrationRepository.findById(new RulebookId(rulebookId))
+                .map(r -> new RulebookStatusResponse(
+                        rulebookId, r.knowledgeDocumentId().value(), r.processingStatus().name(), r.documentType(),
+                        r.originalFilename(), r.failureCode(), r.version(), warningsFor(r), progressFor(r),
+                        r.candidateExtractionVersion(), r.preprocessingPages(), retryabilityFor(r), reviewQuestionsFor(r)))
+                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null,
+                        null, List.of(), new RetryabilityView(false, List.of(), List.of("DOCUMENT_NOT_FOUND")), List.of()));
     }
 
     private DocumentProgressView progressFor(StoredRulebookRegistration registration) {
@@ -273,9 +307,23 @@ public class RuleKnowledgeController {
     }
 
     @GetMapping("/api/v1/rulebooks/{rulebookId}/source-preview")
-    ResponseEntity<SourcePreviewResponse> sourcePreview(@PathVariable UUID rulebookId) {
+    ResponseEntity<SourcePreviewResponse> sourcePreview(@PathVariable UUID rulebookId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalServiceToken) {
         StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(rulebookId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found"));
+        if (!isValidInternalToken(internalServiceToken)) {
+            requireOwner(authenticatedPlayerId(authorization), registration.ownerPlayerId().value());
+        }
+        return sourcePreviewFor(registration);
+    }
+
+    ResponseEntity<SourcePreviewResponse> sourcePreview(UUID rulebookId) {
+        return sourcePreviewFor(registrationRepository.findById(new RulebookId(rulebookId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found")));
+    }
+
+    private ResponseEntity<SourcePreviewResponse> sourcePreviewFor(StoredRulebookRegistration registration) {
         SourcePreviewResult preview = registration.sourcePreviewResult();
         String content = preview.content();
         if (content == null || content.isBlank()) content = registration.extractedContent();
@@ -317,6 +365,7 @@ public class RuleKnowledgeController {
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {
         requireInternalToken(token);
         if (definitionRepository == null) throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED);
+        requirePublishedCatalogRulebook(rulebookId);
         return (version == null ? definitionRepository.findPublished(rulebookId) : definitionRepository.findPublished(rulebookId, version))
                 .map(revision -> new GameSystemDefinitionResponse(revision.rulebookId(), revision.version(), revision.definitionJson()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "published game system definition not found"));
@@ -328,8 +377,9 @@ public class RuleKnowledgeController {
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {
         requireInternalToken(token);
         if (definitionRepository == null) throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED);
-        if (registrationRepository.findById(new RulebookId(rulebookId)).isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "rulebook not found");
+        requirePublishedCatalogRulebook(rulebookId);
+        if (request == null || request.version() <= 0 || request.definitionJson() == null || request.definitionJson().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "definition request is invalid");
         }
         GameSystemDefinitionRevision revision = GameSystemDefinitionRevision.draft(
                 rulebookId, request.version(), request.definitionJson()).publish();
@@ -339,15 +389,19 @@ public class RuleKnowledgeController {
 
     private void requireInternalToken(String token) {
         if (internalToken.isBlank() || !internalToken.equals(token)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid internal token");
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid internal token");
         }
     }
 
     @PostMapping("/api/v1/rulebooks/{rulebookId}/retry")
-    RulebookStatusResponse retryRulebook(@PathVariable UUID rulebookId) {
+    RulebookStatusResponse retryRulebook(@PathVariable UUID rulebookId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(rulebookId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found"));
+        requireOwner(authenticatedPlayerId(authorization), registration.ownerPlayerId().value());
         try {
             pipelineService.retry(new RulebookId(rulebookId));
-            return rulebookStatus(rulebookId);
+            return statusFor(rulebookId);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage(), exception);
         } catch (IllegalStateException exception) {
@@ -358,7 +412,7 @@ public class RuleKnowledgeController {
     @PostMapping("/api/v1/rulebooks/{rulebookId}/retry-pages")
     RulebookStatusResponse retryPages(
             @PathVariable UUID rulebookId,
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody RetryPagesRequest request) {
         StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(rulebookId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found"));
@@ -376,9 +430,14 @@ public class RuleKnowledgeController {
 
     @DeleteMapping("/api/v1/rulebooks/{rulebookId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    void deleteRulebook(@PathVariable UUID rulebookId, @RequestHeader("Authorization") String authorization) {
+    void deleteRulebook(@PathVariable UUID rulebookId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        UUID authenticatedOwner = authenticatedPlayerId(authorization);
+        StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(rulebookId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found"));
+        requireOwner(authenticatedOwner, registration.ownerPlayerId().value());
         try {
-            pipelineService.delete(new RulebookId(rulebookId), new OwnerPlayerId(extractPlayerId(authorization)));
+            pipelineService.delete(new RulebookId(rulebookId), new OwnerPlayerId(authenticatedOwner));
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage(), exception);
         } catch (SecurityException exception) {
@@ -388,13 +447,14 @@ public class RuleKnowledgeController {
 
     @PostMapping("/api/v1/rulebooks/rule-set")
     ResponseEntity<Void> saveRuleSet(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestBody RuleSetSaveRequest request) {
-        UUID ownerId = extractPlayerId(authorization);
-        List<UUID> knowledgeDocumentIds = request.knowledgeDocumentIds();
-        if (knowledgeDocumentIds == null || knowledgeDocumentIds.isEmpty()) {
+        UUID ownerId = authenticatedPlayerId(authorization);
+        if (request == null || request.knowledgeDocumentIds() == null || request.knowledgeDocumentIds().isEmpty()
+                || request.knowledgeDocumentIds().stream().anyMatch(java.util.Objects::isNull)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "knowledgeDocumentIds must not be empty");
         }
+        List<UUID> knowledgeDocumentIds = request.knowledgeDocumentIds();
         Set<UUID> selectedKnowledgeDocumentIds = new HashSet<>(knowledgeDocumentIds);
         if (isCatalogScope(knowledgeDocumentIds)) {
             return ResponseEntity.noContent().build();
@@ -426,6 +486,7 @@ public class RuleKnowledgeController {
         }
         List<StoredRulebookRegistration> registrations = registrationRepository.findByOwner(new OwnerPlayerId(ownerId));
         List<RulebookSummary> summaries = registrations.stream()
+                .filter(r -> r.documentType() != DocumentType.RULEBOOK || !isCatalogRegistration(r))
                 .map(r -> new RulebookSummary(
                         r.rulebookId().value(), r.knowledgeDocumentId().value(), r.processingStatus().name(),
                         r.format().name(), r.documentType(), r.originalFilename(), r.failureCode(),
@@ -466,13 +527,19 @@ public class RuleKnowledgeController {
     }
 
     @GetMapping("/internal/v1/rulebook-indexes")
-    OwnedIndexesResponse ownedIndexes(@RequestParam UUID ownerId) {
+    OwnedIndexesResponse ownedIndexes(@RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requireInternalToken(token);
         return new OwnedIndexesResponse(ownerId, List.of());
     }
 
     @GetMapping("/internal/v1/rulebooks/{rulebookId}/ownership")
-    OwnershipResponse rulebookOwnership(@PathVariable UUID rulebookId, @RequestParam UUID playerId) {
-        boolean owned = isCatalogScope(List.of(rulebookId)) || registrationRepository.findById(new RulebookId(rulebookId))
+    OwnershipResponse rulebookOwnership(@PathVariable UUID rulebookId, @RequestParam UUID playerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requireInternalToken(token);
+        boolean owned = isPublishedCatalogScope(List.of(rulebookId)) || registrationRepository.findById(new RulebookId(rulebookId))
+                .filter(r -> r.processingStatus() == ProcessingStatus.INDEXED)
+                .filter(r -> r.documentType() != DocumentType.RULEBOOK || !isCatalogRegistration(r))
                 .map(r -> r.ownerPlayerId().value().equals(playerId))
                 .orElse(false);
         return new OwnershipResponse(rulebookId, playerId, owned);
@@ -486,12 +553,12 @@ public class RuleKnowledgeController {
             if (hybridEvidenceSearchService == null) {
                 return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
             }
-            if (internalToken.isBlank() || !internalToken.equals(internalServiceToken)) {
-                return evidenceSearchError(HttpStatus.UNAUTHORIZED, "EVIDENCE_SEARCH_UNAUTHENTICATED");
-            }
-            if (request.sessionId() == null || request.scenarioPackageId() == null || request.stageKey() == null
+            requireInternalToken(internalServiceToken);
+            if (request.ownerId() == null || request.sessionId() == null || request.scenarioPackageId() == null || request.stageKey() == null
                     || request.stageKey().isBlank() || request.query() == null || request.query().isBlank()
-                    || request.scope() == null || request.scope().isEmpty()) {
+                    || request.scope() == null || request.scope().isEmpty()
+                    || request.denseLimit() < 1 || request.denseLimit() > 30
+                    || request.bm25Limit() < 1 || request.bm25Limit() > 30) {
                 return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
             }
             Set<String> scopeKeys = new HashSet<>();
@@ -523,8 +590,11 @@ public class RuleKnowledgeController {
         } catch (EvidenceSearchUnavailableException exception) {
             return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
         } catch (ResponseStatusException exception) {
-            return evidenceSearchError(exception.getStatusCode().value() == 401 ? HttpStatus.UNAUTHORIZED : HttpStatus.FORBIDDEN,
-                    exception.getStatusCode().value() == 401 ? "EVIDENCE_SEARCH_UNAUTHENTICATED" : "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
+            int status = exception.getStatusCode().value();
+            return evidenceSearchError(status == 401 ? HttpStatus.UNAUTHORIZED
+                    : status == 400 ? HttpStatus.BAD_REQUEST : HttpStatus.FORBIDDEN,
+                    status == 401 ? "EVIDENCE_SEARCH_UNAUTHENTICATED"
+                            : status == 400 ? "EVIDENCE_SEARCH_INVALID_REQUEST" : "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
         } catch (IllegalArgumentException exception) {
             return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
         }
@@ -538,11 +608,11 @@ public class RuleKnowledgeController {
             if (hybridEvidenceSearchService == null) {
                 return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
             }
-            if (internalToken.isBlank() || !internalToken.equals(token)) {
-                return evidenceSearchError(HttpStatus.UNAUTHORIZED, "EVIDENCE_SEARCH_UNAUTHENTICATED");
-            }
+            requireInternalToken(token);
             if (request.ownerId() == null || request.scenarioSourceBundleId() == null || request.query() == null
-                    || request.query().isBlank() || request.scope() == null || request.scope().isEmpty()) {
+                    || request.query().isBlank() || request.scope() == null || request.scope().isEmpty()
+                    || request.denseLimit() < 1 || request.denseLimit() > 30
+                    || request.bm25Limit() < 1 || request.bm25Limit() > 30) {
                 return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
             }
             Set<String> scopeKeys = new HashSet<>();
@@ -576,7 +646,11 @@ public class RuleKnowledgeController {
         } catch (EvidenceSearchUnavailableException exception) {
             return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
         } catch (ResponseStatusException exception) {
-            return evidenceSearchError(HttpStatus.FORBIDDEN, "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
+            int status = exception.getStatusCode().value();
+            return evidenceSearchError(status == 401 ? HttpStatus.UNAUTHORIZED
+                    : status == 400 ? HttpStatus.BAD_REQUEST : HttpStatus.FORBIDDEN,
+                    status == 401 ? "EVIDENCE_SEARCH_UNAUTHENTICATED"
+                            : status == 400 ? "EVIDENCE_SEARCH_INVALID_REQUEST" : "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
         } catch (IllegalArgumentException exception) {
             return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
         }
@@ -594,11 +668,15 @@ public class RuleKnowledgeController {
 
     @PostMapping("/internal/v1/rule-evidence/search")
     EvidenceSearchResponse searchEvidence(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody EvidenceSearchRequest request) {
-        UUID authenticatedOwner = extractPlayerId(authorization);
-        requireOwner(authenticatedOwner, request.ownerId());
-        boolean catalogScope = isCatalogScope(request.rulebookIds());
+        requireInternalToken(token);
+        if (request == null || request.ownerId() == null || request.rulebookIds() == null
+                || request.situation() == null || request.situation().isBlank() || request.queryIntent() == null
+                || (request.limit() != null && (request.limit() < 1 || request.limit() > 30))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "evidence search request is invalid");
+        }
+        boolean catalogScope = isPublishedCatalogScope(request.rulebookIds());
         List<UUID> authorizedRulebookIds = catalogScope
                 ? request.rulebookIds()
                 : authorizeDocuments(request.ownerId(), request.rulebookIds(), DocumentType.RULEBOOK);
@@ -629,15 +707,21 @@ public class RuleKnowledgeController {
 
     @PostMapping("/internal/v1/story-sources/search")
     StorySourceSearchResponse searchStorySources(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody StorySourceSearchRequest request) {
+        requireInternalToken(token);
+        if (request == null || request.ownerId() == null || request.documents() == null || request.documents().isEmpty()
+                || request.documents().stream().anyMatch(java.util.Objects::isNull)
+                || request.situation() == null || request.situation().isBlank()
+                || (request.limit() != null && (request.limit() < 1 || request.limit() > 30))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "story source search request is invalid");
+        }
         if (storySourceSearchService == null) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "story source search is not configured");
         }
-        UUID authenticatedOwner = extractPlayerId(authorization);
-        requireOwner(authenticatedOwner, request.ownerId());
         List<UUID> authorizedStorybookIds = authorizeDocuments(request.ownerId(), request.documents().stream()
                 .map(StorySourceScopeRequest::documentId).toList(), DocumentType.STORYBOOK);
+        request.documents().forEach(document -> requireIndexedVersion(document.documentId(), document.extractionVersion()));
         List<StorySourceScope> scope = request.documents().stream()
                 .filter(document -> authorizedStorybookIds.contains(document.documentId()))
                 .map(document -> new StorySourceScope(
@@ -663,19 +747,28 @@ public class RuleKnowledgeController {
 
     @PostMapping("/internal/v1/character-context/search")
     CharacterContextSearchResponse searchCharacterContext(
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody CharacterContextSearchRequest request) {
+        requireInternalToken(token);
+        if (request == null || request.ownerId() == null || request.situation() == null || request.situation().isBlank()
+                || request.documents() == null || request.documents().isEmpty()
+                || request.documents().stream().anyMatch(java.util.Objects::isNull)
+                || (request.tokenBudget() != null && request.tokenBudget() < 1)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "character context search request is invalid");
+        }
         if (characterContextSearchService == null) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "character context search is not configured");
         }
-        requireOwner(extractPlayerId(authorization), request.ownerId());
         if (request.documents() == null || request.documents().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not be empty");
         }
         Map<DocumentType, List<CharacterContextDocumentScope>> scope = new java.util.EnumMap<>(DocumentType.class);
         Set<String> seen = new HashSet<>();
-        boolean catalogScope = isCatalogScope(request.documents().stream().map(CharacterContextScopeRequest::documentId).toList());
+        boolean catalogScope = isPublishedCatalogScope(request.documents().stream().map(CharacterContextScopeRequest::documentId).toList());
         for (CharacterContextScopeRequest document : request.documents()) {
+            if (document.documentId() == null || document.extractionVersion() <= 0 || document.documentType() == null) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope is invalid");
+            }
             if (!seen.add(document.documentId() + ":" + document.extractionVersion())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not contain duplicates");
             }
@@ -709,14 +802,18 @@ public class RuleKnowledgeController {
     @GetMapping("/internal/v1/story-sources/{documentId}/context")
     StorySourceContextResponse readStorySourceContext(
             @PathVariable UUID documentId,
-            @RequestHeader("Authorization") String authorization,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestParam UUID ownerId,
             @RequestParam long extractionVersion,
             @RequestParam String locator) {
-        requireOwner(extractPlayerId(authorization), ownerId);
+        requireInternalToken(token);
+        if (ownerId == null || extractionVersion <= 0 || locator == null || locator.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "story source context request is invalid");
+        }
         StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(documentId))
                 .filter(candidate -> candidate.ownerPlayerId().value().equals(ownerId))
                 .filter(candidate -> candidate.documentType() == DocumentType.STORYBOOK)
+                .filter(candidate -> candidate.processingStatus() == ProcessingStatus.INDEXED)
                 .filter(candidate -> candidate.version() == extractionVersion)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "story source context not found"));
         List<PreviewSpan> spans = registration.previewSpans();
@@ -751,27 +848,21 @@ public class RuleKnowledgeController {
         }
     }
 
-    private static UUID extractPlayerId(String authorization) {
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
-        }
-        try {
-            return UUID.fromString(authorization.substring("Bearer ".length()));
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid", exception);
-        }
-    }
-
     private UUID authenticatedPlayerId(String authorization) {
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
         }
         String token = authorization.substring("Bearer ".length());
-        if (playerSessionLookup != null) {
-            return playerSessionLookup.resolvePlayerId(token)
-                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid"));
+        if (playerSessionLookup == null || token.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid");
         }
-        return extractPlayerId(authorization);
+        return playerSessionLookup.resolvePlayerId(token)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid"));
+    }
+
+    private void requireBrowserOwnerOrInternal(String authorization, String token, UUID requestedOwner) {
+        if (isValidInternalToken(token)) return;
+        requireOwner(authenticatedPlayerId(authorization), requestedOwner);
     }
 
     private static void requireOwner(UUID authenticatedOwner, UUID requestedOwner) {
@@ -781,7 +872,8 @@ public class RuleKnowledgeController {
     }
 
     private List<UUID> authorizeDocuments(UUID ownerId, List<UUID> documentIds, DocumentType requiredType) {
-        if (documentIds == null || documentIds.isEmpty()) {
+        if (ownerId == null || documentIds == null || documentIds.isEmpty()
+                || documentIds.stream().anyMatch(java.util.Objects::isNull)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not be empty");
         }
         if (new HashSet<>(documentIds).size() != documentIds.size()) {
@@ -807,21 +899,26 @@ public class RuleKnowledgeController {
         return List.copyOf(authorized);
     }
 
-    /** Published revisions are selectable; any READY revision remains readable to preserve existing adventure pins. */
-    private boolean isCatalogScope(List<UUID> documentIds) {
-        if (catalogRepository == null || documentIds == null || documentIds.isEmpty()
-                || new HashSet<>(documentIds).size() != documentIds.size()) return false;
-        try {
-            Set<UUID> published = catalogRepository.findAll().stream()
-                    .filter(item -> item.status() == com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus.READY)
-                    .map(CatalogRulebookRevision::rulebookId)
-                    .filter(java.util.Objects::nonNull)
-                    .collect(java.util.stream.Collectors.toSet());
-            return published.containsAll(documentIds);
-        } catch (RuntimeException unavailable) {
-            // Legacy installations may not have run the catalog migration yet; owned documents still work.
-            return false;
+    private void requireIndexedVersion(UUID documentId, long extractionVersion) {
+        if (documentId == null || extractionVersion <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope is invalid");
         }
+        StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(documentId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "document is not registered"));
+        if (registration.version() != extractionVersion) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope is not indexed at requested version");
+        }
+    }
+
+    private void requirePublishedCatalogRulebook(UUID rulebookId) {
+        if (rulebookId == null || !isPublishedCatalogScope(List.of(rulebookId))) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "rulebook is not published in the shared catalog");
+        }
+    }
+
+    /** Catalog scope is valid only when the published revision points at an indexed RULEBOOK. */
+    private boolean isCatalogScope(List<UUID> documentIds) {
+        return isPublishedCatalogScope(documentIds);
     }
 
     private boolean isPublishedCatalogScope(List<UUID> documentIds) {
@@ -833,11 +930,21 @@ public class RuleKnowledgeController {
                             && item.published())
                     .map(CatalogRulebookRevision::rulebookId)
                     .filter(java.util.Objects::nonNull)
+                    .filter(id -> registrationRepository.findById(new RulebookId(id))
+                            .filter(registration -> registration.processingStatus() == ProcessingStatus.INDEXED)
+                            .filter(registration -> registration.documentType() == DocumentType.RULEBOOK)
+                            .filter(registration -> registration.version() > 0)
+                            .isPresent())
                     .collect(java.util.stream.Collectors.toSet());
             return published.containsAll(documentIds);
         } catch (RuntimeException unavailable) {
             return false;
         }
+    }
+
+    private boolean isCatalogRegistration(StoredRulebookRegistration registration) {
+        return registration.documentType() == DocumentType.RULEBOOK
+                && isPublishedCatalogScope(List.of(registration.rulebookId().value()));
     }
 
     private static RulebookFormat resolveFormat(String filename) {

@@ -2,6 +2,7 @@ package com.dndmaster.ruleknowledge.api;
 
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
+import com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.pipeline.UploadRulebookCommand;
 import com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus;
@@ -18,7 +19,10 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Arrays;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -37,22 +41,37 @@ public final class RulebookCatalogBackofficeController {
     private final RulebookPipelineApplicationService pipeline;
     private final RulebookRegistrationRepository registrations;
     private final GameSystemDefinitionRepository definitions;
+    private final PlayerSessionLookupPort playerSessionLookup;
     private final Set<String> adminIds;
 
     public RulebookCatalogBackofficeController(CatalogRulebookRepository repository, RulebookPipelineApplicationService pipeline, RulebookRegistrationRepository registrations,
             GameSystemDefinitionRepository definitions,
             @Value("${rule-knowledge.backoffice.admin-player-ids:}") String adminPlayerIds) {
+        this(repository, pipeline, registrations, definitions, null, adminPlayerIds);
+    }
+
+    @Autowired
+    public RulebookCatalogBackofficeController(CatalogRulebookRepository repository,
+            RulebookPipelineApplicationService pipeline, RulebookRegistrationRepository registrations,
+            GameSystemDefinitionRepository definitions, PlayerSessionLookupPort playerSessionLookup,
+            @Value("${rule-knowledge.backoffice.admin-player-ids:}")
+            String adminPlayerIds) {
         this.repository = repository; this.pipeline = pipeline; this.registrations = registrations; this.definitions = definitions;
-        this.adminIds = Set.of(adminPlayerIds.split(","));
+        this.playerSessionLookup = playerSessionLookup;
+        this.adminIds = Arrays.stream((adminPlayerIds == null ? "" : adminPlayerIds).split(","))
+                .map(String::trim).filter(id -> !id.isBlank()).collect(Collectors.toUnmodifiableSet());
     }
 
     @PostMapping("/{catalogRevisionId}/publish")
-    CatalogRulebookRevision publish(@RequestHeader("Authorization") String authorization, @org.springframework.web.bind.annotation.PathVariable UUID catalogRevisionId) {
+    CatalogRulebookRevision publish(@RequestHeader(value = "Authorization", required = false) String authorization,
+            @org.springframework.web.bind.annotation.PathVariable UUID catalogRevisionId) {
         requireAdmin(authorization);
         CatalogRulebookRevision current = repository.findAll().stream().filter(item -> item.id().equals(catalogRevisionId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "catalog revision not found"));
         if (current.rulebookId() == null || registrations.findById(new RulebookId(current.rulebookId()))
-                .map(item -> item.processingStatus() == ProcessingStatus.INDEXED).orElse(false) == false) {
+                .map(item -> item.processingStatus() == ProcessingStatus.INDEXED
+                        && item.documentType() == DocumentType.RULEBOOK && item.version() > 0)
+                .orElse(false) == false) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "catalog revision is not indexed");
         }
         CatalogRulebookRevision published = new CatalogRulebookRevision(current.id(), current.edition(), current.displayName(), current.rulebookId(),
@@ -75,7 +94,7 @@ public final class RulebookCatalogBackofficeController {
     }
 
     @PostMapping(consumes = "multipart/form-data")
-    CatalogRulebookRevision upload(@RequestHeader("Authorization") String authorization,
+    CatalogRulebookRevision upload(@RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam RulebookEdition edition, @RequestPart MultipartFile file) throws IOException {
         requireAdmin(authorization);
         String filename = file.getOriginalFilename();
@@ -92,7 +111,17 @@ public final class RulebookCatalogBackofficeController {
     }
 
     private void requireAdmin(String authorization) {
-        String id = authorization != null && authorization.startsWith("Bearer ") ? authorization.substring(7) : "";
-        if (!adminIds.contains(id)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ADMIN role is required");
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
+        }
+        String token = authorization.substring("Bearer ".length());
+        if (token.isBlank() || playerSessionLookup == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid");
+        }
+        UUID playerId = playerSessionLookup.resolvePlayerId(token)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid"));
+        if (!adminIds.contains(playerId.toString())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ADMIN role is required");
+        }
     }
 }

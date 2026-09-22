@@ -29,6 +29,26 @@ class RuleSetSaveIntegrationTest {
     @BeforeEach
     void seedRulebookRegistration() {
         jdbcTemplate = new JdbcTemplate(dataSource);
+        jdbcTemplate.execute("CREATE SCHEMA IF NOT EXISTS identity_access");
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS identity_access.players (
+                    player_id UUID PRIMARY KEY, username VARCHAR(100) NOT NULL UNIQUE,
+                    password_hash VARCHAR(100) NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE,
+                    created_at TIMESTAMP NOT NULL)
+                """);
+        jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS identity_access.login_sessions (
+                    session_token UUID PRIMARY KEY, player_id UUID NOT NULL,
+                    active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMP NOT NULL)
+                """);
+        UUID ownerId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID sessionToken = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        jdbcTemplate.update("""
+                MERGE INTO identity_access.players KEY(player_id)
+                VALUES (?, ?, ?, TRUE, CURRENT_TIMESTAMP)
+                """, ownerId, "rule-set-owner@example.com", "test-password-hash");
+        jdbcTemplate.update("DELETE FROM identity_access.login_sessions WHERE session_token = ?", sessionToken);
+        jdbcTemplate.update("INSERT INTO identity_access.login_sessions(session_token, player_id, active, created_at) VALUES (?, ?, TRUE, CURRENT_TIMESTAMP)", sessionToken, ownerId);
         jdbcTemplate.execute("""
                 CREATE TABLE IF NOT EXISTS rulebook_registration (
                     rulebook_id UUID PRIMARY KEY,
@@ -61,7 +81,6 @@ class RuleSetSaveIntegrationTest {
                 """);
         jdbcTemplate.update("DELETE FROM rulebook_registration");
 
-        UUID ownerId = UUID.fromString("11111111-1111-1111-1111-111111111111");
         UUID knowledgeDocumentId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         jdbcTemplate.update(
                 """
@@ -102,7 +121,7 @@ class RuleSetSaveIntegrationTest {
         UUID knowledgeDocumentId = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
         HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(ownerId.toString());
+        headers.setBearerAuth("33333333-3333-3333-3333-333333333333");
         headers.setContentType(MediaType.APPLICATION_JSON);
 
         var response = http.exchange(

@@ -40,7 +40,7 @@ public final class RuleKnowledgeAssetController {
     public RuleKnowledgeAssetController(
             RulebookRegistrationRepository registrations,
             RulebookFileStorage storage,
-            @org.springframework.beans.factory.annotation.Value("${INTERNAL_SERVICE_TOKEN:}") String internalToken,
+            @org.springframework.beans.factory.annotation.Value("${rule-knowledge.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             @org.springframework.beans.factory.annotation.Value("${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:}") String fallbackRoot) {
         this(registrations, storage, internalToken,
                 fallbackRoot == null || fallbackRoot.isBlank() ? defaultAssetFallbackRoot() : Path.of(fallbackRoot));
@@ -79,11 +79,16 @@ public final class RuleKnowledgeAssetController {
         if (internalToken.isBlank() || !internalToken.equals(token)) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid internal token");
         }
+        if (locator == null || locator.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "asset locator is required");
+        }
         var registration = registrations.findById(new RulebookId(documentId));
         if (registration.isEmpty()) {
             return publishedMapFallback(locator);
         }
-        StoredRulebookRegistration stored = registration.get();
+        StoredRulebookRegistration stored = registration
+                .filter(candidate -> candidate.processingStatus() == com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus.INDEXED)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "source document not found"));
         byte[] source;
         try {
             source = storage.read(new StoredRulebookFile(stored.storageKey()));
