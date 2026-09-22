@@ -157,7 +157,7 @@ Request: `ownerId/sessionId/scenarioPackageId: UUID`, `stageKey: String`, `actio
 Errors: 400 `EVIDENCE_SEARCH_INVALID_REQUEST`, 401 `EVIDENCE_SEARCH_UNAUTHENTICATED`, 403 `EVIDENCE_SEARCH_SCOPE_FORBIDDEN`, 503 `EVIDENCE_SEARCH_UNAVAILABLE` (model error는 이 endpoint에 없음).
 
 ### `POST /internal/v1/evidence-candidates/preparation-search` (rule-knowledge-service)
-시나리오 준비 전용. Request: `ownerId/scenarioSourceBundleId: UUID`, `scope: [{documentId: UUID, extractionVersion: long, documentType: STORYBOOK}]`, `activeLocators: Locator[]`, `query: String`, `denseLimit/bm25Limit: int` (각 1..30). Adventure는 저장된 Scenario Source Bundle에서 소유자와 선택 문서·버전을 확인해 요청하며, Document Knowledge는 내부 인증과 발행된 문서·버전의 소유자·허가 범위를 검증한다. 세션·Scenario Package 식별자는 받지 않는다. Response와 오류 코드는 세션 전용 검색 계약과 동일하며 Dense/BM25/RRF 구현을 공유한다.
+시나리오 준비 전용. Request: `ownerId/scenarioSourceBundleId: UUID`, `scope: [{documentId: UUID, extractionVersion: long, documentType: RULEBOOK|STORYBOOK}]`, `activeLocators: Locator[]`, `query: String`, `denseLimit/bm25Limit: int` (각 1..30). Adventure는 저장된 Scenario Source Bundle에서 소유자와 선택 문서·버전을 확인해 요청하며, 작업별로 필요한 유형만 보낸다. Document Knowledge는 내부 인증과 발행된 문서·버전을 검증한다. STORYBOOK은 해당 소유자 문서여야 하고, RULEBOOK은 공개된 공유 룰북이어야 한다. 세션·Scenario Package 식별자는 받지 않는다. Response와 오류 코드는 세션 전용 검색 계약과 동일하며 Dense/BM25/RRF 구현을 공유한다.
 
 ### `POST /internal/v1/gm/evidence-rerank` (AI Game Master)
 Request: task context, query, candidates≤180. Response: ordered candidate IDs≤30. Errors: 400 `EVIDENCE_RERANK_INVALID_REQUEST`, 401 `EVIDENCE_GM_UNAUTHENTICATED`, 422 `EVIDENCE_MODEL_OUTPUT_INVALID`, 502 `EVIDENCE_PROVIDER_UNAVAILABLE`.
