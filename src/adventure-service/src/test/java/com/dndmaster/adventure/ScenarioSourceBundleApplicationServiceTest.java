@@ -86,6 +86,32 @@ class ScenarioSourceBundleApplicationServiceTest {
                 new BundleDocumentDraft(unindexed, ScenarioBundleDocumentRole.MAIN_SCENARIO))));
     }
 
+    @Test
+    void acceptsPublishedSharedRulebookOnlyFromDedicatedCatalogLookup() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        KnowledgeDocumentId sharedRulebook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioBundleApplicationService service = new ScenarioBundleApplicationService(
+                new InMemoryBundleRepository(),
+                new StubLookup(Map.of(), Map.of(sharedRulebook,
+                        record(sharedRulebook, "published-rules.pdf", KnowledgeDocumentStatus.INDEXED, "RULEBOOK", 4L))));
+
+        ScenarioSourceBundle bundle = service.createBundle(owner, List.of(
+                new BundleDocumentDraft(sharedRulebook, ScenarioBundleDocumentRole.RULEBOOK)));
+
+        assertEquals(sharedRulebook, bundle.currentRevision().documents().getFirst().knowledgeDocumentId());
+    }
+
+    @Test
+    void rejectsSharedRulebookMissingFromPublishedCatalogLookup() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        KnowledgeDocumentId unpublishedRulebook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioBundleApplicationService service = new ScenarioBundleApplicationService(
+                new InMemoryBundleRepository(), new StubLookup(Map.of(), Map.of()));
+
+        assertThrows(IllegalStateException.class, () -> service.createBundle(owner, List.of(
+                new BundleDocumentDraft(unpublishedRulebook, ScenarioBundleDocumentRole.RULEBOOK))));
+    }
+
     private static KnowledgeDocumentLookupPort.KnowledgeDocumentRecord record(
             KnowledgeDocumentId id, String filename, KnowledgeDocumentStatus status, String type, long extractionVersion) {
         return new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(id, status, filename, type, extractionVersion);
@@ -105,11 +131,22 @@ class ScenarioSourceBundleApplicationServiceTest {
         }
     }
 
-    private record StubLookup(Map<KnowledgeDocumentId, KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> records)
+    private record StubLookup(
+            Map<KnowledgeDocumentId, KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> records,
+            Map<KnowledgeDocumentId, KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> sharedCatalogRecords)
             implements KnowledgeDocumentLookupPort {
+        private StubLookup(Map<KnowledgeDocumentId, KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> records) {
+            this(records, Map.of());
+        }
+
         @Override
         public List<KnowledgeDocumentRecord> findOwnedDocuments(UUID ownerPlayerId) {
             return List.copyOf(records.values());
+        }
+
+        @Override
+        public List<KnowledgeDocumentRecord> findPublishedSharedCatalogDocuments() {
+            return List.copyOf(sharedCatalogRecords.values());
         }
     }
 }

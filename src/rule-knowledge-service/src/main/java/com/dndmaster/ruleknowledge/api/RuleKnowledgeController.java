@@ -418,19 +418,6 @@ public class RuleKnowledgeController {
                         r.format().name(), r.documentType(), r.originalFilename(), r.failureCode(),
                         r.version(), warningsFor(r), progressFor(r), reviewQuestionsFor(r), r.preprocessingPages()))
                 .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
-        if (catalogRepository != null) {
-            catalogRepository.findAll().stream()
-                    .filter(item -> item.status() == com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus.READY
-                            && item.published() && item.rulebookId() != null)
-                    .forEach(item -> {
-                        long extractionVersion = registrationRepository.findById(new RulebookId(item.rulebookId()))
-                                .map(StoredRulebookRegistration::version).orElse(0L);
-                        if (extractionVersion > 0 && summaries.stream().noneMatch(existing -> existing.knowledgeDocumentId().equals(item.rulebookId()))) {
-                            summaries.add(new RulebookSummary(item.rulebookId(), item.rulebookId(), "INDEXED", "PDF", DocumentType.RULEBOOK,
-                                    item.displayName(), null, extractionVersion, List.of(), new DocumentProgressView("READY", 100, null, null, null), List.of(), List.of()));
-                        }
-                    });
-        }
         return new OwnedRulebooksResponse(ownerId, summaries);
     }
 

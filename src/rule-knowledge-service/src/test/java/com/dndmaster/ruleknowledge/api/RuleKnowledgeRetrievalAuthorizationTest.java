@@ -147,6 +147,42 @@ class RuleKnowledgeRetrievalAuthorizationTest {
     }
 
     @Test
+    void generic_owner_lookup_does_not_inject_published_catalog_rulebooks() throws Exception {
+        UUID owned = UUID.randomUUID();
+        UUID published = UUID.randomUUID();
+        CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
+        when(catalog.findAll()).thenReturn(List.of(new CatalogRulebookRevision(
+                UUID.randomUUID(), RulebookEdition.DND_5E_2014, "Published", published, 1,
+                CatalogRevisionStatus.READY, true, null, Instant.now(), Instant.now())));
+        RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
+        when(registrations.findByOwner(any())).thenAnswer(invocation -> {
+            com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId requestedOwner = invocation.getArgument(0);
+            return OWNER.equals(requestedOwner.value())
+                    ? List.of(registration(owned, OWNER, ProcessingStatus.INDEXED, DocumentType.STORYBOOK))
+                    : List.of();
+        });
+        when(registrations.findById(any())).thenReturn(java.util.Optional.of(
+                registration(published, CATALOG_OWNER, ProcessingStatus.INDEXED, DocumentType.RULEBOOK)));
+        RuleKnowledgeController controller = new RuleKnowledgeController(
+                mock(RulebookPipelineApplicationService.class), registrations,
+                mock(RuleEvidenceSearchApplicationService.class), storySearch(), null, null,
+                new com.fasterxml.jackson.databind.ObjectMapper(), null, "internal-token", catalog);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
+                .build();
+
+        mockMvc.perform(get("/internal/v1/rulebooks").param("ownerId", OWNER.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownerId").value(OWNER.toString()))
+                .andExpect(jsonPath("$.rulebooks.length()").value(1))
+                .andExpect(jsonPath("$.rulebooks[0].knowledgeDocumentId").value(owned.toString()));
+        mockMvc.perform(get("/internal/v1/rulebooks").param("ownerId", CATALOG_OWNER.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ownerId").value(CATALOG_OWNER.toString()))
+                .andExpect(jsonPath("$.rulebooks.length()").value(0));
+    }
+
+    @Test
     void rejectsUnauthenticatedPublishedCatalogLookup() throws Exception {
         CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
         RuleKnowledgeController controller = new RuleKnowledgeController(
@@ -158,6 +194,22 @@ class RuleKnowledgeRetrievalAuthorizationTest {
                 .build();
 
         mockMvc.perform(get("/internal/v1/rulebooks/published-catalog"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("RULEBOOK_CATALOG_UNAUTHENTICATED"));
+    }
+
+    @Test
+    void rejectsWrongTokenForPublishedCatalogLookup() throws Exception {
+        RuleKnowledgeController controller = new RuleKnowledgeController(
+                mock(RulebookPipelineApplicationService.class), mock(RulebookRegistrationRepository.class),
+                mock(RuleEvidenceSearchApplicationService.class), storySearch(), null, null,
+                new com.fasterxml.jackson.databind.ObjectMapper(), null, "internal-token", mock(CatalogRulebookRepository.class));
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
+                .build();
+
+        mockMvc.perform(get("/internal/v1/rulebooks/published-catalog")
+                        .header("X-Internal-Token", "wrong-token"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("RULEBOOK_CATALOG_UNAUTHENTICATED"));
     }

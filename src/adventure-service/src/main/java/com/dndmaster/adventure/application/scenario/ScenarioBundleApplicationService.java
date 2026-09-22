@@ -17,10 +17,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 
 public final class ScenarioBundleApplicationService {
-    private static final UUID SHARED_CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
     private final ScenarioBundleRepository repository;
     private final KnowledgeDocumentLookupPort lookupPort;
 
@@ -109,7 +107,7 @@ public final class ScenarioBundleApplicationService {
             owned.put(record.knowledgeDocumentId(), record);
         }
         // Published catalog rulebooks are shared reference data, not player-owned documents.
-        for (KnowledgeDocumentLookupPort.KnowledgeDocumentRecord record : lookupPort.findOwnedDocuments(SHARED_CATALOG_OWNER)) {
+        for (KnowledgeDocumentLookupPort.KnowledgeDocumentRecord record : lookupPort.findPublishedSharedCatalogDocuments()) {
             owned.putIfAbsent(record.knowledgeDocumentId(), record);
         }
 
