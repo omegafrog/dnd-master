@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.HexFormat;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -25,6 +26,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "INTERNAL_SERVICE_TOKEN=test-internal-token")
+@Tag("local-ai-benchmark")
 @EnabledIf("isOllamaAvailable")
 class LocalAiBenchmarkRouteTest {
     private static final int WARMUP_RUNS = 2;

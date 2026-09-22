@@ -1,5 +1,24 @@
 description = "AI Game Master — LLM-driven narration, rulings, NPC dialogue"
 
+// Real local-model measurements are opt-in and must not make the default unit
+// test task depend on a running Ollama instance.
+tasks.named<Test>("test") {
+    useJUnitPlatform {
+        excludeTags("local-ai-benchmark")
+    }
+}
+
+val localAiBenchmark by tasks.registering(Test::class) {
+    description = "Runs the opt-in Ollama local AI benchmark"
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    useJUnitPlatform {
+        includeTags("local-ai-benchmark")
+    }
+    shouldRunAfter(tasks.named("test"))
+}
+
 sourceSets {
     main {
         java.exclude(
