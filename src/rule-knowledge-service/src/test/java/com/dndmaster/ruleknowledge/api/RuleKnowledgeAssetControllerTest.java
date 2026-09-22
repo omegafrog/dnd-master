@@ -42,7 +42,7 @@ class RuleKnowledgeAssetControllerTest {
 
         assertEquals(401, assertThrows(ResponseStatusException.class,
                 () -> controller.asset(UUID.randomUUID(), "page 1", null)).getStatusCode().value());
-        assertEquals(401, assertThrows(ResponseStatusException.class,
+        assertEquals(403, assertThrows(ResponseStatusException.class,
                 () -> controller.asset(UUID.randomUUID(), "page 1", "wrong")).getStatusCode().value());
     }
 
@@ -88,16 +88,14 @@ class RuleKnowledgeAssetControllerTest {
     }
 
     @Test
-    void servesAllowlistedPotentBrewMapWhenPublishedRegistrationIsMissing() throws Exception {
+    void rejectsAssetLookupWhenPublishedRegistrationIsMissing() throws Exception {
         Path assets = Files.createTempDirectory("catalog-assets");
         Files.write(assets.resolve("892902-A_Potent_Brew_Map.pdf"), pdfWithImage());
         var registrations = mock(RulebookRegistrationRepository.class);
         var controller = new RuleKnowledgeAssetController(registrations, mock(RulebookFileStorage.class), "token", assets);
 
-        ResponseEntity<byte[]> response = controller.asset(UUID.randomUUID(), "page 1 image 1", "token");
-
-        assertEquals("image/png", response.getHeaders().getFirst("Content-Type"));
-        assertTrue(response.getBody().length > 0);
+        assertEquals(404, assertThrows(ResponseStatusException.class,
+                () -> controller.asset(UUID.randomUUID(), "page 1 image 1", "token")).getStatusCode().value());
     }
 
     private static byte[] pdfWithImage() throws Exception {

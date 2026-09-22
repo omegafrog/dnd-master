@@ -76,15 +76,18 @@ public final class RuleKnowledgeAssetController {
             @org.springframework.web.bind.annotation.PathVariable UUID documentId,
             @RequestParam String locator,
             @RequestHeader(value = "X-Internal-Token", required = false) String token) throws IOException {
+        if (token == null || token.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "internal token is required");
+        }
         if (internalToken.isBlank() || !internalToken.equals(token)) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "invalid internal token");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid internal token");
         }
         if (locator == null || locator.isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "asset locator is required");
         }
         var registration = registrations.findById(new RulebookId(documentId));
         if (registration.isEmpty()) {
-            return publishedMapFallback(locator);
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "source document not found");
         }
         StoredRulebookRegistration stored = registration
                 .filter(candidate -> candidate.processingStatus() == com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus.INDEXED)
@@ -100,17 +103,6 @@ public final class RuleKnowledgeAssetController {
         // when their persisted format is PDF.  The format is the authoritative
         // discriminator for rendering stored source bytes.
         RenderedAsset rendered = render(source, stored.format(), stored.originalFilename(), locator);
-        return ResponseEntity.ok().contentType(MediaType.parseMediaType(rendered.contentType())).body(rendered.bytes());
-    }
-
-    private ResponseEntity<byte[]> publishedMapFallback(String locator) throws IOException {
-        if (!locator.toLowerCase().contains(" image ") && !locator.toLowerCase().contains("page")) {
-            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "source document not found");
-        }
-        String filename = "892902-A_Potent_Brew_Map.pdf";
-        byte[] source = readPublishedAssetFallback(filename)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "source document not found"));
-        RenderedAsset rendered = render(source, RulebookFormat.PDF, filename, locator);
         return ResponseEntity.ok().contentType(MediaType.parseMediaType(rendered.contentType())).body(rendered.bytes());
     }
 
