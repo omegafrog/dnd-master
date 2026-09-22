@@ -20,6 +20,11 @@ public class AuthenticationErrorHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "invalid credentials"));
     }
 
+    @ExceptionHandler(ApiRequestGuard.ApiContractException.class)
+    ResponseEntity<Map<String, String>> apiContract(ApiRequestGuard.ApiContractException exception) {
+        return ResponseEntity.status(exception.status()).body(Map.of("error", exception.code()));
+    }
+
     @ExceptionHandler(UsernameAlreadyExistsException.class)
     ResponseEntity<Map<String, String>> usernameConflict() {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "username already exists"));
