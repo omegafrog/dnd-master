@@ -8,14 +8,6 @@ final class EvidenceModelStageExecutor {
     EvidenceModelStageExecutor(EvidenceModelPort model) { this.model = model; }
 
     <T> T execute(String operationId, String instruction, Function<String, T> parser) {
-        RuntimeException failure = null;
-        for (int attempt = 0; attempt < 2; attempt++) {
-            try {
-                return parser.apply(model.complete(operationId + ":" + (attempt + 1), instruction));
-            } catch (RuntimeException caught) {
-                failure = caught;
-            }
-        }
-        throw failure;
+        return parser.apply(model.complete(operationId, instruction));
     }
 }

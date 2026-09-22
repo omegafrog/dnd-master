@@ -35,7 +35,7 @@ class CrossContextHttpEvidenceCandidateSearchGatewayTest {
     @Test
     void forwards_the_server_confirmed_session_scope_and_rejects_unscoped_results() {
         server.stubFor(post(urlEqualTo("/internal/v1/evidence-candidates/search"))
-                .withHeader("Authorization", equalTo("Bearer " + ownerId))
+                .withHeader("X-Internal-Token", equalTo("internal-token"))
                 .withRequestBody(equalToJson("""
                         {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","stageKey":"runtime",
                          "actionIntent":"MIXED","scope":[{"documentId":"%s","extractionVersion":7,"documentType":"RULEBOOK"}],
@@ -47,7 +47,7 @@ class CrossContextHttpEvidenceCandidateSearchGatewayTest {
                         ]}
                         """.formatted(ownerId, sessionId, scenarioPackageId, chunkId, documentId))));
         var gateway = new CrossContextHttpEvidenceCandidateSearchGateway(HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"),
-                Duration.ofSeconds(2), new ObjectMapper());
+                Duration.ofSeconds(2), new ObjectMapper(), "internal-token");
         var scope = new EvidenceSearchScope(ownerId, sessionId, scenarioPackageId, "runtime", "MIXED",
                 List.of(new EvidenceSearchScope.Document(documentId, 7, "RULEBOOK")), List.of("p:3"));
 

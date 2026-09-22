@@ -820,7 +820,7 @@ public class AdventureApiConfiguration {
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService(
                 new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpEvidenceCandidateSearchGateway(
-                        HttpClient.newHttpClient(), URI.create(ruleKnowledgeBaseUrl), Duration.ofSeconds(ruleKnowledgeTimeoutSeconds), objectMapper),
+                        HttpClient.newHttpClient(), URI.create(ruleKnowledgeBaseUrl), Duration.ofSeconds(ruleKnowledgeTimeoutSeconds), objectMapper, internalToken),
                 new com.dndmaster.adventure.infrastructure.integration.HttpEvidenceRerankerPort(
                         HttpClient.newHttpClient(), URI.create(aiGameMasterBaseUrl), Duration.ofSeconds(aiGameMasterTimeoutSeconds), objectMapper, internalToken),
                 new com.dndmaster.adventure.infrastructure.integration.HttpEvidenceSufficiencyJudgePort(

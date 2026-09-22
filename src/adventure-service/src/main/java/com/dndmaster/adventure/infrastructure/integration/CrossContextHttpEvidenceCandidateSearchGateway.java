@@ -22,8 +22,10 @@ import java.util.UUID;
 /** Calls the unified Document Knowledge candidate endpoint within the already-fixed Adventure session scope. */
 public final class CrossContextHttpEvidenceCandidateSearchGateway implements EvidenceCandidateSearchPort {
     private final HttpClient client; private final URI baseUri; private final Duration timeout; private final ObjectMapper mapper;
-    public CrossContextHttpEvidenceCandidateSearchGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper) {
+    private final String internalToken;
+    public CrossContextHttpEvidenceCandidateSearchGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
         this.client=Objects.requireNonNull(client,"client must not be null"); this.baseUri=Objects.requireNonNull(baseUri,"base uri must not be null"); this.timeout=Objects.requireNonNull(timeout,"timeout must not be null"); this.mapper=Objects.requireNonNull(mapper,"mapper must not be null");
+        if (internalToken == null || internalToken.isBlank()) throw new IllegalArgumentException("internal token must not be blank"); this.internalToken = internalToken;
     }
     @Override public List<EvidenceCandidate> search(EvidenceCandidateSearchRequest request) {
         Objects.requireNonNull(request,"request must not be null");
@@ -31,7 +33,7 @@ public final class CrossContextHttpEvidenceCandidateSearchGateway implements Evi
         if(scope==null) throw new EvidenceAcquisitionContractException("evidence search requires a server-confirmed session document scope");
         try {
             Request body=new Request(scope.ownerId(),scope.sessionId(),scope.scenarioPackageId(),scope.stageKey(),scope.actionIntent(),scope.documents().stream().map(document->new Scope(document.id(),document.extractionVersion(),document.type())).toList(),scope.activeLocators(),request.query(),30,30);
-            HttpResponse<String> response=client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/evidence-candidates/search")).timeout(timeout).header("Authorization","Bearer "+scope.ownerId()).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build(),HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response=client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/evidence-candidates/search")).timeout(timeout).header("X-Internal-Token",internalToken).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build(),HttpResponse.BodyHandlers.ofString());
             if(response.statusCode()==429||response.statusCode()>=500) throw new EvidenceAcquisitionTransientException("evidence candidate search is unavailable");
             if(response.statusCode()/100!=2) throw new EvidenceAcquisitionContractException("evidence candidate search failed with status "+response.statusCode());
             Response parsed=mapper.readValue(response.body(),Response.class);

@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class EvidenceModelServiceTest {
@@ -14,26 +13,25 @@ class EvidenceModelServiceTest {
             new EvidenceCandidate("evidence-2", "STORYBOOK", "p. 8", "A scenario excerpt"));
 
     @Test
-    void rerankerRetriesOneMalformedOutputAndAcceptsOnlyCandidateIds() {
+    void reranker_leaves_the_single_stage_retry_to_adventure_orchestration() {
         var model = new ScriptedModel("{\"orderedCandidateIds\":[\"unknown\"]}",
                 "{\"orderedCandidateIds\":[\"evidence-2\",\"evidence-1\"]}");
         var service = new EvidenceRerankerService(model, new ObjectMapper());
 
-        var result = service.rerank(new EvidenceRerankRequest("where is the door", "current scene", CANDIDATES));
-
-        assertEquals(List.of("evidence-2", "evidence-1"), result.orderedCandidateIds());
-        assertEquals(2, model.calls);
+        assertThrows(EvidenceModelOutputException.class,
+                () -> service.rerank(new EvidenceRerankRequest("where is the door", "current scene", CANDIDATES)));
+        assertEquals(1, model.calls);
     }
 
     @Test
-    void rerankerStopsAfterOneStageRetry() {
+    void reranker_makes_one_model_call_for_each_orchestration_attempt() {
         var model = new ScriptedModel("{\"orderedCandidateIds\":[\"unknown\"]}",
                 "{\"orderedCandidateIds\":[\"unknown\"]}");
         var service = new EvidenceRerankerService(model, new ObjectMapper());
 
         assertThrows(EvidenceModelOutputException.class,
                 () -> service.rerank(new EvidenceRerankRequest("where is the door", "current scene", CANDIDATES)));
-        assertEquals(2, model.calls);
+        assertEquals(1, model.calls);
     }
 
     @Test
@@ -43,12 +41,9 @@ class EvidenceModelServiceTest {
                 "{\"sufficient\":true,\"selectedEvidenceIds\":[\"evidence-1\",\"evidence-2\"],\"selectionReasons\":{\"evidence-1\":\"needed\",\"evidence-2\":\"needed\"},\"missing\":\"\"}");
         var service = new EvidenceSufficiencyJudgeService(model, new ObjectMapper());
 
-        var result = service.judge(new EvidenceSufficiencyRequest(EvidenceTaskPolicy.PLAYER_ACTION,
-                "current game state", CANDIDATES, List.of("evidence-1")));
-
-        assertEquals(List.of("evidence-1", "evidence-2"), result.selectedEvidenceIds());
-        assertEquals(Map.of("evidence-1", "needed", "evidence-2", "needed"), result.selectionReasons());
-        assertEquals(2, model.calls);
+        assertThrows(EvidenceModelOutputException.class, () -> service.judge(new EvidenceSufficiencyRequest(
+                EvidenceTaskPolicy.PLAYER_ACTION, "current game state", CANDIDATES, List.of("evidence-1"))));
+        assertEquals(1, model.calls);
     }
 
     @Test
