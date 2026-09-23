@@ -14,8 +14,6 @@ import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationServ
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
 import com.dndmaster.adventure.application.runtime.RuntimeTurn;
-import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
-import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.combat.CombatMapPreparationPort;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationPort;
@@ -173,55 +171,67 @@ public class AdventureSessionApplicationService {
                 .orElse(null);
         AdventureId effectiveAdventureId = persistedAdventure == null ? adventureId : persistedAdventure.id();
         boolean newlyStarting = session.beginStart(effectiveAdventureId, requestId);
-        if (newlyStarting) {
-            repository.save(session, expectedVersion);
-            startCoordinator.prepare(session.id(), requestId, effectiveAdventureId.value(), session.scenarioPackageId());
+        try {
+            if (newlyStarting) {
+                repository.save(session, expectedVersion);
+                startCoordinator.prepare(session.id(), requestId, effectiveAdventureId.value(), session.scenarioPackageId());
+            }
+            Adventure adventure = persistedAdventure;
+            if (adventure == null) {
+                adventure = Adventure.beginScenarioRuntime(effectiveAdventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(),
+                        session.scenarioPackageId(), scenarioPackage.bundleRevision(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null));
+                adventureRepository.save(adventure);
+            }
+            if (adventure.currentSituation() == null) {
+                adventure.initializeScenarioRuntime(owner,
+                        com.dndmaster.adventure.domain.runtime.GameState.empty(),
+                        com.dndmaster.adventure.domain.runtime.DisclosureState.empty(),
+                        preparedStage.currentStage() == null
+                                ? com.dndmaster.adventure.domain.runtime.CurrentSituation.initial(preparedStage.openingSituation().situationId())
+                                : com.dndmaster.adventure.domain.runtime.CurrentSituation.fromOpeningStage(preparedStage.currentStage(), configuration.initialScene()),
+                        List.of(), new AdventureContext(preparedStage.openingSituation().situationId(), null, null, null),
+                        preparedStage.currentStage() == null ? null
+                                : com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.start(preparedStage.currentStage()));
+                adventureRepository.save(adventure);
+            }
+            initializeSessionKnowledgeSetIfMissing(session, scenarioPackage);
+            Adventure activeAdventure = adventure;
+            var initialMapDefinition = scenarioPackage.initialMapDefinition(configuration.initialScene());
+            if (!resumingStart) {
+                initialMapDefinition.ifPresent(mapDefinition -> {
+                    var context = activationContext(activeAdventure, session);
+                    // The first start request creates the editable draft. The
+                    // player's location is resolved from the committed map-bearing
+                    // situation, never from the opening scene.
+                    combatMapPreparationPort.prepareDraft(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, context);
+                });
+            }
+            if (prepareMapOnly) return session;
+            runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(effectiveAdventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
+            RuntimeTurnResult openingResult = runtimeTurnService == null
+                    ? null
+                    : runtimeTurnService.openSessionTurn(effectiveAdventureId, owner, requestId);
+            if (initialMapDefinition.isPresent() && openingResult != null
+                    && openingResult.turn().plan().mapEntryRequested()) {
+                Adventure committedAdventure = adventureRepository.findById(effectiveAdventureId).orElse(adventure);
+                combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
+                        1, activationContext(committedAdventure, session, openingResult));
+            }
+            if (session.status() == AdventureSession.Status.STARTING) {
+                session.completeStart();
+                repository.save(session, session.version() - 1);
+                startCoordinator.commit(session.id(), requestId);
+            }
+            return session;
+        } catch (RuntimeException | Error failure) {
+            // A browser can close while the long opening turn is running. Do
+            // not leave a durable STARTING session that can never be retried.
+            if (session.status() == AdventureSession.Status.STARTING) {
+                session.recoverFailedStart();
+                repository.save(session, session.version() - 1);
+            }
+            throw failure;
         }
-        Adventure adventure = persistedAdventure;
-        if (adventure == null) {
-            adventure = Adventure.beginScenarioRuntime(effectiveAdventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(),
-                    session.scenarioPackageId(), scenarioPackage.bundleRevision(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null));
-            adventureRepository.save(adventure);
-        }
-        if (adventure.currentSituation() == null) {
-            adventure.initializeScenarioRuntime(owner,
-                    com.dndmaster.adventure.domain.runtime.GameState.empty(),
-                    com.dndmaster.adventure.domain.runtime.DisclosureState.empty(),
-                    preparedStage.currentStage() == null
-                            ? com.dndmaster.adventure.domain.runtime.CurrentSituation.initial(preparedStage.openingSituation().situationId())
-                            : com.dndmaster.adventure.domain.runtime.CurrentSituation.fromOpeningStage(preparedStage.currentStage(), configuration.initialScene()),
-                    List.of(), new AdventureContext(preparedStage.openingSituation().situationId(), null, null, null),
-                    preparedStage.currentStage() == null ? null
-                            : com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.start(preparedStage.currentStage()));
-            adventureRepository.save(adventure);
-        }
-        initializeSessionKnowledgeSetIfMissing(session, scenarioPackage);
-        Adventure activeAdventure = adventure;
-        var initialMapDefinition = scenarioPackage.initialMapDefinition(configuration.initialScene());
-        initialMapDefinition.ifPresent(mapDefinition -> {
-            var context = activationContext(activeAdventure, session);
-            // Starting the adventure only prepares the editable draft. The
-            // player's location is resolved from the committed map-bearing
-            // situation, never from the opening scene.
-            combatMapPreparationPort.prepareDraft(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, context);
-        });
-        if (prepareMapOnly) return session;
-        runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(effectiveAdventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
-        RuntimeTurnResult openingResult = runtimeTurnService == null
-                ? null
-                : runtimeTurnService.openSessionTurn(effectiveAdventureId, owner, requestId);
-        if (initialMapDefinition.isPresent() && openingResult != null
-                && openingResult.turn().plan().mapEntryRequested()) {
-            Adventure committedAdventure = adventureRepository.findById(effectiveAdventureId).orElse(adventure);
-            combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
-                    1, activationContext(committedAdventure, session, openingResult));
-        }
-        if (session.status() == AdventureSession.Status.STARTING) {
-            session.completeStart();
-            repository.save(session, session.version() - 1);
-            startCoordinator.commit(session.id(), requestId);
-        }
-        return session;
     }
 
     private static CombatMapPreparationPort.ActivationContext activationContext(Adventure adventure, AdventureSession session) {
@@ -243,10 +253,9 @@ public class AdventureSessionApplicationService {
     }
 
     /**
-     * 맵 위치 판정에는 현재 상황의 첫 서술뿐 아니라, 첫 턴을 만들 때 실제로
-     * 사용한 스토리북 근거도 함께 전달한다. 시작 턴에서는 상황에 첫 서술이
-     * 아직 복사되기 전일 수 있으므로 그 턴의 게임 마스터 서술을 임시 첫
-     * 서술로 보존한다.
+     * 맵 위치 판정에는 맵 서비스가 확인할 수 있는 진입 행동과 서술만
+     * 전달한다. 시작 턴에서는 상황에 첫 서술이 아직 복사되기 전일 수
+     * 있으므로 그 턴의 게임 마스터 서술을 임시 첫 서술로 보존한다.
      */
     private static String entryEvidence(String firstNarration, RuntimeTurnResult result) {
         StringBuilder evidence = new StringBuilder("FIRST_NARRATION=").append(blank(firstNarration));
@@ -256,12 +265,6 @@ public class AdventureSessionApplicationService {
         evidence.append("\nPLAYER_ACTION=").append(turn.action())
                 .append("\nGM_JUDGMENT=").append(blank(turn.plan().judgment()))
                 .append("\nGM_NARRATION=").append(blank(turn.narration()));
-        turn.plan().citedEvidence().stream()
-                .filter(item -> item.evidenceType() == RuntimeEvidenceType.STORYBOOK)
-                .map(RuntimeEvidence::excerpt)
-                .filter(value -> value != null && !value.isBlank())
-                .distinct()
-                .forEach(value -> evidence.append("\nSTORYBOOK_EVIDENCE=").append(value));
         return evidence.toString();
     }
 

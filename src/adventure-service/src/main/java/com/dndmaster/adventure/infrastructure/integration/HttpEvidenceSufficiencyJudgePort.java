@@ -31,8 +31,11 @@ public final class HttpEvidenceSufficiencyJudgePort implements EvidenceSufficien
         Objects.requireNonNull(request,"request must not be null");
         try {
             String body=mapper.writeValueAsString(new Request(request.policyId(),request.query(),candidates(request.candidates()),request.pinnedEvidenceIds().stream().map(UUID::toString).toList()));
-            HttpResponse<String> response=client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/evidence-sufficiency")).timeout(timeout).header("Content-Type","application/json").header("X-Internal-Token",internalToken).POST(HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.ofString());
-            if(response.statusCode()==429||response.statusCode()>=500) throw new EvidenceAcquisitionTransientException("evidence sufficiency is unavailable");
+            var builder = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/evidence-sufficiency"))
+                    .timeout(timeout).header("Content-Type","application/json").header("X-Internal-Token",internalToken);
+            if (request.soloPlayerId() != null) builder.header("X-Solo-Player-Id", request.soloPlayerId().toString());
+            HttpResponse<String> response=client.send(builder.POST(HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.ofString());
+            if(response.statusCode()==422||response.statusCode()==429||response.statusCode()>=500) throw new EvidenceAcquisitionTransientException("evidence sufficiency is unavailable");
             if(response.statusCode()/100!=2) throw new EvidenceAcquisitionContractException("evidence sufficiency failed with status "+response.statusCode());
             Response parsed=mapper.readValue(response.body(),Response.class);
             List<UUID> selected=parsed.selectedEvidenceIds().stream().map(UUID::fromString).toList();

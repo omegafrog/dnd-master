@@ -15,4 +15,15 @@ public final class GmEvidenceModelAdapter implements EvidenceModelPort {
     public String complete(String operationId, String instruction) {
         return completionAdapter.complete(operationId, instruction, value -> value);
     }
+
+    @Override
+    public String complete(java.util.UUID soloPlayerId, String operationId, String instruction) {
+        return completionAdapter.complete(soloPlayerId, operationId, instruction, value -> value);
+    }
+
+    @Override
+    public String complete(java.util.UUID soloPlayerId, String operationId, String instruction,
+                           com.fasterxml.jackson.databind.JsonNode outputSchema) {
+        return completionAdapter.complete(soloPlayerId, operationId, new GmPrompt(instruction), value -> value, outputSchema);
+    }
 }

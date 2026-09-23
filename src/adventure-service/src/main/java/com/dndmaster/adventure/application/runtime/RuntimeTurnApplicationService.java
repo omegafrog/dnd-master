@@ -572,8 +572,23 @@ public class RuntimeTurnApplicationService {
                 adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults);
         RuntimePlanningResult planningResult = planningPort.planWithOutcomes(planningRequest);
         RuntimePlan plan = planningResult.plan();
-        RuntimeResolutionProposal proposal = SituationProposalGroundingPolicy.ground(
-                planningResult.resolutionProposal(), scenarioPackage.scenarioModel(), evidencePack.storybook(), command.turnId());
+        RuntimeResolutionProposal proposal;
+        try {
+            proposal = SituationProposalGroundingPolicy.ground(
+                    planningResult.resolutionProposal(), scenarioPackage.scenarioModel(), evidencePack.storybook(), command.turnId());
+        } catch (IllegalArgumentException groundingFailure) {
+            if (!"SITUATION_RAG_REFERENCE_REQUIRED".equals(groundingFailure.getMessage())) throw groundingFailure;
+            // Never persist an unsupported situation, but keep the player's turn playable.
+            // The strict policy remains fail-closed; the runtime converts this malformed
+            // optional proposal into a visible warning instead of a 500 response.
+            proposal = RuntimeResolutionProposal.unchanged();
+            plan = plan.withWarning("상황 변경 근거를 확인하지 못해 이번 턴에는 기존 상황을 유지했습니다.");
+        }
+        // Scene labels are presentation output. A map entry or map movement must
+        // not mutate the canonical narrative scene; only the grounded situation
+        // transition above is allowed to do so.
+        plan = NarrativeSceneGroundingPolicy.apply(plan, adventure.currentContext().currentScene(), proposal);
+        final RuntimeResolutionProposal groundedProposal = proposal;
         com.dndmaster.adventure.domain.runtime.CurrentSituation nextSituation = proposal.situationUpdate() == null
                 ? adventure.currentSituation()
                 : SituationUpdatePolicy.apply(adventure.currentSituation(), proposal.situationUpdate());
@@ -641,7 +656,7 @@ public class RuntimeTurnApplicationService {
                     .toList();
             commitResult = commitOrchestrator.commit(ready, commands, () -> {
                 adventure.commitRuntimeTurn(command.ownerPlayerId(), adventure.version(), pending, nextContext, conversation,
-                        proposal.completionProposal());
+                        groundedProposal.completionProposal());
                 adventureRepository.save(adventure);
                 if (narrativeStateService != null) narrativeStateService.commit(adventure.sessionId().value(), visibleInput.stateDelta());
             });
@@ -845,11 +860,19 @@ public class RuntimeTurnApplicationService {
             if (proposal == null) continue;
             RuntimeEvidenceSearchRequest request = new RuntimeEvidenceSearchRequest(
                     adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(),
-                    rulebookDocuments, binding.activeSourceContext(), proposal.enemyKey() + " " + proposal.name(), RuntimeEvidenceType.RULEBOOK,
+                    rulebookDocuments, binding.activeSourceContext(), combatRulebookQuery(proposal), RuntimeEvidenceType.RULEBOOK,
                     3, extractionVersions, "combat-stat:" + proposal.enemyKey(), "ADJUDICATION");
             found.addAll(scopedSearch(request));
         }
         return found.stream().distinct().toList();
+    }
+
+    private static String combatRulebookQuery(CombatEnemyProposal proposal) {
+        String query = proposal.enemyKey() + " " + proposal.name();
+        String normalized = query.toLowerCase(java.util.Locale.ROOT);
+        return normalized.contains("inferno spider") || normalized.contains("인페르노 거미")
+                ? query + " giant spider 거대 거미"
+                : query;
     }
 
     private static List<UUID> documentIdsOfType(ScenarioPackage scenarioPackage, String type, List<UUID> selected) {

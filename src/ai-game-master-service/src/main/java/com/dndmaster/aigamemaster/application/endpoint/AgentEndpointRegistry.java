@@ -11,7 +11,18 @@ public final class AgentEndpointRegistry {
     public AgentEndpoint active() { return store.active().orElseThrow(() -> new IllegalStateException("no active agent endpoint")); }
     public Optional<AgentEndpoint> find(UUID endpointId) { return store.list().stream().filter(endpoint -> endpoint.id().equals(endpointId)).findFirst(); }
     public AgentEndpoint activeOrUnresolved(com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection requested) {
-        return store.active().orElseThrow(() -> new com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionUnresolvedException(requested));
+        AgentEndpoint.Provider requestedProvider = switch (requested.provider()) {
+            case "ollama" -> AgentEndpoint.Provider.OLLAMA;
+            case "openai" -> AgentEndpoint.Provider.OPENAI_COMPATIBLE;
+            case "codex-cli" -> AgentEndpoint.Provider.CODEX_CLI;
+            default -> throw new com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionUnresolvedException(requested);
+        };
+        return store.list().stream()
+                .filter(endpoint -> endpoint.provider() == requestedProvider)
+                .sorted(java.util.Comparator.comparing(AgentEndpoint::active).reversed()
+                        .thenComparing(AgentEndpoint::updatedAt, java.util.Comparator.reverseOrder()))
+                .findFirst()
+                .orElseThrow(() -> new com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionUnresolvedException(requested));
     }
     public void save(AgentEndpoint endpoint) { validate(endpoint); store.save(endpoint); }
     private static void validate(AgentEndpoint endpoint) {

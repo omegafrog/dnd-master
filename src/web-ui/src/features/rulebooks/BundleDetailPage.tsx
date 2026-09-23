@@ -287,7 +287,7 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
     <Card>
       <div className="bundle-card-heading"><h3>모험 준비 결과</h3></div>
       <CardContent>
-          <Button type="button" onClick={() => setPreparing(true)}>게임 준비</Button>
+          <Button type="button" onClick={() => setPreparing(true)} disabled={packages.some(item => item.reportStatus === 'COMPLETE')}>{packages.some(item => item.reportStatus === 'COMPLETE') ? '게임 준비 완료' : '게임 준비'}</Button>
           {packages.length === 0 ? <p>아직 모험 준비가 끝나지 않았습니다.</p> : <ul aria-label="모험 준비 결과 목록">{packages.map(item => <li key={item.packageId}>v{item.bundleRevision} · {item.reportStatus} <Button type="button" onClick={() => void createAdventure(item.packageId)} disabled={item.reportStatus !== 'COMPLETE' || !publishedBlueprintPackageIds.has(item.packageId) || creatingSessionFor !== null}>{creatingSessionFor === item.packageId ? '세션 준비 중…' : '이 자료로 모험 만들기'}</Button> <Button type="button" variant="outline" onClick={() => openCharacter(item.packageId)}>캐릭터 생성 시작</Button>{item.reportStatus === 'COMPLETE' && !publishedBlueprintPackageIds.has(item.packageId) ? <small> 캐릭터 생성 설정 게시 후 모험을 만들 수 있습니다.</small> : null}</li>)}</ul>}
       </CardContent>
     </Card>

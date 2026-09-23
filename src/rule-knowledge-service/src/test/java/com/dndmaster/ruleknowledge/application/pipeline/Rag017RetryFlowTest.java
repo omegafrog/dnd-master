@@ -72,12 +72,41 @@ class Rag017RetryFlowTest {
         assertEquals(ProcessingStatus.NEEDS_REVIEW, pipeline.processPending().getFirst().status());
         RulebookId document = queued.rulebookId();
         Files.createDirectories(Path.of(System.getProperty("java.io.tmpdir"), "dnd-rag-preprocessing",
-                document.value().toString(), "artifacts", "generations", "candidate-1"));
+                document.value().toString(), "artifacts", "versions", "candidate-1"));
 
         assertEquals(ProcessingStatus.INDEXED, pipeline.retryPages(document, "retry-request-1", List.of(1)).status());
         assertEquals(ProcessingStatus.INDEXED, pipeline.retryPages(document, "retry-request-1", List.of(1)).status());
         assertEquals(1, preprocessing.retryCalls);
         assertEquals(1, publicationRepository.publishCalls);
+    }
+
+    @Test
+    void multiBatchRetryAllowsReadyPromotionToRebuildUnselectedAttemptMetadata() throws Exception {
+        InMemoryRegistrationRepository registrations = new InMemoryRegistrationRepository();
+        InMemoryStorage storage = new InMemoryStorage();
+        MultiBatchPreprocessingPort preprocessing = new MultiBatchPreprocessingPort();
+        RulebookIndexingApplicationService indexing = new RulebookIndexingApplicationService(
+                mock(RulebookIndexRepository.class), mock(EmbeddingPort.class),
+                content -> StructureDetectionPort.DetectedStructure.none(), 3);
+        RulebookPipelineApplicationService pipeline = new RulebookPipelineApplicationService(
+                new RulebookRegistrationApplicationService(storage, (format, content) -> null), registrations, storage,
+                (format, content) -> null, (format, content) -> new SourcePreviewResult("", List.of(), List.of(), List.of()), indexing, 3,
+                preprocessing, null, new com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingArtifactImporter(new com.fasterxml.jackson.databind.ObjectMapper()),
+                new com.dndmaster.ruleknowledge.application.preprocessing.InMemoryPreprocessingRetryLeaseRepository());
+        UploadRulebookCommand command = new UploadRulebookCommand(
+                "retry-multi-batch", new OwnerPlayerId(UUID.randomUUID()), DocumentType.STORYBOOK, RulebookFormat.PDF,
+                "pdf".getBytes(), "story.pdf");
+
+        RulebookId document = pipeline.process(command).rulebookId();
+        assertEquals(ProcessingStatus.NEEDS_REVIEW, pipeline.processPending().getFirst().status());
+        Files.createDirectories(Path.of(System.getProperty("java.io.tmpdir"), "dnd-rag-preprocessing",
+                document.value().toString(), "artifacts", "versions", "candidate-1"));
+
+        assertEquals(ProcessingStatus.NEEDS_REVIEW, pipeline.retryPages(document, "retry-batch-1", List.of(7, 8)).status());
+        RulebookProcessingResult promoted = pipeline.retryPages(document, "retry-batch-2", List.of(9, 10));
+        assertEquals(ProcessingStatus.INDEXED, promoted.status(), registrations.findById(document).orElseThrow().failureCode());
+        assertEquals(2, preprocessing.retryCalls);
+        assertEquals(ProcessingStatus.INDEXED, registrations.findById(document).orElseThrow().processingStatus());
     }
 
     private static final class RecordingPreprocessingPort implements PreprocessingProcessPort {
@@ -119,6 +148,44 @@ class Rag017RetryFlowTest {
         private static PreprocessingRunResult result(String requestId, String version, String status, String sourceHash,
                 String policy, PreprocessingPageState page, PreprocessingArtifactManifest artifacts) {
             return new PreprocessingRunResult(requestId, version, status, sourceHash, policy, List.of(page), artifacts);
+        }
+    }
+
+    private static final class MultiBatchPreprocessingPort implements PreprocessingProcessPort {
+        private int retryCalls;
+        private String sourceHash;
+
+        @Override
+        public PreprocessingRunResult preprocess(PreprocessingRunRequest request) {
+            sourceHash = request.sourceSha256();
+            return result(request.requestId(), "candidate-1", "NEEDS_REVIEW", pages(6));
+        }
+
+        @Override
+        public PreprocessingRunResult status(PreprocessingStatusRequest request) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PreprocessingRunResult retryPages(PreprocessingRetryRequest request) {
+            retryCalls++;
+            return result(request.requestId(), retryCalls == 2 ? "candidate-2" : "candidate-1",
+                    retryCalls == 2 ? "READY" : "NEEDS_REVIEW", pages(retryCalls == 2 ? 10 : 8));
+        }
+
+        private PreprocessingRunResult result(String requestId, String version, String status,
+                List<PreprocessingPageState> pages) {
+            return new PreprocessingRunResult(requestId, version, status, sourceHash, "rag-preprocessing-v1", pages,
+                    new PreprocessingArtifactManifest("a".repeat(64), Map.of()));
+        }
+
+        private static List<PreprocessingPageState> pages(int validatedThrough) {
+            return java.util.stream.IntStream.rangeClosed(1, 10).mapToObj(number -> {
+                boolean validated = number <= validatedThrough;
+                int attempts = validatedThrough == 10 ? 2 : (validatedThrough == 8 && number >= 7 && number <= 8 ? 2 : 1);
+                return new PreprocessingPageState(number, validated ? "VALIDATED" : "NEEDS_REVIEW", attempts,
+                        validated ? List.of() : List.of("AMBIGUOUS_COLUMNS"));
+            }).toList();
         }
     }
 

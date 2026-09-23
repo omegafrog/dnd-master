@@ -1,6 +1,6 @@
 package com.dndmaster.aigamemaster.application.evidence;
 
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 
 public record EvidenceRerankRequest(String query, String taskContext, List<EvidenceCandidate> candidates) {
@@ -11,12 +11,13 @@ public record EvidenceRerankRequest(String query, String taskContext, List<Evide
     }
 
     static List<EvidenceCandidate> immutableCandidates(List<EvidenceCandidate> values, int maximum) {
-        if (values == null || values.size() > maximum) throw new IllegalArgumentException("candidate count is invalid");
-        var copy = List.copyOf(values);
-        if (copy.stream().anyMatch(java.util.Objects::isNull)
-                || copy.stream().map(EvidenceCandidate::evidenceId).collect(java.util.stream.Collectors.toSet()).size() != copy.size()) {
-            throw new IllegalArgumentException("candidate IDs must be unique");
+        if (values == null) throw new IllegalArgumentException("candidate count is invalid");
+        var unique = new LinkedHashMap<String, EvidenceCandidate>();
+        for (EvidenceCandidate candidate : values) {
+            if (candidate == null) throw new IllegalArgumentException("candidate must not be null");
+            unique.putIfAbsent(candidate.evidenceId(), candidate);
         }
-        return copy;
+        if (unique.size() > maximum) throw new IllegalArgumentException("candidate count is invalid");
+        return List.copyOf(unique.values());
     }
 }

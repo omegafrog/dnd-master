@@ -1,5 +1,6 @@
 package com.dndmaster.aigamemaster.infrastructure.ai;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 import java.util.UUID;
 
@@ -19,6 +20,11 @@ public interface GmCompletionAdapter {
     default <T> T complete(UUID soloPlayerId, String operationId, String prompt,
                            StructuredResponseParser<T> parser) {
         return complete(soloPlayerId, operationId, new GmPrompt(prompt), parser);
+    }
+
+    default <T> T complete(UUID soloPlayerId, String operationId, GmPrompt prompt,
+                            StructuredResponseParser<T> parser, JsonNode outputSchema) {
+        return complete(soloPlayerId, operationId, prompt, parser);
     }
 
     default <T> GmCompletionResult<T> completeWithSelection(UUID soloPlayerId,

@@ -6,12 +6,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.awt.GraphicsEnvironment;
+import javax.swing.SwingUtilities;
 
 /** Starts the user PC agent and keeps its authenticated relay connection alive. */
 public final class UserPcAgentApplication {
     private UserPcAgentApplication() {}
 
     public static void main(String[] args) {
+        if (!GraphicsEnvironment.isHeadless()) {
+            SwingUtilities.invokeLater(() -> new UserPcAgentWindow().setVisible(true));
+            return;
+        }
         Settings settings = Settings.fromEnvironment();
         ObjectMapper objectMapper = new ObjectMapper();
         LocalCodexAiExecutionPort codex = new LocalCodexAiExecutionPort(
@@ -30,6 +36,11 @@ public final class UserPcAgentApplication {
             System.out.println("사용자 PC 에이전트 연결됨: " + settings.relayWebSocketUrl());
             agent.completion().toCompletableFuture().join();
         }
+    }
+
+    static String environmentOrDefault(String name, String defaultValue) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? defaultValue : value.trim();
     }
 
     private record Settings(
@@ -55,9 +66,6 @@ public final class UserPcAgentApplication {
             return value.trim();
         }
 
-        private static String environmentOrDefault(String name, String defaultValue) {
-            String value = System.getenv(name);
-            return value == null || value.isBlank() ? defaultValue : value.trim();
-        }
+        private static String environmentOrDefault(String name, String defaultValue) { return UserPcAgentApplication.environmentOrDefault(name, defaultValue); }
     }
 }

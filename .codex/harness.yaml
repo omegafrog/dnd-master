@@ -1,0 +1,20 @@
+agents:
+  high_performance_model: "gpt-5.6-sol"
+  high_performance_reasoning_effort: "medium"
+  implementation_model: "gpt-5.6-luna"
+  implementation_reasoning_effort: "high"
+  execution_model: "gpt-5.6-luna"
+  execution_reasoning_effort: "medium"
+  low_performance_model: "gpt-5.6-luna"
+  low_performance_reasoning_effort: "low"
+  default_model: "gpt-5.6-luna"
+tracker:
+  mode: github
+  github:
+    repository: omegafrog/dnd-master
+    project_owner: omegafrog
+    project_number: 5
+    status_field: Workflow Status
+    assignees:
+      spec_me: "@me"
+      codex: "@copilot"

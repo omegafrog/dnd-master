@@ -37,11 +37,18 @@ public final class RuntimeFactLookupService {
         Optional<RuntimeFactLookupResult> established = findEstablished(request, query);
         if (established.isPresent()) return established.get();
 
-        ScenarioLookupResult modelResult = Objects.requireNonNull(
-                soloPlayerId == null
-                        ? scenarioModelLookup.lookup(new ScenarioModelLookupRequest(request.query(), request.lockedScenarioModel()))
-                        : scenarioModelLookup.lookup(soloPlayerId, new ScenarioModelLookupRequest(request.query(), request.lockedScenarioModel())),
-                "scenario lookup result must not be null");
+        ScenarioLookupResult modelResult;
+        try {
+            modelResult = Objects.requireNonNull(
+                    soloPlayerId == null
+                            ? scenarioModelLookup.lookup(new ScenarioModelLookupRequest(request.query(), request.lockedScenarioModel()))
+                            : scenarioModelLookup.lookup(soloPlayerId, new ScenarioModelLookupRequest(request.query(), request.lockedScenarioModel())),
+                    "scenario lookup result must not be null");
+        } catch (RuntimeException lookupFailure) {
+            // A temporary AI lookup outage must not abort the whole runtime turn.
+            // Continue to the authoritative Storybook source boundary instead.
+            modelResult = ScenarioLookupResult.notFound();
+        }
         if (modelResult.status() == ScenarioLookupResult.Status.FOUND) {
             validateSupportingElementIds(modelResult, request);
             return RuntimeFactLookupResult.foundScenario(modelResult.answer(), modelResult.supportingElementIds());

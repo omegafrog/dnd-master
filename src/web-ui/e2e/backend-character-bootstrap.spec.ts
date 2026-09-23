@@ -243,7 +243,7 @@ async function prepareBlueprint(request: APIRequestContext, packageId: string) {
 async function createSession(request: APIRequestContext, packageId: string, blueprintRevision: number) {
   const response = await request.post(`${backend}/api/v1/adventure-sessions`, {
     headers: { ...authHeaders, 'Content-Type': 'application/json' },
-    data: { scenarioPackageId: packageId, blueprintId: packageId, blueprintRevision },
+    data: { scenarioPackageId: packageId, blueprintId: packageId, blueprintRevision, partySize: 2 },
   })
   expect(response.ok(), await response.text()).toBeTruthy()
   return response.json() as Promise<{ sessionId: string; version: number }>

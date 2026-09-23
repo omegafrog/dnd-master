@@ -24,7 +24,8 @@ public final class EvidenceAcquisitionApplicationService {
             found.forEach(candidate -> pool.putIfAbsent(candidate.id(), candidate));
             List<EvidenceCandidate> reranked=rerank(request, List.copyOf(pool.values()), pinned);
             List<UUID> pinnedForJudge = List.copyOf(pinned);
-            SufficiencyDecision decision=retry(() -> judge.judge(new EvidenceSufficiencyRequest(request.policyId(),request.query(),reranked,pinnedForJudge,additionalSearches)));
+            UUID soloPlayerId = request.searchScope() == null ? null : request.searchScope().ownerId();
+            SufficiencyDecision decision=retry(() -> judge.judge(new EvidenceSufficiencyRequest(request.policyId(),request.query(),reranked,pinnedForJudge,additionalSearches,soloPlayerId)));
             validateDecision(decision, reranked, pinned);
             if(decision.sufficient() || additional==2) return new EvidenceAcquisitionResult(reranked,decision,additional);
             pinned = new ArrayList<>(new LinkedHashSet<>(decision.selectedEvidenceIds()));
@@ -32,7 +33,8 @@ public final class EvidenceAcquisitionApplicationService {
         }
     }
     private List<EvidenceCandidate> rerank(EvidenceAcquisitionRequest request,List<EvidenceCandidate> pool,List<UUID> pinned) {
-        List<UUID> ids=retry(() -> reranker.rerank(new EvidenceRerankRequest(request.policyId(),request.query(),pool)));
+        UUID soloPlayerId = request.searchScope() == null ? null : request.searchScope().ownerId();
+        List<UUID> ids=retry(() -> reranker.rerank(new EvidenceRerankRequest(request.policyId(),request.query(),pool,soloPlayerId)));
         if(ids.size()>30 || ids.size()!=new LinkedHashSet<>(ids).size()) throw new EvidenceAcquisitionContractException("reranker returned invalid candidate identifiers");
         LinkedHashMap<UUID,EvidenceCandidate> available=new LinkedHashMap<>(); pool.forEach(c -> available.put(c.id(),c));
         if(!available.keySet().containsAll(ids) || !available.keySet().containsAll(pinned)) throw new EvidenceAcquisitionContractException("model returned candidate outside supplied scope");

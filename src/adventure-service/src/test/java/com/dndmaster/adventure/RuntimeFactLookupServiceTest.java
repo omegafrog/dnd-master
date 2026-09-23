@@ -96,6 +96,18 @@ class RuntimeFactLookupServiceTest {
     }
 
     @Test
+    void falls_back_to_storybook_when_scenario_model_lookup_is_temporarily_unavailable() {
+        RuntimeFactLookupService service = new RuntimeFactLookupService(
+                request -> { throw new IllegalStateException("AI lookup unavailable"); },
+                request -> StorybookRagResult.found("The bell is in the cellar"));
+
+        RuntimeFactLookupResult result = service.lookup(request(Map.of(), List.of(), model("model-harl")));
+
+        assertEquals(RuntimeFactLookupResult.Source.STORYBOOK_RAG, result.source());
+        assertEquals("The bell is in the cellar", result.answer());
+    }
+
+    @Test
     void returns_not_found_without_inventing_a_fact() {
         RuntimeFactLookupService service = new RuntimeFactLookupService(
                 request -> ScenarioLookupResult.notFound(),

@@ -4,6 +4,7 @@ import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
 import com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
+import com.dndmaster.ruleknowledge.application.pipeline.RulebookProcessingResult;
 import com.dndmaster.ruleknowledge.application.pipeline.UploadRulebookCommand;
 import com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus;
 import com.dndmaster.ruleknowledge.domain.catalog.RulebookEdition;
@@ -17,6 +18,8 @@ import com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRe
 import com.dndmaster.ruleknowledge.domain.definition.GameSystemDefinitionRevision;
 import java.io.IOException;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.Arrays;
@@ -56,7 +59,7 @@ public final class RulebookCatalogBackofficeController {
             @RequestHeader(value = "Authorization", required = false) String authorization) {
         requireAdmin(authorization);
         return repository.findAll().stream()
-                .map(BackofficeCatalogRulebookView::from)
+                .map(revision -> BackofficeCatalogRulebookView.from(revision, registrations))
                 .toList();
     }
 
@@ -90,6 +93,55 @@ public final class RulebookCatalogBackofficeController {
         repository.publish(published);
         ensureSystemDefinition(published);
         return published;
+    }
+
+    @PostMapping("/{catalogRevisionId}/retry")
+    RulebookProcessingResult retry(@RequestHeader(value = "Authorization", required = false) String authorization,
+            @org.springframework.web.bind.annotation.PathVariable UUID catalogRevisionId) {
+        requireAdmin(authorization);
+        CatalogRulebookRevision current = requireCatalogRevision(catalogRevisionId);
+        try {
+            return pipeline.retry(new RulebookId(current.rulebookId()));
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
+        }
+    }
+
+    @PostMapping("/{catalogRevisionId}/retry-pages")
+    RulebookProcessingResult retryPages(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @org.springframework.web.bind.annotation.PathVariable UUID catalogRevisionId,
+            @org.springframework.web.bind.annotation.RequestBody RetryPagesRequest request) {
+        requireAdmin(authorization);
+        CatalogRulebookRevision current = requireCatalogRevision(catalogRevisionId);
+        try {
+            return pipeline.retryPages(new RulebookId(current.rulebookId()),
+                    request == null ? null : request.requestId(),
+                    request == null ? null : request.pages(),
+                    request == null ? Map.of() : request.layoutSelections());
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
+        }
+    }
+
+    private CatalogRulebookRevision requireCatalogRevision(UUID catalogRevisionId) {
+        CatalogRulebookRevision current = repository.findAll().stream()
+                .filter(item -> item.id().equals(catalogRevisionId)).findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "catalog revision not found"));
+        if (current.rulebookId() == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "catalog revision document not found");
+        }
+        var registration = registrations.findById(new RulebookId(current.rulebookId()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "catalog revision document not found"));
+        if (!registration.ownerPlayerId().value().equals(CATALOG_OWNER)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "catalog revision document does not belong to catalog owner");
+        }
+        return current;
     }
 
     private void ensureSystemDefinition(CatalogRulebookRevision catalog) {
@@ -138,12 +190,23 @@ public final class RulebookCatalogBackofficeController {
 
     public record BackofficeCatalogRulebookView(
             String catalogRevisionId, String edition, String displayName, String rulebookId,
-            long revisionNumber, String status, boolean published) {
-        static BackofficeCatalogRulebookView from(CatalogRulebookRevision revision) {
+            long revisionNumber, String status, String processingStatus, boolean published) {
+        static BackofficeCatalogRulebookView from(CatalogRulebookRevision revision,
+                RulebookRegistrationRepository registrations) {
             return new BackofficeCatalogRulebookView(
                     revision.id().toString(), revision.edition().name(), revision.displayName(),
                     revision.rulebookId() == null ? null : revision.rulebookId().toString(),
-                    revision.revisionNumber(), revision.status().name(), revision.published());
+                    revision.revisionNumber(), revision.status().name(),
+                    revision.rulebookId() == null ? null : registrations.findById(new RulebookId(revision.rulebookId()))
+                            .map(item -> item.processingStatus().name()).orElse(null),
+                    revision.published());
+        }
+    }
+
+    public record RetryPagesRequest(String requestId, List<Integer> pages,
+            Map<Integer, Map<String, Integer>> layoutSelections) {
+        public RetryPagesRequest(String requestId, List<Integer> pages) {
+            this(requestId, pages, Map.of());
         }
     }
 }

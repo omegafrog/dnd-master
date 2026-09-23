@@ -124,6 +124,13 @@ class LayoutValidationService:
                 # decision; normalize conservative analyzer scores upward.
                 if isinstance(selected, Mapping) and selected.get("column_count") == 1 and not profile.get("ambiguous"):
                     value = max(value, .9)
+                # A valid candidate chosen during review is an explicit
+                # confirmation of the partition, even when the geometric
+                # heuristic score remains below the publication threshold.
+                # Keep the score in the profile as evidence; only the gate's
+                # confidence is satisfied for that confirmed region.
+                if _is_explicitly_confirmed(profile, layout):
+                    value = max(value, self.policy.thresholds.get("columns", .8))
                 values.append(value)
             axes["columns"] = min(values, default=1.0)
         ordered = layout.get("ordered_block_ids", ()) if isinstance(layout, Mapping) else ()
@@ -163,3 +170,34 @@ class LayoutValidationService:
                 findings.append(ValidationFinding(f"NEAR_THRESHOLD_{axis.upper()}", f"{axis} confidence is near policy threshold", severity="warning", action="review"))
         valid = not any(item.severity == "error" for item in findings) and all(confidence.as_dict()[axis] >= self.policy.thresholds.get(axis, .8) for axis in self.policy.critical_axes)
         return LayoutValidationResult(valid, high_risk, confidence, tuple(findings), evidence, secondary_validated)
+
+
+def _is_explicitly_confirmed(profile: Mapping[str, Any], layout: Mapping[str, Any]) -> bool:
+    """Return true only for a selected candidate recorded as a valid confirmation.
+
+    Retry callers persist the confirmation next to the unchanged geometric
+    candidates.  The validator deliberately checks the candidate index and
+    selected value again, so arbitrary metadata cannot bypass the columns gate.
+    """
+    if profile.get("ambiguous") or not isinstance(profile.get("selected"), Mapping):
+        return False
+    candidates = profile.get("candidates", ())
+    if not isinstance(candidates, (list, tuple)):
+        return False
+    selected = profile["selected"]
+    region_id = profile.get("region_id")
+    confirmations = layout.get("confirmed_selections", ())
+    if isinstance(confirmations, Mapping):
+        confirmations = tuple(
+            {"region_id": key, "candidate_index": value}
+            for key, value in confirmations.items()
+        )
+    if not isinstance(confirmations, (list, tuple)):
+        return False
+    for confirmation in confirmations:
+        if not isinstance(confirmation, Mapping) or confirmation.get("region_id") != region_id:
+            continue
+        index = confirmation.get("candidate_index")
+        if type(index) is int and 0 <= index < len(candidates) and candidates[index] == selected:
+            return True
+    return False

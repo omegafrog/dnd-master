@@ -8,6 +8,7 @@ import java.util.UUID;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -24,7 +25,8 @@ import jakarta.servlet.http.HttpServletResponse;
 public class AdventureSecurityConfiguration {
     @Bean
     @Order(1)
-    SecurityFilterChain adventureSecurityFilterChain(HttpSecurity http, PlayerSessionLookupPort sessionLookupPort,
+    SecurityFilterChain adventureSecurityFilterChain(HttpSecurity http,
+            @Qualifier("adventurePlayerSessionLookupPort") PlayerSessionLookupPort sessionLookupPort,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken)
             throws Exception {
         BearerTokenAuthenticationFilter bearerTokenAuthenticationFilter = new BearerTokenAuthenticationFilter(sessionLookupPort, internalToken);

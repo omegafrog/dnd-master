@@ -11,12 +11,15 @@ import com.dndmaster.adventure.application.runtime.GmContextEnvelope;
 import com.dndmaster.adventure.application.runtime.GmPlanResult;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
 import com.dndmaster.adventure.application.runtime.RuntimeAddedFactCandidate;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.runtime.RuntimePlanningRequest;
 import com.dndmaster.adventure.application.runtime.SituationProposal;
 import com.dndmaster.adventure.application.runtime.SituationUpdateProposal;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -58,6 +61,22 @@ class GmAgentRuntimePlanningAdapterTest {
 
         assertThat(result.resolutionProposal().situationProposal()).isEqualTo(situation);
         assertThat(result.resolutionProposal().situationUpdate().threat()).isEqualTo("Giant Rats");
+    }
+
+    @Test
+    void does_not_invent_a_storybook_citation_when_the_agent_did_not_use_one() {
+        RuntimeEvidence story = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:2", "A cellar door opens.");
+        RuntimePlanningRequest request = new RuntimePlanningRequest(
+                AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1,
+                new AdventureContext("hall", null, null, null), null, "enter the map",
+                new EvidencePack(List.of(story), List.of(), List.of()));
+
+        RuntimePlan result = new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of()),
+                new GmFinalValidator()).plan(request);
+
+        assertThat(result.citedEvidence()).isEmpty();
     }
 
     @Test

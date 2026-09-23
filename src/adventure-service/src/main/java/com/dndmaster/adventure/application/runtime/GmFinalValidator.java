@@ -47,16 +47,12 @@ public final class GmFinalValidator {
                         "citation is outside the selected evidence pack"));
             }
         }
-        if (!evidencePack.storybook().isEmpty() && plan.citedEvidence().stream()
-                .noneMatch(evidence -> evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK)) {
-            violations.add(violation("STORYBOOK_CITATION_REQUIRED", "citedEvidence", true,
-                    "storybook evidence must be cited for every GM turn"));
-        }
-        if (!Objects.equals(plan.scene(), currentContext.currentScene()) && plan.citedEvidence().stream()
-                .noneMatch(evidencePack.storybook()::contains)) {
-            violations.add(violation("SCENE_TRANSITION_UNSUPPORTED", "scene", true,
-                    "scene transition requires a storybook citation"));
-        }
+        // A RuntimePlan.scene value is presentation output, not proof that the
+        // party changed the canonical narrative situation. In particular, map
+        // entry and map movement are validated by Combat Map and must not be
+        // rejected merely because the GM used a different scene label. The
+        // canonical narrative transition is grounded separately through
+        // SituationProposalGroundingPolicy before it is persisted.
         if (plan.proposedActiveSourceContext() != null && allowed.stream().noneMatch(evidence ->
                 evidence.knowledgeDocumentId().equals(plan.proposedActiveSourceContext().knowledgeDocumentId())
                         && evidence.extractionVersion() == plan.proposedActiveSourceContext().extractionVersion()

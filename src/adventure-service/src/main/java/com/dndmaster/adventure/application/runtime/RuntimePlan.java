@@ -143,6 +143,19 @@ public record RuntimePlan(
                 effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested, mapEntryRequested);
     }
 
+    /** Keeps the canonical narrative scene separate from a provider's presentation label. */
+    public RuntimePlan withScene(String canonicalScene) {
+        return new RuntimePlan(canonicalScene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
+                warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
+                effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested, mapEntryRequested);
+    }
+
+    public RuntimePlan withMapEntryRequested(boolean requested) {
+        return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
+                warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
+                effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested, requested);
+    }
+
     public RuntimePlan withCombatEnemies(List<CombatEnemyProposal> groundedEnemies) {
         return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
                 warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
@@ -155,6 +168,14 @@ public record RuntimePlan(
         return new RuntimePlan(scene, npcState, reason, narration, proposedActiveSourceContext, citedEvidence,
                 nextWarnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
                 effectiveSelection, attemptCount, citationBindings, stateDelta, List.of(), false, mapEntryRequested);
+    }
+
+    public RuntimePlan withWarning(String warning) {
+        List<String> nextWarnings = new java.util.ArrayList<>(warnings);
+        nextWarnings.add(warning);
+        return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
+                nextWarnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
+                effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested, mapEntryRequested);
     }
 
     private static String required(String value, String name) {

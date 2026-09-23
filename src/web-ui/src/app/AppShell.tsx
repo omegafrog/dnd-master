@@ -18,6 +18,7 @@ import { CombatMapView } from '../features/combat-map/CombatMapView'
 import { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
 import { AdventureSessionPanel } from '../features/adventure-session/AdventureSessionPanel'
 import { AiEndpointSettings } from '../features/profile/AiEndpointSettings'
+import { UserPcAgentSetup } from '../features/profile/UserPcAgentSetup'
 import { CombatScreen } from '../features/combat/CombatScreen'
 import { HttpCombatApi, type CombatFinalSummary, type CombatSnapshot } from '../features/combat/CombatApi'
 import { parseRoute, type Route } from './route'
@@ -177,7 +178,7 @@ export function AppShell() {
   if (route.page === 'session-runtime') {
     return <div className="game-shell">
       <main id="main" className="game-shell-main app-page-session-runtime">
-        <SessionRuntimeRoute sessionId={route.sessionId} sessionApi={sessionApi} adventureApi={adventureApi} playApi={playApi} setupApi={setupApi} />
+        <SessionRuntimeRoute sessionId={route.sessionId} sessionApi={sessionApi} adventureApi={adventureApi} playApi={playApi} setupApi={setupApi} combatApi={combatApi} />
       </main>
     </div>
   }
@@ -219,5 +220,5 @@ function Brand() {
 }
 
 function ProfilePage({ session }: { session: NonNullable<ReturnType<typeof useAuth>['session']> }) {
-  return <section aria-labelledby="profile-title" className="profile-page"><div className="page-heading"><div><p className="eyebrow">PLAYER SETTINGS</p><h1 id="profile-title">내 설정</h1></div></div><section className="setup-panel"><h2>내 정보</h2><dl><dt>이름</dt><dd>{session.playerName}</dd><dt>플레이어 ID</dt><dd>{session.playerId}</dd><dt>인증 만료</dt><dd>{new Date(session.expiresAt).toLocaleString('ko-KR')}</dd></dl></section><AiEndpointSettings session={session} /></section>
+  return <section aria-labelledby="profile-title" className="profile-page"><div className="page-heading"><div><p className="eyebrow">PLAYER SETTINGS</p><h1 id="profile-title">내 설정</h1></div></div><section className="setup-panel"><h2>내 정보</h2><dl><dt>이름</dt><dd>{session.playerName}</dd><dt>플레이어 ID</dt><dd>{session.playerId}</dd><dt>인증 만료</dt><dd>{new Date(session.expiresAt).toLocaleString('ko-KR')}</dd></dl></section><UserPcAgentSetup /><AiEndpointSettings session={session} /></section>
 }

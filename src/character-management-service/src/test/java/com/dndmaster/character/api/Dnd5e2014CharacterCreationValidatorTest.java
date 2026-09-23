@@ -74,6 +74,12 @@ class Dnd5e2014CharacterCreationValidatorTest {
     }
 
     @Test
+    void acceptsBackgroundLabelsUsedByTheWebCharacterCreator() {
+        assertDoesNotThrow(() -> Dnd5e2014CharacterCreationValidator.validateCreation(request(
+                "인간", "파이터", "시골 영웅", fighterBuild())));
+    }
+
+    @Test
     void acceptsTheOtherBasicRulesClassStartingEquipmentProfiles() {
         assertDoesNotThrow(() -> Dnd5e2014CharacterCreationValidator.validateCreation(request(
                 "하플링", "로그", "범죄자", """

@@ -133,8 +133,13 @@ public class CombatMapController {
         requireIdempotencyKey(idempotencyKey, request.commandId());
         if (request.stagePosition() != null && request.mapDefinitionId() == null) {
             if (mapViewService.preparedMapIdForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId())).isEmpty()) {
-                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND,
-                        "reviewed combat map draft not found");
+                // The opening runtime turn may already have activated the only
+                // prepared map. Repeated map-entry decisions must be idempotent;
+                // do not turn an already active map into a 404 on the next turn.
+                return mapViewService.displayForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()))
+                        .map(view -> new PrepareResponse(view.mapId().value(), PrepareStatus.READY, 0))
+                        .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                                org.springframework.http.HttpStatus.NOT_FOUND, "reviewed combat map draft not found"));
             }
             return activatePreparedMap(request);
         }

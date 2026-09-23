@@ -6,6 +6,7 @@ import com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceEx
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
@@ -123,7 +124,8 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         if (provenance == null) {
             throw new ResolutionExtractionException("published evidence is missing provenance");
         }
-        if (!documentId.equals(provenance.documentId()) || extractionVersion != provenance.extractionVersion()
+        if ((provenance.documentId() != null && !documentId.equals(provenance.documentId()))
+                || (provenance.extractionVersion() != null && extractionVersion != provenance.extractionVersion())
                 || !locator.equals(provenance.locator())) {
             throw new ResolutionExtractionException("published evidence provenance does not match its result");
         }
@@ -167,8 +169,8 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     record PreparationCandidate(UUID chunkId, UUID documentId, long extractionVersion, String documentType,
             String locator, String excerpt, ProvenanceResponse provenance) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record ProvenanceResponse(UUID documentId, long extractionVersion, int pageNumber, List<String> sectionPath,
-            List<Double> bbox, String tableCell, String locator) {}
+    record ProvenanceResponse(UUID documentId, Long extractionVersion, int pageNumber, List<String> sectionPath,
+            List<Double> bbox, String tableCell, @JsonAlias("originalLocator") String locator) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     record SourcePreviewResponse(String content, List<PreviewAsset> assets) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
