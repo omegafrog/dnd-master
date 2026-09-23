@@ -92,6 +92,20 @@ def test_status_requires_artifact_root_and_rejects_unsafe_version_id(tmp_path: P
     assert json.loads(proc.stdout)["error"]["code"] == "INVALID_REQUEST"
 
 
+def test_retry_pages_accepts_explicit_layout_selections(tmp_path: Path) -> None:
+    proc = subprocess.run(
+        [sys.executable, "-m", "preprocessing_agent.adapters.process_cli"],
+        input=json.dumps({
+            "schema_version": "1", "operation": "retry_pages", "request_id": "retry-layout",
+            "version_id": "candidate-1", "artifact_root": str(tmp_path), "pages": [2],
+            "layout_selections": {"2": {"column_count": 2}},
+        }),
+        text=True, capture_output=True, env={"PYTHONPATH": "src"},
+    )
+    assert proc.returncode != 0
+    assert json.loads(proc.stdout)["error"]["code"] != "INVALID_REQUEST"
+
+
 def test_exact_dot_version_ids_are_rejected_for_both_operations(tmp_path: Path) -> None:
     source = tmp_path / "input.md"
     source.write_text("content", encoding="utf-8")

@@ -38,13 +38,22 @@ def main() -> int:
             response = ExtractionApplicationService().get_status(request["version_id"], request["artifact_root"])
             response = {**response, "request_id": request["request_id"]}
         elif operation == "retry_pages":
-            if set(request) - {"schema_version", "operation", "request_id", "version_id", "artifact_root", "pages"}:
+            if set(request) - {"schema_version", "operation", "request_id", "version_id", "artifact_root", "pages", "layout_selections"}:
                 raise ValueError("INVALID_REQUEST")
             if not isinstance(request.get("request_id"), str) or not request["request_id"] or not isinstance(request.get("version_id"), str) or not re.fullmatch(r"[A-Za-z0-9._-]+", request["version_id"]) or not isinstance(request.get("artifact_root"), str) or not request["artifact_root"] or not isinstance(request.get("pages"), list) or not request["pages"] or any(type(page) is not int or page < 1 for page in request["pages"]):
                 raise ValueError("INVALID_REQUEST")
+            layout_selections = request.get("layout_selections", {})
+            if not isinstance(layout_selections, dict):
+                raise ValueError("INVALID_REQUEST")
+            try:
+                layout_selections = {int(page): selection for page, selection in layout_selections.items()}
+            except (TypeError, ValueError):
+                raise ValueError("INVALID_REQUEST")
+            if any(not isinstance(selection, dict) for selection in layout_selections.values()):
+                raise ValueError("INVALID_REQUEST")
             response = ExtractionApplicationService().retry_pages(
                 request["version_id"], request["artifact_root"], request["pages"],
-                request_id=request["request_id"], layout_selections=request.get("layout_selections"))
+                request_id=request["request_id"], layout_selections=layout_selections)
         else:
             raise ValueError("INVALID_REQUEST")
         print(json.dumps(response, ensure_ascii=False, sort_keys=True))
