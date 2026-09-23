@@ -19,6 +19,30 @@ import org.springframework.ai.chat.model.ChatModel;
 
 class GmCompletionRouterAiExecutionPortTest {
     @Test
+    void preflight_endpoint_snapshot_is_the_one_used_for_execution() {
+        AtomicReference<AiExecutionRequest> captured = new AtomicReference<>();
+        UUID endpointId = UUID.randomUUID();
+        var registry = new AgentEndpointRegistry(new InMemoryAgentEndpointStore());
+        var original = new AgentEndpoint(endpointId, "codex", AgentEndpoint.Provider.CODEX_CLI,
+                URI.create("https://codex.example/"), "first-model", null, true, java.time.Instant.EPOCH);
+        registry.save(original);
+        var requested = new RequestedGmProviderSelection(endpointId, "codex-cli", "first-model", "medium");
+        var snapshot = new GmProviderSelectionResolver(registry).resolveEndpoint(requested);
+        registry.save(new AgentEndpoint(endpointId, "codex", AgentEndpoint.Provider.CODEX_CLI,
+                URI.create("https://codex.example/"), "second-model", null, true, java.time.Instant.now()));
+        var router = new GmCompletionRouter(new SpringAiChatAdapter(mock(ChatModel.class), 1,
+                new SafeAiAuditLogger(message -> { })),
+                new GmProviderProperties("ollama", "unused", "medium", URI.create("https://api.openai.com/"), "", Duration.ofSeconds(5)),
+                registry, request -> { captured.set(request); return new AiExecutionSuccess("selected"); });
+
+        var result = router.completeWithResolution(UUID.randomUUID(), "request", "prompt", value -> value,
+                requested, snapshot);
+
+        assertThat(result.effectiveSelection().model()).isEqualTo("first-model");
+        assertThat(captured.get().model()).isEqualTo("first-model");
+    }
+
+    @Test
     void selected_codex_provider_requires_and_forwards_the_server_confirmed_identity() {
         AtomicReference<AiExecutionRequest> captured = new AtomicReference<>();
         UUID endpointId = UUID.randomUUID();

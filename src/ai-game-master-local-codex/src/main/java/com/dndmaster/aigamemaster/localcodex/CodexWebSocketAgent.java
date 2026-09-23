@@ -125,11 +125,11 @@ public final class CodexWebSocketAgent implements AutoCloseable {
                 request.outputSchema(),
                 request.imageInputs().isEmpty() ? "" : request.imageInputs().get(0)));
         if (result instanceof AiExecutionSuccess success) {
-            return new AgentExecutionResponse(request.requestId(), success.finalText(), null);
+            return new AgentExecutionResponse(request.requestId(), success.finalText(), null, success.usage());
         }
         AiExecutionFailure failure = (AiExecutionFailure) result;
         LOGGER.warn("Codex execution failed requestId={} reason={}", request.requestId(), failure.reason());
-        return new AgentExecutionResponse(request.requestId(), "", "REMOTE_FAILURE");
+        return new AgentExecutionResponse(request.requestId(), "", "REMOTE_FAILURE", null);
     }
 
     private CompletableFuture<Void> sendResponse(AgentExecutionResponse response) {
@@ -250,5 +250,6 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         }
     }
 
-    private record AgentExecutionResponse(String requestId, String content, String failureType) {}
+    private record AgentExecutionResponse(String requestId, String content, String failureType,
+            com.dndmaster.aigamemaster.application.ai.AiExecutionUsage usage) {}
 }

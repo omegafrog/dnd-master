@@ -53,6 +53,7 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuntim
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetOwnershipGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
 import com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPort;
+import com.dndmaster.adventure.infrastructure.integration.HttpRuntimeCharacterSheetReadPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpScenarioModelLookupAgentPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpScenarioCompilationAgentPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpDiceToolPort;
@@ -993,7 +994,8 @@ public class AdventureApiConfiguration {
             RuntimeTurnLockService runtimeTurnLockService,
             RuntimeTurnCommitOrchestrator commitOrchestrator,
             RuntimeFactLookupService runtimeFactLookupService,
-            com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService) {
+            com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService,
+            RuntimeCharacterSheetReadPort characterSheetReadPort) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, providerBindingRepository,
@@ -1005,7 +1007,16 @@ public class AdventureApiConfiguration {
         service.setCommitOrchestrator(commitOrchestrator);
         service.setRuntimeFactLookupService(runtimeFactLookupService);
         service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(evidenceAcquisitionApplicationService));
+        service.setCharacterSheetReadPort(characterSheetReadPort);
         return service;
+    }
+
+    @Bean
+    RuntimeCharacterSheetReadPort runtimeCharacterSheetReadPort(
+            @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
+        return new HttpRuntimeCharacterSheetReadPort(HttpClient.newHttpClient(), URI.create(baseUrl),
+                Duration.ofSeconds(10), token);
     }
 
     @Bean

@@ -9,6 +9,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection
 import com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
+import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -18,6 +19,41 @@ import org.junit.jupiter.api.Test;
 class TypedAgentContractControllerTest {
     private static final UUID SOLO_PLAYER_ID = UUID.fromString("00000000-0000-0000-0000-000000000321");
     private static final UUID SELECTED_ENDPOINT_ID = UUID.fromString("00000000-0000-0000-0000-000000000322");
+
+    @Test
+    void runtime_budget_uses_the_effective_model_and_rejects_an_unknown_limit_before_ai() {
+        AtomicReference<String> sent = new AtomicReference<>();
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> {
+            sent.set(prompt);
+            throw new AssertionError("AI must not be called");
+        });
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(),
+                new ApiRequestGuard("service-secret"), new RuntimeGmContextLimits("openai/actual-model=1000"),
+                requested -> resolution("actual-model", requested));
+        var request = new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "look",
+                SELECTED_ENDPOINT_ID, "openai", "stale-model", "high", List.of(), Map.of());
+
+        assertThrows(RuntimeGmInputBudget.InputTooLargeException.class,
+                () -> controller.runtimeTurn("service-secret", request));
+        org.junit.jupiter.api.Assertions.assertNull(sent.get());
+
+        var unknown = new TypedAgentContractController(adapter, new ObjectMapper(),
+                new ApiRequestGuard("service-secret"), new RuntimeGmContextLimits("openai/stale-model=128000"),
+                requested -> resolution("actual-model", requested));
+        assertThrows(ResponseStatusException.class,
+                () -> unknown.runtimeTurn("service-secret", request));
+        org.junit.jupiter.api.Assertions.assertNull(sent.get());
+    }
+
+    @Test
+    void oversized_required_input_never_reaches_the_provider() {
+        TypedAgentContractController controller = new TypedAgentContractController(
+                emptyAdapter(), new ObjectMapper(), new ApiRequestGuard("service-secret"), 1000);
+        assertThrows(RuntimeGmInputBudget.InputTooLargeException.class,
+                () -> controller.runtimeTurn("service-secret",
+                        new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "look",
+                                List.of(), Map.of("characterSnapshots", List.of("x".repeat(1000))))));
+    }
 
     @Test
     void every_typed_agent_endpoint_requires_the_internal_service_token() {
@@ -273,6 +309,15 @@ class TypedAgentContractControllerTest {
     private static EffectiveGmProviderSelection effectiveSelection(RequestedGmProviderSelection requested) {
         UUID endpointId = requested.endpointId() == null ? SELECTED_ENDPOINT_ID : requested.endpointId();
         return new EffectiveGmProviderSelection(endpointId, Instant.EPOCH, requested.provider(), requested.model(), requested.reasoning());
+    }
+
+    private static com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionResolver.EndpointResolution resolution(
+            String model, RequestedGmProviderSelection requested) {
+        var endpoint = new com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint(SELECTED_ENDPOINT_ID,
+                "selected", com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint.Provider.OPENAI_COMPATIBLE,
+                java.net.URI.create("http://localhost"), model, null, true, Instant.EPOCH);
+        return new com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionResolver.EndpointResolution(endpoint,
+                new EffectiveGmProviderSelection(SELECTED_ENDPOINT_ID, Instant.EPOCH, "openai", model, requested.reasoning()));
     }
 
     @FunctionalInterface

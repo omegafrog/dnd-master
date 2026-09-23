@@ -1,4 +1,7 @@
 ai-game-master:
+  # Comma-separated provider/model=C entries, verified for each configured endpoint.
+  # An unlisted effective model is rejected before the runtime GM provider call.
+  runtime-context-limits: ${GM_RUNTIME_CONTEXT_LIMITS:}
   integration:
     internal-token: ${INTERNAL_SERVICE_TOKEN:}
   relay:

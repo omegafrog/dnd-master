@@ -67,7 +67,7 @@ public class AgentWebSocketHandler implements WebSocketHandler {
             message.getPayloadAsText(), RelayExecutionResult.class))
             .doOnNext(result -> {
               if (result.success()) {
-                completionRegistry.complete(result.requestId(), result.content());
+                completionRegistry.complete(result);
               } else {
                 completionRegistry.fail(result.requestId(),
                     new IllegalStateException(result.failureType().name()));

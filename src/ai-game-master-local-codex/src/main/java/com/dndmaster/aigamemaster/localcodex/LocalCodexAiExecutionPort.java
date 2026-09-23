@@ -21,8 +21,9 @@ public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoClo
     @Override
     public AiExecutionResult execute(AiExecutionRequest request) {
         try {
-            return new AiExecutionSuccess(client.complete(request.requestId(), request.completedPrompt(), request.model(),
-                    request.reasoning(), request.outputSchema(), request.imageDataUri()));
+            var completion = client.completeWithUsage(request.requestId(), request.completedPrompt(), request.model(),
+                    request.reasoning(), request.outputSchema(), request.imageDataUri());
+            return new AiExecutionSuccess(completion.finalText(), completion.usage());
         } catch (com.dndmaster.aigamemaster.infrastructure.ai.CodexTurnTimeoutException timeout) {
             return new AiExecutionFailure(AiExecutionFailure.Reason.TIMEOUT, timeout.getMessage());
         } catch (RuntimeException failure) {

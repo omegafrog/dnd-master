@@ -121,6 +121,15 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     }
 
     @Override
+    public <T> GmCompletionResult<T> completeWithResolution(UUID soloPlayerId,
+            String operationId, String prompt, StructuredResponseParser<T> parser,
+            RequestedGmProviderSelection requested, GmProviderSelectionResolver.EndpointResolution resolution) {
+        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
+        T response = completeResolved(soloPlayerId, operationId, prompt, parser, resolution.endpoint(), effective);
+        return new GmCompletionResult<>(response, effective);
+    }
+
+    @Override
     public <T> GmCandidateLifecycleResult<T> completeWithOneRepair(
             UUID soloPlayerId, String operationId, String prompt, java.util.function.Function<GmRepairContext, String> repairPrompt,
             StructuredResponseParser<T> parser, RequestedGmProviderSelection requested) {

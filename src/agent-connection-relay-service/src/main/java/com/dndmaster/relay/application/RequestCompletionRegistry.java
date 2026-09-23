@@ -6,14 +6,14 @@ import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
 public final class RequestCompletionRegistry {
-    private final ConcurrentHashMap<String, Sinks.One<String>> pending = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Sinks.One<RelayExecutionResult>> pending = new ConcurrentHashMap<>();
 
     public Mono<String> await(String requestId, Duration timeout) {
-        return open(requestId, timeout).result().doFinally(ignored -> close(requestId));
+        return open(requestId, timeout).result().map(RelayExecutionResult::content).doFinally(ignored -> close(requestId));
     }
 
     public Pending open(String requestId, Duration timeout) {
-        Sinks.One<String> sink = Sinks.one();
+        Sinks.One<RelayExecutionResult> sink = Sinks.one();
         if (pending.putIfAbsent(requestId, sink) != null) {
             return new Pending(false, Mono.error(new IllegalStateException("requestId is already pending")));
         }
@@ -21,8 +21,12 @@ public final class RequestCompletionRegistry {
     }
 
     public boolean complete(String requestId, String finalContent) {
+        return complete(RelayExecutionResult.success(requestId, finalContent));
+    }
+    public boolean complete(RelayExecutionResult result) {
+        String requestId = result.requestId();
         var sink = pending.get(requestId);
-        return sink != null && sink.tryEmitValue(finalContent).isSuccess();
+        return sink != null && sink.tryEmitValue(result).isSuccess();
     }
 
     public boolean fail(String requestId, Throwable failure) {
@@ -31,5 +35,5 @@ public final class RequestCompletionRegistry {
     }
     public boolean cancel(String requestId) { return fail(requestId, new java.util.concurrent.CancellationException("request cancelled")); }
     public void close(String requestId) { pending.remove(requestId); }
-    public record Pending(boolean accepted, Mono<String> result) { }
+    public record Pending(boolean accepted, Mono<RelayExecutionResult> result) { }
 }

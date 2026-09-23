@@ -61,6 +61,7 @@ public class RuntimeTurnApplicationService {
     private RuntimeTurnCommitOrchestrator commitOrchestrator;
     private RuntimeFactLookupService runtimeFactLookupService;
     private RuntimePlayerActionEvidenceAcquirer playerActionEvidenceAcquirer;
+    private RuntimeCharacterSheetReadPort characterSheetReadPort;
     private final TriggerDetectionPort triggerDetectionPort = new DefaultTriggerDetection();
     private final CheckSelectionPort checkSelectionPort = CheckSelection::from;
     private final ResolutionPort resolutionPort = new DefaultResolutionPort();
@@ -188,6 +189,10 @@ public class RuntimeTurnApplicationService {
     public void setPlayerActionEvidenceAcquirer(RuntimePlayerActionEvidenceAcquirer playerActionEvidenceAcquirer) {
         this.playerActionEvidenceAcquirer = Objects.requireNonNull(playerActionEvidenceAcquirer,
                 "player action evidence acquirer must not be null");
+    }
+
+    public void setCharacterSheetReadPort(RuntimeCharacterSheetReadPort characterSheetReadPort) {
+        this.characterSheetReadPort = Objects.requireNonNull(characterSheetReadPort);
     }
 
     /** Returns the saved map movement outcome for duplicate or resumed runtime commands. */
@@ -550,6 +555,13 @@ public class RuntimeTurnApplicationService {
     }
 
     /** Canonical Scenario Model runtime turn path. */
+    private String currentCharacterSheet(UUID characterSheetId) {
+        if (characterSheetReadPort == null) {
+            throw new RuntimeCharacterSheetReadException("current character sheet reader is unavailable");
+        }
+        return characterSheetReadPort.read(characterSheetId);
+    }
+
     private RuntimeTurnResult submitSafeScenarioRuntimeTurn(SubmitRuntimeTurnCommand command, Adventure adventure,
             RuntimeBinding binding, ScenarioPackage scenarioPackage) {
         EvidencePack evidencePack = prefetchEvidence(command, adventure, binding, scenarioPackage);
@@ -562,7 +574,7 @@ public class RuntimeTurnApplicationService {
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
                 adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
-                adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList(),
+                adventure.party().stream().map(member -> currentCharacterSheet(member.characterSheetId().value())).toList(),
                 "SCENARIO_MODEL=" + scenarioPackage.scenarioModel()
                         + "\nCURRENT_SITUATION=" + adventure.currentSituation()
                         + "\nRUNTIME_ADDED_FACTS=" + adventure.runtimeAddedFacts().stream()

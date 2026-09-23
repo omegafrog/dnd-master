@@ -18,6 +18,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleDeletionConflictExc
 import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnCompatibilityException;
 import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnPersistenceException;
 import com.dndmaster.adventure.infrastructure.integration.ScenarioLookupFailureException;
+import com.dndmaster.adventure.application.runtime.RuntimeCharacterSheetReadException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -26,6 +27,12 @@ import java.util.Map;
 
 @RestControllerAdvice
 public final class ScenarioExceptionHandler {
+    @ExceptionHandler(RuntimeCharacterSheetReadException.class)
+    public ResponseEntity<Map<String, Object>> currentCharacterSheetUnavailable(RuntimeCharacterSheetReadException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                "error", "CURRENT_CHARACTER_SHEET_UNAVAILABLE", "retryable", true));
+    }
+
     @ExceptionHandler(com.dndmaster.adventure.application.session.AdventureAiRequestInProgressException.class)
     public ResponseEntity<Map<String, String>> aiRequestInProgress(
             com.dndmaster.adventure.application.session.AdventureAiRequestInProgressException exception) {

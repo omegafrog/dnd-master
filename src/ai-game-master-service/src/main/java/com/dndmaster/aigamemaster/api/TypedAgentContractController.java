@@ -5,6 +5,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection;
+import com.dndmaster.aigamemaster.infrastructure.ai.EffectiveGmProviderSelection;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionResolver;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -24,17 +27,51 @@ public final class TypedAgentContractController {
     private final GmCompletionAdapter adapter;
     private final ObjectMapper mapper;
     private final ApiRequestGuard requestGuard;
+    private final RuntimeGmContextLimits runtimeContextLimits;
+    private final java.util.function.Function<RequestedGmProviderSelection, GmProviderSelectionResolver.EndpointResolution> selectionResolver;
 
     @Autowired
     public TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper,
-            @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
-        this(adapter, mapper, new ApiRequestGuard(internalToken));
+            @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            @Value("${ai-game-master.runtime-context-limits:}") String runtimeContextLimits,
+            AgentEndpointRegistry endpointRegistry) {
+        this(adapter, mapper, new ApiRequestGuard(internalToken), new RuntimeGmContextLimits(runtimeContextLimits),
+                new GmProviderSelectionResolver(endpointRegistry)::resolveEndpoint);
     }
 
     public TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard) {
+        this(adapter, mapper, requestGuard, new RuntimeGmContextLimits("codex-cli/gpt-5.6-luna=128000,openai/gpt-5=128000"),
+                request -> testResolution(request));
+    }
+
+    TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard,
+            int runtimeContextWindowTokens) {
+        this(adapter, mapper, requestGuard, new RuntimeGmContextLimits("codex-cli/gpt-5.6-luna=" + runtimeContextWindowTokens),
+                request -> testResolution(request));
+    }
+
+    TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard,
+            RuntimeGmContextLimits runtimeContextLimits,
+            java.util.function.Function<RequestedGmProviderSelection, GmProviderSelectionResolver.EndpointResolution> selectionResolver) {
         this.adapter = Objects.requireNonNull(adapter, "adapter must not be null");
         this.mapper = Objects.requireNonNull(mapper, "mapper must not be null");
         this.requestGuard = Objects.requireNonNull(requestGuard, "request guard must not be null");
+        this.runtimeContextLimits = Objects.requireNonNull(runtimeContextLimits);
+        this.selectionResolver = Objects.requireNonNull(selectionResolver);
+    }
+
+    private static GmProviderSelectionResolver.EndpointResolution testResolution(RequestedGmProviderSelection request) {
+        java.util.UUID id = request.endpointId() == null ? java.util.UUID.randomUUID() : request.endpointId();
+        java.time.Instant version = java.time.Instant.EPOCH;
+        var provider = switch (request.provider()) {
+            case "codex-cli" -> com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint.Provider.CODEX_CLI;
+            case "openai" -> com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint.Provider.OPENAI_COMPATIBLE;
+            default -> com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint.Provider.OLLAMA;
+        };
+        var endpoint = new com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint(id, "test", provider,
+                java.net.URI.create("http://localhost"), request.model(), null, true, version);
+        return new GmProviderSelectionResolver.EndpointResolution(endpoint,
+                new EffectiveGmProviderSelection(id, version, request.provider(), request.model(), request.reasoning()));
     }
 
     @PostMapping("/internal/gm/scenario-compilation")
@@ -79,7 +116,11 @@ public final class TypedAgentContractController {
             @RequestBody RuntimeTurnRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.completeWithSelection(request.soloPlayerId(), request.operationKey(), new com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt(
+        RequestedGmProviderSelection requested = new RequestedGmProviderSelection(request.endpointId(), request.provider(), request.model(), request.reasoning());
+        GmProviderSelectionResolver.EndpointResolution resolution = selectionResolver.apply(requested);
+        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
+        int contextLimit = runtimeContextLimits.require(effective.provider(), effective.model());
+        return adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), RuntimeGmPromptComposer.compose(new com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt(
                         "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=" + write(request.factLookupResults())
                         + "\nRUNTIME_CONTEXT=" + write(request.runtimeContext())
                         + "\nACTION=" + request.action()
@@ -103,8 +144,11 @@ public final class TypedAgentContractController {
                         + "SCENARIO requires a scenarioId from the current ScenarioModel. SITUATION leaves scenarioId empty and requires matching storybook RAG evidence for the current situation. INSTANT leaves scenarioId empty and is reserved for a GM-forced consequence such as noise or a critical failure. "
                         + "Use [] when combatStart is false. Never invent an enemy from the action alone. "
                         + "Do not use markdown, code fences, or any other text.").text(),
+                stringList(request.runtimeContext().get("recentTurns")),
+                stringList(request.runtimeContext().get("characterSnapshots")),
+                request.runtimeContext(), contextLimit),
                 json -> parseRuntimeTurn(json, "SESSION_OPENING".equalsIgnoreCase(request.action())),
-                new RequestedGmProviderSelection(request.endpointId(), request.provider(), request.model(), request.reasoning())).response();
+                requested, resolution).response();
     }
 
     @PostMapping("/internal/gm/narration-safety")
@@ -270,6 +314,14 @@ public final class TypedAgentContractController {
     private String write(Object value) {
         try { return mapper.writeValueAsString(value); }
         catch (Exception e) { throw new IllegalArgumentException("typed request serialization failed", e); }
+    }
+
+    private static List<String> stringList(Object value) {
+        if (value == null) return List.of();
+        if (!(value instanceof List<?> list) || list.stream().anyMatch(item -> !(item instanceof String))) {
+            throw new IllegalArgumentException("runtime GM text entries must be strings");
+        }
+        return list.stream().map(String.class::cast).toList();
     }
 
     private static void require(Object request) {

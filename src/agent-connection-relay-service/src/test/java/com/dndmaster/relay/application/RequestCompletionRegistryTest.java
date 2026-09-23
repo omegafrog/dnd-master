@@ -6,6 +6,18 @@ import org.junit.jupiter.api.Test;
 import reactor.test.StepVerifier;
 
 class RequestCompletionRegistryTest {
+    @Test void keepsReportedUsageWithTheCompletedRequest() {
+        var registry = new RequestCompletionRegistry();
+        var pending = registry.open("request-usage", Duration.ofSeconds(1));
+        assertTrue(registry.complete(RelayExecutionResult.success("request-usage", "final",
+                new RelayExecutionUsage(120L, 0L, null))));
+        StepVerifier.create(pending.result()).assertNext(result -> {
+            assertEquals("final", result.content());
+            assertEquals(120L, result.usage().inputTokens());
+            assertEquals(0L, result.usage().cachedInputTokens());
+            assertNull(result.usage().outputTokens());
+        }).verifyComplete();
+    }
     @Test void requestIdCompletesExactlyOnce() {
         var registry = new RequestCompletionRegistry();
         var pending = registry.await("request-1", Duration.ofSeconds(1));

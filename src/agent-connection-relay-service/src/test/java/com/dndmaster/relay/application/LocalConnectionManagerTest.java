@@ -11,6 +11,25 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 class LocalConnectionManagerTest {
+    @Test void returnsProviderUsageReceivedThroughTheActiveConnection() {
+        var clock = Clock.systemUTC();
+        var repository = new InMemoryConnectionLocationRepository(clock);
+        var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),
+                RelayMetrics.noop(), Duration.ofSeconds(1));
+        var player = UUID.randomUUID();
+        var lease = new ConnectionLocationLease(player, "a", "http://a", "s", "c", clock.instant());
+        manager.connect(lease, Duration.ofSeconds(30), request -> {
+            assertTrue(manager.complete(RelayExecutionResult.success(request.requestId(), "final",
+                    new RelayExecutionUsage(120L, null, 9L))));
+            return Mono.empty();
+        }).block();
+        var request = new RelayExecutionRequest(player, "usage", "w", "prompt", "model", "medium", "text", null, List.of());
+        StepVerifier.create(manager.execute(request)).assertNext(result -> {
+            assertEquals(120L, result.usage().inputTokens());
+            assertNull(result.usage().cachedInputTokens());
+            assertEquals(9L, result.usage().outputTokens());
+        }).verifyComplete();
+    }
     @Test void connectedTransportCompletesRequestOnceAndOldDisconnectPreservesReplacement() {
         var clock = Clock.systemUTC();
         var repository = new InMemoryConnectionLocationRepository(clock);

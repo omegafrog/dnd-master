@@ -5,6 +5,7 @@ import com.dndmaster.aigamemaster.application.ai.AiExecutionPort;
 import com.dndmaster.aigamemaster.application.ai.AiExecutionRequest;
 import com.dndmaster.aigamemaster.application.ai.AiExecutionResult;
 import com.dndmaster.aigamemaster.application.ai.AiExecutionSuccess;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionUsage;
 import com.fasterxml.jackson.databind.*;
 import java.net.URI;
 import java.net.http.*;
@@ -43,6 +44,11 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
             Counter.builder("ai.execution.count").tag("implementation", "remote-relay").tag("result", outcome).register(metrics).increment();
             Timer.builder("ai.execution.duration").tag("implementation", "remote-relay").tag("result", outcome).register(metrics).record(elapsed);
         }
+        if (result instanceof AiExecutionSuccess success) {
+            var usage = success.usage();
+            log.info("remote AI provider usage requestId={} inputTokens={} cachedInputTokens={} outputTokens={}",
+                    AiCallObservability.safe(request.requestId()), usage.inputTokens(), usage.cachedInputTokens(), usage.outputTokens());
+        }
         log.info("remote AI execution completed requestId={} implementation=remote-relay result={} durationMs={}",
                 AiCallObservability.safe(request.requestId()), outcome, elapsed.toMillis());
         return result;
@@ -60,7 +66,8 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
             if (response.statusCode() / 100 != 2) return failure(AiExecutionFailure.Reason.DELIVERY_FAILED);
             var result = mapper.readValue(response.body(), RelayResult.class);
             if (!request.requestId().equals(result.requestId())) return failure(AiExecutionFailure.Reason.DELIVERY_FAILED);
-            if (result.failureType() == null) return new AiExecutionSuccess(result.content());
+            if (result.failureType() == null) return new AiExecutionSuccess(result.content(),
+                    result.usage() == null ? AiExecutionUsage.unknown() : result.usage());
             return failure(switch (result.failureType()) {
                 case "NO_CONNECTION" -> AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE;
                 case "CONNECTION_LOST" -> AiExecutionFailure.Reason.CONNECTION_LOST;
@@ -77,5 +84,5 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
     private record RelayRequest(java.util.UUID soloPlayerId, String requestId, String operationId, String prompt, String model,
                                 String reasoning, String outputFormat, JsonNode outputSchema, List<String> imageInputs,
                                 long deadlineEpochMillis) {}
-    private record RelayResult(String requestId, String content, String failureType) {}
+    private record RelayResult(String requestId, String content, String failureType, AiExecutionUsage usage) {}
 }

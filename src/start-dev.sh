@@ -31,6 +31,13 @@ export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:
 export RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS="${RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS:-local-catalog-admin,00000000-0000-0000-0000-000000000001,aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa}"
 export CODEX_EXECUTABLE="${CODEX_EXECUTABLE:-/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex}"
 export CODEX_CHARACTER_TAG_MODEL="${CODEX_CHARACTER_TAG_MODEL:-gpt-5.6-luna}"
+# The installed Codex model cache (/home/jiwoo/.codex/models_cache.json)
+# reports context_window=272000 for gpt-5.6-luna. The public model page
+# (https://developers.openai.com/api/docs/models/gpt-5.6-luna) advertises a
+# larger total window, but this local app-server path uses the
+# smaller effective limit until its own model metadata reports otherwise.
+# Other selected provider/model pairs must be configured explicitly.
+export GM_RUNTIME_CONTEXT_LIMITS="${GM_RUNTIME_CONTEXT_LIMITS:-codex-cli/gpt-5.6-luna=272000}"
 export RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE="${RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE:-/home/jiwoo/workspace/dnd-master/.venv-docling/bin/python}"
 export RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY="${RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY:-$ROOT/..}"
 # The WSL-local Tesseract installation is linked against libraries kept next
@@ -48,6 +55,7 @@ fi
 require_env INTERNAL_SERVICE_TOKEN
 require_env RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS
 require_env CODEX_EXECUTABLE
+require_env GM_RUNTIME_CONTEXT_LIMITS
 require_env RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE
 require_env BACKEND_E2E_URL
 require_env BACKEND_E2E_EMAIL

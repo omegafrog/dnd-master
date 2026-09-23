@@ -124,16 +124,15 @@ public final class LocalConnectionManager implements LocalConnectionExecutor, Lo
         } else
           activeRequests.put(request.requestId(), activeRequest);
       }
-      Mono<String> result = pending.result();
+      Mono<RelayExecutionResult> result = pending.result();
       Mono<Void> delivery = connections.get(request.soloPlayerId()) == connection
           ? Mono.defer(() -> connection.transport().send(request))
               .doOnError(failure -> completions.fail(request.requestId(), failure))
           : Mono.empty();
-      Mono<String> operation = Mono.zip(delivery.thenReturn(true), result, (ignored, content) -> content).timeout(wait);
-      Mono<String> disconnected = connectionLost.asMono().flatMap(failure -> Mono.error(failure));
+      Mono<RelayExecutionResult> operation = Mono.zip(delivery.thenReturn(true), result, (ignored, response) -> response).timeout(wait);
+      Mono<RelayExecutionResult> disconnected = connectionLost.asMono().flatMap(failure -> Mono.error(failure));
       return Mono.firstWithSignal(operation, disconnected)
-          .map(content -> {
-            var response = RelayExecutionResult.success(request.requestId(), content);
+          .map(response -> {
             if (jsonBytes(response) > maxPayloadBytes)
               throw new PayloadTooLargeException();
             return response;
@@ -161,6 +160,10 @@ public final class LocalConnectionManager implements LocalConnectionExecutor, Lo
 
   public boolean complete(String requestId, String finalContent) {
     return completions.complete(requestId, finalContent);
+  }
+
+  public boolean complete(RelayExecutionResult result) {
+    return completions.complete(result);
   }
 
   public boolean fail(String requestId, Throwable failure) {
