@@ -29,13 +29,14 @@ public final class RulebookCatalogController {
 
     public record CatalogRulebookView(
             String catalogRevisionId, String edition, String displayName, String rulebookId,
-            long revisionNumber, String status, long extractionVersion) {
+            long revisionNumber, String status, String processingStatus, long extractionVersion) {
         static CatalogRulebookView from(CatalogRulebookRevision revision, RulebookRegistrationRepository registrations) {
-            long extractionVersion = revision.rulebookId() == null ? 0 : registrations
-                    .findById(new RulebookId(revision.rulebookId())).map(item -> item.version()).orElse(0L);
+            var registration = revision.rulebookId() == null ? java.util.Optional.<com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration>empty()
+                    : registrations.findById(new RulebookId(revision.rulebookId()));
+            long extractionVersion = registration.map(item -> item.version()).orElse(0L);
             return new CatalogRulebookView(revision.id().toString(), revision.edition().name(),
                     revision.displayName(), revision.rulebookId() == null ? null : revision.rulebookId().toString(),
-                    revision.revisionNumber(), revision.status().name(), extractionVersion);
+                    revision.revisionNumber(), revision.status().name(), registration.map(item -> item.processingStatus().name()).orElse(null), extractionVersion);
         }
     }
 }
