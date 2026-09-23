@@ -21,38 +21,19 @@ class TypedAgentContractControllerTest {
     private static final UUID SELECTED_ENDPOINT_ID = UUID.fromString("00000000-0000-0000-0000-000000000322");
 
     @Test
-    void runtime_budget_uses_the_effective_model_and_rejects_an_unknown_limit_before_ai() {
+    void changed_endpoint_snapshot_is_rejected_before_ai_execution() {
         AtomicReference<String> sent = new AtomicReference<>();
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> {
             sent.set(prompt);
             throw new AssertionError("AI must not be called");
         });
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(),
-                new ApiRequestGuard("service-secret"), new RuntimeGmContextLimits("openai/actual-model=1000"),
-                requested -> resolution("actual-model", requested));
+                new ApiRequestGuard("service-secret"), requested -> resolution("actual-model", requested));
         var request = new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "look",
-                SELECTED_ENDPOINT_ID, "openai", "stale-model", "high", List.of(), Map.of());
-
-        assertThrows(RuntimeGmInputBudget.InputTooLargeException.class,
-                () -> controller.runtimeTurn("service-secret", request));
+                SELECTED_ENDPOINT_ID, "openai", "stale-model", "high", SELECTED_ENDPOINT_ID,
+                Instant.EPOCH.toString(), "openai", "stale-model", "ROLE=RUNTIME_GM");
+        assertThrows(ResponseStatusException.class, () -> controller.runtimeTurn("service-secret", request));
         org.junit.jupiter.api.Assertions.assertNull(sent.get());
-
-        var unknown = new TypedAgentContractController(adapter, new ObjectMapper(),
-                new ApiRequestGuard("service-secret"), new RuntimeGmContextLimits("openai/stale-model=128000"),
-                requested -> resolution("actual-model", requested));
-        assertThrows(ResponseStatusException.class,
-                () -> unknown.runtimeTurn("service-secret", request));
-        org.junit.jupiter.api.Assertions.assertNull(sent.get());
-    }
-
-    @Test
-    void oversized_required_input_never_reaches_the_provider() {
-        TypedAgentContractController controller = new TypedAgentContractController(
-                emptyAdapter(), new ObjectMapper(), new ApiRequestGuard("service-secret"), 1000);
-        assertThrows(RuntimeGmInputBudget.InputTooLargeException.class,
-                () -> controller.runtimeTurn("service-secret",
-                        new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "look",
-                                List.of(), Map.of("characterSnapshots", List.of("x".repeat(1000))))));
     }
 
     @Test
@@ -159,7 +140,7 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
-    void runtime_turn_prompt_declares_the_json_contract_required_by_its_parser() {
+    void runtime_turn_forwards_the_already_composed_single_prompt() {
         AtomicReference<String> prompt = new AtomicReference<>();
         AtomicReference<RequestedGmProviderSelection> selection = new AtomicReference<>();
         GmCompletionAdapter adapter = selectedAdapter((operation, value, requested) -> {
@@ -180,25 +161,7 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertEquals("cellar-rat-ambush", response.combatEnemies().get(0).scenarioId());
         org.junit.jupiter.api.Assertions.assertEquals(8, response.combatEnemies().get(0).count());
         org.junit.jupiter.api.Assertions.assertEquals(new RequestedGmProviderSelection(SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high"), selection.get());
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("OUTPUT_CONTRACT"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scene, judgment, narration, situation, combatStart, combatEnemies, mapEntryRequested, and optional runtimeFacts"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("MANDATORY: if a hostile creature"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("SESSION_OPENING"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("current location and why the party is here"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("LANGUAGE_CONTRACT"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("only in natural Korean"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not output English or any other foreign-language words"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("end with a Korean question"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not use markdown"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("executed dialogue action"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("RUNTIME_ADDED_FACTS contains durable facts"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("including confirmed combat outcomes"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("never narrate a defeated enemy as active again"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("NPC reaction"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("MANDATORY: when the player explicitly chooses to start or join a fight"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not repeat the same dialogue action"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("diegetic"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Game State, established Runtime-added Facts, locked Scenario Model, then Storybook RAG"));
+        org.junit.jupiter.api.Assertions.assertEquals("ROLE=RUNTIME_GM", prompt.get());
     }
 
     @Test

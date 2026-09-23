@@ -107,6 +107,10 @@ public record GmContextEnvelope(
                 provider, model, reasoning, requestedSelection, narrativeContext, runtimeFacts, List.of());
     }
 
+    public String composePrompt(int contextLimit) {
+        return RuntimeGmPromptComposer.compose(this, contextLimit);
+    }
+
     public String operationKey() {
         return adventureId.value() + ":" + scenarioPackageId + ":" + bindingVersion + ":" + turnId;
     }

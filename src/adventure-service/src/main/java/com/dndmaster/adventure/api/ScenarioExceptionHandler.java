@@ -27,6 +27,13 @@ import java.util.Map;
 
 @RestControllerAdvice
 public final class ScenarioExceptionHandler {
+    @ExceptionHandler(com.dndmaster.adventure.application.runtime.RuntimeGmInputLimitException.class)
+    public ResponseEntity<Map<String, Object>> runtimeGmInputLimit(
+            com.dndmaster.adventure.application.runtime.RuntimeGmInputLimitException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                "error", "GM_TURN_FAILED_RETRYABLE", "retryable", true));
+    }
+
     @ExceptionHandler(RuntimeCharacterSheetReadException.class)
     public ResponseEntity<Map<String, Object>> currentCharacterSheetUnavailable(RuntimeCharacterSheetReadException exception) {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(

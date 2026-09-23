@@ -1,4 +1,4 @@
-package com.dndmaster.aigamemaster.api;
+package com.dndmaster.adventure.application.runtime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -62,5 +62,16 @@ class RuntimeGmPromptComposerTest {
         assertTrue(prompt.substring(current).contains("current sheet"));
         assertTrue(prompt.substring(current).contains("COMPOSITE_FACT_LOOKUP_RESULTS"));
         assertEquals(1, prompt.split("ACTION=go", -1).length - 1);
+    }
+    @Test
+    void fixed_prefix_is_identical_for_different_turn_content() {
+        String first = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[one]\nRUNTIME_CONTEXT={}\nACTION=go"
+                + "\nLOOKUP_ORDER_RULE=rules\nOUTPUT_CONTRACT=json";
+        String second = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[two]\nRUNTIME_CONTEXT={}\nACTION=wait"
+                + "\nLOOKUP_ORDER_RULE=rules\nOUTPUT_CONTRACT=json";
+        String one = RuntimeGmPromptComposer.compose(first, List.of(), List.of("sheet one"), Map.of(), 1000);
+        String two = RuntimeGmPromptComposer.compose(second, List.of(), List.of("sheet two"), Map.of(), 1000);
+        assertEquals(one.substring(0, one.indexOf("현재 상황 관련 장기 기록")),
+                two.substring(0, two.indexOf("현재 상황 관련 장기 기록")));
     }
 }

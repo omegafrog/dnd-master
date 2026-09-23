@@ -2,6 +2,8 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.runtime.GmAgentPort;
 import com.dndmaster.adventure.application.runtime.GmContextEnvelope;
+import com.dndmaster.adventure.application.runtime.RuntimeGmContextLimits;
+import com.dndmaster.adventure.application.runtime.RuntimeGmInputLimitException;
 import com.dndmaster.adventure.application.runtime.GmPlanResult;
 import com.dndmaster.adventure.application.runtime.GmToolSpec;
 import com.dndmaster.adventure.application.runtime.CombatEnemyProposal;
@@ -17,8 +19,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -30,9 +30,16 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
     private final Duration timeout;
     private final ObjectMapper mapper;
     private final String internalToken;
+    private final RuntimeGmContextLimits contextLimits;
 
     public HttpTypedRuntimeGmAgentPort(HttpClient client, URI baseUri, Duration timeout,
             ObjectMapper mapper, String internalToken) {
+        this(client, baseUri, timeout, mapper, internalToken, "");
+    }
+
+    public HttpTypedRuntimeGmAgentPort(HttpClient client, URI baseUri, Duration timeout,
+            ObjectMapper mapper, String internalToken, String configuredLimits) {
+        this.contextLimits = new RuntimeGmContextLimits(configuredLimits);
         this.client = Objects.requireNonNull(client, "http client must not be null");
         this.baseUri = Objects.requireNonNull(baseUri, "base uri must not be null");
         this.timeout = Objects.requireNonNull(timeout, "timeout must not be null");
@@ -62,6 +69,8 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                     .map(fact -> new com.dndmaster.adventure.application.runtime.RuntimeAddedFactCandidate(fact.subject(), fact.content()))
                     .toList();
             return new GmPlanResult(plan, provider, model, reasoning, List.of(), List.of(), situation(response.situation()), runtimeFacts);
+        } catch (RuntimeGmInputLimitException exception) {
+            throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("typed runtime GM interrupted", exception);
@@ -83,17 +92,23 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
     }
 
     private RuntimeResponse call(GmContextEnvelope context) throws Exception {
-        Map<String, Object> runtimeContext = new HashMap<>();
-        runtimeContext.put("currentContext", context.currentContext());
-        runtimeContext.put("scenarioContext", context.scenarioContext());
-        runtimeContext.put("runtimeFacts", context.runtimeFacts());
-        runtimeContext.put("recentTurns", context.recentTurns());
-        runtimeContext.put("characterSnapshots", context.characterSnapshots());
-        runtimeContext.put("narrativeContext", context.narrativeContext());
         var selection = context.requestedSelection();
+        String selectionBody = mapper.writeValueAsString(new RuntimeEndpointRequest(
+                selection.endpointId(), selection.provider(), selection.model(), selection.reasoning()));
+        HttpRequest selectionRequest = HttpRequest.newBuilder(baseUri.resolve("internal/gm/runtime-endpoint"))
+                .timeout(timeout).header("Content-Type", "application/json")
+                .header("X-Internal-Token", internalToken)
+                .POST(HttpRequest.BodyPublishers.ofString(selectionBody)).build();
+        HttpResponse<String> selected = client.send(selectionRequest, HttpResponse.BodyHandlers.ofString());
+        if (selected.statusCode() / 100 != 2) {
+            throw new RuntimeGmInputLimitException("selected GM model is unavailable for input composition");
+        }
+        RuntimeEndpointResponse endpoint = mapper.readValue(selected.body(), RuntimeEndpointResponse.class);
+        int contextLimit = contextLimits.require(endpoint.provider(), endpoint.model());
+        String prompt = context.composePrompt(contextLimit);
         String body = mapper.writeValueAsString(new RuntimeRequest(context.ownerPlayerId().value(), context.operationKey(), context.action(),
                 selection.endpointId(), selection.provider(), selection.model(), selection.reasoning(),
-                compositeResults(context), Map.copyOf(runtimeContext)));
+                endpoint.endpointId(), endpoint.endpointVersion(), endpoint.provider(), endpoint.model(), prompt));
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/gm/runtime-turn"))
                 .timeout(timeout)
                 .header("Content-Type", "application/json")
@@ -101,6 +116,9 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() == 503) {
+            throw new RuntimeGmInputLimitException("selected GM endpoint changed or input limit is unavailable");
+        }
         if (response.statusCode() / 100 != 2) {
             throw new IllegalStateException("typed runtime GM returned " + response.statusCode() + ": " + response.body());
         }
@@ -132,32 +150,13 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         };
     }
 
-    private static List<Map<String, Object>> compositeResults(GmContextEnvelope context) {
-        List<Map<String, Object>> results = new ArrayList<>();
-        context.factLookupResults().forEach(lookup -> {
-            Map<String, Object> result = new HashMap<>();
-            result.put("source", lookup.source().name());
-            result.put("status", lookup.status().name());
-            result.put("answer", lookup.answer());
-            result.put("supportingElementIds", lookup.supportingElementIds());
-            result.put("evidence", lookup.evidence());
-            results.add(Map.copyOf(result));
-        });
-        context.evidencePack().storybook().forEach(evidence -> {
-            Map<String, Object> result = new HashMap<>();
-            result.put("source", "STORYBOOK_RAG");
-            result.put("answer", evidence.excerpt());
-            result.put("locator", evidence.locator());
-            if (evidence.citationKey() != null) result.put("citationKey", evidence.citationKey());
-            results.add(Map.copyOf(result));
-        });
-        return List.copyOf(results);
-    }
-
+    record RuntimeEndpointRequest(java.util.UUID endpointId, String provider, String model, String reasoning) { }
+    record RuntimeEndpointResponse(java.util.UUID endpointId, String endpointVersion,
+                                   String provider, String model, String reasoning) { }
     record RuntimeRequest(java.util.UUID soloPlayerId, String operationKey, String action,
                           java.util.UUID endpointId, String provider, String model, String reasoning,
-                          List<Map<String, Object>> factLookupResults,
-                          Map<String, Object> runtimeContext) { }
+                          java.util.UUID effectiveEndpointId, String effectiveEndpointVersion,
+                          String effectiveProvider, String effectiveModel, String prompt) { }
     record RuntimeResponse(String scene, String judgment, String narration, boolean combatStart,
                            List<CombatEnemyResponse> combatEnemies, SituationResponse situation,
                            boolean mapEntryRequested, List<RuntimeFactResponse> runtimeFacts) {

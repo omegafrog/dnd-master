@@ -43,6 +43,7 @@ class HttpTypedRuntimeGmAgentPortTest {
                 """)));
         UUID soloPlayerId = UUID.randomUUID();
         UUID endpointId = UUID.randomUUID();
+        server.stubFor(post(urlEqualTo("/internal/gm/runtime-endpoint")).willReturn(aResponse().withStatus(200).withBody("{\"endpointId\":\"" + endpointId + "\",\"endpointVersion\":\"1970-01-01T00:00:00Z\",\"provider\":\"codex-cli\",\"model\":\"gpt-5.6-luna\",\"reasoning\":\"medium\"}")));
         GmContextEnvelope context = new GmContextEnvelope(
                 AdventureId.generate(), new OwnerPlayerId(soloPlayerId), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), 1, new AdventureContext("cellar", "quiet", "inspect", "safe"), null,
@@ -53,14 +54,40 @@ class HttpTypedRuntimeGmAgentPortTest {
                         java.util.Map.of(), List.of(), List.of(), List.of()));
         HttpTypedRuntimeGmAgentPort port = new HttpTypedRuntimeGmAgentPort(
                 HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2),
-                new ObjectMapper(), "service-token");
+                new ObjectMapper(), "service-token", "codex-cli/gpt-5.6-luna=272000");
 
         port.plan(context);
 
         server.verify(postRequestedFor(urlEqualTo("/internal/gm/runtime-turn"))
-                .withRequestBody(equalToJson("""
-                        {"soloPlayerId":"%s","endpointId":"%s","provider":"codex-cli",
-                         "model":"gpt-5.6-luna","reasoning":"medium"}
-                        """.formatted(soloPlayerId, endpointId), true, true)));
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.soloPlayerId",
+                        com.github.tomakehurst.wiremock.client.WireMock.equalTo(soloPlayerId.toString())))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.effectiveEndpointId",
+                        com.github.tomakehurst.wiremock.client.WireMock.equalTo(endpointId.toString())))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.prompt",
+                        com.github.tomakehurst.wiremock.client.WireMock.containing("고정 지침·잠긴 자료"))));
     }
+    @Test
+    void required_input_overflow_stays_retryable_and_never_calls_runtime_ai() {
+        server = new WireMockServer(0);
+        server.start();
+        UUID endpointId = UUID.randomUUID();
+        server.stubFor(post(urlEqualTo("/internal/gm/runtime-endpoint")).willReturn(aResponse().withStatus(200)
+                .withBody("{\"endpointId\":\"" + endpointId + "\",\"endpointVersion\":\"1970-01-01T00:00:00Z\","
+                        + "\"provider\":\"codex-cli\",\"model\":\"gpt-5.6-luna\",\"reasoning\":\"medium\"}")));
+        UUID owner = UUID.randomUUID();
+        GmContextEnvelope context = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(owner),
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
+                new AdventureContext("cellar", "quiet", "inspect", "safe"), null, "look around",
+                new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of("x".repeat(2000)), "",
+                "codex-cli", "gpt-5.6-luna", "medium",
+                new RequestedGmProviderSelection(endpointId, "codex-cli", "gpt-5.6-luna", "medium"), null);
+        var port = new HttpTypedRuntimeGmAgentPort(HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"),
+                Duration.ofSeconds(2), new ObjectMapper(), "service-token", "codex-cli/gpt-5.6-luna=1000");
+
+        org.junit.jupiter.api.Assertions.assertThrows(
+                com.dndmaster.adventure.application.runtime.RuntimeGmInputLimitException.class,
+                () -> port.plan(context));
+        server.verify(0, postRequestedFor(urlEqualTo("/internal/gm/runtime-turn")));
+    }
+
 }

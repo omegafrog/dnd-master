@@ -1,19 +1,19 @@
-package com.dndmaster.aigamemaster.api;
+package com.dndmaster.adventure.application.runtime;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
 /** Conservative preflight: each UTF-8 byte consumes one estimated input token. */
-final class RuntimeGmInputBudget {
+public final class RuntimeGmInputBudget {
     private RuntimeGmInputBudget() { }
 
-    static int inputLimit(int contextLimit) {
+    public static int inputLimit(int contextLimit) {
         if (contextLimit <= 0) throw new IllegalArgumentException("model context limit must be positive");
         return (int) (contextLimit * 0.8);
     }
 
-    static List<String> selectRecent(int contextLimit, String fixed, String memory, String summary,
+    public static List<String> selectRecent(int contextLimit, String fixed, String memory, String summary,
             List<String> recent, String current) {
         int budget = inputLimit(contextLimit);
         int fixedSize = size(fixed);
@@ -61,10 +61,9 @@ final class RuntimeGmInputBudget {
         return value.getBytes(StandardCharsets.UTF_8).length;
     }
 
-    static final class InputTooLargeException extends org.springframework.web.server.ResponseStatusException {
+    public static final class InputTooLargeException extends RuntimeGmInputLimitException {
         InputTooLargeException() {
-            super(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
-                    "required GM input exceeds the configured model context limit");
+            super("required GM input exceeds the configured model context limit");
         }
     }
 }

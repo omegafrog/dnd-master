@@ -257,6 +257,9 @@ public class AdventureController {
                 LOGGER.error("gm_turn_request_failed stage=GM_TURN_CONTROLLER turnId={} commandId={} adventureId={} exceptionClass={} exceptionMessage={}",
                         request.turnId(), commandId, adventureId, exception.getClass().getName(), exception.getMessage(), exception);
                 gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception, expectedVersion);
+                if (exception instanceof com.dndmaster.adventure.application.runtime.RuntimeGmInputLimitException) {
+                    throw exception;
+                }
                 if (exception instanceof RuntimeCombatRejectionException
                         || exception instanceof ApiRequestGuard.ApiContractException
                         || exception instanceof com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException) {
