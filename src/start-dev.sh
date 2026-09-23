@@ -106,8 +106,6 @@ run_npm() {
 cleanup() {
     echo ""
     echo "Shutting down..."
-    [ -n "${AGENT_PID:-}" ] && kill "$AGENT_PID" 2>/dev/null || true
-    [ -n "${RELAY_PID:-}" ] && kill "$RELAY_PID" 2>/dev/null || true
     [ -n "${BACKEND_PID:-}" ] && kill "$BACKEND_PID" 2>/dev/null || true
     [ -n "${FRONTEND_PID:-}" ] && kill "$FRONTEND_PID" 2>/dev/null || true
     [ -n "$GRADLEW_TMP_DIR" ] && rm -rf "$GRADLEW_TMP_DIR"
@@ -132,58 +130,10 @@ tr -d '\r' < "$ROOT/gradlew" > "$GRADLEW_TMP_DIR/gradlew"
 cp -R "$ROOT/gradle" "$GRADLEW_TMP_DIR/gradle"
 chmod +x "$GRADLEW_TMP_DIR/gradlew"
 
-echo "==> Starting agent connection relay..."
-(cd "$ROOT" && exec bash "$GRADLEW_TMP_DIR/gradlew" :agent-connection-relay-service:bootRun --args='--server.port=8081') &
-RELAY_PID=$!
-echo "    Relay PID: $RELAY_PID"
-
-if [ ! -x "$ROOT/user-pc-agent/build/install/user-pc-agent/bin/user-pc-agent" ]; then
-    echo "==> Building local user PC AI agent..."
-    (cd "$ROOT" && bash "$GRADLEW_TMP_DIR/gradlew" :user-pc-agent:installDist)
-fi
-
-mkdir -p "$UI/public/downloads"
-tar -czf "$UI/public/downloads/user-pc-agent-linux.tar.gz" -C "$ROOT/user-pc-agent/build/install" user-pc-agent
-if command -v zip >/dev/null 2>&1; then
-    (cd "$ROOT/user-pc-agent/build/install" && zip -qr "$UI/public/downloads/user-pc-agent-windows.zip" user-pc-agent)
-fi
-chmod +x "$UI/public/downloads/install-user-pc-agent.sh"
-
 echo "==> Starting backend (app-all)..."
 (cd "$ROOT" && exec bash "$GRADLEW_TMP_DIR/gradlew" :app-all:bootRun) &
 BACKEND_PID=$!
 echo "    Backend PID: $BACKEND_PID"
-
-echo "==> Waiting for backend health before connecting the local AI agent..."
-for attempt in $(seq 1 60); do
-    if curl -fsS "$BACKEND_E2E_URL/actuator/health" >/dev/null 2>&1; then
-        break
-    fi
-    if [ "$attempt" -eq 60 ]; then
-        echo "ERROR: backend did not become healthy within 60 seconds." >&2
-        exit 1
-    fi
-    sleep 1
-done
-
-AGENT_ACCESS_TOKEN="$(curl -fsS "$BACKEND_E2E_URL/api/v1/auth/login" \
-    -H 'Content-Type: application/json' \
-    --data "{\"username\":\"$BACKEND_E2E_EMAIL\",\"password\":\"$BACKEND_E2E_PASSWORD\"}" \
-    | run_node -e 'let body=""; process.stdin.on("data", chunk => body += chunk).on("end", () => { const value = JSON.parse(body).token; if (!value) process.exit(1); process.stdout.write(value); });')" || {
-    echo "ERROR: local demo login failed; cannot connect the user PC AI agent." >&2
-    exit 1
-}
-
-echo "==> Starting local user PC AI agent..."
-(
-    export RELAY_WEBSOCKET_URL="ws://127.0.0.1:8081/ws/agent"
-    export AGENT_ACCESS_TOKEN
-    export CODEX_WORK_DIRECTORY="$ROOT/.."
-    export CODEX_TIMEOUT="${CODEX_TIMEOUT:-PT5M}"
-    exec "$ROOT/user-pc-agent/build/install/user-pc-agent/bin/user-pc-agent"
-) &
-AGENT_PID=$!
-echo "    Agent PID: $AGENT_PID"
 
 echo "==> Starting frontend (web-ui)..."
 if [ ! -d "$UI/node_modules" ] || ! (cd "$UI" && run_node -e "require.resolve('@rollup/rollup-linux-x64-gnu')" >/dev/null 2>&1); then

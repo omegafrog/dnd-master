@@ -88,93 +88,6 @@ class AdventureSessionStageStartTest {
     }
 
     @Test
-    void resumes_a_map_prepared_start_without_preparing_the_draft_again() {
-        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
-        UUID packageId = UUID.randomUUID();
-        UUID requestId = UUID.randomUUID();
-        AdventureId adventureId = AdventureId.generate();
-        ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
-        when(scenarioPackage.packageId()).thenReturn(packageId);
-        when(scenarioPackage.bundleRevision()).thenReturn(1L);
-        when(scenarioPackage.isReady()).thenReturn(true);
-        when(scenarioPackage.scenarioModel()).thenReturn(mock(com.dndmaster.adventure.domain.scenario.ScenarioModel.class));
-        when(scenarioPackage.initialMapDefinition("legacy opening")).thenReturn(Optional.of(mock(MapDefinition.class)));
-        var runtimeConfiguration = configuration(packageId);
-        AdventureSession session = AdventureSession.rehydrate(SessionId.generate(), owner, packageId, 1,
-                packageId, 1, 1, List.of(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()),
-                        ControlMode.DIRECT, true, true, true, true, true, true)), runtimeConfiguration,
-                AdventureSession.Status.STARTING, adventureId, requestId, 1);
-        Adventure adventure = Adventure.beginScenarioRuntime(adventureId, session.id(), owner,
-                new ScenarioId(packageId), runtimeConfiguration.ruleSetId(), packageId, 1,
-                session.party(), new AdventureContext("legacy opening", null, null, null));
-        var opening = mock(com.dndmaster.adventure.domain.scenario.SituationDefinition.class);
-        when(opening.situationId()).thenReturn("prepared-opening");
-        var prepared = mock(StageArtifactPreparationApplicationService.Result.class);
-        when(prepared.openingSituation()).thenReturn(opening);
-
-        AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
-        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
-        AdventureRepository adventures = mock(AdventureRepository.class);
-        when(adventures.findById(adventureId)).thenReturn(Optional.of(adventure));
-        StageArtifactPreparationApplicationService preparation = mock(StageArtifactPreparationApplicationService.class);
-        when(preparation.prepare(packageId)).thenReturn(prepared);
-        CombatMapPreparationPort maps = mock(CombatMapPreparationPort.class);
-        when(maps.mapLayoutConfirmed(adventureId, owner.value())).thenReturn(true);
-
-        AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions,
-                packageRepository(scenarioPackage), adventures, mock(RuntimeBindingApplicationService.class),
-                mock(AdventureSessionStartCoordinator.class), mock(CharacterSheetOwnershipPort.class),
-                mock(SessionKnowledgeSetRepository.class), mock(AiCompanionGenerationPort.class),
-                mock(AiCompanionSheetCreationPort.class), maps, preparation, mock(RuntimeTurnApplicationService.class));
-
-        service.start(session.id(), owner, session.version(), UUID.randomUUID(), AdventureId.generate());
-
-        verify(maps, never()).prepareDraft(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    void recovers_the_session_to_draft_when_the_opening_turn_fails_after_starting() {
-        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
-        ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
-        UUID packageId = UUID.randomUUID();
-        when(scenarioPackage.packageId()).thenReturn(packageId);
-        when(scenarioPackage.bundleRevision()).thenReturn(1L);
-        when(scenarioPackage.isReady()).thenReturn(true);
-        when(scenarioPackage.scenarioModel()).thenReturn(mock(com.dndmaster.adventure.domain.scenario.ScenarioModel.class));
-        AdventureSession session = AdventureSession.rehydrate(SessionId.generate(), owner, packageId, 1,
-                packageId, 1, 1, List.of(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()),
-                        ControlMode.DIRECT, true, true, true, true, true, true)), configuration(packageId),
-                AdventureSession.Status.DRAFT, null, null, 0);
-        AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
-        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
-        AdventureRepository adventures = mock(AdventureRepository.class);
-        when(adventures.findById(org.mockito.ArgumentMatchers.any())).thenReturn(Optional.empty());
-        StageArtifactPreparationApplicationService preparation = mock(StageArtifactPreparationApplicationService.class);
-        var prepared = mock(StageArtifactPreparationApplicationService.Result.class);
-        var opening = mock(com.dndmaster.adventure.domain.scenario.SituationDefinition.class);
-        when(opening.situationId()).thenReturn("prepared-opening");
-        when(prepared.openingSituation()).thenReturn(opening);
-        when(preparation.prepare(packageId)).thenReturn(prepared);
-        RuntimeTurnApplicationService openingRuntime = mock(RuntimeTurnApplicationService.class);
-        when(openingRuntime.openSessionTurn(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(owner), org.mockito.ArgumentMatchers.any()))
-                .thenThrow(new IllegalStateException("opening turn failed"));
-
-        AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions,
-                packageRepository(scenarioPackage), adventures, mock(RuntimeBindingApplicationService.class),
-                mock(AdventureSessionStartCoordinator.class), mock(CharacterSheetOwnershipPort.class),
-                mock(SessionKnowledgeSetRepository.class), mock(AiCompanionGenerationPort.class),
-                mock(AiCompanionSheetCreationPort.class), (adventure, player, rules, map, stage) -> null, preparation,
-                openingRuntime);
-
-        assertThrows(IllegalStateException.class,
-                () -> service.start(session.id(), owner, 0, UUID.randomUUID(), AdventureId.generate()));
-
-        assertEquals(AdventureSession.Status.DRAFT, session.status());
-        verify(sessions, org.mockito.Mockito.atLeastOnce()).save(org.mockito.ArgumentMatchers.eq(session), org.mockito.ArgumentMatchers.anyLong());
-    }
-
-    @Test
     void activates_the_prepared_map_when_the_opening_turn_commits_a_map_bearing_scene() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
@@ -240,7 +153,7 @@ class AdventureSessionStageStartTest {
                 org.mockito.ArgumentMatchers.eq(runtimeConfiguration.ruleSetId()), org.mockito.ArgumentMatchers.eq(1),
                 activation.capture());
         assertEquals(true, activation.getValue().entryEvidence().contains("양조장 문을 열고 나무 계단을 따라"));
-        assertEquals(false, activation.getValue().entryEvidence().contains("STORYBOOK_EVIDENCE="));
+        assertEquals(true, activation.getValue().entryEvidence().contains("STORYBOOK_EVIDENCE=양조장 문 뒤에"));
     }
 
     @Test

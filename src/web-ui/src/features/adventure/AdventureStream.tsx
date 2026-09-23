@@ -1,13 +1,9 @@
-import { type Dispatch, type FormEvent, type SetStateAction, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { AdventureRequestError, type AdventureApi, type AdventureMessageResponse } from './AdventureApi'
 import type { PlayerRollRequest } from './AdventureApi'
 
 type ChatMessageEntry = { speaker: string; text: string }
 type LocalTurn = { action: ChatMessageEntry; response: ChatMessageEntry[]; expectedVersion: number; committedVersion?: number }
-type ClientLogEntry = { id: number; kind: '요청' | '응답' | '대기' | '오류'; text: string }
-
-const TURN_RECOVERY_INTERVAL_MS = 1000
-const TURN_RECOVERY_ATTEMPTS = 60
 
 export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommitted }: { adventureId: string; api: AdventureApi; expectedVersion?: number | null; onTurnCommitted?: () => void }) {
   const [messages, setMessages] = useState<ChatMessageEntry[]>([])
@@ -16,7 +12,6 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
   const [projectionStatus, setProjectionStatus] = useState<'idle' | 'processing' | 'failed'>('idle')
   const [rollRequest, setRollRequest] = useState<PlayerRollRequest | null>(null)
   const [rollValue, setRollValue] = useState('')
-  const [clientLogs, setClientLogs] = useState<ClientLogEntry[]>([])
   const [conversationHydrated, setConversationHydrated] = useState(() => !api.readConversation)
   const [eventSubscriptionReady, setEventSubscriptionReady] = useState(() => !api.readConversation)
   const hydrationPending = Boolean(api.readConversation) && !conversationHydrated
@@ -128,19 +123,18 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
     setNotice('')
     setSending(true)
     setProjectionStatus('processing')
-    appendClientLog(setClientLogs, '요청', `행동 요청: ${text} · 기준 버전 ${currentVersion}`)
     setMessages(current => [...current, action])
     try {
       let response: AdventureMessageResponse
       try {
         response = await api.sendMessage(adventureId, text, command, currentVersion)
       } catch (error) {
-        // The provider gateway can time out after the server has already
-        // accepted the command. Never submit a second command: the original
-        // request may still commit and a new idempotency key would race it.
-        if (!(error instanceof AdventureRequestError) || error.status !== 502 || !api.readConversation) throw error
-        appendClientLog(setClientLogs, '대기', '첫 요청의 처리 결과를 대화 기록에서 확인하는 중입니다. 같은 행동을 다시 보내지 않습니다.')
-        response = await recoverCommittedTurn(api, adventureId, text, currentVersion, setClientLogs)
+        // A provider-side 502 does not advance the adventure version. Retry
+        // once with a fresh idempotency identity so the failed command row
+        // cannot be mistaken for an in-flight duplicate.
+        if (!(error instanceof AdventureRequestError) || error.status !== 502) throw error
+        setNotice('처리가 지연되어 한 번 더 시도합니다.')
+        response = await api.sendMessage(adventureId, text, createRuntimeCommandIdentity(), currentVersion)
       }
       if (response.rollRequest) {
         setRollRequest(response.rollRequest)
@@ -156,13 +150,11 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       // it must not keep the direct-input surface disabled indefinitely.
       setProjectionStatus('idle')
       setMessages(current => [...current, ...responseEntries])
-      appendClientLog(setClientLogs, '응답', `응답 수신: 버전 ${response.version} · ${response.narration}`)
       onTurnCommitted?.()
     } catch (error) {
       localTurn.current = null
       setMessages(current => current.filter(entry => entry !== action))
       setProjectionStatus('failed')
-      appendClientLog(setClientLogs, '오류', error instanceof AdventureRequestError && error.diagnostic ? error.diagnostic : '행동 요청을 완료하지 못했습니다.')
       setNotice(error instanceof AdventureRequestError && error.diagnostic
         ? error.diagnostic
         : '메시지를 전송하지 못했습니다.')
@@ -207,10 +199,6 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
         ))}
       </ol>
       <p role="alert">{notice}</p>
-      <section className="adventure-client-log" aria-label="요청·응답 로그">
-        <h3>요청·응답 로그</h3>
-        {clientLogs.length === 0 ? <p>아직 요청 기록이 없습니다.</p> : <ol>{clientLogs.map(log => <li key={log.id}><strong>{log.kind}</strong><span>{log.text}</span></li>)}</ol>}
-      </section>
       {rollRequest && <form onSubmit={submitRoll} aria-label="주사위 굴림 요청">
         <p><strong>{rollRequest.label}</strong>: {rollRequest.prompt}</p>
         <label>d20 결과<input type="number" min="1" max="20" step="1" value={rollValue} onChange={event => setRollValue(event.target.value)} disabled={sending} required /></label>
@@ -222,39 +210,6 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       </form>
     </section>
   )
-}
-
-function appendClientLog(setLogs: Dispatch<SetStateAction<ClientLogEntry[]>>, kind: ClientLogEntry['kind'], text: string) {
-  setLogs(current => [...current, { id: Date.now() + current.length, kind, text }].slice(-50))
-}
-
-async function recoverCommittedTurn(
-  api: AdventureApi,
-  adventureId: string,
-  actionText: string,
-  expectedVersion: number,
-  setLogs: Dispatch<SetStateAction<ClientLogEntry[]>>,
-): Promise<AdventureMessageResponse> {
-  for (let attempt = 0; attempt < TURN_RECOVERY_ATTEMPTS; attempt += 1) {
-    const conversation = await api.readConversation!(adventureId)
-    const actionIndex = [...conversation.entries].map((entry, index) => ({ entry, index }))
-      .reverse().find(item => item.entry.speaker === 'PLAYER' && item.entry.content === actionText)?.index ?? -1
-    if (actionIndex >= 0) {
-      const responseEntries = conversation.entries.slice(actionIndex + 1).filter(entry => entry.speaker !== 'PLAYER')
-      if (responseEntries.length > 0 && conversation.version > expectedVersion) {
-        return {
-          narration: responseEntries.map(entry => entry.content).join('\n\n'),
-          currentScene: '',
-          version: conversation.version,
-        }
-      }
-    }
-    if (attempt < TURN_RECOVERY_ATTEMPTS - 1) {
-      appendClientLog(setLogs, '대기', `처리 중… ${attempt + 1}/${TURN_RECOVERY_ATTEMPTS}`)
-      await new Promise(resolve => window.setTimeout(resolve, TURN_RECOVERY_INTERVAL_MS))
-    }
-  }
-  throw new AdventureRequestError('모험 메시지를 전송하지 못했습니다.', 502, '요청은 접수됐지만 제한 시간 안에 완료 결과를 확인하지 못했습니다.')
 }
 
 function reconcileHydratedMessages(

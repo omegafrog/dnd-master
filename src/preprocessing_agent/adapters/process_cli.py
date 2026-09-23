@@ -12,24 +12,6 @@ from preprocessing_agent.pipeline.extraction_service import ExtractionApplicatio
 SUPPORTED_SCHEMA = "1"
 
 
-def _normalize_layout_selections(value: Any) -> dict[int, dict[str, int]]:
-    if value is None:
-        return {}
-    if not isinstance(value, dict):
-        raise ValueError("INVALID_REQUEST")
-    normalized: dict[int, dict[str, int]] = {}
-    for page_key, selections in value.items():
-        if not isinstance(page_key, str) or not re.fullmatch(r"[1-9][0-9]*", page_key):
-            raise ValueError("INVALID_REQUEST")
-        if not isinstance(selections, dict) or any(
-            not isinstance(region_id, str) or not region_id or type(candidate_index) is not int or candidate_index < 0
-            for region_id, candidate_index in selections.items()
-        ):
-            raise ValueError("INVALID_REQUEST")
-        normalized[int(page_key)] = dict(selections)
-    return normalized
-
-
 def main() -> int:
     request: dict = {}
     try:
@@ -56,14 +38,13 @@ def main() -> int:
             response = ExtractionApplicationService().get_status(request["version_id"], request["artifact_root"])
             response = {**response, "request_id": request["request_id"]}
         elif operation == "retry_pages":
-            if set(request) - {"schema_version", "operation", "request_id", "version_id", "artifact_root", "pages", "layout_selections"}:
+            if set(request) - {"schema_version", "operation", "request_id", "version_id", "artifact_root", "pages"}:
                 raise ValueError("INVALID_REQUEST")
             if not isinstance(request.get("request_id"), str) or not request["request_id"] or not isinstance(request.get("version_id"), str) or not re.fullmatch(r"[A-Za-z0-9._-]+", request["version_id"]) or not isinstance(request.get("artifact_root"), str) or not request["artifact_root"] or not isinstance(request.get("pages"), list) or not request["pages"] or any(type(page) is not int or page < 1 for page in request["pages"]):
                 raise ValueError("INVALID_REQUEST")
-            layout_selections = _normalize_layout_selections(request.get("layout_selections"))
             response = ExtractionApplicationService().retry_pages(
                 request["version_id"], request["artifact_root"], request["pages"],
-                request_id=request["request_id"], layout_selections=layout_selections)
+                request_id=request["request_id"], layout_selections=request.get("layout_selections"))
         else:
             raise ValueError("INVALID_REQUEST")
         print(json.dumps(response, ensure_ascii=False, sort_keys=True))

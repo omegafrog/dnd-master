@@ -253,55 +253,6 @@ def _layout_review_payload(page: Mapping[str, Any]) -> dict[str, Any]:
     return {**layout, "blocks": page.get("blocks", [])}
 
 
-def _layout_confirmation_metadata(layout_plan: Any, selections: Mapping[str, Any]) -> list[dict[str, int]]:
-    """Record only selections that the planner accepted for an actual region."""
-    profiles = getattr(layout_plan, "profiles", ())
-    metadata: list[dict[str, int]] = []
-    for profile in profiles:
-        region_id = str(getattr(profile, "region_id", ""))
-        if region_id not in selections:
-            continue
-        candidate_index = selections[region_id]
-        if type(candidate_index) is not int:
-            continue
-        candidates = tuple(getattr(profile, "candidates", ()))
-        selected = getattr(profile, "selected", None)
-        if 0 <= candidate_index < len(candidates) and selected == candidates[candidate_index]:
-            metadata.append({"region_id": region_id, "candidate_index": candidate_index})
-    return metadata
-
-
-def _confirmed_layout_selections(layout: Any) -> dict[str, int]:
-    """Recover explicit candidate selections when promoting a retry snapshot."""
-    if not isinstance(layout, Mapping):
-        return {}
-    confirmations = layout.get("confirmed_selections", ())
-    if isinstance(confirmations, Mapping):
-        confirmations = tuple(
-            {"region_id": region_id, "candidate_index": candidate_index}
-            for region_id, candidate_index in confirmations.items()
-        )
-    if not isinstance(confirmations, (list, tuple)):
-        return {}
-    return {
-        str(item["region_id"]): item["candidate_index"]
-        for item in confirmations
-        if isinstance(item, Mapping)
-        and isinstance(item.get("region_id"), str)
-        and type(item.get("candidate_index")) is int
-    }
-
-
-def _layout_evidence(layout_plan: Any, selections: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    evidence = to_dict(layout_plan)
-    confirmations = _layout_confirmation_metadata(layout_plan, selections or {})
-    if confirmations:
-        # Candidate scores and geometry remain untouched; this is an audit
-        # marker that lets validation distinguish a human choice from a guess.
-        evidence["confirmed_selections"] = confirmations
-    return evidence
-
-
 class ExtractionApplicationService:
     def __init__(self, native_pdf: NativePdfPort | None = None, render: PageRenderPort | None = None, ocr: OcrPort | None = None) -> None:
         self.native_pdf = native_pdf or PyMuPdfNativePdfAdapter()
@@ -437,14 +388,10 @@ class ExtractionApplicationService:
                 declared_multi = raw.get("column_count", 1) != 1 or layout_name in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, [])
                 if declared_multi and not blocks:
                     raise ValueError("MULTI_COLUMN_UNSUPPORTED: MULTI_COLUMN_GEOMETRY_REQUIRED")
-                # A retry snapshot may carry a previously confirmed candidate.
-                # Reapply that choice during promotion while retaining the
-                # original candidate score and geometry as evidence.
-                confirmed_selections = _confirmed_layout_selections(raw.get("layout"))
-                layout_plan = ReadingOrderPlanner().plan(blocks, geometry, confirmed_selections)
+                layout_plan = ReadingOrderPlanner().plan(blocks, geometry)
                 if layout_plan.ambiguous:
                     raise ValueError("AMBIGUOUS_COLUMN_HYPOTHESIS")
-                layout_evidence = _layout_evidence(layout_plan, confirmed_selections)
+                layout_evidence = to_dict(layout_plan)
                 raw["layout"] = layout_evidence
                 # Structure is page evidence, not flattened prose. An
                 # irregular table remains reviewable and cannot be published.
@@ -513,25 +460,7 @@ class ExtractionApplicationService:
                 (temp_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
             version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "page_count": version.page_count, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
-            retry_metadata = request.get("retry_page_metadata", {})
-            if not isinstance(retry_metadata, Mapping):
-                retry_metadata = {}
-            response_pages = []
-            for item in page_artifacts:
-                metadata = retry_metadata.get(str(item["page_number"]), {})
-                if not isinstance(metadata, Mapping):
-                    metadata = {}
-                attempts = metadata.get("attempts", 1)
-                if type(attempts) is not int or attempts < 1:
-                    attempts = 1
-                history = metadata.get("attempt_history")
-                if not isinstance(history, list):
-                    history = [{"attempt": 1, "status": item["status"], "findings": item.get("findings", [])}]
-                response_pages.append({"page_number": item["page_number"], "status": item["status"], "attempts": attempts,
-                                      "findings": item.get("findings", []),
-                                      "layout_review": _layout_review_payload(item) if item["status"] == "NEEDS_REVIEW" else None,
-                                      "attempt_history": history})
-            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": response_pages, "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
+            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": 1, "findings": item.get("findings", []), "layout_review": _layout_review_payload(item) if item["status"] == "NEEDS_REVIEW" else None, "attempt_history": [{"attempt": 1, "status": item["status"], "findings": item.get("findings", [])}]} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
             (temp_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             version_dir = versions / version_id
             if version_dir.exists():
@@ -771,17 +700,7 @@ class ExtractionApplicationService:
             if idem in retry_index:
                 saved = retry_index[idem]
                 if isinstance(saved, dict) and saved.get("result_version_id"):
-                    # The persisted published version is read through the
-                    # status contract, but this call is a retry-pages replay.
-                    # Preserve the retry operation and original correlation
-                    # id so the Java boundary cannot mistake a safe replay
-                    # for an unrelated status request.
-                    result_version_id = str(saved["result_version_id"])
-                    cached = self.get_status(result_version_id, root, _lock=False)
-                    cached = self._overlay_retry_checkpoint_metadata(
-                        cached, root, version_id, request_id, wanted, idem, saved)
-                    return {**cached, "operation": "retry_pages", "request_id": request_id,
-                            "retry_version_id": version_id}
+                    return self.get_status(str(saved["result_version_id"]), root, _lock=False)
                 # A prior process may have been interrupted after page
                 # checkpointing but before publication; continue below.
             persisted_recovered = {}
@@ -832,11 +751,11 @@ class ExtractionApplicationService:
                             item["findings"] = [str(raw["capability_error"])]
                         if valid:
                             page_geometry = PageGeometry(float(geometry["width"]), float(geometry["height"]))
-                            page_selections = layout_selections.get(item["page_number"], {})
-                            layout_plan = ReadingOrderPlanner().plan(boxes, page_geometry, page_selections)
+                            layout_plan = ReadingOrderPlanner().plan(boxes, page_geometry,
+                                                                     layout_selections.get(item["page_number"], {}))
                             if layout_plan.ambiguous:
                                 valid = False
-                            raw = {**raw, "layout": _layout_evidence(layout_plan, page_selections)}
+                            raw = {**raw, "layout": to_dict(layout_plan)}
                             raw["heading_associations"] = to_dict(HeadingAssociator().associate(boxes, layout_plan))
                             raw["tables"] = to_dict(TableStructureDetector().detect(boxes))
                             render = self._render_evidence(source_path, item["page_number"], page_geometry)
@@ -927,11 +846,7 @@ class ExtractionApplicationService:
                                     "source_sha256": manifest_source.get("sha256"),
                                     "policy_version": current.get("manifest", {}).get("policy", {}).get("version", "retry"),
                                     "output_dir": str(root), "version_id": promoted_id,
-                                    "recovered_pages": recovered_pages,
-                                    "retry_page_metadata": {str(item["page_number"]): {
-                                        "attempts": item.get("attempts", 1),
-                                        "attempt_history": item.get("attempt_history", []),
-                                    } for item in updated}}
+                                    "recovered_pages": recovered_pages}
                 try:
                     promoted = self._preprocess_locked(promoted_request, root)
                     if promoted.get("status") == "READY":
@@ -958,62 +873,6 @@ class ExtractionApplicationService:
                 refs[key] = {"path": str(path), "sha256": _sha256(path)}
         refs["manifest_sha256"] = refs.get("manifest", {}).get("sha256")
         return refs
-
-    @staticmethod
-    def _overlay_retry_checkpoint_metadata(
-            cached: Mapping[str, Any], root: Path, version_id: str, request_id: str,
-            wanted: list[int], idempotency: str, saved: Mapping[str, Any]) -> Mapping[str, Any]:
-        """Restore retry counters from a matching candidate checkpoint on replay.
-
-        Older promoted response files reset every page's attempts to one. Only
-        a completed retry entry whose READY result and candidate checkpoint
-        agree on the version, request, and selected pages may repair that
-        response metadata. Artifact references and page validation fields are
-        intentionally taken from the persisted READY result.
-        """
-        if cached.get("status") != "READY":
-            return cached
-        if saved.get("state") != "completed" or saved.get("version_id") != version_id:
-            return cached
-        saved_pages = saved.get("pages")
-        if not isinstance(saved_pages, list) or saved_pages != wanted:
-            return cached
-        if saved.get("result_version_id") != cached.get("version_id"):
-            return cached
-        checkpoint_path = root / "versions" / version_id / "retry-state.json"
-        try:
-            checkpoint = json.loads(checkpoint_path.read_text())
-        except (OSError, json.JSONDecodeError, TypeError):
-            return cached
-        if not isinstance(checkpoint, dict) or checkpoint.get("idempotency") != idempotency:
-            return cached
-        candidate = checkpoint.get("response")
-        candidate_pages = candidate.get("pages") if isinstance(candidate, dict) else None
-        if not isinstance(candidate, dict) or candidate.get("version_id") != version_id \
-                or candidate.get("request_id") != request_id or not isinstance(candidate_pages, list):
-            return cached
-        candidate_by_page = {page.get("page_number"): page for page in candidate_pages if isinstance(page, dict)}
-        if set(candidate_by_page) != set(range(1, len(candidate_pages) + 1)) \
-                or any(page.get("status") != "VALIDATED" for page in candidate_pages):
-            return cached
-        metadata: dict[int, dict[str, Any]] = {}
-        for page_number, page in candidate_by_page.items():
-            history = page.get("attempt_history")
-            if not isinstance(history, list) or not history:
-                return cached
-            valid_history = [entry for entry in history if isinstance(entry, dict)
-                             and type(entry.get("attempt")) is int and 1 <= entry["attempt"] <= 3]
-            if len(valid_history) != len(history):
-                return cached
-            attempts = page.get("attempts")
-            if type(attempts) is not int or not 1 <= attempts <= 3:
-                return cached
-            metadata[page_number] = {"attempts": max(attempts, valid_history[-1]["attempt"]),
-                                     "attempt_history": history}
-        cached_pages = cached.get("pages")
-        if not isinstance(cached_pages, list) or set(page.get("page_number") for page in cached_pages) != set(metadata):
-            return cached
-        return {**cached, "pages": [{**page, **metadata[page["page_number"]]} for page in cached_pages]}
 
     @staticmethod
     def _text_pages(source: Path) -> list[Mapping[str, Any]]:

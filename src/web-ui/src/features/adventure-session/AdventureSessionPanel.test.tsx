@@ -88,29 +88,4 @@ describe('AdventureSessionPanel lifecycle', () => {
     resolveStart({ sessionId: 's', characterLimit: 1, version: 4, status: 'STARTING', adventureId: 'a', runtimeConfiguration: { scenarioId: 'scenario', ruleSetId: 'rules', rulebookIds: [], engineId: 'ollama', toolIds: [], initialScene: 'intro' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT', nameMutableAfterStart: false, raceMutableAfterStart: false, characterClassMutableAfterStart: false, backgroundMutableAfterStart: false, startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false }] })
     await waitFor(() => expect(screen.queryByRole('button', { name: '시나리오 런타임 준비 중…' })).toBeNull())
   })
-
-  it('serializes control mode changes to avoid stale session versions', async () => {
-    let resolveReplace!: (value: AdventureSessionView) => void
-    const session = {
-      sessionId: 's', characterLimit: 2, version: 3, status: 'DRAFT' as const, adventureId: null,
-      runtimeConfiguration: null,
-      party: [
-        { characterSheetId: 'sheet-1', controlMode: 'DIRECT' as const, nameMutableAfterStart: false, raceMutableAfterStart: false, characterClassMutableAfterStart: false, backgroundMutableAfterStart: false, startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false },
-        { characterSheetId: 'sheet-2', controlMode: 'DIRECT' as const, nameMutableAfterStart: false, raceMutableAfterStart: false, characterClassMutableAfterStart: false, backgroundMutableAfterStart: false, startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false },
-      ],
-    }
-    const replaceMember = vi.fn<AdventureSessionApi['replaceMember']>(() => new Promise(resolve => { resolveReplace = resolve }))
-    const api = {
-      read: vi.fn().mockResolvedValue(session), listOwnedCharacters: vi.fn().mockResolvedValue([]),
-      copyOwnedCharacter: vi.fn(), addMember: vi.fn(), removeMember: vi.fn(), replaceMember,
-      start: vi.fn(), complete: vi.fn(), delete: vi.fn(),
-    }
-    render(<AdventureSessionPanel api={api} ownerPlayerId="p" sessionId="s" />)
-    const controls = await screen.findAllByRole('combobox', { name: /조작 방식/ })
-    await userEvent.selectOptions(controls[0], 'AGENT')
-    expect((controls[1] as HTMLSelectElement).disabled).toBe(true)
-    expect(replaceMember).toHaveBeenCalledTimes(1)
-    resolveReplace({ ...session, version: 4, party: session.party.map((member, index) => index === 0 ? { ...member, controlMode: 'AGENT' as const } : member) })
-    await waitFor(() => expect((controls[1] as HTMLSelectElement).disabled).toBe(false))
-  })
 })

@@ -110,22 +110,6 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     }
 
     @Override
-    public <T> T complete(UUID soloPlayerId, String operationId, GmPrompt prompt,
-                          StructuredResponseParser<T> parser, com.fasterxml.jackson.databind.JsonNode outputSchema) {
-        AgentEndpoint endpoint = endpointRegistry == null ? null : endpointRegistry.active();
-        String provider = endpoint == null ? defaults.provider() : switch (endpoint.provider()) {
-            case OLLAMA -> "ollama";
-            case OPENAI_COMPATIBLE -> "openai";
-            case CODEX_CLI -> "codex-cli";
-        };
-        if (!"codex-cli".equals(provider)) return complete(soloPlayerId, operationId, prompt, parser);
-        String model = endpoint == null ? defaults.model() : endpoint.model();
-        String reasoning = defaults.reasoning();
-        return parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId, operationId, operationId,
-                prompt.text(), model, reasoning, "JSON", outputSchema, prompt.imageDataUri())).requireFinalText());
-    }
-
-    @Override
     public <T> GmCompletionResult<T> completeWithSelection(UUID soloPlayerId,
             String operationId, String prompt, StructuredResponseParser<T> parser,
             RequestedGmProviderSelection requested) {

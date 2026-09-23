@@ -24,7 +24,7 @@ import org.springframework.test.web.servlet.MockMvc;
 @Import({AdventureSecurityConfiguration.class, AdventureSecurityConfigurationTest.PingController.class})
 class AdventureSecurityConfigurationTest {
     @Autowired MockMvc mockMvc;
-    @MockBean(name = "adventurePlayerSessionLookupPort") PlayerSessionLookupPort playerSessionLookupPort;
+    @MockBean PlayerSessionLookupPort playerSessionLookupPort;
 
     @Test
     void bearerTokenFilterStaysOnAdventurePathsOnly() throws Exception {

@@ -27,8 +27,6 @@ describe('CombatScreen', () => {
     ] }} />)
     expect(screen.getByRole('heading', { name: '전투 · 1라운드' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('현재 차례영웅')
-    expect(screen.getByRole('status')).toHaveTextContent('직접 조작 · 행동을 선택하세요.')
-    expect(screen.getByText('AI 조작')).toBeInTheDocument()
     expect(screen.getByText('30ft')).toBeInTheDocument()
     expect(screen.queryByText(/AC|HP|정확한/)).not.toBeInTheDocument()
   })

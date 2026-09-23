@@ -53,11 +53,11 @@ class GmAgentPolicyTest {
     }
 
     @Test
-    void does_not_require_storybook_citation_for_a_map_or_narration_turn() {
+    void requires_storybook_citation_when_story_evidence_is_available() {
         RuntimeEvidence story = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, document, 1, "page:2", "The brewery bell rings.");
         EvidencePack storyPack = new EvidencePack(List.of(story), List.of(), List.of());
-        RuntimePlan plan = new RuntimePlan("cellar", "npc", "judgment", "narration", null, List.of(), List.of());
-        assertDoesNotThrow(() -> new GmFinalValidator().validate(
+        RuntimePlan plan = new RuntimePlan("scene", "npc", "judgment", "narration", null, List.of(), List.of());
+        assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(
                 new GmPlanResult(plan, "codex-cli", "gpt-5.6-luna", "none", List.of()), storyPack, context, Set.of()));
     }
 }

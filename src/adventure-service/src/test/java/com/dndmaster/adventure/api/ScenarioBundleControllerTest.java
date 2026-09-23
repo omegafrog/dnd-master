@@ -37,7 +37,7 @@ class ScenarioBundleControllerTest {
 
     @MockBean ScenarioBundleApplicationService service;
     @MockBean AuthenticatedPlayerResolver playerResolver;
-    @MockBean(name = "adventurePlayerSessionLookupPort") PlayerSessionLookupPort playerSessionLookupPort;
+    @MockBean PlayerSessionLookupPort playerSessionLookupPort;
 
     @Test
     void createBundleUsesResolvedOwnerRatherThanParsingBearerAsUuid() throws Exception {

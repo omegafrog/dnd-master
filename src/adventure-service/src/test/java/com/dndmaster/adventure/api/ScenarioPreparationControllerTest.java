@@ -40,7 +40,7 @@ class ScenarioPreparationControllerTest {
     @Autowired MockMvc mockMvc;
 
     @MockBean ScenarioPreparationApplicationService service;
-    @MockBean(name = "adventurePlayerSessionLookupPort") PlayerSessionLookupPort playerSessionLookupPort;
+    @MockBean PlayerSessionLookupPort playerSessionLookupPort;
 
     @Test
     void preparationResponseAndOptionsResponseUseAuthenticatedOwner() throws Exception {

@@ -28,9 +28,6 @@ final class Dnd5e2014CharacterCreationValidator {
             "바드", 2, "클레릭", 3, "드루이드", 2, "소서러", 4, "워락", 2, "위저드", 3);
     private static final Map<String, Integer> FIRST_LEVEL_SPELL_MINIMUMS = Map.of(
             "바드", 4, "클레릭", 1, "드루이드", 1, "소서러", 2, "워락", 2, "위저드", 6);
-    // The web character creator uses these established Korean labels. Keep accepting
-    // them while the stored rulebook contract uses its canonical labels.
-    private static final Set<String> WEB_BACKGROUND_LABELS = Set.of("복사", "시골 영웅", "학자");
     private static final Map<String, StartingEquipmentProfile> STARTING_EQUIPMENT = Map.of(
             "파이터", new StartingEquipmentProfile(
                     Set.of("체인 메일", "방패", "라이트 크로스보우", "볼트 20개", "던전 탐험가 팩"),
@@ -52,8 +49,7 @@ final class Dnd5e2014CharacterCreationValidator {
         if (request.level() != 1) errors.add("NEW_CHARACTER_LEVEL_MUST_BE_ONE");
         if (!Dnd5e2014CharacterContract.RACES.contains(request.race())) errors.add("UNSUPPORTED_RACE");
         if (!CLASS_SKILL_MINIMUMS.containsKey(request.characterClass())) errors.add("UNSUPPORTED_CLASS");
-        if (!Dnd5e2014CharacterContract.BACKGROUNDS.contains(request.background())
-                && !WEB_BACKGROUND_LABELS.contains(request.background())) {
+        if (!Dnd5e2014CharacterContract.BACKGROUNDS.contains(request.background()) && !"학자".equals(request.background())) {
             errors.add("UNSUPPORTED_BACKGROUND");
         }
         validateStandardArray(request.startingAbilities(), errors);

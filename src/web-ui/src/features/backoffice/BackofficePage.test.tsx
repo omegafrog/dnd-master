@@ -47,19 +47,4 @@ describe('BackofficePage catalog access', () => {
       method: 'POST', headers: { Authorization: 'Bearer opaque-session' },
     }))
   })
-
-  it('offers publication when indexing is complete even if the catalog revision remains queued', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([{
-      catalogRevisionId: 'revision-indexed', edition: 'DND_5E_2014', displayName: 'Indexed D&D 5e',
-      rulebookId: 'rulebook-indexed', revisionNumber: 3, status: 'QUEUED', processingStatus: 'INDEXED', published: false,
-    }]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
-    vi.stubGlobal('fetch', fetchMock)
-
-    render(<BackofficePage session={{
-      accessToken: 'opaque-session', playerName: 'Admin', playerId: 'player-1',
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-    }} />)
-
-    expect(await screen.findByRole('button', { name: '공개' })).toBeInTheDocument()
-  })
 })

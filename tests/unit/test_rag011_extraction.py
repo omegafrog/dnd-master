@@ -66,22 +66,6 @@ def test_retry_reuses_ocr_path_and_can_recover_image_only_page(tmp_path):
     recovered = service.retry_pages("retry-v1", output, [1], request_id="retry-request")
     assert recovered["status"] == "READY"
     assert recovered["pages"][0]["status"] == "VALIDATED"
-    assert recovered["pages"][0]["attempts"] == 2
-    # Reproduce an older checkpoint whose published response reset attempts
-    # to one while the candidate retry history still records attempt two.
-    candidate_state_path = output / "versions" / "retry-v1" / "retry-state.json"
-    candidate_state = json.loads(candidate_state_path.read_text())
-    candidate_state["response"]["pages"][0]["attempts"] = 1
-    candidate_state_path.write_text(json.dumps(candidate_state))
-    promoted_response_path = output / "generations" / recovered["version_id"] / "response.json"
-    promoted_response = json.loads(promoted_response_path.read_text())
-    promoted_response["pages"][0]["attempts"] = 1
-    promoted_response_path.write_text(json.dumps(promoted_response))
-    replay = service.retry_pages("retry-v1", output, [1], request_id="retry-request")
-    assert replay["operation"] == "retry_pages"
-    assert replay["request_id"] == "retry-request"
-    assert replay["retry_version_id"] == "retry-v1"
-    assert replay["pages"][0]["attempts"] == 2
 
 
 def test_mixed_page_keeps_native_and_adds_targeted_ocr(tmp_path):

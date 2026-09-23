@@ -33,7 +33,6 @@
 - **복합 검색**: 의미 유사도로 찾는 Dense 검색과 단어 일치도를 사용하는 BM25 검색에서 각각 최대 30개의 후보를 얻고, 두 순위에서 반복해서 상위에 나타난 후보를 우선하는 RRF 방식으로 합치는 검색 절차. 같은 청크는 하나로 합치며 전체 후보가 부족하면 있는 만큼 사용한다.
 - **관련도 재정렬**: 복합 검색 후보를 판정 질문과의 관련도 순서로 다시 정렬하는 단계. 점수 기준으로 후보를 제거하지 않고 최대 30개를 다음 단계에 전달한다.
 - **근거 충분성 판단**: 선택된 작업 정책의 맥락과 후보 근거만으로 후속 결과를 만들 수 있는지 판단하고, 충분한 조합 중 가능한 한 작은 임의 부분집합을 선택하는 단계. 부족하면 이미 유효한 근거와 추가로 필요한 정보를 함께 반환한다.
-- **Codex 구조화 출력 스키마 계약**: Codex App Server의 `outputSchema`에 전달하는 JSON Schema는 지원되는 일부 규칙만 사용한다. 최상위는 객체이고, 모든 객체는 `additionalProperties:false`, 선언된 모든 필드는 `required`를 사용해야 한다. 실행마다 달라지는 ID를 객체 키로 만들지 않고 고정된 객체의 배열 원소 값으로 전달한다. 기준은 [OpenAI Structured Outputs 공식 문서](https://developers.openai.com/api/docs/guides/structured-outputs), [Codex App Server 공식 문서](https://learn.chatgpt.com/docs/app-server?translationFallback=ko-KR), [ADR-022](docs/adr/ADR-022-codex-structured-output-schema-contract.md)이다.
 - **최소 충분 근거 묶음**: 근거 충분성 판단 단계가 선택한, 후속 판정·구성·안내에 필요한 가장 작은 근거 조합. 고정 개수나 관련도 순위의 연속된 앞부분으로 제한하지 않는다.
 - **상황별 근거 충분성 정책**: 플레이어 행동 판정, 시나리오 준비, 시작 장면 구성, 규칙 안내가 각각 무엇을 충분한 근거로 보는지와 추가 검색 뒤에도 부족할 때의 결과를 정하는 정책. 검색·후보 병합·근거 선택 절차는 공유하지만 부족 결과는 상황별로 다르다.
 - **Session Knowledge Set Ownership**: Session Knowledge Set은 `SessionId`에 직접 연결한다. RAG는 세션에서 해석한 문서 ID 목록으로 검색 대상을 제한한다.

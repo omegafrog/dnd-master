@@ -93,17 +93,6 @@ class EvidenceAcquisitionApplicationServiceTest {
         assertEquals(Set.of("RULEBOOK"), policies.getLast().documentTypes());
     }
 
-    @Test
-    void rerank_request_keeps_first_candidate_when_the_same_id_is_repeated() {
-        EvidenceCandidate first = candidate("same");
-        EvidenceCandidate duplicate = new EvidenceCandidate(first.id(), "doc", "STORYBOOK", "p:duplicate", "duplicate");
-
-        EvidenceRerankRequest request = new EvidenceRerankRequest(
-                "RULE_GUIDANCE", "question", List.of(first, duplicate));
-
-        assertEquals(List.of(first), request.candidates());
-    }
-
     private static EvidenceCandidate candidate(String label) {
         return new EvidenceCandidate(UUID.nameUUIDFromBytes(label.getBytes()), "doc", "STORYBOOK", "p:" + label, label);
     }

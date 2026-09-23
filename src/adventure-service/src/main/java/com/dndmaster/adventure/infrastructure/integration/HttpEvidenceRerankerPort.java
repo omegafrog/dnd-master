@@ -39,10 +39,8 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
         Objects.requireNonNull(request, "request must not be null");
         try {
             String body = mapper.writeValueAsString(new Request(request.query(), request.policyId(), candidates(request.candidates())));
-            var builder = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/evidence-rerank"))
-                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken);
-            if (request.soloPlayerId() != null) builder.header("X-Solo-Player-Id", request.soloPlayerId().toString());
-            HttpResponse<String> response = client.send(builder
+            HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/evidence-rerank"))
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
             if (isTransient(response.statusCode())) throw new EvidenceAcquisitionTransientException("evidence reranking is unavailable");
             if (response.statusCode() / 100 != 2) throw new EvidenceAcquisitionContractException("evidence reranking failed with status " + response.statusCode());
@@ -66,7 +64,7 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
             throw new EvidenceAcquisitionContractException("reranker returned invalid candidate identifiers");
         }
     }
-    private static boolean isTransient(int status) { return status == 422 || status == 429 || status >= 500; }
+    private static boolean isTransient(int status) { return status == 429 || status >= 500; }
     private static String required(String value, String name) { if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank"); return value; }
     record Request(String query, String taskContext, List<Candidate> candidates) {}
     record Candidate(String evidenceId, String documentType, String locator, String excerpt) {}

@@ -48,19 +48,4 @@ class RulebookCombatStatBlockResolverTest {
 
         assertTrue(result.isEmpty());
     }
-
-    @Test
-    void uses_basic_giant_spider_rules_for_a_scenario_specific_inferno_variant() {
-        var result = RulebookCombatStatBlockResolver.resolve(
-                new CombatEnemyProposal("situation-spider", "giant-inferno-spider", "Giant Inferno Spider", 1,
-                        com.dndmaster.adventure.application.runtime.CombatStartMode.SITUATION),
-                List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
-                        new KnowledgeDocumentId(UUID.randomUUID()), 2, "page-137",
-                        "Giant Spider\nArmor Class 14 Hit Points 26 (4d10 + 4)\n"
-                                + "Bite. Melee Weapon Attack: +5 to hit. Hit: 7 (1d8 + 3) piercing damage.")));
-
-        assertTrue(result.isPresent());
-        assertEquals(14, result.orElseThrow().armorClass());
-        assertEquals(26, result.orElseThrow().hitPointMaximum());
-    }
 }

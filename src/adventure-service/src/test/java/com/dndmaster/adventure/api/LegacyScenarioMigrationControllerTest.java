@@ -52,7 +52,7 @@ class LegacyScenarioMigrationControllerTest {
     @MockBean AdventureScenarioApplicationService scenarioService;
     @MockBean LegacyScenarioMigrationApplicationService migrationService;
     @MockBean AuthenticatedPlayerResolver playerResolver;
-    @MockBean(name = "adventurePlayerSessionLookupPort") PlayerSessionLookupPort playerSessionLookupPort;
+    @MockBean PlayerSessionLookupPort playerSessionLookupPort;
 
     @Test
     void migrateReturnsBundleAndPackageIds() throws Exception {

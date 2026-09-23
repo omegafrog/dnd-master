@@ -139,38 +139,26 @@ it('announces failure when message send fails', async () => {
   expect(onTurnCommitted).not.toHaveBeenCalled()
 })
 
-it('recovers a delayed provider response by polling the original command result', async () => {
-  let requests = 0
-  let reads = 0
+it('retries one provider gateway failure without duplicating the player action', async () => {
+  let attempts = 0
   const api: AdventureApi = {
     async sendMessage() {
-      requests += 1
-      throw new AdventureRequestError('provider delayed', 502)
-    },
-    async readConversation() {
-      reads += 1
-      return reads < 3
-        ? { adventureId: 'a1', version: 0, entries: [] }
-        : { adventureId: 'a1', version: 1, entries: [
-            { sequence: 0, speaker: 'PLAYER', content: '문을 연다' },
-            { sequence: 1, speaker: 'AI_GAME_MASTER', content: '원래 요청의 응답' },
-          ] }
+      attempts += 1
+      if (attempts === 1) throw new AdventureRequestError('provider failed', 502)
+      return { narration: '재시도 응답', judgment: '', currentScene: '', version: 1 }
     },
   }
   const user = userEvent.setup()
   render(<AdventureStream adventureId="a1" api={api} />)
-  const input = await screen.findByLabelText('무엇을 하시겠어요?')
-  await waitFor(() => expect(input).toBeEnabled())
-  await user.type(input, '문을 연다')
+  await user.type(screen.getByLabelText('무엇을 하시겠어요?'), '문을 연다')
   await user.click(screen.getByRole('button', { name: '행동 보내기' }))
 
-  await waitFor(() => expect(screen.getByText('원래 요청의 응답')).toBeInTheDocument(), { timeout: 3000 })
-  expect(requests).toBe(1)
+  await waitFor(() => expect(screen.getByText('재시도 응답')).toBeInTheDocument())
+  expect(attempts).toBe(2)
   expect(screen.getAllByText('문을 연다')).toHaveLength(1)
-  expect(screen.getByRole('region', { name: '요청·응답 로그' })).toHaveTextContent('같은 행동을 다시 보내지 않습니다.')
 })
 
-it('surfaces the server reason without retrying after a non-recoverable gateway failure', async () => {
+it('surfaces the server validation reason after the retry also fails', async () => {
   let attempts = 0
   const api: AdventureApi = {
     async sendMessage() {
@@ -184,7 +172,7 @@ it('surfaces the server reason without retrying after a non-recoverable gateway 
   await user.click(screen.getByRole('button', { name: '행동 보내기' }))
 
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('STORYBOOK_CITATION_REQUIRED'))
-  expect(attempts).toBe(1)
+  expect(attempts).toBe(2)
 })
 
 it('removes an optimistic player action when the final request fails', async () => {

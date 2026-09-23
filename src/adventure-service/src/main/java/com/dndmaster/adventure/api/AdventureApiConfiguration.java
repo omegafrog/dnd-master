@@ -686,7 +686,7 @@ public class AdventureApiConfiguration {
         return new CrossContextHttpKnowledgeDocumentLookupGateway(
                 HttpClient.newHttpClient(),
                 URI.create(baseUrl),
-                Duration.ofSeconds(10),
+                Duration.ofSeconds(2),
                 objectMapper,
                 internalToken);
     }

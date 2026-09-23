@@ -260,7 +260,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 throw new PreprocessingProcessException("PREPROCESSING_ARTIFACT_UNAVAILABLE", exception);
             }
             Path artifactRoot = preprocessingRoot(rulebookId);
-            Path candidateVersion = artifactRoot.resolve("versions")
+            Path candidateVersion = artifactRoot.resolve("generations")
                     .resolve(registration.candidateExtractionVersion());
             boolean rebuildMissingCandidate = !Files.isDirectory(candidateVersion);
             PreprocessingRunResult result;
@@ -522,7 +522,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 if (after.attempts() <= before.attempts() || after.attempts() > 3) {
                     throw new PreprocessingProcessException("RETRY_ATTEMPT_MISMATCH");
                 }
-            } else if (!sameUnselectedPageEvidence(before, after, "READY".equals(result.status()))) {
+            } else if (!before.equals(after)) {
                 throw new PreprocessingProcessException("UNSELECTED_PAGE_CHANGED");
             }
         }
@@ -532,23 +532,6 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         if ("READY".equals(result.status()) && result.pages().stream().anyMatch(page -> !"VALIDATED".equals(page.status()))) {
             throw new PreprocessingProcessException("UNVALIDATED_PAGE");
         }
-    }
-
-    /**
-     * A final retry promotion may rebuild page-attempt metadata for every page,
-     * even though only the selected pages were retried. The page's observable
-     * validation evidence must still remain unchanged for unselected pages.
-     */
-    private static boolean sameUnselectedPageEvidence(PreprocessingPageState before, PreprocessingPageState after,
-                                                       boolean finalReadyPromotion) {
-        if (finalReadyPromotion && "VALIDATED".equals(after.status())
-                && after.findings().isEmpty() && after.layoutReview() == null
-                && ("VALIDATED".equals(before.status()) || "NEEDS_REVIEW".equals(before.status()))) {
-            return true;
-        }
-        return before.status().equals(after.status())
-                && before.findings().equals(after.findings())
-                && Objects.equals(before.layoutReview(), after.layoutReview());
     }
 
     private static StoredRulebookRegistration withRetryStatus(

@@ -10,7 +10,6 @@
     "ordered_block_ids": {"type": "array", "items": {"type": "string"}},
     "spanning_block_ids": {"type": "array", "items": {"type": "string"}},
     "furniture_block_ids": {"type": "array", "items": {"type": "string"}},
-    "confirmed_selections": {"type": "array", "items": {"$ref": "#/$defs/confirmed_selection"}},
     "ambiguous": {"type": "boolean"},
     "findings": {"type": "array", "items": {"type": "string"}}
   },
@@ -29,11 +28,6 @@
       "type": "object", "additionalProperties": false,
       "required": ["column_count", "columns", "score", "strategy"],
       "properties": {"column_count": {"type": "integer", "minimum": 1}, "columns": {"type": "array", "items": {"$ref": "#/$defs/bbox"}}, "score": {"type": "number", "minimum": 0, "maximum": 1}, "strategy": {"type": "string"}}
-    },
-    "confirmed_selection": {
-      "type": "object", "additionalProperties": false,
-      "required": ["region_id", "candidate_index"],
-      "properties": {"region_id": {"type": "string", "minLength": 1}, "candidate_index": {"type": "integer", "minimum": 0}}
     },
     "profile": {
       "type": "object", "additionalProperties": false,

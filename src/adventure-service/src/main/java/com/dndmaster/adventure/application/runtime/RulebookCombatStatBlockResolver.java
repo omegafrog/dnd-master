@@ -35,14 +35,7 @@ public final class RulebookCombatStatBlockResolver {
     private static boolean containsMonster(String text, String name, String key) {
         if (text == null) return false;
         String normalized = text.toLowerCase(Locale.ROOT);
-        return normalized.contains(name) || normalized.contains(key.replace('-', ' '))
-                // 시나리오 전용 변형 생물은 룰북의 기본 생물 수치를 사용한다.
-                || (isInfernoSpider(name, key) && normalized.contains("giant spider"));
-    }
-
-    private static boolean isInfernoSpider(String name, String key) {
-        return name.contains("inferno spider") || name.contains("인페르노 거미")
-                || key.contains("inferno-spider") || key.contains("inferno_spider");
+        return normalized.contains(name) || normalized.contains(key.replace('-', ' '));
     }
 
     private static Optional<CombatEnemyStatBlock> parse(RuntimeEvidence evidence) {

@@ -220,7 +220,6 @@ public final class CodexWebSocketAgent implements AutoCloseable {
 
         @Override
         public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
-            LOGGER.warn("user-PC agent relay websocket closed status={} reason={}", statusCode, reason);
             socket.compareAndSet(webSocket, null);
             closed.complete(null);
             return CompletableFuture.completedFuture(null);
@@ -228,7 +227,6 @@ public final class CodexWebSocketAgent implements AutoCloseable {
 
         @Override
         public void onError(WebSocket webSocket, Throwable error) {
-            LOGGER.warn("user-PC agent relay websocket error: {}", safeMessage(error));
             socket.compareAndSet(webSocket, null);
             closed.completeExceptionally(error);
         }
