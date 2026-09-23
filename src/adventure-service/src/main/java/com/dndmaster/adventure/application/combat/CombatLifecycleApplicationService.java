@@ -126,7 +126,20 @@ public final class CombatLifecycleApplicationService {
     }
 
     private CombatEndResult commitEnd(UUID adventureId, CombatEncounter encounter, CombatEndProposal proposal) {
-
+        List<String> defeatedEnemies = encounter.participants().stream()
+                .filter(participant -> participant.controller() == CombatParticipant.Controller.AI && participant.isDefeated())
+                .map(CombatParticipant::displayName).toList();
+        boolean enemiesDefeated = proposal.reason() == CombatEndProposal.Reason.ENEMIES_DEFEATED
+                && !defeatedEnemies.isEmpty();
+        String summary = proposal.summary();
+        if (enemiesDefeated) {
+            String defeatedDescription = "쓰러진 적: " + String.join(", ", defeatedEnemies) + ".";
+            if (defeatedDescription.length() > 4096) defeatedDescription = defeatedDescription.substring(0, 4096);
+            summary = summary.length() + defeatedDescription.length() + 1 <= 4096
+                    ? summary + " " + defeatedDescription : defeatedDescription;
+        }
+        CombatEndProposal completed = new CombatEndProposal(proposal.adventureId(), proposal.encounterId(),
+                proposal.source(), proposal.reason(), summary, proposal.accepted());
         if (adventureRepository != null) {
             Adventure adventure = adventureRepository.findById(
                     new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId)).orElse(null);
@@ -136,13 +149,14 @@ public final class CombatLifecycleApplicationService {
                         encounter.participants().stream().map(CombatParticipant::participantId).toList());
                 if (characterPort != null) characterPort.commitFinalState(command);
                 if (mapPort != null) mapPort.commitFinalState(command);
-                adventure.commitCombatEnd(adventure.ownerPlayerId(), adventure.version(), proposal.summary());
+                adventure.commitCombatEnd(adventure.ownerPlayerId(), adventure.version(), encounter.encounterId(),
+                        summary, enemiesDefeated);
                 adventureRepository.save(adventure);
             }
         }
-        CombatEncounter ended = encounter.end(proposal);
+        CombatEncounter ended = encounter.end(completed);
         repository.save(ended, encounter.version());
-        if (eventRepository != null) eventRepository.append(PostCombatProjectionPolicy.endedEvent(proposal, ended.eventCursor()));
-        return new CombatEndResult(PostCombatProjectionPolicy.summary(proposal, List.of()), ended.version());
+        if (eventRepository != null) eventRepository.append(PostCombatProjectionPolicy.endedEvent(completed, ended.eventCursor()));
+        return new CombatEndResult(PostCombatProjectionPolicy.summary(completed, List.of()), ended.version());
     }
 }

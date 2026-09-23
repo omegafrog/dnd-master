@@ -18,8 +18,15 @@ public final class EvidenceSufficiencyJudgeService {
     }
 
     public EvidenceSufficiencyResponse judge(EvidenceSufficiencyRequest request) {
-        Set<String> candidateIds = request.candidates().stream().map(EvidenceCandidate::evidenceId).collect(java.util.stream.Collectors.toSet());
-        return stage.execute("evidence-sufficiency", instruction(request), raw -> parse(raw, candidateIds, request.pinnedEvidenceIds()));
+        EvidenceModelPrompt.Candidates promptCandidates = EvidenceModelPrompt.candidates(request.candidates());
+        Set<String> modelIds = Set.copyOf(promptCandidates.evidenceIdByModelId().keySet());
+        List<String> pinnedModelIds = request.pinnedEvidenceIds().stream().map(promptCandidates::modelId).toList();
+        EvidenceSufficiencyResponse response = stage.execute(request.soloPlayerId(), "evidence-sufficiency",
+                instruction(request, promptCandidates, pinnedModelIds), raw -> parse(raw, modelIds, pinnedModelIds));
+        List<String> selected = response.selectedEvidenceIds().stream().map(promptCandidates::evidenceId).toList();
+        Map<String, String> reasons = new LinkedHashMap<>();
+        response.selectionReasons().forEach((id, reason) -> reasons.put(promptCandidates.evidenceId(id), reason));
+        return new EvidenceSufficiencyResponse(response.sufficient(), selected, reasons, response.missing());
     }
 
     private EvidenceSufficiencyResponse parse(String raw, Set<String> candidateIds, List<String> pinnedIds) {
@@ -63,9 +70,11 @@ public final class EvidenceSufficiencyJudgeService {
     }
 
     private static EvidenceModelOutputException invalid(String message) { return new EvidenceModelOutputException(message); }
-    private static String instruction(EvidenceSufficiencyRequest request) {
+    private static String instruction(EvidenceSufficiencyRequest request, EvidenceModelPrompt.Candidates candidates,
+                                      List<String> pinnedModelIds) {
         return request.policy().fixedInstruction() + "\nOUTPUT={sufficient:boolean,selectedEvidenceIds:string[],selectionReasons:object,missing:string}. "
-                + "Every selected ID needs exactly one non-empty reason. Preserve pinned IDs. "
-                + "TASK_CONTEXT=" + request.taskContext() + "\nPINNED_IDS=" + request.pinnedEvidenceIds() + "\nCANDIDATES=" + request.candidates();
+                + "Every selected ID needs exactly one non-empty reason. Use the short c-number IDs exactly as supplied and preserve pinned IDs. "
+                + "TASK_CONTEXT=" + request.taskContext() + "\nPINNED_IDS=" + pinnedModelIds
+                + "\nCANDIDATES=" + candidates.prompt();
     }
 }

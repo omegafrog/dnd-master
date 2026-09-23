@@ -2,8 +2,9 @@ package com.dndmaster.aigamemaster.infrastructure.ai;
 
 import com.dndmaster.aigamemaster.application.evidence.EvidenceModelPort;
 import java.util.Objects;
+import java.util.UUID;
 
-/** Adapts the configured AI completion provider to the evidence-model boundary. */
+/** Routes evidence-model requests through the configured game-master execution path. */
 public final class GmEvidenceModelAdapter implements EvidenceModelPort {
     private final GmCompletionAdapter completionAdapter;
 
@@ -12,7 +13,8 @@ public final class GmEvidenceModelAdapter implements EvidenceModelPort {
     }
 
     @Override
-    public String complete(String operationId, String instruction) {
-        return completionAdapter.complete(operationId, instruction, value -> value);
+    public String complete(UUID soloPlayerId, String operationId, String instruction) {
+        if (soloPlayerId == null) throw new IllegalArgumentException("evidence-model request requires the server-confirmed Solo Player ID");
+        return completionAdapter.complete(soloPlayerId, operationId, instruction, value -> value);
     }
 }

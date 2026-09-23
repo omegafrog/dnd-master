@@ -17,7 +17,12 @@ public final class EvidenceRerankerService {
 
     public EvidenceRerankResponse rerank(EvidenceRerankRequest request) {
         Set<String> candidateIds = request.candidates().stream().map(EvidenceCandidate::evidenceId).collect(java.util.stream.Collectors.toSet());
-        return stage.execute("evidence-rerank", rerankInstruction(request), raw -> parse(raw, candidateIds));
+        EvidenceModelPrompt.Candidates promptCandidates = EvidenceModelPrompt.candidates(request.candidates());
+        Set<String> modelIds = Set.copyOf(promptCandidates.evidenceIdByModelId().keySet());
+        EvidenceRerankResponse response = stage.execute(request.soloPlayerId(), "evidence-rerank", rerankInstruction(request, promptCandidates),
+                raw -> parse(raw, modelIds));
+        return new EvidenceRerankResponse(response.orderedCandidateIds().stream()
+                .map(promptCandidates::evidenceId).filter(java.util.Objects::nonNull).toList());
     }
 
     private EvidenceRerankResponse parse(String raw, Set<String> candidateIds) {
@@ -39,9 +44,11 @@ public final class EvidenceRerankerService {
     }
 
     private static EvidenceModelOutputException invalid(String message) { return new EvidenceModelOutputException(message); }
-    private static String rerankInstruction(EvidenceRerankRequest request) {
+    private static String rerankInstruction(EvidenceRerankRequest request, EvidenceModelPrompt.Candidates candidates) {
         return "TASK=EVIDENCE_RERANK\nReturn JSON {\"orderedCandidateIds\":[...]}. "
-                + "Order only supplied candidate IDs by relevance; do not remove candidates by a score threshold. "
-                + "QUERY=" + request.query() + "\nTASK_CONTEXT=" + request.taskContext() + "\nCANDIDATES=" + request.candidates();
+                + "Return at most 30 unique short c-number IDs, copied exactly from the supplied candidates. "
+                + "Order by relevance; do not remove candidates by a score threshold before applying the 30-ID limit. "
+                + "QUERY=" + request.query() + "\nTASK_CONTEXT=" + request.taskContext()
+                + "\nCANDIDATES=" + candidates.prompt();
     }
 }

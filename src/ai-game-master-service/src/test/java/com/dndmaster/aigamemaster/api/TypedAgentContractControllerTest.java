@@ -64,7 +64,7 @@ class TypedAgentContractControllerTest {
             @Override public <T> T complete(UUID owner, String operation, String prompt,
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 seen.add(owner);
-                String response = operation.startsWith("scenario-compilation") ? "{\"status\":\"READY\",\"scenarioModel\":{}}"
+                String response = operation.startsWith("scenario-compilation") ? "{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1}}"
                         : operation.startsWith("scenario-lookup") ? "{\"status\":\"NOT_FOUND\",\"answer\":\"\",\"supportingElementIds\":[]}"
                         : "{\"approved\":true}";
                 return parser.parse(response);
@@ -103,6 +103,26 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void scenario_compilation_prompt_requires_storybook_grounded_encounters_and_exact_sources() {
+        AtomicReference<String> prompt = new AtomicReference<>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String value,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                prompt.set(value);
+                return parser.parse("{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1}}");
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        controller.scenarioCompilation("service-secret", new TypedAgentContractController.ScenarioCompilationRequest(
+                SOLO_PLAYER_ID, "scenario-compilation:test", "DOCUMENT_ID=abc\\nEXTRACTION_VERSION=1\\nLOCATOR=page:2\\nTEXT=Eight Giant Rats begin combat."));
+
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Find essential combat encounters"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Never invent or rewrite a source reference"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scenarioModel.encounters"));
+    }
+
+    @Test
     void runtime_turn_prompt_declares_the_json_contract_required_by_its_parser() {
         AtomicReference<String> prompt = new AtomicReference<>();
         AtomicReference<RequestedGmProviderSelection> selection = new AtomicReference<>();
@@ -135,9 +155,11 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("end with a Korean question"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not use markdown"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("executed dialogue action"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Runtime Fact"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Canonical Fact"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("RUNTIME_ADDED_FACTS contains durable facts"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("including confirmed combat outcomes"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("never narrate a defeated enemy as active again"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("NPC reaction"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("MANDATORY: when the player explicitly chooses to start or join a fight"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not repeat the same dialogue action"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("diegetic"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Game State, established Runtime-added Facts, locked Scenario Model, then Storybook RAG"));

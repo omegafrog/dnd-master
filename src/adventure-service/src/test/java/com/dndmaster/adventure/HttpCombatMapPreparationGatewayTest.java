@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -29,6 +30,53 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class HttpCombatMapPreparationGatewayTest {
+    @Test
+    void detects_a_reviewed_draft_without_confusing_the_active_map_with_a_draft() throws Exception {
+        AtomicReference<String> requestPath = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/adventures/", exchange -> {
+            requestPath.set(exchange.getRequestURI().toString());
+            byte[] response = "true".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            UUID adventureId = UUID.randomUUID();
+            UUID ownerId = UUID.randomUUID();
+            var gateway = new com.dndmaster.adventure.application.combat.HttpCombatMapViewGateway(
+                    HttpClient.newHttpClient(), java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(2), Duration.ofSeconds(2), new ObjectMapper(), "secret");
+
+            assertTrue(gateway.hasPreparedMap(adventureId, ownerId));
+            assertEquals("/internal/v1/adventures/" + adventureId + "/combat-map/prepared-draft?ownerId=" + ownerId,
+                    requestPath.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void reports_no_reviewed_draft_when_only_an_active_map_is_available() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/adventures/", exchange -> {
+            byte[] response = "false".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            var gateway = new com.dndmaster.adventure.application.combat.HttpCombatMapViewGateway(
+                    HttpClient.newHttpClient(), java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(2), Duration.ofSeconds(2), new ObjectMapper(), "secret");
+            assertFalse(gateway.hasPreparedMap(UUID.randomUUID(), UUID.randomUUID()));
+        } finally {
+            server.stop(0);
+        }
+    }
+
     @Test
     void sends_runtime_activation_context_without_synthetic_zero_spawn() throws Exception {
         AtomicReference<String> requestBody = new AtomicReference<>();

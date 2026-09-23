@@ -54,6 +54,7 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharac
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
 import com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpScenarioModelLookupAgentPort;
+import com.dndmaster.adventure.infrastructure.integration.HttpScenarioCompilationAgentPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpDiceToolPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpCharacterToolPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -655,6 +656,16 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationAgentPort scenarioCompilationAgentPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new HttpScenarioCompilationAgentPort(HttpClient.newHttpClient(), URI.create(baseUrl), timeout,
+                objectMapper, internalToken);
+    }
+
+    @Bean
     com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker scenarioCompilationWorker(
             com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager processManager,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository compilationRepository,
@@ -666,11 +677,12 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearchPort,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService compiler,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
-            com.dndmaster.adventure.application.scenario.compilation.CompilationCandidateRepository candidateRepository) {
+            com.dndmaster.adventure.application.scenario.compilation.CompilationCandidateRepository candidateRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationAgentPort scenarioCompilationAgentPort) {
         return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker(
                 processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
                 characterInputTagExtractionPort, characterContextSearchPort, compiler,
-                packageRepository, candidateRepository);
+                packageRepository, candidateRepository, scenarioCompilationAgentPort);
     }
 
     @Bean

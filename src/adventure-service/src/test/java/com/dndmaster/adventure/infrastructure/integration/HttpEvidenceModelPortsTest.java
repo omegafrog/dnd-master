@@ -30,6 +30,7 @@ class HttpEvidenceModelPortsTest {
     private WireMockServer server;
     private final ObjectMapper mapper = new ObjectMapper();
     private final UUID candidateId = UUID.randomUUID();
+    private final UUID soloPlayerId = UUID.randomUUID();
 
     @BeforeEach
     void startServer() {
@@ -47,16 +48,16 @@ class HttpEvidenceModelPortsTest {
         server.stubFor(post(urlEqualTo("/internal/v1/gm/evidence-rerank"))
                 .withHeader("X-Internal-Token", equalTo("internal-token"))
                 .withRequestBody(equalToJson("""
-                        {"query":"question","taskContext":"RULE_GUIDANCE","candidates":[
+                        {"soloPlayerId":"%s","query":"question","taskContext":"RULE_GUIDANCE","candidates":[
                           {"evidenceId":"%s","documentType":"RULEBOOK","locator":"p:1","excerpt":"rule text"}
                         ]}
-                        """.formatted(candidateId)))
+                        """.formatted(soloPlayerId, candidateId)))
                 .willReturn(aResponse().withHeader("Content-Type", "application/json")
                         .withBody("{" + "\"orderedCandidateIds\":[\"" + candidateId + "\"]}")));
 
         var port = new HttpEvidenceRerankerPort(HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), mapper, "internal-token");
 
-        assertEquals(List.of(candidateId), port.rerank(new EvidenceRerankRequest("RULE_GUIDANCE", "question", List.of(candidate()))));
+        assertEquals(List.of(candidateId), port.rerank(new EvidenceRerankRequest("RULE_GUIDANCE", "question", List.of(candidate()), soloPlayerId)));
         server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/evidence-rerank")));
     }
 

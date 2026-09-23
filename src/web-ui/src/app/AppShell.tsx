@@ -177,7 +177,7 @@ export function AppShell() {
   if (route.page === 'session-runtime') {
     return <div className="game-shell">
       <main id="main" className="game-shell-main app-page-session-runtime">
-        <SessionRuntimeRoute sessionId={route.sessionId} sessionApi={sessionApi} adventureApi={adventureApi} playApi={playApi} setupApi={setupApi} />
+        <SessionRuntimeRoute sessionId={route.sessionId} sessionApi={sessionApi} adventureApi={adventureApi} playApi={playApi} setupApi={setupApi} combatApi={combatApi} />
       </main>
     </div>
   }

@@ -572,6 +572,10 @@ public class RuntimeTurnApplicationService {
                 adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults);
         RuntimePlanningResult planningResult = planningPort.planWithOutcomes(planningRequest);
         RuntimePlan plan = planningResult.plan();
+        if (!command.gmOnly() && !plan.combatStartRequested()) {
+            plan = plan.withCombatEnemies(PlayerCombatIntentPolicy.proposalsFor(command.action(),
+                    adventure.currentSituation(), scenarioPackage.scenarioModel()));
+        }
         RuntimeResolutionProposal proposal = SituationProposalGroundingPolicy.ground(
                 planningResult.resolutionProposal(), scenarioPackage.scenarioModel(), evidencePack.storybook(), command.turnId());
         com.dndmaster.adventure.domain.runtime.CurrentSituation nextSituation = proposal.situationUpdate() == null

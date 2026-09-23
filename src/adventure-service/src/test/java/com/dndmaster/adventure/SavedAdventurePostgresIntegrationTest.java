@@ -2,6 +2,7 @@ package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
@@ -171,6 +172,8 @@ class SavedAdventurePostgresIntegrationTest {
                 List.of(new RuntimeAddedFact(UUID.randomUUID(), "The keeper has a sister.", UUID.randomUUID())),
                 context("The broken door is open."));
         repository.save(first);
+        first.commitCombatEnd(owner, first.version(), UUID.randomUUID(), "쓰러진 적: 중요한 적대자.", true);
+        repository.save(first);
 
         Adventure restored = repository.findById(adventure.id()).orElseThrow();
         assertEquals(packageId, restored.lockedScenarioPackageId());
@@ -179,6 +182,8 @@ class SavedAdventurePostgresIntegrationTest {
         assertEquals(List.of("door"), restored.disclosureState().disclosedFactIds().stream().toList());
         assertEquals(first.currentSituation(), restored.currentSituation());
         assertEquals(first.runtimeAddedFacts(), restored.runtimeAddedFacts());
+        assertTrue(restored.runtimeAddedFacts().stream()
+                .anyMatch(fact -> fact.content().contains("전투 결과") && fact.content().contains("중요한 적대자")));
 
         stale.initializeScenarioRuntime(owner, GameState.empty(), DisclosureState.empty(),
                 CurrentSituation.initial("stale"), List.of(), context("stale"));

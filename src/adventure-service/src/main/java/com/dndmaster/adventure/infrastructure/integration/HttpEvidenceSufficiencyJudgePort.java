@@ -30,7 +30,7 @@ public final class HttpEvidenceSufficiencyJudgePort implements EvidenceSufficien
     @Override public SufficiencyDecision judge(EvidenceSufficiencyRequest request) {
         Objects.requireNonNull(request,"request must not be null");
         try {
-            String body=mapper.writeValueAsString(new Request(request.policyId(),request.query(),candidates(request.candidates()),request.pinnedEvidenceIds().stream().map(UUID::toString).toList()));
+            String body=mapper.writeValueAsString(new Request(request.soloPlayerId(),request.policyId(),request.query(),candidates(request.candidates()),request.pinnedEvidenceIds().stream().map(UUID::toString).toList()));
             HttpResponse<String> response=client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/evidence-sufficiency")).timeout(timeout).header("Content-Type","application/json").header("X-Internal-Token",internalToken).POST(HttpRequest.BodyPublishers.ofString(body)).build(),HttpResponse.BodyHandlers.ofString());
             if(response.statusCode()==429||response.statusCode()>=500) throw new EvidenceAcquisitionTransientException("evidence sufficiency is unavailable");
             if(response.statusCode()/100!=2) throw new EvidenceAcquisitionContractException("evidence sufficiency failed with status "+response.statusCode());
@@ -47,7 +47,7 @@ public final class HttpEvidenceSufficiencyJudgePort implements EvidenceSufficien
         var allowed=request.candidates().stream().map(EvidenceCandidate::id).collect(java.util.stream.Collectors.toSet());
         if(selected.size()!=new LinkedHashSet<>(selected).size()||!allowed.containsAll(selected)||!selected.containsAll(request.pinnedEvidenceIds())||!reasons.keySet().equals(new LinkedHashSet<>(selected))) throw new EvidenceAcquisitionContractException("judge returned invalid evidence identifiers");
     }
-    record Request(String policy,String taskContext,List<Candidate> candidates,List<String> pinnedEvidenceIds) {}
+    record Request(UUID soloPlayerId,String policy,String taskContext,List<Candidate> candidates,List<String> pinnedEvidenceIds) {}
     record Candidate(String evidenceId,String documentType,String locator,String excerpt) {}
     @JsonIgnoreProperties(ignoreUnknown=true) record Response(boolean sufficient,List<String> selectedEvidenceIds,Map<String,String> selectionReasons,String missing) {}
 }

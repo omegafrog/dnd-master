@@ -123,13 +123,12 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         if (provenance == null) {
             throw new ResolutionExtractionException("published evidence is missing provenance");
         }
-        if (!documentId.equals(provenance.documentId()) || extractionVersion != provenance.extractionVersion()
-                || !locator.equals(provenance.locator())) {
+        if (!locator.equals(provenance.originalLocator())) {
             throw new ResolutionExtractionException("published evidence provenance does not match its result");
         }
         return new PublishedEvidenceProvenance(
                 new KnowledgeDocumentId(documentId), extractionVersion, provenance.pageNumber(),
-                provenance.sectionPath(), provenance.bbox(), provenance.tableCell(), provenance.locator());
+                provenance.sectionPath(), provenance.bbox(), provenance.tableCell(), provenance.originalLocator());
     }
 
     private List<ResolutionExtractionPort.SourceExcerpt> loadMapAssets(
@@ -167,8 +166,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     record PreparationCandidate(UUID chunkId, UUID documentId, long extractionVersion, String documentType,
             String locator, String excerpt, ProvenanceResponse provenance) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record ProvenanceResponse(UUID documentId, long extractionVersion, int pageNumber, List<String> sectionPath,
-            List<Double> bbox, String tableCell, String locator) {}
+    record ProvenanceResponse(int pageNumber, List<String> sectionPath, List<Double> bbox, String tableCell, String originalLocator) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     record SourcePreviewResponse(String content, List<PreviewAsset> assets) {}
     @JsonIgnoreProperties(ignoreUnknown = true)

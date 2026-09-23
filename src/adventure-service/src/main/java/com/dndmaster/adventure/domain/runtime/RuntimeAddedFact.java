@@ -3,7 +3,7 @@ package com.dndmaster.adventure.domain.runtime;
 import java.util.Objects;
 import java.util.UUID;
 
-/** A fact established during this playthrough when source lookup found no answer. */
+/** A durable fact established by play, including a confirmed combat outcome. */
 public record RuntimeAddedFact(UUID factId, String content, UUID establishedTurnId, String subject) {
     public RuntimeAddedFact(UUID factId, String content, UUID establishedTurnId) {
         this(factId, content, establishedTurnId, inferSubject(content));

@@ -49,6 +49,15 @@ public record CurrentSituation(UUID situationId, long revision, String location,
         return new CurrentSituation(situationId, revision + 1, location, problem, threat, goal, scenarioId, firstNarration);
     }
 
+    public CurrentSituation afterCombat(String summary, boolean enemiesDefeated) {
+        if (summary == null || summary.isBlank()) throw new IllegalArgumentException("combat end summary must not be blank");
+        if (enemiesDefeated) {
+            return new CurrentSituation(situationId, revision + 1, location, summary, summary,
+                    "전투가 끝난 뒤 다음 행동을 결정한다", null, null);
+        }
+        return new CurrentSituation(situationId, revision + 1, location, problem, threat, goal, null, firstNarration);
+    }
+
     public CurrentSituation withFirstNarration(String narration) {
         if (firstNarration != null || narration == null || narration.isBlank()) return this;
         return new CurrentSituation(situationId, revision, location, problem, threat, goal, activeCombatScenarioId, narration);

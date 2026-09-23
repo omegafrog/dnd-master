@@ -234,12 +234,22 @@ public final class Adventure {
     }
 
     /** Commits the terminal combat summary into the owning Adventure state. */
-    public void commitCombatEnd(OwnerPlayerId requestingOwner, long expectedVersion, String summary) {
+    public void commitCombatEnd(OwnerPlayerId requestingOwner, long expectedVersion, UUID combatEncounterId, String summary,
+            boolean enemiesDefeated) {
         authorizeRuntime(requestingOwner);
         requireExpectedVersion(expectedVersion);
         if (summary == null || summary.isBlank()) throw new IllegalArgumentException("combat end summary must not be blank");
+        Objects.requireNonNull(combatEncounterId, "combat encounter id must not be null");
+        UUID outcomeId = UUID.nameUUIDFromBytes((id.value() + ":combat-outcome:" + combatEncounterId)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        runtimeAddedFacts = mergeRuntimeFacts(List.of(new RuntimeAddedFact(outcomeId,
+                "전투 결과: " + summary.trim(), outcomeId, "combat outcome")));
         currentContext = new AdventureContext(currentContext.currentScene(), currentContext.npcState(),
                 null, summary.trim());
+        if (currentSituation != null) currentSituation = currentSituation.afterCombat(summary.trim(), enemiesDefeated);
+        List<ConversationEntry> nextConversation = new java.util.ArrayList<>(conversation);
+        nextConversation.add(new ConversationEntry(nextConversation.size(), "AI_GAME_MASTER", summary.trim()));
+        conversation = List.copyOf(nextConversation);
         version++;
     }
 

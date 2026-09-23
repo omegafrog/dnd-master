@@ -300,6 +300,13 @@ public class CombatMapController {
                 .map(PlayerCombatMapResponse::from).orElseThrow(CombatMapAccessDeniedException::new);
     }
 
+    @GetMapping("/internal/v1/adventures/{adventureId}/combat-map/prepared-draft")
+    public boolean hasPreparedDraft(@PathVariable UUID adventureId, @RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
+        return mapViewService.preparedMapIdForAdventure(new AdventureId(adventureId), new MapOwnerId(ownerId)).isPresent();
+    }
+
     @GetMapping("/internal/v1/combat-maps/{mapId}/alignment")
     public MapGridAlignmentResponse alignment(@PathVariable UUID mapId, @RequestParam UUID ownerId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {

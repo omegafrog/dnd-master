@@ -83,7 +83,7 @@ class CrossContextHttpScenarioSourceExcerptGatewayTest {
                 String requestBody = requestBodies.getLast();
                 String body = switch (path) {
                     case "/internal/v1/evidence-candidates/preparation-search" -> """
-                            {"ownerId":"%s","scenarioSourceBundleId":"%s","candidates":[{"chunkId":"%s","documentId":"%s","extractionVersion":7,"documentType":"%s","locator":"page=3;block=b7","excerpt":"%s evidence","provenance":{"documentId":"%s","extractionVersion":7,"pageNumber":3,"sectionPath":["Chapter","Checks"],"bbox":[10,20,100,140],"tableCell":"table-1:r2:c1","locator":"page=3;block=b7"}}]}
+                            {"ownerId":"%s","scenarioSourceBundleId":"%s","candidates":[{"chunkId":"%s","documentId":"%s","extractionVersion":7,"documentType":"%s","locator":"page=3;block=b7","excerpt":"%s evidence","provenance":{"pageNumber":3,"sectionPath":["Chapter","Checks"],"bbox":[10,20,100,140],"tableCell":"table-1:r2:c1","originalLocator":"page=3;block=b7"}}]}
                             """.formatted(ownerId, bundleId, UUID.randomUUID(),
                                     requestBody.contains("\"documentType\":\"RULEBOOK\"") ? rulebookId : storybookId,
                                     requestBody.contains("\"documentType\":\"RULEBOOK\"") ? "RULEBOOK" : "STORYBOOK",

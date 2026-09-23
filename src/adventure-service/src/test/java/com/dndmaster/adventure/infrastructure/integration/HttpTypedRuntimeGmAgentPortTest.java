@@ -42,11 +42,13 @@ class HttpTypedRuntimeGmAgentPortTest {
                  "goal":"inspect","basis":"FALLBACK","reference":"","required":true}}
                 """)));
         UUID soloPlayerId = UUID.randomUUID();
+        UUID endpointId = UUID.randomUUID();
         GmContextEnvelope context = new GmContextEnvelope(
                 AdventureId.generate(), new OwnerPlayerId(soloPlayerId), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), 1, new AdventureContext("cellar", "quiet", "inspect", "safe"), null,
                 "look around", new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of(), "",
-                "", "", "", RequestedGmProviderSelection.legacyUnknown(),
+                "codex-cli", "gpt-5.6-luna", "medium",
+                new RequestedGmProviderSelection(endpointId, "codex-cli", "gpt-5.6-luna", "medium"),
                 new NarrativeContext(soloPlayerId.toString(), "cellar", 0, java.util.Set.of(), List.of(),
                         java.util.Map.of(), List.of(), List.of(), List.of()));
         HttpTypedRuntimeGmAgentPort port = new HttpTypedRuntimeGmAgentPort(
@@ -57,7 +59,8 @@ class HttpTypedRuntimeGmAgentPortTest {
 
         server.verify(postRequestedFor(urlEqualTo("/internal/gm/runtime-turn"))
                 .withRequestBody(equalToJson("""
-                        {"soloPlayerId":"%s"}
-                        """.formatted(soloPlayerId), true, true)));
+                        {"soloPlayerId":"%s","endpointId":"%s","provider":"codex-cli",
+                         "model":"gpt-5.6-luna","reasoning":"medium"}
+                        """.formatted(soloPlayerId, endpointId), true, true)));
     }
 }

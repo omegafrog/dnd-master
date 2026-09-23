@@ -2,8 +2,12 @@ package com.dndmaster.aigamemaster.application.evidence;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.UUID;
 
-public record EvidenceRerankRequest(String query, String taskContext, List<EvidenceCandidate> candidates) {
+public record EvidenceRerankRequest(String query, String taskContext, List<EvidenceCandidate> candidates, UUID soloPlayerId) {
+    public EvidenceRerankRequest(String query, String taskContext, List<EvidenceCandidate> candidates) {
+        this(query, taskContext, candidates, null);
+    }
     public EvidenceRerankRequest {
         if (query == null || query.isBlank()) throw new IllegalArgumentException("query is required");
         if (taskContext == null || taskContext.isBlank()) throw new IllegalArgumentException("taskContext is required");

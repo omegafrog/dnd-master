@@ -2,6 +2,8 @@ package com.dndmaster.adventure.combat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.combat.CharacterCombatPort;
@@ -18,14 +20,20 @@ import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.adventure.AdventureStatus;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.adventure.ScenarioId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.combat.CombatEndProposal;
+import com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock;
 import com.dndmaster.adventure.domain.combat.CombatEncounter;
 import com.dndmaster.adventure.domain.combat.CombatParticipant;
+import com.dndmaster.adventure.domain.combat.CombatStatBlockSource;
+import com.dndmaster.adventure.domain.runtime.CurrentSituation;
+import com.dndmaster.adventure.domain.runtime.DisclosureState;
+import com.dndmaster.adventure.domain.runtime.GameState;
 import com.dndmaster.adventure.domain.runtime.GmInput;
 import com.dndmaster.adventure.domain.runtime.GmTurn;
 import java.time.Duration;
@@ -37,6 +45,44 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class CombatEndCommitWiringTest {
+    @Test
+    void 쓰러진_적의_결과가_다음_턴의_대화와_현재_상황에_반영된다() {
+        UUID adventureId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID characterId = UUID.randomUUID();
+        var initial = Adventure.create(new AdventureId(adventureId), new SessionId(UUID.randomUUID()),
+                new OwnerPlayerId(ownerId), new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(characterId), new AdventureContext("지하실", "쥐", "공격", "쥐가 덤빈다"));
+        var situation = new CurrentSituation(UUID.randomUUID(), 2, "지하실", "쥐가 공격 중", "쥐", "쥐를 물리친다")
+                .enterCombatScenario("cellar-rat");
+        var adventure = Adventure.rehydrateWithRuntimeState(initial.id(), initial.sessionId(), initial.ownerPlayerId(),
+                initial.scenarioId(), initial.ruleSetId(), initial.party(), initial.conversation(), initial.currentContext(),
+                AdventureStatus.ACTIVE, 1, 0, null, UUID.randomUUID(), 1, GameState.empty(), DisclosureState.empty(),
+                situation, List.of());
+        var encounters = new EncounterStore();
+        var enemy = new CombatParticipant(UUID.randomUUID(), "지하실 쥐", CombatParticipant.Controller.AI, 8, null,
+                com.dndmaster.adventure.domain.combat.TurnResources.initial(),
+                new CombatEnemyStatBlock(12, 4, 0, "1d4", new CombatStatBlockSource(UUID.randomUUID(), 1, "rat")), 0);
+        encounters.active = new CombatEncounter(UUID.randomUUID(), adventureId, CombatEncounter.Status.ACTIVE,
+                1, characterId, List.of(new CombatParticipant(characterId, "영웅", CombatParticipant.Controller.PLAYER, 12, null), enemy), 2, 3);
+        var events = new EventStore();
+        var service = new CombatLifecycleApplicationService(encounters, events, new AdventureStore(adventure),
+                new RecordingCharacterPort(), new RecordingMapPort(), new EmptyOperationStore(), new EmptyWorkStore());
+
+        var result = service.endWhenEnemiesDefeated(adventureId);
+
+        assertTrue(adventure.currentContext().latestJudgment().contains("지하실 쥐"));
+        assertTrue(adventure.conversation().getLast().content().contains("지하실 쥐"));
+        assertTrue(adventure.currentSituation().problem().contains("지하실 쥐"));
+        assertTrue(adventure.currentSituation().threat().contains("지하실 쥐"));
+        assertTrue(adventure.runtimeAddedFacts().stream()
+                .anyMatch(fact -> fact.content().contains("쓰러진 적") && fact.content().contains("지하실 쥐")));
+        assertEquals("전투가 끝난 뒤 다음 행동을 결정한다", adventure.currentSituation().goal());
+        assertNull(adventure.currentSituation().activeCombatScenarioId());
+        assertTrue(result.summary().summary().contains("지하실 쥐"));
+        assertTrue(events.events.getLast().playerPayload().contains("지하실 쥐"));
+    }
+
     @Test
     void committed_end_finalizes_owner_boundaries_and_removes_active_encounter() {
         UUID adventureId = UUID.randomUUID();

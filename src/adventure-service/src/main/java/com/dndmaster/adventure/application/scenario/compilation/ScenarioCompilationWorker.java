@@ -37,6 +37,7 @@ public final class ScenarioCompilationWorker {
     private final CompilationCandidateRepository candidateRepository;
     private final ScenarioModelCompilationService modelCompiler = new ScenarioModelCompilationService();
     private final ScenarioPackageRepository packageRepository;
+    private final ScenarioCompilationAgentPort scenarioCompilationAgentPort;
 
     public ScenarioCompilationWorker(
             ScenarioCompilationProcessManager processManager,
@@ -49,7 +50,7 @@ public final class ScenarioCompilationWorker {
             ScenarioPackageRepository ignoredPackageRepository) {
         this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
                 ignored -> List.of(), ignored -> List.of(), compiler, ignoredPackageRepository,
-                new NoopCompilationCandidateRepository());
+                new NoopCompilationCandidateRepository(), null);
     }
 
     public ScenarioCompilationWorker(
@@ -65,7 +66,7 @@ public final class ScenarioCompilationWorker {
             ScenarioPackageRepository ignoredPackageRepository) {
         this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
                 characterTagPort, characterContextSearchPort, compiler, ignoredPackageRepository,
-                new NoopCompilationCandidateRepository());
+                new NoopCompilationCandidateRepository(), null);
     }
 
     public ScenarioCompilationWorker(
@@ -80,6 +81,40 @@ public final class ScenarioCompilationWorker {
             ScenarioPackageCompilationService compiler,
             ScenarioPackageRepository ignoredPackageRepository,
             CompilationCandidateRepository candidateRepository) {
+        this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
+                characterTagPort, characterContextSearchPort, compiler, ignoredPackageRepository, candidateRepository, null);
+    }
+
+    public ScenarioCompilationWorker(
+            ScenarioCompilationProcessManager processManager,
+            ScenarioCompilationRepository compilationRepository,
+            WorkQueuePort queue,
+            ScenarioBundleRepository bundleRepository,
+            ResolutionExtractionPort extractionPort,
+            ScenarioSourceExcerptPort excerptPort,
+            CharacterInputTagExtractionPort characterTagPort,
+            CharacterContextSearchPort characterContextSearchPort,
+            ScenarioPackageCompilationService compiler,
+            ScenarioPackageRepository packageRepository,
+            ScenarioCompilationAgentPort scenarioCompilationAgentPort) {
+        this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
+                characterTagPort, characterContextSearchPort, compiler, packageRepository,
+                new NoopCompilationCandidateRepository(), scenarioCompilationAgentPort);
+    }
+
+    public ScenarioCompilationWorker(
+            ScenarioCompilationProcessManager processManager,
+            ScenarioCompilationRepository compilationRepository,
+            WorkQueuePort queue,
+            ScenarioBundleRepository bundleRepository,
+            ResolutionExtractionPort extractionPort,
+            ScenarioSourceExcerptPort excerptPort,
+            CharacterInputTagExtractionPort characterTagPort,
+            CharacterContextSearchPort characterContextSearchPort,
+            ScenarioPackageCompilationService compiler,
+            ScenarioPackageRepository ignoredPackageRepository,
+            CompilationCandidateRepository candidateRepository,
+            ScenarioCompilationAgentPort scenarioCompilationAgentPort) {
         this.processManager = Objects.requireNonNull(processManager, "process manager must not be null");
         this.compilationRepository = Objects.requireNonNull(compilationRepository, "compilation repository must not be null");
         this.queue = Objects.requireNonNull(queue, "queue must not be null");
@@ -92,6 +127,7 @@ public final class ScenarioCompilationWorker {
         Objects.requireNonNull(ignoredPackageRepository, "package repository must not be null");
         this.packageRepository = ignoredPackageRepository;
         this.candidateRepository = Objects.requireNonNull(candidateRepository, "candidate repository must not be null");
+        this.scenarioCompilationAgentPort = scenarioCompilationAgentPort;
     }
 
     public ScenarioCompilationWorker(
@@ -169,9 +205,38 @@ public final class ScenarioCompilationWorker {
                         excerpts == null ? List.of() : excerpts,
                         characterCandidates == null ? List.of() : characterCandidates);
             } else {
+                var extractedScenarioModel = com.dndmaster.adventure.domain.scenario.ScenarioModel.empty();
+                if (scenarioCompilationAgentPort != null) {
+                    List<ResolutionExtractionPort.SourceExcerpt> storybookExcerpts = excerpts == null ? List.of() : excerpts.stream()
+                            .filter(Objects::nonNull)
+                            .filter(excerpt -> "STORYBOOK".equalsIgnoreCase(excerpt.documentType()))
+                            .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
+                            .filter(ResolutionExtractionPort.SourceExcerpt::isPublishedEvidence)
+                            .toList();
+                    if (storybookExcerpts.isEmpty()) {
+                        processManager.block(claimed, delivery, List.of(
+                                com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic.blocking(
+                                        "STORYBOOK_EVIDENCE_UNAVAILABLE", "published Storybook excerpts are required to compile scenario encounters")));
+                        return Optional.empty();
+                    }
+                    var extracted = scenarioCompilationAgentPort.compile(bundle.ownerPlayerId().value(),
+                            new ScenarioCompilationAgentPort.ScenarioCompilationAgentRequest(
+                                    "scenario-compilation:" + claimed.id(), scenarioContext(storybookExcerpts)));
+                    if (extracted.status() == ScenarioCompilationAgentPort.ScenarioCompilationAgentResult.Status.BLOCKED) {
+                        List<String> reasons = extracted.diagnostics().isEmpty()
+                                ? List.of("scenario material did not support a ready model") : extracted.diagnostics();
+                        processManager.block(claimed, delivery, reasons.stream()
+                                .map(message -> com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic
+                                        .blocking("SCENARIO_MODEL_EXTRACTION_BLOCKED", message))
+                                .toList());
+                        log.info("scenario model extraction blocked compilationId={} diagnostics={}", claimed.id(), extracted.diagnostics());
+                        return Optional.empty();
+                    }
+                    extractedScenarioModel = extracted.scenarioModel();
+                }
                 var modelEvaluation = modelCompiler.compile(inputSnapshot,
                         compiler.validateResolutionCandidates(bundle, candidates == null ? List.of() : candidates, resolutionExcerpts),
-                        excerpts == null ? List.of() : excerpts);
+                        excerpts == null ? List.of() : excerpts, extractedScenarioModel);
                 if (modelEvaluation.status() == com.dndmaster.adventure.domain.scenario.ScenarioModelCompilationPolicy.Status.BLOCKED) {
                     processManager.block(claimed, delivery, modelEvaluation.diagnostics());
                     log.info("scenario compilation blocked compilationId={} diagnostics={}", claimed.id(), modelEvaluation.diagnostics());
@@ -228,6 +293,13 @@ public final class ScenarioCompilationWorker {
                     claimed.id(), claimed.attempt(), reason, exception);
             throw exception;
         }
+    }
+
+    private static String scenarioContext(List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
+        return excerpts.stream().map(excerpt -> "DOCUMENT_ID=" + excerpt.documentId().value()
+                + "\nEXTRACTION_VERSION=" + excerpt.extractionVersion()
+                + "\nLOCATOR=" + excerpt.locator() + "\nTEXT=" + excerpt.text())
+                .collect(java.util.stream.Collectors.joining("\n---\n"));
     }
 
     private static boolean isCodexTurnTimeout(Throwable failure) {

@@ -1,9 +1,15 @@
 package com.dndmaster.aigamemaster.application.evidence;
 
 import java.util.List;
+import java.util.UUID;
 
 public record EvidenceSufficiencyRequest(EvidenceTaskPolicy policy, String taskContext,
-                                         List<EvidenceCandidate> candidates, List<String> pinnedEvidenceIds) {
+                                         List<EvidenceCandidate> candidates, List<String> pinnedEvidenceIds,
+                                         UUID soloPlayerId) {
+    public EvidenceSufficiencyRequest(EvidenceTaskPolicy policy, String taskContext,
+                                      List<EvidenceCandidate> candidates, List<String> pinnedEvidenceIds) {
+        this(policy, taskContext, candidates, pinnedEvidenceIds, null);
+    }
     public EvidenceSufficiencyRequest {
         if (policy == null) throw new IllegalArgumentException("policy is required");
         if (taskContext == null || taskContext.isBlank()) throw new IllegalArgumentException("taskContext is required");

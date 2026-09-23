@@ -61,6 +61,22 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
 
     @Override
+    public boolean hasPreparedMap(UUID adventureId, UUID ownerId) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/adventures/" + adventureId
+                + "/combat-map/prepared-draft?ownerId=" + ownerId))
+                .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 404 || response.statusCode() == 403) return false;
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("prepared combat map lookup failed");
+            }
+            return Boolean.parseBoolean(response.body().trim());
+        } catch (IOException exception) { throw new IllegalStateException("prepared combat map lookup transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("prepared combat map lookup interrupted", exception); }
+    }
+
+    @Override
     public void calibrate(UUID mapId, UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {
         Calibration payload = new Calibration(ownerId, expectedVersion, width, height, cellSize, originX, originY,

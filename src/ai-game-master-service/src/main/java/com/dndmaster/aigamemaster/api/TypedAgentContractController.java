@@ -44,7 +44,15 @@ public final class TypedAgentContractController {
         requestGuard.internal(token);
         require(request);
         return adapter.complete(request.soloPlayerId(), request.operationKey(),
-                "ROLE=SCENARIO_COMPILATION\nSTORYBOOK_CONTEXT=" + request.storybookContext(),
+                "ROLE=SCENARIO_COMPILATION\nSTORYBOOK_CONTEXT=" + request.storybookContext()
+                        + "\nTASK=Compile the source-backed hidden ScenarioModel from the supplied Storybook excerpts. "
+                        + "Find essential combat encounters: named or identifiable hostile groups that the Storybook makes part of the objective, a required obstacle, or an explicit triggered fight. Do not include every passing mention of a creature, non-hostile NPCs, or invented encounters. "
+                        + "For each encounter, preserve enemy identity, count, and location only when the Storybook states or clearly supports them. "
+                        + "Each element in actors, locations, objectives, revelations, encounters, relationships, and resolutionCriteria must include elementId, type, attributes, and sourceRefs; type is a non-empty string and every sourceRefs entry must follow the specified shape. "
+                        + "Every encounter must be an object in scenarioModel.encounters with type combat-scenario, elementId, attributes.enemyKey, attributes.displayName, attributes.count, attributes.location, and sourceRefs. "
+                        + "Each sourceRefs item must exactly cite a supplied DOCUMENT_ID, EXTRACTION_VERSION, and LOCATOR using {knowledgeDocumentId:{value:DOCUMENT_ID},extractionVersion:EXTRACTION_VERSION,locator:LOCATOR}. Never invent or rewrite a source reference. "
+                        + "Also provide the ScenarioModel schema fields schemaVersion, actors, locations, objectives, revelations, encounters, relationships, resolutionCriteria, and startingSituation. schemaVersion must be an integer JSON number and startingSituation must be a plain text string. "
+                        + "OUTPUT_CONTRACT=Return exactly one JSON object with status (READY or BLOCKED), scenarioModel when READY, and diagnostics. Do not use markdown or add text outside JSON.",
                 json -> parseCompilation(json));
     }
 
@@ -76,20 +84,21 @@ public final class TypedAgentContractController {
                         + "\nRUNTIME_CONTEXT=" + write(request.runtimeContext())
                         + "\nACTION=" + request.action()
                         + "\nLOOKUP_ORDER_RULE=Use authoritative results in this order: Game State, established Runtime-added Facts, locked Scenario Model, then Storybook RAG. If all are NOT_FOUND, create only the minimum Runtime Fact needed to keep this turn playable. Do not use a lower-priority answer to contradict a higher-priority result."
-                        + "\nGROUNDING_RULES=Distinguish Canonical Fact from Runtime Fact. Canonical Fact means a scenario truth such as a culprit, secret route, cause, hidden clue, or encounter structure; create or reveal it only when the locked ScenarioModel or selected evidence supports it. Runtime Fact means a play-created NPC reaction, opinion, refusal, negotiation, or compatible offer; it may be improvised when it does not contradict canonical truth, and any saved Runtime Fact must be treated as existing on later turns."
+                        + "\nGROUNDING_RULES=Distinguish canonical Storybook truth from established adventure facts. Create or reveal canonical truths such as a culprit, secret route, cause, hidden clue, or encounter structure only when the locked ScenarioModel or selected evidence supports them. RUNTIME_ADDED_FACTS contains durable facts already established in this adventure, including confirmed combat outcomes; treat them as authoritative and never narrate a defeated enemy as active again unless a later supported event explains it. A new play-created NPC reaction, opinion, refusal, negotiation, or compatible offer may be improvised only when it does not contradict canonical truth."
                         + "\nDIALOGUE_RULE=ACTION is an executed dialogue action, not a suggestion. If ACTION directly addresses an NPC, generate the NPC reaction in the current response. Do not tell the player to ask the same question again, and do not turn a completed question into an instruction. If a canonical answer is unavailable, respond diegetically through the NPC's ignorance, refusal, evasion, or negotiation; never say that the scenario lacks the information."
                         + "\nANTI_LOOP_RULE=Do not repeat the same dialogue action as a next choice or recommendation. Use a follow-up action such as negotiating a different condition, accepting or refusing an offer, asking a new question, or observing the surroundings."
                         + "\nOUTPUT_CONTRACT=Return exactly one JSON object with scene, judgment, narration, situation, combatStart, combatEnemies, mapEntryRequested, and optional runtimeFacts. "
                         + "situation must contain kind (CONTINUE or TRANSITION), location, problem, threat, goal, basis (SCENARIO, RAG, or FALLBACK), reference, and required. "
                         + "Choose the situation basis in this order: an applicable ScenarioModel element; otherwise a matching storybook RAG citation; otherwise FALLBACK only when a new fact is necessary to keep play moving, with required=true. "
                         + "For SCENARIO, reference is a ScenarioModel element id. For RAG, reference is a citationKey or locator from COMPOSITE_FACT_LOOKUP_RESULTS. For FALLBACK, reference is empty. "
-                        + "The next GM turn receives this saved situation, so make it concrete and playable. Decide combat from the saved situation and the evidence, never from a word in the player's action. "
+                        + "The next GM turn receives this saved situation, so make it concrete and playable. The player's action can express a choice to fight, but cannot prove that an enemy exists; confirm the enemy from the saved situation, ScenarioModel, or Storybook evidence. "
                         + "MANDATORY: if a hostile creature already supported by the saved situation is attacking, has cornered the party, or the player is exchanging attacks with it, return combatStart=true and a SITUATION enemy entry in the same response. "
+                        + "MANDATORY: when the player explicitly chooses to start or join a fight against a hostile supported by the saved situation or a matching ScenarioModel combat-scenario, return combatStart=true and the matching structured enemy in the same response. Respect a clear refusal to fight. "
                         + "Do not narrate a supported hostile creature attacking, closing in to attack, or 'combat ready' while returning combatStart=false. This is an output validity rule, not a discretionary pacing choice. "
                         + "mapEntryRequested must be a boolean. Set it to true only when the committed situation places the party inside the prepared map area and the player should see that map now; set it to false while the party is still outside, approaching, or when no prepared map applies. Base this on the saved situation and scenario context, not on keyword matching. If ACTION together with the generated narration completes movement through an entrance or other transition into the destination area, set mapEntryRequested=true even when the scene label still contains the previous area; the completed transition and destination situation are the evidence. Do not decide this from a single word or a fixed list of words. "
                         + "runtimeFacts is optional. Include it only for a newly established playthrough fact created by this turn's compatible NPC reaction, refusal, offer, or negotiation after all authoritative lookup results are NOT_FOUND. Each item must contain subject and content. Never use runtimeFacts for a culprit, secret route, cause, hidden clue, puzzle answer, or other canonical scenario truth. "
                         + "When ACTION is SESSION_OPENING, LANGUAGE_CONTRACT requires all player-visible text in scene, judgment, narration, and situation to be written only in natural Korean. Do not output English or any other foreign-language words, labels, headings, or meta-commentary. Translate common nouns, class names, location names, action prompts, and proper names into Korean. Make the first player-facing narration establish the current location and why the party is here, state the immediate problem or pressure, identify a few observable things the party can respond to, and end with a Korean question inviting the player's action, such as '어떻게 하시겠어요?'. Use only RUNTIME_CONTEXT and COMPOSITE_FACT_LOOKUP_RESULTS; never reveal a puzzle answer or hidden fact. "
-                        + "A player action is not evidence that an entity exists. Only enter combat with a combat scenario id present in RUNTIME_CONTEXT or COMPOSITE_FACT_LOOKUP_RESULTS. "
+                        + "A player action is not evidence that an entity exists. SCENARIO enemies must use an id present in the ScenarioModel in RUNTIME_CONTEXT; SITUATION enemies may be grounded by saved CURRENT_SITUATION or matching Storybook evidence in COMPOSITE_FACT_LOOKUP_RESULTS. Never require a precompiled id when the situation itself supports the enemy. "
                         + "combatEnemies must always be an array of objects with mode (SCENARIO, SITUATION, or INSTANT), scenarioId, enemyKey, name, and positive count; "
                         + "SCENARIO requires a scenarioId from the current ScenarioModel. SITUATION leaves scenarioId empty and requires matching storybook RAG evidence for the current situation. INSTANT leaves scenarioId empty and is reserved for a GM-forced consequence such as noise or a critical failure. "
                         + "Use [] when combatStart is false. Never invent an enemy from the action alone. "
@@ -110,10 +119,21 @@ public final class TypedAgentContractController {
 
     private ScenarioCompilationResponse parseCompilation(String json) {
         JsonNode root = readObject(json);
-        return new ScenarioCompilationResponse(required(root, "status"),
-                root.path("scenarioModel").isObject()
-                        ? mapper.convertValue(root.path("scenarioModel"), new TypeReference<Map<String, Object>>() { })
-                        : Map.of());
+        String status = required(root, "status").toUpperCase(java.util.Locale.ROOT);
+        if (!status.equals("READY") && !status.equals("BLOCKED")) {
+            throw new IllegalArgumentException("invalid scenario compilation status");
+        }
+        Map<String, Object> model = root.path("scenarioModel").isObject()
+                ? mapper.convertValue(root.path("scenarioModel"), new TypeReference<Map<String, Object>>() { })
+                : Map.of();
+        if (status.equals("READY") && model.isEmpty()) {
+            throw new IllegalArgumentException("READY scenario compilation requires a scenario model");
+        }
+        List<String> diagnostics = root.has("diagnostics")
+                ? mapper.convertValue(root.path("diagnostics"), mapper.getTypeFactory()
+                        .constructCollectionType(List.class, String.class)) : List.of();
+        return new ScenarioCompilationResponse(status,
+                model, diagnostics);
     }
 
     private ScenarioLookupResponse parseLookup(String json) {
@@ -278,12 +298,12 @@ public final class TypedAgentContractController {
                                      Map<String, Object> runtimeContext) {
         public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
                 List<Map<String, Object>> factLookupResults) {
-            this(soloPlayerId, operationKey, action, null, "ollama", "qwen3:8b", "medium", factLookupResults, Map.of());
+            this(soloPlayerId, operationKey, action, null, "codex-cli", "gpt-5.6-luna", "medium", factLookupResults, Map.of());
         }
 
         public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
                 List<Map<String, Object>> factLookupResults, Map<String, Object> runtimeContext) {
-            this(soloPlayerId, operationKey, action, null, "ollama", "qwen3:8b", "medium", factLookupResults, runtimeContext);
+            this(soloPlayerId, operationKey, action, null, "codex-cli", "gpt-5.6-luna", "medium", factLookupResults, runtimeContext);
         }
 
         public RuntimeTurnRequest {
@@ -306,7 +326,12 @@ public final class TypedAgentContractController {
         }
     }
 
-    public record ScenarioCompilationResponse(String status, Map<String, Object> scenarioModel) { }
+    public record ScenarioCompilationResponse(String status, Map<String, Object> scenarioModel, List<String> diagnostics) {
+        public ScenarioCompilationResponse {
+            scenarioModel = scenarioModel == null ? Map.of() : Map.copyOf(scenarioModel);
+            diagnostics = diagnostics == null ? List.of() : List.copyOf(diagnostics);
+        }
+    }
     public record ScenarioLookupResponse(String status, String answer, List<String> supportingElementIds) { }
     public record RuntimeTurnResponse(String scene, String judgment, String narration, boolean combatStart,
                                       List<CombatEnemyResponse> combatEnemies, SituationResponse situation,

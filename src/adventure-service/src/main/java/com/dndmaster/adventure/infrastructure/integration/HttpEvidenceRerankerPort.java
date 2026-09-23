@@ -38,7 +38,7 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
     public List<UUID> rerank(EvidenceRerankRequest request) {
         Objects.requireNonNull(request, "request must not be null");
         try {
-            String body = mapper.writeValueAsString(new Request(request.query(), request.policyId(), candidates(request.candidates())));
+            String body = mapper.writeValueAsString(new Request(request.soloPlayerId(), request.query(), request.policyId(), candidates(request.candidates())));
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/evidence-rerank"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
@@ -66,7 +66,7 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
     }
     private static boolean isTransient(int status) { return status == 429 || status >= 500; }
     private static String required(String value, String name) { if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank"); return value; }
-    record Request(String query, String taskContext, List<Candidate> candidates) {}
+    record Request(UUID soloPlayerId, String query, String taskContext, List<Candidate> candidates) {}
     record Candidate(String evidenceId, String documentType, String locator, String excerpt) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<UUID> orderedCandidateIds) {}
 }

@@ -54,7 +54,7 @@ export function SpatialTurnRuntime({ adventureId, playApi, combatSnapshot }: { a
   return null
 }
 
-export function SessionRuntime({ adventureId, adventureApi, expectedVersion, playApi, combatSnapshot, mapRefreshToken, onTurnCommitted, adventureTitle, sessionLabel, initialScene, partyCharacters = [], handouts = [], handoutsLoading = false, handoutsMessage = '', getHandoutPreview }: { adventureId: string; adventureApi: AdventureApi; expectedVersion?: number | null; playApi: AdventurePlayApi; combatSnapshot?: CombatSnapshot | null; mapRefreshToken?: number; onTurnCommitted?: () => void; adventureTitle?: string; sessionLabel?: string; initialScene?: string | null; partyCharacters?: RuntimePartyCharacter[]; handouts?: RuntimeHandout[]; handoutsLoading?: boolean; handoutsMessage?: string; getHandoutPreview?: RuntimeHandoutPreviewLoader }) {
+export function SessionRuntime({ adventureId, adventureApi, expectedVersion, playApi, combatSnapshot, mapRefreshToken, onTurnCommitted, adventureTitle, sessionLabel, initialScene, partyCharacters = [], handouts = [], handoutsLoading = false, handoutsMessage = '', getHandoutPreview, children }: { adventureId: string; adventureApi: AdventureApi; expectedVersion?: number | null; playApi: AdventurePlayApi; combatSnapshot?: CombatSnapshot | null; mapRefreshToken?: number; onTurnCommitted?: () => void; adventureTitle?: string; sessionLabel?: string; initialScene?: string | null; partyCharacters?: RuntimePartyCharacter[]; handouts?: RuntimeHandout[]; handoutsLoading?: boolean; handoutsMessage?: string; getHandoutPreview?: RuntimeHandoutPreviewLoader; children?: ReactNode }) {
   const [mapOpen, setMapOpen] = useState(false)
   const [noteOpen, setNoteOpen] = useState(false)
   const [partyOpen, setPartyOpen] = useState(true)
@@ -69,7 +69,7 @@ export function SessionRuntime({ adventureId, adventureApi, expectedVersion, pla
     return () => { active = false }
   }, [adventureId, mapRefreshToken, playApi])
 
-  return <><SpatialTurnRuntime adventureId={adventureId} playApi={playApi} combatSnapshot={combatSnapshot} /><section className="session-runtime" aria-labelledby="session-runtime-title">
+  return <>{children}<SpatialTurnRuntime adventureId={adventureId} playApi={playApi} combatSnapshot={combatSnapshot} /><section className="session-runtime" aria-labelledby="session-runtime-title">
     <header className="session-runtime-header">
       <a className="session-runtime-exit" href={`#/adventures/${encodeURIComponent(adventureId)}?tab=sessions`}><ChevronLeft size={16} aria-hidden="true" />세션 종료</a>
       <div className="session-runtime-title-block"><p className="eyebrow">SESSION</p><h1 id="session-runtime-title">{adventureTitle || '모험 세션'}</h1><p>{sessionLabel || '플레이 기록'}</p></div>

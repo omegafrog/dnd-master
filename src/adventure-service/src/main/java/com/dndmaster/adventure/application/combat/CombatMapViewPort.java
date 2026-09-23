@@ -7,6 +7,7 @@ import java.util.UUID;
 public interface CombatMapViewPort {
     Optional<View> playerView(UUID adventureId, UUID ownerId);
     default Optional<View> preparationView(UUID adventureId, UUID ownerId) { return playerView(adventureId, ownerId); }
+    default boolean hasPreparedMap(UUID adventureId, UUID ownerId) { return false; }
 
     default Alignment alignment(UUID mapId, UUID ownerId) { throw new UnsupportedOperationException("map grid alignment unavailable"); }
 
