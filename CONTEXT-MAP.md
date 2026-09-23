@@ -25,6 +25,7 @@
 - Adventure Runtime과 Scenario Preparation은 Document Knowledge의 통합 근거 후보 검색 계약을 사용한다. 각 작업의 상황별 근거 충분성 정책이 STORYBOOK, RULEBOOK 또는 두 유형을 검색 대상으로 선택하며, Document Knowledge는 선택된 범위 안에서 Dense·BM25 후보를 RRF 방식으로 통합한다.
 - Adventure Runtime과 Scenario Preparation은 AI Game Master를 관련도 재정렬과 근거 충분성 판단의 제안 Provider로 사용한다. AI 결과의 후보 식별자, 범위, 형식은 Adventure 서비스가 검증하고, 상황별 최종 결과도 Adventure 서비스가 확정한다.
 - Adventure Runtime은 AI Game Master의 제안을 검증되지 않은 상태 변경으로 취급한다.
+- Adventure Runtime은 모험별 대화 원문, 확정 턴에서 유래한 대화 요약, 현재 상황에 관련된 확정 사실별 장기 기록을 소유한다. AI Game Master는 압축된 대화와 장기 기록의 변경 후보만 생성하며, Adventure Runtime이 확정 근거·공개 여부·버전을 검증한 뒤 저장한다. 캐릭터 시트와 Current Situation의 정본은 기존 소유자가 유지한다.
 - Adventure Runtime은 Dice Roll, Character Management, Combat Map의 상태를 복제하지 않고 Runtime Command Saga로 조정한다.
 - Adventure Runtime의 `CombatEncounter` Aggregate는 전투 lifecycle과 순서를 소유한다. Dice Roll은 굴림 결과, Character Management는 캐릭터 상태, Combat Map은 지도·위치 상태의 정본을 계속 소유한다.
 - AI Game Master는 전투 시작·종료, Free-form Action, AI Turn과 AI Reaction에 대해 구조화된 제안만 제공한다. Adventure Runtime의 Game Engine과 `CombatEncounter`가 제안을 검증하고 상태 변경을 확정한다.

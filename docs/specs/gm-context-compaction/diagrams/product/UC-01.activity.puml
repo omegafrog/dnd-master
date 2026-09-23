@@ -1,0 +1,38 @@
+@startuml
+title UC-01 단일 프롬프트를 구성한다 — 액티비티
+|Adventure Runtime|
+start
+:시작 장면, 일반 GM Turn 또는 전투 중 서술 요청을 받는다;
+note right
+  각 요청마다 codex exec 한 번만 사용한다. (BR-01, AC-01)
+end note
+:확정된 Current Situation과 이번 턴의 근거를 확인한다;
+|GM Context Compaction|
+:현재 상황에 관련된 장기 기록을 선택한다;
+:단일 프롬프트에 입력 구역을 정해진 순서로 구성한다;
+note right
+  고정 지침·잠긴 자료 → 현재 상황 관련 장기 기록 → 누적된 이전 대화 요약 → 최근 대화 원문 → 최신 캐릭터 시트·Current Situation·이번 턴 근거·플레이어 입력 (BR-02, AC-02)
+end note
+:각 구역에 모델의 실제 가용 입력 한도 대비 최대 비율과 최소 보장량을 적용한다;
+note right
+  구체 비율과 수치는 Architecture 단계에서 정한다. (BR-03, AC-03)
+end note
+if (구역 배정 공간이 남는가?) then (예)
+  :남는 공간을 이번 턴 근거와 최근 대화에 제공한다;
+else (아니요)
+endif
+:응답 생성 공간을 남긴다;
+:최신 정본과 근거가 캐시보다 우선하도록 프롬프트를 확정한다;
+note right
+  캐시 성능을 위해 정확하지 않거나 근거가 부족한 정보를 채택하지 않는다. (BR-04, BR-14)
+end note
+|Adventure Runtime|
+:단일 프롬프트로 codex exec를 한 번 호출한다;
+|AI Game Master|
+:전달된 근거 범위 안에서 응답을 만든다;
+:플레이어에게 보일 응답만 반환한다;
+note right
+  내부 계획과 비공개 사실은 노출하지 않는다. (BR-15)
+end note
+stop
+@enduml

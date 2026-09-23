@@ -1,0 +1,33 @@
+@startuml
+title UC-01 단일 프롬프트를 구성한다 — 유스케이스
+left to right direction
+actor "Solo Player" as Player
+actor "AI Game Master" as GM
+actor "Adventure Runtime" as Runtime
+rectangle "모험 진행 중 GM 입력 구성" {
+  usecase "시작 장면·일반 GM Turn·전투 중 서술 요청을 준비한다" as UC01
+  usecase "현재 상황 관련 장기 기록을 제공한다" as Context
+  usecase "최신 정본과 이번 턴 입력을 함께 제공한다" as Canonical
+  usecase "한 번의 codex exec에 단일 프롬프트를 전달한다" as Prompt
+}
+Player --> UC01
+Runtime --> UC01 : 확정된 현재 상태 제공
+UC01 .> Context : <<include>>
+UC01 .> Canonical : <<include>>
+UC01 .> Prompt : <<include>>
+Prompt --> GM : 고정 순서의 입력
+note bottom of Prompt
+  입력 순서 (BR-01, BR-02, AC-01, AC-02):
+  1. 고정 지침·잠긴 자료
+  2. 현재 상황 관련 장기 기록
+  3. 누적된 이전 대화 요약
+  4. 최근 대화 원문
+  5. 최신 캐릭터 시트·Current Situation·이번 턴 근거·플레이어 입력
+end note
+note right of Context
+  구역별 최대 비율과 최소 보장량을 둔다 (BR-03, AC-03).
+  남는 입력 공간은 이번 턴 근거와 최근 대화에 제공하고 응답 생성 공간을 확보한다 (BR-04).
+  사실 정확성과 근거, 최신 정본이 캐시보다 우선한다 (BR-14).
+  재사용 성능과 전체 입력 비용 개선은 실측으로 판단한다 (BR-05, AC-09).
+end note
+@enduml
