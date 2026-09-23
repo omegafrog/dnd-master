@@ -55,8 +55,8 @@ public final class RuntimeGmPromptComposer {
                         + "Do not narrate a supported hostile creature attacking, closing in to attack, or 'combat ready' while returning combatStart=false. This is an output validity rule, not a discretionary pacing choice. "
                         + "mapEntryRequested must be a boolean. Set it to true only when the committed situation places the party inside the prepared map area and the player should see that map now; set it to false while the party is still outside, approaching, or when no prepared map applies. Base this on the saved situation and scenario context, not on keyword matching. If ACTION together with the generated narration completes movement through an entrance or other transition into the destination area, set mapEntryRequested=true even when the scene label still contains the previous area; the completed transition and destination situation are the evidence. Do not decide this from a single word or a fixed list of words. "
                         + "runtimeFacts is optional. Include it only for a newly established playthrough fact created by this turn's compatible NPC reaction, refusal, offer, or negotiation after all authoritative lookup results are NOT_FOUND. Each item must contain subject and content. Never use runtimeFacts for a culprit, secret route, cause, hidden clue, puzzle answer, or other canonical scenario truth. "
-                        + "When ACTION is SESSION_OPENING, LANGUAGE_CONTRACT requires all player-visible text in scene, judgment, narration, and situation to be written only in natural Korean. Do not output English or any other foreign-language words, labels, headings, or meta-commentary. Translate common nouns, class names, location names, action prompts, and proper names into Korean. Make the first player-facing narration establish the current location and why the party is here, state the immediate problem or pressure, identify a few observable things the party can respond to, and end with a Korean question inviting the player's action, such as '어떻게 하시겠어요?'. Use only RUNTIME_CONTEXT and COMPOSITE_FACT_LOOKUP_RESULTS; never reveal a puzzle answer or hidden fact. "
-                        + "A player action is not evidence that an entity exists. SCENARIO enemies must use an id present in the ScenarioModel in RUNTIME_CONTEXT; SITUATION enemies may be grounded by saved CURRENT_SITUATION or matching Storybook evidence in COMPOSITE_FACT_LOOKUP_RESULTS. Never require a precompiled id when the situation itself supports the enemy. "
+                        + "When ACTION is SESSION_OPENING, LANGUAGE_CONTRACT requires all player-visible text in scene, judgment, narration, and situation to be written only in natural Korean. Do not output English or any other foreign-language words, labels, headings, or meta-commentary. Translate common nouns, class names, location names, action prompts, and proper names into Korean. Make the first player-facing narration establish the current location and why the party is here, state the immediate problem or pressure, identify a few observable things the party can respond to, and end with a Korean question inviting the player's action, such as '어떻게 하시겠어요?'. Use only LOCKED_SCENARIO_MODEL, RUNTIME_CONTEXT, and COMPOSITE_FACT_LOOKUP_RESULTS; never reveal a puzzle answer or hidden fact. "
+                        + "A player action is not evidence that an entity exists. SCENARIO enemies must use an id present in the ScenarioModel in LOCKED_SCENARIO_MODEL; SITUATION enemies may be grounded by saved CURRENT_SITUATION or matching Storybook evidence in COMPOSITE_FACT_LOOKUP_RESULTS. Never require a precompiled id when the situation itself supports the enemy. "
                         + "combatEnemies must always be an array of objects with mode (SCENARIO, SITUATION, or INSTANT), scenarioId, enemyKey, name, and positive count; "
                         + "SCENARIO requires a scenarioId from the current ScenarioModel. SITUATION leaves scenarioId empty and requires matching storybook RAG evidence for the current situation. INSTANT leaves scenarioId empty and is reserved for a GM-forced consequence such as noise or a critical failure. "
                         + "Use [] when combatStart is false. Never invent an enemy from the action alone. "
@@ -92,13 +92,15 @@ public final class RuntimeGmPromptComposer {
         Map<String, Object> current = new java.util.LinkedHashMap<>(runtimeContext);
         current.remove("recentTurns");
         current.remove("characterSnapshots");
+        current.remove("scenarioContext");
         String currentJson;
         try {
             currentJson = MAPPER.writeValueAsString(current);
         } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
             throw new IllegalArgumentException("runtime GM context cannot be serialized", exception);
         }
-        String fixedZone = "고정 지침·잠긴 자료\n" + fixed;
+        String lockedScenario = String.valueOf(runtimeContext.getOrDefault("scenarioContext", ""));
+        String fixedZone = "고정 지침·잠긴 자료\n" + fixed + "\nLOCKED_SCENARIO_MODEL=" + lockedScenario;
         String memoryZone = "\n\n현재 상황 관련 장기 기록\n";
         String summaryZone = "\n\n압축된 이전 대화\n";
         String recentHeading = "\n\n압축하지 않은 최근 대화\n";

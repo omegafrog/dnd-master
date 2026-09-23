@@ -74,4 +74,19 @@ class RuntimeGmPromptComposerTest {
         assertEquals(one.substring(0, one.indexOf("현재 상황 관련 장기 기록")),
                 two.substring(0, two.indexOf("현재 상황 관련 장기 기록")));
     }
+    @Test
+    void locked_scenario_model_precedes_changing_turn_material() {
+        String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"
+                + "\nLOOKUP_ORDER_RULE=rules\nOUTPUT_CONTRACT=json";
+        String prompt = RuntimeGmPromptComposer.compose(legacy, List.of("PLAYER: recent"),
+                List.of("current sheet"), Map.of("scenarioContext", "SCENARIO_MODEL={\"location\":\"cellar\"}",
+                        "currentSituation", "here"), 1000);
+        int memory = prompt.indexOf("현재 상황 관련 장기 기록");
+        int recent = prompt.indexOf("압축하지 않은 최근 대화");
+        int current = prompt.indexOf("최신 캐릭터 시트·Current Situation·이번 턴 근거·플레이어 입력");
+        assertTrue(prompt.indexOf("SCENARIO_MODEL={") < memory);
+        assertTrue(prompt.indexOf("SCENARIO_MODEL={") < recent);
+        assertTrue(prompt.substring(current).contains("currentSituation"));
+        assertTrue(!prompt.substring(current).contains("scenarioContext"));
+    }
 }
