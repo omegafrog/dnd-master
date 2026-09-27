@@ -63,6 +63,7 @@ public class RuntimeTurnApplicationService {
     private RuntimeFactLookupService runtimeFactLookupService;
     private RuntimePlayerActionEvidenceAcquirer playerActionEvidenceAcquirer;
     private RuntimeCharacterSheetReadPort characterSheetReadPort;
+    private ConversationCompactionJobRepository conversationCompactionJobRepository;
     private final TriggerDetectionPort triggerDetectionPort = new DefaultTriggerDetection();
     private final CheckSelectionPort checkSelectionPort = CheckSelection::from;
     private final ResolutionPort resolutionPort = new DefaultResolutionPort();
@@ -196,6 +197,11 @@ public class RuntimeTurnApplicationService {
         this.characterSheetReadPort = Objects.requireNonNull(characterSheetReadPort);
     }
 
+    /** Adds only durable metadata after a confirmed turn; it never waits for provider work. */
+    public void setConversationCompactionJobRepository(ConversationCompactionJobRepository repository) {
+        this.conversationCompactionJobRepository = Objects.requireNonNull(repository);
+    }
+
     /** Returns the saved map movement outcome for duplicate or resumed runtime commands. */
     public com.dndmaster.adventure.application.combat.CombatMapMoveResult movementResultForTurn(UUID turnId) {
         return commitOrchestrator == null ? null : commitOrchestrator.movementResultForTurn(turnId);
@@ -227,7 +233,7 @@ public class RuntimeTurnApplicationService {
             if (adventure.version() == turn.version()) {
                 adventure.commitRuntimeTurn(adventure.ownerPlayerId(), turn.version(), turn.pendingState(), turn.context(),
                         turn.conversation(), turn.completionProposal());
-                adventureRepository.save(adventure);
+                saveConfirmedAdventureAndRegister(adventure);
                 return;
             }
             if (adventure.version() == turn.version() + 1
@@ -666,7 +672,7 @@ public class RuntimeTurnApplicationService {
         RuntimePlanningRequest planningRequest = new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
-                adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
+                recentConversationForPrompt(adventure),
                 characterSheets, "SCENARIO_MODEL=" + scenarioPackage.scenarioModel(), providerEndpointId(adventure.sessionId().value()),
                 providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
@@ -734,7 +740,7 @@ public class RuntimeTurnApplicationService {
             RuntimeTurn committing = ready.beginCommit();
             adventure.commitRuntimeTurn(command.ownerPlayerId(), adventure.version(), pending, nextContext, conversation,
                     proposal.completionProposal());
-            adventureRepository.save(adventure);
+            saveConfirmedAdventureAndRegister(adventure);
             RuntimeTurn committed = committing.markSafeCommitted();
             runtimeTurnRepository.save(committed);
             commitResult = new RuntimeTurnCommitOrchestrator.Result(
@@ -748,7 +754,7 @@ public class RuntimeTurnApplicationService {
             commitResult = commitOrchestrator.commit(ready, commands, () -> {
                 adventure.commitRuntimeTurn(command.ownerPlayerId(), adventure.version(), pending, nextContext, conversation,
                         proposal.completionProposal());
-                adventureRepository.save(adventure);
+                saveConfirmedAdventureAndRegister(adventure);
                 if (narrativeStateService != null) narrativeStateService.commit(adventure.sessionId().value(), visibleInput.stateDelta());
             });
         }
@@ -763,6 +769,36 @@ public class RuntimeTurnApplicationService {
         PlayerVisibleTurn visible = new PlayerVisibleTurn(ready.narration(), plan.scene(), List.of(), visibleInput.stateDelta(), narrativeContext);
         return new RuntimeTurnResult(committed, adventure.currentContext(), adventure.conversation(), adventure.version(), visible,
                 commitResult.movementResult());
+    }
+
+    private List<String> recentConversationForPrompt(Adventure adventure) {
+        List<String> result = new ArrayList<>();
+        if (conversationCompactionJobRepository != null) {
+            conversationCompactionJobRepository.summaries(adventure.id()).forEach(summary ->
+                    result.add("압축된 이전 대화: " + summary.text()));
+        }
+        result.addAll(adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList());
+        return List.copyOf(result);
+    }
+
+    private void saveConfirmedAdventureAndRegister(Adventure adventure) {
+        ConversationCompactionJob job = compactionJob(adventure);
+        if (job == null) { adventureRepository.save(adventure); return; }
+        if (adventureRepository instanceof AdventureConversationCompactionCommitPort atomic) {
+            atomic.saveConfirmedTurnAndRegister(adventure, job);
+        } else { adventureRepository.save(adventure); conversationCompactionJobRepository.register(job); }
+    }
+
+    private ConversationCompactionJob compactionJob(Adventure adventure) {
+        if (conversationCompactionJobRepository == null) return null;
+        List<ConversationEntry> conversation = adventure.conversation();
+        int completed = 0;
+        for (int index = conversation.size() - 1; index >= 0; index--) {
+            if (!"AI_GAME_MASTER".equals(conversation.get(index).speaker()) || ++completed != 3) continue;
+            return ConversationCompactionJob.ready(adventure.id(), conversation.getFirst().sequence(),
+                    conversation.get(index).sequence(), adventure.version(), java.time.Instant.now());
+        }
+        return null;
     }
 
     public static StateDelta deltaFor(NarrativeState state, SubmitRuntimeTurnCommand command, RuntimePlan plan) {

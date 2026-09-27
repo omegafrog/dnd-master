@@ -53,6 +53,7 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuntim
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetOwnershipGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
 import com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPort;
+import com.dndmaster.adventure.infrastructure.integration.HttpConversationCompactionCandidatePort;
 import com.dndmaster.adventure.infrastructure.integration.HttpRuntimeCharacterSheetReadPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpScenarioModelLookupAgentPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpScenarioCompilationAgentPort;
@@ -996,7 +997,8 @@ public class AdventureApiConfiguration {
             RuntimeTurnCommitOrchestrator commitOrchestrator,
             RuntimeFactLookupService runtimeFactLookupService,
             com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService,
-            RuntimeCharacterSheetReadPort characterSheetReadPort) {
+            RuntimeCharacterSheetReadPort characterSheetReadPort,
+            javax.sql.DataSource dataSource) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, providerBindingRepository,
@@ -1009,7 +1011,26 @@ public class AdventureApiConfiguration {
         service.setRuntimeFactLookupService(runtimeFactLookupService);
         service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(evidenceAcquisitionApplicationService));
         service.setCharacterSheetReadPort(characterSheetReadPort);
+        service.setConversationCompactionJobRepository(conversationCompactionJobRepository(dataSource));
         return service;
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.runtime.ConversationCompactionJobRepository conversationCompactionJobRepository(
+            javax.sql.DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresConversationCompactionJobRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.runtime.ConversationCompactionWorker conversationCompactionWorker(
+            com.dndmaster.adventure.application.runtime.ConversationCompactionJobRepository jobs,
+            AdventureRepository adventures, ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new com.dndmaster.adventure.application.runtime.ConversationCompactionWorker(jobs, adventures,
+                new HttpConversationCompactionCandidatePort(HttpClient.newHttpClient(), URI.create(baseUrl),
+                        Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken));
     }
 
     @Bean

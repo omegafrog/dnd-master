@@ -61,6 +61,37 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void conversation_compaction_returns_only_a_candidate_for_the_requested_confirmed_range() {
+        AtomicReference<String> prompt = new AtomicReference<>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
+                prompt.set(value);
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":9,\"summary\":\"확정된 사건 요약\"}");
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        var result = controller.conversationCompaction("service-secret",
+                new TypedAgentContractController.ConversationCompactionRequest(4, 7, 9,
+                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 연다"))));
+        org.junit.jupiter.api.Assertions.assertEquals("확정된 사건 요약", result.summary());
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("SOURCE_START=4"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("EXPECTED_ADVENTURE_VERSION=9"));
+    }
+
+    @Test
+    void conversation_compaction_rejects_a_candidate_for_another_source_version() {
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":10,\"summary\":\"요약\"}");
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        assertThrows(IllegalArgumentException.class, () -> controller.conversationCompaction("service-secret",
+                new TypedAgentContractController.ConversationCompactionRequest(4, 7, 9,
+                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 연다")))));
+    }
+
+    @Test
     void runtime_turn_requires_the_server_confirmed_solo_player_id() {
         TypedAgentContractController controller = new TypedAgentContractController(
                 emptyAdapter(), new ObjectMapper(), new ApiRequestGuard("service-secret"));

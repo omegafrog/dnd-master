@@ -148,6 +148,22 @@ public final class TypedAgentContractController {
                         + "\nDISCLOSED_FACT_IDS=" + write(request.disclosedFactIds()), this::parseSafety);
     }
 
+    @PostMapping("/internal/gm/conversation-compaction")
+    ConversationCompactionResponse conversationCompaction(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody ConversationCompactionRequest request) {
+        requestGuard.internal(token);
+        require(request);
+        String conversation = write(request.conversation());
+        return adapter.complete(new java.util.UUID(0L, 0L), "conversation-compaction:" + request.sourceStart() + ":" + request.sourceEnd(),
+                "ROLE=CONVERSATION_COMPACTION\nSOURCE_START=" + request.sourceStart()
+                        + "\nSOURCE_END=" + request.sourceEnd() + "\nEXPECTED_ADVENTURE_VERSION=" + request.expectedAdventureVersion()
+                        + "\nCONFIRMED_CONVERSATION=" + conversation
+                        + "\nTASK=Summarize only confirmed conversation. Preserve established facts, unresolved choices, and current goals. Do not invent facts."
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, and summary. Do not use markdown.",
+                json -> parseConversationCompaction(json, request));
+    }
+
     private ScenarioCompilationResponse parseCompilation(String json) {
         JsonNode root = readObject(json);
         String status = required(root, "status").toUpperCase(java.util.Locale.ROOT);
@@ -265,6 +281,17 @@ public final class TypedAgentContractController {
         return new NarrationSafetyResponse(root.path("approved").booleanValue(), root.path("reason").asText(""));
     }
 
+    private ConversationCompactionResponse parseConversationCompaction(String json, ConversationCompactionRequest request) {
+        JsonNode root = readObject(json);
+        long sourceStart = root.path("sourceStart").asLong(Long.MIN_VALUE);
+        long sourceEnd = root.path("sourceEnd").asLong(Long.MIN_VALUE);
+        long version = root.path("expectedAdventureVersion").asLong(Long.MIN_VALUE);
+        if (sourceStart != request.sourceStart() || sourceEnd != request.sourceEnd() || version != request.expectedAdventureVersion()) {
+            throw new IllegalArgumentException("conversation compaction response source does not match request");
+        }
+        return new ConversationCompactionResponse(sourceStart, sourceEnd, version, required(root, "summary"));
+    }
+
     private JsonNode readObject(String json) {
         try {
             JsonNode node = mapper.readTree(json);
@@ -330,6 +357,19 @@ public final class TypedAgentContractController {
             lockedScenarioModel = Map.copyOf(Objects.requireNonNull(lockedScenarioModel, "lockedScenarioModel is required"));
         }
     }
+
+    public record ConversationCompactionRequest(long sourceStart, long sourceEnd, long expectedAdventureVersion,
+                                                 List<ConversationEntry> conversation) {
+        public ConversationCompactionRequest {
+            if (sourceStart < 0 || sourceEnd < sourceStart || expectedAdventureVersion < 0) throw new IllegalArgumentException("invalid conversation range");
+            conversation = List.copyOf(Objects.requireNonNull(conversation, "conversation is required"));
+            if (conversation.isEmpty()) throw new IllegalArgumentException("conversation is required");
+        }
+    }
+    public record ConversationEntry(long sequence, String speaker, String content) {
+        public ConversationEntry { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); speaker = required(speaker, "speaker"); content = required(content, "content"); }
+    }
+    public record ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion, String summary) { }
 
     public record RuntimeEndpointRequest(java.util.UUID endpointId, String provider, String model, String reasoning) { }
     public record RuntimeEndpointResponse(java.util.UUID endpointId, String endpointVersion,
