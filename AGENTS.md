@@ -50,6 +50,8 @@ If `docker` is missing, the Docker daemon is stopped, or the WSL Docker socket i
 
 Before launching E2E, verify `curl -fsS "$BACKEND_E2E_URL/actuator/health"` and ensure port 8080 is owned by the current WSL checkout. If any required value is missing, the URL resolves to a Windows path, or `command -v` resolves outside WSL, stop before running the test. Do not silently fall back to a stale backend, Windows `npm`, Windows Java, or a partial environment.
 
+Build and E2E checkout verification details are in [EXE.md](EXE.md).
+
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
 
 When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
