@@ -225,6 +225,8 @@ AGENT_PLAYER_ID="$(printf '%s' "$AGENT_LOGIN_RESPONSE" | "$NODE_BIN" -e 'let bod
 }
 
 echo "==> Starting user PC agent..."
+docker compose -f "$INFRA/compose.yaml" exec -T redis redis-cli \
+    DEL "agent-connection-location:$AGENT_PLAYER_ID" >/dev/null
 USER_PC_AGENT_LOG="$(mktemp "${TMPDIR:-/tmp}/dnd-master-user-pc-agent.XXXXXX.log")"
 (cd "$ROOT" && \
     RELAY_WEBSOCKET_URL="$USER_PC_AGENT_RELAY_WEBSOCKET_URL" \
