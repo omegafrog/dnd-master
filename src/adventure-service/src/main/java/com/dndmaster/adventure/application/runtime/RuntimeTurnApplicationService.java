@@ -612,12 +612,16 @@ public class RuntimeTurnApplicationService {
         if (narration == null || narration.isBlank()) return;
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
         conversation.add(new ConversationEntry(conversation.size(), "PLAYER", request.playerInput()));
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", confirmedCombatResult(request)));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", narration));
-        if (!request.judgment().isBlank()) {
-            conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", request.judgment()));
-        }
         adventure.preserveProgress(adventure.ownerPlayerId(), adventure.version(), adventure.currentContext(), conversation);
         adventureRepository.save(adventure);
+    }
+
+    private static String confirmedCombatResult(CombatNarrationRequest request) {
+        return "확정 전투 결과: 전투 버전=" + request.encounterVersion()
+                + "; 주사위 결과=" + (request.diceTotal() == null ? "없음" : request.diceTotal())
+                + "; 판정=" + request.judgment();
     }
 
     private static String combatNarrationAction(CombatNarrationRequest request) {

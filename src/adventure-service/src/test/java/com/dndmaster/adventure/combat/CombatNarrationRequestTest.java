@@ -19,6 +19,7 @@ class CombatNarrationRequestTest {
 
         assertEquals(command, request.command());
         assertEquals("검을 휘두른다", request.playerInput());
+        assertEquals(7L, request.encounterVersion());
         assertEquals(18, request.diceTotal());
         assertEquals("명중", request.judgment());
     }
