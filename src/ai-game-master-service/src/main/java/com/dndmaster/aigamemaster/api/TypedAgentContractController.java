@@ -160,9 +160,9 @@ public final class TypedAgentContractController {
                 "ROLE=CONVERSATION_COMPACTION\nSOURCE_START=" + request.sourceStart()
                         + "\nSOURCE_END=" + request.sourceEnd() + "\nEXPECTED_ADVENTURE_VERSION=" + request.expectedAdventureVersion()
                         + "\nCONFIRMED_CONVERSATION=" + conversation
-                        + "\nTASK=Summarize only confirmed conversation. Preserve character speech and commitments, scene flow, established consequences, unresolved choices, and current goals. Do not invent facts or treat HP, resources, location, or combat state as authoritative."
-                        + "\nSOURCE_REFERENCE_RULE=List every conversation sequence included in the request exactly once, in order, in referencedSequences. Do not omit or add sequence values."
-                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, summary, and referencedSequences. Do not use markdown.",
+                        + "\nTASK=Select concise exact excerpts from the confirmed conversation that preserve character speech, commitments, scene flow, established consequences, unresolved choices, and current goals. Every excerpt text must be copied verbatim as a substring of the content at its sequence. Do not paraphrase, invent facts, or treat HP, resources, location, or combat state as authoritative."
+                        + "\nSOURCE_REFERENCE_RULE=Cover every requested sequence at least once, in ascending sequence order. Do not omit or add sequences or text absent from that entry. Keep combined excerpt text at most 80 percent of source content length."
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, and excerpts [{sequence,text}]. Do not use markdown.",
                 json -> parseConversationCompaction(json, request));
     }
 
@@ -291,13 +291,29 @@ public final class TypedAgentContractController {
         if (sourceStart != request.sourceStart() || sourceEnd != request.sourceEnd() || version != request.expectedAdventureVersion()) {
             throw new IllegalArgumentException("conversation compaction response source does not match request");
         }
-        List<Long> references = new ArrayList<>();
-        JsonNode refs = root.path("referencedSequences");
-        if (!refs.isArray()) throw new IllegalArgumentException("conversation source references are required");
-        refs.forEach(ref -> { if (!ref.isIntegralNumber() || !ref.canConvertToLong()) throw new IllegalArgumentException("invalid conversation source reference"); references.add(ref.longValue()); });
-        List<Long> expectedReferences = request.conversation().stream().map(ConversationEntry::sequence).toList();
-        if (!references.equals(expectedReferences)) throw new IllegalArgumentException("conversation source references do not cover the request");
-        return new ConversationCompactionResponse(sourceStart, sourceEnd, version, required(root, "summary"), List.copyOf(references));
+        JsonNode nodes = root.path("excerpts");
+        if (!nodes.isArray() || nodes.isEmpty()) throw new IllegalArgumentException("conversation source excerpts are required");
+        java.util.Map<Long, ConversationEntry> source = request.conversation().stream()
+                .collect(java.util.stream.Collectors.toMap(ConversationEntry::sequence, entry -> entry));
+        List<SourceExcerpt> excerpts = new ArrayList<>();
+        java.util.Set<Long> covered = new java.util.HashSet<>();
+        long previousSequence = -1;
+        long excerptLength = 0;
+        for (JsonNode node : nodes) {
+            JsonNode sequenceNode = node.path("sequence");
+            if (!sequenceNode.isIntegralNumber() || !sequenceNode.canConvertToLong()) throw new IllegalArgumentException("invalid conversation source excerpt sequence");
+            long sequence = sequenceNode.longValue();
+            String text = required(node, "text");
+            ConversationEntry entry = source.get(sequence);
+            if (sequence <= previousSequence || entry == null || !entry.content().contains(text)) throw new IllegalArgumentException("conversation excerpt is not an ordered source substring");
+            previousSequence = sequence;
+            covered.add(sequence);
+            excerptLength += text.length();
+            excerpts.add(new SourceExcerpt(sequence, text));
+        }
+        long sourceLength = request.conversation().stream().mapToLong(entry -> entry.content().length()).sum();
+        if (!covered.equals(source.keySet()) || excerptLength * 5 > sourceLength * 4) throw new IllegalArgumentException("conversation excerpts must cover all sources and be meaningfully shorter");
+        return new ConversationCompactionResponse(sourceStart, sourceEnd, version, List.copyOf(excerpts));
     }
 
     private JsonNode readObject(String json) {
@@ -382,8 +398,13 @@ public final class TypedAgentContractController {
     public record ConversationEntry(long sequence, String speaker, String content) {
         public ConversationEntry { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); speaker = required(speaker, "speaker"); content = required(content, "content"); }
     }
-    public record ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion, String summary,
-                                                 List<Long> referencedSequences) { }
+    public record SourceExcerpt(long sequence, String text) {
+        public SourceExcerpt { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); text = required(text, "text"); }
+    }
+    public record ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion,
+                                                 List<SourceExcerpt> excerpts) {
+        public ConversationCompactionResponse { excerpts = List.copyOf(excerpts); }
+    }
 
     public record RuntimeEndpointRequest(java.util.UUID endpointId, String provider, String model, String reasoning) { }
     public record RuntimeEndpointResponse(java.util.UUID endpointId, String endpointVersion,

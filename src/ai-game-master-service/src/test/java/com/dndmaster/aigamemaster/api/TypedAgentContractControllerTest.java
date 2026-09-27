@@ -66,7 +66,7 @@ class TypedAgentContractControllerTest {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
                 prompt.set(value);
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":9,\"summary\":\"확정된 사건 요약\",\"referencedSequences\":[4,5,6,7]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"text\":\"문\"},{\"sequence\":5,\"text\":\"문\"},{\"sequence\":6,\"text\":\"안\"},{\"sequence\":7,\"text\":\"복\"}]}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -76,7 +76,7 @@ class TypedAgentContractControllerTest {
                                 new TypedAgentContractController.ConversationEntry(5, "AI_GAME_MASTER", "문이 열린다"),
                                 new TypedAgentContractController.ConversationEntry(6, "PLAYER", "안으로 간다"),
                                 new TypedAgentContractController.ConversationEntry(7, "AI_GAME_MASTER", "복도를 본다"))));
-        org.junit.jupiter.api.Assertions.assertEquals("확정된 사건 요약", result.summary());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(4L, 5L, 6L, 7L), result.excerpts().stream().map(TypedAgentContractController.SourceExcerpt::sequence).toList());
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("SOURCE_START=4"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("EXPECTED_ADVENTURE_VERSION=9"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("character speech"));
@@ -87,7 +87,7 @@ class TypedAgentContractControllerTest {
     void conversation_compaction_rejects_a_candidate_for_another_source_version() {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":10,\"summary\":\"요약\",\"referencedSequences\":[4,5,6,7]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":10,\"excerpts\":[{\"sequence\":4,\"text\":\"문\"},{\"sequence\":5,\"text\":\"문\"},{\"sequence\":6,\"text\":\"안\"},{\"sequence\":7,\"text\":\"복\"}]}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -103,7 +103,7 @@ class TypedAgentContractControllerTest {
     void conversation_compaction_rejects_missing_or_incomplete_source_references() {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":5,\"expectedAdventureVersion\":9,\"summary\":\"요약\",\"referencedSequences\":[4]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":5,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"text\":\"문\"}]}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -113,6 +113,20 @@ class TypedAgentContractControllerTest {
                 new TypedAgentContractController.ConversationCompactionRequest(4, 5, 9, conversation)));
         assertThrows(IllegalArgumentException.class, () -> new TypedAgentContractController.ConversationCompactionRequest(4, 5, 9,
                 List.of(conversation.getFirst())));
+    }
+
+    @Test
+    void conversation_compaction_rejects_an_excerpt_that_is_not_an_exact_source_substring() {
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":5,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"text\":\"문을 연다\"},{\"sequence\":5,\"text\":\"없는 말\"}]}");
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        var conversation = List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 연다"),
+                new TypedAgentContractController.ConversationEntry(5, "AI_GAME_MASTER", "문이 열린다"));
+        assertThrows(IllegalArgumentException.class, () -> controller.conversationCompaction("service-secret",
+                new TypedAgentContractController.ConversationCompactionRequest(4, 5, 9, conversation)));
     }
 
     @Test
