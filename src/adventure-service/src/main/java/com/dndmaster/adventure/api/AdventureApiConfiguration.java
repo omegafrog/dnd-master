@@ -1322,10 +1322,12 @@ public class AdventureApiConfiguration {
             @Qualifier("aiCombatPort") AiCombatPort aiPort,
             @Qualifier("combatMapPort") CombatMapPort mapPort,
             com.dndmaster.adventure.application.combat.AiCombatDecisionPort decisionPort,
-            com.dndmaster.adventure.application.combat.CombatEndPort combatEndPort) {
+            com.dndmaster.adventure.application.combat.CombatEndPort combatEndPort,
+            RuntimeTurnApplicationService runtimeTurnApplicationService) {
         return new com.dndmaster.adventure.application.combat.CombatActionApplicationService(
                 encounterRepository, operationRepository, eventRepository, rulesEngine,
-                dicePort, characterPort, aiPort, mapPort, decisionPort, combatEndPort);
+                dicePort, characterPort, aiPort, mapPort, decisionPort, combatEndPort,
+                runtimeTurnApplicationService::narrateConfirmedCombat);
     }
 
     @Bean

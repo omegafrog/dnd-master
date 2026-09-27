@@ -29,6 +29,7 @@ public final class CombatActionApplicationService {
     private final AiCombatDecisionPort decisionPort;
     private final MapMovementCoordinator movementCoordinator;
     private final CombatEndPort combatEndPort;
+    private final CombatNarrationPort narrationPort;
 
     public CombatActionApplicationService(CombatEncounterRepository encounterRepository,
                                           CombatActionOperationRepository operationRepository,
@@ -72,6 +73,17 @@ public final class CombatActionApplicationService {
                                           CharacterCombatPort characterPort, AiCombatPort aiPort,
                                           CombatMapPort mapPort, AiCombatDecisionPort decisionPort,
                                           CombatEndPort combatEndPort) {
+        this(encounterRepository, operationRepository, eventRepository, rulesEngine, dicePort, characterPort, aiPort,
+                mapPort, decisionPort, combatEndPort, CombatNarrationPort.disabled());
+    }
+
+    public CombatActionApplicationService(CombatEncounterRepository encounterRepository,
+                                          CombatActionOperationRepository operationRepository,
+                                          CombatEventRepository eventRepository,
+                                          CombatRulesEngine rulesEngine, DiceCombatPort dicePort,
+                                          CharacterCombatPort characterPort, AiCombatPort aiPort,
+                                          CombatMapPort mapPort, AiCombatDecisionPort decisionPort,
+                                          CombatEndPort combatEndPort, CombatNarrationPort narrationPort) {
         this.encounterRepository = Objects.requireNonNull(encounterRepository);
         this.operationRepository = Objects.requireNonNull(operationRepository);
         this.eventRepository = Objects.requireNonNull(eventRepository);
@@ -82,6 +94,7 @@ public final class CombatActionApplicationService {
         this.movementCoordinator = new MapMovementCoordinator(Objects.requireNonNull(mapPort));
         this.decisionPort = Objects.requireNonNull(decisionPort);
         this.combatEndPort = Objects.requireNonNull(combatEndPort);
+        this.narrationPort = Objects.requireNonNull(narrationPort);
     }
 
     public CombatActionResponse submitFreeForm(FreeFormCombatCommand command) {
@@ -158,6 +171,9 @@ public final class CombatActionApplicationService {
                 operation.committed(response);
                 operationRepository.save(operation);
             }
+            response = narrateAfterCommit(command.action(), response);
+            operation.committed(response);
+            operationRepository.save(operation);
             return response;
         } catch (CombatCommandRejectedException exception) {
             throw exception;
@@ -330,6 +346,9 @@ public final class CombatActionApplicationService {
                 operation.committed(response);
                 operationRepository.save(operation);
             }
+            response = narrateAfterCommit(command, response);
+            operation.committed(response);
+            operationRepository.save(operation);
             return response;
         } catch (RuntimeCombatRejectionException exception) {
             operation.failed(exception);
@@ -520,6 +539,23 @@ public final class CombatActionApplicationService {
     private CombatEncounter activeEncounter(CombatActionCommand command) {
         return encounterRepository.findActive(command.adventureId().value())
                 .orElseThrow(() -> new CombatCommandRejectedException("COMBAT_NOT_ACTIVE", List.of("COMBAT_NOT_ACTIVE")));
+    }
+
+    private CombatActionResponse narrateAfterCommit(CombatActionCommand command, CombatActionResponse response) {
+        try {
+            String narration = narrationPort.narrate(CombatNarrationRequest.postResolution(command,
+                    response.encounterVersion(), response.diceTotal(), response.judgment()));
+            if (narration == null || narration.isBlank()) return response;
+            long nextSequence = eventRepository.after(response.encounterId(), -1).stream()
+                    .mapToLong(CombatEvent::sequence).max().orElse(0L) + 1;
+            eventRepository.append(new CombatEvent(response.encounterId(), nextSequence, "GM_NARRATION",
+                    "{\"operationId\":\"" + command.operationId() + "\",\"narration\":\""
+                            + escape(narration) + "\"}"));
+            return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
+                    response.status(), response.diceTotal(), response.judgment(), response.violations(), narration);
+        } catch (RuntimeException ignored) {
+            return response;
+        }
     }
 
     private static String escape(String value) {

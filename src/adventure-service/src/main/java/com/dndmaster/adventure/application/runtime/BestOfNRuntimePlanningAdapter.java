@@ -34,6 +34,11 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
     }
 
     @Override
+    public RuntimePlan planNarration(RuntimePlanningRequest request) {
+        return delegate.planNarration(request);
+    }
+
+    @Override
     public RuntimePlanningResult planWithOutcomes(RuntimePlanningRequest request) {
         int count = PlanningContext.boundedCandidateCount(requestedCount, simpleTurn);
         List<RuntimePlan> plans = new ArrayList<>();

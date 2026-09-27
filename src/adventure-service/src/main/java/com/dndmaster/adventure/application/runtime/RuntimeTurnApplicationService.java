@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.application.saved.AdventureRepository;
+import com.dndmaster.adventure.application.combat.CombatNarrationRequest;
 import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
@@ -560,6 +561,57 @@ public class RuntimeTurnApplicationService {
             throw new RuntimeCharacterSheetReadException("current character sheet reader is unavailable");
         }
         return characterSheetReadPort.read(characterSheetId);
+    }
+
+    /**
+     * Reads the same locked Adventure Runtime material as a normal turn and asks
+     * the GM for prose after combat has already been committed. This path never
+     * stores the returned plan or any proposal contained in it.
+     */
+    public String narrateConfirmedCombat(CombatNarrationRequest request) {
+        Objects.requireNonNull(request, "combat narration request must not be null");
+        Adventure adventure = adventureRepository.findById(request.command().adventureId())
+                .orElseThrow(() -> new IllegalStateException("adventure not found"));
+        if (request.command().ownerPlayerId() != null
+                && !adventure.ownerPlayerId().value().equals(request.command().ownerPlayerId())) {
+            throw new IllegalStateException("combat narration owner mismatch");
+        }
+        RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(adventure.id())
+                .orElseThrow(() -> new IllegalStateException("runtime binding not found"));
+        ScenarioPackage scenarioPackage = scenarioPackageRepository.findById(binding.scenarioPackageId())
+                .orElseThrow(() -> new IllegalStateException("scenario package not found"));
+        SubmitRuntimeTurnCommand contextCommand = new SubmitRuntimeTurnCommand(adventure.id(), adventure.ownerPlayerId(),
+                request.command().operationId(), request.command().operationId(), combatNarrationAction(request), -1,
+                null, -1, false, true, false, List.of());
+        List<String> characterSheets = adventure.party().stream()
+                .map(member -> currentCharacterSheet(member.characterSheetId().value())).toList();
+        EvidencePack evidencePack = prefetchEvidence(contextCommand, adventure, binding, scenarioPackage);
+        List<RuntimeFactLookupResult> factLookupResults = lookupRuntimeFacts(contextCommand, adventure, scenarioPackage, evidencePack);
+        NarrativeState narrativeState = narrativeStateService == null ? NarrativeState.empty()
+                : narrativeStateService.load(adventure.sessionId().value());
+        String situation = adventure.currentSituation() == null ? "" : adventure.currentSituation().toString();
+        NarrativeContext narrativeContext = narrativeState.project(adventure.ownerPlayerId().value().toString(), situation);
+        List<String> recentTurns = new ArrayList<>(adventure.conversation().stream()
+                .map(entry -> entry.speaker() + ": " + entry.content()).toList());
+        runtimeTurnRepository.findAllByAdventureId(adventure.id()).stream()
+                .filter(turn -> turn.lifecycle() == RuntimeTurnLifecycle.PENDING_ROLL)
+                .forEach(turn -> recentTurns.add("PENDING_ROLL: " + turn.action()));
+        RuntimePlanningRequest planningRequest = new RuntimePlanningRequest(adventure.id(), adventure.ownerPlayerId(),
+                adventure.sessionId().value(), request.command().operationId(), binding.scenarioPackageId(), binding.bindingVersion(),
+                adventure.currentContext(), binding.activeSourceContext(), contextCommand.action(), evidencePack, recentTurns,
+                characterSheets, "SCENARIO_MODEL=" + scenarioPackage.scenarioModel(), providerEndpointId(adventure.sessionId().value()),
+                providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
+                providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
+                adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults, situation);
+        return planningPort.planNarration(planningRequest).narration();
+    }
+
+    private static String combatNarrationAction(CombatNarrationRequest request) {
+        return "확정된 전투 행동을 플레이어에게 서술합니다. 행동=" + request.command().action()
+                + "; 전투 버전=" + request.encounterVersion()
+                + "; 주사위 결과=" + (request.diceTotal() == null ? "없음" : request.diceTotal())
+                + "; 판정=" + request.judgment()
+                + ". 전투·상황·캐릭터 상태를 바꾸지 말고 플레이어에게 보이는 서술만 제안하세요.";
     }
 
     private RuntimeTurnResult submitSafeScenarioRuntimeTurn(SubmitRuntimeTurnCommand command, Adventure adventure,

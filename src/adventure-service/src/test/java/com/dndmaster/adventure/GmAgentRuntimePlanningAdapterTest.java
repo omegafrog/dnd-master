@@ -35,6 +35,19 @@ class GmAgentRuntimePlanningAdapterTest {
     }
 
     @Test
+    void narration_only_path_uses_one_provider_request_without_materializing_runtime_changes() {
+        var calls = new int[1];
+        RuntimePlan result = new GmAgentRuntimePlanningAdapter(
+                context -> {
+                    calls[0]++;
+                    return new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of("change:door"));
+                }, new GmFinalValidator()).planNarration(request());
+
+        assertThat(calls[0]).isEqualTo(1);
+        assertThat(result.narration()).isEqualTo("narration");
+    }
+
+    @Test
     void rejects_unsupported_raw_delta_instead_of_broadening_it_into_a_reveal() {
         RuntimePlan plan = plan(List.of("door"));
 

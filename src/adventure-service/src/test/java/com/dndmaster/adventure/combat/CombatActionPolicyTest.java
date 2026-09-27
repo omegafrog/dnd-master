@@ -2,6 +2,7 @@ package com.dndmaster.adventure.combat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.combat.AiCombatPort;
 import com.dndmaster.adventure.application.combat.CharacterCombatPort;
@@ -13,6 +14,7 @@ import com.dndmaster.adventure.application.combat.CombatActionResponse;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatEncounterRepository;
 import com.dndmaster.adventure.application.combat.CombatEventRepository;
+import com.dndmaster.adventure.application.combat.CombatNarrationPort;
 import com.dndmaster.adventure.application.combat.DiceCombatPort;
 import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
@@ -106,6 +108,49 @@ class CombatActionPolicyTest {
     }
 
     @Test
+    void requests_player_narration_once_after_the_canonical_combat_result_is_saved() {
+        CombatActionCommand command = command(UUID.randomUUID(), heroId, 1);
+        Fixture fixture = fixture(command);
+        CombatNarrationPort narration = request -> {
+            fixture.calls.narrationPrompt = request.command().action() + ":" + request.diceTotal();
+            assertEquals(2L, fixture.encounters.value.version());
+            return "검이 적을 맞혔습니다.";
+        };
+        CombatActionApplicationService service = new CombatActionApplicationService(fixture.encounters, fixture.operations,
+                fixture.events, new com.dndmaster.adventure.domain.combat.CombatRulesEngine(),
+                ignored -> 18, usableCharacter(), ai(), command1 -> {},
+                context -> com.dndmaster.adventure.domain.combat.FreeFormActionPlan.narrativeOnly(
+                        context.declaration().actorId(), com.dndmaster.adventure.domain.combat.TurnResourceCost.actionOnly(), "", ""),
+                adventure -> null, narration);
+
+        CombatActionResponse result = service.submit(command);
+        service.submit(command);
+
+        assertEquals("검이 적을 맞혔습니다.", result.narration());
+        assertTrue(fixture.calls.narrationPrompt.endsWith(":18"));
+        assertEquals(1, fixture.events.values.stream().filter(event -> event.eventType().equals("ACTION_RESOLVED")).count());
+    }
+
+    @Test
+    void narration_failure_does_not_rollback_the_confirmed_combat_result() {
+        CombatActionCommand command = command(UUID.randomUUID(), heroId, 1);
+        Fixture fixture = fixture(command);
+        CombatActionApplicationService service = new CombatActionApplicationService(fixture.encounters, fixture.operations,
+                fixture.events, new com.dndmaster.adventure.domain.combat.CombatRulesEngine(),
+                ignored -> 18, usableCharacter(), ai(), command1 -> {},
+                context -> com.dndmaster.adventure.domain.combat.FreeFormActionPlan.narrativeOnly(
+                        context.declaration().actorId(), com.dndmaster.adventure.domain.combat.TurnResourceCost.actionOnly(), "", ""),
+                adventure -> null, request -> { throw new IllegalStateException("narration unavailable"); });
+
+        CombatActionResponse result = service.submit(command);
+
+        assertEquals("COMMITTED", result.status());
+        assertEquals(2L, fixture.encounters.value.version());
+        assertEquals(CombatActionOperation.Status.COMMITTED, fixture.operations.values.get(command.operationId()).status());
+        assertEquals(0, fixture.events.values.stream().filter(event -> event.eventType().equals("GM_NARRATION")).count());
+    }
+
+    @Test
     void human_turn_moves_only_after_explicit_end_turn() {
         CombatActionCommand action = command(UUID.randomUUID(), heroId, 1);
         Fixture fixture = fixture(action);
@@ -154,6 +199,21 @@ class CombatActionPolicyTest {
                 encounters, operations, events, calls, command);
     }
 
+    private static CharacterCombatPort usableCharacter() {
+        return new CharacterCombatPort() {
+            @Override public void requireUsableCharacter(CombatActionCommand ignored) { }
+            @Override public void applyOutcome(CombatActionCommand ignored,
+                    com.dndmaster.adventure.application.combat.CombatOutcome ignoredOutcome) { }
+        };
+    }
+
+    private static AiCombatPort ai() {
+        return new AiCombatPort() {
+            @Override public void controlState(CombatActionCommand ignored) { }
+            @Override public String adjudicate(CombatActionCommand ignored, int ignoredDice) { return "hit"; }
+        };
+    }
+
     private record Fixture(CombatActionApplicationService service, EncounterStore encounters,
                            OperationStore operations, EventStore events, Calls calls,
                            CombatActionCommand command) {}
@@ -183,5 +243,6 @@ class CombatActionPolicyTest {
         private int characterMutations;
         private boolean failCharacter;
         private boolean rejectCharacter;
+        private String narrationPrompt;
     }
 }
