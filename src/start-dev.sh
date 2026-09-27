@@ -7,6 +7,8 @@ UI="$ROOT/web-ui"
 DEMO_USER_INIT_SQL="/docker-entrypoint-initdb.d/02-seed-demo-user.sql"
 GRADLEW_TMP_DIR=""
 RELAY_PID=""
+USER_PC_AGENT_PID=""
+USER_PC_AGENT_LOG=""
 if [ "$(uname -s)" != "Linux" ]; then
     echo "ERROR: start-dev.sh must be run inside WSL/Linux (uname -s=Linux required)." >&2
     exit 1
@@ -67,6 +69,7 @@ export RULE_KNOWLEDGE_OCR_LANGUAGES="${RULE_KNOWLEDGE_OCR_LANGUAGES:-eng}"
 export BACKEND_E2E_URL="${BACKEND_E2E_URL:-http://localhost:8080}"
 export BACKEND_E2E_EMAIL="${BACKEND_E2E_EMAIL:-demo-player@example.com}"
 export BACKEND_E2E_PASSWORD="${BACKEND_E2E_PASSWORD:-secret-password}"
+export USER_PC_AGENT_RELAY_WEBSOCKET_URL="${USER_PC_AGENT_RELAY_WEBSOCKET_URL:-ws://127.0.0.1:${LOCAL_AGENT_CONNECTION_RELAY_PORT}/ws/agent}"
 if [ -z "${BACKEND_E2E_STORYBOOKS_JSON:-}" ]; then
     export BACKEND_E2E_STORYBOOKS_JSON='[{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew.pdf","role":"MAIN_SCENARIO"},{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf","role":"MAP"},{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf","role":"HANDOUT"}]'
 fi
@@ -134,9 +137,11 @@ run_npm() {
 cleanup() {
     echo ""
     echo "Shutting down..."
+    [ -n "${USER_PC_AGENT_PID:-}" ] && kill "$USER_PC_AGENT_PID" 2>/dev/null || true
     [ -n "${BACKEND_PID:-}" ] && kill "$BACKEND_PID" 2>/dev/null || true
     [ -n "${FRONTEND_PID:-}" ] && kill "$FRONTEND_PID" 2>/dev/null || true
     [ -n "${RELAY_PID:-}" ] && kill "$RELAY_PID" 2>/dev/null || true
+    [ -n "${USER_PC_AGENT_LOG:-}" ] && rm -f "$USER_PC_AGENT_LOG"
     [ -n "$GRADLEW_TMP_DIR" ] && rm -rf "$GRADLEW_TMP_DIR"
     wait 2>/dev/null || true
     echo "Done."
@@ -199,6 +204,50 @@ for attempt in $(seq 1 90); do
     fi
     if [ "$attempt" = "90" ]; then
         echo "ERROR: backend did not become healthy within 180 seconds." >&2
+        exit 1
+    fi
+    sleep 2
+done
+
+echo "==> Creating a demo-player login token for the user PC agent..."
+AGENT_LOGIN_PAYLOAD="$("$NODE_BIN" -e 'console.log(JSON.stringify({username: process.argv[1], password: process.argv[2]}))' "$BACKEND_E2E_EMAIL" "$BACKEND_E2E_PASSWORD")"
+AGENT_LOGIN_RESPONSE="$(curl --fail --silent --show-error \
+    --header 'Content-Type: application/json' \
+    --data "$AGENT_LOGIN_PAYLOAD" \
+    "$BACKEND_E2E_URL/api/v1/auth/login")"
+AGENT_ACCESS_TOKEN="$(printf '%s' "$AGENT_LOGIN_RESPONSE" | "$NODE_BIN" -e 'let body = ""; process.stdin.on("data", chunk => body += chunk).on("end", () => { const session = JSON.parse(body); if (!session.token || !session.playerId) process.exit(1); process.stdout.write(session.token); })')" || {
+    echo "ERROR: demo-player login response did not contain a token and player ID for the user PC agent." >&2
+    exit 1
+}
+AGENT_PLAYER_ID="$(printf '%s' "$AGENT_LOGIN_RESPONSE" | "$NODE_BIN" -e 'let body = ""; process.stdin.on("data", chunk => body += chunk).on("end", () => { const session = JSON.parse(body); if (!session.token || !session.playerId) process.exit(1); process.stdout.write(session.playerId); })')" || {
+    echo "ERROR: demo-player login response did not contain a token and player ID for the user PC agent." >&2
+    exit 1
+}
+
+echo "==> Starting user PC agent..."
+USER_PC_AGENT_LOG="$(mktemp "${TMPDIR:-/tmp}/dnd-master-user-pc-agent.XXXXXX.log")"
+(cd "$ROOT" && \
+    RELAY_WEBSOCKET_URL="$USER_PC_AGENT_RELAY_WEBSOCKET_URL" \
+    AGENT_ACCESS_TOKEN="$AGENT_ACCESS_TOKEN" \
+    CODEX_EXECUTABLE="$CODEX_EXECUTABLE" \
+    CODEX_WORK_DIRECTORY="$ROOT" \
+    exec bash "$GRADLEW_TMP_DIR/gradlew" :user-pc-agent:run) >"$USER_PC_AGENT_LOG" 2>&1 &
+USER_PC_AGENT_PID=$!
+echo "    User PC agent PID: $USER_PC_AGENT_PID"
+
+echo "==> Waiting for the user PC agent WebSocket connection..."
+for attempt in $(seq 1 90); do
+    if docker compose -f "$INFRA/compose.yaml" exec -T redis redis-cli \
+        EXISTS "agent-connection-location:$AGENT_PLAYER_ID" 2>/dev/null | tr -d '\r' | grep -qx '1'; then
+        echo "    User PC agent WebSocket connection is ready."
+        break
+    fi
+    if ! kill -0 "$USER_PC_AGENT_PID" 2>/dev/null; then
+        echo "ERROR: user PC agent stopped before its WebSocket connection was registered. Log: $USER_PC_AGENT_LOG" >&2
+        exit 1
+    fi
+    if [ "$attempt" = "90" ]; then
+        echo "ERROR: user PC agent did not register a WebSocket connection within 180 seconds. Log: $USER_PC_AGENT_LOG" >&2
         exit 1
     fi
     sleep 2
