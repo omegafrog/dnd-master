@@ -44,7 +44,7 @@ class ConversationCompactionCoordinatorTest {
         var candidatePort = new ConversationCompactionCandidatePort() {
             int calls;
             @Override public ConversationCompactionCandidate create(ConversationCompactionJob job, List<ConversationEntry> source) {
-                if (calls++ == 0) throw new TransientConversationCompactionException("provider unavailable");
+                if (calls++ < 2) throw new TransientConversationCompactionException("provider unavailable");
                 return new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), "첫 장면 요약");
             }
         };

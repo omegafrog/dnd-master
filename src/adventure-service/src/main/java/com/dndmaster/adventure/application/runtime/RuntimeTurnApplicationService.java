@@ -788,10 +788,10 @@ public class RuntimeTurnApplicationService {
     }
 
     private static long firstRecentCompletedTurnSequence(List<ConversationEntry> conversation) {
-        int gmTurns = 0;
+        int playerTurns = 0;
         for (int index = conversation.size() - 1; index >= 0; index--) {
-            if ("AI_GAME_MASTER".equals(conversation.get(index).speaker()) && ++gmTurns == 3) {
-                return conversation.get(index).sequence() + 1;
+            if ("PLAYER".equals(conversation.get(index).speaker()) && ++playerTurns == 2) {
+                return conversation.get(index).sequence();
             }
         }
         return conversation.isEmpty() ? 0 : conversation.getFirst().sequence();
@@ -808,11 +808,11 @@ public class RuntimeTurnApplicationService {
     private ConversationCompactionJob compactionJob(Adventure adventure) {
         if (conversationCompactionJobRepository == null) return null;
         List<ConversationEntry> conversation = adventure.conversation();
-        int completed = 0;
+        int players = 0;
         for (int index = conversation.size() - 1; index >= 0; index--) {
-            if (!"AI_GAME_MASTER".equals(conversation.get(index).speaker()) || ++completed != 3) continue;
+            if (!"PLAYER".equals(conversation.get(index).speaker()) || ++players != 2 || index == 0) continue;
             return ConversationCompactionJob.ready(adventure.id(), conversation.getFirst().sequence(),
-                    conversation.get(index).sequence(), adventure.version(), java.time.Instant.now());
+                    conversation.get(index - 1).sequence(), adventure.version(), java.time.Instant.now());
         }
         return null;
     }
