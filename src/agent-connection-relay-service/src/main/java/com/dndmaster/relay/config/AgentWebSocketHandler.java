@@ -24,6 +24,7 @@ import reactor.core.publisher.Mono;
 
 @Component
 public class AgentWebSocketHandler implements WebSocketHandler {
+  private static final String CONNECTION_ID_HEADER = "X-Agent-Connection-Id";
   private static final Duration LEASE_TTL = Duration.ofSeconds(60);
   private static final Duration LEASE_RENEW_INTERVAL = Duration.ofSeconds(20);
 
@@ -52,7 +53,7 @@ public class AgentWebSocketHandler implements WebSocketHandler {
         .getFirst(HttpHeaders.AUTHORIZATION);
 
     UUID soloPlayerId = identityPort.introspectUser(bearerToken(authentication));
-    String connectionId = UUID.randomUUID().toString();
+    String connectionId = connectionId(session);
     ConnectionLocationLease lease = new ConnectionLocationLease(
         soloPlayerId,
         properties.instanceId(),
@@ -93,6 +94,14 @@ public class AgentWebSocketHandler implements WebSocketHandler {
       throw new IllegalArgumentException("Bearer token is required");
     }
     return token;
+  }
+
+  private static String connectionId(WebSocketSession session) {
+    String requested = session.getHandshakeInfo().getHeaders().getFirst(CONNECTION_ID_HEADER);
+    if (requested == null || requested.isBlank()) {
+      return UUID.randomUUID().toString();
+    }
+    return UUID.fromString(requested.trim()).toString();
   }
 
 }

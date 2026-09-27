@@ -32,6 +32,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     private final HttpClient httpClient;
     private final URI relayEndpoint;
     private final String accessToken;
+    private final String connectionId;
     private final AiExecutionPort executionPort;
     private final ObjectMapper objectMapper;
     private final Executor executionExecutor;
@@ -45,7 +46,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             String accessToken,
             AiExecutionPort executionPort,
             ObjectMapper objectMapper) {
-        this(relayEndpoint, accessToken, executionPort, objectMapper, ForkJoinPool.commonPool());
+        this(relayEndpoint, accessToken, "", executionPort, objectMapper, ForkJoinPool.commonPool());
     }
 
     public CodexWebSocketAgent(
@@ -54,9 +55,29 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             AiExecutionPort executionPort,
             ObjectMapper objectMapper,
             Executor executionExecutor) {
+        this(relayEndpoint, accessToken, "", executionPort, objectMapper, executionExecutor);
+    }
+
+    public CodexWebSocketAgent(
+            URI relayEndpoint,
+            String accessToken,
+            String connectionId,
+            AiExecutionPort executionPort,
+            ObjectMapper objectMapper) {
+        this(relayEndpoint, accessToken, connectionId, executionPort, objectMapper, ForkJoinPool.commonPool());
+    }
+
+    public CodexWebSocketAgent(
+            URI relayEndpoint,
+            String accessToken,
+            String connectionId,
+            AiExecutionPort executionPort,
+            ObjectMapper objectMapper,
+            Executor executionExecutor) {
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
         this.relayEndpoint = requireWebSocketUri(relayEndpoint);
         this.accessToken = required(accessToken, "access token");
+        this.connectionId = optionalConnectionId(connectionId);
         this.executionPort = Objects.requireNonNull(executionPort, "execution port must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         this.executionExecutor = Objects.requireNonNull(executionExecutor, "execution executor must not be null");
@@ -67,8 +88,12 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         if (socket.get() != null) {
             throw new IllegalStateException("WebSocket agent is already connected");
         }
-        return httpClient.newWebSocketBuilder()
-                .header("Authorization", "Bearer " + accessToken)
+        WebSocket.Builder builder = httpClient.newWebSocketBuilder()
+                .header("Authorization", "Bearer " + accessToken);
+        if (!connectionId.isEmpty()) {
+            builder.header("X-Agent-Connection-Id", connectionId);
+        }
+        return builder
                 .buildAsync(relayEndpoint, new Listener())
                 .thenApply(webSocket -> {
                     if (socket.get() != webSocket) {
@@ -161,6 +186,11 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " is required");
         return value.trim();
+    }
+
+    private static String optionalConnectionId(String value) {
+        if (value == null || value.isBlank()) return "";
+        return UUID.fromString(value.trim()).toString();
     }
 
     private static String safeMessage(Throwable failure) {

@@ -9,6 +9,7 @@ GRADLEW_TMP_DIR=""
 RELAY_PID=""
 USER_PC_AGENT_PID=""
 USER_PC_AGENT_LOG=""
+USER_PC_AGENT_READY=false
 if [ "$(uname -s)" != "Linux" ]; then
     echo "ERROR: start-dev.sh must be run inside WSL/Linux (uname -s=Linux required)." >&2
     exit 1
@@ -141,7 +142,7 @@ cleanup() {
     [ -n "${BACKEND_PID:-}" ] && kill "$BACKEND_PID" 2>/dev/null || true
     [ -n "${FRONTEND_PID:-}" ] && kill "$FRONTEND_PID" 2>/dev/null || true
     [ -n "${RELAY_PID:-}" ] && kill "$RELAY_PID" 2>/dev/null || true
-    [ -n "${USER_PC_AGENT_LOG:-}" ] && rm -f "$USER_PC_AGENT_LOG"
+    [ "${USER_PC_AGENT_READY:-false}" = true ] && [ -n "${USER_PC_AGENT_LOG:-}" ] && rm -f "$USER_PC_AGENT_LOG"
     [ -n "$GRADLEW_TMP_DIR" ] && rm -rf "$GRADLEW_TMP_DIR"
     wait 2>/dev/null || true
     echo "Done."
@@ -223,6 +224,7 @@ AGENT_PLAYER_ID="$(printf '%s' "$AGENT_LOGIN_RESPONSE" | "$NODE_BIN" -e 'let bod
     echo "ERROR: demo-player login response did not contain a token and player ID for the user PC agent." >&2
     exit 1
 }
+AGENT_CONNECTION_ID="$("$NODE_BIN" -e 'process.stdout.write(require("node:crypto").randomUUID())')"
 
 echo "==> Starting user PC agent..."
 echo "==> Waiting for any previous demo-player agent connection to close..."
@@ -241,6 +243,7 @@ USER_PC_AGENT_LOG="$(mktemp "${TMPDIR:-/tmp}/dnd-master-user-pc-agent.XXXXXX.log
 (cd "$ROOT" && \
     RELAY_WEBSOCKET_URL="$USER_PC_AGENT_RELAY_WEBSOCKET_URL" \
     AGENT_ACCESS_TOKEN="$AGENT_ACCESS_TOKEN" \
+    AGENT_CONNECTION_ID="$AGENT_CONNECTION_ID" \
     CODEX_EXECUTABLE="$CODEX_EXECUTABLE" \
     CODEX_WORK_DIRECTORY="$ROOT" \
     exec bash "$GRADLEW_TMP_DIR/gradlew" :user-pc-agent:run) >"$USER_PC_AGENT_LOG" 2>&1 &
@@ -250,8 +253,9 @@ echo "    User PC agent PID: $USER_PC_AGENT_PID"
 echo "==> Waiting for the user PC agent WebSocket connection..."
 for attempt in $(seq 1 90); do
     if docker compose -f "$INFRA/compose.yaml" exec -T redis redis-cli \
-        EXISTS "agent-connection-location:$AGENT_PLAYER_ID" 2>/dev/null | tr -d '\r' | grep -qx '1'; then
+        HGET "agent-connection-location:$AGENT_PLAYER_ID" connectionId 2>/dev/null | tr -d '\r' | grep -Fqx "$AGENT_CONNECTION_ID"; then
         echo "    User PC agent WebSocket connection is ready."
+        USER_PC_AGENT_READY=true
         break
     fi
     if ! kill -0 "$USER_PC_AGENT_PID" 2>/dev/null; then

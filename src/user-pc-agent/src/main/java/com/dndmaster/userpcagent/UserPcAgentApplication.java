@@ -23,6 +23,7 @@ public final class UserPcAgentApplication {
         try (codex; CodexWebSocketAgent agent = new CodexWebSocketAgent(
                 settings.relayWebSocketUrl(),
                 settings.accessToken(),
+                settings.connectionId(),
                 codex,
                 objectMapper)) {
             Runtime.getRuntime().addShutdownHook(new Thread(agent::close, "user-pc-agent-shutdown"));
@@ -35,6 +36,7 @@ public final class UserPcAgentApplication {
     private record Settings(
             URI relayWebSocketUrl,
             String accessToken,
+            String connectionId,
             String codexExecutable,
             Path codexWorkDirectory,
             Duration codexTimeout) {
@@ -42,6 +44,7 @@ public final class UserPcAgentApplication {
             return new Settings(
                     URI.create(required("RELAY_WEBSOCKET_URL")),
                     required("AGENT_ACCESS_TOKEN"),
+                    required("AGENT_CONNECTION_ID"),
                     environmentOrDefault("CODEX_EXECUTABLE", "codex"),
                     Path.of(environmentOrDefault("CODEX_WORK_DIRECTORY", "/tmp")),
                     Duration.parse(environmentOrDefault("CODEX_TIMEOUT", "PT5M")));
