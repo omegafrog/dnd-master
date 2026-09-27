@@ -803,14 +803,11 @@ public class RuntimeTurnApplicationService {
     private ConversationCompactionJob compactionJob(Adventure adventure) {
         if (conversationCompactionJobRepository == null) return null;
         List<ConversationEntry> conversation = adventure.conversation();
-        int players = 0;
-        for (int index = conversation.size() - 1; index >= 0; index--) {
-            if (!"PLAYER".equals(conversation.get(index).speaker()) || ++players != 2 || index == 0) continue;
-            long sourceStart = Math.max(conversation.getFirst().sequence(), conversationCompactionJobRepository.coveredThrough(adventure.id()) + 1);
-            long sourceEnd = conversation.get(index - 1).sequence();
-            return sourceStart > sourceEnd ? null : ConversationCompactionJob.ready(adventure.id(), sourceStart, sourceEnd, adventure.version(), java.time.Instant.now());
-        }
-        return null;
+        List<Long> completedEnds = ConversationCompactionCoordinator.completedTurnEnds(conversation);
+        if (completedEnds.size() < 3) return null;
+        long sourceStart = Math.max(conversation.getFirst().sequence(), conversationCompactionJobRepository.coveredThrough(adventure.id()) + 1);
+        long sourceEnd = completedEnds.get(completedEnds.size() - 3);
+        return sourceStart > sourceEnd ? null : ConversationCompactionJob.ready(adventure.id(), sourceStart, sourceEnd, adventure.version(), java.time.Instant.now());
     }
 
     public static StateDelta deltaFor(NarrativeState state, SubmitRuntimeTurnCommand command, RuntimePlan plan) {

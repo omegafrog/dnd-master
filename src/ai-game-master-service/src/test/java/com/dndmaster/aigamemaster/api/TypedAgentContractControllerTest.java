@@ -66,7 +66,7 @@ class TypedAgentContractControllerTest {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
                 prompt.set(value);
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"text\":\"문\"},{\"sequence\":5,\"text\":\"문\"},{\"sequence\":6,\"text\":\"안\"},{\"sequence\":7,\"text\":\"복\"}]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"문\"},{\"sequence\":5,\"speaker\":\"AI_GAME_MASTER\",\"text\":\"문\"},{\"sequence\":6,\"speaker\":\"PLAYER\",\"text\":\"안\"},{\"sequence\":7,\"speaker\":\"AI_GAME_MASTER\",\"text\":\"복\"}]}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -87,7 +87,7 @@ class TypedAgentContractControllerTest {
     void conversation_compaction_rejects_a_candidate_for_another_source_version() {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":10,\"excerpts\":[{\"sequence\":4,\"text\":\"문\"},{\"sequence\":5,\"text\":\"문\"},{\"sequence\":6,\"text\":\"안\"},{\"sequence\":7,\"text\":\"복\"}]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":10,\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"문\"},{\"sequence\":5,\"speaker\":\"AI_GAME_MASTER\",\"text\":\"문\"},{\"sequence\":6,\"speaker\":\"PLAYER\",\"text\":\"안\"},{\"sequence\":7,\"speaker\":\"AI_GAME_MASTER\",\"text\":\"복\"}]}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));

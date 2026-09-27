@@ -16,9 +16,10 @@ public final class ConversationCompactionCoordinator {
     private final ConversationCompactionCandidatePort candidatePort;
     public ConversationCompactionCoordinator(ConversationCompactionJobRepository repository, ConversationCompactionCandidatePort candidatePort) { this.repository = Objects.requireNonNull(repository); this.candidatePort = Objects.requireNonNull(candidatePort); }
     public void registerAfterConfirmedTurn(AdventureId adventureId, long version, List<ConversationEntry> conversation, Instant now) {
-        int secondLastPlayer = nthLastPlayerIndex(conversation, 2); if (secondLastPlayer <= 0) return;
+        List<Long> completedEnds = completedTurnEnds(conversation);
+        if (completedEnds.size() < 3) return;
         long sourceStart = Math.max(conversation.getFirst().sequence(), repository.coveredThrough(adventureId) + 1);
-        long sourceEnd = conversation.get(secondLastPlayer - 1).sequence();
+        long sourceEnd = completedEnds.get(completedEnds.size() - 3);
         if (sourceStart > sourceEnd) return;
         repository.register(ConversationCompactionJob.ready(adventureId, sourceStart, sourceEnd, version, now));
     }
@@ -84,5 +85,17 @@ public final class ConversationCompactionCoordinator {
         long inputLength = source.stream().mapToLong(entry -> entry.content().length()).sum();
         return covered.equals(entries.keySet()) && (excerptLength + Math.max(0, excerptCount - 1)) * 5 <= inputLength * 4;
     }
-    private static int nthLastPlayerIndex(List<ConversationEntry> conversation, int nth) { int found=0; for(int i=conversation.size()-1;i>=0;i--) if("PLAYER".equals(conversation.get(i).speaker()) && ++found==nth) return i; return -1; }
+    /** A combat result plus its immediately following narration is one completed turn. Other GM entries are completed turns. */
+    static List<Long> completedTurnEnds(List<ConversationEntry> conversation) {
+        List<Long> ends = new java.util.ArrayList<>();
+        for (int index = 0; index < conversation.size(); index++) {
+            ConversationEntry entry = conversation.get(index);
+            if (!"AI_GAME_MASTER".equals(entry.speaker())) continue;
+            if (entry.content().startsWith("확정 전투 결과:") && index + 1 < conversation.size()
+                    && "AI_GAME_MASTER".equals(conversation.get(index + 1).speaker())) {
+                ends.add(conversation.get(++index).sequence());
+            } else ends.add(entry.sequence());
+        }
+        return ends;
+    }
 }
