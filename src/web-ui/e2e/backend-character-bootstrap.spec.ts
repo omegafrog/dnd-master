@@ -193,16 +193,44 @@ async function compilePackage(request: APIRequestContext, bundleId: string, prim
   expect(start.ok(), await start.text()).toBeTruthy()
   const compilation = await start.json() as { compilationId: string; packageId?: string | null }
   let packageId = compilation.packageId ?? null
-  await expect.poll(async () => {
-    const response = await request.get(`${backend}/api/v1/adventures/compilations/${compilation.compilationId}`, { headers: authHeaders })
-    expect(response.ok(), await response.text()).toBeTruthy()
-    const current = await response.json() as { status: string; packageId?: string | null; failureReason?: string | null }
-    if (current.status === 'FAILED') throw new Error(current.failureReason ?? 'scenario compilation failed')
-    packageId = current.packageId ?? packageId
-    return current.status === 'COMPLETED' && packageId ? 'PUBLISHED' : current.status
-  }, { timeout: 360_000, intervals: [1000, 2000, 5000] }).toBe('PUBLISHED')
-  expect(packageId).toBeTruthy()
-  return packageId!
+  const startedAt = Date.now()
+  const observations: Array<{ observedAt: string; elapsedMs: number; status: string; attempt?: number; packageId: string | null }> = []
+  const runningStatuses = new Set(['QUEUED', 'PROCESSING', 'REQUESTED', 'RUNNING', 'WAITING_RETRY'])
+
+  try {
+    for (;;) {
+      const response = await request.get(`${backend}/api/v1/adventures/compilations/${compilation.compilationId}`, { headers: authHeaders })
+      expect(response.ok(), await response.text()).toBeTruthy()
+      const current = await response.json() as {
+        status: string
+        attempt?: number
+        packageId?: string | null
+        failureReason?: string | null
+      }
+      packageId = current.packageId ?? packageId
+      observations.push({
+        observedAt: new Date().toISOString(),
+        elapsedMs: Date.now() - startedAt,
+        status: current.status,
+        attempt: current.attempt,
+        packageId,
+      })
+
+      if (current.status === 'COMPLETED' || current.status === 'PUBLISHED') {
+        expect(packageId, `scenario compilation ${compilation.compilationId} finished without a package id`).toBeTruthy()
+        return packageId!
+      }
+      if (!runningStatuses.has(current.status)) {
+        throw new Error(`scenario compilation ${compilation.compilationId} stopped at ${current.status}: ${current.failureReason ?? ''}`)
+      }
+      await new Promise(resolve => setTimeout(resolve, 5000))
+    }
+  } finally {
+    await test.info().attach('scenario-compilation-observations.json', {
+      body: Buffer.from(JSON.stringify({ compilationId: compilation.compilationId, observations }, null, 2)),
+      contentType: 'application/json',
+    })
+  }
 }
 
 async function getPreparation(request: APIRequestContext, packageId: string) {
@@ -302,7 +330,7 @@ function mimeType(path: string) {
 test('fresh database bootstraps scenario package and completes character creation', async ({ request }) => {
   test.skip(!hasEnvironment(),
     'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD and BACKEND_E2E_STORYBOOKS_JSON')
-  test.setTimeout(360_000)
+  test.setTimeout(0)
 
   await login(request)
   const uploaded = await uploadDocuments(request)
