@@ -17,7 +17,7 @@ public final class ConversationCompactionWorker {
         this.coordinator = new ConversationCompactionCoordinator(jobs, Objects.requireNonNull(candidates));
     }
 
-    @Scheduled(fixedDelayString = "${adventure.conversation-compaction.poll-delay-ms:1000}")
+    @Scheduled(scheduler = "conversationCompactionScheduler", fixedDelayString = "${adventure.conversation-compaction.poll-delay-ms:1000}")
     public void process() { processOnce(Instant.now()); }
 
     public boolean processOnce(Instant now) {

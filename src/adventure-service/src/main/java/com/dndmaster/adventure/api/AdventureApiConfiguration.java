@@ -1033,6 +1033,15 @@ public class AdventureApiConfiguration {
                         Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken));
     }
 
+    @Bean(name = "conversationCompactionScheduler")
+    org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler conversationCompactionScheduler() {
+        var scheduler = new org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("conversation-compaction-");
+        scheduler.setWaitForTasksToCompleteOnShutdown(false);
+        return scheduler;
+    }
+
     @Bean
     RuntimeCharacterSheetReadPort runtimeCharacterSheetReadPort(
             @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
