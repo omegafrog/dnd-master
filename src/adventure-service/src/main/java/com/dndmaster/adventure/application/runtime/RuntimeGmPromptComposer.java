@@ -14,6 +14,7 @@ public final class RuntimeGmPromptComposer {
         java.util.Map<String, Object> runtimeContext = new java.util.LinkedHashMap<>();
         runtimeContext.put("currentContext", envelope.currentContext());
         runtimeContext.put("scenarioContext", envelope.scenarioContext());
+        runtimeContext.put("currentSituation", envelope.currentSituation());
         runtimeContext.put("runtimeFacts", envelope.runtimeFacts());
         runtimeContext.put("recentTurns", envelope.recentTurns());
         runtimeContext.put("characterSnapshots", envelope.characterSnapshots());

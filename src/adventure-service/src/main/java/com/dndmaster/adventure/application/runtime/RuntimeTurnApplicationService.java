@@ -564,6 +564,8 @@ public class RuntimeTurnApplicationService {
 
     private RuntimeTurnResult submitSafeScenarioRuntimeTurn(SubmitRuntimeTurnCommand command, Adventure adventure,
             RuntimeBinding binding, ScenarioPackage scenarioPackage) {
+        List<String> characterSheets = adventure.party().stream()
+                .map(member -> currentCharacterSheet(member.characterSheetId().value())).toList();
         EvidencePack evidencePack = prefetchEvidence(command, adventure, binding, scenarioPackage);
         List<RuntimeFactLookupResult> factLookupResults = lookupRuntimeFacts(command, adventure, scenarioPackage, evidencePack);
         NarrativeState narrativeState = narrativeStateService == null ? NarrativeState.empty()
@@ -574,14 +576,11 @@ public class RuntimeTurnApplicationService {
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
                 adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
-                adventure.party().stream().map(member -> currentCharacterSheet(member.characterSheetId().value())).toList(),
-                "SCENARIO_MODEL=" + scenarioPackage.scenarioModel()
-                        + "\nCURRENT_SITUATION=" + adventure.currentSituation()
-                        + "\nRUNTIME_ADDED_FACTS=" + adventure.runtimeAddedFacts().stream()
-                                .map(RuntimeAddedFact::content).toList(), providerEndpointId(adventure.sessionId().value()),
+                characterSheets, "SCENARIO_MODEL=" + scenarioPackage.scenarioModel(), providerEndpointId(adventure.sessionId().value()),
                 providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
-                adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults);
+                adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults,
+                adventure.currentSituation().toString());
         RuntimePlanningResult planningResult = planningPort.planWithOutcomes(planningRequest);
         RuntimePlan plan = planningResult.plan();
         if (!command.gmOnly() && !plan.combatStartRequested()) {

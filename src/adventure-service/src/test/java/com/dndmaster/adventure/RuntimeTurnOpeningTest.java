@@ -81,6 +81,7 @@ class RuntimeTurnOpeningTest {
 
         org.junit.jupiter.api.Assertions.assertThrows(RuntimeCharacterSheetReadException.class,
                 () -> service.submitTurn(new SubmitRuntimeTurnCommand(id, owner, UUID.randomUUID(), UUID.randomUUID(), "look")));
+        verify(evidence, never()).search(any());
         verify(planning, never()).planWithOutcomes(any());
     }
 

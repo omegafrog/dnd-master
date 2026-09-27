@@ -89,4 +89,20 @@ class RuntimeGmPromptComposerTest {
         assertTrue(prompt.substring(current).contains("currentSituation"));
         assertTrue(!prompt.substring(current).contains("scenarioContext"));
     }
+
+    @Test
+    void current_situation_does_not_change_the_fixed_prefix() {
+        String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"
+                + "\nLOOKUP_ORDER_RULE=rules\nOUTPUT_CONTRACT=json";
+        String first = RuntimeGmPromptComposer.compose(legacy, List.of(), List.of("sheet"),
+                Map.of("scenarioContext", "SCENARIO_MODEL={}", "currentSituation", "cellar"), 1000);
+        String second = RuntimeGmPromptComposer.compose(legacy, List.of(), List.of("sheet"),
+                Map.of("scenarioContext", "SCENARIO_MODEL={}", "currentSituation", "tower"), 1000);
+
+        int firstChangingZone = first.indexOf("현재 상황 관련 장기 기록");
+        int secondChangingZone = second.indexOf("현재 상황 관련 장기 기록");
+        assertEquals(first.substring(0, firstChangingZone), second.substring(0, secondChangingZone));
+        assertTrue(first.substring(first.indexOf("최신 캐릭터 시트·Current Situation·이번 턴 근거·플레이어 입력"))
+                .contains("currentSituation"));
+    }
 }
