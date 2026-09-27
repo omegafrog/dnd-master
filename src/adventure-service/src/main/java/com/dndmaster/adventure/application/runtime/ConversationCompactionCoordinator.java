@@ -29,8 +29,10 @@ public final class ConversationCompactionCoordinator {
             List<ConversationEntry> source = source(job, conversation);
             if (!completeRange(job, source)) { repository.manualReview(job, "SOURCE_RANGE_INCOMPLETE"); return false; }
             ConversationCompactionCandidate candidate = candidate(job, source);
-            if (candidate.sourceStart() != job.sourceStart() || candidate.sourceEnd() != job.sourceEnd() || candidate.expectedAdventureVersion() != job.expectedAdventureVersion()
-                    || !validExcerpts(candidate.excerpts(), source)) { repository.manualReview(job, "CANDIDATE_PROVENANCE_MISMATCH"); return false; }
+            if (!validCandidate(job, source, candidate)) {
+                candidate = candidatePort.create(job, source);
+                if (!validCandidate(job, source, candidate)) throw new TransientConversationCompactionException("CANDIDATE_PROVENANCE_MISMATCH");
+            }
             String renderedSummary = candidate.excerpts().stream().map(ConversationCompactionCandidate.SourceExcerpt::text)
                     .collect(java.util.stream.Collectors.joining(" "));
             long summaryVersion = repository.summaries(adventureId).size() + 1;
@@ -53,6 +55,10 @@ public final class ConversationCompactionCoordinator {
         return expectedCount > 0 && source.size() == expectedCount
                 && source.stream().map(ConversationEntry::sequence).distinct().count() == expectedCount
                 && source.getFirst().sequence() == job.sourceStart() && source.getLast().sequence() == job.sourceEnd();
+    }
+    private static boolean validCandidate(ConversationCompactionJob job, List<ConversationEntry> source, ConversationCompactionCandidate candidate) {
+        return candidate.sourceStart() == job.sourceStart() && candidate.sourceEnd() == job.sourceEnd()
+                && candidate.expectedAdventureVersion() == job.expectedAdventureVersion() && validExcerpts(candidate.excerpts(), source);
     }
     private static boolean validExcerpts(List<ConversationCompactionCandidate.SourceExcerpt> excerpts, List<ConversationEntry> source) {
         if (excerpts == null || excerpts.isEmpty()) return false;
