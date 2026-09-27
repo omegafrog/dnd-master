@@ -555,7 +555,7 @@ public class RuntimeTurnApplicationService {
         if (turn.turnCharacterSheetId() != null) {
             progressed.advanceTurn(adventure.ownerPlayerId(), turn.turnIndex(), turn.turnCharacterSheetId(), turn.turnId());
         }
-        adventureRepository.save(progressed);
+        saveConfirmedAdventureAndRegister(progressed);
         runtimeTurnRepository.save(presented);
         if (narrativeStateService != null) narrativeStateService.commit(turn.sessionId(), visibleTurn.stateDelta());
         return new RuntimeTurnResult(presented, progressed.currentContext(), progressed.conversation(), progressed.version(), visibleTurn);
@@ -881,7 +881,7 @@ public class RuntimeTurnApplicationService {
             if (command.turnCharacterSheetId() != null) {
                 progressed.advanceTurn(command.ownerPlayerId(), command.turnIndex(), command.turnCharacterSheetId(), command.turnId());
             }
-            adventureRepository.save(progressed);
+            saveConfirmedAdventureAndRegister(progressed);
         }
         RuntimeTurn committed = existing.markCommitted();
         runtimeTurnRepository.save(committed);
