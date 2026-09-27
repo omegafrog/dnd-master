@@ -602,8 +602,7 @@ public class RuntimeTurnApplicationService {
                 : narrativeStateService.load(adventure.sessionId().value());
         String situation = adventure.currentSituation() == null ? "" : adventure.currentSituation().toString();
         NarrativeContext narrativeContext = narrativeState.project(adventure.ownerPlayerId().value().toString(), situation);
-        List<String> recentTurns = new ArrayList<>(adventure.conversation().stream()
-                .map(entry -> entry.speaker() + ": " + entry.content()).toList());
+        List<String> recentTurns = new ArrayList<>(recentConversationForPrompt(adventure));
         runtimeTurnRepository.findAllByAdventureId(adventure.id()).stream()
                 .filter(turn -> turn.lifecycle() == RuntimeTurnLifecycle.PENDING_ROLL)
                 .forEach(turn -> recentTurns.add("PENDING_ROLL: " + turn.action()));
@@ -629,7 +628,7 @@ public class RuntimeTurnApplicationService {
         }
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", confirmedCombatResult(request)));
         adventure.preserveProgress(adventure.ownerPlayerId(), adventure.version(), adventure.currentContext(), conversation);
-        adventureRepository.save(adventure);
+        saveConfirmedAdventureAndRegister(adventure);
     }
 
     private void persistCombatNarration(Adventure adventure, String narration) {
@@ -637,7 +636,7 @@ public class RuntimeTurnApplicationService {
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", narration));
         adventure.preserveProgress(adventure.ownerPlayerId(), adventure.version(), adventure.currentContext(), conversation);
-        adventureRepository.save(adventure);
+        saveConfirmedAdventureAndRegister(adventure);
     }
 
     private static String confirmedCombatResult(CombatNarrationRequest request) {
