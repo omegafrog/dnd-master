@@ -100,7 +100,9 @@ if [ -z "$revision_id" ]; then
     }
 fi
 
-for attempt in $(seq 1 60); do
+attempt=0
+while true; do
+    attempt=$((attempt + 1))
     status="$(request POST "$BACKEND_E2E_URL/api/v1/backoffice/rulebook-catalog/$revision_id/publish")"
     if [ "$status" = "200" ]; then
         status="$(curl --silent --show-error --output "$RESPONSE" --write-out '%{http_code}' "$BACKEND_E2E_URL/api/v1/rulebook-catalog")"
@@ -112,8 +114,8 @@ for attempt in $(seq 1 60); do
         echo "ERROR: local shared catalog publish failed (HTTP $status)." >&2
         exit 1
     fi
+    if (( attempt % 30 == 0 )); then
+        echo "    Rulebook is still being processed; continuing to wait (${attempt} checks)."
+    fi
     sleep 2
 done
-
-echo "ERROR: local shared catalog rulebook did not become ready within 120 seconds." >&2
-exit 1

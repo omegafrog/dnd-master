@@ -246,7 +246,7 @@ async function createSession(request: APIRequestContext, packageId: string, blue
     data: { scenarioPackageId: packageId, blueprintId: packageId, blueprintRevision },
   })
   expect(response.ok(), await response.text()).toBeTruthy()
-  return response.json() as Promise<{ sessionId: string; version: number }>
+  return response.json() as Promise<{ sessionId: string; version: number; characterLimit: number }>
 }
 
 function fighterDraft() {
@@ -374,10 +374,35 @@ test('fresh database bootstraps scenario package and completes character creatio
     expect.objectContaining({ characterSheetId: companion.characterSheetId, controlMode: 'AGENT' }),
   ]))
 
+  let fullParty = partyWithCompanion
+  for (let index = 2; index < session.characterLimit; index += 1) {
+    const additionalCompanionResponse = await request.post(`${backend}/internal/v1/adventure-sessions/${session.sessionId}/character-sheets`, {
+      headers: authHeaders,
+      data: companionDraft(),
+    })
+    expect(additionalCompanionResponse.ok(), await additionalCompanionResponse.text()).toBeTruthy()
+    const additionalCompanion = await additionalCompanionResponse.json() as { characterSheetId: string }
+    const additionalPartyResponse = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/party`, {
+      headers: { ...authHeaders, 'If-Match-Version': String(fullParty.version) },
+      data: {
+        characterSheetId: additionalCompanion.characterSheetId,
+        controlMode: 'AGENT',
+        nameMutableAfterStart: false,
+        raceMutableAfterStart: false,
+        characterClassMutableAfterStart: false,
+        backgroundMutableAfterStart: false,
+        startingAbilitiesMutableAfterStart: false,
+        levelMutableAfterStart: false,
+      },
+    })
+    expect(additionalPartyResponse.ok(), await additionalPartyResponse.text()).toBeTruthy()
+    fullParty = await additionalPartyResponse.json()
+  }
+
   const startResponse = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/start`, {
     headers: {
       ...authHeaders,
-      'If-Match-Version': String(partyWithCompanion.version),
+      'If-Match-Version': String(fullParty.version),
       'Idempotency-Key': crypto.randomUUID(),
       'Content-Type': 'application/json',
     },
