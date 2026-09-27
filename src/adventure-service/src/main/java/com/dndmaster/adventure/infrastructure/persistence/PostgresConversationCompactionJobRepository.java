@@ -41,10 +41,10 @@ public final class PostgresConversationCompactionJobRepository implements Conver
             boolean autoCommit = connection.getAutoCommit(); if (!managed) connection.setAutoCommit(false);
             try (PreparedStatement select = connection.prepareStatement("""
                     SELECT * FROM adventure_conversation_compaction_job
-                    WHERE adventure_id=? AND status IN ('READY', 'RETRY_WAIT') AND available_at <= ?
+                    WHERE adventure_id=? AND ((status IN ('READY', 'RETRY_WAIT') AND available_at <= ?) OR (status='LEASED' AND lease_until <= ?))
                       AND NOT EXISTS (SELECT 1 FROM adventure_conversation_compaction_job held WHERE held.adventure_id=? AND held.status='LEASED' AND held.lease_until > ?)
                     ORDER BY available_at, job_id FOR UPDATE SKIP LOCKED LIMIT 1""")) {
-                select.setObject(1, adventureId.value()); select.setTimestamp(2, Timestamp.from(now)); select.setObject(3, adventureId.value()); select.setTimestamp(4, Timestamp.from(now));
+                select.setObject(1, adventureId.value()); select.setTimestamp(2, Timestamp.from(now)); select.setTimestamp(3, Timestamp.from(now)); select.setObject(4, adventureId.value()); select.setTimestamp(5, Timestamp.from(now));
                 try (ResultSet rows = select.executeQuery()) { if (!rows.next()) { if (!managed) connection.commit(); return Optional.empty(); }
                     ConversationCompactionJob leased = read(rows).lease(until); update(connection, leased); if (!managed) connection.commit(); return Optional.of(leased); }
             } catch (SQLException | RuntimeException error) { if (!managed) connection.rollback(); throw error; } finally { if (!managed) connection.setAutoCommit(autoCommit); }
@@ -81,8 +81,8 @@ public final class PostgresConversationCompactionJobRepository implements Conver
     }
     @Override public List<ConversationCompactionJob> ready(Instant now) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("""
-                SELECT * FROM adventure_conversation_compaction_job WHERE status IN ('READY', 'RETRY_WAIT') AND available_at <= ? ORDER BY available_at, job_id LIMIT 20""")) {
-            statement.setTimestamp(1, Timestamp.from(now)); List<ConversationCompactionJob> result = new ArrayList<>();
+                SELECT * FROM adventure_conversation_compaction_job WHERE (status IN ('READY', 'RETRY_WAIT') AND available_at <= ?) OR (status='LEASED' AND lease_until <= ?) ORDER BY available_at, job_id LIMIT 20""")) {
+            statement.setTimestamp(1, Timestamp.from(now)); statement.setTimestamp(2, Timestamp.from(now)); List<ConversationCompactionJob> result = new ArrayList<>();
             try (ResultSet rows = statement.executeQuery()) { while (rows.next()) result.add(read(rows)); } return List.copyOf(result);
         } catch (SQLException error) { throw new AdventurePersistenceException("could not list ready conversation compaction jobs", error); }
     }

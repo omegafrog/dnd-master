@@ -77,6 +77,17 @@ class ConversationCompactionCoordinatorTest {
     }
 
     @Test
+    void reclaims_an_expired_lease_without_claiming_a_live_worker_lease() {
+        var repository = new InMemoryConversationCompactionJobRepository();
+        AdventureId adventureId = AdventureId.generate(); Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        ConversationCompactionJob job = repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
+        assertTrue(repository.lease(adventureId, now, now.plusSeconds(60)).isPresent());
+        assertFalse(repository.lease(adventureId, now.plusSeconds(30), now.plusSeconds(90)).isPresent());
+        ConversationCompactionJob reclaimed = repository.lease(adventureId, now.plusSeconds(61), now.plusSeconds(121)).orElseThrow();
+        assertEquals(job.attempts() + 2, reclaimed.attempts());
+    }
+
+    @Test
     void source_version_regression_never_leaves_a_candidate_leased() {
         var repository = new InMemoryConversationCompactionJobRepository();
         var coordinator = new ConversationCompactionCoordinator(repository,
