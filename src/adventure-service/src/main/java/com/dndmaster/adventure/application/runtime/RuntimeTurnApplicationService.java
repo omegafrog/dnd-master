@@ -580,6 +580,7 @@ public class RuntimeTurnApplicationService {
                 .orElseThrow(() -> new IllegalStateException("runtime binding not found"));
         ScenarioPackage scenarioPackage = scenarioPackageRepository.findById(binding.scenarioPackageId())
                 .orElseThrow(() -> new IllegalStateException("scenario package not found"));
+        persistConfirmedCombatResult(adventure, request);
         SubmitRuntimeTurnCommand contextCommand = new SubmitRuntimeTurnCommand(adventure.id(), adventure.ownerPlayerId(),
                 request.command().operationId(), request.command().operationId(), combatNarrationAction(request), -1,
                 null, -1, false, true, false, List.of());
@@ -607,15 +608,23 @@ public class RuntimeTurnApplicationService {
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                 narration, evidencePack, adventure.currentContext(), contextCommand.action()));
         if (!safety.approved()) throw new IllegalStateException("combat narration safety rejected: " + safety.reason());
-        persistCombatConversation(adventure, request, narration);
+        persistCombatNarration(adventure, narration);
         return narration;
     }
 
-    private void persistCombatConversation(Adventure adventure, CombatNarrationRequest request, String narration) {
+    private void persistConfirmedCombatResult(Adventure adventure, CombatNarrationRequest request) {
+        List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
+        if (request.hasPlayerInput()) {
+            conversation.add(new ConversationEntry(conversation.size(), "PLAYER", request.playerInput()));
+        }
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", confirmedCombatResult(request)));
+        adventure.preserveProgress(adventure.ownerPlayerId(), adventure.version(), adventure.currentContext(), conversation);
+        adventureRepository.save(adventure);
+    }
+
+    private void persistCombatNarration(Adventure adventure, String narration) {
         if (narration == null || narration.isBlank()) return;
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
-        conversation.add(new ConversationEntry(conversation.size(), "PLAYER", request.playerInput()));
-        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", confirmedCombatResult(request)));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", narration));
         adventure.preserveProgress(adventure.ownerPlayerId(), adventure.version(), adventure.currentContext(), conversation);
         adventureRepository.save(adventure);
@@ -628,8 +637,10 @@ public class RuntimeTurnApplicationService {
     }
 
     private static String combatNarrationAction(CombatNarrationRequest request) {
-        return "확정된 전투 행동을 플레이어에게 서술합니다. 플레이어 입력=" + request.playerInput()
-                + "; 전투 버전=" + request.encounterVersion()
+        return "확정된 전투 행동을 플레이어에게 서술합니다. "
+                + (request.hasPlayerInput() ? "플레이어 입력=" + request.playerInput() : "전투 참여자 행동=" + request.command().action())
+                + ";"
+                + " 전투 버전=" + request.encounterVersion()
                 + "; 주사위 결과=" + (request.diceTotal() == null ? "없음" : request.diceTotal())
                 + "; 판정=" + request.judgment()
                 + ". 전투·상황·캐릭터 상태를 바꾸지 말고 플레이어에게 보이는 서술만 제안하세요.";

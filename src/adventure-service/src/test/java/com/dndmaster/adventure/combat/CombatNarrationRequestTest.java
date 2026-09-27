@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.combat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
@@ -31,6 +32,18 @@ class CombatNarrationRequestTest {
         assertEquals(7L, request.encounterVersion());
         assertEquals(18, request.diceTotal());
         assertEquals("명중", request.judgment());
+    }
+
+    @Test
+    void does_not_label_an_ai_combat_action_as_player_input() {
+        CombatActionCommand command = new CombatActionCommand(UUID.randomUUID(), AdventureId.generate(), UUID.randomUUID(),
+                new RuleSetId(UUID.randomUUID()), new CharacterSheetId(UUID.randomUUID()), null,
+                CombatActorRole.AI, "attack", null, UUID.randomUUID(), UUID.randomUUID(), 6L,
+                15, 4, new CharacterSheetId(UUID.randomUUID()), 6, false);
+
+        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command, 7L, 18, "명중", null);
+
+        assertFalse(request.hasPlayerInput());
     }
 
     private static CombatActionCommand command() {

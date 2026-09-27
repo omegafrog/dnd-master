@@ -343,7 +343,7 @@ public final class CombatActionApplicationService {
                 operation.committed(response);
                 operationRepository.save(operation);
             }
-            response = narrateAfterCommit(command, response, command.action());
+            response = narrateAfterCommit(command, response, aiActor ? null : command.action());
             operation.committed(response);
             operationRepository.save(operation);
             return response;
