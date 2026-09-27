@@ -543,7 +543,7 @@ public final class CombatActionApplicationService {
 
     private CombatActionResponse narrateAfterCommit(CombatActionCommand command, CombatActionResponse response,
                                                      String playerInput) {
-        String narration = response.narration();
+        String narration = null;
         try {
             String generated = narrationPort.narrate(CombatNarrationRequest.postResolution(command,
                     response.encounterVersion(), response.diceTotal(), response.judgment(), playerInput));
@@ -565,7 +565,8 @@ public final class CombatActionApplicationService {
             return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
                     response.status(), response.diceTotal(), response.judgment(), response.violations(), narration);
         } catch (RuntimeException ignored) {
-            return response;
+            return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
+                    response.status(), response.diceTotal(), response.judgment(), response.violations(), null);
         }
     }
 
