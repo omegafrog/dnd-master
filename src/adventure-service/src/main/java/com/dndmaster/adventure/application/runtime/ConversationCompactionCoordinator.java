@@ -9,7 +9,6 @@ import java.util.Objects;
 
 /** Registers after a confirmed turn; provider work is always performed later by runOnce. */
 public final class ConversationCompactionCoordinator {
-    private static final int MAX_ATTEMPTS = 3;
     private final ConversationCompactionJobRepository repository;
     private final ConversationCompactionCandidatePort candidatePort;
     public ConversationCompactionCoordinator(ConversationCompactionJobRepository repository, ConversationCompactionCandidatePort candidatePort) { this.repository = Objects.requireNonNull(repository); this.candidatePort = Objects.requireNonNull(candidatePort); }
@@ -29,7 +28,7 @@ public final class ConversationCompactionCoordinator {
             boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), candidate.text()), actualAdventureVersion);
             if (!published) repository.manualReview(job, "SOURCE_RANGE_OR_VERSION_REJECTED");
             return published;
-        } catch (TransientConversationCompactionException error) { if (job.attempts() >= MAX_ATTEMPTS) repository.manualReview(job, "TRANSIENT_RETRY_EXHAUSTED: " + error.getMessage()); else repository.save(job.retryAt(now.plusSeconds(1L << Math.min(job.attempts(), 6)))); return false;
+        } catch (TransientConversationCompactionException error) { repository.manualReview(job, "TRANSIENT_RETRY_EXHAUSTED: " + error.getMessage()); return false;
         } catch (RuntimeException error) { repository.manualReview(job, "PERMANENT_CANDIDATE_FAILURE: " + error.getMessage()); return false; }
     }
     List<ConversationEntry> source(ConversationCompactionJob job, List<ConversationEntry> conversation) { return conversation.stream().filter(entry -> entry.sequence() >= job.sourceStart() && entry.sequence() <= job.sourceEnd()).toList(); }

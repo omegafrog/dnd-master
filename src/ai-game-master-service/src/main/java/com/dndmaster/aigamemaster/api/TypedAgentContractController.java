@@ -159,7 +159,7 @@ public final class TypedAgentContractController {
                 "ROLE=CONVERSATION_COMPACTION\nSOURCE_START=" + request.sourceStart()
                         + "\nSOURCE_END=" + request.sourceEnd() + "\nEXPECTED_ADVENTURE_VERSION=" + request.expectedAdventureVersion()
                         + "\nCONFIRMED_CONVERSATION=" + conversation
-                        + "\nTASK=Summarize only confirmed conversation. Preserve established facts, unresolved choices, and current goals. Do not invent facts."
+                        + "\nTASK=Summarize only confirmed conversation. Preserve character speech and commitments, scene flow, established consequences, unresolved choices, and current goals. Do not invent facts or treat HP, resources, location, or combat state as authoritative."
                         + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, and summary. Do not use markdown.",
                 json -> parseConversationCompaction(json, request));
     }

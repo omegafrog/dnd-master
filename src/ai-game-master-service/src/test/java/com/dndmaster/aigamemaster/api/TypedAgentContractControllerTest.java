@@ -76,6 +76,8 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertEquals("확정된 사건 요약", result.summary());
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("SOURCE_START=4"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("EXPECTED_ADVENTURE_VERSION=9"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("character speech"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scene flow"));
     }
 
     @Test

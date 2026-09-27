@@ -39,7 +39,7 @@ class ConversationCompactionCoordinatorTest {
     }
 
     @Test
-    void leases_once_retries_transient_failure_and_publishes_only_matching_candidate_version() {
+    void makes_only_one_immediate_retry_then_keeps_originals_for_manual_recovery() {
         var repository = new InMemoryConversationCompactionJobRepository();
         var candidatePort = new ConversationCompactionCandidatePort() {
             int calls;
@@ -56,11 +56,9 @@ class ConversationCompactionCoordinatorTest {
         coordinator.registerAfterConfirmedTurn(adventureId, 7, conversation, now);
 
         assertFalse(coordinator.runOnce(adventureId, 7, conversation, now));
-        assertEquals(ConversationCompactionJob.Status.RETRY_WAIT, repository.jobs.getFirst().status());
-        assertTrue(coordinator.runOnce(adventureId, 7, conversation, now.plusSeconds(2)));
-        assertEquals(ConversationCompactionJob.Status.DONE, repository.jobs.getFirst().status());
-        assertEquals(1, repository.summaries.size());
-        assertEquals("첫 장면 요약", repository.summaries.getFirst().text());
+        assertEquals(ConversationCompactionJob.Status.MANUAL_REVIEW, repository.jobs.getFirst().status());
+        assertEquals(0, repository.summaries.size());
+        assertEquals(conversation, List.copyOf(conversation));
     }
 
     @Test

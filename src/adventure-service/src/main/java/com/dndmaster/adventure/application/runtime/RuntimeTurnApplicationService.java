@@ -775,26 +775,18 @@ public class RuntimeTurnApplicationService {
         List<String> result = new ArrayList<>();
         long summarizedThrough = -1;
         if (conversationCompactionJobRepository != null) {
-            for (ConversationSummary summary : conversationCompactionJobRepository.summaries(adventure.id())) {
+            List<ConversationSummary> summaries = conversationCompactionJobRepository.summaries(adventure.id());
+            // The summary zone has a fixed entry budget; later summaries cover later source ranges.
+            for (ConversationSummary summary : summaries.stream().skip(Math.max(0, summaries.size() - 3L)).toList()) {
                 result.add("압축된 이전 대화: " + summary.text());
                 summarizedThrough = Math.max(summarizedThrough, summary.sourceEnd());
             }
         }
-        long firstRecentSequence = firstRecentCompletedTurnSequence(adventure.conversation());
-        long sourceBoundary = Math.max(summarizedThrough, firstRecentSequence - 1);
-        result.addAll(adventure.conversation().stream().filter(entry -> entry.sequence() > sourceBoundary)
+        // Without a published summary, every original entry remains available after a failed job.
+        final long publishedThrough = summarizedThrough;
+        result.addAll(adventure.conversation().stream().filter(entry -> publishedThrough < 0 || entry.sequence() > publishedThrough)
                 .map(entry -> entry.speaker() + ": " + entry.content()).toList());
         return List.copyOf(result);
-    }
-
-    private static long firstRecentCompletedTurnSequence(List<ConversationEntry> conversation) {
-        int playerTurns = 0;
-        for (int index = conversation.size() - 1; index >= 0; index--) {
-            if ("PLAYER".equals(conversation.get(index).speaker()) && ++playerTurns == 2) {
-                return conversation.get(index).sequence();
-            }
-        }
-        return conversation.isEmpty() ? 0 : conversation.getFirst().sequence();
     }
 
     private void saveConfirmedAdventureAndRegister(Adventure adventure) {
