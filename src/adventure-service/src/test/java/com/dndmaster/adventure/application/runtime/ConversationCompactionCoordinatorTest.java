@@ -63,6 +63,20 @@ class ConversationCompactionCoordinatorTest {
         assertEquals("첫 장면 요약", repository.summaries.getFirst().text());
     }
 
+    @Test
+    void version_conflict_never_leaves_a_late_candidate_leased() {
+        var repository = new InMemoryConversationCompactionJobRepository();
+        var coordinator = new ConversationCompactionCoordinator(repository,
+                (job, source) -> new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), "요약"));
+        AdventureId adventureId = AdventureId.generate();
+        List<ConversationEntry> conversation = List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"),
+                entry(2, "PLAYER", "둘째 행동"), entry(3, "AI_GAME_MASTER", "둘째 응답"), entry(4, "PLAYER", "셋째 행동"), entry(5, "AI_GAME_MASTER", "셋째 응답"));
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        coordinator.registerAfterConfirmedTurn(adventureId, 7, conversation, now);
+        assertFalse(coordinator.runOnce(adventureId, 8, conversation, now));
+        assertEquals(ConversationCompactionJob.Status.MANUAL_REVIEW, repository.jobs.getFirst().status());
+    }
+
     private static ConversationEntry entry(long sequence, String speaker, String content) {
         return new ConversationEntry(sequence, speaker, content);
     }

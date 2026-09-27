@@ -773,12 +773,28 @@ public class RuntimeTurnApplicationService {
 
     private List<String> recentConversationForPrompt(Adventure adventure) {
         List<String> result = new ArrayList<>();
+        long summarizedThrough = -1;
         if (conversationCompactionJobRepository != null) {
-            conversationCompactionJobRepository.summaries(adventure.id()).forEach(summary ->
-                    result.add("압축된 이전 대화: " + summary.text()));
+            for (ConversationSummary summary : conversationCompactionJobRepository.summaries(adventure.id())) {
+                result.add("압축된 이전 대화: " + summary.text());
+                summarizedThrough = Math.max(summarizedThrough, summary.sourceEnd());
+            }
         }
-        result.addAll(adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList());
+        long firstRecentSequence = firstRecentCompletedTurnSequence(adventure.conversation());
+        long sourceBoundary = Math.max(summarizedThrough, firstRecentSequence - 1);
+        result.addAll(adventure.conversation().stream().filter(entry -> entry.sequence() > sourceBoundary)
+                .map(entry -> entry.speaker() + ": " + entry.content()).toList());
         return List.copyOf(result);
+    }
+
+    private static long firstRecentCompletedTurnSequence(List<ConversationEntry> conversation) {
+        int gmTurns = 0;
+        for (int index = conversation.size() - 1; index >= 0; index--) {
+            if ("AI_GAME_MASTER".equals(conversation.get(index).speaker()) && ++gmTurns == 3) {
+                return conversation.get(index).sequence() + 1;
+            }
+        }
+        return conversation.isEmpty() ? 0 : conversation.getFirst().sequence();
     }
 
     private void saveConfirmedAdventureAndRegister(Adventure adventure) {

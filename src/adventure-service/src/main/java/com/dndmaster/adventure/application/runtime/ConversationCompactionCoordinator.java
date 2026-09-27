@@ -23,7 +23,9 @@ public final class ConversationCompactionCoordinator {
         try { ConversationCompactionCandidate candidate = candidatePort.create(job, source(job, conversation));
             if (candidate.sourceStart() != job.sourceStart() || candidate.sourceEnd() != job.sourceEnd() || candidate.expectedAdventureVersion() != job.expectedAdventureVersion()) { repository.save(job.manualReview()); return false; }
             long summaryVersion = repository.summaries(adventureId).size() + 1;
-            return repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), candidate.text()), actualAdventureVersion);
+            boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), candidate.text()), actualAdventureVersion);
+            if (!published) repository.save(job.manualReview());
+            return published;
         } catch (TransientConversationCompactionException error) { repository.save(job.attempts() >= MAX_ATTEMPTS ? job.manualReview() : job.retryAt(now.plusSeconds(1L << Math.min(job.attempts(), 6)))); return false;
         } catch (RuntimeException error) { repository.save(job.manualReview()); return false; }
     }
