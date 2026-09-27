@@ -162,7 +162,7 @@ public final class TypedAgentContractController {
                         + "\nCONFIRMED_CONVERSATION=" + conversation
                         + "\nTASK=Select concise exact excerpts from the confirmed conversation that preserve character speech, commitments, scene flow, established consequences, unresolved choices, and current goals. Every excerpt text must be copied verbatim as a substring of the content at its sequence. Do not paraphrase, invent facts, or treat HP, resources, location, or combat state as authoritative."
                         + "\nSOURCE_REFERENCE_RULE=Cover every requested sequence at least once, in ascending sequence order. Do not omit or add sequences or text absent from that entry. Keep combined excerpt text at most 80 percent of source content length."
-                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, and excerpts [{sequence,text}]. Do not use markdown.",
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, and excerpts [{sequence,speaker,text}]. speaker must exactly match the supplied entry. Do not use markdown.",
                 json -> parseConversationCompaction(json, request));
     }
 
@@ -309,7 +309,9 @@ public final class TypedAgentContractController {
             previousSequence = sequence;
             covered.add(sequence);
             excerptLength += text.length();
-            excerpts.add(new SourceExcerpt(sequence, text));
+            String speaker = required(node, "speaker");
+            if (!speaker.equals(source.get(sequence).speaker())) throw new IllegalArgumentException("conversation excerpt speaker does not match source");
+            excerpts.add(new SourceExcerpt(sequence, speaker, text));
         }
         long sourceLength = request.conversation().stream().mapToLong(entry -> entry.content().length()).sum();
         if (!covered.equals(source.keySet()) || excerptLength * 5 > sourceLength * 4) throw new IllegalArgumentException("conversation excerpts must cover all sources and be meaningfully shorter");
@@ -398,8 +400,9 @@ public final class TypedAgentContractController {
     public record ConversationEntry(long sequence, String speaker, String content) {
         public ConversationEntry { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); speaker = required(speaker, "speaker"); content = required(content, "content"); }
     }
-    public record SourceExcerpt(long sequence, String text) {
-        public SourceExcerpt { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); text = required(text, "text"); }
+    public record SourceExcerpt(long sequence, String speaker, String text) {
+        public SourceExcerpt(long sequence, String text) { this(sequence, "UNKNOWN", text); }
+        public SourceExcerpt { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); speaker = required(speaker, "speaker"); text = required(text, "text"); }
     }
     public record ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion,
                                                  List<SourceExcerpt> excerpts) {

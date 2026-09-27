@@ -42,7 +42,7 @@ public final class ConversationCompactionCoordinator {
                 repository.manualReview(job, "CANDIDATE_PROVENANCE_MISMATCH");
                 return false;
             }
-            String renderedSummary = candidate.excerpts().stream().map(ConversationCompactionCandidate.SourceExcerpt::text)
+            String renderedSummary = candidate.excerpts().stream().map(excerpt -> excerpt.speaker() + ": " + excerpt.text())
                     .collect(java.util.stream.Collectors.joining(" "));
             long summaryVersion = repository.summaries(adventureId).size() + 1;
             boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), renderedSummary), actualAdventureVersion);
@@ -75,7 +75,7 @@ public final class ConversationCompactionCoordinator {
         for (ConversationCompactionCandidate.SourceExcerpt excerpt : excerpts) {
             if (excerpt == null || excerpt.sequence() <= previousSequence) return false;
             ConversationEntry entry = entries.get(excerpt.sequence());
-            if (entry == null || excerpt.text() == null || excerpt.text().isBlank() || !entry.content().contains(excerpt.text())) return false;
+            if (entry == null || !entry.speaker().equals(excerpt.speaker()) || excerpt.text() == null || excerpt.text().isBlank() || !entry.content().contains(excerpt.text())) return false;
             previousSequence = excerpt.sequence();
             covered.add(excerpt.sequence());
             excerptLength += excerpt.text().length();

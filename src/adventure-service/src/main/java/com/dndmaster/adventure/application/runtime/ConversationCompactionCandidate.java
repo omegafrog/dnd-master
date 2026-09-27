@@ -10,9 +10,10 @@ public record ConversationCompactionCandidate(long sourceStart, long sourceEnd, 
         excerpts = List.copyOf(Objects.requireNonNull(excerpts, "source excerpts are required"));
     }
 
-    public record SourceExcerpt(long sequence, String text) {
+    public record SourceExcerpt(long sequence, String speaker, String text) {
+        public SourceExcerpt(long sequence, String text) { this(sequence, "UNKNOWN", text); }
         public SourceExcerpt {
-            if (sequence < 0 || text == null || text.isBlank()) throw new IllegalArgumentException("invalid source excerpt");
+            if (sequence < 0 || speaker == null || speaker.isBlank() || text == null || text.isBlank()) throw new IllegalArgumentException("invalid source excerpt");
         }
     }
 }
