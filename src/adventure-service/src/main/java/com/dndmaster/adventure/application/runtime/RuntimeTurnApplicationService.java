@@ -604,6 +604,9 @@ public class RuntimeTurnApplicationService {
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
                 adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults, situation);
         String narration = planningPort.planNarration(planningRequest).narration();
+        NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
+                narration, evidencePack, adventure.currentContext(), contextCommand.action()));
+        if (!safety.approved()) throw new IllegalStateException("combat narration safety rejected: " + safety.reason());
         persistCombatConversation(adventure, request, narration);
         return narration;
     }
