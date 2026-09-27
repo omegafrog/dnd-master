@@ -225,8 +225,18 @@ AGENT_PLAYER_ID="$(printf '%s' "$AGENT_LOGIN_RESPONSE" | "$NODE_BIN" -e 'let bod
 }
 
 echo "==> Starting user PC agent..."
-docker compose -f "$INFRA/compose.yaml" exec -T redis redis-cli \
-    DEL "agent-connection-location:$AGENT_PLAYER_ID" >/dev/null
+echo "==> Waiting for any previous demo-player agent connection to close..."
+for attempt in $(seq 1 45); do
+    if docker compose -f "$INFRA/compose.yaml" exec -T redis redis-cli \
+        EXISTS "agent-connection-location:$AGENT_PLAYER_ID" 2>/dev/null | tr -d '\r' | grep -qx '0'; then
+        break
+    fi
+    if [ "$attempt" = "45" ]; then
+        echo "ERROR: an existing user PC agent connection for the demo player is still active; stop it before starting this local development environment." >&2
+        exit 1
+    fi
+    sleep 2
+done
 USER_PC_AGENT_LOG="$(mktemp "${TMPDIR:-/tmp}/dnd-master-user-pc-agent.XXXXXX.log")"
 (cd "$ROOT" && \
     RELAY_WEBSOCKET_URL="$USER_PC_AGENT_RELAY_WEBSOCKET_URL" \
