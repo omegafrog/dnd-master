@@ -603,7 +603,21 @@ public class RuntimeTurnApplicationService {
                 providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
                 adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults, situation);
-        return planningPort.planNarration(planningRequest).narration();
+        String narration = planningPort.planNarration(planningRequest).narration();
+        persistCombatConversation(adventure, request, narration);
+        return narration;
+    }
+
+    private void persistCombatConversation(Adventure adventure, CombatNarrationRequest request, String narration) {
+        if (narration == null || narration.isBlank()) return;
+        List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
+        conversation.add(new ConversationEntry(conversation.size(), "PLAYER", request.playerInput()));
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", narration));
+        if (!request.judgment().isBlank()) {
+            conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", request.judgment()));
+        }
+        adventure.preserveProgress(adventure.ownerPlayerId(), adventure.version(), adventure.currentContext(), conversation);
+        adventureRepository.save(adventure);
     }
 
     private static String combatNarrationAction(CombatNarrationRequest request) {

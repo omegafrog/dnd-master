@@ -112,6 +112,7 @@ class CombatActionPolicyTest {
         CombatActionCommand command = command(UUID.randomUUID(), heroId, 1);
         Fixture fixture = fixture(command);
         CombatNarrationPort narration = request -> {
+            fixture.calls.narrationCalls++;
             fixture.calls.narrationPrompt = request.command().action() + ":" + request.diceTotal();
             assertEquals(2L, fixture.encounters.value.version());
             return "검이 적을 맞혔습니다.";
@@ -128,7 +129,9 @@ class CombatActionPolicyTest {
 
         assertEquals("검이 적을 맞혔습니다.", result.narration());
         assertTrue(fixture.calls.narrationPrompt.endsWith(":18"));
+        assertEquals(1, fixture.calls.narrationCalls);
         assertEquals(1, fixture.events.values.stream().filter(event -> event.eventType().equals("ACTION_RESOLVED")).count());
+        assertEquals(1, fixture.events.values.stream().filter(event -> event.eventType().equals("GM_NARRATION")).count());
     }
 
     @Test
@@ -243,6 +246,7 @@ class CombatActionPolicyTest {
         private int characterMutations;
         private boolean failCharacter;
         private boolean rejectCharacter;
+        private int narrationCalls;
         private String narrationPrompt;
     }
 }

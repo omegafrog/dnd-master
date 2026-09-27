@@ -346,9 +346,6 @@ public final class CombatActionApplicationService {
             response = narrateAfterCommit(command, response, command.action());
             operation.committed(response);
             operationRepository.save(operation);
-            response = narrateAfterCommit(command, response, command.action());
-            operation.committed(response);
-            operationRepository.save(operation);
             return response;
         } catch (RuntimeCombatRejectionException exception) {
             operation.failed(exception);
