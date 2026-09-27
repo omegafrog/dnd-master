@@ -19,7 +19,8 @@ public final class InMemoryConversationCompactionJobRepository implements Conver
         return Optional.empty();
     }
     @Override public synchronized void save(ConversationCompactionJob job) { for (int i=0;i<jobs.size();i++) if (jobs.get(i).id().equals(job.id())) { jobs.set(i, job); return; } throw new IllegalArgumentException("unknown compaction job"); }
-    @Override public synchronized boolean publish(ConversationCompactionJob job, ConversationSummary summary, long actualVersion) { if (job.expectedAdventureVersion() != actualVersion || summaries.stream().anyMatch(value -> value.adventureId().equals(summary.adventureId()) && value.sourceStart() == summary.sourceStart() && value.sourceEnd() == summary.sourceEnd())) return false; summaries.add(summary); save(job.done()); return true; }
+    @Override public synchronized long coveredThrough(AdventureId adventureId) { return jobs.stream().filter(job -> job.adventureId().equals(adventureId)).mapToLong(ConversationCompactionJob::sourceEnd).max().orElse(-1); }
+    @Override public synchronized boolean publish(ConversationCompactionJob job, ConversationSummary summary, long actualVersion) { if (actualVersion < job.expectedAdventureVersion() || summaries.stream().anyMatch(value -> value.adventureId().equals(summary.adventureId()) && value.sourceStart() == summary.sourceStart() && value.sourceEnd() == summary.sourceEnd())) return false; summaries.add(summary); save(job.done()); return true; }
     @Override public synchronized List<ConversationSummary> summaries(AdventureId adventureId) { return summaries.stream().filter(value -> value.adventureId().equals(adventureId)).toList(); }
     @Override public synchronized List<ConversationCompactionJob> ready(Instant now) { return jobs.stream().filter(job -> (job.status() == ConversationCompactionJob.Status.READY || job.status() == ConversationCompactionJob.Status.RETRY_WAIT) && !job.availableAt().isAfter(now)).toList(); }
 }

@@ -52,11 +52,11 @@ public final class PostgresConversationCompactionJobRepository implements Conver
     }
     @Override public void save(ConversationCompactionJob job) { try (Connection connection = dataSource.getConnection()) { update(connection, job); } catch (SQLException error) { throw new AdventurePersistenceException("could not save conversation compaction job", error); } }
     @Override public boolean publish(ConversationCompactionJob job, ConversationSummary summary, long actualAdventureVersion) {
-        if (job.expectedAdventureVersion() != actualAdventureVersion) return false;
+        if (actualAdventureVersion < job.expectedAdventureVersion()) return false;
         try (Connection connection = dataSource.getConnection()) {
             boolean managed = org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive(); boolean autoCommit = connection.getAutoCommit(); if (!managed) connection.setAutoCommit(false);
             try (PreparedStatement adventure = connection.prepareStatement("SELECT version FROM adventure WHERE adventure_id=? FOR UPDATE")) {
-                adventure.setObject(1, job.adventureId().value()); try (ResultSet rows = adventure.executeQuery()) { if (!rows.next() || rows.getLong(1) != actualAdventureVersion) { if (!managed) connection.commit(); return false; } }
+                adventure.setObject(1, job.adventureId().value()); try (ResultSet rows = adventure.executeQuery()) { if (!rows.next() || rows.getLong(1) != actualAdventureVersion || actualAdventureVersion < job.expectedAdventureVersion()) { if (!managed) connection.commit(); return false; } }
                 try (PreparedStatement insert = connection.prepareStatement("INSERT INTO adventure_conversation_summary(adventure_id, summary_version, source_start, source_end, source_adventure_version, summary_text) VALUES (?, ?, ?, ?, ?, ?)")) {
                     insert.setObject(1, summary.adventureId().value()); insert.setLong(2, summary.version()); insert.setLong(3, summary.sourceStart()); insert.setLong(4, summary.sourceEnd()); insert.setLong(5, summary.sourceAdventureVersion()); insert.setString(6, summary.text()); insert.executeUpdate();
                 }
@@ -68,6 +68,16 @@ public final class PostgresConversationCompactionJobRepository implements Conver
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("SELECT summary_version, source_start, source_end, source_adventure_version, summary_text FROM adventure_conversation_summary WHERE adventure_id=? ORDER BY summary_version")) {
             statement.setObject(1, adventureId.value()); List<ConversationSummary> result = new ArrayList<>(); try (ResultSet rows = statement.executeQuery()) { while (rows.next()) result.add(new ConversationSummary(adventureId, rows.getLong(1), rows.getLong(2), rows.getLong(3), rows.getLong(4), rows.getString(5))); } return List.copyOf(result);
         } catch (SQLException error) { throw new AdventurePersistenceException("could not load conversation summaries", error); }
+    }
+    @Override public long coveredThrough(AdventureId adventureId) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("SELECT COALESCE(MAX(source_end), -1) FROM adventure_conversation_compaction_job WHERE adventure_id=?")) {
+            statement.setObject(1, adventureId.value()); try (ResultSet rows = statement.executeQuery()) { rows.next(); return rows.getLong(1); }
+        } catch (SQLException error) { throw new AdventurePersistenceException("could not load conversation compaction coverage", error); }
+    }
+    @Override public void manualReview(ConversationCompactionJob job, String reason) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("UPDATE adventure_conversation_compaction_job SET status='MANUAL_REVIEW', lease_until=NULL, last_error=? WHERE job_id=?")) {
+            statement.setString(1, reason == null ? "UNKNOWN" : reason.substring(0, Math.min(reason.length(), 1000))); statement.setObject(2, job.id()); if (statement.executeUpdate()!=1) throw new SQLException("compaction job was not found");
+        } catch (SQLException error) { throw new AdventurePersistenceException("could not record conversation compaction failure", error); }
     }
     @Override public List<ConversationCompactionJob> ready(Instant now) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("""

@@ -811,8 +811,9 @@ public class RuntimeTurnApplicationService {
         int players = 0;
         for (int index = conversation.size() - 1; index >= 0; index--) {
             if (!"PLAYER".equals(conversation.get(index).speaker()) || ++players != 2 || index == 0) continue;
-            return ConversationCompactionJob.ready(adventure.id(), conversation.getFirst().sequence(),
-                    conversation.get(index - 1).sequence(), adventure.version(), java.time.Instant.now());
+            long sourceStart = Math.max(conversation.getFirst().sequence(), conversationCompactionJobRepository.coveredThrough(adventure.id()) + 1);
+            long sourceEnd = conversation.get(index - 1).sequence();
+            return sourceStart > sourceEnd ? null : ConversationCompactionJob.ready(adventure.id(), sourceStart, sourceEnd, adventure.version(), java.time.Instant.now());
         }
         return null;
     }
