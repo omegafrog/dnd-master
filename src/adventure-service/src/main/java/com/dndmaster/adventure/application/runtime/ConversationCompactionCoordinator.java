@@ -30,9 +30,11 @@ public final class ConversationCompactionCoordinator {
             if (!completeRange(job, source)) { repository.manualReview(job, "SOURCE_RANGE_INCOMPLETE"); return false; }
             ConversationCompactionCandidate candidate = candidate(job, source);
             if (candidate.sourceStart() != job.sourceStart() || candidate.sourceEnd() != job.sourceEnd() || candidate.expectedAdventureVersion() != job.expectedAdventureVersion()
-                    || !candidate.referencedSequences().equals(source.stream().map(ConversationEntry::sequence).toList())) { repository.manualReview(job, "CANDIDATE_PROVENANCE_MISMATCH"); return false; }
+                    || !validExcerpts(candidate.excerpts(), source)) { repository.manualReview(job, "CANDIDATE_PROVENANCE_MISMATCH"); return false; }
+            String renderedSummary = candidate.excerpts().stream().map(ConversationCompactionCandidate.SourceExcerpt::text)
+                    .collect(java.util.stream.Collectors.joining(" "));
             long summaryVersion = repository.summaries(adventureId).size() + 1;
-            boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), candidate.text()), actualAdventureVersion);
+            boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), renderedSummary), actualAdventureVersion);
             if (!published) repository.manualReview(job, "SOURCE_RANGE_OR_VERSION_REJECTED");
             return published;
         } catch (TransientConversationCompactionException error) {
@@ -51,6 +53,25 @@ public final class ConversationCompactionCoordinator {
         return expectedCount > 0 && source.size() == expectedCount
                 && source.stream().map(ConversationEntry::sequence).distinct().count() == expectedCount
                 && source.getFirst().sequence() == job.sourceStart() && source.getLast().sequence() == job.sourceEnd();
+    }
+    private static boolean validExcerpts(List<ConversationCompactionCandidate.SourceExcerpt> excerpts, List<ConversationEntry> source) {
+        if (excerpts == null || excerpts.isEmpty()) return false;
+        java.util.Map<Long, ConversationEntry> entries = source.stream().collect(java.util.stream.Collectors.toMap(ConversationEntry::sequence, entry -> entry));
+        long previousSequence = -1;
+        java.util.Set<Long> covered = new java.util.HashSet<>();
+        long excerptLength = 0;
+        long excerptCount = 0;
+        for (ConversationCompactionCandidate.SourceExcerpt excerpt : excerpts) {
+            if (excerpt == null || excerpt.sequence() <= previousSequence) return false;
+            ConversationEntry entry = entries.get(excerpt.sequence());
+            if (entry == null || excerpt.text() == null || excerpt.text().isBlank() || !entry.content().contains(excerpt.text())) return false;
+            previousSequence = excerpt.sequence();
+            covered.add(excerpt.sequence());
+            excerptLength += excerpt.text().length();
+            excerptCount++;
+        }
+        long inputLength = source.stream().mapToLong(entry -> entry.content().length()).sum();
+        return covered.equals(entries.keySet()) && (excerptLength + Math.max(0, excerptCount - 1)) * 5 <= inputLength * 4;
     }
     private static int nthLastPlayerIndex(List<ConversationEntry> conversation, int nth) { int found=0; for(int i=conversation.size()-1;i>=0;i--) if("PLAYER".equals(conversation.get(i).speaker()) && ++found==nth) return i; return -1; }
 }
