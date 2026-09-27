@@ -773,18 +773,19 @@ public class RuntimeTurnApplicationService {
 
     private List<String> recentConversationForPrompt(Adventure adventure) {
         List<String> result = new ArrayList<>();
-        long summarizedThrough = -1;
+        List<ConversationSummary> selectedSummaries = List.of();
         if (conversationCompactionJobRepository != null) {
             List<ConversationSummary> summaries = conversationCompactionJobRepository.summaries(adventure.id());
             // The summary zone has a fixed entry budget; later summaries cover later source ranges.
-            for (ConversationSummary summary : summaries.stream().skip(Math.max(0, summaries.size() - 3L)).toList()) {
+            selectedSummaries = summaries.stream().skip(Math.max(0, summaries.size() - 3L)).toList();
+            for (ConversationSummary summary : selectedSummaries) {
                 result.add("압축된 이전 대화: " + summary.text());
-                summarizedThrough = Math.max(summarizedThrough, summary.sourceEnd());
             }
         }
         // Without a published summary, every original entry remains available after a failed job.
-        final long publishedThrough = summarizedThrough;
-        result.addAll(adventure.conversation().stream().filter(entry -> publishedThrough < 0 || entry.sequence() > publishedThrough)
+        final List<ConversationSummary> published = selectedSummaries;
+        result.addAll(adventure.conversation().stream().filter(entry -> published.stream().noneMatch(summary ->
+                        entry.sequence() >= summary.sourceStart() && entry.sequence() <= summary.sourceEnd()))
                 .map(entry -> entry.speaker() + ": " + entry.content()).toList());
         return List.copyOf(result);
     }
