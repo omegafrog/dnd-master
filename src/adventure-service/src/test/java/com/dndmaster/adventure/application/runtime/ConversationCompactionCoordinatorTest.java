@@ -151,7 +151,7 @@ class ConversationCompactionCoordinatorTest {
         List<ConversationEntry> source = List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"));
 
         assertTrue(coordinator.runOnce(adventureId, 7, source, now));
-        assertEquals("PLAYER: 행동 AI_GAME_MASTER: 응답", repository.summaries.getFirst().text());
+        assertEquals("행동 응답", repository.summaries.getFirst().text());
     }
 
     @Test

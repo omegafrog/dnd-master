@@ -797,7 +797,7 @@ public class RuntimeTurnApplicationService {
         if (job == null) { adventureRepository.save(adventure); return; }
         if (adventureRepository instanceof AdventureConversationCompactionCommitPort atomic) {
             atomic.saveConfirmedTurnAndRegister(adventure, job);
-        } else { adventureRepository.save(adventure); conversationCompactionJobRepository.register(job); }
+        } else { throw new IllegalStateException("confirmed adventure storage must atomically register conversation compaction work"); }
     }
 
     private ConversationCompactionJob compactionJob(Adventure adventure) {

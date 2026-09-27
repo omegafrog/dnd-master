@@ -61,6 +61,8 @@ public final class PostgresConversationCompactionJobRepository implements Conver
         } catch (SQLException error) { throw new AdventurePersistenceException("could not record conversation compaction failure", error); }
     }
     @Override public boolean publish(ConversationCompactionJob job, ConversationSummary summary, long actualAdventureVersion) {
+        // Later confirmed turns may advance the Adventure while this immutable source range remains valid.
+        // The locked Adventure row, lease token, and exact source-range uniqueness fence publication.
         if (actualAdventureVersion < job.expectedAdventureVersion()) return false;
         try (Connection connection = dataSource.getConnection()) {
             boolean managed = org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive(); boolean autoCommit = connection.getAutoCommit(); if (!managed) connection.setAutoCommit(false);

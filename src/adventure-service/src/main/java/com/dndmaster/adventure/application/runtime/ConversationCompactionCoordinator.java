@@ -42,8 +42,7 @@ public final class ConversationCompactionCoordinator {
                 repository.manualReview(job, "CANDIDATE_PROVENANCE_MISMATCH");
                 return false;
             }
-            java.util.Map<Long, ConversationEntry> entries = source.stream().collect(java.util.stream.Collectors.toMap(ConversationEntry::sequence, value -> value));
-            String renderedSummary = candidate.excerpts().stream().map(excerpt -> entries.get(excerpt.sequence()).speaker() + ": " + excerpt.text())
+            String renderedSummary = candidate.excerpts().stream().map(ConversationCompactionCandidate.SourceExcerpt::text)
                     .collect(java.util.stream.Collectors.joining(" "));
             long summaryVersion = repository.summaries(adventureId).size() + 1;
             boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), renderedSummary), actualAdventureVersion);
