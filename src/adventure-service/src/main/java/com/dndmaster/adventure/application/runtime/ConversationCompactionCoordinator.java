@@ -28,12 +28,22 @@ public final class ConversationCompactionCoordinator {
         try {
             List<ConversationEntry> source = source(job, conversation);
             if (!completeRange(job, source)) { repository.manualReview(job, "SOURCE_RANGE_INCOMPLETE"); return false; }
-            ConversationCompactionCandidate candidate = candidate(job, source);
-            if (!validCandidate(job, source, candidate)) {
+            ConversationCompactionCandidate candidate;
+            try {
                 candidate = candidatePort.create(job, source);
-                if (!validCandidate(job, source, candidate)) throw new TransientConversationCompactionException("CANDIDATE_PROVENANCE_MISMATCH");
+            } catch (TransientConversationCompactionException first) {
+                try { candidate = candidatePort.create(job, source); }
+                catch (TransientConversationCompactionException second) {
+                    second.addSuppressed(first);
+                    throw second;
+                }
             }
-            String renderedSummary = candidate.excerpts().stream().map(ConversationCompactionCandidate.SourceExcerpt::text)
+            if (!validCandidate(job, source, candidate)) {
+                repository.manualReview(job, "CANDIDATE_PROVENANCE_MISMATCH");
+                return false;
+            }
+            java.util.Map<Long, ConversationEntry> entries = source.stream().collect(java.util.stream.Collectors.toMap(ConversationEntry::sequence, value -> value));
+            String renderedSummary = candidate.excerpts().stream().map(excerpt -> entries.get(excerpt.sequence()).speaker() + ": " + excerpt.text())
                     .collect(java.util.stream.Collectors.joining(" "));
             long summaryVersion = repository.summaries(adventureId).size() + 1;
             boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), renderedSummary), actualAdventureVersion);
@@ -46,10 +56,6 @@ public final class ConversationCompactionCoordinator {
         } catch (RuntimeException error) { repository.manualReview(job, "PERMANENT_CANDIDATE_FAILURE: " + error.getMessage()); return false; }
     }
     List<ConversationEntry> source(ConversationCompactionJob job, List<ConversationEntry> conversation) { return conversation.stream().filter(entry -> entry.sequence() >= job.sourceStart() && entry.sequence() <= job.sourceEnd()).toList(); }
-    private ConversationCompactionCandidate candidate(ConversationCompactionJob job, List<ConversationEntry> source) {
-        try { return candidatePort.create(job, source); }
-        catch (TransientConversationCompactionException first) { return candidatePort.create(job, source); }
-    }
     private static boolean completeRange(ConversationCompactionJob job, List<ConversationEntry> source) {
         long expectedCount = job.sourceEnd() - job.sourceStart() + 1;
         return expectedCount > 0 && source.size() == expectedCount

@@ -9,6 +9,7 @@ import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class ConversationCompactionCoordinatorTest {
@@ -41,10 +42,10 @@ class ConversationCompactionCoordinatorTest {
     @Test
     void makes_one_immediate_retry_then_schedules_a_durable_retry() {
         var repository = new InMemoryConversationCompactionJobRepository();
+        AtomicInteger calls = new AtomicInteger();
         var candidatePort = new ConversationCompactionCandidatePort() {
-            int calls;
             @Override public ConversationCompactionCandidate create(ConversationCompactionJob job, List<ConversationEntry> source) {
-                if (calls++ < 2) throw new TransientConversationCompactionException("provider unavailable");
+                if (calls.getAndIncrement() < 2) throw new TransientConversationCompactionException("provider unavailable");
                 return validCandidate(job, source);
             }
         };
@@ -57,6 +58,7 @@ class ConversationCompactionCoordinatorTest {
 
         assertFalse(coordinator.runOnce(adventureId, 7, conversation, now));
         assertEquals(ConversationCompactionJob.Status.RETRY_WAIT, repository.jobs.getFirst().status());
+        assertEquals(2, calls.get());
         assertEquals(0, repository.summaries.size());
         assertEquals(conversation, List.copyOf(conversation));
     }
@@ -64,8 +66,9 @@ class ConversationCompactionCoordinatorTest {
     @Test
     void moves_to_manual_review_after_the_bounded_durable_attempts_are_exhausted() {
         var repository = new InMemoryConversationCompactionJobRepository();
+        AtomicInteger calls = new AtomicInteger();
         var coordinator = new ConversationCompactionCoordinator(repository,
-                (job, source) -> { throw new TransientConversationCompactionException("provider unavailable"); });
+                (job, source) -> { calls.incrementAndGet(); throw new TransientConversationCompactionException("provider unavailable"); });
         AdventureId adventureId = AdventureId.generate();
         List<ConversationEntry> conversation = List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"),
                 entry(2, "PLAYER", "둘째 행동"), entry(3, "AI_GAME_MASTER", "둘째 응답"), entry(4, "PLAYER", "셋째 행동"), entry(5, "AI_GAME_MASTER", "셋째 응답"));
@@ -74,6 +77,27 @@ class ConversationCompactionCoordinatorTest {
         coordinator.runOnce(adventureId, 7, conversation, now.plusSeconds(3));
         coordinator.runOnce(adventureId, 7, conversation, now.plusSeconds(8));
         assertEquals(ConversationCompactionJob.Status.MANUAL_REVIEW, repository.jobs.getFirst().status());
+        assertEquals(6, calls.get());
+    }
+
+    @Test
+    void transient_retry_then_invalid_candidate_uses_at_most_two_provider_calls_and_manual_review() {
+        var repository = new InMemoryConversationCompactionJobRepository();
+        AtomicInteger calls = new AtomicInteger();
+        var coordinator = new ConversationCompactionCoordinator(repository, (job, source) -> {
+            if (calls.getAndIncrement() == 0) throw new TransientConversationCompactionException("provider unavailable");
+            return new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(),
+                    List.of(new ConversationCompactionCandidate.SourceExcerpt(job.sourceStart(), "근거 없는 결과")));
+        });
+        AdventureId adventureId = AdventureId.generate();
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
+
+        assertFalse(coordinator.runOnce(adventureId, 7,
+                List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답")), now));
+        assertEquals(ConversationCompactionJob.Status.MANUAL_REVIEW, repository.jobs.getFirst().status());
+        assertEquals(2, calls.get());
+        assertTrue(repository.summaries.isEmpty());
     }
 
     @Test
@@ -92,15 +116,17 @@ class ConversationCompactionCoordinatorTest {
     @Test
     void refuses_incomplete_source_ranges_and_candidates_without_complete_source_references() {
         var repository = new InMemoryConversationCompactionJobRepository();
+        AtomicInteger calls = new AtomicInteger();
         var coordinator = new ConversationCompactionCoordinator(repository,
-                (job, source) -> new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(),
-                        job.expectedAdventureVersion(), List.of(new ConversationCompactionCandidate.SourceExcerpt(job.sourceStart(), "무관한 요약"))));
+                (job, source) -> { calls.incrementAndGet(); return new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(),
+                        job.expectedAdventureVersion(), List.of(new ConversationCompactionCandidate.SourceExcerpt(job.sourceStart(), "무관한 요약"))); });
         AdventureId adventureId = AdventureId.generate();
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
 
         assertFalse(coordinator.runOnce(adventureId, 7, List.of(entry(0, "PLAYER", "첫 행동")), now));
         assertEquals(ConversationCompactionJob.Status.MANUAL_REVIEW, repository.jobs.getFirst().status());
+        assertEquals(0, calls.get());
         assertTrue(repository.summaries.isEmpty());
 
         repository.jobs.clear();
@@ -108,6 +134,7 @@ class ConversationCompactionCoordinatorTest {
         assertFalse(coordinator.runOnce(adventureId, 7,
                 List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "응답")), now));
         assertEquals(ConversationCompactionJob.Status.MANUAL_REVIEW, repository.jobs.getFirst().status());
+        assertEquals(1, calls.get());
         assertTrue(repository.summaries.isEmpty());
     }
 
@@ -124,7 +151,7 @@ class ConversationCompactionCoordinatorTest {
         List<ConversationEntry> source = List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"));
 
         assertTrue(coordinator.runOnce(adventureId, 7, source, now));
-        assertEquals("행동 응답", repository.summaries.getFirst().text());
+        assertEquals("PLAYER: 행동 AI_GAME_MASTER: 응답", repository.summaries.getFirst().text());
     }
 
     @Test
@@ -137,15 +164,19 @@ class ConversationCompactionCoordinatorTest {
                 List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "첫 행"), new ConversationCompactionCandidate.SourceExcerpt(1, "첫 응")));
         for (List<ConversationCompactionCandidate.SourceExcerpt> excerpts : invalid) {
             var repository = new InMemoryConversationCompactionJobRepository();
+            AtomicInteger calls = new AtomicInteger();
             AdventureId adventureId = AdventureId.generate();
             Instant now = Instant.parse("2026-01-01T00:00:00Z");
             repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
-            var coordinator = new ConversationCompactionCoordinator(repository, (job, source) ->
-                    new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), excerpts));
+            var coordinator = new ConversationCompactionCoordinator(repository, (job, source) -> {
+                calls.incrementAndGet();
+                return new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), excerpts);
+            });
 
             assertFalse(coordinator.runOnce(adventureId, 7,
                     List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답")), now));
             assertEquals(ConversationCompactionJob.Status.MANUAL_REVIEW, repository.jobs.getFirst().status());
+            assertEquals(1, calls.get());
             assertTrue(repository.summaries.isEmpty());
         }
     }
