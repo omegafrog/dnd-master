@@ -784,10 +784,13 @@ public class RuntimeTurnApplicationService {
         }
         // Without a published summary, every original entry remains available after a failed job.
         final List<ConversationSummary> published = selectedSummaries;
-        result.addAll(adventure.conversation().stream().filter(entry -> published.stream().noneMatch(summary ->
-                        entry.sequence() >= summary.sourceStart() && entry.sequence() <= summary.sourceEnd()))
+        result.addAll(adventure.conversation().stream().filter(entry -> !coveredByPublishedSummary(entry, published))
                 .map(entry -> entry.speaker() + ": " + entry.content()).toList());
         return List.copyOf(result);
+    }
+
+    static boolean coveredByPublishedSummary(ConversationEntry entry, List<ConversationSummary> summaries) {
+        return summaries.stream().anyMatch(summary -> entry.sequence() >= summary.sourceStart() && entry.sequence() <= summary.sourceEnd());
     }
 
     private void saveConfirmedAdventureAndRegister(Adventure adventure) {
