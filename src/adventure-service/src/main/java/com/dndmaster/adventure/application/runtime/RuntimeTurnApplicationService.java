@@ -776,8 +776,8 @@ public class RuntimeTurnApplicationService {
         List<ConversationSummary> selectedSummaries = List.of();
         if (conversationCompactionJobRepository != null) {
             List<ConversationSummary> summaries = conversationCompactionJobRepository.summaries(adventure.id());
-            // The summary zone has a fixed entry budget; later summaries cover later source ranges.
-            selectedSummaries = summaries.stream().skip(Math.max(0, summaries.size() - 3L)).toList();
+            // #347 owns summary selection and reconsolidation. Here every published range remains represented.
+            selectedSummaries = summaries;
             for (ConversationSummary summary : selectedSummaries) {
                 result.add("압축된 이전 대화: " + summary.text());
             }
