@@ -10,6 +10,8 @@ import java.util.Objects;
 /** Registers after a confirmed turn; provider work is always performed later by runOnce. */
 public final class ConversationCompactionCoordinator {
     private static final int MAX_DURABLE_ATTEMPTS = 3;
+    // The internal AI call may wait up to 180 seconds; leave recovery margin before another worker can claim it.
+    private static final Duration LEASE = Duration.ofMinutes(5);
     private final ConversationCompactionJobRepository repository;
     private final ConversationCompactionCandidatePort candidatePort;
     public ConversationCompactionCoordinator(ConversationCompactionJobRepository repository, ConversationCompactionCandidatePort candidatePort) { this.repository = Objects.requireNonNull(repository); this.candidatePort = Objects.requireNonNull(candidatePort); }
@@ -21,7 +23,7 @@ public final class ConversationCompactionCoordinator {
         repository.register(ConversationCompactionJob.ready(adventureId, sourceStart, sourceEnd, version, now));
     }
     public boolean runOnce(AdventureId adventureId, long actualAdventureVersion, List<ConversationEntry> conversation, Instant now) {
-        var leased = repository.lease(adventureId, now, now.plus(Duration.ofMinutes(1))); if (leased.isEmpty()) return false;
+        var leased = repository.lease(adventureId, now, now.plus(LEASE)); if (leased.isEmpty()) return false;
         ConversationCompactionJob job = leased.get();
         try { ConversationCompactionCandidate candidate = candidate(job, conversation);
             if (candidate.sourceStart() != job.sourceStart() || candidate.sourceEnd() != job.sourceEnd() || candidate.expectedAdventureVersion() != job.expectedAdventureVersion()) { repository.manualReview(job, "CANDIDATE_PROVENANCE_MISMATCH"); return false; }
