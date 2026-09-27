@@ -143,6 +143,25 @@ echo "==> Starting backend (app-all)..."
 BACKEND_PID=$!
 echo "    Backend PID: $BACKEND_PID"
 
+echo "==> Waiting for backend health..."
+for attempt in $(seq 1 90); do
+    if curl -fsS "$BACKEND_E2E_URL/actuator/health" >/dev/null; then
+        echo "    Backend health is ready."
+        break
+    fi
+    if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+        echo "ERROR: backend stopped before becoming healthy." >&2
+        exit 1
+    fi
+    if [ "$attempt" = "90" ]; then
+        echo "ERROR: backend did not become healthy within 180 seconds." >&2
+        exit 1
+    fi
+    sleep 2
+done
+
+"$ROOT/seed-local-rulebook-catalog.sh"
+
 echo "==> Starting frontend (web-ui)..."
 if [ ! -d "$UI/node_modules" ] || ! (cd "$UI" && run_node -e "require.resolve('@rollup/rollup-linux-x64-gnu')" >/dev/null 2>&1); then
     echo "    Installing Linux frontend dependencies..."
