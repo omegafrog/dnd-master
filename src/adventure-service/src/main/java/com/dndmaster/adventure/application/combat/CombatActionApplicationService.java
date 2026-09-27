@@ -549,9 +549,13 @@ public final class CombatActionApplicationService {
                     response.encounterVersion(), response.diceTotal(), response.judgment(), playerInput));
             if (generated != null && !generated.isBlank()) narration = generated;
         } catch (RuntimeException ignored) {
-            // The canonical combat result is already committed; retain its existing narration when available.
+            // The canonical combat result is already committed; never publish an unchecked fallback narration.
+            narration = null;
         }
-        if (narration == null || narration.isBlank()) return response;
+        if (narration == null || narration.isBlank()) {
+            return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
+                    response.status(), response.diceTotal(), response.judgment(), response.violations(), null);
+        }
         try {
             long nextSequence = eventRepository.after(response.encounterId(), -1).stream()
                     .mapToLong(CombatEvent::sequence).max().orElse(0L) + 1;
