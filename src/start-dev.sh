@@ -6,6 +6,7 @@ INFRA="$ROOT/infra"
 UI="$ROOT/web-ui"
 DEMO_USER_INIT_SQL="/docker-entrypoint-initdb.d/02-seed-demo-user.sql"
 GRADLEW_TMP_DIR=""
+RELAY_PID=""
 if [ "$(uname -s)" != "Linux" ]; then
     echo "ERROR: start-dev.sh must be run inside WSL/Linux (uname -s=Linux required)." >&2
     exit 1
@@ -19,10 +20,27 @@ require_env() {
     fi
 }
 
+require_available_port() {
+    local port="$1"
+    case "$port" in
+        ''|*[!0-9]*)
+            echo "ERROR: local agent connection relay port must be numeric: $port" >&2
+            exit 1
+            ;;
+    esac
+    if ss -ltn "sport = :$port" | awk 'NR > 1 { found = 1 } END { exit !found }'; then
+        echo "ERROR: local agent connection relay port $port is already in use." >&2
+        exit 1
+    fi
+}
+
 # Local-only defaults keep this developer launcher runnable without exporting
 # production credentials. Deployments must provide their own values.
 export INTERNAL_SERVICE_TOKEN="${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}"
-export AGENT_CONNECTION_RELAY_URL="${AGENT_CONNECTION_RELAY_URL:-http://127.0.0.1:8081}"
+export LOCAL_AGENT_CONNECTION_RELAY_PORT="${LOCAL_AGENT_CONNECTION_RELAY_PORT:-8081}"
+LOCAL_AGENT_CONNECTION_RELAY_URL="http://127.0.0.1:${LOCAL_AGENT_CONNECTION_RELAY_PORT}"
+export AGENT_CONNECTION_RELAY_URL="${AGENT_CONNECTION_RELAY_URL:-$LOCAL_AGENT_CONNECTION_RELAY_URL}"
+export RELAY_INTERNAL_ADDRESS="${RELAY_INTERNAL_ADDRESS:-$LOCAL_AGENT_CONNECTION_RELAY_URL}"
 export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:-/home/jiwoo/workspace/dnd-master/docs/assets}"
 # Keep the repository's local catalog-admin marker and the seeded demo player's
 # actual identity together. The browser Backoffice sends the authenticated
@@ -53,6 +71,8 @@ if [ -z "${BACKEND_E2E_STORYBOOKS_JSON:-}" ]; then
     export BACKEND_E2E_STORYBOOKS_JSON='[{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew.pdf","role":"MAIN_SCENARIO"},{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf","role":"MAP"},{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf","role":"HANDOUT"}]'
 fi
 require_env INTERNAL_SERVICE_TOKEN
+require_env AGENT_CONNECTION_RELAY_URL
+require_env RELAY_INTERNAL_ADDRESS
 require_env RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS
 require_env CODEX_EXECUTABLE
 require_env GM_RUNTIME_CONTEXT_LIMITS
@@ -116,13 +136,14 @@ cleanup() {
     echo "Shutting down..."
     [ -n "${BACKEND_PID:-}" ] && kill "$BACKEND_PID" 2>/dev/null || true
     [ -n "${FRONTEND_PID:-}" ] && kill "$FRONTEND_PID" 2>/dev/null || true
+    [ -n "${RELAY_PID:-}" ] && kill "$RELAY_PID" 2>/dev/null || true
     [ -n "$GRADLEW_TMP_DIR" ] && rm -rf "$GRADLEW_TMP_DIR"
     wait 2>/dev/null || true
     echo "Done."
 }
 trap cleanup EXIT INT TERM
 
-echo "==> Starting infra (PostgreSQL)..."
+echo "==> Starting infra (PostgreSQL and Redis)..."
 docker compose -f "$INFRA/compose.yaml" up -d --wait
 
 echo "==> Applying demo user init SQL..."
@@ -137,6 +158,29 @@ GRADLEW_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dnd-master-gradlew.XXXXXX")"
 tr -d '\r' < "$ROOT/gradlew" > "$GRADLEW_TMP_DIR/gradlew"
 cp -R "$ROOT/gradle" "$GRADLEW_TMP_DIR/gradle"
 chmod +x "$GRADLEW_TMP_DIR/gradlew"
+
+echo "==> Starting local agent connection relay..."
+require_available_port "$LOCAL_AGENT_CONNECTION_RELAY_PORT"
+(cd "$ROOT" && exec bash "$GRADLEW_TMP_DIR/gradlew" :agent-connection-relay-service:bootRun --args="--server.port=$LOCAL_AGENT_CONNECTION_RELAY_PORT") &
+RELAY_PID=$!
+echo "    Relay PID: $RELAY_PID"
+
+echo "==> Waiting for local agent connection relay health..."
+for attempt in $(seq 1 90); do
+    if curl -fsS "$LOCAL_AGENT_CONNECTION_RELAY_URL/actuator/health" >/dev/null; then
+        echo "    Local agent connection relay health is ready."
+        break
+    fi
+    if ! kill -0 "$RELAY_PID" 2>/dev/null; then
+        echo "ERROR: local agent connection relay stopped before becoming healthy." >&2
+        exit 1
+    fi
+    if [ "$attempt" = "90" ]; then
+        echo "ERROR: local agent connection relay did not become healthy within 180 seconds." >&2
+        exit 1
+    fi
+    sleep 2
+done
 
 echo "==> Starting backend (app-all)..."
 (cd "$ROOT" && exec bash "$GRADLEW_TMP_DIR/gradlew" :app-all:bootRun) &
