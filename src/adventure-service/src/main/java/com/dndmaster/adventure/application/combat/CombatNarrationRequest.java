@@ -23,4 +23,9 @@ public record CombatNarrationRequest(CombatActionCommand command, String playerI
     public boolean hasPlayerInput() {
         return playerInput != null;
     }
+
+    public String confirmedActor() {
+        if (hasPlayerInput()) return "플레이어 전투 참여자";
+        return command.role().isAi() ? "AI가 조종하는 전투 참여자" : "플레이어가 아닌 전투 참여자";
+    }
 }

@@ -44,6 +44,7 @@ class CombatNarrationRequestTest {
         CombatNarrationRequest request = CombatNarrationRequest.postResolution(command, 7L, 18, "명중", null);
 
         assertFalse(request.hasPlayerInput());
+        assertEquals("AI가 조종하는 전투 참여자", request.confirmedActor());
     }
 
     private static CombatActionCommand command() {

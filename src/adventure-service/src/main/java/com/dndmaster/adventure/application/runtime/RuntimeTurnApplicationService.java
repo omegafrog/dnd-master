@@ -631,7 +631,10 @@ public class RuntimeTurnApplicationService {
     }
 
     private static String confirmedCombatResult(CombatNarrationRequest request) {
-        return "확정 전투 결과: 전투 버전=" + request.encounterVersion()
+        return "확정 전투 결과: 행동 주체=" + request.confirmedActor()
+                + "; 전투 참여자 식별자=" + request.command().characterSheetId().value()
+                + "; 행동=" + request.command().action()
+                + "; 전투 버전=" + request.encounterVersion()
                 + "; 주사위 결과=" + (request.diceTotal() == null ? "없음" : request.diceTotal())
                 + "; 판정=" + request.judgment();
     }
