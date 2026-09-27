@@ -8,8 +8,8 @@ import java.util.Optional;
 public interface ConversationCompactionJobRepository {
     ConversationCompactionJob register(ConversationCompactionJob job);
     Optional<ConversationCompactionJob> lease(AdventureId adventureId, Instant now, Instant until);
-    void save(ConversationCompactionJob job);
-    default void manualReview(ConversationCompactionJob job, String reason) { save(job.manualReview()); }
+    boolean save(ConversationCompactionJob leasedJob, ConversationCompactionJob updatedJob);
+    boolean manualReview(ConversationCompactionJob leasedJob, String reason);
     boolean publish(ConversationCompactionJob job, ConversationSummary summary, long actualAdventureVersion);
     List<ConversationSummary> summaries(AdventureId adventureId);
     default long coveredThrough(AdventureId adventureId) { return summaries(adventureId).stream().mapToLong(ConversationSummary::sourceEnd).max().orElse(-1); }

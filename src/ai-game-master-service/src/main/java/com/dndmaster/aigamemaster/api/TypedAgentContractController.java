@@ -8,6 +8,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection
 import com.dndmaster.aigamemaster.infrastructure.ai.EffectiveGmProviderSelection;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionResolver;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -160,7 +161,8 @@ public final class TypedAgentContractController {
                         + "\nSOURCE_END=" + request.sourceEnd() + "\nEXPECTED_ADVENTURE_VERSION=" + request.expectedAdventureVersion()
                         + "\nCONFIRMED_CONVERSATION=" + conversation
                         + "\nTASK=Summarize only confirmed conversation. Preserve character speech and commitments, scene flow, established consequences, unresolved choices, and current goals. Do not invent facts or treat HP, resources, location, or combat state as authoritative."
-                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, and summary. Do not use markdown.",
+                        + "\nSOURCE_REFERENCE_RULE=List every conversation sequence included in the request exactly once, in order, in referencedSequences. Do not omit or add sequence values."
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, summary, and referencedSequences. Do not use markdown.",
                 json -> parseConversationCompaction(json, request));
     }
 
@@ -289,7 +291,13 @@ public final class TypedAgentContractController {
         if (sourceStart != request.sourceStart() || sourceEnd != request.sourceEnd() || version != request.expectedAdventureVersion()) {
             throw new IllegalArgumentException("conversation compaction response source does not match request");
         }
-        return new ConversationCompactionResponse(sourceStart, sourceEnd, version, required(root, "summary"));
+        List<Long> references = new ArrayList<>();
+        JsonNode refs = root.path("referencedSequences");
+        if (!refs.isArray()) throw new IllegalArgumentException("conversation source references are required");
+        refs.forEach(ref -> { if (!ref.isIntegralNumber() || !ref.canConvertToLong()) throw new IllegalArgumentException("invalid conversation source reference"); references.add(ref.longValue()); });
+        List<Long> expectedReferences = request.conversation().stream().map(ConversationEntry::sequence).toList();
+        if (!references.equals(expectedReferences)) throw new IllegalArgumentException("conversation source references do not cover the request");
+        return new ConversationCompactionResponse(sourceStart, sourceEnd, version, required(root, "summary"), List.copyOf(references));
     }
 
     private JsonNode readObject(String json) {
@@ -364,12 +372,18 @@ public final class TypedAgentContractController {
             if (sourceStart < 0 || sourceEnd < sourceStart || expectedAdventureVersion < 0) throw new IllegalArgumentException("invalid conversation range");
             conversation = List.copyOf(Objects.requireNonNull(conversation, "conversation is required"));
             if (conversation.isEmpty()) throw new IllegalArgumentException("conversation is required");
+            long expectedCount = sourceEnd - sourceStart + 1;
+            if (expectedCount <= 0 || conversation.size() != expectedCount) throw new IllegalArgumentException("conversation must cover the requested range");
+            for (int i = 0; i < conversation.size(); i++) {
+                if (conversation.get(i).sequence() != sourceStart + i) throw new IllegalArgumentException("conversation must cover the requested range");
+            }
         }
     }
     public record ConversationEntry(long sequence, String speaker, String content) {
         public ConversationEntry { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); speaker = required(speaker, "speaker"); content = required(content, "content"); }
     }
-    public record ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion, String summary) { }
+    public record ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion, String summary,
+                                                 List<Long> referencedSequences) { }
 
     public record RuntimeEndpointRequest(java.util.UUID endpointId, String provider, String model, String reasoning) { }
     public record RuntimeEndpointResponse(java.util.UUID endpointId, String endpointVersion,

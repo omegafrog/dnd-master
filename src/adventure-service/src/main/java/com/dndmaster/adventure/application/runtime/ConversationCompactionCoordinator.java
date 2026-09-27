@@ -25,22 +25,32 @@ public final class ConversationCompactionCoordinator {
     public boolean runOnce(AdventureId adventureId, long actualAdventureVersion, List<ConversationEntry> conversation, Instant now) {
         var leased = repository.lease(adventureId, now, now.plus(LEASE)); if (leased.isEmpty()) return false;
         ConversationCompactionJob job = leased.get();
-        try { ConversationCompactionCandidate candidate = candidate(job, conversation);
-            if (candidate.sourceStart() != job.sourceStart() || candidate.sourceEnd() != job.sourceEnd() || candidate.expectedAdventureVersion() != job.expectedAdventureVersion()) { repository.manualReview(job, "CANDIDATE_PROVENANCE_MISMATCH"); return false; }
+        try {
+            List<ConversationEntry> source = source(job, conversation);
+            if (!completeRange(job, source)) { repository.manualReview(job, "SOURCE_RANGE_INCOMPLETE"); return false; }
+            ConversationCompactionCandidate candidate = candidate(job, source);
+            if (candidate.sourceStart() != job.sourceStart() || candidate.sourceEnd() != job.sourceEnd() || candidate.expectedAdventureVersion() != job.expectedAdventureVersion()
+                    || !candidate.referencedSequences().equals(source.stream().map(ConversationEntry::sequence).toList())) { repository.manualReview(job, "CANDIDATE_PROVENANCE_MISMATCH"); return false; }
             long summaryVersion = repository.summaries(adventureId).size() + 1;
             boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), candidate.text()), actualAdventureVersion);
             if (!published) repository.manualReview(job, "SOURCE_RANGE_OR_VERSION_REJECTED");
             return published;
         } catch (TransientConversationCompactionException error) {
             if (job.attempts() >= MAX_DURABLE_ATTEMPTS) repository.manualReview(job, "TRANSIENT_RETRY_EXHAUSTED: " + error.getMessage());
-            else repository.save(job.retryAt(now.plusSeconds(1L << Math.min(job.attempts(), 6))));
+            else repository.save(job, job.retryAt(now.plusSeconds(1L << Math.min(job.attempts(), 6))));
             return false;
         } catch (RuntimeException error) { repository.manualReview(job, "PERMANENT_CANDIDATE_FAILURE: " + error.getMessage()); return false; }
     }
     List<ConversationEntry> source(ConversationCompactionJob job, List<ConversationEntry> conversation) { return conversation.stream().filter(entry -> entry.sequence() >= job.sourceStart() && entry.sequence() <= job.sourceEnd()).toList(); }
-    private ConversationCompactionCandidate candidate(ConversationCompactionJob job, List<ConversationEntry> conversation) {
-        try { return candidatePort.create(job, source(job, conversation)); }
-        catch (TransientConversationCompactionException first) { return candidatePort.create(job, source(job, conversation)); }
+    private ConversationCompactionCandidate candidate(ConversationCompactionJob job, List<ConversationEntry> source) {
+        try { return candidatePort.create(job, source); }
+        catch (TransientConversationCompactionException first) { return candidatePort.create(job, source); }
+    }
+    private static boolean completeRange(ConversationCompactionJob job, List<ConversationEntry> source) {
+        long expectedCount = job.sourceEnd() - job.sourceStart() + 1;
+        return expectedCount > 0 && source.size() == expectedCount
+                && source.stream().map(ConversationEntry::sequence).distinct().count() == expectedCount
+                && source.getFirst().sequence() == job.sourceStart() && source.getLast().sequence() == job.sourceEnd();
     }
     private static int nthLastPlayerIndex(List<ConversationEntry> conversation, int nth) { int found=0; for(int i=conversation.size()-1;i>=0;i--) if("PLAYER".equals(conversation.get(i).speaker()) && ++found==nth) return i; return -1; }
 }

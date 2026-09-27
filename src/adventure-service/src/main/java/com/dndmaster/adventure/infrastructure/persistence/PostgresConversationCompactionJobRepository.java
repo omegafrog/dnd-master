@@ -50,17 +50,33 @@ public final class PostgresConversationCompactionJobRepository implements Conver
             } catch (SQLException | RuntimeException error) { if (!managed) connection.rollback(); throw error; } finally { if (!managed) connection.setAutoCommit(autoCommit); }
         } catch (SQLException error) { throw new AdventurePersistenceException("could not lease conversation compaction job", error); }
     }
-    @Override public void save(ConversationCompactionJob job) { try (Connection connection = dataSource.getConnection()) { update(connection, job); } catch (SQLException error) { throw new AdventurePersistenceException("could not save conversation compaction job", error); } }
+    @Override public boolean save(ConversationCompactionJob leasedJob, ConversationCompactionJob updatedJob) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("UPDATE adventure_conversation_compaction_job SET status=?, available_at=?, lease_until=?, lease_token=?, attempts=? WHERE job_id=? AND status='LEASED' AND lease_token=?")) {
+            bindTransition(statement, updatedJob, leasedJob); return statement.executeUpdate() == 1;
+        } catch (SQLException error) { throw new AdventurePersistenceException("could not save conversation compaction job", error); }
+    }
+    @Override public boolean manualReview(ConversationCompactionJob leasedJob, String reason) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("UPDATE adventure_conversation_compaction_job SET status='MANUAL_REVIEW', lease_until=NULL, lease_token=NULL, last_error=? WHERE job_id=? AND status='LEASED' AND lease_token=?")) {
+            statement.setString(1, reason == null ? "UNKNOWN" : reason.substring(0, Math.min(reason.length(), 1000))); statement.setObject(2, leasedJob.id()); statement.setObject(3, leasedJob.leaseToken()); return statement.executeUpdate() == 1;
+        } catch (SQLException error) { throw new AdventurePersistenceException("could not record conversation compaction failure", error); }
+    }
     @Override public boolean publish(ConversationCompactionJob job, ConversationSummary summary, long actualAdventureVersion) {
         if (actualAdventureVersion < job.expectedAdventureVersion()) return false;
         try (Connection connection = dataSource.getConnection()) {
             boolean managed = org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive(); boolean autoCommit = connection.getAutoCommit(); if (!managed) connection.setAutoCommit(false);
             try (PreparedStatement adventure = connection.prepareStatement("SELECT version FROM adventure WHERE adventure_id=? FOR UPDATE")) {
                 adventure.setObject(1, job.adventureId().value()); try (ResultSet rows = adventure.executeQuery()) { if (!rows.next() || rows.getLong(1) != actualAdventureVersion || actualAdventureVersion < job.expectedAdventureVersion()) { if (!managed) connection.commit(); return false; } }
+                try (PreparedStatement existing = connection.prepareStatement("SELECT 1 FROM adventure_conversation_summary WHERE adventure_id=? AND source_start=? AND source_end=?")) {
+                    existing.setObject(1, summary.adventureId().value()); existing.setLong(2, summary.sourceStart()); existing.setLong(3, summary.sourceEnd());
+                    try (ResultSet rows = existing.executeQuery()) { if (rows.next()) { if (!managed) connection.commit(); return false; } }
+                }
+                try (PreparedStatement complete = connection.prepareStatement("UPDATE adventure_conversation_compaction_job SET status='DONE', lease_until=NULL, lease_token=NULL WHERE job_id=? AND status='LEASED' AND lease_token=?")) {
+                    complete.setObject(1, job.id()); complete.setObject(2, job.leaseToken()); if (complete.executeUpdate() != 1) { if (!managed) connection.commit(); return false; }
+                }
                 try (PreparedStatement insert = connection.prepareStatement("INSERT INTO adventure_conversation_summary(adventure_id, summary_version, source_start, source_end, source_adventure_version, summary_text) VALUES (?, ?, ?, ?, ?, ?)")) {
                     insert.setObject(1, summary.adventureId().value()); insert.setLong(2, summary.version()); insert.setLong(3, summary.sourceStart()); insert.setLong(4, summary.sourceEnd()); insert.setLong(5, summary.sourceAdventureVersion()); insert.setString(6, summary.text()); insert.executeUpdate();
                 }
-                update(connection, job.done()); if (!managed) connection.commit(); return true;
+                if (!managed) connection.commit(); return true;
             } catch (SQLException | RuntimeException error) { if (!managed) connection.rollback(); throw error; } finally { if (!managed) connection.setAutoCommit(autoCommit); }
         } catch (SQLException error) { throw new AdventurePersistenceException("could not publish conversation summary", error); }
     }
@@ -74,11 +90,6 @@ public final class PostgresConversationCompactionJobRepository implements Conver
             statement.setObject(1, adventureId.value()); try (ResultSet rows = statement.executeQuery()) { rows.next(); return rows.getLong(1); }
         } catch (SQLException error) { throw new AdventurePersistenceException("could not load conversation compaction coverage", error); }
     }
-    @Override public void manualReview(ConversationCompactionJob job, String reason) {
-        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("UPDATE adventure_conversation_compaction_job SET status='MANUAL_REVIEW', lease_until=NULL, last_error=? WHERE job_id=?")) {
-            statement.setString(1, reason == null ? "UNKNOWN" : reason.substring(0, Math.min(reason.length(), 1000))); statement.setObject(2, job.id()); if (statement.executeUpdate()!=1) throw new SQLException("compaction job was not found");
-        } catch (SQLException error) { throw new AdventurePersistenceException("could not record conversation compaction failure", error); }
-    }
     @Override public List<ConversationCompactionJob> ready(Instant now) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("""
                 SELECT * FROM adventure_conversation_compaction_job WHERE (status IN ('READY', 'RETRY_WAIT') AND available_at <= ?) OR (status='LEASED' AND lease_until <= ?) ORDER BY available_at, job_id LIMIT 20""")) {
@@ -88,6 +99,7 @@ public final class PostgresConversationCompactionJobRepository implements Conver
     }
     private Optional<ConversationCompactionJob> byKey(Connection connection, String key) throws SQLException { try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM adventure_conversation_compaction_job WHERE idempotency_key=?")) { statement.setString(1, key); try (ResultSet rows = statement.executeQuery()) { return rows.next() ? Optional.of(read(rows)) : Optional.empty(); } } }
     private static void bind(PreparedStatement statement, ConversationCompactionJob job) throws SQLException { statement.setObject(1, job.id()); statement.setObject(2, job.adventureId().value()); statement.setLong(3, job.sourceStart()); statement.setLong(4, job.sourceEnd()); statement.setLong(5, job.expectedAdventureVersion()); statement.setString(6, job.idempotencyKey()); statement.setString(7, job.status().name()); statement.setTimestamp(8, Timestamp.from(job.availableAt())); if (job.leaseUntil()==null) statement.setTimestamp(9,null); else statement.setTimestamp(9,Timestamp.from(job.leaseUntil())); statement.setInt(10, job.attempts()); }
-    private static void update(Connection connection, ConversationCompactionJob job) throws SQLException { try (PreparedStatement statement = connection.prepareStatement("UPDATE adventure_conversation_compaction_job SET status=?, available_at=?, lease_until=?, attempts=? WHERE job_id=?")) { statement.setString(1,job.status().name()); statement.setTimestamp(2,Timestamp.from(job.availableAt())); if(job.leaseUntil()==null) statement.setTimestamp(3,null); else statement.setTimestamp(3,Timestamp.from(job.leaseUntil())); statement.setInt(4,job.attempts()); statement.setObject(5,job.id()); if(statement.executeUpdate()!=1) throw new SQLException("compaction job was not found"); } }
-    private static ConversationCompactionJob read(ResultSet row) throws SQLException { Timestamp lease=row.getTimestamp("lease_until"); return new ConversationCompactionJob(row.getObject("job_id", java.util.UUID.class),new AdventureId(row.getObject("adventure_id",java.util.UUID.class)),row.getLong("source_start"),row.getLong("source_end"),row.getLong("expected_adventure_version"),row.getString("idempotency_key"),ConversationCompactionJob.Status.valueOf(row.getString("status")),row.getTimestamp("available_at").toInstant(),lease==null?null:lease.toInstant(),row.getInt("attempts")); }
+    private static void update(Connection connection, ConversationCompactionJob job) throws SQLException { try (PreparedStatement statement = connection.prepareStatement("UPDATE adventure_conversation_compaction_job SET status=?, available_at=?, lease_until=?, lease_token=?, attempts=? WHERE job_id=?")) { statement.setString(1,job.status().name()); statement.setTimestamp(2,Timestamp.from(job.availableAt())); if(job.leaseUntil()==null) statement.setTimestamp(3,null); else statement.setTimestamp(3,Timestamp.from(job.leaseUntil())); statement.setObject(4, job.leaseToken()); statement.setInt(5,job.attempts()); statement.setObject(6,job.id()); if(statement.executeUpdate()!=1) throw new SQLException("compaction job was not found"); } }
+    private static void bindTransition(PreparedStatement statement, ConversationCompactionJob updated, ConversationCompactionJob leased) throws SQLException { statement.setString(1, updated.status().name()); statement.setTimestamp(2, Timestamp.from(updated.availableAt())); if (updated.leaseUntil() == null) statement.setTimestamp(3, null); else statement.setTimestamp(3, Timestamp.from(updated.leaseUntil())); statement.setObject(4, updated.leaseToken()); statement.setInt(5, updated.attempts()); statement.setObject(6, leased.id()); statement.setObject(7, leased.leaseToken()); }
+    private static ConversationCompactionJob read(ResultSet row) throws SQLException { Timestamp lease=row.getTimestamp("lease_until"); return new ConversationCompactionJob(row.getObject("job_id", java.util.UUID.class),new AdventureId(row.getObject("adventure_id",java.util.UUID.class)),row.getLong("source_start"),row.getLong("source_end"),row.getLong("expected_adventure_version"),row.getString("idempotency_key"),ConversationCompactionJob.Status.valueOf(row.getString("status")),row.getTimestamp("available_at").toInstant(),lease==null?null:lease.toInstant(),row.getInt("attempts"), row.getObject("lease_token", java.util.UUID.class)); }
 }

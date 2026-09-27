@@ -32,12 +32,13 @@ public final class HttpConversationCompactionCandidatePort implements Conversati
             if (response.statusCode() >= 500) throw new TransientConversationCompactionException("AI Game Master returned " + response.statusCode());
             if (response.statusCode() / 100 != 2) throw new IllegalStateException("AI Game Master rejected compaction request");
             Response result=mapper.readValue(response.body(),Response.class);
-            return new ConversationCompactionCandidate(result.sourceStart(),result.sourceEnd(),result.expectedAdventureVersion(),result.summary());
+            return new ConversationCompactionCandidate(result.sourceStart(), result.sourceEnd(), result.expectedAdventureVersion(),
+                    result.summary(), result.referencedSequences());
         } catch (TransientConversationCompactionException e) { throw e;
         } catch (java.io.IOException e) { throw new TransientConversationCompactionException("AI Game Master is temporarily unavailable",e);
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new TransientConversationCompactionException("AI Game Master request interrupted",e);
         } catch (Exception e) { throw new IllegalStateException("invalid conversation compaction response",e); }
     }
     record Request(long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationEntry> conversation) { }
-    record Response(long sourceStart,long sourceEnd,long expectedAdventureVersion,String summary) { }
+    record Response(long sourceStart,long sourceEnd,long expectedAdventureVersion,String summary,List<Long> referencedSequences) { }
 }

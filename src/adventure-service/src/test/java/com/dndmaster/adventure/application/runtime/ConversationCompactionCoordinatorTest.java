@@ -17,7 +17,7 @@ class ConversationCompactionCoordinatorTest {
         var repository = new InMemoryConversationCompactionJobRepository();
         var coordinator = new ConversationCompactionCoordinator(repository, new ConversationCompactionCandidatePort() {
             @Override public ConversationCompactionCandidate create(ConversationCompactionJob job, List<ConversationEntry> source) {
-                return new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), "요약");
+                return validCandidate(job, source, "요약");
             }
         });
         AdventureId adventureId = AdventureId.generate();
@@ -45,7 +45,7 @@ class ConversationCompactionCoordinatorTest {
             int calls;
             @Override public ConversationCompactionCandidate create(ConversationCompactionJob job, List<ConversationEntry> source) {
                 if (calls++ < 2) throw new TransientConversationCompactionException("provider unavailable");
-                return new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), "첫 장면 요약");
+                return validCandidate(job, source, "첫 장면 요약");
             }
         };
         var coordinator = new ConversationCompactionCoordinator(repository, candidatePort);
@@ -86,13 +86,54 @@ class ConversationCompactionCoordinatorTest {
         assertFalse(repository.lease(adventureId, now.plusSeconds(360), now.plusSeconds(780)).isPresent());
         ConversationCompactionJob reclaimed = repository.lease(adventureId, now.plusSeconds(421), now.plusSeconds(841)).orElseThrow();
         assertEquals(job.attempts() + 2, reclaimed.attempts());
+        assertFalse(java.util.Objects.equals(job.leaseToken(), reclaimed.leaseToken()));
+    }
+
+    @Test
+    void refuses_incomplete_source_ranges_and_candidates_without_complete_source_references() {
+        var repository = new InMemoryConversationCompactionJobRepository();
+        var coordinator = new ConversationCompactionCoordinator(repository,
+                (job, source) -> new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(),
+                        job.expectedAdventureVersion(), "무관한 요약", List.of(job.sourceStart())));
+        AdventureId adventureId = AdventureId.generate();
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
+
+        assertFalse(coordinator.runOnce(adventureId, 7, List.of(entry(0, "PLAYER", "첫 행동")), now));
+        assertEquals(ConversationCompactionJob.Status.MANUAL_REVIEW, repository.jobs.getFirst().status());
+        assertTrue(repository.summaries.isEmpty());
+
+        repository.jobs.clear();
+        repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
+        assertFalse(coordinator.runOnce(adventureId, 7,
+                List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "응답")), now));
+        assertEquals(ConversationCompactionJob.Status.MANUAL_REVIEW, repository.jobs.getFirst().status());
+        assertTrue(repository.summaries.isEmpty());
+    }
+
+    @Test
+    void expired_worker_cannot_save_or_publish_after_a_new_lease_is_acquired() {
+        var repository = new InMemoryConversationCompactionJobRepository();
+        AdventureId adventureId = AdventureId.generate();
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        ConversationCompactionJob original = repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
+        ConversationCompactionJob stale = repository.lease(adventureId, now, now.plusSeconds(10)).orElseThrow();
+        ConversationCompactionJob current = repository.lease(adventureId, now.plusSeconds(11), now.plusSeconds(21)).orElseThrow();
+
+        assertFalse(repository.save(stale, stale.retryAt(now.plusSeconds(30))));
+        assertFalse(repository.manualReview(stale, "stale worker"));
+        assertFalse(repository.publish(stale, new ConversationSummary(adventureId, 1, 0, 1, 7, "낡은 결과"), 7));
+        assertTrue(repository.publish(current, new ConversationSummary(adventureId, 1, 0, 1, 7, "현재 결과"), 7));
+        assertEquals(ConversationCompactionJob.Status.DONE, repository.jobs.getFirst().status());
+        assertEquals("현재 결과", repository.summaries.getFirst().text());
+        assertEquals(original.id(), current.id());
     }
 
     @Test
     void source_version_regression_never_leaves_a_candidate_leased() {
         var repository = new InMemoryConversationCompactionJobRepository();
         var coordinator = new ConversationCompactionCoordinator(repository,
-                (job, source) -> new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), "요약"));
+                ConversationCompactionCoordinatorTest::validCandidate);
         AdventureId adventureId = AdventureId.generate();
         List<ConversationEntry> conversation = List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"),
                 entry(2, "PLAYER", "둘째 행동"), entry(3, "AI_GAME_MASTER", "둘째 응답"), entry(4, "PLAYER", "셋째 행동"), entry(5, "AI_GAME_MASTER", "셋째 응답"));
@@ -106,7 +147,7 @@ class ConversationCompactionCoordinatorTest {
     void later_confirmed_turns_do_not_reject_a_summary_for_an_unchanged_source_range() {
         var repository = new InMemoryConversationCompactionJobRepository();
         var coordinator = new ConversationCompactionCoordinator(repository,
-                (job, source) -> new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), "요약"));
+                ConversationCompactionCoordinatorTest::validCandidate);
         AdventureId adventureId = AdventureId.generate();
         List<ConversationEntry> conversation = List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"),
                 entry(2, "PLAYER", "둘째 행동"), entry(3, "AI_GAME_MASTER", "둘째 응답"), entry(4, "PLAYER", "셋째 행동"), entry(5, "AI_GAME_MASTER", "셋째 응답"));
@@ -132,5 +173,14 @@ class ConversationCompactionCoordinatorTest {
 
     private static ConversationEntry entry(long sequence, String speaker, String content) {
         return new ConversationEntry(sequence, speaker, content);
+    }
+
+    private static ConversationCompactionCandidate validCandidate(ConversationCompactionJob job, List<ConversationEntry> source) {
+        return validCandidate(job, source, "요약");
+    }
+
+    private static ConversationCompactionCandidate validCandidate(ConversationCompactionJob job, List<ConversationEntry> source, String text) {
+        return new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), text,
+                source.stream().map(ConversationEntry::sequence).toList());
     }
 }
