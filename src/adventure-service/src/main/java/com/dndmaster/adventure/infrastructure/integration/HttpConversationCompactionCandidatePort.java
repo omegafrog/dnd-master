@@ -13,6 +13,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Internal HTTP client for a proposed summary. The remote service cannot persist it. */
 public final class HttpConversationCompactionCandidatePort implements ConversationCompactionCandidatePort {
@@ -23,8 +24,11 @@ public final class HttpConversationCompactionCandidatePort implements Conversati
         this.mapper=Objects.requireNonNull(mapper); this.token=Objects.requireNonNull(token);
     }
     @Override public ConversationCompactionCandidate create(ConversationCompactionJob job, List<ConversationEntry> source) {
+        return create(new UUID(0L, 0L), job, source);
+    }
+    @Override public ConversationCompactionCandidate create(UUID ownerPlayerId, ConversationCompactionJob job, List<ConversationEntry> source) {
         try {
-            String json=mapper.writeValueAsString(new Request(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), source));
+            String json=mapper.writeValueAsString(new Request(ownerPlayerId, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), source));
             HttpRequest request=HttpRequest.newBuilder(baseUri.resolve("/internal/gm/conversation-compaction"))
                     .timeout(timeout).header("Content-Type","application/json").header("X-Internal-Token",token)
                     .POST(HttpRequest.BodyPublishers.ofString(json)).build();
@@ -39,6 +43,6 @@ public final class HttpConversationCompactionCandidatePort implements Conversati
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new TransientConversationCompactionException("AI Game Master request interrupted",e);
         } catch (Exception e) { throw new IllegalStateException("invalid conversation compaction response",e); }
     }
-    record Request(long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationEntry> conversation) { }
+    record Request(UUID soloPlayerId,long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationEntry> conversation) { }
     record Response(long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationCompactionCandidate.SourceExcerpt> excerpts) { }
 }

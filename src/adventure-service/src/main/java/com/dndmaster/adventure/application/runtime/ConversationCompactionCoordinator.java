@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /** Registers after a confirmed turn; provider work is always performed later by runOnce. */
 public final class ConversationCompactionCoordinator {
@@ -24,6 +25,10 @@ public final class ConversationCompactionCoordinator {
         repository.register(ConversationCompactionJob.ready(adventureId, sourceStart, sourceEnd, version, now));
     }
     public boolean runOnce(AdventureId adventureId, long actualAdventureVersion, List<ConversationEntry> conversation, Instant now) {
+        return runOnce(adventureId, new UUID(0L, 0L), actualAdventureVersion, conversation, now);
+    }
+    public boolean runOnce(AdventureId adventureId, UUID ownerPlayerId, long actualAdventureVersion,
+                           List<ConversationEntry> conversation, Instant now) {
         var leased = repository.lease(adventureId, now, now.plus(LEASE)); if (leased.isEmpty()) return false;
         ConversationCompactionJob job = leased.get();
         try {
@@ -31,9 +36,9 @@ public final class ConversationCompactionCoordinator {
             if (!completeRange(job, source)) { repository.manualReview(job, "SOURCE_RANGE_INCOMPLETE"); return false; }
             ConversationCompactionCandidate candidate;
             try {
-                candidate = candidatePort.create(job, source);
+                candidate = candidatePort.create(ownerPlayerId, job, source);
             } catch (TransientConversationCompactionException first) {
-                try { candidate = candidatePort.create(job, source); }
+                try { candidate = candidatePort.create(ownerPlayerId, job, source); }
                 catch (TransientConversationCompactionException second) {
                     second.addSuppressed(first);
                     throw second;

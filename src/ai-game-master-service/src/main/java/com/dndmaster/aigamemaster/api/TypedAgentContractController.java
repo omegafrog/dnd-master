@@ -156,7 +156,7 @@ public final class TypedAgentContractController {
         requestGuard.internal(token);
         require(request);
         String conversation = write(request.conversation());
-        return adapter.complete(new java.util.UUID(0L, 0L), "conversation-compaction:" + request.sourceStart() + ":" + request.sourceEnd(),
+        return adapter.complete(request.soloPlayerId(), "conversation-compaction:" + request.sourceStart() + ":" + request.sourceEnd(),
                 "ROLE=CONVERSATION_COMPACTION\nSOURCE_START=" + request.sourceStart()
                         + "\nSOURCE_END=" + request.sourceEnd() + "\nEXPECTED_ADVENTURE_VERSION=" + request.expectedAdventureVersion()
                         + "\nCONFIRMED_CONVERSATION=" + conversation
@@ -384,9 +384,14 @@ public final class TypedAgentContractController {
         }
     }
 
-    public record ConversationCompactionRequest(long sourceStart, long sourceEnd, long expectedAdventureVersion,
+    public record ConversationCompactionRequest(java.util.UUID soloPlayerId, long sourceStart, long sourceEnd, long expectedAdventureVersion,
                                                  List<ConversationEntry> conversation) {
+        public ConversationCompactionRequest(long sourceStart, long sourceEnd, long expectedAdventureVersion,
+                List<ConversationEntry> conversation) {
+            this(new java.util.UUID(0L, 0L), sourceStart, sourceEnd, expectedAdventureVersion, conversation);
+        }
         public ConversationCompactionRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             if (sourceStart < 0 || sourceEnd < sourceStart || expectedAdventureVersion < 0) throw new IllegalArgumentException("invalid conversation range");
             conversation = List.copyOf(Objects.requireNonNull(conversation, "conversation is required"));
             if (conversation.isEmpty()) throw new IllegalArgumentException("conversation is required");

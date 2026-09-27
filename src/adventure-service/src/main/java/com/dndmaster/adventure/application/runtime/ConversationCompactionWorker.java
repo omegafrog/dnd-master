@@ -24,7 +24,8 @@ public final class ConversationCompactionWorker {
         // The repository lease is per adventure. Try only adventures that own ready work through the job list.
         for (ConversationCompactionJob job : jobs.ready(now)) {
             var adventure = adventures.findById(job.adventureId()).orElse(null);
-            if (adventure != null) return coordinator.runOnce(job.adventureId(), adventure.version(), adventure.conversation(), now);
+            if (adventure != null) return coordinator.runOnce(job.adventureId(), adventure.ownerPlayerId().value(),
+                    adventure.version(), adventure.conversation(), now);
         }
         return false;
     }

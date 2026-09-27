@@ -84,6 +84,26 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void conversation_compaction_forwards_the_adventure_owner_to_the_provider() {
+        AtomicReference<UUID> owner = new AtomicReference<>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                return complete(SOLO_PLAYER_ID, operation, prompt, parser);
+            }
+            @Override public <T> T complete(UUID soloPlayerId, String operation, String prompt,
+                    StructuredResponseParser<T> parser) {
+                owner.set(soloPlayerId);
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":4,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"문\"}]}");
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        controller.conversationCompaction("service-secret",
+                new TypedAgentContractController.ConversationCompactionRequest(SOLO_PLAYER_ID, 4, 4, 9,
+                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 연다"))));
+        org.junit.jupiter.api.Assertions.assertEquals(SOLO_PLAYER_ID, owner.get());
+    }
+
+    @Test
     void conversation_compaction_rejects_a_candidate_for_another_source_version() {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
