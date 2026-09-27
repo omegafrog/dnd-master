@@ -15,6 +15,7 @@ import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatEncounterRepository;
 import com.dndmaster.adventure.application.combat.CombatEventRepository;
 import com.dndmaster.adventure.application.combat.CombatNarrationPort;
+import com.dndmaster.adventure.application.combat.CombatNarrationPersistenceException;
 import com.dndmaster.adventure.application.combat.DiceCombatPort;
 import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
@@ -150,6 +151,25 @@ class CombatActionPolicyTest {
         assertEquals("COMMITTED", result.status());
         assertEquals(2L, fixture.encounters.value.version());
         assertEquals(CombatActionOperation.Status.COMMITTED, fixture.operations.values.get(command.operationId()).status());
+        assertEquals(0, fixture.events.values.stream().filter(event -> event.eventType().equals("GM_NARRATION")).count());
+    }
+
+    @Test
+    void confirmed_combat_record_persistence_failure_is_not_reported_as_a_successful_narration() {
+        CombatActionCommand command = command(UUID.randomUUID(), heroId, 1);
+        Fixture fixture = fixture(command);
+        CombatActionApplicationService service = new CombatActionApplicationService(fixture.encounters, fixture.operations,
+                fixture.events, new com.dndmaster.adventure.domain.combat.CombatRulesEngine(),
+                ignored -> 18, usableCharacter(), ai(), command1 -> {},
+                context -> com.dndmaster.adventure.domain.combat.FreeFormActionPlan.narrativeOnly(
+                        context.declaration().actorId(), com.dndmaster.adventure.domain.combat.TurnResourceCost.actionOnly(), "", ""),
+                adventure -> null, request -> { throw new CombatNarrationPersistenceException(new IllegalStateException("save failed")); });
+
+        assertThrows(RuntimeException.class, () -> service.submit(command));
+
+        assertEquals(2L, fixture.encounters.value.version());
+        assertEquals(CombatActionOperation.Status.PROCESSING_FAILED,
+                fixture.operations.values.get(command.operationId()).status());
         assertEquals(0, fixture.events.values.stream().filter(event -> event.eventType().equals("GM_NARRATION")).count());
     }
 

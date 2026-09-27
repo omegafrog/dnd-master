@@ -548,6 +548,8 @@ public final class CombatActionApplicationService {
             String generated = narrationPort.narrate(CombatNarrationRequest.postResolution(command,
                     response.encounterVersion(), response.diceTotal(), response.judgment(), playerInput));
             if (generated != null && !generated.isBlank()) narration = generated;
+        } catch (CombatNarrationPersistenceException exception) {
+            throw exception;
         } catch (RuntimeException ignored) {
             // The canonical combat result is already committed; never publish an unchecked fallback narration.
             narration = null;

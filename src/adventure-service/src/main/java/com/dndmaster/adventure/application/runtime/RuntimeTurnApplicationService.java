@@ -580,7 +580,11 @@ public class RuntimeTurnApplicationService {
                 .orElseThrow(() -> new IllegalStateException("runtime binding not found"));
         ScenarioPackage scenarioPackage = scenarioPackageRepository.findById(binding.scenarioPackageId())
                 .orElseThrow(() -> new IllegalStateException("scenario package not found"));
-        persistConfirmedCombatResult(adventure, request);
+        try {
+            persistConfirmedCombatResult(adventure, request);
+        } catch (RuntimeException exception) {
+            throw new com.dndmaster.adventure.application.combat.CombatNarrationPersistenceException(exception);
+        }
         SubmitRuntimeTurnCommand contextCommand = new SubmitRuntimeTurnCommand(adventure.id(), adventure.ownerPlayerId(),
                 request.command().operationId(), request.command().operationId(), combatNarrationAction(request), -1,
                 null, -1, false, true, false, List.of());
