@@ -23,9 +23,9 @@ class ConversationCompactionCoordinatorTest {
         });
         AdventureId adventureId = AdventureId.generate();
         List<ConversationEntry> conversation = List.of(
-                entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"),
-                entry(2, "PLAYER", "둘째 행동"), entry(3, "AI_GAME_MASTER", "둘째 응답"),
-                entry(4, "PLAYER", "셋째 행동"), entry(5, "AI_GAME_MASTER", "셋째 응답"));
+                entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"), entry(2, "AI_GAME_MASTER", "첫 판정"),
+                entry(3, "PLAYER", "둘째 행동"), entry(4, "AI_GAME_MASTER", "둘째 응답"), entry(5, "AI_GAME_MASTER", "둘째 판정"),
+                entry(6, "PLAYER", "셋째 행동"), entry(7, "AI_GAME_MASTER", "셋째 응답"), entry(8, "AI_GAME_MASTER", "셋째 판정"));
 
         coordinator.registerAfterConfirmedTurn(adventureId, 7, conversation, Instant.parse("2026-01-01T00:00:00Z"));
         coordinator.registerAfterConfirmedTurn(adventureId, 7, conversation, Instant.parse("2026-01-01T00:00:00Z"));
@@ -33,14 +33,14 @@ class ConversationCompactionCoordinatorTest {
         assertEquals(1, repository.jobs.size());
         ConversationCompactionJob job = repository.jobs.getFirst();
         assertEquals(0, job.sourceStart());
-        assertEquals(1, job.sourceEnd());
-        assertEquals(List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답")),
+        assertEquals(2, job.sourceEnd());
+        assertEquals(List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"), entry(2, "AI_GAME_MASTER", "첫 판정")),
                 coordinator.source(job, conversation));
         assertEquals(conversation, List.copyOf(conversation));
     }
 
     @Test
-    void registers_gm_only_completed_turns_without_waiting_for_a_player_marker() {
+    void treats_a_contiguous_gm_only_response_as_one_completed_turn() {
         var repository = new InMemoryConversationCompactionJobRepository();
         var coordinator = new ConversationCompactionCoordinator(repository, ConversationCompactionCoordinatorTest::validCandidate);
         AdventureId adventureId = AdventureId.generate();
@@ -51,9 +51,8 @@ class ConversationCompactionCoordinatorTest {
 
         coordinator.registerAfterConfirmedTurn(adventureId, 7, conversation, Instant.parse("2026-01-01T00:00:00Z"));
 
-        assertEquals(1, repository.jobs.size());
-        assertEquals(0, repository.jobs.getFirst().sourceStart());
-        assertEquals(0, repository.jobs.getFirst().sourceEnd());
+        assertEquals(List.of(2L), ConversationCompactionCoordinator.completedTurnEnds(conversation));
+        assertTrue(repository.jobs.isEmpty());
     }
 
     @Test
@@ -64,12 +63,12 @@ class ConversationCompactionCoordinatorTest {
         List<ConversationEntry> conversation = List.of(
                 entry(0, "AI_GAME_MASTER", "확정 전투 결과: 오크가 3 피해를 받았다"),
                 entry(1, "AI_GAME_MASTER", "오크가 비틀거리며 뒤로 물러난다"),
-                entry(2, "AI_GAME_MASTER", "전투 뒤 주변이 조용해진다"),
-                entry(3, "AI_GAME_MASTER", "다음 행동을 기다린다"));
+                entry(2, "PLAYER", "주변을 살핀다"), entry(3, "AI_GAME_MASTER", "전투 뒤 주변이 조용해진다"),
+                entry(4, "PLAYER", "앞으로 간다"), entry(5, "AI_GAME_MASTER", "다음 행동을 기다린다"));
 
         coordinator.registerAfterConfirmedTurn(adventureId, 7, conversation, Instant.parse("2026-01-01T00:00:00Z"));
 
-        assertEquals(List.of(1L, 2L, 3L), ConversationCompactionCoordinator.completedTurnEnds(conversation));
+        assertEquals(List.of(1L, 3L, 5L), ConversationCompactionCoordinator.completedTurnEnds(conversation));
         assertEquals(1, repository.jobs.size());
         assertEquals(0, repository.jobs.getFirst().sourceStart());
         assertEquals(1, repository.jobs.getFirst().sourceEnd());
@@ -87,8 +86,10 @@ class ConversationCompactionCoordinatorTest {
         };
         var coordinator = new ConversationCompactionCoordinator(repository, candidatePort);
         AdventureId adventureId = AdventureId.generate();
-        List<ConversationEntry> conversation = List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"),
-                entry(2, "PLAYER", "둘째 행동"), entry(3, "AI_GAME_MASTER", "둘째 응답"), entry(4, "PLAYER", "셋째 행동"), entry(5, "AI_GAME_MASTER", "셋째 응답"));
+        List<ConversationEntry> conversation = List.of(
+                entry(0, "PLAYER", "첫 번째 행동을 충분히 길게 설명하고 주변의 상황까지 자세히 살핀다"), entry(1, "AI_GAME_MASTER", "첫 번째 응답도 충분히 길게 설명하며 장면의 변화를 자세히 묘사한다"),
+                entry(2, "PLAYER", "둘째 행동을 충분히 길게 설명하고 주변의 상황까지 자세히 살핀다"), entry(3, "AI_GAME_MASTER", "둘째 응답도 충분히 길게 설명하며 장면의 변화를 자세히 묘사한다"),
+                entry(4, "PLAYER", "셋째 행동을 충분히 길게 설명하고 주변의 상황까지 자세히 살핀다"), entry(5, "AI_GAME_MASTER", "셋째 응답도 충분히 길게 설명하며 장면의 변화를 자세히 묘사한다"));
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         coordinator.registerAfterConfirmedTurn(adventureId, 7, conversation, now);
 
@@ -184,10 +185,29 @@ class ConversationCompactionCoordinatorTest {
         AdventureId adventureId = AdventureId.generate();
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
-        List<ConversationEntry> source = List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"));
+        List<ConversationEntry> source = List.of(
+                entry(0, "PLAYER", "첫 행동으로 문을 열고 조심스럽게 안을 살핀다"),
+                entry(1, "AI_GAME_MASTER", "응답으로 문이 열리고 어두운 복도에서 차가운 바람이 불어온다"));
 
         assertTrue(coordinator.runOnce(adventureId, 7, source, now));
         assertEquals("PLAYER: 행동 AI_GAME_MASTER: 응답", repository.summaries.getFirst().text());
+    }
+
+    @Test
+    void rejects_candidate_when_speaker_labels_make_the_rendered_summary_exceed_eighty_percent() {
+        var repository = new InMemoryConversationCompactionJobRepository();
+        var coordinator = new ConversationCompactionCoordinator(repository, (job, source) ->
+                new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(),
+                        List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "PLAYER", "abc"),
+                                new ConversationCompactionCandidate.SourceExcerpt(1, "AI_GAME_MASTER", "abc"))));
+        AdventureId adventureId = AdventureId.generate();
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
+
+        assertFalse(coordinator.runOnce(adventureId, 7,
+                List.of(entry(0, "PLAYER", "abcde"), entry(1, "AI_GAME_MASTER", "abcde")), now));
+        assertEquals(ConversationCompactionJob.Status.MANUAL_REVIEW, repository.jobs.getFirst().status());
+        assertTrue(repository.summaries.isEmpty());
     }
 
     @Test
@@ -241,8 +261,10 @@ class ConversationCompactionCoordinatorTest {
         var coordinator = new ConversationCompactionCoordinator(repository,
                 ConversationCompactionCoordinatorTest::validCandidate);
         AdventureId adventureId = AdventureId.generate();
-        List<ConversationEntry> conversation = List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"),
-                entry(2, "PLAYER", "둘째 행동"), entry(3, "AI_GAME_MASTER", "둘째 응답"), entry(4, "PLAYER", "셋째 행동"), entry(5, "AI_GAME_MASTER", "셋째 응답"));
+        List<ConversationEntry> conversation = List.of(
+                entry(0, "PLAYER", "첫 번째 행동을 충분히 길게 설명하고 주변의 상황까지 자세히 살핀다"), entry(1, "AI_GAME_MASTER", "첫 번째 응답도 충분히 길게 설명하며 장면의 변화를 자세히 묘사한다"),
+                entry(2, "PLAYER", "둘째 행동을 충분히 길게 설명하고 주변의 상황까지 자세히 살핀다"), entry(3, "AI_GAME_MASTER", "둘째 응답도 충분히 길게 설명하며 장면의 변화를 자세히 묘사한다"),
+                entry(4, "PLAYER", "셋째 행동을 충분히 길게 설명하고 주변의 상황까지 자세히 살핀다"), entry(5, "AI_GAME_MASTER", "셋째 응답도 충분히 길게 설명하며 장면의 변화를 자세히 묘사한다"));
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         coordinator.registerAfterConfirmedTurn(adventureId, 7, conversation, now);
         assertFalse(coordinator.runOnce(adventureId, 6, conversation, now));
@@ -255,8 +277,10 @@ class ConversationCompactionCoordinatorTest {
         var coordinator = new ConversationCompactionCoordinator(repository,
                 ConversationCompactionCoordinatorTest::validCandidate);
         AdventureId adventureId = AdventureId.generate();
-        List<ConversationEntry> conversation = List.of(entry(0, "PLAYER", "첫 행동"), entry(1, "AI_GAME_MASTER", "첫 응답"),
-                entry(2, "PLAYER", "둘째 행동"), entry(3, "AI_GAME_MASTER", "둘째 응답"), entry(4, "PLAYER", "셋째 행동"), entry(5, "AI_GAME_MASTER", "셋째 응답"));
+        List<ConversationEntry> conversation = List.of(
+                entry(0, "PLAYER", "첫 번째 행동을 충분히 길게 설명하고 주변의 상황까지 자세히 살핀다"), entry(1, "AI_GAME_MASTER", "첫 번째 응답도 충분히 길게 설명하며 장면의 변화를 자세히 묘사한다"),
+                entry(2, "PLAYER", "둘째 행동을 충분히 길게 설명하고 주변의 상황까지 자세히 살핀다"), entry(3, "AI_GAME_MASTER", "둘째 응답도 충분히 길게 설명하며 장면의 변화를 자세히 묘사한다"),
+                entry(4, "PLAYER", "셋째 행동을 충분히 길게 설명하고 주변의 상황까지 자세히 살핀다"), entry(5, "AI_GAME_MASTER", "셋째 응답도 충분히 길게 설명하며 장면의 변화를 자세히 묘사한다"));
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         coordinator.registerAfterConfirmedTurn(adventureId, 7, conversation, now);
         assertTrue(coordinator.runOnce(adventureId, 8, conversation, now));

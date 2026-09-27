@@ -71,7 +71,7 @@ public final class ConversationCompactionCoordinator {
         java.util.Map<Long, ConversationEntry> entries = source.stream().collect(java.util.stream.Collectors.toMap(ConversationEntry::sequence, entry -> entry));
         long previousSequence = -1;
         java.util.Set<Long> covered = new java.util.HashSet<>();
-        long excerptLength = 0;
+        long renderedLength = 0;
         long excerptCount = 0;
         for (ConversationCompactionCandidate.SourceExcerpt excerpt : excerpts) {
             if (excerpt == null || excerpt.sequence() <= previousSequence) return false;
@@ -79,22 +79,23 @@ public final class ConversationCompactionCoordinator {
             if (entry == null || !entry.speaker().equals(excerpt.speaker()) || excerpt.text() == null || excerpt.text().isBlank() || !entry.content().contains(excerpt.text())) return false;
             previousSequence = excerpt.sequence();
             covered.add(excerpt.sequence());
-            excerptLength += excerpt.text().length();
+            renderedLength += excerpt.speaker().length() + 2L + excerpt.text().length();
             excerptCount++;
         }
         long inputLength = source.stream().mapToLong(entry -> entry.content().length()).sum();
-        return covered.equals(entries.keySet()) && (excerptLength + Math.max(0, excerptCount - 1)) * 5 <= inputLength * 4;
+        return covered.equals(entries.keySet()) && (renderedLength + Math.max(0, excerptCount - 1)) * 5 <= inputLength * 4;
     }
-    /** A combat result plus its immediately following narration is one completed turn. Other GM entries are completed turns. */
+    /** A contiguous AI Game Master response is one completed turn; a player entry starts the next turn. */
     static List<Long> completedTurnEnds(List<ConversationEntry> conversation) {
         List<Long> ends = new java.util.ArrayList<>();
         for (int index = 0; index < conversation.size(); index++) {
             ConversationEntry entry = conversation.get(index);
             if (!"AI_GAME_MASTER".equals(entry.speaker())) continue;
-            if (entry.content().startsWith("확정 전투 결과:") && index + 1 < conversation.size()
-                    && "AI_GAME_MASTER".equals(conversation.get(index + 1).speaker())) {
-                ends.add(conversation.get(++index).sequence());
-            } else ends.add(entry.sequence());
+            long end = entry.sequence();
+            while (index + 1 < conversation.size() && "AI_GAME_MASTER".equals(conversation.get(index + 1).speaker())) {
+                end = conversation.get(++index).sequence();
+            }
+            ends.add(end);
         }
         return ends;
     }
