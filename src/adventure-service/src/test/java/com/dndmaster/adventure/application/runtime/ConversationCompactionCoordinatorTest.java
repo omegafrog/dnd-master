@@ -81,9 +81,10 @@ class ConversationCompactionCoordinatorTest {
         var repository = new InMemoryConversationCompactionJobRepository();
         AdventureId adventureId = AdventureId.generate(); Instant now = Instant.parse("2026-01-01T00:00:00Z");
         ConversationCompactionJob job = repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
-        assertTrue(repository.lease(adventureId, now, now.plusSeconds(300)).isPresent());
-        assertFalse(repository.lease(adventureId, now.plusSeconds(180), now.plusSeconds(480)).isPresent());
-        ConversationCompactionJob reclaimed = repository.lease(adventureId, now.plusSeconds(301), now.plusSeconds(601)).orElseThrow();
+        assertTrue(repository.lease(adventureId, now, now.plusSeconds(420)).isPresent());
+        // A second 180-second provider attempt can still be running after the first one times out.
+        assertFalse(repository.lease(adventureId, now.plusSeconds(360), now.plusSeconds(780)).isPresent());
+        ConversationCompactionJob reclaimed = repository.lease(adventureId, now.plusSeconds(421), now.plusSeconds(841)).orElseThrow();
         assertEquals(job.attempts() + 2, reclaimed.attempts());
     }
 

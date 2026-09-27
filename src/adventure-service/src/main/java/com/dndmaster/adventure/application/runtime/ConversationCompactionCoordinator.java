@@ -10,8 +10,8 @@ import java.util.Objects;
 /** Registers after a confirmed turn; provider work is always performed later by runOnce. */
 public final class ConversationCompactionCoordinator {
     private static final int MAX_DURABLE_ATTEMPTS = 3;
-    // The internal AI call may wait up to 180 seconds; leave recovery margin before another worker can claim it.
-    private static final Duration LEASE = Duration.ofMinutes(5);
+    // Two internal AI calls may each wait 180 seconds; retain a minute for processing before recovery is allowed.
+    private static final Duration LEASE = Duration.ofMinutes(7);
     private final ConversationCompactionJobRepository repository;
     private final ConversationCompactionCandidatePort candidatePort;
     public ConversationCompactionCoordinator(ConversationCompactionJobRepository repository, ConversationCompactionCandidatePort candidatePort) { this.repository = Objects.requireNonNull(repository); this.candidatePort = Objects.requireNonNull(candidatePort); }
