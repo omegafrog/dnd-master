@@ -5,7 +5,7 @@ public interface RuntimePlanningPort {
 
     /** Produces prose only. Implementations must not materialize proposed runtime commands. */
     default RuntimePlan planNarration(RuntimePlanningRequest request) {
-        return plan(request);
+        throw new UnsupportedOperationException("narration-only planning is not configured");
     }
 
     default RuntimePlanningResult planWithOutcomes(RuntimePlanningRequest request) {

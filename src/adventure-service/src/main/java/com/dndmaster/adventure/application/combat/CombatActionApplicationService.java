@@ -160,9 +160,6 @@ public final class CombatActionApplicationService {
             eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(), "ACTION_RESOLVED",
                     "{\"operationId\":\"" + command.action().operationId() + "\",\"kind\":\"FREE_FORM\",\"judgment\":\""
                             + escape(plan.judgment()) + "\"}"));
-            eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor() + 1, "GM_NARRATION",
-                    "{\"operationId\":\"" + command.action().operationId() + "\",\"narration\":\""
-                            + escape(plan.narration()) + "\"}"));
             if (committed.allEnemiesDefeated()) {
                 CombatEndResult ended = combatEndPort.endWhenEnemiesDefeated(command.action().adventureId().value());
                 response = new CombatActionResponse(committed.encounterId(), command.action().operationId(),
@@ -171,7 +168,7 @@ public final class CombatActionApplicationService {
                 operation.committed(response);
                 operationRepository.save(operation);
             }
-            response = narrateAfterCommit(command.action(), response);
+            response = narrateAfterCommit(command.action(), response, command.declaration().text());
             operation.committed(response);
             operationRepository.save(operation);
             return response;
@@ -346,7 +343,10 @@ public final class CombatActionApplicationService {
                 operation.committed(response);
                 operationRepository.save(operation);
             }
-            response = narrateAfterCommit(command, response);
+            response = narrateAfterCommit(command, response, command.action());
+            operation.committed(response);
+            operationRepository.save(operation);
+            response = narrateAfterCommit(command, response, command.action());
             operation.committed(response);
             operationRepository.save(operation);
             return response;
@@ -443,6 +443,9 @@ public final class CombatActionApplicationService {
             eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(),
                     "MOVEMENT_RESOLVED", "{\"operationId\":\"" + command.operationId()
                     + "\",\"distance\":" + distance + "}"));
+            response = narrateAfterCommit(command, response, command.action());
+            operation.committed(response);
+            operationRepository.save(operation);
             return response;
         } catch (CombatCommandRejectedException exception) {
             throw exception;
@@ -541,11 +544,18 @@ public final class CombatActionApplicationService {
                 .orElseThrow(() -> new CombatCommandRejectedException("COMBAT_NOT_ACTIVE", List.of("COMBAT_NOT_ACTIVE")));
     }
 
-    private CombatActionResponse narrateAfterCommit(CombatActionCommand command, CombatActionResponse response) {
+    private CombatActionResponse narrateAfterCommit(CombatActionCommand command, CombatActionResponse response,
+                                                     String playerInput) {
+        String narration = response.narration();
         try {
-            String narration = narrationPort.narrate(CombatNarrationRequest.postResolution(command,
-                    response.encounterVersion(), response.diceTotal(), response.judgment()));
-            if (narration == null || narration.isBlank()) return response;
+            String generated = narrationPort.narrate(CombatNarrationRequest.postResolution(command,
+                    response.encounterVersion(), response.diceTotal(), response.judgment(), playerInput));
+            if (generated != null && !generated.isBlank()) narration = generated;
+        } catch (RuntimeException ignored) {
+            // The canonical combat result is already committed; retain its existing narration when available.
+        }
+        if (narration == null || narration.isBlank()) return response;
+        try {
             long nextSequence = eventRepository.after(response.encounterId(), -1).stream()
                     .mapToLong(CombatEvent::sequence).max().orElse(0L) + 1;
             eventRepository.append(new CombatEvent(response.encounterId(), nextSequence, "GM_NARRATION",

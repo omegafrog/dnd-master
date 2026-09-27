@@ -607,7 +607,7 @@ public class RuntimeTurnApplicationService {
     }
 
     private static String combatNarrationAction(CombatNarrationRequest request) {
-        return "확정된 전투 행동을 플레이어에게 서술합니다. 행동=" + request.command().action()
+        return "확정된 전투 행동을 플레이어에게 서술합니다. 플레이어 입력=" + request.playerInput()
                 + "; 전투 버전=" + request.encounterVersion()
                 + "; 주사위 결과=" + (request.diceTotal() == null ? "없음" : request.diceTotal())
                 + "; 판정=" + request.judgment()

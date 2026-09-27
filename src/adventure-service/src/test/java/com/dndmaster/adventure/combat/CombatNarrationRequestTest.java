@@ -15,16 +15,17 @@ class CombatNarrationRequestTest {
     @Test
     void carries_only_the_confirmed_result_to_adventure_runtime() {
         CombatActionCommand command = command();
-        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command, 7L, 18, "명중");
+        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command, 7L, 18, "명중", "검을 휘두른다");
 
         assertEquals(command, request.command());
+        assertEquals("검을 휘두른다", request.playerInput());
         assertEquals(18, request.diceTotal());
         assertEquals("명중", request.judgment());
     }
 
     @Test
     void keeps_the_canonical_result_separate_from_the_narration_request() {
-        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command(), 7L, 18, "명중");
+        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command(), 7L, 18, "명중", "attack");
 
         assertEquals(7L, request.encounterVersion());
         assertEquals(18, request.diceTotal());
