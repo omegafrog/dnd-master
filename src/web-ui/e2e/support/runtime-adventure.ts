@@ -19,6 +19,16 @@ export function hasRuntimeEnvironment() {
   return Boolean(backend && email && password && storybooks.length)
 }
 
+export function assertPotentBrewStorybooks(sources = storybooks) {
+  const requiredRoles = ['MAIN_SCENARIO', 'MAP', 'HANDOUT']
+  const assetRoot = '/home/jiwoo/workspace/dnd-master/docs/assets/'
+  const roles = new Set(sources.map(storybook => storybook.role))
+  const missingRoles = requiredRoles.filter(role => !roles.has(role))
+  const invalidPath = sources.find(storybook => !storybook.path.startsWith(assetRoot))
+  if (invalidPath) throw new Error(`storybook ${invalidPath.role} must use a Linux docs/assets path`)
+  if (missingRoles.length) throw new Error(`BACKEND_E2E_STORYBOOKS_JSON is missing required roles: ${missingRoles.join(', ')}`)
+}
+
 export async function bootstrapStartedAdventure(request: APIRequestContext) {
   const auth = await login(request)
   const prepared = await createPreparedPackage(request, auth)

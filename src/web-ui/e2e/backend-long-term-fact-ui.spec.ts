@@ -1,11 +1,25 @@
 import { expect, test, type Page } from '@playwright/test'
-import { bootstrapStartedAdventure, hasRuntimeEnvironment, readPersistedAdventureState, readPersistedCompactionJobs, readPersistedLongTermFacts } from './support/runtime-adventure'
+import { assertPotentBrewStorybooks, bootstrapStartedAdventure, hasRuntimeEnvironment, readPersistedAdventureState, readPersistedCompactionJobs, readPersistedLongTermFacts } from './support/runtime-adventure'
 
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
 
+test('새 모험 검증은 Linux 자료 경로와 세 가지 자료 역할을 요구한다', () => {
+  const storybooks = [
+    { path: '/home/jiwoo/workspace/dnd-master/docs/assets/main.pdf', role: 'MAIN_SCENARIO' },
+    { path: '/home/jiwoo/workspace/dnd-master/docs/assets/map.pdf', role: 'MAP' },
+    { path: '/home/jiwoo/workspace/dnd-master/docs/assets/handout.pdf', role: 'HANDOUT' },
+  ]
+
+  expect(() => assertPotentBrewStorybooks(storybooks)).not.toThrow()
+  expect(() => assertPotentBrewStorybooks(storybooks.slice(0, 2))).toThrow(/HANDOUT/)
+  expect(() => assertPotentBrewStorybooks(storybooks.map(source => ({ ...source, path: `C:\\assets\\${source.role}.pdf` })))
+    .toThrow(/Linux docs\/assets path/)
+})
+
 test('플레이어 화면에서 확정한 목표는 장면 이동 뒤에도 모험별 기록으로 이어지고 비공개 사실을 노출하지 않는다', async ({ page, request }) => {
   test.skip(!hasRuntimeEnvironment(), 'src/start-dev.sh가 제공하는 실제 백엔드와 Potent Brew 자료가 필요합니다')
+  assertPotentBrewStorybooks()
   test.setTimeout(0)
 
   const adventure = await bootstrapStartedAdventure(request)
