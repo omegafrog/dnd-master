@@ -299,21 +299,21 @@ class ConversationCompactionCoordinatorTest {
     }
 
     @Test
-    void publishes_only_ordered_exact_source_excerpts_and_renders_them_deterministically() {
+    void publishes_meaning_preserving_paraphrases_with_ordered_source_provenance() {
         var repository = new InMemoryConversationCompactionJobRepository();
         var coordinator = new ConversationCompactionCoordinator(repository, (job, source) ->
                 new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(),
-                        List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "PLAYER", "행동"),
-                                new ConversationCompactionCandidate.SourceExcerpt(1, "AI_GAME_MASTER", "응답"))));
+                        List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "PLAYER", "조심히 문을 열고 문틀과 주변을 살핀다"),
+                                new ConversationCompactionCandidate.SourceExcerpt(1, "AI_GAME_MASTER", "어두운 복도에서 찬바람과 낡은 문양, 먼지를 발견한다"))));
         AdventureId adventureId = AdventureId.generate();
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
         List<ConversationEntry> source = List.of(
-                entry(0, "PLAYER", "첫 행동으로 문을 열고 조심스럽게 안을 살핀다"),
-                entry(1, "AI_GAME_MASTER", "응답으로 문이 열리고 어두운 복도에서 차가운 바람이 불어온다"));
+                entry(0, "PLAYER", "첫 행동으로 문을 열고 조심스럽게 안을 살핀다. 문틀을 확인하고 주변 먼지를 피해 천천히 다가간다"),
+                entry(1, "AI_GAME_MASTER", "문이 열리고 어두운 복도에서 차가운 바람이 불어온다. 통로를 둘러보면 벽에는 오래된 문양이 보이고 바닥에는 먼지가 쌓였다"));
 
         assertTrue(coordinator.runOnce(adventureId, 7, source, now));
-        assertEquals("PLAYER: 행동 AI_GAME_MASTER: 응답", repository.summaries.getFirst().text());
+        assertEquals("PLAYER: 조심히 문을 열고 문틀과 주변을 살핀다 AI_GAME_MASTER: 어두운 복도에서 찬바람과 낡은 문양, 먼지를 발견한다", repository.summaries.getFirst().text());
     }
 
     @Test
@@ -334,9 +334,9 @@ class ConversationCompactionCoordinatorTest {
     }
 
     @Test
-    void rejects_unsupported_missing_extra_and_out_of_order_excerpts_without_publishing() {
+    void rejects_wrong_sequence_missing_extra_and_out_of_order_provenance_without_publishing() {
         List<List<ConversationCompactionCandidate.SourceExcerpt>> invalid = List.of(
-                List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "무관한 문장"), new ConversationCompactionCandidate.SourceExcerpt(1, "첫 응")),
+                List.of(new ConversationCompactionCandidate.SourceExcerpt(9, "PLAYER", "문을 연다"), new ConversationCompactionCandidate.SourceExcerpt(1, "AI_GAME_MASTER", "문이 열린다")),
                 List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "행동")),
                 List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "행동"), new ConversationCompactionCandidate.SourceExcerpt(1, "응답"), new ConversationCompactionCandidate.SourceExcerpt(2, "초과")),
                 List.of(new ConversationCompactionCandidate.SourceExcerpt(1, "응답"), new ConversationCompactionCandidate.SourceExcerpt(0, "행동")),

@@ -161,10 +161,10 @@ public final class TypedAgentContractController {
                         + "\nSOURCE_END=" + request.sourceEnd() + "\nEXPECTED_ADVENTURE_VERSION=" + request.expectedAdventureVersion()
                         + "\nCONFIRMED_CONVERSATION=" + conversation
                         + "\nCONFIRMED_RUNTIME_FACTS=" + write(request.runtimeFacts())
-                        + "\nTASK=Select concise exact excerpts from the confirmed conversation that preserve character speech, commitments, scene flow, established consequences, unresolved choices, and current goals. Every excerpt text must be copied verbatim as a substring of the content at its sequence. Do not paraphrase, invent facts, or treat HP, resources, location, or combat state as authoritative."
-                        + "\nSOURCE_REFERENCE_RULE=Cover every requested sequence at least once, in ascending sequence order. Do not omit or add sequences or text absent from that entry. Keep combined excerpt text at most 80 percent of source content length."
+                        + "\nTASK=Write a concise Korean summary for each confirmed conversation entry that preserves its meaning, including character speech, commitments, scene flow, established consequences, unresolved choices, and current goals. You may rewrite and compress the wording. Do not add, infer, or alter facts; do not treat HP, resources, location, or combat state as authoritative."
+                        + "\nSOURCE_REFERENCE_RULE=Return exactly one summary item for every requested sequence, in ascending order, with that entry's exact sequence and speaker as provenance. Keep sourceStart, sourceEnd, and expectedAdventureVersion unchanged. Keep the combined rendered summary, including speaker labels, at most 80 percent of source content length."
                         + "\nLONG_TERM_FACT_RULE=longTermFacts is optional. Include only a confirmed Runtime Fact from CONFIRMED_RUNTIME_FACTS that represents an established EVENT, RELATIONSHIP, GOAL, or THREAT with ongoing relevance. Each item must contain factId, establishedTurnId, kind, relevance, and playerVisible. Never create a record for simple dialogue or copy character sheets, HP, resources, location, or combat state."
-                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, excerpts [{sequence,speaker,text}], and optional longTermFacts [{factId,establishedTurnId,kind,relevance,playerVisible}]. speaker must exactly match the supplied entry. Do not use markdown.",
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, excerpts [{sequence,speaker,text}], and optional longTermFacts [{factId,establishedTurnId,kind,relevance,playerVisible}]. Each text is generated summary prose grounded only in the corresponding entry. speaker must exactly match the supplied entry. Do not use markdown.",
                 json -> parseConversationCompaction(json, request));
     }
 
@@ -307,7 +307,7 @@ public final class TypedAgentContractController {
             long sequence = sequenceNode.longValue();
             String text = required(node, "text");
             ConversationEntry entry = source.get(sequence);
-            if (sequence <= previousSequence || entry == null || !entry.content().contains(text)) throw new IllegalArgumentException("conversation excerpt is not an ordered source substring");
+            if (sequence <= previousSequence || entry == null) throw new IllegalArgumentException("conversation summary provenance is not an ordered source sequence");
             previousSequence = sequence;
             covered.add(sequence);
             excerptLength += text.length();

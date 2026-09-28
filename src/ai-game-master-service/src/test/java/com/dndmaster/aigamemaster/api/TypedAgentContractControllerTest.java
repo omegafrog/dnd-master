@@ -182,17 +182,33 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
-    void conversation_compaction_rejects_an_excerpt_that_is_not_an_exact_source_substring() {
+    void conversation_compaction_accepts_mean_preserving_generated_summary_text_with_exact_provenance() {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":5,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"text\":\"문을 연다\"},{\"sequence\":5,\"text\":\"없는 말\"}]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":5,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"주변 위험을 확인하며 문을 열고 안으로 들어간다\"},{\"sequence\":5,\"speaker\":\"AI_GAME_MASTER\",\"text\":\"열린 문 너머 어두운 복도에서 찬바람이 분다\"}]}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
-        var conversation = List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 연다"),
-                new TypedAgentContractController.ConversationEntry(5, "AI_GAME_MASTER", "문이 열린다"));
+        var conversation = List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 열고 안을 조심히 살펴본 뒤 안쪽으로 들어간다. 주변에 위험이 없는지도 확인한다"),
+                new TypedAgentContractController.ConversationEntry(5, "AI_GAME_MASTER", "문이 열리자 어둡고 긴 복도가 나타난다. 바깥의 온기와 달리 안쪽에서는 차가운 바람이 불어온다"));
+        var result = controller.conversationCompaction("service-secret",
+                new TypedAgentContractController.ConversationCompactionRequest(4, 5, 9, conversation));
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(4L, 5L), result.excerpts().stream()
+                .map(TypedAgentContractController.SourceExcerpt::sequence).toList());
+        org.junit.jupiter.api.Assertions.assertTrue(result.excerpts().getFirst().text().contains("주변 위험을 확인"));
+    }
+
+    @Test
+    void conversation_compaction_rejects_summary_with_unrequested_source_sequence() {
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":4,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":5,\"speaker\":\"PLAYER\",\"text\":\"문을 열었다\"}]}");
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
         assertThrows(IllegalArgumentException.class, () -> controller.conversationCompaction("service-secret",
-                new TypedAgentContractController.ConversationCompactionRequest(4, 5, 9, conversation)));
+                new TypedAgentContractController.ConversationCompactionRequest(4, 4, 9,
+                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 열고 안을 자세히 살펴본다")))));
     }
 
     @Test

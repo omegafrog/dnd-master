@@ -117,7 +117,7 @@ public final class ConversationCompactionCoordinator {
         for (ConversationCompactionCandidate.SourceExcerpt excerpt : excerpts) {
             if (excerpt == null || excerpt.sequence() <= previousSequence) return false;
             ConversationEntry entry = entries.get(excerpt.sequence());
-            if (entry == null || !entry.speaker().equals(excerpt.speaker()) || excerpt.text() == null || excerpt.text().isBlank() || !entry.content().contains(excerpt.text())) return false;
+            if (entry == null || !entry.speaker().equals(excerpt.speaker()) || excerpt.text() == null || excerpt.text().isBlank()) return false;
             previousSequence = excerpt.sequence();
             covered.add(excerpt.sequence());
             renderedLength += excerpt.speaker().length() + 2L + excerpt.text().length();
