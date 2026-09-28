@@ -126,6 +126,30 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void conversation_compaction_discards_invalid_optional_fact_proposals_without_losing_summary_candidate() {
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":4,\"expectedAdventureVersion\":9,"
+                        + "\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"문\"}],"
+                        + "\"longTermFacts\":[{\"factId\":\"not-a-uuid\",\"establishedTurnId\":\"also-not-a-uuid\","
+                        + "\"kind\":\"GOAL\",\"relevance\":\"오래된 제안\",\"playerVisible\":true},"
+                        + "{\"factId\":\"00000000-0000-0000-0000-000000000399\","
+                        + "\"establishedTurnId\":\"00000000-0000-0000-0000-000000000398\","
+                        + "\"kind\":\"GOAL\",\"relevance\":\"확인되지 않은 제안\",\"playerVisible\":true}]} ");
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        var result = controller.conversationCompaction("service-secret",
+                new TypedAgentContractController.ConversationCompactionRequest(SOLO_PLAYER_ID, 4, 4, 9,
+                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 연다")), List.of()));
+
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(4L), result.excerpts().stream()
+                .map(TypedAgentContractController.SourceExcerpt::sequence).toList());
+        org.junit.jupiter.api.Assertions.assertTrue(result.longTermFacts().isEmpty());
+    }
+
+    @Test
     void conversation_compaction_rejects_a_candidate_for_another_source_version() {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {

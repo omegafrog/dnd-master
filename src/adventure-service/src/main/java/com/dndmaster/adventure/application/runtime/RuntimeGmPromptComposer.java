@@ -148,9 +148,18 @@ public final class RuntimeGmPromptComposer {
 
     private static boolean isRelevant(String relevance, String currentSituation) {
         if (currentSituation.isBlank()) return false;
-        String normalizedSituation = currentSituation.replaceAll("[^\\p{IsAlphabetic}\\p{IsDigit}]", " ");
-        return java.util.Arrays.stream(relevance.replaceAll("[^\\p{IsAlphabetic}\\p{IsDigit}]", " ").split(" +"))
-                .filter(token -> token.length() > 1)
-                .anyMatch(normalizedSituation::contains);
+        java.util.Set<String> situationTerms = meaningfulTerms(currentSituation);
+        java.util.Set<String> recordTerms = meaningfulTerms(relevance);
+        recordTerms.retainAll(situationTerms);
+        return recordTerms.size() >= 2;
+    }
+
+    private static java.util.Set<String> meaningfulTerms(String text) {
+        java.util.Set<String> terms = new java.util.LinkedHashSet<>();
+        for (String raw : text.replaceAll("[^\\p{IsAlphabetic}\\p{IsDigit}]", " ").split(" +")) {
+            String term = raw.replaceFirst("(에게서|에게|으로|에서|와|과|의|은|는|이|가|을|를)$", "").toLowerCase(java.util.Locale.ROOT);
+            if (term.length() > 1) terms.add(term);
+        }
+        return terms;
     }
 }

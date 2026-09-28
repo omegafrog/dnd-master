@@ -269,14 +269,21 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
 
     private static RuntimeResolutionProposal resolutionProposal(RuntimePlanningRequest request, GmPlanResult result) {
         SituationProposal situation = result.situationProposal();
-        List<com.dndmaster.adventure.domain.runtime.RuntimeAddedFact> runtimeFacts = result.runtimeFacts().stream()
+        List<com.dndmaster.adventure.domain.runtime.RuntimeAddedFact> runtimeFacts = new java.util.ArrayList<>(result.runtimeFacts().stream()
                 .filter(GmAgentRuntimePlanningAdapter::safeRuntimeFact)
                 .filter(candidate -> request.factLookupResults().isEmpty()
                         || request.factLookupResults().stream().allMatch(lookup -> lookup.status() == RuntimeFactLookupResult.Status.NOT_FOUND))
                 .filter(candidate -> request.runtimeFacts().stream().noneMatch(existing -> existing.equalsIgnoreCase(candidate.content())))
                 .map(candidate -> new com.dndmaster.adventure.domain.runtime.RuntimeAddedFact(
                         UUID.randomUUID(), candidate.content(), request.turnId(), candidate.subject()))
-                .toList();
+                .toList());
+        explicitPlayerGoal(request.action(), request.turnId()).ifPresent(goal -> {
+            String goalKey = normalizeGoal(goal.content());
+            boolean alreadyRecorded = request.runtimeFacts().stream().anyMatch(existing -> normalizeGoal(existing).equals(goalKey));
+            boolean alreadyProposed = runtimeFacts.stream().anyMatch(existing -> normalizeGoal(existing.content()).equals(goalKey));
+            if (!alreadyRecorded && !alreadyProposed) runtimeFacts.add(new com.dndmaster.adventure.domain.runtime.RuntimeAddedFact(
+                    goal.factId(), goal.content(), request.turnId(), goal.subject()));
+        });
         if (situation == null && runtimeFacts.isEmpty()) return RuntimeResolutionProposal.unchanged();
         return situation == null
                 ? new RuntimeResolutionProposal(com.dndmaster.adventure.domain.runtime.GameStateDelta.empty(),
@@ -290,6 +297,37 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     private static boolean safeRuntimeFact(RuntimeAddedFactCandidate candidate) {
         String text = (candidate.subject() + " " + candidate.content()).toLowerCase(java.util.Locale.ROOT);
         return !text.matches(".*(culprit|secret|hidden|cause|clue|solution|범인|비밀|숨겨진|숨은|원인|진상|단서|정답|해답).*");
+    }
+
+    /** A durable goal is grounded only in an explicit declaration from the committed player action. */
+    private static java.util.Optional<com.dndmaster.adventure.domain.runtime.RuntimeAddedFact> explicitPlayerGoal(
+            String action, UUID turnId) {
+        if (action == null || action.isBlank()) return java.util.Optional.empty();
+        String text = action.trim();
+        java.util.regex.Matcher korean = java.util.regex.Pattern.compile(
+                "^(?:(?:내|우리(?:의)?)\\s*)?목표(?:는|:)\\s*(.+)$", java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(text);
+        java.util.regex.Matcher english = java.util.regex.Pattern.compile(
+                "^(?:my|our)\\s+goal\\s+is\\s+(?:to\\s+)?(.+)$", java.util.regex.Pattern.CASE_INSENSITIVE)
+                .matcher(text);
+        String objective;
+        if (korean.matches()) objective = korean.group(1).trim();
+        else if (english.matches()) objective = english.group(1).trim();
+        else return java.util.Optional.empty();
+
+        // These are state, secret, or promise claims, not a durable goal record.
+        String lower = objective.toLowerCase(java.util.Locale.ROOT);
+        if (objective.length() < 8 || lower.matches(".*(hp|hit points|resource|spell slot|combat|initiative|armor class|secret|hidden|promise|promised|비밀|숨은|숨겨진|약속|hp|체력|자원|주문 슬롯|전투|방어도|위치|좌표).*")) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.of(new com.dndmaster.adventure.domain.runtime.RuntimeAddedFact(
+                UUID.randomUUID(), "목표: " + objective, turnId, "goal"));
+    }
+
+    private static String normalizeGoal(String content) {
+        if (content == null) return "";
+        return content.trim().replaceFirst("(?i)^(?:목표|goal):\\s*", "")
+                .replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
     }
 
     private static List<RuntimeTurnCommand> runtimeCommands(RuntimePlanningRequest request,

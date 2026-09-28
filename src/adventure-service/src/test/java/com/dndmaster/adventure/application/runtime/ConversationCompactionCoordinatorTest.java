@@ -44,6 +44,79 @@ class ConversationCompactionCoordinatorTest {
                 List.of(new RuntimeAddedFact(factId, "경비는 성문을 열어 주기로 했다", turnId, "경비")), now));
         assertTrue(repository.longTermFacts(adventureId).isEmpty());
     }
+
+    @Test
+    void derives_record_kind_relevance_and_disclosure_from_the_confirmed_runtime_fact_not_candidate_metadata() {
+        var repository = new InMemoryConversationCompactionJobRepository();
+        AdventureId adventureId = AdventureId.generate();
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        UUID factId = UUID.randomUUID(); UUID turnId = UUID.randomUUID();
+        List<ConversationEntry> source = List.of(entry(0, "PLAYER", "경비에게 협력을 제안한다. ".repeat(20)),
+                entry(1, "AI_GAME_MASTER", "경비는 협력 약속을 받아들여 성문을 열어 준다. ".repeat(20)));
+        repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
+        var coordinator = new ConversationCompactionCoordinator(repository, (job, entries) ->
+                new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(),
+                        List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "PLAYER", "협력"),
+                                new ConversationCompactionCandidate.SourceExcerpt(1, "AI_GAME_MASTER", "성문")),
+                        List.of(new LongTermFactCandidate(factId, turnId, "THREAT", "위조된 관련성", false))));
+
+        assertTrue(coordinator.runOnce(adventureId, new UUID(0L, 0L), 7, source,
+                List.of(new RuntimeAddedFact(factId, "경비는 협력 약속을 받아들여 성문을 열어 준다", turnId, "경비")), now));
+
+        LongTermAdventureFact stored = repository.longTermFacts(adventureId).getFirst();
+        assertEquals("RELATIONSHIP", stored.kind());
+        assertEquals("경비는 협력 약속을 받아들여 성문을 열어 준다", stored.relevance());
+        assertTrue(stored.playerVisible());
+    }
+
+    @Test
+    void removes_a_record_when_its_confirmed_runtime_source_is_replaced() {
+        var repository = new InMemoryConversationCompactionJobRepository();
+        AdventureId adventureId = AdventureId.generate();
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        UUID firstId = UUID.randomUUID(); UUID secondId = UUID.randomUUID(); UUID turnId = UUID.randomUUID();
+        List<ConversationEntry> source = List.of(entry(0, "PLAYER", "경비에게 협력을 제안한다. ".repeat(20)),
+                entry(1, "AI_GAME_MASTER", "경비가 성문을 연다. ".repeat(20)));
+        repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
+        var first = new ConversationCompactionCoordinator(repository, candidateFor(firstId, turnId));
+        assertTrue(first.runOnce(adventureId, new UUID(0L, 0L), 7, source,
+                List.of(new RuntimeAddedFact(firstId, "경비는 성문을 열어 준다", turnId, "경비")), now));
+
+        repository.register(ConversationCompactionJob.ready(adventureId, 2, 3, 8, now));
+        List<ConversationEntry> replacementSource = List.of(entry(2, "PLAYER", "새 제안을 확인한다. ".repeat(20)),
+                entry(3, "AI_GAME_MASTER", "경비가 새 약속을 수락한다. ".repeat(20)));
+        var replacement = new ConversationCompactionCoordinator(repository, candidateFor(secondId, turnId));
+        assertTrue(replacement.runOnce(adventureId, new UUID(0L, 0L), 8, replacementSource,
+                List.of(new RuntimeAddedFact(secondId, "경비는 새 약속을 수락한다", turnId, "경비")), now));
+
+        assertEquals(List.of(secondId), repository.longTermFacts(adventureId).stream().map(LongTermAdventureFact::factId).toList());
+    }
+
+    @Test
+    void advances_a_record_version_when_its_confirmed_source_is_published_again() {
+        var repository = new InMemoryConversationCompactionJobRepository();
+        AdventureId adventureId = AdventureId.generate();
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        UUID factId = UUID.randomUUID(); UUID turnId = UUID.randomUUID();
+        RuntimeAddedFact confirmed = new RuntimeAddedFact(factId, "경비는 협력 약속을 받아들인다", turnId, "경비");
+        repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
+        var coordinator = new ConversationCompactionCoordinator(repository, candidateFor(factId, turnId));
+        List<ConversationEntry> firstSource = List.of(entry(0, "PLAYER", "협력을 제안한다. ".repeat(20)), entry(1, "AI_GAME_MASTER", "약속을 수락한다. ".repeat(20)));
+        assertTrue(coordinator.runOnce(adventureId, new UUID(0L, 0L), 7, firstSource, List.of(confirmed), now));
+        repository.register(ConversationCompactionJob.ready(adventureId, 2, 3, 8, now));
+        List<ConversationEntry> secondSource = List.of(entry(2, "PLAYER", "약속을 다시 확인한다. ".repeat(20)), entry(3, "AI_GAME_MASTER", "경비가 약속을 확인한다. ".repeat(20)));
+        assertTrue(coordinator.runOnce(adventureId, new UUID(0L, 0L), 8, secondSource, List.of(confirmed), now));
+
+        assertEquals(1, repository.longTermFacts(adventureId).size());
+        assertEquals(2, repository.longTermFacts(adventureId).getFirst().version());
+    }
+
+    private static ConversationCompactionCandidatePort candidateFor(UUID factId, UUID turnId) {
+        return (job, entries) -> new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(),
+                List.of(new ConversationCompactionCandidate.SourceExcerpt(job.sourceStart(), entries.getFirst().speaker(), entries.getFirst().content().substring(0, 2)),
+                        new ConversationCompactionCandidate.SourceExcerpt(job.sourceEnd(), entries.getLast().speaker(), entries.getLast().content().substring(0, 2))),
+                List.of(new LongTermFactCandidate(factId, turnId, "EVENT", "후보 관련성", true)));
+    }
     @Test
     void registers_once_for_turns_older_than_the_latest_two_completed_gm_turns_and_keeps_originals() {
         var repository = new InMemoryConversationCompactionJobRepository();

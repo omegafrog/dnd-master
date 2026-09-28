@@ -319,19 +319,23 @@ public final class TypedAgentContractController {
         if (!covered.equals(source.keySet()) || excerptLength * 5 > sourceLength * 4) throw new IllegalArgumentException("conversation excerpts must cover all sources and be meaningfully shorter");
         List<LongTermFactCandidate> longTermFacts = new ArrayList<>();
         JsonNode factNodes = root.path("longTermFacts");
-        if (!factNodes.isMissingNode()) {
-            if (!factNodes.isArray()) throw new IllegalArgumentException("longTermFacts must be an array when provided");
+        if (factNodes.isArray()) {
             for (JsonNode fact : factNodes) {
-                if (!fact.isObject()) throw new IllegalArgumentException("longTermFacts entries must be objects");
-                java.util.UUID factId = java.util.UUID.fromString(required(fact, "factId"));
-                java.util.UUID establishedTurnId = java.util.UUID.fromString(required(fact, "establishedTurnId"));
-                String kind = required(fact, "kind").toUpperCase(java.util.Locale.ROOT);
-                if (!List.of("EVENT", "RELATIONSHIP", "GOAL", "THREAT").contains(kind)) throw new IllegalArgumentException("invalid long-term fact kind");
-                if (!fact.has("playerVisible") || !fact.path("playerVisible").isBoolean()) throw new IllegalArgumentException("long-term fact playerVisible is required");
-                boolean confirmed = request.runtimeFacts().stream().anyMatch(runtimeFact -> runtimeFact.factId().equals(factId)
-                        && runtimeFact.establishedTurnId().equals(establishedTurnId));
-                if (!confirmed) throw new IllegalArgumentException("long-term fact must reference a confirmed runtime fact");
-                longTermFacts.add(new LongTermFactCandidate(factId, establishedTurnId, kind, required(fact, "relevance"), fact.path("playerVisible").booleanValue()));
+                try {
+                    if (!fact.isObject()) continue;
+                    java.util.UUID factId = java.util.UUID.fromString(required(fact, "factId"));
+                    java.util.UUID establishedTurnId = java.util.UUID.fromString(required(fact, "establishedTurnId"));
+                    String kind = required(fact, "kind").toUpperCase(java.util.Locale.ROOT);
+                    if (!List.of("EVENT", "RELATIONSHIP", "GOAL", "THREAT").contains(kind)) continue;
+                    if (!fact.has("playerVisible") || !fact.path("playerVisible").isBoolean()) continue;
+                    boolean confirmed = request.runtimeFacts().stream().anyMatch(runtimeFact -> runtimeFact.factId().equals(factId)
+                            && runtimeFact.establishedTurnId().equals(establishedTurnId));
+                    if (!confirmed) continue;
+                    longTermFacts.add(new LongTermFactCandidate(factId, establishedTurnId, kind,
+                            required(fact, "relevance"), fact.path("playerVisible").booleanValue()));
+                } catch (IllegalArgumentException malformedOptionalFact) {
+                    // A proposed long-term record is optional; malformed proposals do not invalidate source excerpts.
+                }
             }
         }
         return new ConversationCompactionResponse(sourceStart, sourceEnd, version, List.copyOf(excerpts), List.copyOf(longTermFacts));

@@ -117,10 +117,94 @@ class GmAgentRuntimePlanningAdapterTest {
         assertThat(result.resolutionProposal().runtimeAddedFacts()).isEmpty();
     }
 
+    @Test
+    void records_a_goal_explicitly_declared_by_the_player_with_its_turn_provenance() {
+        UUID turnId = UUID.randomUUID();
+        RuntimePlanningRequest request = request("내 목표는 실종된 탐험가를 찾는 것이다.", turnId);
+        var result = new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of()),
+                new GmFinalValidator()).planWithOutcomes(request);
+
+        assertThat(result.resolutionProposal().runtimeAddedFacts()).singleElement()
+                .satisfies(fact -> {
+                    assertThat(fact.content()).isEqualTo("목표: 실종된 탐험가를 찾는 것이다.");
+                    assertThat(fact.subject()).isEqualTo("goal");
+                    assertThat(fact.establishedTurnId()).isEqualTo(turnId);
+                });
+    }
+
+    @Test
+    void retains_a_durable_goal_that_mentions_a_place_without_recording_the_place_as_current_location() {
+        UUID turnId = UUID.randomUUID();
+        var result = new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of()),
+                new GmFinalValidator()).planWithOutcomes(
+                        request("내 목표는 동굴에서 실종된 탐험가를 찾는 것이다.", turnId));
+
+        assertThat(result.resolutionProposal().runtimeAddedFacts()).singleElement()
+                .satisfies(fact -> {
+                    assertThat(fact.content()).isEqualTo("목표: 동굴에서 실종된 탐험가를 찾는 것이다.");
+                    assertThat(fact.subject()).isEqualTo("goal");
+                    assertThat(fact.establishedTurnId()).isEqualTo(turnId);
+                });
+    }
+
+    @Test
+    void does_not_record_an_ordinary_action_as_a_goal() {
+        RuntimePlanningRequest request = request("문을 열고 안으로 들어간다.", UUID.randomUUID());
+        var result = new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of()),
+                new GmFinalValidator()).planWithOutcomes(request);
+
+        assertThat(result.resolutionProposal().runtimeAddedFacts()).isEmpty();
+    }
+
+    @Test
+    void does_not_turn_a_declared_resource_or_combat_state_into_a_long_term_goal_fact() {
+        RuntimePlanningRequest request = request("내 목표는 HP를 회복하고 전투 위치를 지키는 것이다.", UUID.randomUUID());
+        var result = new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of()),
+                new GmFinalValidator()).planWithOutcomes(request);
+
+        assertThat(result.resolutionProposal().runtimeAddedFacts()).isEmpty();
+    }
+
+    @Test
+    void deduplicates_an_explicit_goal_against_existing_and_model_proposed_facts() {
+        String goal = "목표: 실종된 탐험가를 찾는 것이다.";
+        UUID turnId = UUID.randomUUID();
+        RuntimePlanningRequest request = request("내 목표는 실종된 탐험가를 찾는 것이다.", turnId);
+        RuntimeAddedFactCandidate sameGoal = new RuntimeAddedFactCandidate("goal", goal);
+        var modelProposed = new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of(),
+                        List.of(), null, List.of(sameGoal)), new GmFinalValidator()).planWithOutcomes(request);
+        assertThat(modelProposed.resolutionProposal().runtimeAddedFacts()).singleElement()
+                .satisfies(fact -> assertThat(fact.content()).isEqualTo(goal));
+
+        RuntimePlanningRequest alreadyRecorded = new RuntimePlanningRequest(request.adventureId(), request.ownerPlayerId(),
+                request.sessionId(), turnId, request.scenarioPackageId(), request.bindingVersion(), request.currentContext(),
+                request.activeSourceContext(), request.action(), request.evidencePack(), request.recentTurns(),
+                request.characterSnapshots(), request.scenarioContext(), request.providerEndpointId(), request.provider(),
+                request.model(), request.reasoning(), request.narrativeContext(), request.ruleSetId(), List.of(goal),
+                request.factLookupResults(), request.currentSituation(), request.longTermFacts());
+        var existing = new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of()),
+                new GmFinalValidator()).planWithOutcomes(alreadyRecorded);
+        assertThat(existing.resolutionProposal().runtimeAddedFacts()).isEmpty();
+    }
+
     private static RuntimePlanningRequest request() {
         return new RuntimePlanningRequest(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()),
                 UUID.randomUUID(), 1, new AdventureContext("scene", null, null, null), null,
                 "action", new EvidencePack(List.of(), List.of(), List.of()));
+    }
+
+    private static RuntimePlanningRequest request(String action, UUID turnId) {
+        return new RuntimePlanningRequest(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()),
+                UUID.randomUUID(), turnId, UUID.randomUUID(), 1,
+                new AdventureContext("scene", null, null, null), null, action,
+                new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of(), "", null,
+                "provider", "model", "reasoning", null, null, List.of(), List.of(), "", List.of());
     }
 
     private static RuntimePlan plan(List<String> ignored) {

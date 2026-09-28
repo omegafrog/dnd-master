@@ -50,6 +50,20 @@ class RuntimeGmPromptComposerTest {
         assertTrue(memory.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 400 + "현재 상황 관련 장기 기록\n".getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
         assertTrue(memory.contains("성문 경비가 약속을 이행했다"));
     }
+
+    @Test
+    void does_not_select_a_record_from_a_single_incidental_word_match() {
+        LongTermAdventureFact incidental = new LongTermAdventureFact(AdventureId.generate(), UUID.randomUUID(), UUID.randomUUID(),
+                3, "EVENT", "성문 장식의 금박이 벗겨졌다", true, 1);
+        String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"
+                + "\nLOOKUP_ORDER_RULE=rules\nOUTPUT_CONTRACT=json";
+
+        String prompt = RuntimeGmPromptComposer.compose(legacy, List.of(), List.of(),
+                Map.of("currentSituation", "성문 앞에서 경비에게 협력 약속을 확인한다"), List.of(incidental), 10_000);
+
+        String memory = prompt.substring(prompt.indexOf("현재 상황 관련 장기 기록"), prompt.indexOf("압축된 이전 대화"));
+        assertTrue(!memory.contains("금박이 벗겨졌다"));
+    }
     @Test
     void rejects_essential_material_before_provider_call_when_input_budget_is_exceeded() {
         String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"

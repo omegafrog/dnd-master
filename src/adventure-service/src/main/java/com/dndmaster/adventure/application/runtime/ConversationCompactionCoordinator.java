@@ -57,7 +57,7 @@ public final class ConversationCompactionCoordinator {
                     .collect(java.util.stream.Collectors.joining(" "));
             long summaryVersion = repository.summaries(adventureId).size() + 1;
             List<LongTermAdventureFact> facts = longTermFacts(adventureId, job, actualAdventureVersion, candidate, runtimeFacts);
-            boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), renderedSummary), facts, actualAdventureVersion);
+            boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), renderedSummary), facts, runtimeFacts, actualAdventureVersion);
             if (!published) repository.manualReview(job, "SOURCE_RANGE_OR_VERSION_REJECTED");
             return published;
         } catch (TransientConversationCompactionException error) {
@@ -79,14 +79,28 @@ public final class ConversationCompactionCoordinator {
                 && candidate.longTermFacts().stream().allMatch(fact -> matchesConfirmedFact(fact, runtimeFacts));
     }
     private static boolean matchesConfirmedFact(LongTermFactCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
-        return runtimeFacts.stream().anyMatch(fact -> fact.factId().equals(candidate.factId())
-                && fact.establishedTurnId().equals(candidate.establishedTurnId()));
+        return confirmedFact(candidate, runtimeFacts) != null;
     }
     private static List<LongTermAdventureFact> longTermFacts(AdventureId adventureId, ConversationCompactionJob job,
             long actualAdventureVersion, ConversationCompactionCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
-        return candidate.longTermFacts().stream().map(proposed -> new LongTermAdventureFact(adventureId,
-                proposed.factId(), proposed.establishedTurnId(), actualAdventureVersion, proposed.kind(),
-                proposed.relevance(), proposed.playerVisible(), 1)).toList();
+        return candidate.longTermFacts().stream().map(proposed -> {
+            RuntimeAddedFact confirmed = confirmedFact(proposed, runtimeFacts);
+            // The candidate can point at a fact but cannot choose its classification, wording, or disclosure.
+            // Runtime-added facts are created only from confirmed player-visible turn results.
+            return new LongTermAdventureFact(adventureId, confirmed.factId(), confirmed.establishedTurnId(),
+                    actualAdventureVersion, kindOf(confirmed), confirmed.content(), true, 1);
+        }).toList();
+    }
+    private static RuntimeAddedFact confirmedFact(LongTermFactCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
+        return runtimeFacts.stream().filter(fact -> fact.factId().equals(candidate.factId())
+                && fact.establishedTurnId().equals(candidate.establishedTurnId())).findFirst().orElse(null);
+    }
+    private static String kindOf(RuntimeAddedFact fact) {
+        String text = fact.content().toLowerCase(java.util.Locale.ROOT);
+        if (text.matches(".*(위협|위험|공격|습격|threat|danger|attack).*")) return "THREAT";
+        if (text.matches(".*(목표|찾아|찾기|구해|해야|goal|objective).*")) return "GOAL";
+        if (text.matches(".*(협력|약속|동맹|관계|신뢰|주기로|alliance|promise|relationship|trust).*")) return "RELATIONSHIP";
+        return "EVENT";
     }
     private static boolean validExcerpts(List<ConversationCompactionCandidate.SourceExcerpt> excerpts, List<ConversationEntry> source) {
         if (excerpts == null || excerpts.isEmpty()) return false;
