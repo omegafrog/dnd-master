@@ -13,7 +13,7 @@ test('새 모험 검증은 Linux 자료 경로와 세 가지 자료 역할을 �
 
   expect(() => assertPotentBrewStorybooks(storybooks)).not.toThrow()
   expect(() => assertPotentBrewStorybooks(storybooks.slice(0, 2))).toThrow(/HANDOUT/)
-  expect(() => assertPotentBrewStorybooks(storybooks.map(source => ({ ...source, path: `C:\\assets\\${source.role}.pdf` })))
+  expect(() => assertPotentBrewStorybooks(storybooks.map(source => ({ ...source, path: `C:\\assets\\${source.role}.pdf` }))))
     .toThrow(/Linux docs\/assets path/)
 })
 
