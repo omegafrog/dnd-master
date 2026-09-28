@@ -6,9 +6,50 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import com.dndmaster.adventure.domain.adventure.AdventureId;
 import org.junit.jupiter.api.Test;
 
 class RuntimeGmPromptComposerTest {
+    @Test
+    void includes_only_current_situation_relevant_player_visible_long_term_records() {
+        LongTermAdventureFact relevant = new LongTermAdventureFact(AdventureId.generate(), UUID.randomUUID(), UUID.randomUUID(),
+                3, "RELATIONSHIP", "성문 경비와 맺은 협력 약속", true, 1);
+        LongTermAdventureFact unrelated = new LongTermAdventureFact(AdventureId.generate(), UUID.randomUUID(), UUID.randomUUID(),
+                3, "GOAL", "북쪽 탑의 잃어버린 지도", true, 1);
+        LongTermAdventureFact undisclosed = new LongTermAdventureFact(AdventureId.generate(), UUID.randomUUID(), UUID.randomUUID(),
+                3, "THREAT", "성문 경비의 비밀 배신 계획", false, 1);
+        String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"
+                + "\nLOOKUP_ORDER_RULE=rules\nOUTPUT_CONTRACT=json";
+
+        String prompt = RuntimeGmPromptComposer.compose(legacy, List.of(), List.of("current sheet"),
+                Map.of("currentSituation", "성문 앞에서 경비에게 약속을 이행해 달라고 요청한다"),
+                List.of(relevant, unrelated, undisclosed), 10_000);
+
+        int memory = prompt.indexOf("현재 상황 관련 장기 기록");
+        int summary = prompt.indexOf("압축된 이전 대화");
+        String memoryZone = prompt.substring(memory, summary);
+        assertTrue(memoryZone.contains("성문 경비와 맺은 협력 약속"));
+        assertTrue(!memoryZone.contains("북쪽 탑의 잃어버린 지도"));
+        assertTrue(!memoryZone.contains("성문 경비의 비밀 배신 계획"));
+    }
+
+    @Test
+    void keeps_current_situation_records_within_their_dedicated_input_budget() {
+        LongTermAdventureFact first = new LongTermAdventureFact(AdventureId.generate(), UUID.randomUUID(), UUID.randomUUID(),
+                3, "EVENT", "성문 경비가 약속을 이행했다 ".repeat(6), true, 1);
+        LongTermAdventureFact second = new LongTermAdventureFact(AdventureId.generate(), UUID.randomUUID(), UUID.randomUUID(),
+                3, "EVENT", "성문 경비가 약속을 이행했다 ".repeat(6), true, 2);
+        String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"
+                + "\nLOOKUP_ORDER_RULE=rules\nOUTPUT_CONTRACT=json";
+
+        String prompt = RuntimeGmPromptComposer.compose(legacy, List.of(), List.of(),
+                Map.of("currentSituation", "성문 경비에게 약속을 확인한다"), List.of(first, second), 4_000);
+
+        String memory = prompt.substring(prompt.indexOf("현재 상황 관련 장기 기록"), prompt.indexOf("압축된 이전 대화"));
+        assertTrue(memory.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 400 + "현재 상황 관련 장기 기록\n".getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        assertTrue(memory.contains("성문 경비가 약속을 이행했다"));
+    }
     @Test
     void rejects_essential_material_before_provider_call_when_input_budget_is_exceeded() {
         String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"

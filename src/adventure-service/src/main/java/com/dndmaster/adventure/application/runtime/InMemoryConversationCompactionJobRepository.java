@@ -9,6 +9,7 @@ import java.util.Optional;
 public final class InMemoryConversationCompactionJobRepository implements ConversationCompactionJobRepository {
     final List<ConversationCompactionJob> jobs = new ArrayList<>();
     final List<ConversationSummary> summaries = new ArrayList<>();
+    final List<LongTermAdventureFact> longTermFacts = new ArrayList<>();
     @Override public synchronized ConversationCompactionJob register(ConversationCompactionJob job) {
         return jobs.stream().filter(existing -> existing.idempotencyKey().equals(job.idempotencyKey())).findFirst().orElseGet(() -> { jobs.add(job); return job; });
     }
@@ -26,8 +27,9 @@ public final class InMemoryConversationCompactionJobRepository implements Conver
         return save(leasedJob, leasedJob.manualReview());
     }
     @Override public synchronized long coveredThrough(AdventureId adventureId) { return jobs.stream().filter(job -> job.adventureId().equals(adventureId)).mapToLong(ConversationCompactionJob::sourceEnd).max().orElse(-1); }
-    @Override public synchronized boolean publish(ConversationCompactionJob job, ConversationSummary summary, long actualVersion) { if (!jobs.stream().anyMatch(current -> ownsLease(current, job)) || actualVersion < job.expectedAdventureVersion() || summaries.stream().anyMatch(value -> value.adventureId().equals(summary.adventureId()) && value.sourceStart() == summary.sourceStart() && value.sourceEnd() == summary.sourceEnd())) return false; summaries.add(summary); save(job, job.done()); return true; }
+    @Override public synchronized boolean publish(ConversationCompactionJob job, ConversationSummary summary, List<LongTermAdventureFact> facts, long actualVersion) { if (!jobs.stream().anyMatch(current -> ownsLease(current, job)) || actualVersion < job.expectedAdventureVersion() || summaries.stream().anyMatch(value -> value.adventureId().equals(summary.adventureId()) && value.sourceStart() == summary.sourceStart() && value.sourceEnd() == summary.sourceEnd())) return false; summaries.add(summary); longTermFacts.addAll(facts); save(job, job.done()); return true; }
     @Override public synchronized List<ConversationSummary> summaries(AdventureId adventureId) { return summaries.stream().filter(value -> value.adventureId().equals(adventureId)).toList(); }
+    @Override public synchronized List<LongTermAdventureFact> longTermFacts(AdventureId adventureId) { return longTermFacts.stream().filter(value -> value.adventureId().equals(adventureId)).toList(); }
     @Override public synchronized List<ConversationCompactionJob> ready(Instant now) { return jobs.stream().filter(job -> ((job.status() == ConversationCompactionJob.Status.READY || job.status() == ConversationCompactionJob.Status.RETRY_WAIT) && !job.availableAt().isAfter(now)) || (job.status() == ConversationCompactionJob.Status.LEASED && !job.leaseUntil().isAfter(now))).toList(); }
     private static boolean ownsLease(ConversationCompactionJob current, ConversationCompactionJob claimant) { return current.id().equals(claimant.id()) && current.status() == ConversationCompactionJob.Status.LEASED && current.leaseToken() != null && current.leaseToken().equals(claimant.leaseToken()); }
 }

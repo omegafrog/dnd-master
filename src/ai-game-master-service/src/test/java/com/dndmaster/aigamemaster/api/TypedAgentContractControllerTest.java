@@ -104,6 +104,28 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void conversation_compaction_returns_long_term_record_candidates_only_for_confirmed_runtime_facts() {
+        UUID factId = UUID.randomUUID();
+        UUID establishedTurnId = UUID.randomUUID();
+        AtomicReference<String> prompt = new AtomicReference<>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
+                prompt.set(value);
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":4,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"문\"}],\"longTermFacts\":[{\"factId\":\"" + factId + "\",\"establishedTurnId\":\"" + establishedTurnId + "\",\"kind\":\"RELATIONSHIP\",\"relevance\":\"성문 경비의 협력 약속\",\"playerVisible\":true}]}");
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        var result = controller.conversationCompaction("service-secret",
+                new TypedAgentContractController.ConversationCompactionRequest(SOLO_PLAYER_ID, 4, 4, 9,
+                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 연다")),
+                        List.of(new TypedAgentContractController.RuntimeFactReference(factId, establishedTurnId, "경비가 성문을 열기로 약속했다"))));
+
+        org.junit.jupiter.api.Assertions.assertEquals(factId, result.longTermFacts().getFirst().factId());
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("CONFIRMED_RUNTIME_FACTS"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("longTermFacts"));
+    }
+
+    @Test
     void conversation_compaction_rejects_a_candidate_for_another_source_version() {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {

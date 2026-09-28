@@ -612,7 +612,8 @@ public class RuntimeTurnApplicationService {
                 characterSheets, "SCENARIO_MODEL=" + scenarioPackage.scenarioModel(), providerEndpointId(adventure.sessionId().value()),
                 providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
-                adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults, situation);
+                adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults, situation,
+                longTermFactsForPrompt(adventure));
         String narration = planningPort.planNarration(planningRequest).narration();
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                 narration, evidencePack, adventure.currentContext(), contextCommand.action()));
@@ -676,7 +677,7 @@ public class RuntimeTurnApplicationService {
                 providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
                 adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults,
-                adventure.currentSituation().toString());
+                adventure.currentSituation().toString(), longTermFactsForPrompt(adventure));
         RuntimePlanningResult planningResult = planningPort.planWithOutcomes(planningRequest);
         RuntimePlan plan = planningResult.plan();
         if (!command.gmOnly() && !plan.combatStartRequested()) {
@@ -786,6 +787,11 @@ public class RuntimeTurnApplicationService {
         result.addAll(adventure.conversation().stream().filter(entry -> !coveredByPublishedSummary(entry, published))
                 .map(entry -> entry.speaker() + ": " + entry.content()).toList());
         return List.copyOf(result);
+    }
+
+    private List<LongTermAdventureFact> longTermFactsForPrompt(Adventure adventure) {
+        return conversationCompactionJobRepository == null ? List.of()
+                : conversationCompactionJobRepository.longTermFacts(adventure.id());
     }
 
     static boolean coveredByPublishedSummary(ConversationEntry entry, List<ConversationSummary> summaries) {

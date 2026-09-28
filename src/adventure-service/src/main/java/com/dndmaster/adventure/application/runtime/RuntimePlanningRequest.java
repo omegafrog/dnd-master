@@ -29,7 +29,8 @@ public record RuntimePlanningRequest(
         String reasoning, NarrativeContext narrativeContext, UUID ruleSetId,
         java.util.List<String> runtimeFacts,
         java.util.List<RuntimeFactLookupResult> factLookupResults,
-        String currentSituation) {
+        String currentSituation,
+        java.util.List<LongTermAdventureFact> longTermFacts) {
     public RuntimePlanningRequest {
         adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -55,6 +56,19 @@ public record RuntimePlanningRequest(
             throw new IllegalArgumentException("fact lookup results must not contain null");
         }
         currentSituation = currentSituation == null ? "" : currentSituation.trim();
+        longTermFacts = java.util.List.copyOf(java.util.Objects.requireNonNull(longTermFacts, "long-term facts must not be null"));
+        if (longTermFacts.stream().anyMatch(java.util.Objects::isNull)) throw new IllegalArgumentException("long-term facts must not contain null");
+    }
+
+    public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, java.util.List<String> recentTurns, java.util.List<String> characterSnapshots,
+            String scenarioContext, UUID providerEndpointId, String provider, String model, String reasoning,
+            NarrativeContext narrativeContext, UUID ruleSetId, java.util.List<String> runtimeFacts,
+            java.util.List<RuntimeFactLookupResult> factLookupResults, String currentSituation) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext,
+                action, evidencePack, recentTurns, characterSnapshots, scenarioContext, providerEndpointId, provider, model,
+                reasoning, narrativeContext, ruleSetId, runtimeFacts, factLookupResults, currentSituation, java.util.List.of());
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,

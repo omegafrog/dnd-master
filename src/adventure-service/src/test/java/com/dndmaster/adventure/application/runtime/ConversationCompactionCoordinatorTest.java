@@ -10,9 +10,40 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
 import org.junit.jupiter.api.Test;
 
 class ConversationCompactionCoordinatorTest {
+    @Test
+    void publishes_only_long_term_records_that_reference_a_confirmed_runtime_fact() {
+        var repository = new InMemoryConversationCompactionJobRepository();
+        AdventureId adventureId = AdventureId.generate();
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        UUID factId = UUID.randomUUID(); UUID turnId = UUID.randomUUID();
+        List<ConversationEntry> source = List.of(entry(0, "PLAYER", "경비에게 협력하겠다고 약속한다. ".repeat(20)),
+                entry(1, "AI_GAME_MASTER", "경비는 성문을 열어 주기로 한다. ".repeat(20)));
+        repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
+        var coordinator = new ConversationCompactionCoordinator(repository, (job, entries) ->
+                new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(),
+                        List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "PLAYER", "약속"),
+                                new ConversationCompactionCandidate.SourceExcerpt(1, "AI_GAME_MASTER", "열어")),
+                        List.of(new LongTermFactCandidate(factId, turnId, "RELATIONSHIP", "경비 성문" , true))));
+
+        assertTrue(coordinator.runOnce(adventureId, new UUID(0L, 0L), 7, source,
+                List.of(new RuntimeAddedFact(factId, "경비는 성문을 열어 주기로 했다", turnId, "경비")), now));
+        assertEquals(1, repository.longTermFacts(adventureId).size());
+
+        repository = new InMemoryConversationCompactionJobRepository();
+        repository.register(ConversationCompactionJob.ready(adventureId, 0, 1, 7, now));
+        var rejected = new ConversationCompactionCoordinator(repository, (job, entries) ->
+                new ConversationCompactionCandidate(job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(),
+                        List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "PLAYER", "약속"),
+                                new ConversationCompactionCandidate.SourceExcerpt(1, "AI_GAME_MASTER", "열어")),
+                        List.of(new LongTermFactCandidate(UUID.randomUUID(), turnId, "RELATIONSHIP", "경비 성문", true))));
+        assertFalse(rejected.runOnce(adventureId, new UUID(0L, 0L), 7, source,
+                List.of(new RuntimeAddedFact(factId, "경비는 성문을 열어 주기로 했다", turnId, "경비")), now));
+        assertTrue(repository.longTermFacts(adventureId).isEmpty());
+    }
     @Test
     void registers_once_for_turns_older_than_the_latest_two_completed_gm_turns_and_keeps_originals() {
         var repository = new InMemoryConversationCompactionJobRepository();

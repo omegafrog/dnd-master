@@ -10,8 +10,12 @@ public interface ConversationCompactionJobRepository {
     Optional<ConversationCompactionJob> lease(AdventureId adventureId, Instant now, Instant until);
     boolean save(ConversationCompactionJob leasedJob, ConversationCompactionJob updatedJob);
     boolean manualReview(ConversationCompactionJob leasedJob, String reason);
-    boolean publish(ConversationCompactionJob job, ConversationSummary summary, long actualAdventureVersion);
+    boolean publish(ConversationCompactionJob job, ConversationSummary summary, List<LongTermAdventureFact> facts, long actualAdventureVersion);
+    default boolean publish(ConversationCompactionJob job, ConversationSummary summary, long actualAdventureVersion) {
+        return publish(job, summary, List.of(), actualAdventureVersion);
+    }
     List<ConversationSummary> summaries(AdventureId adventureId);
+    default List<LongTermAdventureFact> longTermFacts(AdventureId adventureId) { return List.of(); }
     default long coveredThrough(AdventureId adventureId) { return summaries(adventureId).stream().mapToLong(ConversationSummary::sourceEnd).max().orElse(-1); }
     /** Ready requests are exposed to the low-priority worker; lease acquisition remains authoritative. */
     default List<ConversationCompactionJob> ready(Instant now) { return List.of(); }

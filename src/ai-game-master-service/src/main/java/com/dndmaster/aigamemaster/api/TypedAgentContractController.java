@@ -160,9 +160,11 @@ public final class TypedAgentContractController {
                 "ROLE=CONVERSATION_COMPACTION\nSOURCE_START=" + request.sourceStart()
                         + "\nSOURCE_END=" + request.sourceEnd() + "\nEXPECTED_ADVENTURE_VERSION=" + request.expectedAdventureVersion()
                         + "\nCONFIRMED_CONVERSATION=" + conversation
+                        + "\nCONFIRMED_RUNTIME_FACTS=" + write(request.runtimeFacts())
                         + "\nTASK=Select concise exact excerpts from the confirmed conversation that preserve character speech, commitments, scene flow, established consequences, unresolved choices, and current goals. Every excerpt text must be copied verbatim as a substring of the content at its sequence. Do not paraphrase, invent facts, or treat HP, resources, location, or combat state as authoritative."
                         + "\nSOURCE_REFERENCE_RULE=Cover every requested sequence at least once, in ascending sequence order. Do not omit or add sequences or text absent from that entry. Keep combined excerpt text at most 80 percent of source content length."
-                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, and excerpts [{sequence,speaker,text}]. speaker must exactly match the supplied entry. Do not use markdown.",
+                        + "\nLONG_TERM_FACT_RULE=longTermFacts is optional. Include only a confirmed Runtime Fact from CONFIRMED_RUNTIME_FACTS that represents an established EVENT, RELATIONSHIP, GOAL, or THREAT with ongoing relevance. Each item must contain factId, establishedTurnId, kind, relevance, and playerVisible. Never create a record for simple dialogue or copy character sheets, HP, resources, location, or combat state."
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, excerpts [{sequence,speaker,text}], and optional longTermFacts [{factId,establishedTurnId,kind,relevance,playerVisible}]. speaker must exactly match the supplied entry. Do not use markdown.",
                 json -> parseConversationCompaction(json, request));
     }
 
@@ -315,7 +317,24 @@ public final class TypedAgentContractController {
         }
         long sourceLength = request.conversation().stream().mapToLong(entry -> entry.content().length()).sum();
         if (!covered.equals(source.keySet()) || excerptLength * 5 > sourceLength * 4) throw new IllegalArgumentException("conversation excerpts must cover all sources and be meaningfully shorter");
-        return new ConversationCompactionResponse(sourceStart, sourceEnd, version, List.copyOf(excerpts));
+        List<LongTermFactCandidate> longTermFacts = new ArrayList<>();
+        JsonNode factNodes = root.path("longTermFacts");
+        if (!factNodes.isMissingNode()) {
+            if (!factNodes.isArray()) throw new IllegalArgumentException("longTermFacts must be an array when provided");
+            for (JsonNode fact : factNodes) {
+                if (!fact.isObject()) throw new IllegalArgumentException("longTermFacts entries must be objects");
+                java.util.UUID factId = java.util.UUID.fromString(required(fact, "factId"));
+                java.util.UUID establishedTurnId = java.util.UUID.fromString(required(fact, "establishedTurnId"));
+                String kind = required(fact, "kind").toUpperCase(java.util.Locale.ROOT);
+                if (!List.of("EVENT", "RELATIONSHIP", "GOAL", "THREAT").contains(kind)) throw new IllegalArgumentException("invalid long-term fact kind");
+                if (!fact.has("playerVisible") || !fact.path("playerVisible").isBoolean()) throw new IllegalArgumentException("long-term fact playerVisible is required");
+                boolean confirmed = request.runtimeFacts().stream().anyMatch(runtimeFact -> runtimeFact.factId().equals(factId)
+                        && runtimeFact.establishedTurnId().equals(establishedTurnId));
+                if (!confirmed) throw new IllegalArgumentException("long-term fact must reference a confirmed runtime fact");
+                longTermFacts.add(new LongTermFactCandidate(factId, establishedTurnId, kind, required(fact, "relevance"), fact.path("playerVisible").booleanValue()));
+            }
+        }
+        return new ConversationCompactionResponse(sourceStart, sourceEnd, version, List.copyOf(excerpts), List.copyOf(longTermFacts));
     }
 
     private JsonNode readObject(String json) {
@@ -385,15 +404,17 @@ public final class TypedAgentContractController {
     }
 
     public record ConversationCompactionRequest(java.util.UUID soloPlayerId, long sourceStart, long sourceEnd, long expectedAdventureVersion,
-                                                 List<ConversationEntry> conversation) {
+                                                 List<ConversationEntry> conversation, List<RuntimeFactReference> runtimeFacts) {
         public ConversationCompactionRequest(long sourceStart, long sourceEnd, long expectedAdventureVersion,
                 List<ConversationEntry> conversation) {
-            this(new java.util.UUID(0L, 0L), sourceStart, sourceEnd, expectedAdventureVersion, conversation);
+            this(new java.util.UUID(0L, 0L), sourceStart, sourceEnd, expectedAdventureVersion, conversation, List.of());
         }
+        public ConversationCompactionRequest(java.util.UUID soloPlayerId, long sourceStart, long sourceEnd, long expectedAdventureVersion, List<ConversationEntry> conversation) { this(soloPlayerId, sourceStart, sourceEnd, expectedAdventureVersion, conversation, List.of()); }
         public ConversationCompactionRequest {
             soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             if (sourceStart < 0 || sourceEnd < sourceStart || expectedAdventureVersion < 0) throw new IllegalArgumentException("invalid conversation range");
             conversation = List.copyOf(Objects.requireNonNull(conversation, "conversation is required"));
+            runtimeFacts = List.copyOf(Objects.requireNonNull(runtimeFacts, "runtime facts are required"));
             if (conversation.isEmpty()) throw new IllegalArgumentException("conversation is required");
             long expectedCount = sourceEnd - sourceStart + 1;
             if (expectedCount <= 0 || conversation.size() != expectedCount) throw new IllegalArgumentException("conversation must cover the requested range");
@@ -402,6 +423,10 @@ public final class TypedAgentContractController {
             }
         }
     }
+    public record RuntimeFactReference(java.util.UUID factId, java.util.UUID establishedTurnId, String content, String subject) {
+        public RuntimeFactReference(java.util.UUID factId, java.util.UUID establishedTurnId, String content) { this(factId, establishedTurnId, content, ""); }
+        public RuntimeFactReference { factId = Objects.requireNonNull(factId, "runtime fact id is required"); establishedTurnId = Objects.requireNonNull(establishedTurnId, "runtime fact turn is required"); content = required(content, "runtime fact content"); subject = subject == null ? "" : subject.trim(); }
+    }
     public record ConversationEntry(long sequence, String speaker, String content) {
         public ConversationEntry { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); speaker = required(speaker, "speaker"); content = required(content, "content"); }
     }
@@ -409,9 +434,11 @@ public final class TypedAgentContractController {
         public SourceExcerpt(long sequence, String text) { this(sequence, "UNKNOWN", text); }
         public SourceExcerpt { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); speaker = required(speaker, "speaker"); text = required(text, "text"); }
     }
+    public record LongTermFactCandidate(java.util.UUID factId, java.util.UUID establishedTurnId, String kind, String relevance, boolean playerVisible) { }
     public record ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion,
-                                                 List<SourceExcerpt> excerpts) {
-        public ConversationCompactionResponse { excerpts = List.copyOf(excerpts); }
+                                                 List<SourceExcerpt> excerpts, List<LongTermFactCandidate> longTermFacts) {
+        public ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion, List<SourceExcerpt> excerpts) { this(sourceStart, sourceEnd, expectedAdventureVersion, excerpts, List.of()); }
+        public ConversationCompactionResponse { excerpts = List.copyOf(excerpts); longTermFacts = List.copyOf(longTermFacts); }
     }
 
     public record RuntimeEndpointRequest(java.util.UUID endpointId, String provider, String model, String reasoning) { }

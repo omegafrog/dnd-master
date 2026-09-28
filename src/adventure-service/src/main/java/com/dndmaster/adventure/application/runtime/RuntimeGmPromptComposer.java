@@ -62,7 +62,7 @@ public final class RuntimeGmPromptComposer {
                         + "SCENARIO requires a scenarioId from the current ScenarioModel. SITUATION leaves scenarioId empty and requires matching storybook RAG evidence for the current situation. INSTANT leaves scenarioId empty and is reserved for a GM-forced consequence such as noise or a critical failure. "
                         + "Use [] when combatStart is false. Never invent an enemy from the action alone. "
                         + "Do not use markdown, code fences, or any other text.";
-        return compose(existing, envelope.recentTurns(), envelope.characterSnapshots(), runtimeContext, contextLimit);
+        return compose(existing, envelope.recentTurns(), envelope.characterSnapshots(), runtimeContext, envelope.longTermFacts(), contextLimit);
     }
 
     private static String write(Object value) {
@@ -79,6 +79,12 @@ public final class RuntimeGmPromptComposer {
 
     public static String compose(String existingPrompt, List<String> recentTurns,
             List<String> characterSheets, Map<String, Object> runtimeContext, int contextLimit) {
+        return compose(existingPrompt, recentTurns, characterSheets, runtimeContext, List.of(), contextLimit);
+    }
+
+    public static String compose(String existingPrompt, List<String> recentTurns,
+            List<String> characterSheets, Map<String, Object> runtimeContext,
+            List<LongTermAdventureFact> longTermFacts, int contextLimit) {
         int rules = existingPrompt.indexOf(RULE_MARKER);
         if (rules < 0) throw new IllegalArgumentException("runtime GM rules are missing");
         int action = existingPrompt.indexOf("\nACTION=");
@@ -102,7 +108,9 @@ public final class RuntimeGmPromptComposer {
         }
         String lockedScenario = String.valueOf(runtimeContext.getOrDefault("scenarioContext", ""));
         String fixedZone = "고정 지침·잠긴 자료\n" + fixed + "\nLOCKED_SCENARIO_MODEL=" + lockedScenario;
-        String memoryZone = "\n\n현재 상황 관련 장기 기록\n";
+        String memoryZone = "\n\n현재 상황 관련 장기 기록\n" + selectedLongTermFacts(longTermFacts,
+                String.valueOf(runtimeContext.getOrDefault("currentSituation", "")),
+                RuntimeGmInputBudget.inputLimit(contextLimit) * 10 / 100);
         String summaryZone = "\n\n압축된 이전 대화\n";
         String recentHeading = "\n\n압축하지 않은 최근 대화\n";
         String currentZone = "\n\n최신 캐릭터 시트·Current Situation·이번 턴 근거·플레이어 입력\n"
@@ -115,5 +123,34 @@ public final class RuntimeGmPromptComposer {
             throw new RuntimeGmInputBudget.InputTooLargeException();
         }
         return prompt;
+    }
+
+    private static String selectedLongTermFacts(List<LongTermAdventureFact> facts, String currentSituation, int byteLimit) {
+        String situation = currentSituation == null ? "" : currentSituation;
+        java.util.List<LongTermAdventureFact> candidates = facts.stream()
+                .filter(LongTermAdventureFact::playerVisible)
+                .filter(fact -> isRelevant(fact.relevance(), situation))
+                .sorted(java.util.Comparator.comparingLong(LongTermAdventureFact::version)
+                        .thenComparing(LongTermAdventureFact::factId))
+                .toList();
+        java.util.List<String> selected = new java.util.ArrayList<>();
+        int used = 0;
+        for (LongTermAdventureFact fact : candidates) {
+            String rendered = fact.kind() + ": " + fact.relevance();
+            int size = rendered.getBytes(java.nio.charset.StandardCharsets.UTF_8).length + (selected.isEmpty() ? 0 : 1);
+            if (used + size > byteLimit) continue;
+            selected.add(rendered);
+            used += size;
+        }
+        if (!candidates.isEmpty() && selected.isEmpty()) throw new RuntimeGmInputBudget.InputTooLargeException();
+        return String.join("\n", selected);
+    }
+
+    private static boolean isRelevant(String relevance, String currentSituation) {
+        if (currentSituation.isBlank()) return false;
+        String normalizedSituation = currentSituation.replaceAll("[^\\p{IsAlphabetic}\\p{IsDigit}]", " ");
+        return java.util.Arrays.stream(relevance.replaceAll("[^\\p{IsAlphabetic}\\p{IsDigit}]", " ").split(" +"))
+                .filter(token -> token.length() > 1)
+                .anyMatch(normalizedSituation::contains);
     }
 }

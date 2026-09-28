@@ -3,6 +3,7 @@ package com.dndmaster.adventure.infrastructure.integration;
 import com.dndmaster.adventure.application.runtime.ConversationCompactionCandidate;
 import com.dndmaster.adventure.application.runtime.ConversationCompactionCandidatePort;
 import com.dndmaster.adventure.application.runtime.ConversationCompactionJob;
+import com.dndmaster.adventure.application.runtime.LongTermFactCandidate;
 import com.dndmaster.adventure.application.runtime.TransientConversationCompactionException;
 import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,6 +15,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
 
 /** Internal HTTP client for a proposed summary. The remote service cannot persist it. */
 public final class HttpConversationCompactionCandidatePort implements ConversationCompactionCandidatePort {
@@ -27,8 +29,11 @@ public final class HttpConversationCompactionCandidatePort implements Conversati
         return create(new UUID(0L, 0L), job, source);
     }
     @Override public ConversationCompactionCandidate create(UUID ownerPlayerId, ConversationCompactionJob job, List<ConversationEntry> source) {
+        return create(ownerPlayerId, job, source, List.of());
+    }
+    @Override public ConversationCompactionCandidate create(UUID ownerPlayerId, ConversationCompactionJob job, List<ConversationEntry> source, List<RuntimeAddedFact> facts) {
         try {
-            String json=mapper.writeValueAsString(new Request(ownerPlayerId, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), source));
+            String json=mapper.writeValueAsString(new Request(ownerPlayerId, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), source, facts));
             HttpRequest request=HttpRequest.newBuilder(baseUri.resolve("/internal/gm/conversation-compaction"))
                     .timeout(timeout).header("Content-Type","application/json").header("X-Internal-Token",token)
                     .POST(HttpRequest.BodyPublishers.ofString(json)).build();
@@ -37,12 +42,12 @@ public final class HttpConversationCompactionCandidatePort implements Conversati
             if (response.statusCode() / 100 != 2) throw new IllegalStateException("AI Game Master rejected compaction request");
             Response result=mapper.readValue(response.body(),Response.class);
             return new ConversationCompactionCandidate(result.sourceStart(), result.sourceEnd(), result.expectedAdventureVersion(),
-                    result.excerpts());
+                    result.excerpts(), result.longTermFacts() == null ? List.of() : result.longTermFacts());
         } catch (TransientConversationCompactionException e) { throw e;
         } catch (java.io.IOException e) { throw new TransientConversationCompactionException("AI Game Master is temporarily unavailable",e);
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new TransientConversationCompactionException("AI Game Master request interrupted",e);
         } catch (Exception e) { throw new IllegalStateException("invalid conversation compaction response",e); }
     }
-    record Request(UUID soloPlayerId,long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationEntry> conversation) { }
-    record Response(long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationCompactionCandidate.SourceExcerpt> excerpts) { }
+    record Request(UUID soloPlayerId,long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationEntry> conversation, List<RuntimeAddedFact> runtimeFacts) { }
+    record Response(long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationCompactionCandidate.SourceExcerpt> excerpts, List<LongTermFactCandidate> longTermFacts) { }
 }
