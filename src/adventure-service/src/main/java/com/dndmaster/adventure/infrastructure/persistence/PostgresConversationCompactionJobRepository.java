@@ -79,6 +79,7 @@ public final class PostgresConversationCompactionJobRepository implements Conver
                     try (ResultSet rows = existing.executeQuery()) { if (rows.next()) { if (!managed) connection.commit(); return false; } }
                 }
                 if (confirmedRuntimeFacts != null) reconcileLongTermFacts(connection, summary.adventureId(), confirmedRuntimeFacts);
+                for (LongTermAdventureFact fact : facts) archiveLongTermFact(connection, fact.adventureId(), fact.factId());
                 try (PreparedStatement complete = connection.prepareStatement("UPDATE adventure_conversation_compaction_job SET status='DONE', lease_until=NULL, lease_token=NULL WHERE job_id=? AND status='LEASED' AND lease_token=?")) {
                     complete.setObject(1, job.id()); complete.setObject(2, job.leaseToken()); if (complete.executeUpdate() != 1) { if (!managed) connection.commit(); return false; }
                 }
@@ -110,9 +111,15 @@ public final class PostgresConversationCompactionJobRepository implements Conver
             } }
         }
         if (stale.isEmpty()) return;
+        for (java.util.UUID factId : stale) archiveLongTermFact(connection, adventureId, factId);
         try (PreparedStatement delete = connection.prepareStatement("DELETE FROM adventure_long_term_fact WHERE adventure_id=? AND fact_id=?")) {
             for (java.util.UUID factId : stale) { delete.setObject(1, adventureId.value()); delete.setObject(2, factId); delete.addBatch(); }
             delete.executeBatch();
+        }
+    }
+    private static void archiveLongTermFact(Connection connection, AdventureId adventureId, java.util.UUID factId) throws SQLException {
+        try (PreparedStatement archive = connection.prepareStatement("INSERT INTO adventure_long_term_fact_history(adventure_id, fact_id, established_turn_id, source_adventure_version, fact_kind, relevance, player_visible, fact_version) SELECT adventure_id, fact_id, established_turn_id, source_adventure_version, fact_kind, relevance, player_visible, fact_version FROM adventure_long_term_fact WHERE adventure_id=? AND fact_id=? ON CONFLICT (adventure_id, fact_id, fact_version) DO NOTHING")) {
+            archive.setObject(1, adventureId.value()); archive.setObject(2, factId); archive.executeUpdate();
         }
     }
     @Override public List<ConversationSummary> summaries(AdventureId adventureId) {
@@ -128,6 +135,15 @@ public final class PostgresConversationCompactionJobRepository implements Conver
                     rows.getString(5), rows.getBoolean(6), rows.getLong(7))); }
             return List.copyOf(result);
         } catch (SQLException error) { throw new AdventurePersistenceException("could not load long-term adventure facts", error); }
+    }
+    @Override public List<LongTermAdventureFact> longTermFactHistory(AdventureId adventureId) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("SELECT fact_id, established_turn_id, source_adventure_version, fact_kind, relevance, player_visible, fact_version FROM adventure_long_term_fact_history WHERE adventure_id=? ORDER BY fact_id, fact_version")) {
+            statement.setObject(1, adventureId.value()); List<LongTermAdventureFact> result = new ArrayList<>();
+            try (ResultSet rows = statement.executeQuery()) { while (rows.next()) result.add(new LongTermAdventureFact(adventureId,
+                    rows.getObject(1, java.util.UUID.class), rows.getObject(2, java.util.UUID.class), rows.getLong(3), rows.getString(4),
+                    rows.getString(5), rows.getBoolean(6), rows.getLong(7))); }
+            return List.copyOf(result);
+        } catch (SQLException error) { throw new AdventurePersistenceException("could not load long-term fact history", error); }
     }
     @Override public long coveredThrough(AdventureId adventureId) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("SELECT COALESCE(MAX(source_end), -1) FROM adventure_conversation_compaction_job WHERE adventure_id=?")) {

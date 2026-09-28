@@ -129,7 +129,7 @@ public final class RuntimeGmPromptComposer {
         String situation = currentSituation == null ? "" : currentSituation;
         java.util.List<LongTermAdventureFact> candidates = facts.stream()
                 .filter(LongTermAdventureFact::playerVisible)
-                .filter(fact -> isRelevant(fact.relevance(), situation))
+                .filter(fact -> isRelevant(fact, situation))
                 .sorted(java.util.Comparator.comparingLong(LongTermAdventureFact::version)
                         .thenComparing(LongTermAdventureFact::factId))
                 .toList();
@@ -146,12 +146,12 @@ public final class RuntimeGmPromptComposer {
         return String.join("\n", selected);
     }
 
-    private static boolean isRelevant(String relevance, String currentSituation) {
+    private static boolean isRelevant(LongTermAdventureFact fact, String currentSituation) {
         if (currentSituation.isBlank()) return false;
         java.util.Set<String> situationTerms = meaningfulTerms(currentSituation);
-        java.util.Set<String> recordTerms = meaningfulTerms(relevance);
+        java.util.Set<String> recordTerms = meaningfulTerms(fact.relevance());
         recordTerms.retainAll(situationTerms);
-        return recordTerms.size() >= 2;
+        return !recordTerms.isEmpty();
     }
 
     private static java.util.Set<String> meaningfulTerms(String text) {

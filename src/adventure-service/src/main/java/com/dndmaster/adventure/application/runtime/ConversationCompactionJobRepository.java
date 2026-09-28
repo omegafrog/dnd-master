@@ -12,6 +12,8 @@ public interface ConversationCompactionJobRepository {
     boolean save(ConversationCompactionJob leasedJob, ConversationCompactionJob updatedJob);
     boolean manualReview(ConversationCompactionJob leasedJob, String reason);
     boolean publish(ConversationCompactionJob job, ConversationSummary summary, List<LongTermAdventureFact> facts, long actualAdventureVersion);
+    /** Returns superseded fact versions retained for audit and provenance checks. */
+    default List<LongTermAdventureFact> longTermFactHistory(AdventureId adventureId) { return List.of(); }
     /** Publishes lookup records only while their confirmed Runtime sources still exist. */
     default boolean publish(ConversationCompactionJob job, ConversationSummary summary, List<LongTermAdventureFact> facts,
             List<RuntimeAddedFact> confirmedRuntimeFacts, long actualAdventureVersion) {

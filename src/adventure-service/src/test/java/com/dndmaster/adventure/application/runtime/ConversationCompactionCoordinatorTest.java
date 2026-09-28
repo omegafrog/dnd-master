@@ -90,6 +90,7 @@ class ConversationCompactionCoordinatorTest {
                 List.of(new RuntimeAddedFact(secondId, "경비는 새 약속을 수락한다", turnId, "경비")), now));
 
         assertEquals(List.of(secondId), repository.longTermFacts(adventureId).stream().map(LongTermAdventureFact::factId).toList());
+        assertEquals(List.of(firstId), repository.longTermFactHistory(adventureId).stream().map(LongTermAdventureFact::factId).toList());
     }
 
     @Test
@@ -109,6 +110,8 @@ class ConversationCompactionCoordinatorTest {
 
         assertEquals(1, repository.longTermFacts(adventureId).size());
         assertEquals(2, repository.longTermFacts(adventureId).getFirst().version());
+        assertEquals(1, repository.longTermFactHistory(adventureId).size());
+        assertEquals(1, repository.longTermFactHistory(adventureId).getFirst().version());
     }
 
     private static ConversationCompactionCandidatePort candidateFor(UUID factId, UUID turnId) {
