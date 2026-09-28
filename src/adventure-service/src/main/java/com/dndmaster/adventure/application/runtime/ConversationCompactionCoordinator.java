@@ -54,8 +54,7 @@ public final class ConversationCompactionCoordinator {
                 repository.manualReview(job, candidateFailure);
                 return false;
             }
-            String renderedSummary = candidate.excerpts().stream().map(excerpt -> excerpt.speaker() + ": " + excerpt.text())
-                    .collect(java.util.stream.Collectors.joining(" "));
+            String renderedSummary = candidate.summary().trim();
             long summaryVersion = repository.summaries(adventureId).size() + 1;
             List<LongTermAdventureFact> facts = longTermFacts(adventureId, job, actualAdventureVersion, candidate, runtimeFacts);
             boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), renderedSummary), facts, runtimeFacts, actualAdventureVersion);
@@ -78,7 +77,10 @@ public final class ConversationCompactionCoordinator {
                                    ConversationCompactionCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
         if (candidate.sourceStart() != job.sourceStart() || candidate.sourceEnd() != job.sourceEnd()
                 || candidate.expectedAdventureVersion() != job.expectedAdventureVersion()) return "CANDIDATE_SOURCE_OR_VERSION_MISMATCH";
-        if (!validExcerpts(candidate.excerpts(), source)) return "CANDIDATE_SOURCE_EXCERPTS_INVALID";
+        if (candidate.summary() == null || candidate.summary().isBlank()) return "CANDIDATE_SUMMARY_EMPTY";
+        long summaryLength = candidate.summary().trim().length();
+        long sourceLength = source.stream().mapToLong(entry -> entry.content().length()).sum();
+        if (summaryLength * 5 > sourceLength * 4) return "CANDIDATE_SUMMARY_TOO_LONG";
         if (candidate.longTermFacts().stream().anyMatch(fact -> !matchesConfirmedFact(fact, runtimeFacts)))
             return "CANDIDATE_FACT_REFERENCE_MISMATCH";
         return null;
@@ -106,25 +108,6 @@ public final class ConversationCompactionCoordinator {
         if (text.matches(".*(목표|찾아|찾기|구해|해야|goal|objective).*")) return "GOAL";
         if (text.matches(".*(협력|약속|동맹|관계|신뢰|주기로|alliance|promise|relationship|trust).*")) return "RELATIONSHIP";
         return "EVENT";
-    }
-    private static boolean validExcerpts(List<ConversationCompactionCandidate.SourceExcerpt> excerpts, List<ConversationEntry> source) {
-        if (excerpts == null || excerpts.isEmpty()) return false;
-        java.util.Map<Long, ConversationEntry> entries = source.stream().collect(java.util.stream.Collectors.toMap(ConversationEntry::sequence, entry -> entry));
-        long previousSequence = -1;
-        java.util.Set<Long> covered = new java.util.HashSet<>();
-        long renderedLength = 0;
-        long excerptCount = 0;
-        for (ConversationCompactionCandidate.SourceExcerpt excerpt : excerpts) {
-            if (excerpt == null || excerpt.sequence() <= previousSequence) return false;
-            ConversationEntry entry = entries.get(excerpt.sequence());
-            if (entry == null || !entry.speaker().equals(excerpt.speaker()) || excerpt.text() == null || excerpt.text().isBlank()) return false;
-            previousSequence = excerpt.sequence();
-            covered.add(excerpt.sequence());
-            renderedLength += excerpt.speaker().length() + 2L + excerpt.text().length();
-            excerptCount++;
-        }
-        long inputLength = source.stream().mapToLong(entry -> entry.content().length()).sum();
-        return covered.equals(entries.keySet()) && (renderedLength + Math.max(0, excerptCount - 1)) * 5 <= inputLength * 4;
     }
     /** A contiguous AI Game Master response is one completed turn; a player entry starts the next turn. */
     static List<Long> completedTurnEnds(List<ConversationEntry> conversation) {

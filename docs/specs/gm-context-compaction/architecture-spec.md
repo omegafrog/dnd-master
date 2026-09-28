@@ -378,10 +378,10 @@ Adventure Runtime의 기존 서사 상태에는 관계, 진행 중 이야기, �
 | Caller | Adventure Runtime 작업자 |
 | Implementer | AI Game Master |
 | Input | 원문 범위, 선택 기록, 정본 기준 버전, 공개 범위 |
-| Output | 원문 순서별 `{sequence, speaker, text}` 생성 요약 목록을 포함하는 저장 권한 없는 후보. `text`는 해당 원문 항목의 의미를 보존해 다시 쓸 수 있다. |
+| Output | 확인된 원문 범위 전체를 간결하게 요약한 하나의 `summary`와 선택적 장기 기록 변경 후보를 포함하는 저장 권한 없는 후보. 후보의 범위와 정본 버전은 서버가 요청한 값에 결속한다. |
 | Preconditions | 출처 턴 확정 |
 
-후보의 각 `text`는 해당 확정 대화 항목의 의미를 보존하는 간결한 생성 요약이며, 원문 문장을 그대로 포함할 필요는 없다. 새 사실을 덧붙이거나 의미를 바꾸지 않도록 AI Game Master에 지시한다. 각 요청 원문 순서는 정확히 한 번씩 오름차순으로 나타나야 하고, `speaker`는 해당 항목의 화자와 일치해야 한다. 후보의 `sourceStart`, `sourceEnd`, `expectedAdventureVersion`은 요청과 같아야 한다. AI Game Master와 Adventure Runtime은 순서·화자·누락·추가·범위·버전 오류를 거부한다. Adventure Runtime은 출처 순서와 화자가 검증된 `speaker: text` 항목을 이어 저장하며, 이어진 문자열 길이가 원문 본문 전체 길이의 80%를 넘으면 후보를 거부한다.
+요약은 확인된 범위 전체를 하나의 짧은 자연어 문장 또는 문단으로 표현하며, 여러 원문 항목을 함께 묶어도 된다. 원문 문장, 화자 또는 순서 표식을 그대로 출력할 필요는 없다. AI Game Master에는 의미를 보존하고 새 사실을 덧붙이지 않도록 지시한다. 작업자는 제공자 호출 전에 원문 범위가 연속적이고 확인된 대화 항목으로 채워졌는지 검사한다. 응답의 `sourceStart`, `sourceEnd`, `expectedAdventureVersion`은 요청과 정확히 일치해야 한다. Adventure Runtime은 요약 후보를 그 서버 확인 범위와 요청 정본 버전에 결속해 게시하고, 빈 요약 또는 원문 본문 전체 길이의 80%를 넘는 요약을 거부한다. 장기 기록 후보의 사실 ID와 확정 턴 ID는 서버에 전달된 플레이어 공개 확정 사실과 일치해야 한다.
 | Postconditions | 제안만 반환 |
 | Errors | 일시 제공자 오류 또는 형식 오류 |
 | Side Effects | 모델 실행 비용 |

@@ -4,15 +4,26 @@ import java.util.List;
 import java.util.Objects;
 
 public record ConversationCompactionCandidate(long sourceStart, long sourceEnd, long expectedAdventureVersion,
-                                              List<SourceExcerpt> excerpts, List<LongTermFactCandidate> longTermFacts) {
+                                              String summary, List<LongTermFactCandidate> longTermFacts) {
     public ConversationCompactionCandidate {
         if (sourceStart < 0 || sourceEnd < sourceStart || expectedAdventureVersion < 0) throw new IllegalArgumentException("invalid compaction candidate");
-        excerpts = List.copyOf(Objects.requireNonNull(excerpts, "source excerpts are required"));
+        summary = Objects.requireNonNull(summary, "summary is required");
         longTermFacts = List.copyOf(Objects.requireNonNull(longTermFacts, "long-term facts are required"));
+    }
+    public ConversationCompactionCandidate(long sourceStart, long sourceEnd, long expectedAdventureVersion, String summary) {
+        this(sourceStart, sourceEnd, expectedAdventureVersion, summary, List.of());
     }
     public ConversationCompactionCandidate(long sourceStart, long sourceEnd, long expectedAdventureVersion,
                                            List<SourceExcerpt> excerpts) {
-        this(sourceStart, sourceEnd, expectedAdventureVersion, excerpts, List.of());
+        this(sourceStart, sourceEnd, expectedAdventureVersion, renderLegacy(excerpts), List.of());
+    }
+    public ConversationCompactionCandidate(long sourceStart, long sourceEnd, long expectedAdventureVersion,
+                                           List<SourceExcerpt> excerpts, List<LongTermFactCandidate> facts) {
+        this(sourceStart, sourceEnd, expectedAdventureVersion, renderLegacy(excerpts), facts);
+    }
+    private static String renderLegacy(List<SourceExcerpt> excerpts) {
+        return Objects.requireNonNull(excerpts, "source excerpts are required").stream()
+                .map(excerpt -> excerpt.speaker() + ": " + excerpt.text()).collect(java.util.stream.Collectors.joining(" "));
     }
 
     public record SourceExcerpt(long sequence, String speaker, String text) {

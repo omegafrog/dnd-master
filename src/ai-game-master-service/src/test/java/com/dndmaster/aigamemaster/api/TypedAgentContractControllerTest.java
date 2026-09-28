@@ -66,17 +66,17 @@ class TypedAgentContractControllerTest {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
                 prompt.set(value);
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"문\"},{\"sequence\":5,\"speaker\":\"AI_GAME_MASTER\",\"text\":\"문\"},{\"sequence\":6,\"speaker\":\"PLAYER\",\"text\":\"안\"},{\"sequence\":7,\"speaker\":\"AI_GAME_MASTER\",\"text\":\"복\"}]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":9,\"summary\":\"문을 열고 안으로 들어가 복도를 살핀다\"}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
         var result = controller.conversationCompaction("service-secret",
                 new TypedAgentContractController.ConversationCompactionRequest(4, 7, 9,
-                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 연다"),
-                                new TypedAgentContractController.ConversationEntry(5, "AI_GAME_MASTER", "문이 열린다"),
-                                new TypedAgentContractController.ConversationEntry(6, "PLAYER", "안으로 간다"),
-                                new TypedAgentContractController.ConversationEntry(7, "AI_GAME_MASTER", "복도를 본다"))));
-        org.junit.jupiter.api.Assertions.assertEquals(List.of(4L, 5L, 6L, 7L), result.excerpts().stream().map(TypedAgentContractController.SourceExcerpt::sequence).toList());
+                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 열고 주변의 낡은 흔적과 안전한 길을 천천히 살핀다"),
+                                new TypedAgentContractController.ConversationEntry(5, "AI_GAME_MASTER", "무거운 문이 열리며 안쪽에서 찬바람이 불어오고 낮은 소리가 들린다"),
+                                new TypedAgentContractController.ConversationEntry(6, "PLAYER", "복도 안으로 조심스럽게 들어가 벽과 바닥에 이상한 흔적이 있는지 살핀다"),
+                                new TypedAgentContractController.ConversationEntry(7, "AI_GAME_MASTER", "복도 끝에 닫힌 문이 있고 그 앞에 오래된 발자국이 여러 개 남아 있다"))));
+        org.junit.jupiter.api.Assertions.assertEquals("문을 열고 안으로 들어가 복도를 살핀다", result.summary());
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("SOURCE_START=4"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("EXPECTED_ADVENTURE_VERSION=9"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("character speech"));
@@ -93,13 +93,13 @@ class TypedAgentContractControllerTest {
             @Override public <T> T complete(UUID soloPlayerId, String operation, String prompt,
                     StructuredResponseParser<T> parser) {
                 owner.set(soloPlayerId);
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":4,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"문\"}]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":4,\"expectedAdventureVersion\":9,\"summary\":\"플레이어가 문을 연다\"}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
         controller.conversationCompaction("service-secret",
                 new TypedAgentContractController.ConversationCompactionRequest(SOLO_PLAYER_ID, 4, 4, 9,
-                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 연다"))));
+                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 열고 주변을 천천히 살펴 안전한 길을 찾는다"))));
         org.junit.jupiter.api.Assertions.assertEquals(SOLO_PLAYER_ID, owner.get());
     }
 
@@ -111,13 +111,13 @@ class TypedAgentContractControllerTest {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
                 prompt.set(value);
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":4,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"문\"}],\"longTermFacts\":[{\"factId\":\"" + factId + "\",\"establishedTurnId\":\"" + establishedTurnId + "\",\"kind\":\"RELATIONSHIP\",\"relevance\":\"성문 경비의 협력 약속\",\"playerVisible\":true}]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":4,\"expectedAdventureVersion\":9,\"summary\":\"플레이어가 문을 연다\",\"longTermFacts\":[{\"factId\":\"" + factId + "\",\"establishedTurnId\":\"" + establishedTurnId + "\",\"kind\":\"RELATIONSHIP\",\"relevance\":\"성문 경비의 협력 약속\",\"playerVisible\":true}]}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
         var result = controller.conversationCompaction("service-secret",
                 new TypedAgentContractController.ConversationCompactionRequest(SOLO_PLAYER_ID, 4, 4, 9,
-                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 연다")),
+                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 열고 주변을 천천히 살펴 경비와 대화한다")),
                         List.of(new TypedAgentContractController.RuntimeFactReference(factId, establishedTurnId, "경비가 성문을 열기로 약속했다"))));
 
         org.junit.jupiter.api.Assertions.assertEquals(factId, result.longTermFacts().getFirst().factId());
@@ -130,7 +130,7 @@ class TypedAgentContractControllerTest {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
                 return parser.parse("{\"sourceStart\":4,\"sourceEnd\":4,\"expectedAdventureVersion\":9,"
-                        + "\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"문\"}],"
+                        + "\"summary\":\"문을 열고 경비를 만난다\","
                         + "\"longTermFacts\":[{\"factId\":\"not-a-uuid\",\"establishedTurnId\":\"also-not-a-uuid\","
                         + "\"kind\":\"GOAL\",\"relevance\":\"오래된 제안\",\"playerVisible\":true},"
                         + "{\"factId\":\"00000000-0000-0000-0000-000000000399\","
@@ -142,10 +142,9 @@ class TypedAgentContractControllerTest {
 
         var result = controller.conversationCompaction("service-secret",
                 new TypedAgentContractController.ConversationCompactionRequest(SOLO_PLAYER_ID, 4, 4, 9,
-                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 연다")), List.of()));
+                        List.of(new TypedAgentContractController.ConversationEntry(4, "PLAYER", "문을 열고 주변을 천천히 살펴 경비와 대화한다")), List.of()));
 
-        org.junit.jupiter.api.Assertions.assertEquals(List.of(4L), result.excerpts().stream()
-                .map(TypedAgentContractController.SourceExcerpt::sequence).toList());
+        org.junit.jupiter.api.Assertions.assertEquals("문을 열고 경비를 만난다", result.summary());
         org.junit.jupiter.api.Assertions.assertTrue(result.longTermFacts().isEmpty());
     }
 
@@ -153,7 +152,7 @@ class TypedAgentContractControllerTest {
     void conversation_compaction_rejects_a_candidate_for_another_source_version() {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":10,\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"문\"},{\"sequence\":5,\"speaker\":\"AI_GAME_MASTER\",\"text\":\"문\"},{\"sequence\":6,\"speaker\":\"PLAYER\",\"text\":\"안\"},{\"sequence\":7,\"speaker\":\"AI_GAME_MASTER\",\"text\":\"복\"}]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":7,\"expectedAdventureVersion\":10,\"summary\":\"플레이어가 복도에 들어간다\"}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -169,7 +168,7 @@ class TypedAgentContractControllerTest {
     void conversation_compaction_rejects_missing_or_incomplete_source_references() {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":5,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"text\":\"문\"}]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":5,\"expectedAdventureVersion\":9,\"summary\":\"\"}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -182,10 +181,10 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
-    void conversation_compaction_accepts_mean_preserving_generated_summary_text_with_exact_provenance() {
+    void conversation_compaction_accepts_one_mean_preserving_summary_across_multiple_entries_without_echoing_provenance() {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":5,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":4,\"speaker\":\"PLAYER\",\"text\":\"주변 위험을 확인하며 문을 열고 안으로 들어간다\"},{\"sequence\":5,\"speaker\":\"AI_GAME_MASTER\",\"text\":\"열린 문 너머 어두운 복도에서 찬바람이 분다\"}]}");
+                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":5,\"expectedAdventureVersion\":9,\"summary\":\"플레이어가 위험을 살피며 문을 열고 들어갔고, 어두운 복도에서 찬바람을 느꼈다\"}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -193,16 +192,14 @@ class TypedAgentContractControllerTest {
                 new TypedAgentContractController.ConversationEntry(5, "AI_GAME_MASTER", "문이 열리자 어둡고 긴 복도가 나타난다. 바깥의 온기와 달리 안쪽에서는 차가운 바람이 불어온다"));
         var result = controller.conversationCompaction("service-secret",
                 new TypedAgentContractController.ConversationCompactionRequest(4, 5, 9, conversation));
-        org.junit.jupiter.api.Assertions.assertEquals(List.of(4L, 5L), result.excerpts().stream()
-                .map(TypedAgentContractController.SourceExcerpt::sequence).toList());
-        org.junit.jupiter.api.Assertions.assertTrue(result.excerpts().getFirst().text().contains("주변 위험을 확인"));
+        org.junit.jupiter.api.Assertions.assertTrue(result.summary().contains("위험을 살피며"));
     }
 
     @Test
     void conversation_compaction_rejects_summary_with_unrequested_source_sequence() {
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
-                return parser.parse("{\"sourceStart\":4,\"sourceEnd\":4,\"expectedAdventureVersion\":9,\"excerpts\":[{\"sequence\":5,\"speaker\":\"PLAYER\",\"text\":\"문을 열었다\"}]}");
+                return parser.parse("{\"sourceStart\":5,\"sourceEnd\":5,\"expectedAdventureVersion\":9,\"summary\":\"문을 열었다\"}");
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));

@@ -45,7 +45,7 @@ public final class HttpConversationCompactionCandidatePort implements Conversati
             catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new IllegalStateException("COMPACTION_RESPONSE_DECODING_FAILED", e); }
             try {
                 return new ConversationCompactionCandidate(result.sourceStart(), result.sourceEnd(), result.expectedAdventureVersion(),
-                        result.excerpts(), result.longTermFacts() == null ? List.of() : result.longTermFacts());
+                        result.summary(), result.longTermFacts() == null ? List.of() : result.longTermFacts());
             } catch (RuntimeException e) { throw new IllegalStateException("COMPACTION_RESPONSE_CONTRACT_INVALID", e); }
         } catch (TransientConversationCompactionException e) { throw e;
         } catch (java.io.IOException e) { throw new TransientConversationCompactionException("AI Game Master is temporarily unavailable",e);
@@ -53,5 +53,5 @@ public final class HttpConversationCompactionCandidatePort implements Conversati
         } catch (RuntimeException e) { throw e; }
     }
     record Request(UUID soloPlayerId,long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationEntry> conversation, List<RuntimeAddedFact> runtimeFacts) { }
-    record Response(long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationCompactionCandidate.SourceExcerpt> excerpts, List<LongTermFactCandidate> longTermFacts) { }
+    record Response(long sourceStart,long sourceEnd,long expectedAdventureVersion,String summary, List<LongTermFactCandidate> longTermFacts) { }
 }

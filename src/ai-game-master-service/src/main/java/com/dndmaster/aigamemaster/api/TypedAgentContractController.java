@@ -161,10 +161,10 @@ public final class TypedAgentContractController {
                         + "\nSOURCE_END=" + request.sourceEnd() + "\nEXPECTED_ADVENTURE_VERSION=" + request.expectedAdventureVersion()
                         + "\nCONFIRMED_CONVERSATION=" + conversation
                         + "\nCONFIRMED_RUNTIME_FACTS=" + write(request.runtimeFacts())
-                        + "\nTASK=Write a concise Korean summary for each confirmed conversation entry that preserves its meaning, including character speech, commitments, scene flow, established consequences, unresolved choices, and current goals. You may rewrite and compress the wording. Do not add, infer, or alter facts; do not treat HP, resources, location, or combat state as authoritative."
-                        + "\nSOURCE_REFERENCE_RULE=Return exactly one summary item for every requested sequence, in ascending order, with that entry's exact sequence and speaker as provenance. Keep sourceStart, sourceEnd, and expectedAdventureVersion unchanged. Keep the combined rendered summary, including speaker labels, at most 80 percent of source content length."
+                        + "\nTASK=Write one concise Korean summary across the entire confirmed conversation range, preserving its meaning, including character speech, commitments, scene flow, established consequences, unresolved choices, and current goals. You may rewrite and compress the wording. Do not add, infer, or alter facts; do not treat HP, resources, location, or combat state as authoritative."
+                        + "\nSOURCE_REFERENCE_RULE=Keep sourceStart, sourceEnd, and expectedAdventureVersion unchanged. The server binds this summary to the exact confirmed source range and version. Do not emit per-entry sequence, speaker, or quotation fields. Keep summary at most 80 percent of source content length."
                         + "\nLONG_TERM_FACT_RULE=longTermFacts is optional. Include only a confirmed Runtime Fact from CONFIRMED_RUNTIME_FACTS that represents an established EVENT, RELATIONSHIP, GOAL, or THREAT with ongoing relevance. Each item must contain factId, establishedTurnId, kind, relevance, and playerVisible. Never create a record for simple dialogue or copy character sheets, HP, resources, location, or combat state."
-                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, excerpts [{sequence,speaker,text}], and optional longTermFacts [{factId,establishedTurnId,kind,relevance,playerVisible}]. Each text is generated summary prose grounded only in the corresponding entry. speaker must exactly match the supplied entry. Do not use markdown.",
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, summary, and optional longTermFacts [{factId,establishedTurnId,kind,relevance,playerVisible}]. summary must be generated prose grounded only in the supplied confirmed range. Do not use markdown.",
                 json -> parseConversationCompaction(json, request));
     }
 
@@ -293,30 +293,9 @@ public final class TypedAgentContractController {
         if (sourceStart != request.sourceStart() || sourceEnd != request.sourceEnd() || version != request.expectedAdventureVersion()) {
             throw new IllegalArgumentException("conversation compaction response source does not match request");
         }
-        JsonNode nodes = root.path("excerpts");
-        if (!nodes.isArray() || nodes.isEmpty()) throw new IllegalArgumentException("conversation source excerpts are required");
-        java.util.Map<Long, ConversationEntry> source = request.conversation().stream()
-                .collect(java.util.stream.Collectors.toMap(ConversationEntry::sequence, entry -> entry));
-        List<SourceExcerpt> excerpts = new ArrayList<>();
-        java.util.Set<Long> covered = new java.util.HashSet<>();
-        long previousSequence = -1;
-        long excerptLength = 0;
-        for (JsonNode node : nodes) {
-            JsonNode sequenceNode = node.path("sequence");
-            if (!sequenceNode.isIntegralNumber() || !sequenceNode.canConvertToLong()) throw new IllegalArgumentException("invalid conversation source excerpt sequence");
-            long sequence = sequenceNode.longValue();
-            String text = required(node, "text");
-            ConversationEntry entry = source.get(sequence);
-            if (sequence <= previousSequence || entry == null) throw new IllegalArgumentException("conversation summary provenance is not an ordered source sequence");
-            previousSequence = sequence;
-            covered.add(sequence);
-            excerptLength += text.length();
-            String speaker = required(node, "speaker");
-            if (!speaker.equals(source.get(sequence).speaker())) throw new IllegalArgumentException("conversation excerpt speaker does not match source");
-            excerpts.add(new SourceExcerpt(sequence, speaker, text));
-        }
+        String summary = required(root, "summary");
         long sourceLength = request.conversation().stream().mapToLong(entry -> entry.content().length()).sum();
-        if (!covered.equals(source.keySet()) || excerptLength * 5 > sourceLength * 4) throw new IllegalArgumentException("conversation excerpts must cover all sources and be meaningfully shorter");
+        if (summary.length() * 5 > sourceLength * 4) throw new IllegalArgumentException("conversation summary must be meaningfully shorter");
         List<LongTermFactCandidate> longTermFacts = new ArrayList<>();
         JsonNode factNodes = root.path("longTermFacts");
         if (factNodes.isArray()) {
@@ -338,7 +317,7 @@ public final class TypedAgentContractController {
                 }
             }
         }
-        return new ConversationCompactionResponse(sourceStart, sourceEnd, version, List.copyOf(excerpts), List.copyOf(longTermFacts));
+        return new ConversationCompactionResponse(sourceStart, sourceEnd, version, summary, List.copyOf(longTermFacts));
     }
 
     private JsonNode readObject(String json) {
@@ -434,15 +413,11 @@ public final class TypedAgentContractController {
     public record ConversationEntry(long sequence, String speaker, String content) {
         public ConversationEntry { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); speaker = required(speaker, "speaker"); content = required(content, "content"); }
     }
-    public record SourceExcerpt(long sequence, String speaker, String text) {
-        public SourceExcerpt(long sequence, String text) { this(sequence, "UNKNOWN", text); }
-        public SourceExcerpt { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); speaker = required(speaker, "speaker"); text = required(text, "text"); }
-    }
     public record LongTermFactCandidate(java.util.UUID factId, java.util.UUID establishedTurnId, String kind, String relevance, boolean playerVisible) { }
     public record ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion,
-                                                 List<SourceExcerpt> excerpts, List<LongTermFactCandidate> longTermFacts) {
-        public ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion, List<SourceExcerpt> excerpts) { this(sourceStart, sourceEnd, expectedAdventureVersion, excerpts, List.of()); }
-        public ConversationCompactionResponse { excerpts = List.copyOf(excerpts); longTermFacts = List.copyOf(longTermFacts); }
+                                                 String summary, List<LongTermFactCandidate> longTermFacts) {
+        public ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion, String summary) { this(sourceStart, sourceEnd, expectedAdventureVersion, summary, List.of()); }
+        public ConversationCompactionResponse { summary = required(summary, "summary"); longTermFacts = List.copyOf(longTermFacts); }
     }
 
     public record RuntimeEndpointRequest(java.util.UUID endpointId, String provider, String model, String reasoning) { }
