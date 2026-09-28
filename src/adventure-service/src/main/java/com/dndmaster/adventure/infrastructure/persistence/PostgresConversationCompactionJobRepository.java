@@ -78,11 +78,12 @@ public final class PostgresConversationCompactionJobRepository implements Conver
                     existing.setObject(1, summary.adventureId().value()); existing.setLong(2, summary.sourceStart()); existing.setLong(3, summary.sourceEnd());
                     try (ResultSet rows = existing.executeQuery()) { if (rows.next()) { if (!managed) connection.commit(); return false; } }
                 }
+                try (PreparedStatement complete = connection.prepareStatement("UPDATE adventure_conversation_compaction_job SET status='DONE', lease_until=NULL, lease_token=NULL WHERE job_id=? AND status='LEASED' AND lease_token=?")) {
+                    complete.setObject(1, job.id()); complete.setObject(2, job.leaseToken());
+                    if (complete.executeUpdate() != 1) { if (!managed) connection.rollback(); return false; }
+                }
                 if (confirmedRuntimeFacts != null) reconcileLongTermFacts(connection, summary.adventureId(), confirmedRuntimeFacts);
                 for (LongTermAdventureFact fact : facts) archiveLongTermFact(connection, fact.adventureId(), fact.factId());
-                try (PreparedStatement complete = connection.prepareStatement("UPDATE adventure_conversation_compaction_job SET status='DONE', lease_until=NULL, lease_token=NULL WHERE job_id=? AND status='LEASED' AND lease_token=?")) {
-                    complete.setObject(1, job.id()); complete.setObject(2, job.leaseToken()); if (complete.executeUpdate() != 1) { if (!managed) connection.commit(); return false; }
-                }
                 try (PreparedStatement insert = connection.prepareStatement("INSERT INTO adventure_conversation_summary(adventure_id, summary_version, source_start, source_end, source_adventure_version, summary_text) VALUES (?, ?, ?, ?, ?, ?)")) {
                     insert.setObject(1, summary.adventureId().value()); insert.setLong(2, summary.version()); insert.setLong(3, summary.sourceStart()); insert.setLong(4, summary.sourceEnd()); insert.setLong(5, summary.sourceAdventureVersion()); insert.setString(6, summary.text()); insert.executeUpdate();
                 }
