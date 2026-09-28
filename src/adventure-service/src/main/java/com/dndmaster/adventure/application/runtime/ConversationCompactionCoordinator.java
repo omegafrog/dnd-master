@@ -49,8 +49,9 @@ public final class ConversationCompactionCoordinator {
                     throw second;
                 }
             }
-            if (!validCandidate(job, source, candidate, runtimeFacts)) {
-                repository.manualReview(job, "CANDIDATE_PROVENANCE_MISMATCH");
+            String candidateFailure = candidateFailure(job, source, candidate, runtimeFacts);
+            if (candidateFailure != null) {
+                repository.manualReview(job, candidateFailure);
                 return false;
             }
             String renderedSummary = candidate.excerpts().stream().map(excerpt -> excerpt.speaker() + ": " + excerpt.text())
@@ -73,10 +74,14 @@ public final class ConversationCompactionCoordinator {
                 && source.stream().map(ConversationEntry::sequence).distinct().count() == expectedCount
                 && source.getFirst().sequence() == job.sourceStart() && source.getLast().sequence() == job.sourceEnd();
     }
-    private static boolean validCandidate(ConversationCompactionJob job, List<ConversationEntry> source, ConversationCompactionCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
-        return candidate.sourceStart() == job.sourceStart() && candidate.sourceEnd() == job.sourceEnd()
-                && candidate.expectedAdventureVersion() == job.expectedAdventureVersion() && validExcerpts(candidate.excerpts(), source)
-                && candidate.longTermFacts().stream().allMatch(fact -> matchesConfirmedFact(fact, runtimeFacts));
+    static String candidateFailure(ConversationCompactionJob job, List<ConversationEntry> source,
+                                   ConversationCompactionCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
+        if (candidate.sourceStart() != job.sourceStart() || candidate.sourceEnd() != job.sourceEnd()
+                || candidate.expectedAdventureVersion() != job.expectedAdventureVersion()) return "CANDIDATE_SOURCE_OR_VERSION_MISMATCH";
+        if (!validExcerpts(candidate.excerpts(), source)) return "CANDIDATE_SOURCE_EXCERPTS_INVALID";
+        if (candidate.longTermFacts().stream().anyMatch(fact -> !matchesConfirmedFact(fact, runtimeFacts)))
+            return "CANDIDATE_FACT_REFERENCE_MISMATCH";
+        return null;
     }
     private static boolean matchesConfirmedFact(LongTermFactCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
         return confirmedFact(candidate, runtimeFacts) != null;

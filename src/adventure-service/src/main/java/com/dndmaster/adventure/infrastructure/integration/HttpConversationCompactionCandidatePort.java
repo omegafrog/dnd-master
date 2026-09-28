@@ -39,14 +39,18 @@ public final class HttpConversationCompactionCandidatePort implements Conversati
                     .POST(HttpRequest.BodyPublishers.ofString(json)).build();
             HttpResponse<String> response=client.send(request,HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 500) throw new TransientConversationCompactionException("AI Game Master returned " + response.statusCode());
-            if (response.statusCode() / 100 != 2) throw new IllegalStateException("AI Game Master rejected compaction request");
-            Response result=mapper.readValue(response.body(),Response.class);
-            return new ConversationCompactionCandidate(result.sourceStart(), result.sourceEnd(), result.expectedAdventureVersion(),
-                    result.excerpts(), result.longTermFacts() == null ? List.of() : result.longTermFacts());
+            if (response.statusCode() / 100 != 2) throw new IllegalStateException("AI_GAME_MASTER_COMPACTION_REJECTED_HTTP_" + response.statusCode());
+            Response result;
+            try { result=mapper.readValue(response.body(),Response.class); }
+            catch (com.fasterxml.jackson.core.JsonProcessingException e) { throw new IllegalStateException("COMPACTION_RESPONSE_DECODING_FAILED", e); }
+            try {
+                return new ConversationCompactionCandidate(result.sourceStart(), result.sourceEnd(), result.expectedAdventureVersion(),
+                        result.excerpts(), result.longTermFacts() == null ? List.of() : result.longTermFacts());
+            } catch (RuntimeException e) { throw new IllegalStateException("COMPACTION_RESPONSE_CONTRACT_INVALID", e); }
         } catch (TransientConversationCompactionException e) { throw e;
         } catch (java.io.IOException e) { throw new TransientConversationCompactionException("AI Game Master is temporarily unavailable",e);
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new TransientConversationCompactionException("AI Game Master request interrupted",e);
-        } catch (Exception e) { throw new IllegalStateException("invalid conversation compaction response",e); }
+        } catch (RuntimeException e) { throw e; }
     }
     record Request(UUID soloPlayerId,long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationEntry> conversation, List<RuntimeAddedFact> runtimeFacts) { }
     record Response(long sourceStart,long sourceEnd,long expectedAdventureVersion,List<ConversationCompactionCandidate.SourceExcerpt> excerpts, List<LongTermFactCandidate> longTermFacts) { }

@@ -15,6 +15,22 @@ import org.junit.jupiter.api.Test;
 
 class ConversationCompactionCoordinatorTest {
     @Test
+    void distinguishes_unconfirmed_fact_reference_from_source_excerpt_failure_without_exposing_content() {
+        AdventureId adventureId = AdventureId.generate();
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        var job = ConversationCompactionJob.ready(adventureId, 0, 1, 7, now);
+        List<ConversationEntry> source = List.of(entry(0, "PLAYER", "경비에게 협력을 제안한다. ".repeat(20)),
+                entry(1, "AI_GAME_MASTER", "경비가 성문을 연다. ".repeat(20)));
+        var excerpts = List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "PLAYER", "협력"),
+                new ConversationCompactionCandidate.SourceExcerpt(1, "AI_GAME_MASTER", "성문"));
+        var unknownFact = new LongTermFactCandidate(UUID.randomUUID(), UUID.randomUUID(), "RELATIONSHIP", "비공개 문구", false);
+        assertEquals("CANDIDATE_FACT_REFERENCE_MISMATCH", ConversationCompactionCoordinator.candidateFailure(
+                job, source, new ConversationCompactionCandidate(0, 1, 7, excerpts, List.of(unknownFact)), List.of()));
+        assertEquals("CANDIDATE_SOURCE_EXCERPTS_INVALID", ConversationCompactionCoordinator.candidateFailure(
+                job, source, new ConversationCompactionCandidate(0, 1, 7,
+                        List.of(new ConversationCompactionCandidate.SourceExcerpt(0, "PLAYER", "협력")), List.of()), List.of()));
+    }
+    @Test
     void publishes_only_long_term_records_that_reference_a_confirmed_runtime_fact() {
         var repository = new InMemoryConversationCompactionJobRepository();
         AdventureId adventureId = AdventureId.generate();
