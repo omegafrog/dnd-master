@@ -52,7 +52,7 @@ class RuntimeGmPromptComposerTest {
     }
 
     @Test
-    void selects_a_current_place_record_when_one_meaningful_term_matches() {
+    void excludes_a_record_that_only_shares_the_place_name_with_the_current_situation() {
         LongTermAdventureFact incidental = new LongTermAdventureFact(AdventureId.generate(), UUID.randomUUID(), UUID.randomUUID(),
                 3, "EVENT", "성문 장식의 금박이 벗겨졌다", true, 1);
         String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"
@@ -62,7 +62,7 @@ class RuntimeGmPromptComposerTest {
                 Map.of("currentSituation", "성문 앞에서 경비에게 협력 약속을 확인한다"), List.of(incidental), 10_000);
 
         String memory = prompt.substring(prompt.indexOf("현재 상황 관련 장기 기록"), prompt.indexOf("압축된 이전 대화"));
-        assertTrue(memory.contains("금박이 벗겨졌다"));
+        assertTrue(!memory.contains("금박이 벗겨졌다"));
     }
     @Test
     void rejects_essential_material_before_provider_call_when_input_budget_is_exceeded() {

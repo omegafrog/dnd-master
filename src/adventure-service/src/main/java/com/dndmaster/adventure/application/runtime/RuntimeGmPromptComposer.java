@@ -151,7 +151,8 @@ public final class RuntimeGmPromptComposer {
         java.util.Set<String> situationTerms = meaningfulTerms(currentSituation);
         java.util.Set<String> recordTerms = meaningfulTerms(fact.relevance());
         recordTerms.retainAll(situationTerms);
-        return !recordTerms.isEmpty();
+        // A shared place name alone does not make an event there relevant to the current action.
+        return recordTerms.size() >= 2;
     }
 
     private static java.util.Set<String> meaningfulTerms(String text) {
