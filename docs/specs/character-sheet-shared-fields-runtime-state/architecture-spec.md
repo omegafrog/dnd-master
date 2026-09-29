@@ -182,8 +182,10 @@ rectangle "Document Knowledge (rule-knowledge-service)" as rk
 rectangle "Scenario Preparation / Adventure" as adv
 rectangle "Character Management" as cm
 rectangle "Shared Rulebook Catalog" as catalog
+rectangle "현재 모험의 Storybook (소유자 권한 범위)" as storybook
 catalog --> rk : Rulebook source
-rk --> adv : 기존 Rulebook+Storybook 근거 검색과 근거
+storybook --> rk : 권한이 확인된 Storybook source
+rk --> adv : 두 문서 유형의 기존 근거 검색 결과
 adv --> cm : Internal HTTP, versioned batch and runtime commands
 cm --> adv : Per-character result and version
 @enduml
@@ -192,6 +194,7 @@ cm --> adv : Per-character result and version
 | Upstream | Downstream | Relationship | Contract | Translation |
 | --- | --- | --- | --- | --- |
 | Shared Rulebook Catalog | Document Knowledge (`rule-knowledge-service`) | 공급자 계약 | Rulebook 식별자와 본문/근거 | 기존 Rulebook adapter가 내부 Rulebook 표현으로 변환 |
+| 현재 모험의 Storybook | Document Knowledge (`rule-knowledge-service`) | 소유자 권한 확인 후 검색 | 모험에 연결된 Storybook 범위와 문서 근거 | 기존 검색 경계가 문서 접근 범위를 확인 |
 | Document Knowledge (`rule-knowledge-service`) | Adventure | 기존 검색 API | 현재 모험의 Rulebook·권한 있는 Storybook 범위, query, 근거 발췌와 위치 | Adventure는 검색 결과를 기존 캐릭터 시트에 더할 추천으로 구성 |
 | Adventure | Character Management | 고객/공급자, 내부 동기 API | 일괄 시트 준비, PC별 값 쓰기, 런타임 변경 명령; 버전·명령 ID | Character Management 요청 DTO를 각 aggregate 입력으로 번역 |
 | Character Management | Adventure | 내부 응답 계약 | 적용됨/충돌/거부, 현재 시트 버전과 적용 요약 | Adventure Saga가 응답을 턴 결과 상태로 변환 |
