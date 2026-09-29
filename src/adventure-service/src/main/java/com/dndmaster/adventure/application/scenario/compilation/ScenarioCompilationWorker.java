@@ -160,8 +160,13 @@ public final class ScenarioCompilationWorker {
                 .orElse(null);
         if (delivery == null) return Optional.empty();
 
-        var compilation = compilationRepository.findById(delivery.work().aggregateId())
-                .orElseThrow(() -> new IllegalStateException("compilation not found"));
+        var compilation = compilationRepository.findById(delivery.work().aggregateId()).orElse(null);
+        if (compilation == null) {
+            log.warn("scenario compilation worker acknowledged orphaned work workerId={} compilationId={}",
+                    workerId, delivery.work().aggregateId());
+            queue.acknowledge(delivery);
+            return Optional.empty();
+        }
         log.info("scenario compilation worker claimed work workerId={} compilationId={} attempt={} bundleId={}",
                 workerId, compilation.id(), compilation.attempt(), compilation.bundleId());
         var claimed = processManager.claim(delivery);

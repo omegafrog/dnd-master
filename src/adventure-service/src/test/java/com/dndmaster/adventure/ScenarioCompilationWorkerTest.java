@@ -208,6 +208,23 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void acknowledgesAnOrphanedDeliveryWithoutRetryingIt() {
+        ScenarioSourceBundle bundle = bundle(List.of(document(
+                new KnowledgeDocumentId(UUID.randomUUID()),
+                ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
+        Fixture fixture = new Fixture(bundle);
+        fixture.queue.pending.clear();
+        fixture.queue.pending.add(new WorkEnvelope(UUID.randomUUID(), "orphaned-compilation", UUID.randomUUID(),
+                bundle.currentRevision().revision(), "orphaned", 0));
+
+        assertTrue(fixture.worker().processNext("worker", Duration.ofMinutes(1)).isEmpty());
+
+        assertEquals(1, fixture.queue.acknowledged);
+        assertEquals(0, fixture.queue.retried);
+        assertTrue(fixture.queue.pending.isEmpty());
+    }
+
+    @Test
     void workerMarksPermanentFailureAfterThirdAttempt() {
         ScenarioSourceBundle bundle = bundle(List.of(document(
                 new KnowledgeDocumentId(UUID.randomUUID()),
@@ -462,12 +479,14 @@ class ScenarioCompilationWorkerTest {
 
     private static final class Queue implements WorkQueuePort {
         final java.util.Queue<WorkEnvelope> pending = new ArrayDeque<>();
+        int acknowledged;
+        int retried;
         @Override public void enqueue(WorkEnvelope work) { pending.add(work); }
         @Override public Optional<Delivery> claim(String workerId, Duration lease) {
             WorkEnvelope work = pending.poll();
             return work == null ? Optional.empty() : Optional.of(new Delivery(work, UUID.randomUUID(), workerId));
         }
-        @Override public void acknowledge(Delivery delivery) {}
-        @Override public void retry(Delivery delivery, String reason) { pending.add(delivery.work()); }
+        @Override public void acknowledge(Delivery delivery) { acknowledged++; }
+        @Override public void retry(Delivery delivery, String reason) { retried++; pending.add(delivery.work()); }
     }
 }
