@@ -948,7 +948,7 @@ public class AdventureApiConfiguration {
     RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort, GmToolGateway gmToolGateway,
                                             RuntimeCommandSagaApplicationService saga,
                                             @Value("${adventure.runtime.best-of-n.count:1}") int candidateCount,
-                                            @Value("${adventure.runtime.best-of-n.retry-count:1}") int retryCount,
+                                            @Value("${adventure.runtime.best-of-n.retry-count:2}") int retryCount,
                                             @Value("${adventure.runtime.best-of-n.simple:false}") boolean simpleTurn,
                                             PlanAuditPort planAuditPort) {
         RuntimePlanningPort planner = new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator(), gmToolGateway, saga);

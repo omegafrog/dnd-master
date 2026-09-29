@@ -252,6 +252,36 @@ class BestOfNTurnPlanningTest {
     }
 
     @Test
+    void rejected_candidate_feedback_is_included_when_regenerating_the_plan() {
+        var calls = new int[1];
+        var prompts = new java.util.ArrayList<String>();
+        GmAgentPort agent = context -> {
+            calls[0]++;
+            prompts.add(context.composePrompt(32_000));
+            String scene = calls[0] < 3 ? "다른 장소" : "현재 장소";
+            return new GmPlanResult(new RuntimePlan(scene, "주변 인물", "계속 살핀다", "주변에서 소리가 난다",
+                    null, List.of(), List.of(), "p", "m", "r"), "p", "m", "r", List.of());
+        };
+        var adapter = new BestOfNRuntimePlanningAdapter(new GmAgentRuntimePlanningAdapter(agent, new GmFinalValidator()),
+                1, 2, false, audit -> { });
+
+        RuntimePlan selected = adapter.plan(new RuntimePlanningRequest(AdventureId.generate(),
+                new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
+                new AdventureContext("현재 장소", "주변 인물", "살핀다", ""), null, "주변을 살핀다",
+                new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of(), "stage", null,
+                "provider", "model", "reasoning", new NarrativeContext("player", "현재 장소", 0,
+                        Set.of(), List.of(), java.util.Map.of(), List.of(), List.of(), List.of())));
+
+        assertEquals(3, calls[0]);
+        assertEquals("현재 장소", selected.scene());
+        assertTrue(prompts.get(0).contains("VALIDATION_FEEDBACK=") == false);
+        assertTrue(prompts.get(1).contains("SCENE_TRANSITION_UNSUPPORTED"), prompts.get(1));
+        assertTrue(prompts.get(1).contains("같은 플레이어 행동에 대한 계획을 다시 생성하고"));
+        assertTrue(prompts.get(1).contains("이야기 자료를 인용할 수 없으면 장면을 바꾸지 말고 현재 장면을 이어 가세요"));
+        assertTrue(prompts.get(2).contains("SCENE_TRANSITION_UNSUPPORTED"));
+    }
+
+    @Test
     void reports_last_validation_reason_when_all_runtime_candidates_fail() {
         RuntimeEvidence story = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
                 new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()),

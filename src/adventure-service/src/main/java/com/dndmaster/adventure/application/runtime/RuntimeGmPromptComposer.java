@@ -38,8 +38,11 @@ public final class RuntimeGmPromptComposer {
             factLookupResults.add(result);
         });
         String action = envelope.action();
+        String validationFeedback = envelope.validationFeedback().isBlank() ? ""
+                : "\nVALIDATION_FEEDBACK=" + envelope.validationFeedback()
+                    + "\nVALIDATION_RETRY_RULE=이 내용은 최종 계획 검증기의 내부 지적이며 플레이어 행동의 일부가 아닙니다. 같은 플레이어 행동에 대한 계획을 다시 생성하고, 열거된 문제를 모두 수정하세요. 이 지적을 플레이어에게 언급하지 마세요.";
         String existing =
-                        "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=" + write(factLookupResults)
+                        "ROLE=RUNTIME_GM" + validationFeedback + "\nCOMPOSITE_FACT_LOOKUP_RESULTS=" + write(factLookupResults)
                         + "\nRUNTIME_CONTEXT=" + write(runtimeContext)
                         + "\nACTION=" + action
                         + "\nLOOKUP_ORDER_RULE=Use authoritative results in this order: Game State, established Runtime-added Facts, locked Scenario Model, then Storybook RAG. If all are NOT_FOUND, create only the minimum Runtime Fact needed to keep this turn playable. Do not use a lower-priority answer to contradict a higher-priority result."

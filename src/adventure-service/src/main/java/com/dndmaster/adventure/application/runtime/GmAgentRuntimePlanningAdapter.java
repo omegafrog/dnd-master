@@ -54,7 +54,12 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
 
     /** Gate A candidate-generation path. It preserves tool intents but performs no authorization or execution. */
     public RuntimePlan planWithoutTools(RuntimePlanningRequest request) {
-        CandidateGeneration generated = generateCandidate(request, false);
+        return planWithoutTools(request, "");
+    }
+
+    /** Regenerates a candidate with safe validator feedback, without changing the player's action. */
+    public RuntimePlan planWithoutTools(RuntimePlanningRequest request, String validationFeedback) {
+        CandidateGeneration generated = generateCandidate(request, false, validationFeedback);
         RuntimePlan candidatePlan = planInternal(request, false, generated).plan();
         java.util.List<CandidateGeneration> existing = pendingCandidates.computeIfAbsent(request.turnId(), ignored -> new java.util.concurrent.CopyOnWriteArrayList<>());
         UUID candidateId = UUID.nameUUIDFromBytes((request.turnId() + ":candidate:" + existing.size()).getBytes(StandardCharsets.UTF_8));
@@ -140,11 +145,15 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     }
 
     private CandidateGeneration generateCandidate(RuntimePlanningRequest request, boolean issueCapability) {
+        return generateCandidate(request, issueCapability, "");
+    }
+
+    private CandidateGeneration generateCandidate(RuntimePlanningRequest request, boolean issueCapability, String validationFeedback) {
         GmContextEnvelope context = new GmContextEnvelope(request.adventureId(), request.ownerPlayerId(), request.sessionId(), request.turnId(), request.scenarioPackageId(),
                 request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(),
                 request.recentTurns(), request.characterSnapshots(), request.scenarioContext(), request.provider(), request.model(), request.reasoning(),
                 requestedSelection(request), request.narrativeContext(), request.runtimeFacts(), request.factLookupResults(),
-                request.currentSituation(), request.longTermFacts());
+                request.currentSituation(), request.longTermFacts(), validationFeedback);
         java.util.Set<String> hiddenData = context.scenarioContext().isBlank() ? java.util.Set.of() : java.util.Set.of(context.scenarioContext());
         TurnCapability capability = issueCapability ? issueCapability(request) : null;
         List<GmToolSpec> modelTools = gateway == null ? List.of() : gateway.modelTools().stream()

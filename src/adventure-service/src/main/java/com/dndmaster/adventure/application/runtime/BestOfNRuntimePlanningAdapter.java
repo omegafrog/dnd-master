@@ -6,6 +6,7 @@ import java.util.Set;
 
 /** Compatibility bridge that applies plan selection before the writer sees a runtime plan. */
 public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(BestOfNRuntimePlanningAdapter.class);
     private final RuntimePlanningPort delegate;
     private final int requestedCount;
     private final int retryCount;
@@ -43,11 +44,12 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
         int count = PlanningContext.boundedCandidateCount(requestedCount, simpleTurn);
         List<RuntimePlan> plans = new ArrayList<>();
         IllegalStateException lastValidationFailure = null;
+        String validationFeedback = "";
         boolean decomposed = delegate instanceof GmAgentRuntimePlanningAdapter;
         for (int i = 0; i < count + retryCount && plans.size() < count; i++) {
             try {
                 plans.add(decomposed
-                        ? ((GmAgentRuntimePlanningAdapter) delegate).planWithoutTools(request)
+                        ? ((GmAgentRuntimePlanningAdapter) delegate).planWithoutTools(request, validationFeedback)
                         : delegate.plan(request));
             } catch (IllegalStateException invalidCandidate) {
                 // Candidate generation is best-effort. A single model response
@@ -55,6 +57,9 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
                 // earlier valid candidates from the same bounded selection.
                 if (!decomposed || !isCandidateValidationFailure(invalidCandidate)) throw invalidCandidate;
                 lastValidationFailure = invalidCandidate;
+                validationFeedback = safeValidationFeedback(invalidCandidate.getMessage());
+                LOGGER.warn("gm_plan_regeneration_after_validation turnId={} attempt={} feedback={}",
+                        request.turnId(), i + 1, validationFeedback);
             }
         }
         if (plans.isEmpty()) {
@@ -118,5 +123,15 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
     private static boolean isCandidateValidationFailure(IllegalStateException failure) {
         String message = failure.getMessage();
         return message != null && message.startsWith("GM final validation failed:");
+    }
+
+    private static String safeValidationFeedback(String message) {
+        if (message == null) return "이전 계획이 최종 검증을 통과하지 못했습니다.";
+        String prefix = "GM final validation failed:";
+        String feedback = message.startsWith(prefix) ? message.substring(prefix.length()).trim() : message.trim();
+        if (feedback.contains("SCENE_TRANSITION_UNSUPPORTED")) {
+            feedback += "\n수정: 제공된 이야기 자료를 인용할 수 없으면 장면을 바꾸지 말고 현재 장면을 이어 가세요.";
+        }
+        return feedback.length() <= 1600 ? feedback : feedback.substring(0, 1600);
     }
 }
