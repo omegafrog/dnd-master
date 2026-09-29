@@ -338,8 +338,11 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         String sentence = text.replaceFirst("[.!?。！？]+$", "").trim();
         boolean declarative = (sentence.endsWith("다") || sentence.endsWith("습니다"))
                 && !sentence.matches("(?s).*(?:고 싶(?:다|습니다)|하고 싶(?:다|습니다))$");
-        boolean coordinated = sentence.matches("(?s).+고\\s+.+");
-        boolean buildsRelationship = sentence.matches("(?s).*(?:신뢰|믿음|관계)(?:를|을)?\\s*(?:쌓|회복|다지|얻|형성|맺).*");
+        String relationshipOutcome = "(?:신뢰|믿음|관계)(?:를|을)?\\s*(?:쌓|회복|다지|얻|형성|맺)";
+        String otherOutcome = "(?:되찾고|찾고|찾아|구하고|구해|구출하고|회복하고|보호하고|탈환하고|재회하고|해결하고|복원하고)";
+        boolean coordinated = sentence.matches("(?s).*" + otherOutcome + ".{1,80}" + relationshipOutcome + ".*")
+                || sentence.matches("(?s).*" + relationshipOutcome + "고.{1,80}" + otherOutcome + ".*");
+        boolean buildsRelationship = sentence.matches("(?s).*" + relationshipOutcome + ".*");
         return declarative && coordinated && buildsRelationship;
     }
 

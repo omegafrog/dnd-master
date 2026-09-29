@@ -154,6 +154,8 @@ class GmAgentRuntimePlanningAdapterTest {
     void does_not_record_an_immediate_action_or_an_ambiguous_wish_as_a_long_term_goal() {
         for (String action : List.of("문을 열고 안으로 들어간다.", "저는 문을 열고 싶다.",
                 "마을 사람들에게 신뢰를 물어보고 문을 연다.",
+                "문을 열고 마을 사람들과 신뢰를 쌓는다.",
+                "마을 사람들과 신뢰를 쌓고 문을 연다.",
                 "사라진 탐험가를 찾고 마을 사람들과 신뢰를 쌓고 싶다.")) {
             var result = new GmAgentRuntimePlanningAdapter(
                     context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of()),
