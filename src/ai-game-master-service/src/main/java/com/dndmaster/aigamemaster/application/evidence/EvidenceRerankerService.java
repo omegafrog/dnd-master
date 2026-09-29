@@ -28,22 +28,29 @@ public final class EvidenceRerankerService {
     private EvidenceRerankResponse parse(String raw, Set<String> candidateIds) {
         try {
             JsonNode root = mapper.readTree(raw);
-            if (root == null || !root.isObject() || !root.path("orderedCandidateIds").isArray()) throw invalid("orderedCandidateIds array is required");
+            if (root == null || !root.isObject() || !root.path("orderedCandidateIds").isArray()) throw invalid(
+                    EvidenceModelOutputException.Category.INVALID_SCHEMA, "orderedCandidateIds array is required");
             List<String> ids = new java.util.ArrayList<>();
             for (JsonNode id : root.path("orderedCandidateIds")) {
-                if (!id.isTextual() || id.asText().isBlank()) throw invalid("ordered candidate ID is invalid");
+                if (!id.isTextual() || id.asText().isBlank()) throw invalid(
+                        EvidenceModelOutputException.Category.INVALID_IDENTIFIER, "ordered candidate ID is invalid");
                 ids.add(id.asText());
             }
-            if (ids.size() > 30 || ids.size() != new HashSet<>(ids).size() || !candidateIds.containsAll(ids)) throw invalid("rerank IDs must be unique candidate IDs with a maximum of 30");
+            if (ids.size() > 30 || ids.size() != new HashSet<>(ids).size() || !candidateIds.containsAll(ids)) throw invalid(
+                    EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
+                    "rerank IDs must be unique candidate IDs with a maximum of 30");
             return new EvidenceRerankResponse(ids);
         } catch (EvidenceModelOutputException exception) {
             throw exception;
         } catch (Exception exception) {
-            throw new EvidenceModelOutputException("invalid rerank model output", exception);
+            throw new EvidenceModelOutputException(EvidenceModelOutputException.Category.MALFORMED_JSON,
+                    "invalid rerank model output", exception);
         }
     }
 
-    private static EvidenceModelOutputException invalid(String message) { return new EvidenceModelOutputException(message); }
+    private static EvidenceModelOutputException invalid(EvidenceModelOutputException.Category category, String message) {
+        return new EvidenceModelOutputException(category, message);
+    }
     private static String rerankInstruction(EvidenceRerankRequest request, EvidenceModelPrompt.Candidates candidates) {
         return "TASK=EVIDENCE_RERANK\nReturn JSON {\"orderedCandidateIds\":[...]}. "
                 + "Return at most 30 unique short c-number IDs, copied exactly from the supplied candidates. "
