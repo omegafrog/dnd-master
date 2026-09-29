@@ -151,8 +151,15 @@ public final class RuntimeGmPromptComposer {
         java.util.Set<String> situationTerms = meaningfulTerms(currentSituation);
         java.util.Set<String> recordTerms = meaningfulTerms(fact.relevance());
         recordTerms.retainAll(situationTerms);
-        // A shared place name alone does not make an event there relevant to the current action.
-        return recordTerms.size() >= 2;
+        if (recordTerms.size() >= 2) return true;
+        // A single match in the problem, threat, or goal can identify a relevant person or event.
+        // A match confined to the location can be incidental, such as an unrelated event at the same gate.
+        return recordTerms.size() == 1 && situationFocusTerms(currentSituation).containsAll(recordTerms);
+    }
+
+    private static java.util.Set<String> situationFocusTerms(String currentSituation) {
+        int problemStart = currentSituation.indexOf(", problem=");
+        return meaningfulTerms(problemStart < 0 ? currentSituation : currentSituation.substring(problemStart));
     }
 
     private static java.util.Set<String> meaningfulTerms(String text) {

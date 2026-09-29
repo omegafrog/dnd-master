@@ -59,10 +59,26 @@ class RuntimeGmPromptComposerTest {
                 + "\nLOOKUP_ORDER_RULE=rules\nOUTPUT_CONTRACT=json";
 
         String prompt = RuntimeGmPromptComposer.compose(legacy, List.of(), List.of(),
-                Map.of("currentSituation", "성문 앞에서 경비에게 협력 약속을 확인한다"), List.of(incidental), 10_000);
+                Map.of("currentSituation", "CurrentSituation[location=성문 앞, problem=경비에게 협력 약속 확인, threat=없음, goal=약속 확인]"),
+                List.of(incidental), 10_000);
 
         String memory = prompt.substring(prompt.indexOf("현재 상황 관련 장기 기록"), prompt.indexOf("압축된 이전 대화"));
         assertTrue(!memory.contains("금박이 벗겨졌다"));
+    }
+
+    @Test
+    void keeps_a_relevant_record_when_one_distinctive_name_matches_the_current_problem() {
+        LongTermAdventureFact pursuit = new LongTermAdventureFact(AdventureId.generate(), UUID.randomUUID(), UUID.randomUUID(),
+                3, "EVENT", "그롬이 강을 건너 동쪽으로 도망쳤다", true, 1);
+        String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"
+                + "\nLOOKUP_ORDER_RULE=rules\nOUTPUT_CONTRACT=json";
+
+        String prompt = RuntimeGmPromptComposer.compose(legacy, List.of(), List.of(),
+                Map.of("currentSituation", "CurrentSituation[location=폐허 시장, problem=그롬을 추적한다, threat=도주 중, goal=그롬을 찾는다]"),
+                List.of(pursuit), 10_000);
+
+        String memory = prompt.substring(prompt.indexOf("현재 상황 관련 장기 기록"), prompt.indexOf("압축된 이전 대화"));
+        assertTrue(memory.contains("그롬이 강을 건너 동쪽으로 도망쳤다"));
     }
     @Test
     void rejects_essential_material_before_provider_call_when_input_budget_is_exceeded() {
