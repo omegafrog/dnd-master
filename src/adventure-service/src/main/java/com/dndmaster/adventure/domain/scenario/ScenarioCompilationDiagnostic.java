@@ -15,4 +15,8 @@ public record ScenarioCompilationDiagnostic(String code, Severity severity, Stri
     public static ScenarioCompilationDiagnostic blocking(String code, String message) {
         return new ScenarioCompilationDiagnostic(code, Severity.BLOCKING, message);
     }
+
+    public static ScenarioCompilationDiagnostic warning(String code, String message) {
+        return new ScenarioCompilationDiagnostic(code, Severity.WARNING, message);
+    }
 }

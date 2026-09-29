@@ -7,6 +7,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection;
 import com.dndmaster.aigamemaster.infrastructure.ai.EffectiveGmProviderSelection;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionResolver;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionUnavailableException;
+import com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,6 +20,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Role-specific, read-only AI boundaries. The AI process receives no tool,
@@ -25,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 public final class TypedAgentContractController {
+    private static final Logger log = LoggerFactory.getLogger(TypedAgentContractController.class);
     private final GmCompletionAdapter adapter;
     private final ObjectMapper mapper;
     private final ApiRequestGuard requestGuard;
@@ -70,12 +77,13 @@ public final class TypedAgentContractController {
     }
 
     @PostMapping("/internal/gm/scenario-compilation")
-    ScenarioCompilationResponse scenarioCompilation(
+    ResponseEntity<?> scenarioCompilation(
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody ScenarioCompilationRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.complete(request.soloPlayerId(), request.operationKey(),
+        try {
+            return ResponseEntity.ok(adapter.complete(request.soloPlayerId(), request.operationKey(),
                 "ROLE=SCENARIO_COMPILATION\nSTORYBOOK_CONTEXT=" + request.storybookContext()
                         + "\nTASK=Compile the source-backed hidden ScenarioModel from the supplied Storybook excerpts. "
                         + "Find essential combat encounters: named or identifiable hostile groups that the Storybook makes part of the objective, a required obstacle, or an explicit triggered fight. Do not include every passing mention of a creature, non-hostile NPCs, or invented encounters. "
@@ -85,8 +93,34 @@ public final class TypedAgentContractController {
                         + "Each sourceRefs item must exactly cite a supplied DOCUMENT_ID, EXTRACTION_VERSION, and LOCATOR using {knowledgeDocumentId:{value:DOCUMENT_ID},extractionVersion:EXTRACTION_VERSION,locator:LOCATOR}. Never invent or rewrite a source reference. "
                         + "Also provide the ScenarioModel schema fields schemaVersion, actors, locations, objectives, revelations, encounters, relationships, resolutionCriteria, and startingSituation. schemaVersion must be an integer JSON number and startingSituation must be a plain text string. "
                         + "OUTPUT_CONTRACT=Return exactly one JSON object with status (READY or BLOCKED), scenarioModel when READY, and diagnostics. Do not use markdown or add text outside JSON.",
-                json -> parseCompilation(json));
+                this::parseCompilation));
+        } catch (AiExecutionUnavailableException failure) {
+            String code = "AI_EXECUTION_" + failure.failure().reason().name();
+            log.warn("scenario compilation agent failed operationKey={} code={}", request.operationKey(), code);
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey()));
+        } catch (ProviderMalformedResponseException failure) {
+            String code = "SCENARIO_COMPILATION_RESPONSE_INVALID";
+            log.warn("scenario compilation agent returned invalid response operationKey={} failureType={}",
+                    request.operationKey(), failure.getClass().getSimpleName());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey()));
+        } catch (IllegalArgumentException failure) {
+            String code = "SCENARIO_COMPILATION_RESPONSE_INVALID";
+            log.warn("scenario compilation agent returned invalid response operationKey={} failureType={}",
+                    request.operationKey(), failure.getClass().getSimpleName());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey()));
+        } catch (RuntimeException failure) {
+            String code = "SCENARIO_COMPILATION_AGENT_FAILED";
+            log.error("scenario compilation agent failed operationKey={} failureType={}",
+                    request.operationKey(), failure.getClass().getName());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey()));
+        }
     }
+
+    record ScenarioCompilationAgentError(String code, String correlationId) {}
 
     @PostMapping("/internal/gm/scenario-lookup")
     ScenarioLookupResponse scenarioLookup(

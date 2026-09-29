@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationAgentPort;
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationAgentFailureException;
 import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,7 +49,7 @@ public final class HttpScenarioCompilationAgentPort implements ScenarioCompilati
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) {
-                throw new IllegalStateException("scenario compilation agent returned " + response.statusCode());
+                throw decodeFailure(response.statusCode(), response.body(), request.operationKey());
             }
             CompilationResponse result = mapper.readValue(response.body(), CompilationResponse.class);
             if ("BLOCKED".equalsIgnoreCase(result.status())) {
@@ -72,9 +73,27 @@ public final class HttpScenarioCompilationAgentPort implements ScenarioCompilati
             Thread.currentThread().interrupt();
             throw new IllegalStateException("scenario compilation agent request interrupted", exception);
         } catch (Exception exception) {
+            if (exception instanceof ScenarioCompilationAgentFailureException failure) throw failure;
             if (exception instanceof IllegalStateException stateException) throw stateException;
             throw new IllegalStateException("scenario compilation agent request failed", exception);
         }
+    }
+
+    static ScenarioCompilationAgentFailureException decodeFailure(int status, String body, String fallbackCorrelationId) {
+        String code = "SCENARIO_COMPILATION_AGENT_HTTP_" + status;
+        String correlationId = fallbackCorrelationId;
+        if (body != null && !body.isBlank()) {
+            try {
+                var error = new ObjectMapper().readTree(body);
+                String candidateCode = error.path("code").asText("");
+                String candidateCorrelation = error.path("correlationId").asText("");
+                if (candidateCode.matches("[A-Z0-9_]{1,80}")) code = candidateCode;
+                if (candidateCorrelation.matches("[A-Za-z0-9:_-]{1,120}")) correlationId = candidateCorrelation;
+            } catch (Exception ignored) {
+                // Do not copy an unstructured response body into logs or persisted diagnostics.
+            }
+        }
+        return new ScenarioCompilationAgentFailureException(status, code, correlationId);
     }
 
     static void normalizeSchemaVersion(Map<String, Object> values) {

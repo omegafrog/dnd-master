@@ -280,17 +280,27 @@ public final class ScenarioCompilationWorker {
         } catch (RuntimeException exception) {
             String reason = exception.getMessage() == null || exception.getMessage().isBlank()
                     ? "scenario compilation failed" : exception.getMessage();
+            boolean terminalFailure = isCodexTurnTimeout(exception)
+                    || exception instanceof ScenarioCompilationRejectedException || claimed.attempt() >= MAX_ATTEMPTS;
+            List<com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic> failureDiagnostics =
+                    exception instanceof ScenarioCompilationAgentFailureException agentFailure
+                            ? List.of(terminalFailure
+                                    ? com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic.blocking(
+                                            agentFailure.code(), agentFailure.getMessage())
+                                    : com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic.warning(
+                                            agentFailure.code(), agentFailure.getMessage()))
+                            : claimed.diagnostics();
             if (isCodexTurnTimeout(exception)) {
                 log.error("scenario compilation provider timeout compilationId={} failureType={} reason={}",
                         claimed.id(), exception.getClass().getName(), reason, exception);
-                processManager.fail(claimed, delivery, reason);
-            } else if (exception instanceof ScenarioCompilationRejectedException || claimed.attempt() >= MAX_ATTEMPTS) {
-                processManager.fail(claimed, delivery, reason);
+                processManager.fail(claimed, delivery, reason, failureDiagnostics);
+            } else if (terminalFailure) {
+                processManager.fail(claimed, delivery, reason, failureDiagnostics);
             } else {
-                processManager.retry(claimed, delivery, reason);
+                processManager.retry(claimed, delivery, reason, failureDiagnostics);
             }
-            log.warn("scenario compilation worker failed compilationId={} attempt={} reason={}",
-                    claimed.id(), claimed.attempt(), reason, exception);
+            log.warn("scenario compilation worker failed compilationId={} attempt={} failureType={} reason={}",
+                    claimed.id(), claimed.attempt(), exception.getClass().getName(), reason, exception);
             throw exception;
         }
     }

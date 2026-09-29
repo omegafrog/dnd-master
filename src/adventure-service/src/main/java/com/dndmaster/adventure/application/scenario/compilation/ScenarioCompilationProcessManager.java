@@ -62,8 +62,13 @@ public final class ScenarioCompilationProcessManager {
     }
 
     public ScenarioCompilation retry(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, String reason) {
+        return retry(compilation, delivery, reason, compilation.diagnostics());
+    }
+
+    public ScenarioCompilation retry(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, String reason,
+            java.util.List<ScenarioCompilationDiagnostic> diagnostics) {
         ScenarioCompilation current = requireDelivery(compilation, delivery);
-        ScenarioCompilation waiting = current.retry(delivery.deliveryToken(), reason);
+        ScenarioCompilation waiting = current.retry(delivery.deliveryToken(), reason, diagnostics);
         saveOwned(waiting, delivery);
         queue.retry(delivery, reason);
         log.info("scenario compilation retry compilationId={} attempt={} reason={}",
@@ -99,8 +104,13 @@ public final class ScenarioCompilationProcessManager {
     }
 
     public ScenarioCompilation fail(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, String reason) {
+        return fail(compilation, delivery, reason, compilation.diagnostics());
+    }
+
+    public ScenarioCompilation fail(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, String reason,
+            java.util.List<ScenarioCompilationDiagnostic> diagnostics) {
         ScenarioCompilation current = requireDelivery(compilation, delivery);
-        ScenarioCompilation failed = current.fail(delivery.deliveryToken(), reason);
+        ScenarioCompilation failed = current.fail(delivery.deliveryToken(), reason, diagnostics);
         saveOwned(failed, delivery);
         queue.acknowledge(delivery);
         log.info("scenario compilation failed compilationId={} reason={}", current.id(), reason);

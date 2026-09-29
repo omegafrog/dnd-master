@@ -7,6 +7,9 @@ import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionResult;
 import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection;
 import com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser;
+import com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionFailure;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionUnavailableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import org.springframework.web.server.ResponseStatusException;
@@ -15,6 +18,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 
 class TypedAgentContractControllerTest {
     private static final UUID SOLO_PLAYER_ID = UUID.fromString("00000000-0000-0000-0000-000000000321");
@@ -279,12 +284,52 @@ class TypedAgentContractControllerTest {
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
-        controller.scenarioCompilation("service-secret", new TypedAgentContractController.ScenarioCompilationRequest(
+        ResponseEntity<?> result = controller.scenarioCompilation("service-secret", new TypedAgentContractController.ScenarioCompilationRequest(
                 SOLO_PLAYER_ID, "scenario-compilation:test", "DOCUMENT_ID=abc\\nEXTRACTION_VERSION=1\\nLOCATOR=page:2\\nTEXT=Eight Giant Rats begin combat."));
 
+        org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.OK, result.getStatusCode());
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Find essential combat encounters"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Never invent or rewrite a source reference"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scenarioModel.encounters"));
+    }
+
+    @Test
+    void scenario_compilation_returns_safe_provider_failure_code_and_operation_correlation() {
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new AiExecutionUnavailableException(new AiExecutionFailure(
+                        AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE, "CONNECTION_UNAVAILABLE"));
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        ResponseEntity<?> response = controller.scenarioCompilation("service-secret",
+                new TypedAgentContractController.ScenarioCompilationRequest(
+                        SOLO_PLAYER_ID, "scenario-compilation:compile-123", "private source excerpt"));
+
+        org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.SERVICE_UNAVAILABLE, response.getStatusCode());
+        var error = (TypedAgentContractController.ScenarioCompilationAgentError) response.getBody();
+        org.junit.jupiter.api.Assertions.assertEquals("AI_EXECUTION_CONNECTION_UNAVAILABLE", error.code());
+        org.junit.jupiter.api.Assertions.assertEquals("scenario-compilation:compile-123", error.correlationId());
+        org.junit.jupiter.api.Assertions.assertFalse(new ObjectMapper().valueToTree(error).toString().contains("private source excerpt"));
+    }
+
+    @Test
+    void scenario_compilation_marks_malformed_provider_output_as_bad_gateway() {
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new ProviderMalformedResponseException("untrusted provider output");
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        ResponseEntity<?> response = controller.scenarioCompilation("service-secret",
+                new TypedAgentContractController.ScenarioCompilationRequest(
+                        SOLO_PLAYER_ID, "scenario-compilation:compile-456", "private source excerpt"));
+
+        org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+        var error = (TypedAgentContractController.ScenarioCompilationAgentError) response.getBody();
+        org.junit.jupiter.api.Assertions.assertEquals("SCENARIO_COMPILATION_RESPONSE_INVALID", error.code());
     }
 
     @Test
