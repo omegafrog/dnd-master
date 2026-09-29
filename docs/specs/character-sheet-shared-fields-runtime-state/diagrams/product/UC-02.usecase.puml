@@ -1,0 +1,38 @@
+@startuml
+' UC-02 / G-04, G-05 / BR-07~BR-10
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+actor "Solo Player" as player
+actor "AI Game Master" as gm
+rectangle "모험 플레이" {
+  usecase "게임 안의 행동 시작하기" as UC02a
+  usecase "적용 규칙에 따라 결과 해결하기" as UC02b
+  usecase "해결되고 승인된 결과 반영하기" as UC02c
+  usecase "파생 값 다시 계산하기" as UC02d
+  usecase "결과 캐릭터 상태 확인하기" as UC02e
+  usecase "직접 수정 요청하기" as UC02f
+  usecase "직접 수정 거부 확인하기" as UC02g
+}
+player --> UC02a
+player --> UC02e
+player --> UC02f
+gm --> UC02b
+UC02a ..> UC02b : <<include>>
+UC02b ..> UC02c : 해결되고 승인된 경우
+UC02c ..> UC02d : 입력값 변경 시
+UC02c ..> UC02e : <<include>>
+UC02f ..> UC02g : <<include>>
+note bottom of UC02c
+선택한 규칙이 지원하는 경우에만 HP, 자원, 상태, 부상,
+아이템, 화폐, 레벨 진행 등의 예시가 적용된다.
+이 예시는 모든 규칙에 공통으로 존재하지 않는다.
+end note
+note bottom of UC02g
+상태 변경 없이 요청을 거부한다.
+눈 부상은 Rulebook이 구체적 효과를 정의한 경우에만
+그 효과를 적용한다. 정의가 없으면 부상은 서술에 남기고
+해결된 공격의 HP 피해만 적용한다.
+end note
+@enduml

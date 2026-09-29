@@ -1,0 +1,160 @@
+@startuml
+title 캐릭터 시트 공통 항목과 진행 중 상태의 소유 구조
+top to bottom direction
+skinparam packageStyle rectangle
+skinparam nodesep 0
+skinparam ranksep 0
+skinparam defaultFontSize 11
+skinparam classFontSize 11
+skinparam classAttributeFontSize 11
+skinparam noteFontSize 11
+skinparam shadowing false
+hide empty members
+
+legend right
+  요구사항 연결: AC-02..06, AC-11..13, AC-07..10
+  기존 D&D 5판 기본 시트 항목과 기본 블루프린트는 유지한다.
+  후보는 선택 Rulebook과 권한 있는 연결 Storybook의 근거 검색 결과에서 찾는다.
+  GSD 추출·게시를 이용해 항목을 만들지 않는다.
+endlegend
+
+package "Document Knowledge" {
+  interface CharacterContextSearchPort {
+    +search(request: Request): List<Evidence>
+  }
+  class Request <<기존 검색 요청>>
+  class DocumentScope <<권한 범위의 문서>>
+  class Evidence <<검색 근거>>
+  class CharacterFieldRecommendation <<기존 항목에 더할 추천>> {
+    +key: String
+    +required: boolean
+    +sourceType: String
+    +sourceReference: String
+    +sourceQuote: String
+    +sourceLocation: String
+  }
+  class CharacterFieldRecommendationEvaluator <<추천 정확성 평가>>
+  class CharacterFieldRecommendationCase <<고정 평가 사례>>
+  CharacterContextSearchPort --> Request : 조회
+  Request "1" *-- "1..*" DocumentScope : 선택 Rulebook 및 권한 있는 Storybook
+  CharacterContextSearchPort --> Evidence : 기존 하이브리드 검색 결과
+  Evidence "1..*" --> "0..*" CharacterFieldRecommendation : 근거가 뒷받침하는 후보
+  CharacterFieldRecommendationEvaluator --> CharacterFieldRecommendationCase : 고정 질문·예상 후보·근거
+}
+
+package "Scenario Preparation / Adventure" {
+  class AdventureSession {
+    +id: SessionId
+    +blueprintId: UUID
+    +blueprintRevision: long
+    +status: Status
+    +version: long
+  }
+  class CharacterCreationBlueprint <<기존 불변 기본 구성>> {
+    +revision: long
+    +status: CharacterCreationBlueprintStatus
+    +fields: List<Field>
+  }
+  class SessionCharacterFieldExtension <<현재 모험 전용 추가 구성>> {
+    +sessionId: SessionId
+    +revision: long
+    +activeRevision: long
+    +status: Status
+  }
+  class SharedFieldBatch <<일괄 반영 기록>> {
+    +batchId: UUID
+    +expectedSessionVersion: long
+    +targetRevision: long
+    +status: Status
+  }
+}
+
+package "Character Management" {
+  class CharacterSheet {
+    -id: CharacterSheetId
+    -sessionId: SessionId
+    -data: CharacterSheetData
+    -version: long
+    +applyUpdate(update: CharacterSheetUpdate, rules: CharacterMutationRules): void
+    +markPersisted(version: long, operationKey: UUID, operationFingerprint: String): void
+  }
+  class CharacterFieldValueSlot <<PC별 항목 값>> {
+    +fieldKey: String
+    +value: String
+    +extensionRevision: long
+    +batchId: UUID
+  }
+  class CharacterSheetApplicationService {
+  }
+  interface CharacterMutationRules {
+    +evaluate(current: CharacterSheetData, proposed: CharacterSheetData): CharacterMutationDecision
+  }
+  CharacterSheet "1" *-- "0..*" CharacterFieldValueSlot : PC 값 및 슬롯 소유
+  CharacterSheetApplicationService ..> CharacterSheet : 저장
+  CharacterSheetApplicationService ..> CharacterMutationRules : 최종 규칙 검사
+}
+
+AdventureSession "1" *-- "1" SessionCharacterFieldExtension : 소유
+SessionCharacterFieldExtension "1" *-- "0..*" SharedFieldBatch : 이력
+SessionCharacterFieldExtension ..> CharacterFieldRecommendation : 사용자가 고른 후보
+SharedFieldBatch ..> CharacterSheetApplicationService : 일괄 준비
+
+package "Adventure Runtime" {
+  class RuntimeTurnCommitOrchestrator {
+  }
+  class RuntimeTurnCommand {
+    +turnId: UUID
+    +commandId: UUID
+    +idempotencyKey: String
+    +expectedVersion: long
+  }
+}
+
+package "AI Game Master" {
+  class GameplayEffectProposal <<제안만 수행>>
+}
+
+GameplayEffectProposal --> RuntimeTurnCommitOrchestrator : 결과 제안
+RuntimeTurnCommitOrchestrator "1" o-- "0..*" RuntimeTurnCommand : 명령 기록
+RuntimeTurnCommitOrchestrator ..> CharacterSheetApplicationService : 변경 명령
+note bottom of SessionCharacterFieldExtension
+  Adventure가 session 단위 추가 구성, activeRevision, batch 이력을 소유한다.
+  CharacterFieldDefinition은 GameSystemDefinitionRevision에 저장된 후보 정의다.
+  활성 revision이 공개 기준이다. 이전 revision은 반영 중에도 계속 보인다.
+  모든 PC 슬롯 저장 성공 뒤 Adventure가 활성 revision을 바꾼다.
+  실패한 revision은 숨기고 같은 batchId 재시도를 허용한다.
+  시작과 항목 변경은 expected version으로 경합을 막는다.
+end note
+
+note bottom of CharacterFieldValueSlot
+  Character Management는 PC별 값과 최종 불변식을 소유한다.
+  공개 여부는 저장된 참·거짓이 아니다. Adventure가 소유한 activeRevision과
+  읽기 권한으로 조회 때 계산한다. 필수 값 기본, 기본값 생성 없음.
+end note
+
+note bottom of CharacterFieldRecommendationEvaluator
+  실제 추천 결과를 고정 질문·예상 후보·출처 근거 사례와 비교한다.
+  항목명, 필수 여부, 근거 일치도를 측정해 첫 기준선을 보고한다.
+  통과 기준은 기준선을 확인한 뒤 정한다.
+end note
+
+note bottom of CharacterMutationRules
+  규칙에 정의된 HP·자원·상태·부상·장비·화폐·레벨·기술 변경만 허용한다.
+  정의되지 않은 눈 부상은 서술에 남기며 별도 능력치 페널티를 만들지 않는다.
+end note
+
+note bottom of CharacterSheetApplicationService
+  +applyRuntimeMutation(
+  id: CharacterSheetId, sessionId: SessionId,
+  ownerPlayerId: UUID, mutation: RuntimeCharacterMutation,
+  commandId: UUID, expectedVersion: long): CharacterSheet
+end note
+
+note bottom of RuntimeTurnCommitOrchestrator
+  +commit(readyTurn: RuntimeTurn,
+  commands: List<RuntimeTurnCommand>,
+  localAdventureCommit: Runnable): Result
+  +resume(turnId: UUID, localAdventureCommit: Runnable): Result
+end note
+
+@enduml
