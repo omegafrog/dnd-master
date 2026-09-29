@@ -6,6 +6,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.evidence.EvidenceAcquisitionRequest;
 import com.dndmaster.adventure.evidence.EvidenceCandidateSearchRequest;
@@ -56,5 +57,22 @@ class CrossContextHttpEvidenceCandidateSearchGatewayTest {
 
         assertEquals(List.of(chunkId), result.stream().map(item -> item.id()).toList());
         assertEquals(documentId.toString(), result.getFirst().documentId());
+    }
+
+    @Test
+    void reports_the_endpoint_and_io_cause_class_without_the_cause_message() {
+        URI unavailableBaseUri = URI.create(server.baseUrl() + "/");
+        server.stop();
+        var gateway = new CrossContextHttpEvidenceCandidateSearchGateway(HttpClient.newHttpClient(), unavailableBaseUri,
+                Duration.ofSeconds(2), new ObjectMapper(), "internal-token");
+        var scope = new EvidenceSearchScope(ownerId, sessionId, scenarioPackageId, "runtime", "MIXED",
+                List.of(new EvidenceSearchScope.Document(documentId, 7, "RULEBOOK")), List.of("p:3"));
+
+        var failure = assertThrows(com.dndmaster.adventure.evidence.EvidenceAcquisitionTransientException.class,
+                () -> gateway.search(new EvidenceCandidateSearchRequest(
+                        new EvidenceAcquisitionRequest("PLAYER_ACTION", "attack question", List.of(), scope), "attack question", 0)));
+
+        assertEquals("evidence candidate search failed endpoint=/internal/v1/evidence-candidates/search causeClass=ConnectException",
+                failure.getMessage());
     }
 }

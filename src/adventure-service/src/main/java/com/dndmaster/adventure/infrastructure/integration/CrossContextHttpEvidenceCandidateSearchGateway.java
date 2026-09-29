@@ -21,6 +21,7 @@ import java.util.UUID;
 
 /** Calls the unified Document Knowledge candidate endpoint within the already-fixed Adventure session scope. */
 public final class CrossContextHttpEvidenceCandidateSearchGateway implements EvidenceCandidateSearchPort {
+    private static final String CANDIDATE_SEARCH_PATH = "internal/v1/evidence-candidates/search";
     private final HttpClient client; private final URI baseUri; private final Duration timeout; private final ObjectMapper mapper;
     private final String internalToken;
     public CrossContextHttpEvidenceCandidateSearchGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
@@ -33,13 +34,14 @@ public final class CrossContextHttpEvidenceCandidateSearchGateway implements Evi
         if(scope==null) throw new EvidenceAcquisitionContractException("evidence search requires a server-confirmed session document scope");
         try {
             Request body=new Request(scope.ownerId(),scope.sessionId(),scope.scenarioPackageId(),scope.stageKey(),scope.actionIntent(),scope.documents().stream().map(document->new Scope(document.id(),document.extractionVersion(),document.type())).toList(),scope.activeLocators(),request.query(),30,30);
-            HttpResponse<String> response=client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/evidence-candidates/search")).timeout(timeout).header("X-Internal-Token",internalToken).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build(),HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response=client.send(HttpRequest.newBuilder(baseUri.resolve(CANDIDATE_SEARCH_PATH)).timeout(timeout).header("X-Internal-Token",internalToken).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build(),HttpResponse.BodyHandlers.ofString());
             if(response.statusCode()==429||response.statusCode()>=500) throw new EvidenceAcquisitionTransientException("evidence candidate search is unavailable");
             if(response.statusCode()/100!=2) throw new EvidenceAcquisitionContractException("evidence candidate search failed with status "+response.statusCode());
             Response parsed=mapper.readValue(response.body(),Response.class);
             validateEnvelope(parsed,scope);
             return candidates(parsed.candidates(),scope);
-        } catch(IOException exception) { throw new EvidenceAcquisitionTransientException("evidence candidate search transport failed");
+        } catch(IOException exception) { throw new EvidenceAcquisitionTransientException("evidence candidate search failed endpoint=/" + CANDIDATE_SEARCH_PATH
+                + " causeClass=" + exception.getClass().getSimpleName());
         } catch(InterruptedException exception) { Thread.currentThread().interrupt(); throw new EvidenceAcquisitionTransientException("evidence candidate search interrupted"); }
     }
     private static void validateEnvelope(Response response,EvidenceSearchScope scope) {
