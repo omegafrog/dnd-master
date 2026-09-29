@@ -21,6 +21,7 @@ import { AiEndpointSettings } from '../features/profile/AiEndpointSettings'
 import { CombatScreen } from '../features/combat/CombatScreen'
 import { HttpCombatApi, type CombatFinalSummary, type CombatSnapshot } from '../features/combat/CombatApi'
 import { parseRoute, type Route } from './route'
+import { BookOpenText, FileUp, Home, Map, Settings, Swords, UserRound } from 'lucide-react'
 
 export function AppShell() {
   const auth = useAuth()
@@ -184,9 +185,21 @@ export function AppShell() {
 
   const creatorRoute = route.page === 'character-blueprint' || route.page === 'character-create'
   const initials = auth.session.playerName.slice(0, 1).toUpperCase()
-  const adventureNavActive = route.page === 'adventures' || route.page === 'adventure' || route.page === 'adventure-workspace' || route.page === 'setup'
+  const currentAdventureId = route.page === 'adventure-workspace' || route.page === 'adventure' ? route.adventureId : null
+  const currentSessionId = 'sessionId' in route ? route.sessionId : null
+  const materialsHref = currentAdventureId ? `#/adventures/${encodeURIComponent(currentAdventureId)}?tab=materials` : '#/setup?mode=create'
+  const scenarioHref = currentAdventureId ? `#/adventures/${encodeURIComponent(currentAdventureId)}?tab=review` : '#/adventures'
+  const characterHref = currentSessionId ? `#/sessions/${encodeURIComponent(currentSessionId)}/party` : currentAdventureId ? `#/adventures/${encodeURIComponent(currentAdventureId)}?tab=characters` : '#/adventures'
+  const sessionHref = currentSessionId ? `#/sessions/${encodeURIComponent(currentSessionId)}?mode=play` : currentAdventureId ? `#/adventures/${encodeURIComponent(currentAdventureId)}?tab=sessions` : '#/adventures'
   return <div className="app-shell">
-    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={adventureNavActive ? 'active' : undefined} aria-current={adventureNavActive ? 'page' : undefined} href="#/adventures">모험</a><details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 설정</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
+    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴">
+      <a aria-label="모험" className={route.page === 'adventures' ? 'active' : undefined} aria-current={route.page === 'adventures' ? 'page' : undefined} href="#/adventures"><Home size={17} aria-hidden="true" /><span>모험</span></a>
+      <a aria-label="자료" className={route.page === 'setup' || route.page === 'bundle' || (route.page === 'adventure-workspace' && route.tab === 'materials') ? 'active' : undefined} href={materialsHref}><FileUp size={17} aria-hidden="true" /><span>자료</span></a>
+      <a aria-label="시나리오" className={route.page === 'adventure-workspace' && route.tab === 'review' ? 'active' : undefined} href={scenarioHref}><Map size={17} aria-hidden="true" /><span>시나리오</span></a>
+      <a aria-label="캐릭터" className={route.page === 'character' || route.page === 'character-create' || route.page === 'character-blueprint' || (route.page === 'adventure-workspace' && route.tab === 'characters') ? 'active' : undefined} href={characterHref}><UserRound size={17} aria-hidden="true" /><span>캐릭터</span></a>
+      <a aria-label="세션" className={route.page === 'session' || route.page === 'party' || (route.page === 'adventure-workspace' && route.tab === 'sessions') ? 'active' : undefined} href={sessionHref}><Swords size={17} aria-hidden="true" /><span>세션</span></a>
+      <details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile"><Settings size={15} aria-hidden="true" />내 설정</a><button type="button" onClick={() => void auth.logout()}><BookOpenText size={15} aria-hidden="true" />로그아웃</button></div></details>
+    </nav></header>
     <main id="main" className={creatorRoute ? 'creator-main' : `app-content app-page-${route.page}`}>
       <div className="app-notices"><p role="status" aria-live="polite">{auth.message}</p></div>
       {route.page === 'login' && <section className="welcome-card"><p className="eyebrow">ADVENTURE AWAITS</p><h2>모험 준비가 완료되었습니다</h2><a className="text-link" href="#/setup">자료 설정으로 이동</a></section>}
