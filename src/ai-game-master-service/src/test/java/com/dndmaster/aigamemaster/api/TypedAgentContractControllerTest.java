@@ -311,6 +311,8 @@ class TypedAgentContractControllerTest {
         var error = (TypedAgentContractController.ScenarioCompilationAgentError) response.getBody();
         org.junit.jupiter.api.Assertions.assertEquals("AI_EXECUTION_CONNECTION_UNAVAILABLE", error.code());
         org.junit.jupiter.api.Assertions.assertEquals("scenario-compilation:compile-123", error.correlationId());
+        org.junit.jupiter.api.Assertions.assertEquals("AiExecutionUnavailableException", error.rootCauseClass());
+        org.junit.jupiter.api.Assertions.assertTrue(error.retryable());
         org.junit.jupiter.api.Assertions.assertFalse(new ObjectMapper().valueToTree(error).toString().contains("private source excerpt"));
     }
 
@@ -330,6 +332,8 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
         var error = (TypedAgentContractController.ScenarioCompilationAgentError) response.getBody();
         org.junit.jupiter.api.Assertions.assertEquals("SCENARIO_COMPILATION_RESPONSE_INVALID", error.code());
+        org.junit.jupiter.api.Assertions.assertEquals("ProviderMalformedResponseException", error.rootCauseClass());
+        org.junit.jupiter.api.Assertions.assertFalse(error.retryable());
     }
 
     @Test

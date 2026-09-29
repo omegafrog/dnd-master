@@ -358,7 +358,8 @@ class ScenarioCompilationWorkerTest {
         var excerpt = new ResolutionExtractionPort.SourceExcerpt(storybook, 1, "page:2", "private story excerpt");
         ScenarioCompilationAgentPort failedAgent = request -> {
             throw new ScenarioCompilationAgentFailureException(503,
-                    "AI_EXECUTION_CONNECTION_UNAVAILABLE", request.operationKey());
+                    "AI_EXECUTION_CONNECTION_UNAVAILABLE", request.operationKey(),
+                    "AiExecutionUnavailableException", true);
         };
         var worker = new ScenarioCompilationWorker(fixture.manager, fixture.compilations, fixture.queue,
                 new Bundles(bundle), request -> List.of(), ignored -> List.of(excerpt), fixture.tags, fixture.search,
@@ -371,8 +372,17 @@ class ScenarioCompilationWorkerTest {
         assertEquals(ScenarioCompilationStatus.WAITING_RETRY, retried.status());
         assertEquals("AI_EXECUTION_CONNECTION_UNAVAILABLE", retried.diagnostics().getFirst().code());
         assertEquals(ScenarioCompilationDiagnostic.Severity.WARNING, retried.diagnostics().getFirst().severity());
+        assertEquals("AiExecutionUnavailableException", retried.diagnostics().getFirst().rootCauseClass());
         assertTrue(retried.failureReason().contains("correlationId=scenario-compilation:"));
         assertTrue(!retried.diagnostics().getFirst().message().contains("private story excerpt"));
+
+        assertThrows(ScenarioCompilationAgentFailureException.class,
+                () -> worker.processNext("worker", Duration.ofMinutes(1)));
+
+        ScenarioCompilation failed = fixture.compilations.findByInputFingerprint("fp-agent-failure").orElseThrow();
+        assertEquals(ScenarioCompilationStatus.FAILED, failed.status());
+        assertEquals(ScenarioCompilationDiagnostic.Severity.BLOCKING, failed.diagnostics().getFirst().severity());
+        assertEquals(0, fixture.queue.pending.size());
     }
 
     private static ScenarioSourceBundle bundle(List<ScenarioBundleDocumentSelection> documents) {

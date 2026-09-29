@@ -13,6 +13,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.scenario.ScenarioModelElement;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
 import java.util.List;
@@ -77,6 +78,25 @@ class PostgresScenarioCompilationRepositoryIntegrationTest {
 
         assertTrue(repository.saveIfLeaseMatches(claimed, null));
         assertEquals(ScenarioCompilationStatus.RUNNING, repository.findById(claimed.id()).orElseThrow().status());
+    }
+
+    @Test
+    void persists_structured_agent_failure_diagnostics_with_terminal_status() {
+        ScenarioCompilation requested = ScenarioCompilation.request(bundleId, 1, "diagnostic-fingerprint");
+        repository.save(requested);
+        UUID lease = UUID.randomUUID();
+        ScenarioCompilation claimed = requested.claim(lease);
+        assertTrue(repository.saveIfLeaseMatches(claimed, null));
+
+        ScenarioCompilation failed = claimed.fail(lease, "scenario compilation agent failed",
+                List.of(ScenarioCompilationDiagnostic.blocking("AI_EXECUTION_CONNECTION_UNAVAILABLE",
+                        "safe error code and correlation", "AiExecutionUnavailableException")));
+        assertTrue(repository.saveIfLeaseMatches(failed, lease));
+
+        ScenarioCompilation reloaded = repository.findById(requested.id()).orElseThrow();
+        assertEquals(ScenarioCompilationStatus.FAILED, reloaded.status());
+        assertEquals("AI_EXECUTION_CONNECTION_UNAVAILABLE", reloaded.diagnostics().getFirst().code());
+        assertEquals("AiExecutionUnavailableException", reloaded.diagnostics().getFirst().rootCauseClass());
     }
 
     @Test

@@ -12,12 +12,15 @@ class HttpScenarioCompilationAgentPortTest {
     @Test
     void retains_safe_remote_failure_code_and_correlation_id_without_copying_response_text() {
         var failure = HttpScenarioCompilationAgentPort.decodeFailure(503,
-                "{\"code\":\"AI_EXECUTION_CONNECTION_UNAVAILABLE\",\"correlationId\":\"scenario-compilation:compile-123\",\"debug\":\"private prompt\"}",
+                "{\"code\":\"AI_EXECUTION_CONNECTION_UNAVAILABLE\",\"correlationId\":\"scenario-compilation:compile-123\","
+                        + "\"rootCauseClass\":\"AiExecutionUnavailableException\",\"retryable\":true,\"debug\":\"private prompt\"}",
                 "scenario-compilation:fallback");
 
         assertThat(failure.httpStatus()).isEqualTo(503);
         assertThat(failure.code()).isEqualTo("AI_EXECUTION_CONNECTION_UNAVAILABLE");
         assertThat(failure.correlationId()).isEqualTo("scenario-compilation:compile-123");
+        assertThat(failure.rootCauseClass()).isEqualTo("AiExecutionUnavailableException");
+        assertThat(failure.retryable()).isTrue();
         assertThat(failure.getMessage()).doesNotContain("private prompt");
     }
 
@@ -27,6 +30,8 @@ class HttpScenarioCompilationAgentPortTest {
 
         assertThat(failure.code()).isEqualTo("SCENARIO_COMPILATION_AGENT_HTTP_500");
         assertThat(failure.correlationId()).isEqualTo("scenario-compilation:compile-456");
+        assertThat(failure.rootCauseClass()).isEqualTo("RemoteScenarioCompilationFailure");
+        assertThat(failure.retryable()).isTrue();
     }
 
     @Test

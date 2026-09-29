@@ -82,18 +82,23 @@ public final class HttpScenarioCompilationAgentPort implements ScenarioCompilati
     static ScenarioCompilationAgentFailureException decodeFailure(int status, String body, String fallbackCorrelationId) {
         String code = "SCENARIO_COMPILATION_AGENT_HTTP_" + status;
         String correlationId = fallbackCorrelationId;
+        String rootCauseClass = "RemoteScenarioCompilationFailure";
+        boolean retryable = status >= 500;
         if (body != null && !body.isBlank()) {
             try {
                 var error = new ObjectMapper().readTree(body);
                 String candidateCode = error.path("code").asText("");
                 String candidateCorrelation = error.path("correlationId").asText("");
+                String candidateRootCauseClass = error.path("rootCauseClass").asText("");
                 if (candidateCode.matches("[A-Z0-9_]{1,80}")) code = candidateCode;
                 if (candidateCorrelation.matches("[A-Za-z0-9:_-]{1,120}")) correlationId = candidateCorrelation;
+                if (candidateRootCauseClass.matches("[A-Z][A-Za-z0-9_$]{0,119}")) rootCauseClass = candidateRootCauseClass;
+                if (error.path("retryable").isBoolean()) retryable = error.path("retryable").booleanValue();
             } catch (Exception ignored) {
                 // Do not copy an unstructured response body into logs or persisted diagnostics.
             }
         }
-        return new ScenarioCompilationAgentFailureException(status, code, correlationId);
+        return new ScenarioCompilationAgentFailureException(status, code, correlationId, rootCauseClass, retryable);
     }
 
     static void normalizeSchemaVersion(Map<String, Object> values) {

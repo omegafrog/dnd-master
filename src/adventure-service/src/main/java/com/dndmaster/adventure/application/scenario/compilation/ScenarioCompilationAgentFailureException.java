@@ -7,13 +7,19 @@ public final class ScenarioCompilationAgentFailureException extends RuntimeExcep
     private final int httpStatus;
     private final String code;
     private final String correlationId;
+    private final String rootCauseClass;
+    private final boolean retryable;
 
-    public ScenarioCompilationAgentFailureException(int httpStatus, String code, String correlationId) {
+    public ScenarioCompilationAgentFailureException(
+            int httpStatus, String code, String correlationId, String rootCauseClass, boolean retryable) {
         super("scenario compilation agent failed: HTTP " + httpStatus + " code=" + safeCode(code)
+                + " rootCauseClass=" + safeClassName(rootCauseClass)
                 + " correlationId=" + safeCorrelation(correlationId));
         this.httpStatus = httpStatus;
         this.code = safeCode(code);
         this.correlationId = safeCorrelation(correlationId);
+        this.rootCauseClass = safeClassName(rootCauseClass);
+        this.retryable = retryable;
     }
 
     private static String safeCode(String value) {
@@ -28,7 +34,15 @@ public final class ScenarioCompilationAgentFailureException extends RuntimeExcep
         return value;
     }
 
+    private static String safeClassName(String value) {
+        Objects.requireNonNull(value, "root cause class must not be null");
+        if (!value.matches("[A-Z][A-Za-z0-9_$]{0,119}")) throw new IllegalArgumentException("invalid root cause class");
+        return value;
+    }
+
     public int httpStatus() { return httpStatus; }
     public String code() { return code; }
     public String correlationId() { return correlationId; }
+    public String rootCauseClass() { return rootCauseClass; }
+    public boolean retryable() { return retryable; }
 }

@@ -98,29 +98,31 @@ public final class TypedAgentContractController {
             String code = "AI_EXECUTION_" + failure.failure().reason().name();
             log.warn("scenario compilation agent failed operationKey={} code={}", request.operationKey(), code);
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(new ScenarioCompilationAgentError(code, request.operationKey()));
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey(),
+                            failure.getClass().getSimpleName(),
+                            failure.failure().reason() != com.dndmaster.aigamemaster.application.ai.AiExecutionFailure.Reason.LOCAL_EXECUTION_FAILED));
         } catch (ProviderMalformedResponseException failure) {
             String code = "SCENARIO_COMPILATION_RESPONSE_INVALID";
             log.warn("scenario compilation agent returned invalid response operationKey={} failureType={}",
                     request.operationKey(), failure.getClass().getSimpleName());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(new ScenarioCompilationAgentError(code, request.operationKey()));
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey(), failure.getClass().getSimpleName(), false));
         } catch (IllegalArgumentException failure) {
             String code = "SCENARIO_COMPILATION_RESPONSE_INVALID";
             log.warn("scenario compilation agent returned invalid response operationKey={} failureType={}",
                     request.operationKey(), failure.getClass().getSimpleName());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(new ScenarioCompilationAgentError(code, request.operationKey()));
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey(), failure.getClass().getSimpleName(), false));
         } catch (RuntimeException failure) {
             String code = "SCENARIO_COMPILATION_AGENT_FAILED";
             log.error("scenario compilation agent failed operationKey={} failureType={}",
                     request.operationKey(), failure.getClass().getName());
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(new ScenarioCompilationAgentError(code, request.operationKey()));
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey(), failure.getClass().getSimpleName(), false));
         }
     }
 
-    record ScenarioCompilationAgentError(String code, String correlationId) {}
+    record ScenarioCompilationAgentError(String code, String correlationId, String rootCauseClass, boolean retryable) {}
 
     @PostMapping("/internal/gm/scenario-lookup")
     ScenarioLookupResponse scenarioLookup(

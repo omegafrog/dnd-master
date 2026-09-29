@@ -280,15 +280,18 @@ public final class ScenarioCompilationWorker {
         } catch (RuntimeException exception) {
             String reason = exception.getMessage() == null || exception.getMessage().isBlank()
                     ? "scenario compilation failed" : exception.getMessage();
+            ScenarioCompilationAgentFailureException agentFailure =
+                    exception instanceof ScenarioCompilationAgentFailureException failure ? failure : null;
             boolean terminalFailure = isCodexTurnTimeout(exception)
-                    || exception instanceof ScenarioCompilationRejectedException || claimed.attempt() >= MAX_ATTEMPTS;
+                    || exception instanceof ScenarioCompilationRejectedException || claimed.attempt() >= MAX_ATTEMPTS
+                    || agentFailure != null && (!agentFailure.retryable() || claimed.attempt() >= 2);
             List<com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic> failureDiagnostics =
-                    exception instanceof ScenarioCompilationAgentFailureException agentFailure
+                    agentFailure != null
                             ? List.of(terminalFailure
                                     ? com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic.blocking(
-                                            agentFailure.code(), agentFailure.getMessage())
+                                            agentFailure.code(), agentFailure.getMessage(), agentFailure.rootCauseClass())
                                     : com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic.warning(
-                                            agentFailure.code(), agentFailure.getMessage()))
+                                            agentFailure.code(), agentFailure.getMessage(), agentFailure.rootCauseClass()))
                             : claimed.diagnostics();
             if (isCodexTurnTimeout(exception)) {
                 log.error("scenario compilation provider timeout compilationId={} failureType={} reason={}",
