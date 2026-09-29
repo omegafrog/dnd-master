@@ -134,6 +134,36 @@ class GmAgentRuntimePlanningAdapterTest {
     }
 
     @Test
+    void records_a_coordinated_relationship_objective_without_a_goal_label() {
+        UUID turnId = UUID.randomUUID();
+        String action = "사라진 탐험가를 찾고 마을 사람들과 신뢰를 쌓는다.";
+        var result = new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of()),
+                new GmFinalValidator()).planWithOutcomes(
+                        request(action, turnId));
+
+        assertThat(result.resolutionProposal().runtimeAddedFacts()).singleElement()
+                .satisfies(fact -> {
+                    assertThat(fact.content()).isEqualTo("목표: " + action);
+                    assertThat(fact.subject()).isEqualTo("goal");
+                    assertThat(fact.establishedTurnId()).isEqualTo(turnId);
+                });
+    }
+
+    @Test
+    void does_not_record_an_immediate_action_or_an_ambiguous_wish_as_a_long_term_goal() {
+        for (String action : List.of("문을 열고 안으로 들어간다.", "저는 문을 열고 싶다.",
+                "마을 사람들에게 신뢰를 물어보고 문을 연다.",
+                "사라진 탐험가를 찾고 마을 사람들과 신뢰를 쌓고 싶다.")) {
+            var result = new GmAgentRuntimePlanningAdapter(
+                    context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of()),
+                    new GmFinalValidator()).planWithOutcomes(request(action, UUID.randomUUID()));
+
+            assertThat(result.resolutionProposal().runtimeAddedFacts()).isEmpty();
+        }
+    }
+
+    @Test
     void retains_a_durable_goal_that_mentions_a_place_without_recording_the_place_as_current_location() {
         UUID turnId = UUID.randomUUID();
         var result = new GmAgentRuntimePlanningAdapter(

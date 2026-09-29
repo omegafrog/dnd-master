@@ -322,6 +322,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         String objective;
         if (korean.matches()) objective = korean.group(1).trim();
         else if (english.matches()) objective = english.group(1).trim();
+        else if (isCoordinatedRelationshipObjective(text)) objective = text;
         else return java.util.Optional.empty();
 
         // These are state, secret, or promise claims, not a durable goal record.
@@ -331,6 +332,15 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         }
         return java.util.Optional.of(new com.dndmaster.adventure.domain.runtime.RuntimeAddedFact(
                 UUID.randomUUID(), "목표: " + objective, turnId, "goal"));
+    }
+
+    private static boolean isCoordinatedRelationshipObjective(String text) {
+        String sentence = text.replaceFirst("[.!?。！？]+$", "").trim();
+        boolean declarative = (sentence.endsWith("다") || sentence.endsWith("습니다"))
+                && !sentence.matches("(?s).*(?:고 싶(?:다|습니다)|하고 싶(?:다|습니다))$");
+        boolean coordinated = sentence.matches("(?s).+고\\s+.+");
+        boolean buildsRelationship = sentence.matches("(?s).*(?:신뢰|믿음|관계)(?:를|을)?\\s*(?:쌓|회복|다지|얻|형성|맺).*");
+        return declarative && coordinated && buildsRelationship;
     }
 
     private static String normalizeGoal(String content) {
