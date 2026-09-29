@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.runtime.CandidateHardFilter;
@@ -34,6 +35,12 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class BestOfNTurnPlanningTest {
+    @Test
+    void rejects_retry_count_above_validation_retry_limit() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new BestOfNRuntimePlanningAdapter(request -> null, 1, 3, false, audit -> { }));
+    }
+
     @Test
     void candidate_count_defaults_to_one() {
         assertEquals(1, PlanningContext.candidateCount(false));

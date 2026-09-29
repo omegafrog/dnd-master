@@ -6,6 +6,7 @@ import java.util.Set;
 
 /** Compatibility bridge that applies plan selection before the writer sees a runtime plan. */
 public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort {
+    private static final int MAX_RETRY_COUNT = 2;
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(BestOfNRuntimePlanningAdapter.class);
     private final RuntimePlanningPort delegate;
     private final int requestedCount;
@@ -23,6 +24,7 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
         this.delegate = java.util.Objects.requireNonNull(legacy);
         if (requestedCount < 1) throw new IllegalArgumentException("requested candidate count must be positive");
         if (retryCount < 0) throw new IllegalArgumentException("retry count must not be negative");
+        if (retryCount > MAX_RETRY_COUNT) throw new IllegalArgumentException("retry count must not exceed " + MAX_RETRY_COUNT);
         this.requestedCount = requestedCount;
         this.retryCount = retryCount;
         this.simpleTurn = simpleTurn;
