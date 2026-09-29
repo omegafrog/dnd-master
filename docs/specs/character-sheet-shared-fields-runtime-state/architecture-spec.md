@@ -192,7 +192,7 @@ cm --> adv : Per-character result and version
 | Upstream | Downstream | Relationship | Contract | Translation |
 | --- | --- | --- | --- | --- |
 | Shared Rulebook Catalog | Document Knowledge (`rule-knowledge-service`) | 공급자 계약 | Rulebook 식별자와 본문/근거 | 기존 Rulebook adapter가 내부 Rulebook 표현으로 변환 |
-| Document Knowledge (`rule-knowledge-service`) | Adventure | 발행 언어 | 기존 근거 검색: immutable GSD revision, 후보 정의, 근거 위치 | Adventure는 선택된 발행 revision을 세션 구성으로 해석 |
+| Document Knowledge (`rule-knowledge-service`) | Adventure | 기존 검색 API | 현재 모험의 Rulebook·권한 있는 Storybook 범위, query, 근거 발췌와 위치 | Adventure는 검색 결과를 기존 캐릭터 시트에 더할 추천으로 구성 |
 | Adventure | Character Management | 고객/공급자, 내부 동기 API | 일괄 시트 준비, PC별 값 쓰기, 런타임 변경 명령; 버전·명령 ID | Character Management 요청 DTO를 각 aggregate 입력으로 번역 |
 | Character Management | Adventure | 내부 응답 계약 | 적용됨/충돌/거부, 현재 시트 버전과 적용 요약 | Adventure Saga가 응답을 턴 결과 상태로 변환 |
 
@@ -203,7 +203,7 @@ cm --> adv : Per-character result and version
 | 모험별 공통 항목 확장 | session별 공통 항목 확장 revision | 선택된 검색 추천 항목을 현재 모험 구성에만 추가하고 준비/공개/고정 상태 관리 | 적용 요청, 숨김 준비 결과 기록, 공개, 모험 시작 고정 | 확장 공개, 구성 고정 | Adventure 활성 revision만 사용자 공개의 최종 기준; 모든 PC의 숨김 준비가 성공한 뒤에만 공개 revision 전환; 기반 GSD/blueprint 불변 |
 | Adventure Session | 기존 세션 root | 파티·준비·시작 상태 및 현재 고정 revision 유지 | 파티 구성, 시작, 턴 해결 | AdventureStarted, 기존 턴 이벤트 | 시작 검증 통과 전 started 금지; 시작 뒤 구성 고정 |
 | CharacterSheet | `CharacterSheet` | PC 값·공개 버전과 유효한 상태 변경 | 숨김 필드 준비, PC 값 입력, 런타임 mutation | CharacterMutationApplied 및 기존 변경 기록 | 숨김 준비는 공개 값/공개 버전을 바꾸지 않음; 값은 정의된 형식·규칙을 만족; 공개 버전 일치; 시작 후 직접 변경 금지; 같은 command ID는 한 번만 적용 |
-| GameSystemDefinitionRevision | `GameSystemDefinitionRevision` | 발행된 GSD, 추출된 공통 후보, 근거와 Runtime Rule 보존 | 추출 평가 및 발행 workflow | 발행 revision 기록 | 발행 revision 불변; 출처 없는 후보는 추천 대상 아님 |
+| GameSystemDefinitionRevision | `GameSystemDefinitionRevision` | 기존 발행 규칙과 Runtime Rule 보존 | 기존 발행 workflow | 발행 revision 기록 | 발행 revision 불변; 추천 후보 저장은 이 작업의 책임이 아님 |
 
 Aggregate 간 session의 확장 전체 적용은 분산 트랜잭션으로 묶지 않는다. 임시 준비 상태와 Adventure의 단일 공개 전이가 가시성 불변식을 제공한다.
 
@@ -211,14 +211,14 @@ Aggregate 간 session의 확장 전체 적용은 분산 트랜잭션으로 묶�
 
 | Entity | Aggregate | Identity | Responsibility | State |
 | --- | --- | --- | --- | --- |
-| `SharedFieldExtensionRevision` (모험별 공통 항목 확장 개정) | 모험별 공통 항목 확장 | session ID + revision | 해당 모험의 선택 필드와 공개 생명주기 | 초안/준비 중/공개/고정, GSD revision 참조, 필드 정의 목록 |
+| `SharedFieldExtensionRevision` (모험별 공통 항목 확장 개정) | 모험별 공통 항목 확장 | session ID + revision | 검색 근거가 있고 플레이어가 선택한 항목의 현재 모험 내 공개 생명주기 | 초안/준비 중/공개/고정, source evidence references, field definitions |
 | `CharacterSheet` | CharacterSheet | PC ID | PC의 빌드·현재 상태·공개 버전 소유 | build, runtime values, 활성 확장별 값, 공개 version |
-| `GameSystemDefinitionRevision` | GSD | system ID + revision | 발행 시스템 정의의 불변 식별 | extracted fields, evidence, runtime rules, publication status |
+| `GameSystemDefinitionRevision` | 기존 GSD | system ID + revision | 발행 시스템 정의의 불변 식별 | existing rules, runtime rules, publication status |
 | `RuntimeMutationOperation` (런타임 변경 작업 기록) | CharacterSheet 변경 기록 | command ID | 중복 실행 차단과 결과 재조회 | 요청 지문(같은 요청인지 비교하는 요약), 처리 결과, 적용 공개 시트 버전 |
 
 ## 3.4.1 Class Diagram
 
-요구사항 추적: UC-01, UC-02, G-01..G-07, BR-01..BR-12. 클래스 책임과 버전이 있는 모험별 항목 확장·CharacterSheet 값 소유권·Document Knowledge 근거 경계를 나타낸다. 추출 평가기와 고정 평가 사례의 관계도 포함한다.
+요구사항 추적: UC-01, UC-02, G-01..G-07, BR-01..BR-12. 기존 캐릭터 시트 항목에 더하는 모험별 후보 추천, 검색 근거, 고정 평가 사례, PC 값 소유권 경계를 나타낸다.
 
 원본: `docs/specs/character-sheet-shared-fields-runtime-state/diagrams/architecture/character-sheet.class.puml`
 
@@ -228,7 +228,7 @@ SVG: [캐릭터 시트 클래스 구조](diagrams/architecture/character-sheet.c
 
 | Value Object | Aggregate | Values | Validation | Behavior |
 | --- | --- | --- | --- | --- |
-| `CharacterFieldDefinition` (캐릭터 항목 정의) | 확장 revision / GSD revision | 안정 키, 이름, 입력 형태, 제약, 필수 여부, provenance/confidence/진단 | 키·형태·제약 유효; 필수 기본, 선택 표기는 룰북 근거 필요; 기본값 임의 생성 금지 | PC별 값 검증 규칙 제공 |
+| `CharacterFieldDefinition` (캐릭터 항목 정의) | 확장 revision | 안정 키, 이름, 입력 형태, 제약, 필수 여부, source evidence | 키·형태·제약 유효; 룰북의 명시적 선택 표기가 없는 항목은 필수; 기본값 임의 생성 금지 | PC별 값 검증 규칙 제공 |
 | `SourceEvidence` (문서 근거) | 추천 후보 | 문서 유형(RULEBOOK/STORYBOOK), 문서 ID·버전, 인용/위치 | 현재 모험의 검색 권한과 검색 결과 안에서 근거를 재현 | 추천 및 감사 화면에 근거 제공 |
 | `CharacterFieldValue` (캐릭터 항목 값) | CharacterSheet | field key, typed value, extension revision | 정의된 shape·제약 및 필수/선택 규칙에 따라 검증 | 수용/거부 판정 |
 | `ResolvedCharacterMutation` (해결된 캐릭터 변경) | 런타임 경계 전달 값 | session/turn/command ID, PC ID, 예상 버전, 규칙 근거, 변경 목록 | 허용된 mutation 유형·게임 상태·수치 한계 검증 | aggregate가 승인 가능한 상태 전이로 적용 |
@@ -290,7 +290,7 @@ SVG: [런타임 캐릭터 변경 명령 상태](diagrams/architecture/runtime-ch
 | Adventure extension repository | session extension revision | draft 만들기, staging 상태/결과 기록, 활성화, 시작 시 고정, expected revision 확인 | Adventure DB 단일 transaction |
 | `CharacterSheetRepository` | CharacterSheet | 공개 값 갱신, runtime mutation, version 조회 | 한 PC 시트와 변경 기록의 CM-local transaction; 확장 임시 준비는 별도 숨김 저장 기록이며 공개 시트 version을 올리지 않음 |
 | `GameSystemDefinitionRevision` repository | GSD revision | 기존 발행 규칙 읽기; 추가 항목 후보는 검색 응답에서 구성 | 발행 revision은 immutable |
-| 추출 평가 사례 저장소 | evaluation case set | 버전 고정 사례 읽기, 결과 artifact 저장 | 평가 실행 단위; 제품 런타임과 분리 |
+| 추천 평가 사례 저장소 | evaluation case set | 버전 고정 질문·예상 후보·근거 사례 읽기, 결과 artifact 저장 | 평가 실행 단위; 제품 런타임과 분리 |
 
 ---
 
@@ -386,7 +386,7 @@ stop
 
 | Order | Caller | Callee | Operation | Input | Output | Failure |
 | ---: | --- | --- | --- | --- | --- | --- |
-| 1 | Preparation application | 기존 근거 검색 adapter | `searchCharacterFieldEvidence` | Rulebook revision, Storybook owner/session scope, session context | 기존 검색 계약이 제공하는 후보·근거·문서 유형 메타데이터 | 현재 고정 슬롯 추출과 구분; 후보가 없으면 준비 불가 안내 |
+| 1 | Preparation application | `CharacterContextSearchPort` adapter | 기존 검색 operation | Rulebook ID/revision, Storybook owner/session scope, search query | 검색 근거의 문서 유형·버전·위치·발췌 | 검색 결과가 없으면 추천 없음; 소유 범위 밖 Storybook은 제외 |
 | 2 | Preparation application | Character Management client | `stageSharedFieldsForParty` | session/revision/batch IDs, field definitions, PC IDs와 expected versions | 전체 성공 또는 실패 PC·분류 오류 | timeout은 결과 불확실로 보고 같은 batch ID 조회/재시도 |
 | 3 | `SharedFieldExtensionActivationCoordinator` | Extension aggregate/repository | `activate(expectedRevision)` | revision 및 CM 전체 준비 완료 token | active revision | stale revision/session started 충돌 |
 | 4 | Start coordinator | Character Management client | `validateRequiredValues` | session, PC IDs, extension revision | PC별 누락 목록 | 내부 오류면 시작하지 않음 |
@@ -400,12 +400,12 @@ stop
 | --- | --- | --- | --- | --- |
 | `SharedFieldExtensionRevision` | Domain Type / Aggregate | 모험 단위 schema overlay와 공개 lifecycle | revision, fields, state | none |
 | `SharedFieldExtensionActivationCoordinator` | Adventure application service/coordinator | CM 전체 PC 숨김 준비 성공 후 Adventure 활성 revision 전환 | batch result, extension revision | extension aggregate, Character Management client |
-| `CharacterFieldDefinition` | Value Object | source-derived input shape and validation metadata | key, shape, constraints, requiredness, evidence ref | GSD provenance |
+| `CharacterFieldDefinition` | Value Object | 검색 근거에서 정리한 값 형태와 검증 규칙 | key, shape, constraints, requiredness, evidence reference | Recommendation mapper |
 | `PartySheetBatchCommand` | DTO | 동일 필드 revision을 전체 대상 시트에 idempotent 적용 요청 | batch ID, session, revision, target versions | internal API |
 | `PartySheetBatchResult` | DTO | 전체 준비 성공 또는 대상별 실패 | result status, staged token, failures | internal API |
 | `ResolvedCharacterMutation` | Domain DTO | runtime-originated, rule-checked delta/operation set | session/turn/command, expected version, rule revision, changes | Runtime Rule output |
 | `RuntimeMutationOperation` | Entity | duplicate detection and outcome lookup | command ID, fingerprint, result | CharacterSheet persistence |
-| `ExtractionEvaluationCase` | Evaluation data type | fixed question/source/gold answer | case ID, Rulebook revision/excerpt, expected field facts | evaluator |
+| `RecommendationEvaluationCase` | Evaluation data type | fixed question/source/expected recommendation | case ID, Rulebook/Storybook source reference, expected field facts | evaluator |
 
 ## 4.6 Type Design
 
@@ -427,7 +427,7 @@ stop
 | `fieldDefinitions` | list of `CharacterFieldDefinition` | 선택한 후보 정의 | 중복 key 금지, 근거 참조 필수 |
 | `status` (상태) | enum | 초안(draft), 준비 중(staging), 공개(active), 고정(locked) | 허용된 전이만 수행 |
 | `batchCommandId` | UUID | CM staging idempotency key | retry에서 유지 |
-| `publishedGsdRevision` | string | 후보의 근거가 나온 발행 정의 | 불변 참조 |
+| `sourceEvidenceReferences` | list | 추천 후보를 뒷받침한 Rulebook/Storybook 검색 근거 | 선택된 항목과 현재 모험의 검색 범위에 한정 |
 
 #### Behavior
 
@@ -561,10 +561,10 @@ stop
 
 | Source | Target | Contract |
 | --- | --- | --- |
-| Adventure preparation | Document Knowledge (`rule-knowledge-service`) read adapter | immutable published GSD DTO and evidence |
+| Adventure preparation | existing `CharacterContextSearchPort` adapter | RULEBOOK+authorized STORYBOOK search results with evidence |
 | Adventure preparation/runtime | Character Management client adapter | authenticated versioned commands/responses |
 | Character Management application | CharacterSheet aggregate/repository | internal domain contract and optimistic version |
-| Recommendation evaluator | existing retrieval evaluation library | fixed recommendation gold cases and metric output |
+| Recommendation evaluator | existing retrieval evaluation library | fixed Rulebook+Storybook recommendation gold cases and metric output |
 | Runtime Saga | Runtime Rule evaluator | selected GSD rule version and structured result |
 
 ### Forbidden Dependencies
@@ -590,7 +590,7 @@ Bounded Context, internal capability, code module, deployment service를 1:1로 
 | --- | --- | --- | --- | --- |
 | Scenario Preparation/Adventure | 세션별 공통 항목 확장 | `adventure-service` 내부 기능 | 기존 adventure service | 세션 준비 소유권과 상태가 일치 |
 | Character Management | PC별 필드 임시 준비와 규칙 기반 상태 변경 | 기존 서비스 내부 application/domain 기능 및 API 계약 | 기존 `character-management-service` | 시트·버전·변경 기록 소유자가 최종 저장 |
-| Document Knowledge (`rule-knowledge-service`) | GSD 필드 후보 검색·추천과 오프라인 평가 | 기존 추출/발행 기능과 평가 도구 | 기존 `rule-knowledge-service` 및 평가 도구 | 같은 GSD 발행 생명주기에 귀속; 새 bounded context나 service를 만들지 않음 |
+| Document Knowledge (`rule-knowledge-service`) | 기존 hybrid evidence search for Rulebook and authorized Storybooks | 기존 search application service와 검색 adapter | 기존 `rule-knowledge-service` | 검색·권한 소유권을 재사용하고 GSD 발행 경로는 변경하지 않음 |
 
 ## 5.2 Boundary Promotion Decisions
 
@@ -628,7 +628,7 @@ stop
 
 | Caller | Provider | Protocol | Operation | Request | Response | Timeout |
 | --- | --- | --- | --- | --- | --- | --- |
-| Adventure Preparation | Document Knowledge (`rule-knowledge-service`) | 신규 내부 HTTP/read adapter 계약 | 발행 공통 필드 후보 조회 | GSD ID/revision, 후보 조회 | 후보·근거 DTO | 현재 구현에는 후보 계약이 없음; 기존 내부 API timeout 정책 적용 |
+| Adventure Preparation | Document Knowledge (`rule-knowledge-service`) | 기존 검색 adapter/port | Rulebook+Storybook 근거 검색 | Rulebook revision, Storybook owner/session scope, query | 기존 EvidenceCandidate 계열 검색 결과 | 기존 검색 timeout 정책 적용; 권한 없는 범위는 요청하지 않음 |
 | Adventure Preparation | Character Management | 내부 HTTP | stage all PC sheets | batch/session/revision IDs, definitions, expected PC versions | complete token or per-PC failure | 기존 internal-client timeout; timeout은 결과 불명으로 처리 |
 | Adventure Start | Character Management | 내부 HTTP | required value validation | session/revision, party PC IDs | missing fields by PC | 기존 internal-client timeout |
 | `RuntimeTurnCommitOrchestrator` | Character Management | 내부 HTTP | 판정된 runtime mutation 적용 | session/turn/command ID, PC, expected version, validated operations | operation result, current version | 기존 Saga 호출 제한 시간/재시도 정책 |
@@ -772,7 +772,7 @@ stop
 | 공개 전이와 CM 숨김 준비 | 분산 transaction 없음; 숨김 준비 후 공개 protocol | Adventure 활성 revision이 공개 여부의 최종 기준; CM 숨김 기록이 PC별 값 소유 | 내부 동기 호출 뒤 Adventure가 전체 성공을 확인하고 공개 | 완료 여부를 확인할 때까지 숨김 유지, 같은 명령 ID 재조회 |
 | PC 필드 값 입력 | PC별 강한 일관성 | CM 공개 시트 저장소 | 기대 공개 version 확인 | 충돌을 반환하고 최신 시트 재조회 |
 | 런타임 변경 | PC별 강한 일관성; Adventure/CM 사이 Saga | Character Management 시트 상태 | 명령 중복 방지 ID + 기대 공개 version | 기존 Runtime Command Saga 재시도/복구 |
-| GSD 발행 | 불변 revision | Document Knowledge 발행본 | revision 고정 참조 | 새 GSD revision을 발행하고 참조 중인 공개본은 덮어쓰지 않음 |
+| 기존 GSD 발행 | 불변 revision | Document Knowledge 발행본 | revision 고정 참조 | 이 기능의 추천은 GSD 발행본을 변경하지 않음 |
 
 ## 5.11 Infrastructure Dependencies
 
@@ -822,7 +822,7 @@ tests/integration/test_semantic_gold_evaluator.py
 
 ```text
 src/adventure-service/
-  .../ScenarioPreparationApplicationService.java       # published candidate lookup + session overlay orchestration
+  .../ScenarioPreparationApplicationService.java       # Rulebook+Storybook search recommendation and session overlay orchestration
   .../SharedFieldExtensionRevision.java                # session revision and visibility lifecycle
   .../CharacterManagementClient.java                  # internal boundary contract
   .../AdventureSessionApplicationService.java          # start-time completeness and lock
@@ -835,7 +835,7 @@ src/character-management-service/
   .../RuntimeCharacterMutation.java                   # generalized allowed operation model
 src/rule-knowledge-service/
   .../CharacterContextSearchPort.java                  # existing hybrid search for current Rulebook and authorized Storybooks
-  .../CharacterFieldCandidateExtractor.java            # expands beyond fixed field topics
+  .../CharacterContextSearchPort.java                  # existing search contract; no candidate extraction/publication changes
 scripts/evaluate_preprocessing.py                      # extend/use existing fixed-case evaluator path
 tests/fixtures/character-field-recommendation-gold.json    # fixed question, Rulebook/Storybook source, expected candidates and evidence
 tests/integration/test_character_field_recommendation_evaluation.py
@@ -852,7 +852,7 @@ tests/integration/test_character_field_recommendation_evaluation.py
 | `src/character-management-service/.../CharacterSheetController.java` | Modify | API boundary | stage fields, set values, expose runtime mutation; reject player direct write after start |
 | `src/character-management-service/.../CharacterSheetApplicationService.java` | Modify | application service | atomic CM batch, per-PC value validation, runtime mutation and result |
 | `src/character-management-service/.../CharacterSheet.java` | Modify | aggregate | typed extension values, all authorized mutation invariants, derived recalculation |
-| `src/rule-knowledge-service/.../GameSystemDefinitionRevision.java` | Modify | GSD model/persistence | source-grounded generalized field candidate shape and evidence |
+| existing CharacterContextSearch adapter/gateway | Reuse | existing search boundary | Rulebook+Storybook evidence retrieval with scope and provenance; no GSD schema changes |
 | recommendation search/evaluator files listed above | Modify/add | offline evaluation | fixed gold benchmark and separated accuracy dimensions |
 
 The target filenames are architectural seams, not a claim that these classes already exist.
@@ -1022,7 +1022,7 @@ stop
 
 | Target | Rollback Strategy | Data Handling | Compatibility |
 | --- | --- | --- | --- |
-| GSD schema | support reading prior revision; publish corrected new revision | published revisions immutable | sessions pin their selected revision |
+| GSD schema | unchanged by this feature | published revisions remain immutable | sessions pin their selected revision |
 | session extension | deactivate only before it becomes active; after active in preparation, replace through a new revision; after start locked | keep prior revision for audit, never affect later sessions | old sessions have no overlay |
 | CM hidden staged data | rollback CM-local transaction or expire/mark abandoned staging record | never expose without Adventure activation | no change to currently visible sheet fields |
 | runtime state | no compensation of confirmed gameplay effects; use forward correction only when a valid game rule command supports it | preserve operation history and confirmed state | ADR-020 behavior |
@@ -1089,9 +1089,9 @@ stop
 | 필수 항목 누락으로 인한 시작 차단 횟수 | 누적 횟수 | 누락 수 구간 | 시작 검증기 |
 | 런타임 캐릭터 변경 횟수 | 누적 횟수 | 변경 종류, 결과, 규칙 지원 구분 | CM 변경 처리기 |
 | 런타임 캐릭터 변경 재시도 횟수 | 누적 횟수 | 재시도 이유 | Saga 처리기 |
-| 항목명 정밀도·재현율·F1 점수 (정밀도는 맞다고 찾은 항목 비율, 재현율은 정답 항목을 찾은 비율, F1은 두 비율의 조화 평균) | 기준선 수치와 실행 기록 | 평가 사례 묶음 버전, 추출기 버전 | 오프라인 평가기 |
-| 필수·선택 여부 판정 정확도 (정답과 일치한 비율) | 기준선 수치와 실행 기록 | 평가 사례 묶음 버전, 추출기 버전 | 오프라인 평가기 |
-| 출처 근거 일치율 (정답으로 지정한 룰북 위치와 일치한 비율) | 기준선 수치와 실행 기록 | 평가 사례 묶음 버전, 추출기 버전 | 오프라인 평가기 |
+| 항목명 정밀도·재현율·F1 점수 (정밀도는 맞다고 찾은 항목 비율, 재현율은 정답 항목을 찾은 비율, F1은 두 비율의 조화 평균) | 기준선 수치와 실행 기록 | 평가 사례 묶음 버전, 검색 설정 버전 | 오프라인 평가기 |
+| 필수·선택 여부 판정 정확도 (정답과 일치한 비율) | 기준선 수치와 실행 기록 | 평가 사례 묶음 버전, 검색 설정 버전 | 오프라인 평가기 |
+| 출처 근거 일치율 (정답으로 지정한 룰북·스토리북 위치와 일치한 비율) | 기준선 수치와 실행 기록 | 평가 사례 묶음 버전, 검색 설정 버전 | 오프라인 평가기 |
 
 ## 9.3 Tracing
 
@@ -1172,7 +1172,7 @@ stop
 
 | Target | Verification |
 | --- | --- |
-| preparation responsibility | application tests ensure candidate recommendations use published GSD only and do not invoke raw retrieval at selection time |
+| preparation responsibility | application tests ensure candidate recommendations query the existing scoped Rulebook+Storybook search and keep source provenance |
 | batch call contract | contract tests verify session/revision/PC IDs/expected versions/batch ID and full result mapping |
 | Character Management responsibility | service tests prove one PC value ownership, per-PC validation, operation record and version behavior |
 | runtime call contract | tests verify only resolved runtime command reaches mutation API; direct player write is blocked |
@@ -1185,7 +1185,7 @@ stop
 | --- | --- | --- |
 | stage API | integration/contract | schema validation, service auth, idempotency fingerprint, all-or-none result, optimistic version errors |
 | runtime mutation API | integration/contract | allowed command source, operation allowlist, expected version and structured result |
-| GSD schema evolution | serialization/compatibility | old fixed-slot documents deserialize; new arbitrary candidate records round-trip with evidence and revision |
+| GSD schema | no changes for candidate recommendations | existing published Rulebook behavior and data remain unchanged |
 | session extension storage | repository integration | revision uniqueness, visibility state, 신규 세션의 extension 저장; 기존 저장 데이터 migration 제외 |
 | recommendation evaluator artifacts | evaluator integration | metric calculation against gold fixture, separate operationally incomplete cases from incorrect recommendations |
 
@@ -1277,7 +1277,7 @@ stop
 | 전 PC 적용 | CM hidden staging + Adventure activation gate | 기존 소유권 유지, 활성화 전 전체 비가시성 | staging/재시도 상태 관리 필요 | Adopt |
 | 후보 추천 | 룰북 전체 전수 분석·모든 항목 사전 추출 | 문서 전체를 한 번에 처리 | 현재 모험에 필요한 범위를 넘고 사용자가 요구한 검색형 추천과 다름 | Reject |
 | 후보 추천 | 현재 모험 범위의 Rulebook+Storybook 검색 근거를 사용 | 기존 검색·권한 계약 재사용, 근거 위치 보존 | 검색 결과 조합과 평가 사례 구현 필요 | Adopt |
-| 추출 품질 gate | 임의 수치 즉시 CI 차단 | 단순한 pass/fail | 근거 없는 기준으로 유효 구현을 차단할 수 있음 | Defer threshold; report baseline |
+| 추천 품질 gate | 임의 수치 즉시 CI 차단 | 단순한 pass/fail | 근거 없는 기준으로 유효 구현을 차단할 수 있음 | Defer threshold; report baseline |
 | 런타임 상태 쓰기 | player/general update endpoint | 편리 | 직접 임의 수정 허용, 출처·규칙 검증 우회 | Reject |
 | 런타임 상태 쓰기 | validated command through Runtime Saga + CM aggregate | 소유권·규칙·멱등성 보장 | rule coverage와 operation model 확장 필요 | Adopt |
 
@@ -1294,14 +1294,14 @@ stop
 | Adventure 활성화 뒤 CM 조회에서 새 extension values를 찾지 못함 | High | Low | activate 전에 성공 토큰 확인; 읽기 계약에서 같은 revision 확인; 시작 검증에서 불일치 차단 |
 | Runtime Rule DSL이 level/status/injury/resource 효과를 표현하지 못함 | High | Medium | operation coverage를 단계적으로 명시; unsupported core blocking, optional warning; 임의 변화 금지 |
 | 기존 endpoint의 HP/currency/item 계약과 범용 mutation contract 불일치 | Medium | Medium | adapter를 통해 기존 operation을 유지하며 신규 typed operations를 버전 호환 추가 |
-| 추출 평가 기준선이 충분한 룰북/항목 유형을 대표하지 않음 | Medium | Medium | case set과 coverage metadata 버전 관리; baseline 검토 후 threshold와 추가 cases 합의 |
+| 추천 평가 기준선이 충분한 룰북/항목 유형을 대표하지 않음 | Medium | Medium | case set과 coverage metadata 버전 관리; baseline 검토 후 threshold와 추가 cases 합의 |
 
 ## 13.2 Open Questions
 
 | Question | Blocking | Resolution |
 | --- | --- | --- |
-| 추출 정확성의 최소 CI 통과율은 얼마인가? | No for initial implementation; Yes before blocking gate | 기준선 결과를 본 뒤 Solo Player가 별도 결정; 초기 평가는 report-only |
+| 추천 정확성의 최소 CI 통과율은 얼마인가? | No for initial implementation; Yes before blocking gate | 기준선 결과를 본 뒤 Solo Player가 별도 결정; 초기 평가는 report-only |
 | 실제 파티/필드 크기가 CM 단일 transaction 한도를 넘는가? | No | 측정 후 필요하면 숨김 per-PC staging token 사용; Adventure activation gate는 유지 |
 | 기존 internal HTTP와 Saga의 숫자 timeout/retry 설정은 무엇인가? | No for architecture; implementation must map | 기존 설정을 조사하여 그대로 사용하고 별도 정책값을 임의 도입하지 않음 |
 
-현재 구현 상태의 중요한 차이: Scenario Preparation의 `CHARACTER_FIELD_SPECS`는 정해진 종족·직업·배경 슬롯을 조회·추출한다. 게시된 GSD에서 임의 공통 항목을 추천하기 위한 범용 필드 후보 발행은 현재 존재하지 않으므로 새 후보 검색과 고정 평가 사례가 필요하다. Character Management 런타임 변경은 현재 HP delta, 화폐 delta, 아이템 추가·제거에 제한되어 있으며 일반 자원·상태·부상·레벨/기술 처리 및 파생 값의 일반 재계산은 완성되어 있지 않다. 이 명세의 목표 계약과 API는 기존 구현 상태에 대한 주장으로 읽지 않는다.
+현재 구현 상태의 중요한 차이: 기존 준비 흐름의 `CHARACTER_FIELD_SPECS`는 정해진 종족·직업·배경 항목을 다룬다. 문서 지식 검색은 Rulebook과 Storybook 근거를 혼합 검색할 수 있으나, 기존 D&D 5판 시트에 더할 후보를 준비 화면에서 추천하고 정확성을 평가하는 흐름은 추가해야 한다. GSD 후보 필드 추출·게시 기능은 요구하지 않는다. Character Management 런타임 변경은 현재 HP delta, 화폐 delta, 아이템 추가·제거에 제한되어 있으며 일반 자원·상태·부상·레벨/기술 처리 및 파생 값의 일반 재계산은 완성되어 있지 않다. 이 명세의 목표 계약과 API는 기존 구현 상태에 대한 주장으로 읽지 않는다.
