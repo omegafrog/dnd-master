@@ -699,6 +699,11 @@ public class RuntimeTurnApplicationService {
                         evidencePack.storybook(), evidencePack.rulebook());
                 plan = plan.withCombatEnemies(groundedCombatEnemies);
             } catch (IllegalArgumentException groundingFailure) {
+                LOGGER.warn("combat grounding rejected adventureId={} turnId={} reason={} proposals={} storybookEvidenceCount={} rulebookEvidenceCount={}",
+                        command.adventureId().value(), command.turnId(), groundingFailure.getMessage(),
+                        plan.combatEnemies().stream().filter(Objects::nonNull)
+                                .map(enemy -> enemy.enemyKey() + ":" + enemy.name() + ":" + enemy.mode()).toList(),
+                        evidencePack.storybook().size(), evidencePack.rulebook().size());
                 String reason = "COMBAT_STAT_BLOCK_NOT_FOUND".equals(groundingFailure.getMessage())
                         ? "전투 보류: 룰북에서 적의 방어도·HP·공격 수치를 확인하지 못했습니다."
                         : "전투 보류: 현재 시츄에이션의 적을 이야기 자료에서 확인하지 못했습니다.";

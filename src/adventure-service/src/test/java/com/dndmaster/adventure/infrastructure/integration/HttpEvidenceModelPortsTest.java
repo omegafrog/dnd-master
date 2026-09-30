@@ -72,6 +72,19 @@ class HttpEvidenceModelPortsTest {
     }
 
     @Test
+    void maps_a_transient_reranker_failure_to_the_common_retry_signal_with_http_status() {
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/evidence-rerank"))
+                .willReturn(aResponse().withStatus(503)));
+        var port = new HttpEvidenceRerankerPort(HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"),
+                Duration.ofSeconds(2), mapper, "internal-token");
+
+        var failure = assertThrows(EvidenceAcquisitionTransientException.class,
+                () -> port.rerank(new EvidenceRerankRequest("RULE_GUIDANCE", "question", List.of(candidate()), soloPlayerId)));
+
+        assertEquals("evidence reranking is unavailable (HTTP 503)", failure.getMessage());
+    }
+
+    @Test
     void validates_judge_response_identifiers_and_reasons_before_returning_it() {
         UUID outside = UUID.randomUUID();
         server.stubFor(post(urlEqualTo("/internal/v1/gm/evidence-sufficiency"))

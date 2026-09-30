@@ -53,8 +53,10 @@ public final class CombatScenarioGroundingPolicy {
                 && !situation.activeCombatScenarioId().equals(definition.scenarioId())) {
             throw new IllegalArgumentException("COMBAT_SCENARIO_ACTIVE_MISMATCH");
         }
-        if (!definition.displayName().equalsIgnoreCase(proposal.name())
-                && !definition.enemyKey().equalsIgnoreCase(proposal.name())) {
+        boolean sameEnemyKey = definition.enemyKey().equalsIgnoreCase(proposal.enemyKey());
+        boolean sameDisplayName = definition.displayName().equalsIgnoreCase(proposal.name())
+                || definition.enemyKey().equalsIgnoreCase(proposal.name());
+        if (!sameEnemyKey && !sameDisplayName) {
             throw new IllegalArgumentException("COMBAT_SCENARIO_ENEMY_MISMATCH");
         }
         CombatEnemyProposal grounded = new CombatEnemyProposal(definition.scenarioId(), definition.enemyKey(),

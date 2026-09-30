@@ -52,6 +52,27 @@ class RemoteAiExecutionPortTest {
         assertThat(((AiExecutionFailure) result).reason()).isEqualTo(AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE);
     }
 
+    @Test
+    void maps_a_relay_http_failure_to_delivery_failed() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/internal/executions", exchange -> {
+            exchange.sendResponseHeaders(503, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var port = new RemoteAiExecutionPort(HttpClient.newHttpClient(), new ObjectMapper(),
+                    URI.create("http://localhost:" + server.getAddress().getPort()), "token", Duration.ofSeconds(2));
+            var result = port.execute(new AiExecutionRequest(UUID.randomUUID(), "request-503", "work-503", "prompt",
+                    "model", "medium", "TEXT", null, ""));
+
+            assertThat(result).isInstanceOf(AiExecutionFailure.class);
+            assertThat(((AiExecutionFailure) result).reason()).isEqualTo(AiExecutionFailure.Reason.DELIVERY_FAILED);
+        } finally {
+            server.stop(0);
+        }
+    }
+
     @Test void sendsCompletedRequestToAuthenticatedRelayAndMapsFinalResult() throws Exception {
         var token = new java.util.concurrent.atomic.AtomicReference<String>();
         var body = new java.util.concurrent.atomic.AtomicReference<String>();

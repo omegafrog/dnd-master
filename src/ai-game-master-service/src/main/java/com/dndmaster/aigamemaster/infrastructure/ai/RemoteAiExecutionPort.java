@@ -63,7 +63,11 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
             var httpRequest = HttpRequest.newBuilder(endpoint).timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken).POST(HttpRequest.BodyPublishers.ofByteArray(mapper.writeValueAsBytes(body))).build();
             var response = client.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
-            if (response.statusCode() / 100 != 2) return failure(AiExecutionFailure.Reason.DELIVERY_FAILED);
+            if (response.statusCode() / 100 != 2) {
+                log.warn("remote AI relay returned non-success status requestId={} status={}",
+                        AiCallObservability.safe(request.requestId()), response.statusCode());
+                return failure(AiExecutionFailure.Reason.DELIVERY_FAILED);
+            }
             var result = mapper.readValue(response.body(), RelayResult.class);
             if (!request.requestId().equals(result.requestId())) return failure(AiExecutionFailure.Reason.DELIVERY_FAILED);
             if (result.failureType() == null) return new AiExecutionSuccess(result.content(),

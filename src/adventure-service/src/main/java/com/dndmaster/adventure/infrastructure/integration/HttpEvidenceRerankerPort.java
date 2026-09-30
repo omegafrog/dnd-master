@@ -42,7 +42,8 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/evidence-rerank"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
-            if (isTransient(response.statusCode())) throw new EvidenceAcquisitionTransientException("evidence reranking is unavailable");
+            if (isTransient(response.statusCode())) throw new EvidenceAcquisitionTransientException(
+                    "evidence reranking is unavailable (HTTP " + response.statusCode() + ")");
             if (response.statusCode() / 100 != 2) throw new EvidenceAcquisitionContractException("evidence reranking failed with status " + response.statusCode());
             List<UUID> ids = List.copyOf(mapper.readValue(response.body(), Response.class).orderedCandidateIds());
             validateIds(ids, request.candidates());

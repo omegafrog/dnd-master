@@ -15,7 +15,7 @@ public final class RulebookCombatStatBlockResolver {
     private static final Pattern ATTACK = Pattern.compile(
             "(?i)(?:(?:melee|ranged)\\s+weapon\\s+attack:\\s*|(?:근접|원거리)\\s+무기\\s+공격:\\s*(?:명중\\s*)?)([+-]?\\d+)(?:\\s+to\\s+hit)?");
     private static final Pattern DAMAGE = Pattern.compile(
-            "(?i)\\bHit:\\s*\\d+\\s*\\(([0-9]+d[0-9]+(?:\\s*[+-]\\s*[0-9]+)?)\\)");
+            "(?i)(?:\\bHit:|명중시:)\\s*\\d+\\s*\\(([0-9]+d[0-9]+(?:\\s*[+-]\\s*[0-9]+)?)\\)");
 
     private RulebookCombatStatBlockResolver() {}
 
