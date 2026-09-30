@@ -93,6 +93,46 @@ class PostgresLongTermFactPersistenceIntegrationTest {
         assertFalse(memory.contains("후보가 지정한 내용은 사용하지 않는다"));
     }
 
+    @Test
+    void excludes_a_reloaded_private_fact_from_the_prompt_even_when_the_situation_matches() {
+        AdventureId adventureId = AdventureId.generate();
+        PostgresAdventureRepository adventures = new PostgresAdventureRepository(dataSource);
+        adventures.save(Adventure.create(adventureId, SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(UUID.randomUUID()), new AdventureContext("시작", null, null, null)));
+
+        Instant now = Instant.parse("2026-01-01T00:00:00Z");
+        PostgresConversationCompactionJobRepository repository = new PostgresConversationCompactionJobRepository(dataSource);
+        ConversationCompactionJob ready = ConversationCompactionJob.ready(adventureId, 0, 1, 0, now);
+        repository.register(ready);
+        ConversationCompactionJob leased = repository.lease(adventureId, now, now.plusSeconds(30)).orElseThrow();
+        String privateContent = "경비가 숨긴 지하 통로의 위협 계획";
+        LongTermAdventureFact privateFact = new LongTermAdventureFact(adventureId, UUID.randomUUID(), UUID.randomUUID(),
+                0, "THREAT", privateContent, false, 1);
+        ConversationSummary summary = new ConversationSummary(adventureId, 1, 0, 1, 0, "확인된 대화를 줄여 적는다");
+
+        assertTrue(repository.publish(leased, summary, List.of(privateFact), List.of(), 0));
+        LongTermAdventureFact reloaded = repository.longTermFacts(adventureId).getFirst();
+        assertFalse(reloaded.playerVisible());
+        assertEquals(privateContent, reloaded.relevance());
+
+        String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"
+                + "\nLOOKUP_ORDER_RULE=rules\nOUTPUT_CONTRACT=json";
+        java.util.Map<String, Object> situation = java.util.Map.of("currentSituation",
+                "CurrentSituation[location=지하 통로, problem=경비가 숨긴 계획을 확인한다, threat=경비의 위협 계획, goal=계획 확인]");
+        String hiddenPrompt = RuntimeGmPromptComposer.compose(legacy, List.of(), List.of(), situation,
+                repository.longTermFacts(adventureId), 10_000);
+        String hiddenMemory = hiddenPrompt.substring(hiddenPrompt.indexOf("현재 상황 관련 장기 기록"), hiddenPrompt.indexOf("압축된 이전 대화"));
+        assertFalse(hiddenMemory.contains(privateContent));
+
+        LongTermAdventureFact publicCopy = new LongTermAdventureFact(adventureId, UUID.randomUUID(), UUID.randomUUID(),
+                0, "THREAT", privateContent, true, 1);
+        String publicPrompt = RuntimeGmPromptComposer.compose(legacy, List.of(), List.of(), situation,
+                List.of(publicCopy), 10_000);
+        String publicMemory = publicPrompt.substring(publicPrompt.indexOf("현재 상황 관련 장기 기록"), publicPrompt.indexOf("압축된 이전 대화"));
+        assertTrue(publicMemory.contains(privateContent));
+    }
+
     private static ConversationEntry entry(long sequence, String speaker, String content) {
         return new ConversationEntry(sequence, speaker, content);
     }
