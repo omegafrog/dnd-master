@@ -48,6 +48,14 @@ public final class RuntimeGmInputBudget {
         List<List<String>> turns = new ArrayList<>();
         List<String> current = null;
         for (String entry : recent) {
+            if (entry.startsWith("PENDING_ROLL: ")) {
+                if (current == null) {
+                    current = new ArrayList<>();
+                    turns.add(current);
+                }
+                current.add(entry);
+                continue;
+            }
             if (current == null || entry.startsWith("PLAYER: ") || !entry.startsWith("AI_GAME_MASTER: ")) {
                 current = new ArrayList<>();
                 turns.add(current);

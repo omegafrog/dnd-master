@@ -48,6 +48,19 @@ class GmAgentRuntimePlanningAdapterTest {
     }
 
     @Test
+    void narration_validation_checks_individual_private_facts_instead_of_the_whole_scenario_context() {
+        RuntimePlanningRequest request = request().withHiddenFacts(List.of("The caretaker is the missing heir."));
+        RuntimePlan leaking = new RuntimePlan("scene", null, "judgment", "The caretaker is the missing heir.",
+                null, List.of(), List.of());
+
+        assertThatThrownBy(() -> new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(leaking, "provider", "model", "reasoning", List.of()),
+                new GmFinalValidator()).planNarration(request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("HIDDEN_DATA_IN_NARRATION");
+    }
+
+    @Test
     void rejects_unsupported_raw_delta_instead_of_broadening_it_into_a_reveal() {
         RuntimePlan plan = plan(List.of("door"));
 

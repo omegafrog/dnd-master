@@ -30,7 +30,8 @@ public record RuntimePlanningRequest(
         java.util.List<String> runtimeFacts,
         java.util.List<RuntimeFactLookupResult> factLookupResults,
         String currentSituation,
-        java.util.List<LongTermAdventureFact> longTermFacts) {
+        java.util.List<LongTermAdventureFact> longTermFacts,
+        java.util.List<String> hiddenFacts) {
     public RuntimePlanningRequest {
         adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -58,6 +59,32 @@ public record RuntimePlanningRequest(
         currentSituation = currentSituation == null ? "" : currentSituation.trim();
         longTermFacts = java.util.List.copyOf(java.util.Objects.requireNonNull(longTermFacts, "long-term facts must not be null"));
         if (longTermFacts.stream().anyMatch(java.util.Objects::isNull)) throw new IllegalArgumentException("long-term facts must not contain null");
+        hiddenFacts = java.util.List.copyOf(java.util.Objects.requireNonNull(hiddenFacts, "hidden facts must not be null"));
+        if (hiddenFacts.stream().anyMatch(value -> value == null || value.isBlank())) throw new IllegalArgumentException("hidden facts must not contain blank values");
+    }
+
+    public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, java.util.List<String> recentTurns, java.util.List<String> characterSnapshots,
+            String scenarioContext, UUID providerEndpointId, String provider, String model, String reasoning,
+            NarrativeContext narrativeContext, UUID ruleSetId, java.util.List<String> runtimeFacts,
+            java.util.List<RuntimeFactLookupResult> factLookupResults, String currentSituation,
+            java.util.List<LongTermAdventureFact> longTermFacts) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
+                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
+                providerEndpointId, provider, model, reasoning, narrativeContext, ruleSetId, runtimeFacts,
+                factLookupResults, currentSituation, longTermFacts, legacyHiddenFacts(scenarioContext));
+    }
+
+    public RuntimePlanningRequest withHiddenFacts(java.util.List<String> values) {
+        return new RuntimePlanningRequest(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId,
+                bindingVersion, currentContext, activeSourceContext, action, evidencePack, recentTurns,
+                characterSnapshots, scenarioContext, providerEndpointId, provider, model, reasoning,
+                narrativeContext, ruleSetId, runtimeFacts, factLookupResults, currentSituation, longTermFacts, values);
+    }
+
+    private static java.util.List<String> legacyHiddenFacts(String scenarioContext) {
+        return scenarioContext == null || scenarioContext.isBlank() ? java.util.List.of() : java.util.List.of(scenarioContext);
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,

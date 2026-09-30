@@ -116,6 +116,15 @@ class RuntimeGmPromptComposerTest {
                 () -> RuntimeGmInputBudget.selectRecent(300, "f", "", "",
                         List.of("PLAYER: " + "x".repeat(50), "AI_GAME_MASTER: scene"), "c"));
     }
+
+    @Test
+    void keeps_two_completed_turns_when_pending_rolls_follow_the_latest_turn() {
+        List<String> entries = List.of("PLAYER: earlier", "AI_GAME_MASTER: old reply",
+                "PLAYER: latest", "AI_GAME_MASTER: confirmed combat result", "PENDING_ROLL: inspect the gate");
+
+        assertEquals(entries, RuntimeGmInputBudget.selectRecent(1000, "f", "", "", entries, "c"));
+    }
+
     @Test
     void fixed_rules_precede_five_stable_zones_and_current_evidence_is_last() {
         String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"

@@ -1,0 +1,112 @@
+package com.dndmaster.adventure;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import com.dndmaster.adventure.application.saved.AdventureRepository;
+import com.dndmaster.adventure.application.runtime.DefaultNarrationSafetyPolicy;
+import com.dndmaster.adventure.application.runtime.NarrationSafetyPort;
+import com.dndmaster.adventure.application.runtime.RuntimeBindingRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeCharacterSheetReadPort;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchPort;
+import com.dndmaster.adventure.application.runtime.GmAgentRuntimePlanningAdapter;
+import com.dndmaster.adventure.application.runtime.GmFinalValidator;
+import com.dndmaster.adventure.application.runtime.GmPlanResult;
+import com.dndmaster.adventure.application.runtime.RuntimeGmPromptComposer;
+import com.dndmaster.adventure.application.runtime.RuntimePlan;
+import com.dndmaster.adventure.application.runtime.RuntimePlanningPort;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
+import com.dndmaster.adventure.application.combat.CombatActionCommand;
+import com.dndmaster.adventure.application.combat.CombatActorRole;
+import com.dndmaster.adventure.application.combat.CombatNarrationRequest;
+import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.AdventureContext;
+import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.adventure.AdventurePartyMember;
+import com.dndmaster.adventure.domain.adventure.AdventureStatus;
+import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
+import com.dndmaster.adventure.domain.adventure.ControlMode;
+import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.adventure.RuleSetId;
+import com.dndmaster.adventure.domain.adventure.RuntimeBinding;
+import com.dndmaster.adventure.domain.adventure.ScenarioId;
+import com.dndmaster.adventure.domain.adventure.SessionId;
+import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.adventure.ConversationEntry;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.Test;
+
+class CombatNarrationPromptContractTest {
+    @Test
+    void confirmed_combat_narration_receives_confirmation_recent_dialogue_and_pending_roll_in_context() {
+        UUID adventureUuid = UUID.randomUUID();
+        UUID playerUuid = UUID.randomUUID();
+        UUID sessionUuid = UUID.randomUUID();
+        UUID packageUuid = UUID.randomUUID();
+        UUID sheetUuid = UUID.randomUUID();
+        AdventureId adventureId = new AdventureId(adventureUuid);
+        OwnerPlayerId owner = new OwnerPlayerId(playerUuid);
+        SessionId session = new SessionId(sessionUuid);
+        CharacterSheetId sheet = new CharacterSheetId(sheetUuid);
+        List<ConversationEntry> existingConversation = List.of(
+                new ConversationEntry(0, "PLAYER", "문지기에게 길을 묻는다."),
+                new ConversationEntry(1, "AI_GAME_MASTER", "문지기가 성문을 지키고 있다."));
+        RuleSetId ruleSetId = new RuleSetId(UUID.randomUUID());
+        List<AdventurePartyMember> party = List.of(new AdventurePartyMember(sheet, ControlMode.DIRECT, true, true, true, true, true, true));
+        Adventure adventure = Adventure.rehydrate(adventureId, session, owner, new ScenarioId(UUID.randomUUID()), ruleSetId,
+                party, existingConversation, new AdventureContext("성문", null, null, null), AdventureStatus.ACTIVE, 2L);
+        RuntimeBinding binding = mock(RuntimeBinding.class);
+        ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findById(adventureId)).thenReturn(Optional.of(adventure));
+
+        RuntimeBindingRepository bindings = mock(RuntimeBindingRepository.class);
+        when(bindings.findCurrentByAdventureId(adventureId)).thenReturn(Optional.of(binding));
+        when(binding.scenarioPackageId()).thenReturn(packageUuid);
+        when(binding.bindingVersion()).thenReturn(1L);
+        when(binding.activeSourceContext()).thenReturn(null);
+        ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(packageUuid)).thenReturn(Optional.of(scenarioPackage));
+        when(scenarioPackage.documents()).thenReturn(List.of());
+        when(scenarioPackage.runtimeCandidates()).thenReturn(List.of());
+        when(scenarioPackage.scenarioModel()).thenReturn(null);
+        when(scenarioPackage.toString()).thenReturn("locked scenario");
+        SessionKnowledgeSetRepository knowledge = mock(SessionKnowledgeSetRepository.class);
+        when(knowledge.findBySessionId(session)).thenReturn(Optional.empty());
+        RuntimeTurnRepository turns = mock(RuntimeTurnRepository.class);
+        var pending = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        when(pending.lifecycle()).thenReturn(com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.PENDING_ROLL);
+        when(pending.action()).thenReturn("Perception: inspect the gate");
+        when(turns.findAllByAdventureId(adventureId)).thenReturn(List.of(pending));
+        AtomicReference<String> prompt = new AtomicReference<>();
+        RuntimePlanningPort planning = new GmAgentRuntimePlanningAdapter(context -> {
+            prompt.set(RuntimeGmPromptComposer.compose(context, 128_000));
+            return new GmPlanResult(new RuntimePlan("성문", null, "명중", "검이 갑옷을 두드린다.",
+                    null, List.of(), List.of()), "provider", "model", "reasoning", List.of());
+        }, new GmFinalValidator());
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                adventures, bindings, packages, turns, mock(RuntimeEvidenceSearchPort.class), planning,
+                new DefaultNarrationSafetyPolicy(), knowledge);
+        service.setCharacterSheetReadPort(ignored -> "현재 시트");
+        CombatActionCommand command = new CombatActionCommand(UUID.randomUUID(), adventureId, sessionUuid,
+                new RuleSetId(UUID.randomUUID()), sheet, null, CombatActorRole.PLAYER, "ATTACK", null,
+                playerUuid, null, 1);
+
+        service.narrateConfirmedCombat(CombatNarrationRequest.postResolution(command, 3, 17, "명중", "검을 휘두른다."));
+
+        assertThat(prompt.get()).contains("확정된 전투 행동", "주사위 결과=17", "판정=명중");
+        assertThat(prompt.get()).contains("PLAYER: 검을 휘두른다.");
+        assertThat(prompt.get()).contains(
+                "PLAYER: 문지기에게 길을 묻는다.",
+                "AI_GAME_MASTER: 문지기가 성문을 지키고 있다.");
+        assertThat(prompt.get()).contains("확정 전투 결과:", "PENDING_ROLL: Perception: inspect the gate");
+    }
+}

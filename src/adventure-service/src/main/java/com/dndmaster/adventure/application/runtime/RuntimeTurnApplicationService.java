@@ -613,10 +613,11 @@ public class RuntimeTurnApplicationService {
                 providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
                 adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults, situation,
-                longTermFactsForPrompt(adventure));
+                longTermFactsForPrompt(adventure))
+                .withHiddenFacts(hiddenFactsForPlayer(scenarioPackage, adventure, narrativeState));
         String narration = planningPort.planNarration(planningRequest).narration();
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
-                narration, evidencePack, adventure.currentContext(), contextCommand.action()));
+                narration, evidencePack, adventure.currentContext(), contextCommand.action(), planningRequest.hiddenFacts()));
         if (!safety.approved()) throw new IllegalStateException("combat narration safety rejected: " + safety.reason());
         persistCombatNarration(adventure, narration);
         return narration;
@@ -657,6 +658,19 @@ public class RuntimeTurnApplicationService {
                 + "; 주사위 결과=" + (request.diceTotal() == null ? "없음" : request.diceTotal())
                 + "; 판정=" + request.judgment()
                 + ". 전투·상황·캐릭터 상태를 바꾸지 말고 플레이어에게 보이는 서술만 제안하세요.";
+    }
+
+    private static List<String> hiddenFactsForPlayer(ScenarioPackage scenarioPackage, Adventure adventure,
+            NarrativeState narrativeState) {
+        List<String> hiddenFacts = new ArrayList<>(HiddenScenarioFacts.unrevealedRevelationValues(
+                scenarioPackage.scenarioModel(), adventure.storyRuntimeState()));
+        String actorId = adventure.ownerPlayerId().value().toString();
+        java.util.Set<String> knownFactIds = narrativeState.factsKnownBy(actorId);
+        narrativeState.worldFacts().values().stream()
+                .filter(fact -> !knownFactIds.contains(fact.id()))
+                .map(com.dndmaster.adventure.domain.runtime.narrative.WorldFact::value)
+                .forEach(hiddenFacts::add);
+        return hiddenFacts.stream().filter(value -> value != null && !value.isBlank()).map(String::trim).distinct().toList();
     }
 
     private RuntimeTurnResult submitSafeScenarioRuntimeTurn(SubmitRuntimeTurnCommand command, Adventure adventure,

@@ -154,7 +154,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                 request.recentTurns(), request.characterSnapshots(), request.scenarioContext(), request.provider(), request.model(), request.reasoning(),
                 requestedSelection(request), request.narrativeContext(), request.runtimeFacts(), request.factLookupResults(),
                 request.currentSituation(), request.longTermFacts(), validationFeedback);
-        java.util.Set<String> hiddenData = context.scenarioContext().isBlank() ? java.util.Set.of() : java.util.Set.of(context.scenarioContext());
+        java.util.Set<String> hiddenData = java.util.Set.copyOf(request.hiddenFacts());
         TurnCapability capability = issueCapability ? issueCapability(request) : null;
         List<GmToolSpec> modelTools = gateway == null ? List.of() : gateway.modelTools().stream()
                 .filter(spec -> capability == null || capability.allowedTools().contains(spec.name())).toList();
