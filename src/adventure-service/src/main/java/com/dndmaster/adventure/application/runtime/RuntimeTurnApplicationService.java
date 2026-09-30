@@ -14,6 +14,7 @@ import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.knowledge.SessionKnowledgeSet;
 import com.dndmaster.adventure.domain.adventure.RuntimeBinding;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
 import com.dndmaster.adventure.domain.runtime.CompletionProposal;
 import com.dndmaster.adventure.domain.runtime.PendingRuntimeState;
@@ -596,10 +597,19 @@ public class RuntimeTurnApplicationService {
                 null, -1, false, true, false, List.of());
         List<String> characterSheets = adventure.party().stream()
                 .map(member -> currentCharacterSheet(member.characterSheetId().value())).toList();
-        EvidencePack evidencePack = prefetchEvidence(contextCommand, adventure, binding, scenarioPackage);
-        List<RuntimeFactLookupResult> factLookupResults = lookupRuntimeFacts(contextCommand, adventure, scenarioPackage, evidencePack);
         NarrativeState narrativeState = narrativeStateService == null ? NarrativeState.empty()
                 : narrativeStateService.load(adventure.sessionId().value());
+        ScenarioModel narrationScenarioModel = HiddenScenarioFacts.withoutUnrevealedRevelations(
+                scenarioPackage.scenarioModel(), adventure.storyRuntimeState());
+        java.util.Set<ScenarioSourceReference> unrevealedSourceRefs = HiddenScenarioFacts.unrevealedRevelationSourceRefs(
+                scenarioPackage.scenarioModel(), adventure.storyRuntimeState());
+        java.util.Set<String> unrevealedElementIds = HiddenScenarioFacts.unrevealedRevelationIds(
+                scenarioPackage.scenarioModel(), adventure.storyRuntimeState());
+        EvidencePack evidencePack = withoutUnrevealedRevelationEvidence(
+                prefetchEvidence(contextCommand, adventure, binding, scenarioPackage), unrevealedSourceRefs);
+        List<RuntimeFactLookupResult> factLookupResults = lookupRuntimeFacts(
+                contextCommand, adventure, evidencePack, narrationScenarioModel);
+        factLookupResults = withoutUnrevealedRevelationLookupResults(factLookupResults, unrevealedSourceRefs, unrevealedElementIds);
         String situation = adventure.currentSituation() == null ? "" : adventure.currentSituation().toString();
         NarrativeContext narrativeContext = narrativeState.project(adventure.ownerPlayerId().value().toString(), situation);
         List<String> recentTurns = new ArrayList<>(recentConversationForPrompt(adventure));
@@ -609,7 +619,7 @@ public class RuntimeTurnApplicationService {
         RuntimePlanningRequest planningRequest = new RuntimePlanningRequest(adventure.id(), adventure.ownerPlayerId(),
                 adventure.sessionId().value(), request.command().operationId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), contextCommand.action(), evidencePack, recentTurns,
-                characterSheets, "SCENARIO_MODEL=" + scenarioPackage.scenarioModel(), providerEndpointId(adventure.sessionId().value()),
+                characterSheets, "SCENARIO_MODEL=" + narrationScenarioModel, providerEndpointId(adventure.sessionId().value()),
                 providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
                 adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults, situation,
@@ -1076,17 +1086,48 @@ public class RuntimeTurnApplicationService {
 
     private List<RuntimeFactLookupResult> lookupRuntimeFacts(SubmitRuntimeTurnCommand command, Adventure adventure,
             ScenarioPackage scenarioPackage, EvidencePack evidencePack) {
+        return lookupRuntimeFacts(command, adventure, evidencePack, scenarioPackage.scenarioModel());
+    }
+
+    private List<RuntimeFactLookupResult> lookupRuntimeFacts(SubmitRuntimeTurnCommand command, Adventure adventure,
+            EvidencePack evidencePack, ScenarioModel scenarioModel) {
         if (runtimeFactLookupService == null) return List.of();
         try {
             RuntimeFactLookupResult result = runtimeFactLookupService.lookup(adventure.ownerPlayerId().value(),
                     new RuntimeFactLookupRequest(command.action(), adventure.gameState(), adventure.runtimeAddedFacts(),
-                            scenarioPackage.scenarioModel()), evidencePack.storybook());
+                            scenarioModel), evidencePack.storybook());
             return List.of(result);
         } catch (RuntimeException failure) {
             if (!isRecoverableLookupFailure(failure)) throw failure;
             LOGGER.warn("runtime_fact_lookup_unavailable actionIntent={}", actionIntent(command.action()));
             return List.of(RuntimeFactLookupResult.notFound());
         }
+    }
+
+    private static EvidencePack withoutUnrevealedRevelationEvidence(EvidencePack evidencePack,
+            java.util.Set<ScenarioSourceReference> unrevealedSourceRefs) {
+        if (unrevealedSourceRefs.isEmpty()) return evidencePack;
+        List<RuntimeEvidence> storybook = evidencePack.storybook().stream()
+                .filter(evidence -> !matchesAnySourceRef(evidence, unrevealedSourceRefs)).toList();
+        return new EvidencePack(storybook, evidencePack.rulebook(), evidencePack.resolution());
+    }
+
+    private static List<RuntimeFactLookupResult> withoutUnrevealedRevelationLookupResults(
+            List<RuntimeFactLookupResult> results, java.util.Set<ScenarioSourceReference> unrevealedSourceRefs,
+            java.util.Set<String> unrevealedElementIds) {
+        if (results == null || results.isEmpty()) return List.of();
+        return results.stream().filter(result -> result.supportingElementIds().stream()
+                        .noneMatch(unrevealedElementIds::contains))
+                .filter(result -> result.evidence().stream()
+                        .noneMatch(evidence -> matchesAnySourceRef(evidence, unrevealedSourceRefs)))
+                .toList();
+    }
+
+    private static boolean matchesAnySourceRef(RuntimeEvidence evidence,
+            java.util.Set<ScenarioSourceReference> sourceRefs) {
+        return sourceRefs.stream().anyMatch(reference -> reference.knowledgeDocumentId().equals(evidence.knowledgeDocumentId())
+                && reference.extractionVersion() == evidence.extractionVersion()
+                && reference.locator().equals(evidence.locator()));
     }
 
     private static RuntimePlan preservePendingSkillAdjudication(RuntimePlan plan, String action,
