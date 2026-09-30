@@ -53,25 +53,44 @@ export async function bootstrapStartedAdventure(request: APIRequestContext) {
 }
 
 export async function readPersistedLongTermFacts(adventureId: string) {
-  const sql = `SELECT fact_kind || '|' || relevance || '|' || player_visible || '|' || source_adventure_version
+  const sql = `SELECT fact_id || '|' || established_turn_id || '|' || fact_kind || '|' || player_visible || '|' || source_adventure_version || '|' || fact_version
     FROM adventure_long_term_fact WHERE adventure_id='${adventureId}'::uuid ORDER BY fact_version, fact_id`
   const { stdout } = await execFileAsync('docker', ['compose', '-f', composeFile, 'exec', '-T', 'postgres', 'psql',
     '--username', 'postgres', '--dbname', 'postgres', '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql])
   return stdout.split('\n').map(row => row.trim()).filter(Boolean).map(row => {
-    const [kind, relevance, playerVisible, sourceAdventureVersion] = row.split('|')
-    return { kind, relevance, playerVisible: playerVisible === 't', sourceAdventureVersion: Number(sourceAdventureVersion) }
+    const [factId, establishedTurnId, kind, playerVisible, sourceAdventureVersion, version] = row.split('|')
+    return { factId, establishedTurnId, kind, playerVisible: ['t', 'true'].includes(playerVisible.toLowerCase()), sourceAdventureVersion: Number(sourceAdventureVersion), version: Number(version) }
+  })
+}
+
+export async function readPersistedConversationSummaries(adventureId: string) {
+  const sql = `SELECT summary_version || '|' || source_start || '|' || source_end || '|' || source_adventure_version || '|' || length(summary_text)
+    FROM adventure_conversation_summary WHERE adventure_id='${adventureId}'::uuid ORDER BY summary_version`
+  const { stdout } = await execFileAsync('docker', ['compose', '-f', composeFile, 'exec', '-T', 'postgres', 'psql',
+    '--username', 'postgres', '--dbname', 'postgres', '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql])
+  return stdout.split('\n').map(row => row.trim()).filter(Boolean).map(row => {
+    const [version, sourceStart, sourceEnd, sourceAdventureVersion, textLength] = row.split('|').map(Number)
+    return { version, sourceStart, sourceEnd, sourceAdventureVersion, textLength }
   })
 }
 
 export async function readPersistedCompactionJobs(adventureId: string) {
-  const sql = `SELECT source_end || '|' || status || '|' || COALESCE(last_error, '')
+  const sql = `SELECT source_start || '|' || source_end || '|' || status || '|' || COALESCE(last_error, '')
     FROM adventure_conversation_compaction_job WHERE adventure_id='${adventureId}'::uuid ORDER BY source_end`
   const { stdout } = await execFileAsync('docker', ['compose', '-f', composeFile, 'exec', '-T', 'postgres', 'psql',
     '--username', 'postgres', '--dbname', 'postgres', '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql])
   return stdout.split('\n').map(row => row.trim()).filter(Boolean).map(row => {
-    const [sourceEnd, status, error] = row.split('|')
-    return { sourceEnd: Number(sourceEnd), status, error }
+    const [sourceStart, sourceEnd, status, error] = row.split('|')
+    return { sourceStart: Number(sourceStart), sourceEnd: Number(sourceEnd), status, error }
   })
+}
+
+export async function readPersistedRuntimeTurns(adventureId: string) {
+  const sql = `SELECT runtime_turn_json FROM adventure_runtime_turn
+    WHERE adventure_id='${adventureId}'::uuid ORDER BY created_at`
+  const { stdout } = await execFileAsync('docker', ['compose', '-f', composeFile, 'exec', '-T', 'postgres', 'psql',
+    '--username', 'postgres', '--dbname', 'postgres', '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql])
+  return stdout.split('\n').map(row => row.trim()).filter(Boolean).map(row => JSON.parse(row) as unknown)
 }
 
 export async function readPersistedAdventureState(adventureId: string) {
@@ -172,8 +191,12 @@ async function waitForPreparation(request: APIRequestContext, auth: Auth, packag
   for (;;) {
     const response = await request.get(`${backend}/api/v1/scenario-packages/${packageId}/play-preparation`, { headers: auth.headers })
     expect(response.ok(), await response.text()).toBeTruthy()
-    const value = await response.json() as { status: string, characterCreationBlueprint: { available: boolean, status: string, revision?: number } }
+    const value = await response.json() as { status: string, failureReason?: string, characterCreationBlueprint: { available: boolean, status: string, revision?: number } }
     if (value.status === 'READY' && value.characterCreationBlueprint.available) return value
+    if (['FAILED', 'REJECTED', 'NEEDS_INPUT'].includes(value.status)
+      || ['FAILED', 'REJECTED', 'NEEDS_INPUT'].includes(value.characterCreationBlueprint.status)) {
+      throw new Error(`scenario preparation stopped at ${value.status}/${value.characterCreationBlueprint.status}: ${value.failureReason ?? ''}`)
+    }
     await delay(2_000)
   }
 }

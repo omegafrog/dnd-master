@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { assertPotentBrewStorybooks, bootstrapStartedAdventure, hasRuntimeEnvironment, readPersistedAdventureState, readPersistedCompactionJobs, readPersistedLongTermFacts } from './support/runtime-adventure'
+import { assertPotentBrewStorybooks, bootstrapStartedAdventure, hasRuntimeEnvironment, readPersistedCompactionJobs, readPersistedConversationSummaries, readPersistedLongTermFacts, readPersistedRuntimeTurns } from './support/runtime-adventure'
 
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
@@ -17,12 +17,14 @@ test('새 모험 검증은 Linux 자료 경로와 세 가지 자료 역할을 �
     .toThrow(/Linux docs\/assets path/)
 })
 
-test('플레이어 화면에서 확정한 목표는 장면 이동 뒤에도 모험별 기록으로 이어지고 비공개 사실을 노출하지 않는다', async ({ page, request }) => {
+test('플레이어 행동은 저장되고 비공개 사실 식별자는 플레이어 응답에 포함되지 않는다', async ({ page, request }) => {
   test.skip(!hasRuntimeEnvironment(), 'src/start-dev.sh가 제공하는 실제 백엔드와 Potent Brew 자료가 필요합니다')
   assertPotentBrewStorybooks()
   test.setTimeout(0)
 
   const adventure = await bootstrapStartedAdventure(request)
+  const initialRuntimeTurnCount = (await readPersistedRuntimeTurns(adventure.adventureId)).length
+  const turnResponses: Array<{ status: number, body: unknown }> = []
 
   await page.goto('/#/login')
   await page.getByLabel('이메일').fill(email!)
@@ -30,47 +32,93 @@ test('플레이어 화면에서 확정한 목표는 장면 이동 뒤에도 모�
   await page.getByRole('button', { name: '로그인', exact: true }).click()
   await page.goto(`/#/sessions/${adventure.sessionId}?mode=play`)
   await expect(page.getByRole('region', { name: '모험 대화' })).toBeVisible()
-  const opening = await readPersistedAdventureState(adventure.adventureId)
+  await sendAction(page, adventure.adventureId, '주변을 살피고 다음 행동을 결정한다.', turnResponses)
+  await sendAction(page, adventure.adventureId, '동료와 상의한 뒤 안전하게 진행한다.', turnResponses)
+  await sendAction(page, adventure.adventureId, '현재 상황을 확인하고 계속 진행한다.', turnResponses)
 
-  await sendAction(page, '우리 목표는 맥주 저장고의 거대 쥐를 찾아 퇴치하는 것이다.')
-  await sendAction(page, '하늘 모자이크 패널만 밟아 왼쪽 문으로 들어간다.')
-  const afterCrossing = await readPersistedAdventureState(adventure.adventureId)
-  expect(afterCrossing.currentScene, '왼쪽 문을 선택한 행동 뒤에도 장면 이동이 저장되지 않음')
-    .not.toBe(opening.currentScene)
-  await sendAction(page, '맥주 저장고에서 거대 쥐를 찾아 퇴치하는 목표를 계속 추진하며 주변을 조사한다.')
+  let turns: unknown[] = []
+  await expect.poll(async () => {
+    turns = await readPersistedRuntimeTurns(adventure.adventureId)
+    return turns.length >= initialRuntimeTurnCount + 3
+  }, { intervals: [1_000, 2_000, 5_000], timeout: 0 }).toBe(true)
+  expect(turns.length).toBeGreaterThanOrEqual(initialRuntimeTurnCount + 3)
+  for (const turn of turns) assertStructuredRuntimeTurn(turn)
 
   let jobs: Awaited<ReturnType<typeof readPersistedCompactionJobs>> = []
   await expect.poll(async () => {
     jobs = await readPersistedCompactionJobs(adventure.adventureId)
-    return jobs.length > 0 && jobs.every(job => ['DONE', 'MANUAL_REVIEW'].includes(job.status))
+    const manualReview = jobs.find(job => job.sourceEnd > 0 && job.status === 'MANUAL_REVIEW')
+    if (manualReview) throw new Error(`conversation compaction requires manual review for ${manualReview.sourceStart}-${manualReview.sourceEnd}: ${manualReview.error}`)
+    return jobs.some(job => job.sourceEnd > 0 && job.status === 'DONE')
   }, { intervals: [1_000, 2_000, 5_000], timeout: 0 }).toBe(true)
-  // A candidate that fails provenance/shape validation is intentionally sent to
-  // manual review. The live contract requires at least one valid publication
-  // and a durable goal row; it does not treat a separate rejected range as loss.
-  expect(jobs.some(job => job.status === 'DONE')).toBe(true)
+  let summaries: Awaited<ReturnType<typeof readPersistedConversationSummaries>> = []
+  await expect.poll(async () => {
+    summaries = await readPersistedConversationSummaries(adventure.adventureId)
+    return summaries.length >= 1
+  }, { intervals: [1_000, 2_000, 5_000], timeout: 0 }).toBe(true)
 
+  expect(summaries.every(summary => summary.sourceStart >= 0 && summary.sourceEnd >= summary.sourceStart
+    && summary.sourceAdventureVersion >= 0 && Number.isInteger(summary.sourceAdventureVersion) && summary.textLength > 0)).toBe(true)
+  expect(summaries.some(summary => jobs.some(job => job.status === 'DONE' && job.sourceEnd > 0
+    && job.sourceStart === summary.sourceStart && job.sourceEnd === summary.sourceEnd))).toBe(true)
+  expect(turnResponses).toHaveLength(3)
+  for (const response of turnResponses) assertAcceptedTurnResponse(response, adventure.adventureId)
+
+  // 기록 후보는 선택 사항이다. 생성 여부 대신 생성된 기록의 계약을 검증한다.
   const facts = await readPersistedLongTermFacts(adventure.adventureId)
-  expect(facts.some(fact => fact.playerVisible && Number.isFinite(fact.sourceAdventureVersion)),
-    '요약 작업은 완료됐지만 확인된 목표·관계 기록이 저장되지 않음').toBe(true)
 
-  expect(facts.some(fact => /목표|맥주 저장고|거대 쥐/i.test(fact.relevance))).toBe(true)
-  await expect(page.getByRole('list', { name: '대화 기록' })).toContainText(/맥주 저장고|거대 쥐/)
+  for (const fact of facts) {
+    expect(fact.factId).toMatch(/^[0-9a-f-]{36}$/i)
+    expect(fact.establishedTurnId).toMatch(/^[0-9a-f-]{36}$/i)
+    expect(['EVENT', 'RELATIONSHIP', 'GOAL', 'THREAT']).toContain(fact.kind)
+    expect(Number.isInteger(fact.sourceAdventureVersion)).toBe(true)
+    expect(fact.sourceAdventureVersion).toBeGreaterThanOrEqual(0)
+    expect(Number.isInteger(fact.version)).toBe(true)
+    expect(fact.version).toBeGreaterThanOrEqual(1)
+  }
 
-  // 이 실제 Potent Brew 경로가 비공개 장기 기록을 만들지 않으면, UI 응답의
-  // 미공개 사실 누설 여부만 여기서 확인한다. 비공개 행의 선택 제외는
-  // RuntimeGmPromptComposer 정책 테스트가 별도로 고정한다.
-  const conversation = await page.getByRole('list', { name: '대화 기록' }).innerText()
-  const hiddenFacts = facts.filter(fact => !fact.playerVisible)
-  for (const hidden of hiddenFacts) expect(conversation).not.toContain(hidden.relevance)
-  if (hiddenFacts.length === 0) expect(conversation).not.toMatch(/비밀 통로|숨겨진 단서|범인|정답/)
+  const serializedTurnResponses = JSON.stringify(turnResponses.map(response => response.body))
+  for (const hiddenFact of facts.filter(fact => !fact.playerVisible)) expect(serializedTurnResponses).not.toContain(hiddenFact.factId)
 })
 
-async function sendAction(page: Page, text: string) {
+function assertStructuredRuntimeTurn(value: unknown) {
+  expect(value).toEqual(expect.any(Object))
+  const turn = value as { lifecycle?: unknown, plan?: unknown, narration?: unknown }
+  expect(turn.lifecycle).toBe('COMMITTED')
+  expect(typeof turn.narration).toBe('string')
+  expect(turn.plan).toEqual(expect.any(Object))
+  const plan = turn.plan as Record<string, unknown>
+  for (const field of ['scene', 'judgment', 'narration']) expect(typeof plan[field]).toBe('string')
+  for (const field of ['combatStartRequested', 'mapEntryRequested', 'stateTransitionRequested']) expect(typeof plan[field]).toBe('boolean')
+  expect(Array.isArray(plan.combatEnemies)).toBe(true)
+}
+
+function assertAcceptedTurnResponse(response: { status: number, body: unknown }, adventureId: string) {
+  expect(response.status).toBe(202)
+  expect(response.body).toEqual(expect.any(Object))
+  const body = response.body as Record<string, unknown>
+  expect(body.adventureId).toBe(adventureId)
+  expect(body.turnId).toEqual(expect.any(String))
+  expect(typeof body.version).toBe('number')
+  expect(typeof body.narration).toBe('string')
+  expect(typeof body.currentScene).toBe('string')
+  expect(Array.isArray(body.visibleFacts)).toBe(true)
+  expect((body.visibleFacts as unknown[]).every(fact => typeof fact === 'string')).toBe(true)
+}
+
+async function sendAction(page: Page, adventureId: string, text: string, responses: Array<{ status: number, body: unknown }>) {
   const input = page.getByRole('textbox', { name: /무엇을 하시겠/ })
   const history = page.getByRole('list', { name: '대화 기록' })
   const before = await history.getByRole('listitem').count()
   await input.fill(text)
+  const sent = page.waitForResponse(response => new URL(response.url()).pathname === `/api/v1/adventures/${adventureId}/turns`
+    && response.request().method() === 'POST')
   await page.getByRole('button', { name: /행동 보내기/ }).click()
+  const response = await sent
+  const result = { status: response.status(), body: await response.json() }
+  assertAcceptedTurnResponse(result, adventureId)
+  responses.push(result)
   await expect.poll(() => history.getByRole('listitem').count(), { timeout: 0 }).toBeGreaterThan(before + 1)
   await expect.poll(() => input.isEnabled(), { timeout: 0 }).toBe(true)
+  await expect(page.getByRole('status').first()).toHaveAttribute('aria-busy', 'false')
 }
