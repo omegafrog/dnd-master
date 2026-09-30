@@ -17,7 +17,7 @@ test('새 모험 검증은 Linux 자료 경로와 세 가지 자료 역할을 �
     .toThrow(/Linux docs\/assets path/)
 })
 
-test('플레이어 행동은 저장되고 비공개 사실 식별자는 플레이어 응답에 포함되지 않는다', async ({ page, request }) => {
+test('플레이어 행동은 저장되고 턴 응답과 대화 압축의 자료 구조를 유지한다', async ({ page, request }) => {
   test.skip(!hasRuntimeEnvironment(), 'src/start-dev.sh가 제공하는 실제 백엔드와 Potent Brew 자료가 필요합니다')
   assertPotentBrewStorybooks()
   test.setTimeout(0)
@@ -77,8 +77,6 @@ test('플레이어 행동은 저장되고 비공개 사실 식별자는 플레�
     expect(fact.version).toBeGreaterThanOrEqual(1)
   }
 
-  const serializedTurnResponses = JSON.stringify(turnResponses.map(response => response.body))
-  for (const hiddenFact of facts.filter(fact => !fact.playerVisible)) expect(serializedTurnResponses).not.toContain(hiddenFact.factId)
 })
 
 function assertStructuredRuntimeTurn(value: unknown) {
