@@ -1158,8 +1158,15 @@ public class RuntimeTurnApplicationService {
 
     static void logCombatGroundingRejected(IllegalArgumentException failure, int proposalCount,
             int storybookEvidenceCount, int rulebookEvidenceCount) {
+        String category = switch (failure.getMessage() == null ? "" : failure.getMessage()) {
+            case "COMBAT_SCENARIO_ACTIVE_MISMATCH", "COMBAT_SCENARIO_DUPLICATE", "COMBAT_SCENARIO_ENEMY_MISMATCH",
+                    "COMBAT_SCENARIO_NOT_IN_SCENARIO_MODEL", "COMBAT_SCENARIO_REFERENCE_REQUIRED",
+                    "COMBAT_SCENARIO_REQUIRED", "COMBAT_STAT_BLOCK_NOT_FOUND", "COMBAT_STORY_EVIDENCE_REQUIRED" ->
+                    failure.getMessage();
+            default -> "UNKNOWN_GROUNDING_FAILURE";
+        };
         LOGGER.warn("combat grounding rejected category={} proposalCount={} storybookEvidenceCount={} "
                         + "rulebookEvidenceCount={}",
-                failure.getClass().getSimpleName(), proposalCount, storybookEvidenceCount, rulebookEvidenceCount);
+                category, proposalCount, storybookEvidenceCount, rulebookEvidenceCount);
     }
 }
