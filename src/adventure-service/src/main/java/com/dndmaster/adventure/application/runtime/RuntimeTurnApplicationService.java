@@ -699,10 +699,7 @@ public class RuntimeTurnApplicationService {
                         evidencePack.storybook(), evidencePack.rulebook());
                 plan = plan.withCombatEnemies(groundedCombatEnemies);
             } catch (IllegalArgumentException groundingFailure) {
-                LOGGER.warn("combat grounding rejected adventureId={} turnId={} reason={} proposals={} storybookEvidenceCount={} rulebookEvidenceCount={}",
-                        command.adventureId().value(), command.turnId(), groundingFailure.getMessage(),
-                        plan.combatEnemies().stream().filter(Objects::nonNull)
-                                .map(enemy -> enemy.enemyKey() + ":" + enemy.name() + ":" + enemy.mode()).toList(),
+                logCombatGroundingRejected(groundingFailure, plan.combatEnemies().size(),
                         evidencePack.storybook().size(), evidencePack.rulebook().size());
                 String reason = "COMBAT_STAT_BLOCK_NOT_FOUND".equals(groundingFailure.getMessage())
                         ? "전투 보류: 룰북에서 적의 방어도·HP·공격 수치를 확인하지 못했습니다."
@@ -1157,5 +1154,12 @@ public class RuntimeTurnApplicationService {
     private static String renderOutcome(RuntimeCommandOutcome outcome) {
         String value = outcome.value() == null ? "" : outcome.value().trim();
         return value.isBlank() ? outcome.status().name() : outcome.status().name() + ": " + value;
+    }
+
+    static void logCombatGroundingRejected(IllegalArgumentException failure, int proposalCount,
+            int storybookEvidenceCount, int rulebookEvidenceCount) {
+        LOGGER.warn("combat grounding rejected category={} proposalCount={} storybookEvidenceCount={} "
+                        + "rulebookEvidenceCount={}",
+                failure.getClass().getSimpleName(), proposalCount, storybookEvidenceCount, rulebookEvidenceCount);
     }
 }
