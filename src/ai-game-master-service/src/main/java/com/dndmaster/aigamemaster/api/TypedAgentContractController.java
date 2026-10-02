@@ -174,7 +174,7 @@ public final class TypedAgentContractController {
         return adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
                 json -> {
                     try {
-                        return parseRuntimeTurn(json, "SESSION_OPENING".equalsIgnoreCase(request.action()));
+                        return parseRuntimeTurn(json);
                     } catch (IllegalArgumentException invalid) {
                         log.warn("gm_runtime_response_rejected operationKey={} action={} reason={}",
                                 request.operationKey(), request.action(), invalid.getMessage());
@@ -243,14 +243,12 @@ public final class TypedAgentContractController {
         return new ScenarioLookupResponse(status, root.path("answer").asText(""), ids);
     }
 
-    private RuntimeTurnResponse parseRuntimeTurn(String json, boolean opening) {
+    private RuntimeTurnResponse parseRuntimeTurn(String json) {
         JsonNode root = readObject(json);
         String scene = required(root, "scene");
         String judgment = required(root, "judgment");
         String narration = required(root, "narration");
-        if (opening) {
-            requireKoreanPlayerText("narration", narration);
-        }
+        requireKoreanPlayerText("narration", narration);
         if (!root.has("combatStart") || !root.path("combatStart").isBoolean()) {
             throw new IllegalArgumentException("combatStart is required and must be boolean");
         }

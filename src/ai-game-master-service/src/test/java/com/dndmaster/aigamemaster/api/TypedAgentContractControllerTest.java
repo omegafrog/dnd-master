@@ -415,6 +415,44 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void normal_action_rejects_player_narration_written_only_in_english() {
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> """
+                {"scene":"Brewery cellar","judgment":"No check required",
+                 "narration":"The room is quiet.","situation":{"kind":"CONTINUE",
+                   "location":"Brewery cellar","problem":"Rats in cellar","threat":"Supplies at risk",
+                   "goal":"Investigate cellar","basis":"FALLBACK","reference":"","required":true},
+                 "combatStart":false,"mapEntryRequested":false,"판정제안":{"필요":false},
+                 "combatEnemies":[],"runtimeFacts":[{"subject":"Brewery owner","content":"Requested help"}]}
+                """);
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> controller.runtimeTurn("service-secret",
+                        new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "살펴본다", List.of())));
+    }
+
+    @Test
+    void normal_action_accepts_english_internal_values_with_korean_player_narration() {
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> """
+                {"scene":"Brewery cellar","judgment":"No check required",
+                 "narration":"NPC Bob이 지하실 입구에서 기다립니다. 1d20 굴림은 필요하지 않습니다.",
+                 "situation":{"kind":"CONTINUE","location":"Brewery cellar",
+                   "problem":"Rats in cellar","threat":"Supplies at risk","goal":"Investigate cellar",
+                   "basis":"FALLBACK","reference":"","required":true},
+                 "combatStart":false,"mapEntryRequested":false,"판정제안":{"필요":false},
+                 "combatEnemies":[],"runtimeFacts":[{"subject":"Brewery owner","content":"Requested help"}]}
+                """);
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        var response = controller.runtimeTurn("service-secret",
+                new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "살펴본다", List.of()));
+
+        org.junit.jupiter.api.Assertions.assertEquals("Brewery cellar", response.scene());
+        org.junit.jupiter.api.Assertions.assertEquals("No check required", response.judgment());
+        org.junit.jupiter.api.Assertions.assertEquals("NPC Bob이 지하실 입구에서 기다립니다. 1d20 굴림은 필요하지 않습니다.", response.narration());
+    }
+
+    @Test
     void opening_accepts_korean_text_with_names_abbreviations_and_dice_notation() {
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"Potent Brew 양조장\",\"judgment\":\"HP 변화 없이 DC 12 확인과 1d20 굴림을 기다립니다.\","
                 + "\"narration\":\"NPC Bob이 입구에서 기다립니다. 어떻게 하시겠어요?\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
@@ -466,7 +504,7 @@ class TypedAgentContractControllerTest {
 
     @Test
     void runtime_turn_rejects_a_missing_combat_start_decision() {
-        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"brewery\",\"judgment\":\"safe\",\"narration\":\"The room is quiet.\"}");
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"brewery\",\"judgment\":\"safe\",\"narration\":\"방 안은 조용합니다.\"}");
         TypedAgentContractController controller = new TypedAgentContractController(
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
@@ -477,7 +515,7 @@ class TypedAgentContractControllerTest {
 
     @Test
     void runtime_turn_rejects_combat_without_a_structured_enemy_name() {
-        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"brewery\",\"judgment\":\"combat\",\"narration\":\"The door bursts open.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},\"combatEnemies\":[]}");
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"brewery\",\"judgment\":\"combat\",\"narration\":\"문이 벌컥 열립니다.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},\"combatEnemies\":[]}");
         TypedAgentContractController controller = new TypedAgentContractController(
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
@@ -489,7 +527,7 @@ class TypedAgentContractControllerTest {
     @Test
     void runtime_turn_accepts_an_explicit_instant_combat_mode_without_a_scenario_id() {
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"cellar\",\"judgment\":\"critical failure\","
-                + "\"narration\":\"The noise draws a giant rat.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,\"mapEntryRequested\":false,"
+                + "\"narration\":\"소리를 듣고 거대 쥐가 나타납니다.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,\"mapEntryRequested\":false,"
                 + "\"판정제안\":{\"필요\":false},\"combatEnemies\":[{\"mode\":\"INSTANT\",\"scenarioId\":\"\","
                 + "\"enemyKey\":\"giant-rat\",\"name\":\"Giant Rat\",\"count\":1}]}");
         TypedAgentContractController controller = new TypedAgentContractController(
