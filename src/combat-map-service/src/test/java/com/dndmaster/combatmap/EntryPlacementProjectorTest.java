@@ -33,6 +33,22 @@ class EntryPlacementProjectorTest {
     }
 
     @Test
+    void explainsWhenNormalizedPointProjectsBeyondGridTolerance() throws Exception {
+        MapGenerationRequest request = new MapGenerationRequest("entry", "", 4, 3, 30, 5,
+                List.of(), List.of(), null, image(200, 100), 20, 10, 20, "");
+
+        var projection = new EntryPlacementProjector().geometry(request).orElseThrow()
+                .projectWithDiagnostics(.99, .99);
+
+        assertTrue(projection.position().isEmpty());
+        assertEquals("OUTSIDE_GRID_BOUNDS", projection.rejectionReason());
+        assertEquals(198.0, projection.imageX());
+        assertEquals(99.0, projection.imageY());
+        assertEquals(8, projection.projectedX());
+        assertEquals(4, projection.projectedY());
+    }
+
+    @Test
     void snapsSmallModelErrorAtGridEdgeToNearestEdgeCell() throws Exception {
         MapGenerationRequest request = new MapGenerationRequest("entry", "", 4, 3, 30, 5,
                 List.of(), List.of(), null, image(200, 100), 20, 10, 20, "");
