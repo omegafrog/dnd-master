@@ -115,7 +115,7 @@ public final class LocalConnectionManager implements LocalConnectionExecutor, Lo
       if (!pending.accepted())
         return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE));
       var connectionLost = Sinks.<Throwable>one();
-      var activeRequest = new ActiveRequest(request.soloPlayerId(), connection.connectionId(), connectionLost);
+      var activeRequest = new ActiveRequest(request.soloPlayerId(), connection.connectionId(), connectionLost, request.ragSearchContext());
       var lifecycleLock = lifecycleLock(request.soloPlayerId());
       synchronized (lifecycleLock) {
         if (connections.get(request.soloPlayerId()) != connection) {
@@ -170,6 +170,13 @@ public final class LocalConnectionManager implements LocalConnectionExecutor, Lo
     return completions.fail(requestId, failure);
   }
 
+  @Override
+  public com.fasterxml.jackson.databind.JsonNode activeRagSearchContext(UUID soloPlayerId, String connectionId, String requestId) {
+    ActiveRequest active = activeRequests.get(requestId);
+    if (active == null || !active.soloPlayerId().equals(soloPlayerId) || !active.connectionId().equals(connectionId)) return null;
+    return active.ragSearchContext();
+  }
+
   private static Duration remaining(RelayExecutionRequest request) {
     return request.deadlineEpochMillis() == 0 ? Duration.ofDays(1)
         : Duration.ofMillis(request.deadlineEpochMillis() - System.currentTimeMillis());
@@ -196,6 +203,7 @@ public final class LocalConnectionManager implements LocalConnectionExecutor, Lo
   private record Connection(String connectionId, ConnectionLocationLease lease, AgentConnectionTransport transport) {
   }
 
-  private record ActiveRequest(UUID soloPlayerId, String connectionId, Sinks.One<Throwable> connectionLost) {
+  private record ActiveRequest(UUID soloPlayerId, String connectionId, Sinks.One<Throwable> connectionLost,
+      com.fasterxml.jackson.databind.JsonNode ragSearchContext) {
   }
 }

@@ -18,6 +18,7 @@ import com.dndmaster.relay.application.LocalConnectionRegistry;
 import com.dndmaster.relay.application.RelayExecutionResult;
 import com.dndmaster.relay.application.RequestCompletionRegistry;
 import com.dndmaster.relay.infrastructure.WebSocketConnectionTransport;
+import com.dndmaster.relay.infrastructure.HttpRagToolSearch;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import reactor.core.publisher.Mono;
@@ -34,10 +35,12 @@ public class AgentWebSocketHandler implements WebSocketHandler {
   private final ObjectMapper objectMapper;
   private final RequestCompletionRegistry completionRegistry;
   private final ConnectionLeaseHeartbeat leaseHeartbeat;
+  private final HttpRagToolSearch ragToolSearch;
+  private final java.util.Set<String> inFlightToolCalls = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
   public AgentWebSocketHandler(IdentityServicePort ientityPort, LocalConnectionRegistry registry,
       RelayInstanceProperties properties, ObjectMapper objectMapper, RequestCompletionRegistry completionRegistry,
-      ConnectionLeaseService leaseService) {
+      ConnectionLeaseService leaseService, HttpRagToolSearch ragToolSearch) {
     this.identityPort = ientityPort;
     this.registry = registry;
     this.properties = properties;
@@ -45,6 +48,7 @@ public class AgentWebSocketHandler implements WebSocketHandler {
     this.completionRegistry = completionRegistry;
     this.leaseHeartbeat = new ConnectionLeaseHeartbeat(
         leaseService, LEASE_TTL, LEASE_RENEW_INTERVAL);
+    this.ragToolSearch = ragToolSearch;
   }
 
   @Override
@@ -64,16 +68,7 @@ public class AgentWebSocketHandler implements WebSocketHandler {
     WebSocketConnectionTransport transport = new WebSocketConnectionTransport(session, objectMapper);
     Mono<Void> receive = session.receive()
         .filter(message -> message.getType() == WebSocketMessage.Type.TEXT)
-        .flatMap(message -> Mono.fromCallable(() -> objectMapper.readValue(
-            message.getPayloadAsText(), RelayExecutionResult.class))
-            .doOnNext(result -> {
-              if (result.success()) {
-                completionRegistry.complete(result);
-              } else {
-                completionRegistry.fail(result.requestId(),
-                    new IllegalStateException(result.failureType().name()));
-              }
-            }))
+        .flatMap(message -> receiveMessage(message.getPayloadAsText(), soloPlayerId, connectionId, transport))
         .then();
     Mono<Void> sessionLifecycle = Mono.when(transport.startSend(), receive);
 
@@ -83,6 +78,46 @@ public class AgentWebSocketHandler implements WebSocketHandler {
         ignored -> registry.disconnect(soloPlayerId, connectionId).then(),
         (ignored, error) -> registry.disconnect(soloPlayerId, connectionId).then(),
         ignored -> registry.disconnect(soloPlayerId, connectionId).then());
+  }
+
+  private Mono<Void> receiveMessage(String text, UUID soloPlayerId, String connectionId,
+      WebSocketConnectionTransport transport) {
+    return Mono.fromCallable(() -> objectMapper.readTree(text)).flatMap(node -> {
+      if ("mcp_tool_call".equals(node.path("type").asText())) {
+        String requestId = node.path("requestId").asText("");
+        String callId = node.path("callId").asText("");
+        String tool = node.path("tool").asText("");
+        String query = node.path("arguments").path("query").asText("");
+        if (!"search_rules".equals(tool) || requestId.isBlank() || callId.isBlank()) {
+          return sendToolResult(transport, requestId, callId, false, null, "invalid MCP tool call");
+        }
+        var scope = registry.activeRagSearchContext(soloPlayerId, connectionId, requestId);
+        if (scope == null) return sendToolResult(transport, requestId, callId, false, null, "no active authorized search scope");
+        String callKey = connectionId + ":" + callId;
+        if (!inFlightToolCalls.add(callKey)) return sendToolResult(transport, requestId, callId, false, null, "duplicate tool call");
+        return Mono.fromCallable(() -> ragToolSearch.search(soloPlayerId, scope, query))
+            .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
+            .flatMap(result -> sendToolResult(transport, requestId, callId, true, result, ""))
+            .onErrorResume(failure -> sendToolResult(transport, requestId, callId, false, null,
+                failure.getMessage() == null ? "RAG search failed" : failure.getMessage()))
+            .doFinally(ignored -> inFlightToolCalls.remove(callKey));
+      }
+      try {
+        RelayExecutionResult result = objectMapper.treeToValue(node, RelayExecutionResult.class);
+        if (result.success()) completionRegistry.complete(result);
+        else completionRegistry.fail(result.requestId(), new IllegalStateException(result.failureType().name()));
+        return Mono.empty();
+      } catch (Exception failure) { return Mono.error(failure); }
+    });
+  }
+
+  private Mono<Void> sendToolResult(WebSocketConnectionTransport transport, String requestId, String callId,
+      boolean success, com.fasterxml.jackson.databind.JsonNode result, String error) {
+    var response = objectMapper.createObjectNode().put("type", "mcp_tool_result").put("requestId", requestId)
+        .put("callId", callId).put("success", success);
+    if (result != null) response.set("result", result);
+    if (!success) response.put("error", error);
+    return transport.sendText(response.toString());
   }
 
   private static String bearerToken(String authorization) {

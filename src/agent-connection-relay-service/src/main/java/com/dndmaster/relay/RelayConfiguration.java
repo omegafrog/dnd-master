@@ -20,6 +20,12 @@ public class RelayConfiguration {
     @Bean RelayMetrics relayMetrics(MeterRegistry registry, @Value("${relay.instance-id}") String instanceId) { return new MicrometerRelayMetrics(registry, instanceId); }
     @Bean ConnectionLeaseService connectionLeaseService(ConnectionLocationRepository locations) { return new ConnectionLeaseService(locations); }
     @Bean RequestCompletionRegistry requestCompletionRegistry() { return new RequestCompletionRegistry(); }
+    @Bean HttpRagToolSearch httpRagToolSearch(ObjectMapper mapper,
+            @Value("${relay.rag-search.base-url:http://127.0.0.1:8080/}") URI baseUri,
+            @Value("${relay.rag-search.timeout:PT30S}") Duration timeout,
+            @Value("${relay.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new HttpRagToolSearch(HttpClient.newBuilder().connectTimeout(timeout).build(), baseUri, timeout, internalToken, mapper);
+    }
     @Bean IdentityServicePort identityServicePort(ObjectMapper objectMapper,
             @Value("${relay.identity-access.base-url:http://127.0.0.1:8080/}") URI baseUri,
             @Value("${relay.identity-access.timeout:PT2S}") Duration timeout,
