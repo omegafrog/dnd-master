@@ -76,12 +76,17 @@ public final class AdventureSessionController {
     @GetMapping("/internal/{sessionId}/character-policy") CharacterPolicyView characterPolicy(@PathVariable UUID sessionId, @RequestHeader(value = "X-Internal-Token", required = false) String internalToken, @RequestParam(name = "characterSheetId", required = false) UUID characterSheetId) {
         if (internalToken == null || internalToken.isBlank()) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED, "internal token required");
         AdventureSession session = service.readInternal(new SessionId(sessionId));
+        return characterPolicyFor(session, characterSheetId);
+    }
+    static CharacterPolicyView characterPolicyFor(AdventureSession session, UUID characterSheetId) {
         AdventurePartyMember member = characterSheetId == null ? null : session.party().stream().filter(item -> item.characterSheetId().value().equals(characterSheetId)).findFirst().orElse(null);
         boolean mutable = session.status() != AdventureSession.Status.STARTED && session.status() != AdventureSession.Status.STARTING;
         return member == null && session.status() == AdventureSession.Status.DRAFT ? CharacterPolicyView.draft(session.characterEdition()) : member == null ? CharacterPolicyView.terminated(session.characterEdition()) : new CharacterPolicyView(
                 mutable, mutable || member.nameMutableAfterStart(), mutable || member.levelMutableAfterStart(),
                 mutable || member.raceMutableAfterStart(), mutable || member.characterClassMutableAfterStart(),
-                mutable || member.backgroundMutableAfterStart(), mutable || member.startingAbilitiesMutableAfterStart(), session.characterEdition(), session.status() == AdventureSession.Status.STARTED);
+                mutable || member.backgroundMutableAfterStart(), mutable || member.startingAbilitiesMutableAfterStart(),
+                session.characterEdition(), session.status() == AdventureSession.Status.STARTED,
+                session.status() != AdventureSession.Status.COMPLETED && session.status() != AdventureSession.Status.DELETED);
     }
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
     private boolean mapLayoutMatchesAlignment(CombatMapViewPort.View preparation) {
@@ -112,9 +117,9 @@ public final class AdventureSessionController {
     }
     public record CharacterPolicyView(boolean acceptingCharacterSheets, boolean nameMutable, boolean levelMutable,
             boolean raceMutable, boolean characterClassMutable, boolean backgroundMutable, boolean startingAbilitiesMutable,
-            String characterEdition, boolean runtimeMutationsAllowed) {
-        static CharacterPolicyView draft(String characterEdition) { return new CharacterPolicyView(true, true, true, true, true, true, true, characterEdition, true); }
-        static CharacterPolicyView terminated(String characterEdition) { return new CharacterPolicyView(false, false, false, false, false, false, false, characterEdition, false); }
+            String characterEdition, boolean runtimeMutationsAllowed, boolean sessionActive) {
+        static CharacterPolicyView draft(String characterEdition) { return new CharacterPolicyView(true, true, true, true, true, true, true, characterEdition, true, true); }
+        static CharacterPolicyView terminated(String characterEdition) { return new CharacterPolicyView(false, false, false, false, false, false, false, characterEdition, false, false); }
     }
     public record PartyMemberRequest(UUID characterSheetId, ControlMode controlMode, boolean nameMutableAfterStart, boolean raceMutableAfterStart, boolean characterClassMutableAfterStart, boolean backgroundMutableAfterStart, boolean startingAbilitiesMutableAfterStart, boolean levelMutableAfterStart) {
         AdventurePartyMember toDomain() { return toDomain(characterSheetId); }

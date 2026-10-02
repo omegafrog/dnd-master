@@ -36,9 +36,16 @@ public record TypedCheckRule(String ruleReference, String diceExpression, int mo
     public record DiceExpression(int count, int sides, int modifier) {
         public DiceExpression {
             if (count < 1 || sides < 2) throw new IllegalArgumentException("invalid dice expression");
+            if (count > 1_000 || (long) count * sides > Integer.MAX_VALUE) {
+                throw new IllegalArgumentException("dice expression exceeds the supported result range");
+            }
         }
 
         public String baseExpression() { return count + "d" + sides; }
+
+        public boolean acceptsRollTotal(int total) {
+            return total >= count && (long) total <= (long) count * sides;
+        }
 
         public static DiceExpression parse(String expression, int modifier) {
             Matcher matcher = DICE.matcher(expression.replace(" ", ""));

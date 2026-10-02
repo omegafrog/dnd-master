@@ -447,6 +447,23 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
+    void verifiesKoreanSourceQuoteWhenPdfLineWrapSplitsWordInternally() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 2);
+        String excerptText = "목표는 DC 11의 건강 내성에 실패할 시 10(3d6)점의 독\n성 피해를 받습니다.";
+        ResolutionCandidate candidate = ResolutionCandidate.skillCheck(
+                documentId, 2, "page=123:chunk=centipede", "Constitution", 11,
+                "목표는 DC 11의 건강 내성에 실패할 시 10(3d6)점의 독성 피해를 받습니다.");
+        ResolutionExtractionPort.SourceExcerpt excerpt = new ResolutionExtractionPort.SourceExcerpt(
+                documentId, 2, "page=123:chunk=centipede", excerptText);
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle, List.of(candidate), List.of(excerpt)).units().get(0);
+
+        assertEquals("COMPLETE", unit.status().name());
+    }
+
+    @Test
     void compilesGreatestStorybookCharacterLimitWithItsEvidenceAndDefaultsToSelectableSix() {
         KnowledgeDocumentId firstStorybook = new KnowledgeDocumentId(UUID.randomUUID());
         KnowledgeDocumentId secondStorybook = new KnowledgeDocumentId(UUID.randomUUID());

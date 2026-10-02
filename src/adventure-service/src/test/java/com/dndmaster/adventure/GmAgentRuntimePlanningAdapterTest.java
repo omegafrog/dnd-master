@@ -48,6 +48,30 @@ class GmAgentRuntimePlanningAdapterTest {
     }
 
     @Test
+    void confirmed_combat_narration_does_not_require_player_action_rulebook_citations() {
+        RuntimePlan confirmedResult = new RuntimePlan("scene", null, "Attack hit", "The attack hits and deals damage.",
+                null, List.of(), List.of());
+        var adapter = new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(confirmedResult, "provider", "model", "reasoning", List.of()),
+                new GmFinalValidator());
+
+        RuntimePlan narrated = adapter.planNarration(request("ATTACK: confirmed hit and damage", UUID.randomUUID()));
+
+        assertThat(narrated).isEqualTo(confirmedResult);
+    }
+
+    @Test
+    void does_not_infer_rule_citation_need_from_attack_wording() {
+        RuntimePlan attack = new RuntimePlan("scene", null, "Attack hit", "The attack hits and deals damage.",
+                null, List.of(), List.of());
+        var adapter = new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(attack, "provider", "model", "reasoning", List.of()),
+                new GmFinalValidator());
+
+        assertThat(adapter.plan(request("ATTACK: hit and damage", UUID.randomUUID()))).isEqualTo(attack);
+    }
+
+    @Test
     void narration_validation_checks_individual_private_facts_instead_of_the_whole_scenario_context() {
         RuntimePlanningRequest request = request().withHiddenFacts(List.of("The caretaker is the missing heir."));
         RuntimePlan leaking = new RuntimePlan("scene", null, "judgment", "The caretaker is the missing heir.",
@@ -121,33 +145,29 @@ class GmAgentRuntimePlanningAdapterTest {
     }
 
     @Test
-    void never_persists_a_candidate_that_tries_to_create_a_canonical_truth() {
+    void preserves_the_agents_semantic_decision_for_a_proposed_fact() {
         RuntimeAddedFactCandidate candidate = new RuntimeAddedFactCandidate("culprit", "The culprit is the keeper.");
         var result = new GmAgentRuntimePlanningAdapter(
                 context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of(), List.of(), null,
                         List.of(candidate)), new GmFinalValidator()).planWithOutcomes(request());
 
-        assertThat(result.resolutionProposal().runtimeAddedFacts()).isEmpty();
+        assertThat(result.resolutionProposal().runtimeAddedFacts()).singleElement()
+                .satisfies(fact -> assertThat(fact.content()).isEqualTo(candidate.content()));
     }
 
     @Test
-    void records_a_goal_explicitly_declared_by_the_player_with_its_turn_provenance() {
+    void does_not_infer_a_long_term_goal_from_a_keyword_in_the_player_action() {
         UUID turnId = UUID.randomUUID();
         RuntimePlanningRequest request = request("내 목표는 실종된 탐험가를 찾는 것이다.", turnId);
         var result = new GmAgentRuntimePlanningAdapter(
                 context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of()),
                 new GmFinalValidator()).planWithOutcomes(request);
 
-        assertThat(result.resolutionProposal().runtimeAddedFacts()).singleElement()
-                .satisfies(fact -> {
-                    assertThat(fact.content()).isEqualTo("목표: 실종된 탐험가를 찾는 것이다.");
-                    assertThat(fact.subject()).isEqualTo("goal");
-                    assertThat(fact.establishedTurnId()).isEqualTo(turnId);
-                });
+        assertThat(result.resolutionProposal().runtimeAddedFacts()).isEmpty();
     }
 
     @Test
-    void records_a_coordinated_relationship_objective_without_a_goal_label() {
+    void does_not_infer_a_relationship_objective_from_action_wording() {
         UUID turnId = UUID.randomUUID();
         String action = "사라진 탐험가를 찾고 마을 사람들과 신뢰를 쌓는다.";
         var result = new GmAgentRuntimePlanningAdapter(
@@ -155,12 +175,7 @@ class GmAgentRuntimePlanningAdapterTest {
                 new GmFinalValidator()).planWithOutcomes(
                         request(action, turnId));
 
-        assertThat(result.resolutionProposal().runtimeAddedFacts()).singleElement()
-                .satisfies(fact -> {
-                    assertThat(fact.content()).isEqualTo("목표: " + action);
-                    assertThat(fact.subject()).isEqualTo("goal");
-                    assertThat(fact.establishedTurnId()).isEqualTo(turnId);
-                });
+        assertThat(result.resolutionProposal().runtimeAddedFacts()).isEmpty();
     }
 
     @Test
@@ -179,19 +194,14 @@ class GmAgentRuntimePlanningAdapterTest {
     }
 
     @Test
-    void retains_a_durable_goal_that_mentions_a_place_without_recording_the_place_as_current_location() {
+    void does_not_infer_a_durable_goal_from_a_place_or_goal_phrase() {
         UUID turnId = UUID.randomUUID();
         var result = new GmAgentRuntimePlanningAdapter(
                 context -> new GmPlanResult(plan(List.of()), "provider", "model", "reasoning", List.of()),
                 new GmFinalValidator()).planWithOutcomes(
                         request("내 목표는 동굴에서 실종된 탐험가를 찾는 것이다.", turnId));
 
-        assertThat(result.resolutionProposal().runtimeAddedFacts()).singleElement()
-                .satisfies(fact -> {
-                    assertThat(fact.content()).isEqualTo("목표: 동굴에서 실종된 탐험가를 찾는 것이다.");
-                    assertThat(fact.subject()).isEqualTo("goal");
-                    assertThat(fact.establishedTurnId()).isEqualTo(turnId);
-                });
+        assertThat(result.resolutionProposal().runtimeAddedFacts()).isEmpty();
     }
 
     @Test

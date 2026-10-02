@@ -56,16 +56,19 @@ class RuntimeFactLookupServiceTest {
     }
 
     @Test
-    void action_wording_is_reduced_to_the_runtime_subject_before_lookup() {
+    void passes_the_full_action_to_semantic_scenario_lookup_instead_of_extracting_a_subject_word() {
         RuntimeFactLookupService service = new RuntimeFactLookupService(
-                request -> { throw new AssertionError("scenario lookup must not run"); },
+                request -> {
+                    assertEquals("I ask the keeper what the reward is", request.query());
+                    return ScenarioLookupResult.found("The keeper offers 20 gold pieces.", List.of("model-reward"));
+                },
                 request -> { throw new AssertionError("RAG lookup must not run"); });
 
         RuntimeFactLookupResult result = service.lookup(request("I ask the keeper what the reward is", Map.of(),
                 List.of(new RuntimeAddedFact(UUID.randomUUID(), "The keeper offers 20 gold pieces.", UUID.randomUUID(), "reward")),
                 model("model-reward")));
 
-        assertEquals(RuntimeFactLookupResult.Source.RUNTIME_ADDED_FACT, result.source());
+        assertEquals(RuntimeFactLookupResult.Source.SCENARIO_MODEL, result.source());
         assertEquals("The keeper offers 20 gold pieces.", result.answer());
     }
 

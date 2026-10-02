@@ -3,13 +3,11 @@ package com.dndmaster.adventure.application.scenario.compilation;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationInputSnapshot;
 import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.scenario.ScenarioModelCompilationPolicy;
-import com.dndmaster.adventure.domain.scenario.ScenarioModelElement;
 import com.dndmaster.adventure.domain.scenario.CombatScenarioDefinition;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.ScenarioModelElement;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
-import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 
 /** Builds the lockable model projection from extracted Storybook evidence. */
@@ -36,22 +34,19 @@ public final class ScenarioModelCompilationService {
                 .filter(excerpt -> "STORYBOOK".equalsIgnoreCase(excerpt.documentType()))
                 .filter(excerpt -> storybookSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
                 .toList();
-        ScenarioResolutionUnit firstResolution = resolutionUnits == null ? null : resolutionUnits.stream()
-                .filter(unit -> unit != null && unit.status() == ResolutionStatus.COMPLETE).findFirst().orElse(null);
-        ResolutionExtractionPort.SourceExcerpt objectiveExcerpt = source.stream()
-                .filter(excerpt -> excerpt.text().matches("(?is).*(?:\\bobjective\\b|\\bgoal\\b|\\bmission\\b|목표|임무).*"))
-                .findFirst().orElse(null);
-        String objectiveText = objectiveExcerpt == null ? "" : objectiveExcerpt.text().trim();
-        List<ScenarioModelElement> objectives = objectiveText.isBlank() ? List.of() : List.of(
-                element("objective-1", "objective", objectiveText, objectiveExcerpt));
-        List<ScenarioModelElement> resolutions = firstResolution == null ? List.of() : List.of(
-                new ScenarioModelElement("resolution-1", "resolution", Map.of(
-                        "kind", String.valueOf(firstResolution.kind()),
-                        "description", firstResolution.sourceQuote()), firstResolution.sourceRefs()));
-        String startingSituation = source.stream().findFirst().map(ResolutionExtractionPort.SourceExcerpt::text).orElse("");
+        // Resolution Units describe checks and rolls. They do not define when the
+        // adventure's central objective has been completed. Preserve the scenario
+        // compiler's source-backed objective and resolution-condition elements.
         EncounterExtraction encounterExtraction = verifiedEncounters(extractedModel, source);
-        ScenarioModel model = new ScenarioModel(1, List.of(), List.of(), objectives, List.of(), encounterExtraction.valid(), List.of(),
-                resolutions, startingSituation);
+        ScenarioModel model = new ScenarioModel(1,
+                sourceBacked(extractedModel.actors(), source),
+                sourceBacked(extractedModel.locations(), source),
+                sourceBacked(extractedModel.objectives(), source),
+                sourceBacked(extractedModel.revelations(), source),
+                encounterExtraction.valid(),
+                sourceBacked(extractedModel.relationships(), source),
+                sourceBacked(extractedModel.resolutionCriteria(), source),
+                extractedModel.startingSituation());
         var evaluation = ScenarioModelCompilationPolicy.evaluate(input, model);
         if (encounterExtraction.invalidCount() == 0) return evaluation;
         List<com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic> diagnostics =
@@ -79,6 +74,20 @@ public final class ScenarioModelCompilationService {
         return new EncounterExtraction(valid, candidates.size() - valid.size());
     }
 
+    private static List<ScenarioModelElement> sourceBacked(List<ScenarioModelElement> elements,
+            List<ResolutionExtractionPort.SourceExcerpt> storybookExcerpts) {
+        java.util.Set<String> availableSources = storybookExcerpts.stream()
+                .map(excerpt -> sourceKey(excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator()))
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return elements.stream()
+                .filter(element -> !element.sourceRefs().isEmpty())
+                .filter(element -> element.sourceRefs().stream().allMatch(ref -> availableSources.contains(sourceKey(ref))))
+                .collect(java.util.stream.Collectors.collectingAndThen(
+                        java.util.stream.Collectors.toMap(ScenarioModelElement::elementId, element -> element,
+                                (first, ignored) -> first, java.util.LinkedHashMap::new),
+                        values -> List.copyOf(values.values())));
+    }
+
     private static boolean isCombatScenario(ScenarioModelElement element) {
         return "combat-scenario".equalsIgnoreCase(element.type()) || "combat_scenario".equalsIgnoreCase(element.type());
     }
@@ -93,10 +102,4 @@ public final class ScenarioModelCompilationService {
         return documentId + ":" + extractionVersion + ":" + locator;
     }
 
-    private static ScenarioModelElement element(String id, String type, String value,
-            ResolutionExtractionPort.SourceExcerpt excerpt) {
-        return new ScenarioModelElement(id, type, Map.of("value", value, "source", "PRIMARY"),
-                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
-                        excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())));
-    }
 }

@@ -8,8 +8,8 @@ public record PlayerRollRequest(UUID pendingTurnId, String label, String diceExp
     public PlayerRollRequest {
         if (pendingTurnId == null) throw new IllegalArgumentException("pending turn id is required");
         label = label == null ? "판정" : label.trim();
-        diceExpression = diceExpression == null ? "d20" : diceExpression.trim();
-        prompt = prompt == null ? "d20을 굴려 결과를 제출하세요." : prompt.trim();
+        diceExpression = diceExpression == null ? "1d20" : diceExpression.trim();
+        prompt = prompt == null ? "요청된 주사위를 굴려 결과를 제출하세요." : prompt.trim();
         if (expectedVersion < 0) throw new IllegalArgumentException("expected version must be non-negative");
     }
 }

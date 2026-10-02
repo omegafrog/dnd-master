@@ -8,11 +8,36 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.adventure.AdventureContext;
+import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import org.junit.jupiter.api.Test;
 
 class RuntimeGmPromptComposerTest {
     @Test
-    void includes_only_current_situation_relevant_player_visible_long_term_records() {
+    void supplies_both_evidence_types_and_exact_reference_keys_for_model_selection() {
+        String storybookKey = "STORYBOOK:doc-story:2:page=3";
+        String rulebookKey = "RULEBOOK:doc-rules:2:page=63";
+        RuntimeEvidence storybook = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                new KnowledgeDocumentId(UUID.randomUUID()), 2, "page=3", "잠긴 장면 사실", storybookKey);
+        RuntimeEvidence rulebook = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
+                new KnowledgeDocumentId(UUID.randomUUID()), 2, "page=63", "지능(조사) 규칙", rulebookKey);
+        GmContextEnvelope envelope = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()),
+                UUID.randomUUID(), 1, new AdventureContext("복도", "", "조사", ""), null,
+                "함정 장치를 조사합니다", new EvidencePack(List.of(storybook), List.of(rulebook), List.of()), List.of());
+
+        String prompt = envelope.composePrompt(272_000);
+
+        assertTrue(prompt.contains("STORYBOOK_RAG"));
+        assertTrue(prompt.contains("RULEBOOK_RAG"));
+        assertTrue(prompt.contains(storybookKey));
+        assertTrue(prompt.contains(rulebookKey));
+        assertTrue(prompt.contains("citedEvidence"));
+        assertTrue(prompt.contains("RULEBOOK and STORYBOOK are both rules sources"));
+    }
+
+    @Test
+    void passes_all_public_long_term_records_to_the_gm_for_contextual_selection() {
         LongTermAdventureFact relevant = new LongTermAdventureFact(AdventureId.generate(), UUID.randomUUID(), UUID.randomUUID(),
                 3, "RELATIONSHIP", "성문 경비와 맺은 협력 약속", true, 1);
         LongTermAdventureFact unrelated = new LongTermAdventureFact(AdventureId.generate(), UUID.randomUUID(), UUID.randomUUID(),
@@ -30,7 +55,7 @@ class RuntimeGmPromptComposerTest {
         int summary = prompt.indexOf("압축된 이전 대화");
         String memoryZone = prompt.substring(memory, summary);
         assertTrue(memoryZone.contains("성문 경비와 맺은 협력 약속"));
-        assertTrue(!memoryZone.contains("북쪽 탑의 잃어버린 지도"));
+        assertTrue(memoryZone.contains("북쪽 탑의 잃어버린 지도"));
         assertTrue(!memoryZone.contains("성문 경비의 비밀 배신 계획"));
     }
 
@@ -47,12 +72,13 @@ class RuntimeGmPromptComposerTest {
                 Map.of("currentSituation", "성문 경비에게 약속을 확인한다"), List.of(first, second), 4_000);
 
         String memory = prompt.substring(prompt.indexOf("현재 상황 관련 장기 기록"), prompt.indexOf("압축된 이전 대화"));
-        assertTrue(memory.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= 400 + "현재 상황 관련 장기 기록\n".getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+        assertTrue(memory.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= RuntimeGmInputBudget.inputLimit(4_000) * 10 / 100
+                + "현재 상황 관련 장기 기록 (GM이 문맥으로 판단)\n".getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
         assertTrue(memory.contains("성문 경비가 약속을 이행했다"));
     }
 
     @Test
-    void excludes_a_record_that_only_shares_the_place_name_with_the_current_situation() {
+    void passes_a_record_that_only_shares_the_place_name_for_gm_contextual_selection() {
         LongTermAdventureFact incidental = new LongTermAdventureFact(AdventureId.generate(), UUID.randomUUID(), UUID.randomUUID(),
                 3, "EVENT", "성문 장식의 금박이 벗겨졌다", true, 1);
         String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"
@@ -63,7 +89,7 @@ class RuntimeGmPromptComposerTest {
                 List.of(incidental), 10_000);
 
         String memory = prompt.substring(prompt.indexOf("현재 상황 관련 장기 기록"), prompt.indexOf("압축된 이전 대화"));
-        assertTrue(!memory.contains("금박이 벗겨졌다"));
+        assertTrue(memory.contains("금박이 벗겨졌다"));
     }
 
     @Test
@@ -94,7 +120,7 @@ class RuntimeGmPromptComposerTest {
         int budget = RuntimeGmInputBudget.inputLimit(1000);
         assertEquals(800, budget);
         assertThrows(RuntimeGmInputBudget.InputTooLargeException.class,
-                () -> RuntimeGmInputBudget.selectRecent(1000, "f".repeat(241), "", "", List.of(), "c"));
+                () -> RuntimeGmInputBudget.selectRecent(1000, "f".repeat(321), "", "", List.of(), "c"));
         assertThrows(RuntimeGmInputBudget.InputTooLargeException.class,
                 () -> RuntimeGmInputBudget.selectRecent(1000, "f", "", "", List.of("r".repeat(161)), "c"));
         assertEquals(List.of("new"), RuntimeGmInputBudget.selectRecent(1000, "f", "", "",
@@ -184,5 +210,18 @@ class RuntimeGmPromptComposerTest {
         assertEquals(first.substring(0, firstChangingZone), second.substring(0, secondChangingZone));
         assertTrue(first.substring(first.indexOf("최신 캐릭터 시트·Current Situation·이번 턴 근거·플레이어 입력"))
                 .contains("currentSituation"));
+    }
+
+    @Test
+    void includes_locked_map_layout_in_the_fixed_context() {
+        String mapData = "{\"scenarioModel\":\"model\",\"tacticalMaps\":[{\"mapId\":\"tower\",\"walls\":[\"north wall\"],\"doors\":[\"east door\"]}],\"mapSceneBindings\":[{\"location\":\"탑 입구\",\"mapDefinitionId\":\"tower\"}]}";
+        String prompt = RuntimeGmPromptComposer.compose("ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=복도를 따라 이동\nLOOKUP_ORDER_RULE=use facts",
+                List.of(), List.of(), Map.of("scenarioContext", mapData, "currentSituation", "복도"), 128_000);
+
+        int maps = prompt.indexOf("tacticalMaps");
+        int memory = prompt.indexOf("현재 상황 관련 장기 기록");
+        assertTrue(maps >= 0, prompt);
+        assertTrue(maps < memory, prompt);
+        assertTrue(prompt.contains("mapSceneBindings"), prompt);
     }
 }

@@ -10,7 +10,7 @@ public record RuntimeEvidenceSelectionMetrics(
         String contextKey,
         String actionIntent) {
     public RuntimeEvidenceSelectionMetrics {
-        if (selectedCount < 0 || selectedCount > 8) throw new IllegalArgumentException("selected evidence count must be between zero and eight");
+        if (selectedCount < 0) throw new IllegalArgumentException("selected evidence count must not be negative");
         EnumMap<RuntimeEvidenceType, Integer> copy = new EnumMap<>(RuntimeEvidenceType.class);
         copy.putAll(Objects.requireNonNull(selectedByType, "selected evidence metrics must not be null"));
         selectedByType = Map.copyOf(copy);

@@ -259,7 +259,7 @@ class BestOfNTurnPlanningTest {
     }
 
     @Test
-    void rejected_candidate_feedback_is_included_when_regenerating_the_plan() {
+    void ordinary_scene_transition_does_not_require_storybook_evidence_or_regeneration() {
         var calls = new int[1];
         var prompts = new java.util.ArrayList<String>();
         GmAgentPort agent = context -> {
@@ -279,13 +279,9 @@ class BestOfNTurnPlanningTest {
                 "provider", "model", "reasoning", new NarrativeContext("player", "현재 장소", 0,
                         Set.of(), List.of(), java.util.Map.of(), List.of(), List.of(), List.of())));
 
-        assertEquals(3, calls[0]);
-        assertEquals("현재 장소", selected.scene());
-        assertTrue(prompts.get(0).contains("VALIDATION_FEEDBACK=") == false);
-        assertTrue(prompts.get(1).contains("SCENE_TRANSITION_UNSUPPORTED"), prompts.get(1));
-        assertTrue(prompts.get(1).contains("같은 플레이어 행동에 대한 계획을 다시 생성하고"));
-        assertTrue(prompts.get(1).contains("이야기 자료를 인용할 수 없으면 장면을 바꾸지 말고 현재 장면을 이어 가세요"));
-        assertTrue(prompts.get(2).contains("SCENE_TRANSITION_UNSUPPORTED"));
+        assertEquals(1, calls[0]);
+        assertEquals("다른 장소", selected.scene());
+        assertTrue(!prompts.get(0).contains("VALIDATION_FEEDBACK="));
     }
 
     @Test

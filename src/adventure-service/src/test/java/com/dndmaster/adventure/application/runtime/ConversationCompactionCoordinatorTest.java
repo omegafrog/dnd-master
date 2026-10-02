@@ -62,7 +62,7 @@ class ConversationCompactionCoordinatorTest {
     }
 
     @Test
-    void derives_record_kind_relevance_and_disclosure_from_the_confirmed_runtime_fact_not_candidate_metadata() {
+    void uses_agent_selected_kind_but_confirmed_fact_text_and_visibility() {
         var repository = new InMemoryConversationCompactionJobRepository();
         AdventureId adventureId = AdventureId.generate();
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
@@ -80,7 +80,7 @@ class ConversationCompactionCoordinatorTest {
                 List.of(new RuntimeAddedFact(factId, "경비는 협력 약속을 받아들여 성문을 열어 준다", turnId, "경비")), now));
 
         LongTermAdventureFact stored = repository.longTermFacts(adventureId).getFirst();
-        assertEquals("RELATIONSHIP", stored.kind());
+        assertEquals("THREAT", stored.kind());
         assertEquals("경비는 협력 약속을 받아들여 성문을 열어 준다", stored.relevance());
         assertTrue(stored.playerVisible());
     }

@@ -28,7 +28,8 @@ public record RuntimePlan(
         StateDelta stateDelta,
         List<CombatEnemyProposal> combatEnemies,
         boolean combatStartRequested,
-        boolean mapEntryRequested) {
+        boolean mapEntryRequested,
+        RuntimeCheckProposal checkProposal) {
     public RuntimePlan {
         scene = required(scene, "scene");
         judgment = required(judgment, "judgment");
@@ -44,6 +45,22 @@ public record RuntimePlan(
         if (attemptCount < 1 || attemptCount > 2) throw new IllegalArgumentException("GM candidate attempts must be one or two");
         citationBindings = List.copyOf(Objects.requireNonNull(citationBindings, "citation bindings must not be null"));
         combatEnemies = combatEnemies == null ? List.of() : List.copyOf(combatEnemies);
+        checkProposal = checkProposal == null ? RuntimeCheckProposal.none() : checkProposal;
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings, String provider, String model, String reasoning,
+                       boolean stateTransitionRequested, String requestedSelectionId,
+                       RequestedGmProviderSelection requestedSelection,
+                       EffectiveGmProviderSelection effectiveSelection, int attemptCount,
+                       List<GmCitationBinding> citationBindings, StateDelta stateDelta,
+                       List<CombatEnemyProposal> combatEnemies, boolean combatStartRequested,
+                       boolean mapEntryRequested) {
+        this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
+                provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
+                effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested,
+                mapEntryRequested, RuntimeCheckProposal.none());
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
@@ -134,19 +151,19 @@ public record RuntimePlan(
     public RuntimePlan withStateDelta(StateDelta delta) {
         return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
                 warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
-                effectiveSelection, attemptCount, citationBindings, delta, combatEnemies, combatStartRequested, mapEntryRequested);
+                effectiveSelection, attemptCount, citationBindings, delta, combatEnemies, combatStartRequested, mapEntryRequested, checkProposal);
     }
 
     public RuntimePlan withCitedEvidence(List<RuntimeEvidence> evidence) {
         return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, evidence,
                 warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
-                effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested, mapEntryRequested);
+                effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested, mapEntryRequested, checkProposal);
     }
 
     public RuntimePlan withCombatEnemies(List<CombatEnemyProposal> groundedEnemies) {
         return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
                 warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
-                effectiveSelection, attemptCount, citationBindings, stateDelta, groundedEnemies, !groundedEnemies.isEmpty(), mapEntryRequested);
+                effectiveSelection, attemptCount, citationBindings, stateDelta, groundedEnemies, !groundedEnemies.isEmpty(), mapEntryRequested, checkProposal);
     }
 
     public RuntimePlan withoutCombat(String reason) {
@@ -154,7 +171,32 @@ public record RuntimePlan(
         nextWarnings.add(reason);
         return new RuntimePlan(scene, npcState, reason, narration, proposedActiveSourceContext, citedEvidence,
                 nextWarnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
-                effectiveSelection, attemptCount, citationBindings, stateDelta, List.of(), false, mapEntryRequested);
+                effectiveSelection, attemptCount, citationBindings, stateDelta, List.of(), false, mapEntryRequested, checkProposal);
+    }
+
+    public RuntimePlan withCheckProposal(RuntimeCheckProposal proposal) {
+        return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
+                warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
+                effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested,
+                mapEntryRequested, proposal);
+    }
+
+    public RuntimePlan forPendingCheck() {
+        return new RuntimePlan(scene, npcState, "판정 결과 대기", "굴림 결과를 제출해 주세요.", proposedActiveSourceContext,
+                citedEvidence, warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId,
+                requestedSelection, effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies,
+                combatStartRequested, mapEntryRequested, checkProposal);
+    }
+
+    public RuntimePlan withCheckOutcome(boolean success) {
+        if (!checkProposal.required()) throw new IllegalStateException("turn has no saved check proposal");
+        String outcome = success ? checkProposal.successOutcome() : checkProposal.failureOutcome();
+        List<String> nextWarnings = new java.util.ArrayList<>(warnings);
+        nextWarnings.add(success ? "CHECK_SUCCEEDED" : "CHECK_FAILED");
+        return new RuntimePlan(scene, npcState, success ? "판정 성공" : "판정 실패", outcome,
+                proposedActiveSourceContext, citedEvidence, nextWarnings, provider, model, reasoning,
+                stateTransitionRequested, requestedSelectionId, requestedSelection, effectiveSelection, attemptCount,
+                citationBindings, stateDelta, combatEnemies, combatStartRequested, mapEntryRequested, checkProposal);
     }
 
     private static String required(String value, String name) {

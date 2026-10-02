@@ -371,7 +371,14 @@ public final class ScenarioPackageCompilationService {
     }
 
     private static boolean containsEvidenceQuote(String excerptText, String sourceQuote) {
-        return normalizeEvidenceText(excerptText).contains(normalizeEvidenceText(sourceQuote));
+        if (normalizeEvidenceText(excerptText).contains(normalizeEvidenceText(sourceQuote))) return true;
+        return normalizePdfLineWrappedWords(excerptText).contains(normalizePdfLineWrappedWords(sourceQuote));
+    }
+
+    private static String normalizePdfLineWrappedWords(String value) {
+        if (value == null) return "";
+        String joinedLines = value.replaceAll("(?U)(?<=[\\p{L}\\p{N}])\\R(?=[\\p{L}\\p{N}])", "");
+        return normalizeEvidenceText(joinedLines);
     }
 
     private static String normalizeEvidenceText(String value) {

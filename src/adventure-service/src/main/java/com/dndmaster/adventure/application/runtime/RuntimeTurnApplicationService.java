@@ -18,8 +18,6 @@ import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
 import com.dndmaster.adventure.domain.runtime.CompletionProposal;
 import com.dndmaster.adventure.domain.runtime.PendingRuntimeState;
-import com.dndmaster.adventure.domain.scenario.ResolutionKind;
-import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import java.util.ArrayList;
@@ -61,14 +59,13 @@ public class RuntimeTurnApplicationService {
     private NarrativeVerificationAuditPort verificationAuditPort;
     private RuntimeNarrativeStateApplicationService narrativeStateService;
     private RuntimeTurnCommitOrchestrator commitOrchestrator;
+    private AdventureCompletionCommitPort adventureCompletionCommitPort;
+    private RuntimeTurnCommitGate commitGate = RuntimeTurnCommitGate.none();
     private RuntimeFactLookupService runtimeFactLookupService;
     private RuntimePlayerActionEvidenceAcquirer playerActionEvidenceAcquirer;
     private RuntimeCharacterSheetReadPort characterSheetReadPort;
     private ConversationCompactionJobRepository conversationCompactionJobRepository;
-    private final TriggerDetectionPort triggerDetectionPort = new DefaultTriggerDetection();
-    private final CheckSelectionPort checkSelectionPort = CheckSelection::from;
     private final ResolutionPort resolutionPort = new DefaultResolutionPort();
-    private final RevealFilter revealFilter = new DeterministicRevealFilter();
     private final NarrativeVerificationPolicy verificationPolicy = new NarrativeVerificationPolicy();
 
     public RuntimeTurnApplicationService(
@@ -131,6 +128,7 @@ public class RuntimeTurnApplicationService {
     /** Persists the first GM message through the same runtime pipeline as every later turn. */
     public RuntimeTurnResult openSessionTurn(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID requestId) {
         Objects.requireNonNull(requestId, "opening request id must not be null");
+        LOGGER.info("session_opening_turn_started adventureId={} requestId={}", adventureId.value(), requestId);
         RuntimeTurn existing = runtimeTurnRepository.findByCommandId(requestId).orElse(null);
         if (existing != null && existing.lifecycle() == RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE) {
             return retryPresentation(requestId);
@@ -144,6 +142,10 @@ public class RuntimeTurnApplicationService {
 
     public void setFailurePersistence(RuntimeTurnFailurePersistence failurePersistence) {
         this.failurePersistence = Objects.requireNonNull(failurePersistence, "failure persistence must not be null");
+    }
+
+    public void setAdventureCompletionCommitPort(AdventureCompletionCommitPort port) {
+        this.adventureCompletionCommitPort = Objects.requireNonNull(port, "adventure completion commit port must not be null");
     }
 
     public void setTurnLockService(RuntimeTurnLockService service) { this.turnLockService = service; }
@@ -181,6 +183,11 @@ public class RuntimeTurnApplicationService {
     /** Enables the Scenario Runtime command saga for durable turn commits. */
     public void setCommitOrchestrator(RuntimeTurnCommitOrchestrator commitOrchestrator) {
         this.commitOrchestrator = Objects.requireNonNull(commitOrchestrator, "commit orchestrator must not be null");
+    }
+
+    /** Runs required cross-service checks before the local adventure state is saved. */
+    public void setCommitGate(RuntimeTurnCommitGate commitGate) {
+        this.commitGate = Objects.requireNonNull(commitGate, "runtime turn commit gate must not be null");
     }
 
     /** Enables the server-owned Game State → Runtime Fact → Scenario Model lookup before GM generation. */
@@ -230,18 +237,48 @@ public class RuntimeTurnApplicationService {
         if (turn.pendingState() == null || turn.completionProposal() == null) {
             throw new IllegalStateException("runtime turn has no pending local commit state");
         }
+        AdventureContext committedContext = committedContext(turn);
+        List<ConversationEntry> committedConversation = committedConversation(turn);
+        if (turn.lifecycle() == RuntimeTurnLifecycle.COMMITTED
+                && adventure.version() == turn.version() + 1
+                && adventure.currentContext().equals(turn.context())
+                && adventure.conversation().equals(turn.conversation())
+                && adventure.currentSituation().equals(turn.pendingState().situation())) {
+            // Older recovery code advanced the aggregate version with the pre-turn
+            // context and conversation. The runtime artifact still contains the
+            // resolved response, so repair only those presentation fields without
+            // applying the already-committed game-state delta a second time.
+            adventure.preserveProgress(adventure.ownerPlayerId(), adventure.version(), committedContext,
+                    committedConversation);
+            saveConfirmedAdventureAndRegister(adventure);
+        }
         return commitOrchestrator.resume(turn.turnId(), () -> {
             if (adventure.version() == turn.version()) {
-                adventure.commitRuntimeTurn(adventure.ownerPlayerId(), turn.version(), turn.pendingState(), turn.context(),
-                        turn.conversation(), turn.completionProposal());
-                saveConfirmedAdventureAndRegister(adventure);
+                adventure.commitRuntimeTurn(adventure.ownerPlayerId(), turn.version(), turn.pendingState(), committedContext,
+                        committedConversation, turn.completionProposal());
+                commitGate.beforeCommit(adventure, turn);
+                saveAdventureTurn(adventure, turn.completionProposal());
                 return;
             }
             if (adventure.version() == turn.version() + 1
-                    && adventure.currentContext().equals(turn.context())
-                    && adventure.conversation().equals(turn.conversation())) return;
+                    && adventure.currentContext().equals(committedContext)
+                    && adventure.conversation().equals(committedConversation)) return;
             throw new IllegalStateException("adventure local commit is stale or has unknown outcome");
         });
+    }
+
+    private static AdventureContext committedContext(RuntimeTurn turn) {
+        return new AdventureContext(turn.plan().scene(), turn.plan().npcState(), turn.action(), turn.plan().judgment());
+    }
+
+    private static List<ConversationEntry> committedConversation(RuntimeTurn turn) {
+        List<ConversationEntry> conversation = new ArrayList<>(turn.conversation());
+        if (!turn.gmOnly()) conversation.add(new ConversationEntry(conversation.size(), "PLAYER", turn.action()));
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", turn.narration()));
+        if (!turn.gmOnly() && turn.plan().judgment() != null && !turn.plan().judgment().isBlank()) {
+            conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", turn.plan().judgment()));
+        }
+        return List.copyOf(conversation);
     }
 
     /**
@@ -342,6 +379,30 @@ public class RuntimeTurnApplicationService {
                 failure.getClass().getSimpleName(), safeMessage(failure), failure);
     }
 
+    private static List<String> evidenceReferences(List<RuntimeEvidence> evidence) {
+        return evidence.stream().map(item -> "type=" + item.evidenceType()
+                + ",citationKey=" + item.citationKey()
+                + ",referenceKey=" + item.referenceKey()
+                + ",locator=" + item.locator()).toList();
+    }
+
+    private static void validateDiceTotal(String diceExpression, int result) {
+        TypedCheckRule.DiceExpression dice = TypedCheckRule.DiceExpression.parse(diceExpression, 0);
+        if (!dice.acceptsRollTotal(result)) {
+            throw new IllegalArgumentException("dice result is outside the requested expression range");
+        }
+    }
+
+    private static int rollDice(String diceExpression) {
+        TypedCheckRule.DiceExpression dice = TypedCheckRule.DiceExpression.parse(diceExpression, 0);
+        int total = 0;
+        java.security.SecureRandom random = new java.security.SecureRandom();
+        for (int index = 0; index < dice.count(); index++) {
+            total = Math.addExact(total, random.nextInt(dice.sides()) + 1);
+        }
+        return total;
+    }
+
     private List<ExemplarResult> retrieveExemplars(RuntimePlan plan, String action) {
         String purpose = plan.scene().equalsIgnoreCase("scene") ? "scene transition" : plan.scene();
         String interaction = action == null || action.isBlank() ? "narration" : "action";
@@ -388,17 +449,6 @@ public class RuntimeTurnApplicationService {
 
     private PlayerVisibleTurn publicProjection(SubmitRuntimeTurnCommand command, Adventure adventure,
                                                ScenarioPackage scenarioPackage, NarrativeState state, RuntimePlan plan) {
-        TriggerDetection trigger = triggerDetectionPort.detect(
-                new TriggerInput(command.action(), command.gmOnly()), scenarioPackage);
-        CheckSelection selection = checkSelectionPort.select(trigger);
-        if (selection.decision() == CheckSelection.Decision.SYSTEM_ROLL) {
-            int roll = Math.floorMod((command.turnId().toString() + selection.unit().sourceQuote()).hashCode(), 20) + 1;
-            ResolutionResult resolution = resolutionPort.resolve(selection, roll);
-            PlayerVisibleTurn revealed = revealFilter.reveal(state, resolution, command.ownerPlayerId().value().toString(),
-                    adventure.version(), plan.scene(), plan.narration());
-            return new PlayerVisibleTurn(revealed.narrationSeed(), revealed.currentScene(), revealed.visibleFacts(),
-                    revealed.stateDelta(), state.project(command.ownerPlayerId().value().toString(), plan.scene()));
-        }
         List<String> knownValues = state.project(command.ownerPlayerId().value().toString(), plan.scene())
                 .worldFacts().stream().map(com.dndmaster.adventure.domain.runtime.narrative.WorldFact::value).toList();
         return new PlayerVisibleTurn(plan.narration(), plan.scene(), knownValues, deltaFor(state, command, plan),
@@ -468,7 +518,6 @@ public class RuntimeTurnApplicationService {
 
     public RuntimeTurnResult submitPlayerRoll(SubmitPlayerRollCommand command) {
         Objects.requireNonNull(command, "command must not be null");
-        if (command.result() < 1 || command.result() > 20) throw new IllegalArgumentException("d20 result must be between 1 and 20");
         RuntimeTurn pending = runtimeTurnRepository.findByTurnId(command.pendingTurnId())
                 .orElseThrow(() -> new IllegalStateException("pending runtime turn not found"));
         if (!pending.adventureId().equals(command.adventureId()) || pending.origin() != RuntimeTurnOrigin.PLAYER) {
@@ -479,14 +528,15 @@ public class RuntimeTurnApplicationService {
         if (!adventure.ownerPlayerId().equals(command.ownerPlayerId())) throw new IllegalStateException("pending turn owner mismatch");
         if (pending.lifecycle() != RuntimeTurnLifecycle.PENDING_ROLL) throw new IllegalStateException("pending roll is no longer open");
         if (adventure.version() != command.expectedVersion()) throw new IllegalStateException("ADVENTURE_VERSION_CONFLICT");
-        List<String> outcomes = new ArrayList<>(pending.resolvedArtifact().outcomes());
-        outcomes.add("PLAYER_ROLL=" + command.result());
-        RuntimeTurn resolving = new RuntimeTurn(pending.turnId(), pending.commandId(), pending.adventureId(), pending.sessionId(),
-                pending.scenarioPackageId(), pending.bindingVersion(), pending.action(), pending.evidencePack(), pending.plan(),
-                pending.activeSourceContext(), pending.context(), pending.conversation(), pending.version(), pending.citations(), pending.warnings(),
-                false, true, RuntimeTurnOrigin.PLAYER, pending.advancesState(), pending.turnCharacterSheetId(), pending.turnIndex(),
-                pending.expectedVersion(), pending.gmOnly(), pending.agentOrigin(), RuntimeTurnLifecycle.RESOLVING,
-                new ResolvedTurnPlan(pending.resolvedArtifact().plan(), outcomes, RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED));
+        RuntimeCheckProposal check = pending.plan().checkProposal();
+        if (!check.required() || check.rollMethod() != RuntimeCheckProposal.RollMethod.PLAYER) {
+            throw new IllegalStateException("PENDING_CHECK_ARTIFACT_MISSING");
+        }
+        validateDiceTotal(check.diceExpression(), command.result());
+        int total = command.result() + check.modifier();
+        ResolutionPort.PlayerCheckResult result = resolutionPort.resolvePlayerCheck(new ResolutionPort.PlayerCheckRequest(
+                check.evidenceKeys().getFirst(), check.diceExpression(), check.modifier(), check.difficulty(), total));
+        RuntimeTurn resolving = pending.resolvePlayerRoll(command.result(), total, result.success());
         runtimeTurnRepository.save(resolving);
         return retryPresentation(resolving.commandId());
     }
@@ -508,17 +558,6 @@ public class RuntimeTurnApplicationService {
         PlayerVisibleTurn visibleTurn = new PlayerVisibleTurn(turn.plan().narration(), turn.plan().scene(),
                 narrativeContext.worldFacts().stream().map(com.dndmaster.adventure.domain.runtime.narrative.WorldFact::value).toList(),
                 deltaFor(state, turn), narrativeContext);
-        Integer playerRoll = turn.resolvedArtifact().outcomes().stream()
-                .filter(value -> value.startsWith("PLAYER_ROLL="))
-                .map(value -> Integer.valueOf(value.substring("PLAYER_ROLL=".length())))
-                .findFirst().orElse(null);
-        if (playerRoll != null) {
-            ScenarioPackage scenario = scenarioPackageRepository.findById(turn.scenarioPackageId()).orElseThrow();
-            CheckSelection selection = checkSelectionPort.select(triggerDetectionPort.detect(new TriggerInput(turn.action(), false), scenario));
-            ResolutionResult resolution = resolutionPort.resolve(selection, playerRoll);
-            visibleTurn = revealFilter.reveal(state, resolution, adventure.ownerPlayerId().value().toString(),
-                    adventure.version(), turn.plan().scene(), turn.plan().narration());
-        }
         WriterProse prose = writePresentationWithRetry(turn, turn.resolvedArtifact(), visibleTurn, state, narrativeContext,
                 turn.evidencePack(), exemplars);
         try {
@@ -552,11 +591,20 @@ public class RuntimeTurnApplicationService {
                 adventure.conversation(), adventure.currentContext(), adventure.status(), adventure.version(), adventure.turnIndex(), adventure.lastTurnKey(),
                 adventure.lockedScenarioPackageId(), adventure.lockedScenarioPackageRevision(), adventure.gameState(), adventure.disclosureState(),
                 adventure.currentSituation(), adventure.runtimeAddedFacts(), adventure.storyRuntimeState());
-        progressed.preserveProgress(adventure.ownerPlayerId(), adventure.version(), presented.context(), presented.conversation());
+        if (turn.pendingState() != null && turn.completionProposal() != null) {
+            progressed.commitRuntimeTurn(adventure.ownerPlayerId(), adventure.version(), turn.pendingState(),
+                    presented.context(), presented.conversation(), turn.completionProposal());
+        } else {
+            progressed.preserveProgress(adventure.ownerPlayerId(), adventure.version(), presented.context(), presented.conversation());
+        }
         if (turn.turnCharacterSheetId() != null) {
             progressed.advanceTurn(adventure.ownerPlayerId(), turn.turnIndex(), turn.turnCharacterSheetId(), turn.turnId());
         }
-        saveConfirmedAdventureAndRegister(progressed);
+        if (turn.pendingState() != null && turn.completionProposal() != null) {
+            saveAdventureTurn(progressed, turn.completionProposal());
+        } else {
+            saveConfirmedAdventureAndRegister(progressed);
+        }
         runtimeTurnRepository.save(presented);
         if (narrativeStateService != null) narrativeStateService.commit(turn.sessionId(), visibleTurn.stateDelta());
         return new RuntimeTurnResult(presented, progressed.currentContext(), progressed.conversation(), progressed.version(), visibleTurn);
@@ -619,12 +667,13 @@ public class RuntimeTurnApplicationService {
         RuntimePlanningRequest planningRequest = new RuntimePlanningRequest(adventure.id(), adventure.ownerPlayerId(),
                 adventure.sessionId().value(), request.command().operationId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), contextCommand.action(), evidencePack, recentTurns,
-                characterSheets, "SCENARIO_MODEL=" + narrationScenarioModel, providerEndpointId(adventure.sessionId().value()),
+                characterSheets, lockedScenarioContext(scenarioPackage, narrationScenarioModel), providerEndpointId(adventure.sessionId().value()),
                 providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
                 adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults, situation,
                 longTermFactsForPrompt(adventure))
-                .withHiddenFacts(hiddenFactsForPlayer(scenarioPackage, adventure, narrativeState));
+                .withHiddenFacts(hiddenFactsForPlayer(scenarioPackage, adventure, narrativeState))
+                .withScenarioModel(scenarioPackage.scenarioModel());
         String narration = planningPort.planNarration(planningRequest).narration();
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                 narration, evidencePack, adventure.currentContext(), contextCommand.action(), planningRequest.hiddenFacts()));
@@ -683,53 +732,101 @@ public class RuntimeTurnApplicationService {
         return hiddenFacts.stream().filter(value -> value != null && !value.isBlank()).map(String::trim).distinct().toList();
     }
 
+    private static String lockedScenarioContext(ScenarioPackage scenarioPackage, ScenarioModel scenarioModel) {
+        List<java.util.Map<String, Object>> maps = scenarioPackage.mapDefinitions().stream().map(map -> {
+            java.util.Map<String, Object> value = new java.util.LinkedHashMap<>();
+            value.put("mapId", map.id());
+            value.put("grid", map.grid());
+            value.put("walls", map.walls());
+            value.put("doors", map.doors());
+            value.put("obstacles", map.obstacles());
+            return value;
+        }).toList();
+        java.util.Map<String, Object> locked = new java.util.LinkedHashMap<>();
+        locked.put("scenarioModel", scenarioModel);
+        locked.put("tacticalMaps", maps);
+        locked.put("mapSceneBindings", scenarioPackage.storyMapBindings());
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(locked);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+            throw new IllegalStateException("locked scenario and map data could not be serialized", failure);
+        }
+    }
+
     private RuntimeTurnResult submitSafeScenarioRuntimeTurn(SubmitRuntimeTurnCommand command, Adventure adventure,
             RuntimeBinding binding, ScenarioPackage scenarioPackage) {
-        List<String> characterSheets = adventure.party().stream()
-                .map(member -> currentCharacterSheet(member.characterSheetId().value())).toList();
-        EvidencePack evidencePack = prefetchEvidence(command, adventure, binding, scenarioPackage);
-        List<RuntimeFactLookupResult> factLookupResults = lookupRuntimeFacts(command, adventure, scenarioPackage, evidencePack);
-        NarrativeState narrativeState = narrativeStateService == null ? NarrativeState.empty()
-                : narrativeStateService.load(adventure.sessionId().value());
+        List<String> characterSheets = stage(command.turnId(), "character_sheet_reads", () -> adventure.party().stream()
+                .map(member -> currentCharacterSheet(member.characterSheetId().value())).toList());
+        EvidencePack initialEvidencePack = stage(command.turnId(), "player_action_evidence_search",
+                () -> prefetchEvidence(command, adventure, binding, scenarioPackage));
+        List<RuntimeFactLookupResult> factLookupResults = stage(command.turnId(), "runtime_fact_lookup",
+                () -> lookupRuntimeFacts(command, adventure, scenarioPackage, initialEvidencePack));
+        EvidencePack evidencePack = initialEvidencePack;
+        NarrativeState narrativeState = stage(command.turnId(), "narrative_state_read", () -> narrativeStateService == null
+                ? NarrativeState.empty() : narrativeStateService.load(adventure.sessionId().value()));
         NarrativeContext narrativeContext = narrativeState.project(command.ownerPlayerId().value().toString(),
                 adventure.currentSituation().problem());
         RuntimePlanningRequest planningRequest = new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
                 recentConversationForPrompt(adventure),
-                characterSheets, "SCENARIO_MODEL=" + scenarioPackage.scenarioModel(), providerEndpointId(adventure.sessionId().value()),
+                characterSheets, lockedScenarioContext(scenarioPackage, scenarioPackage.scenarioModel()), providerEndpointId(adventure.sessionId().value()),
                 providerSelection(adventure.sessionId().value(), "provider"), providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
                 adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults,
-                adventure.currentSituation().toString(), longTermFactsForPrompt(adventure));
-        RuntimePlanningResult planningResult = planningPort.planWithOutcomes(planningRequest);
+                adventure.currentSituation().toString(), longTermFactsForPrompt(adventure))
+                .withScenarioModel(scenarioPackage.scenarioModel())
+                .withRagSearchContext(ragSearchContext(playerActionEvidenceScope(command, adventure, binding,
+                        scenarioPackage, knowledgeDocumentIds(adventure, scenarioPackage))));
+        RuntimePlanningResult planningResult = stage(command.turnId(), "gm_runtime_planning",
+                () -> planningPort.planWithOutcomes(planningRequest));
         RuntimePlan plan = planningResult.plan();
-        if (!command.gmOnly() && !plan.combatStartRequested()) {
-            plan = plan.withCombatEnemies(PlayerCombatIntentPolicy.proposalsFor(command.action(),
-                    adventure.currentSituation(), scenarioPackage.scenarioModel()));
-        }
-        RuntimeResolutionProposal proposal = SituationProposalGroundingPolicy.ground(
-                planningResult.resolutionProposal(), scenarioPackage.scenarioModel(), evidencePack.storybook(), command.turnId());
+        EvidencePack groundingEvidencePack = evidencePack;
+        RuntimeResolutionProposal proposal = stage(command.turnId(), "resolution_proposal_grounding", () -> {
+            try {
+                return SituationProposalGroundingPolicy.ground(planningResult.resolutionProposal(),
+                        scenarioPackage.scenarioModel(), groundingEvidencePack.rules(), command.turnId());
+            } catch (IllegalArgumentException failure) {
+                SituationProposal situation = planningResult.resolutionProposal().situationProposal();
+                LOGGER.error("situation_proposal_grounding_rejected turnId={} reason={} basis={} proposedReference={} "
+                                + "storybookEvidence={} rulebookEvidence={} resolutionEvidence={}",
+                        command.turnId(), safeMessage(failure), situation == null ? null : situation.basis(),
+                        situation == null ? null : situation.reference(), evidenceReferences(groundingEvidencePack.storybook()),
+                        evidenceReferences(groundingEvidencePack.rulebook()), evidenceReferences(groundingEvidencePack.resolution()));
+                throw failure;
+            }
+        });
         com.dndmaster.adventure.domain.runtime.CurrentSituation nextSituation = proposal.situationUpdate() == null
                 ? adventure.currentSituation()
                 : SituationUpdatePolicy.apply(adventure.currentSituation(), proposal.situationUpdate());
         List<CombatEnemyProposal> groundedCombatEnemies = List.of();
         if (plan.combatStartRequested()) {
             try {
-                evidencePack = evidencePack.prioritizingRulebook(searchCombatStatEvidence(
+                evidencePack = evidencePack.prioritizingCombatEvidence(searchCombatStatEvidence(
                         command, adventure, binding, scenarioPackage, plan.combatEnemies()));
                 groundedCombatEnemies = CombatScenarioGroundingPolicy.ground(
                         scenarioPackage.scenarioModel(), nextSituation, plan.combatEnemies(),
-                        evidencePack.storybook(), evidencePack.rulebook());
+                        evidencePack.rules(), List.of());
                 plan = plan.withCombatEnemies(groundedCombatEnemies);
             } catch (IllegalArgumentException groundingFailure) {
-                logCombatGroundingRejected(groundingFailure, plan.combatEnemies().size(),
-                        evidencePack.storybook().size(), evidencePack.rulebook().size());
+                logCombatGroundingRejected(groundingFailure, plan.combatEnemies().size(), evidencePack.rules().size());
                 String reason = "COMBAT_STAT_BLOCK_NOT_FOUND".equals(groundingFailure.getMessage())
                         ? "전투 보류: 룰북에서 적의 방어도·HP·공격 수치를 확인하지 못했습니다."
                         : "전투 보류: 현재 시츄에이션의 적을 이야기 자료에서 확인하지 못했습니다.";
                 plan = plan.withoutCombat(reason);
             }
+        }
+        RuntimePlan checkedPlan = plan;
+        EvidencePack checkEvidencePack = evidencePack;
+        stage(command.turnId(), "check_proposal_validation", () -> {
+            validateCheckProposal(checkedPlan.checkProposal(), checkEvidencePack, adventure, command);
+            return null;
+        });
+        if (plan.checkProposal().required()
+                && plan.checkProposal().rollMethod() == RuntimeCheckProposal.RollMethod.SYSTEM) {
+            int rolled = rollDice(plan.checkProposal().diceExpression());
+            int total = Math.addExact(rolled, plan.checkProposal().modifier());
+            plan = plan.withCheckOutcome(total >= plan.checkProposal().difficulty());
         }
         RuntimeTurn requested = new RuntimeTurn(command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(),
                 binding.scenarioPackageId(), binding.bindingVersion(), command.action(), evidencePack, plan,
@@ -743,13 +840,28 @@ public class RuntimeTurnApplicationService {
         }
         PendingRuntimeState pending = new PendingRuntimeState(proposal.gameStateDelta(), proposal.disclosureState(),
                 nextSituation, proposal.runtimeAddedFacts());
+        if (plan.checkProposal().required()
+                && plan.checkProposal().rollMethod() == RuntimeCheckProposal.RollMethod.PLAYER) {
+            if (!command.externalCommands().isEmpty() || !planningResult.runtimeCommands().isEmpty()) {
+                throw new IllegalStateException("PLAYER_CHECK_CANNOT_BE_COMBINED_WITH_UNCOMMITTED_RUNTIME_COMMANDS");
+            }
+            RuntimeTurn parked = requested.pendingPlayerRoll(pending, proposal.completionProposal());
+            runtimeTurnRepository.save(parked);
+            PlayerRollRequest rollRequest = new PlayerRollRequest(command.turnId(),
+                    plan.checkProposal().abilityOrSkill(), plan.checkProposal().diceExpression(),
+                    plan.checkProposal().reason(), adventure.version());
+            PlayerVisibleTurn waiting = new PlayerVisibleTurn(parked.narration(), plan.scene(), List.of(), null,
+                    narrativeContext, rollRequest);
+            return new RuntimeTurnResult(parked, adventure.currentContext(), adventure.conversation(), adventure.version(), waiting);
+        }
         RuntimeTurnSafetyOrchestrator safetyOrchestrator = new RuntimeTurnSafetyOrchestrator(narrationSafetyPort);
         StateDelta pendingNarrativeDelta = deltaFor(narrativeState, command, plan);
         PlayerVisibleTurn visibleInput = new PlayerVisibleTurn(plan.narration(), plan.scene(), List.of(), pendingNarrativeDelta, narrativeContext);
-        RuntimeTurn ready = safetyOrchestrator.resolveAndNarrate(requested,
-                new RuntimeTurnResolution(plan.judgment(), null,
-                        planningResult.toolOutcomes().stream().map(RuntimeTurnApplicationService::renderOutcome).toList()),
-                pending, proposal.completionProposal(), () -> writerPort.write(visibleInput).prose());
+        RuntimeTurnResolution turnResolution = new RuntimeTurnResolution(plan.judgment(), null,
+                planningResult.toolOutcomes().stream().map(RuntimeTurnApplicationService::renderOutcome).toList());
+        RuntimeTurn ready = stage(command.turnId(), "narration_safety_and_presentation", () -> safetyOrchestrator.resolveAndNarrate(requested,
+                turnResolution,
+                pending, proposal.completionProposal(), () -> writerPort.write(visibleInput).prose()));
         if (ready.lifecycle() == RuntimeTurnLifecycle.DISCARDED) {
             runtimeTurnRepository.save(ready);
             throw new IllegalStateException("runtime narration safety retries exhausted");
@@ -764,9 +876,11 @@ public class RuntimeTurnApplicationService {
         RuntimeTurnCommitOrchestrator.Result commitResult;
         if (commitOrchestrator == null) {
             RuntimeTurn committing = ready.beginCommit();
+            runtimeTurnRepository.save(committing);
             adventure.commitRuntimeTurn(command.ownerPlayerId(), adventure.version(), pending, nextContext, conversation,
                     proposal.completionProposal());
-            saveConfirmedAdventureAndRegister(adventure);
+            commitGate.beforeCommit(adventure, ready);
+            saveAdventureTurn(adventure, proposal.completionProposal());
             RuntimeTurn committed = committing.markSafeCommitted();
             runtimeTurnRepository.save(committed);
             commitResult = new RuntimeTurnCommitOrchestrator.Result(
@@ -777,12 +891,13 @@ public class RuntimeTurnApplicationService {
                             command.externalCommands().stream(), planningResult.runtimeCommands().stream())
                     .map(value -> value.withExecutionOrder(commandOrder.getAndIncrement()))
                     .toList();
-            commitResult = commitOrchestrator.commit(ready, commands, () -> {
+            commitResult = stage(command.turnId(), "runtime_turn_commit", () -> commitOrchestrator.commit(ready, commands, () -> {
                 adventure.commitRuntimeTurn(command.ownerPlayerId(), adventure.version(), pending, nextContext, conversation,
                         proposal.completionProposal());
-                saveConfirmedAdventureAndRegister(adventure);
+                commitGate.beforeCommit(adventure, ready);
+                saveAdventureTurn(adventure, proposal.completionProposal());
                 if (narrativeStateService != null) narrativeStateService.commit(adventure.sessionId().value(), visibleInput.stateDelta());
-            });
+            }));
         }
         if (commitResult.status() != RuntimeTurnCommitOrchestrator.Status.COMMITTED) {
             if (commitResult.status() == RuntimeTurnCommitOrchestrator.Status.RETRY_REQUIRED) {
@@ -830,6 +945,17 @@ public class RuntimeTurnApplicationService {
         if (adventureRepository instanceof AdventureConversationCompactionCommitPort atomic) {
             atomic.saveConfirmedTurnAndRegister(adventure, job);
         } else { throw new IllegalStateException("confirmed adventure storage must atomically register conversation compaction work"); }
+    }
+
+    private void saveAdventureTurn(Adventure adventure, com.dndmaster.adventure.domain.runtime.CompletionProposal completion) {
+        if (completion != null && completion.complete()) {
+            if (adventureCompletionCommitPort == null) {
+                throw new IllegalStateException("adventure conclusion requires atomic session completion support");
+            }
+            adventureCompletionCommitPort.saveCompleted(adventure, compactionJob(adventure));
+            return;
+        }
+        saveConfirmedAdventureAndRegister(adventure);
     }
 
     private ConversationCompactionJob compactionJob(Adventure adventure) {
@@ -923,23 +1049,15 @@ public class RuntimeTurnApplicationService {
         List<UUID> knowledgeDocumentIds = knowledgeDocumentIds(adventure, scenarioPackage);
         if (playerActionEvidenceAcquirer != null) {
             List<RuntimeEvidence> selected = playerActionEvidenceAcquirer.acquire(
-                    playerActionEvidenceScope(command, adventure, binding, scenarioPackage, knowledgeDocumentIds), command.action());
+                    playerActionEvidenceScope(command, adventure, binding, scenarioPackage, knowledgeDocumentIds), command.action(),
+                    adventure.currentSituation().toString());
             List<RuntimeEvidence> storybook = selected.stream()
                     .filter(evidence -> evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK)
-                    .limit(RuntimeEvidenceSelector.MAX_EVIDENCE)
                     .toList();
-            int remaining = RuntimeEvidenceSelector.MAX_EVIDENCE - storybook.size();
             List<RuntimeEvidence> rulebook = selected.stream()
                     .filter(evidence -> evidence.evidenceType() == RuntimeEvidenceType.RULEBOOK)
-                    .limit(remaining)
                     .toList();
-            remaining -= rulebook.size();
-            List<RuntimeEvidence> resolution = scenarioPackage.runtimeCandidates().stream()
-                    .flatMap(unit -> resolutionEvidence(unit).stream())
-                    .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
-                    .limit(remaining)
-                    .toList();
-            return new EvidencePack(storybook, rulebook, resolution);
+            return new EvidencePack(storybook, rulebook, List.of());
         }
         List<UUID> storybookDocumentIds = documentIdsOfType(scenarioPackage, "STORYBOOK", knowledgeDocumentIds);
         if (storybookDocumentIds.isEmpty()) {
@@ -952,43 +1070,20 @@ public class RuntimeTurnApplicationService {
                         com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection::extractionVersion, (a, b) -> a));
         extractionVersions = extractionVersions.entrySet().stream().filter(entry -> entry.getValue() > 1)
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
-        List<RuntimeEvidence> resolution = scenarioPackage.runtimeCandidates().stream()
-                .flatMap(unit -> resolutionEvidence(unit).stream())
-                .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
-                .toList();
+        String currentSituation = adventure.currentSituation() == null ? "" : adventure.currentSituation().toString();
+        String turnRulesQuery = RuntimePlayerActionEvidenceAcquirer.turnRulesQuery(command.action(),
+                currentSituation, "scene:" + adventure.currentContext().currentScene());
         RuntimeEvidenceSearchRequest request = new RuntimeEvidenceSearchRequest(
                 adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), storybookDocumentIds,
-                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, RuntimeEvidenceSelector.MAX_EVIDENCE,
-                extractionVersions, "scene:" + adventure.currentContext().currentScene(), actionIntent(command.action()));
+                binding.activeSourceContext(), turnRulesQuery, RuntimeEvidenceType.STORYBOOK, 8,
+                extractionVersions, "scene:" + adventure.currentContext().currentScene(), "PLAYER_ACTION");
         List<RuntimeEvidence> storybook = bestEffortScopedSearch(request.forType(RuntimeEvidenceType.STORYBOOK, 5));
         List<RuntimeEvidence> rulebook = rulebookDocumentIds.isEmpty() ? List.of()
                 : bestEffortScopedSearch(request.withDocumentIds(rulebookDocumentIds, RuntimeEvidenceType.RULEBOOK, 5));
-        List<RuntimeEvidence> searchedResolution;
-        if (!hasPartialSkillCheck(scenarioPackage)) {
-            searchedResolution = List.of();
-        } else {
-            List<UUID> resolutionStorybookIds = documentIdsOfType(scenarioPackage, "STORYBOOK", knowledgeDocumentIds);
-            List<UUID> resolutionRulebookIds = documentIdsOfType(scenarioPackage, "RULEBOOK", knowledgeDocumentIds);
-            searchedResolution = java.util.stream.Stream.concat(
-                            resolutionStorybookIds.isEmpty() ? java.util.stream.Stream.<RuntimeEvidence>empty()
-                                    : bestEffortScopedSearch(request.withDocumentIds(resolutionStorybookIds, RuntimeEvidenceType.STORYBOOK, 5)).stream(),
-                            resolutionRulebookIds.isEmpty() ? java.util.stream.Stream.<RuntimeEvidence>empty()
-                                    : bestEffortScopedSearch(request.withDocumentIds(resolutionRulebookIds, RuntimeEvidenceType.RULEBOOK, 5)).stream())
-                    .map(evidence -> new RuntimeEvidence(RuntimeEvidenceType.RESOLUTION,
-                            evidence.knowledgeDocumentId(), evidence.extractionVersion(), evidence.locator(), evidence.excerpt(),
-                            evidence.citationKey()))
-                    .toList();
-        }
-        resolution = java.util.stream.Stream.concat(resolution.stream(), searchedResolution.stream()).distinct().toList();
-        // A missing Storybook match is a normal runtime condition. The GM can
-        // still react in-world using the current situation and established
-        // runtime facts; if a new fact is required, the validated fallback
-        // proposal persists it atomically with the turn.
-        List<RuntimeEvidence> boundedStorybook = storybook.stream().limit(RuntimeEvidenceSelector.MAX_EVIDENCE).toList();
-        int remaining = Math.max(0, RuntimeEvidenceSelector.MAX_EVIDENCE - boundedStorybook.size());
-        List<RuntimeEvidence> boundedRulebook = rulebook.stream().limit(remaining).toList();
-        remaining = Math.max(0, remaining - boundedRulebook.size());
-        return new EvidencePack(boundedStorybook, boundedRulebook, resolution.stream().limit(remaining).toList());
+        // No match in either rules source is a normal runtime condition. The
+        // GM still receives the locked situation and map context and may decide
+        // that the action needs no rule-based check.
+        return new EvidencePack(storybook, rulebook, List.of());
     }
 
     private static com.dndmaster.adventure.evidence.EvidenceSearchScope playerActionEvidenceScope(
@@ -1002,7 +1097,7 @@ public class RuntimeTurnApplicationService {
         List<String> activeLocators = binding.activeSourceContext() == null ? List.of()
                 : List.of(binding.activeSourceContext().locator());
         return new com.dndmaster.adventure.evidence.EvidenceSearchScope(command.ownerPlayerId().value(), adventure.sessionId().value(),
-                binding.scenarioPackageId(), "scene:" + adventure.currentContext().currentScene(), actionIntent(command.action()),
+                binding.scenarioPackageId(), "scene:" + adventure.currentContext().currentScene(), "PLAYER_ACTION",
                 documents, activeLocators);
     }
 
@@ -1014,23 +1109,43 @@ public class RuntimeTurnApplicationService {
                 document.extractionVersion(), type);
     }
 
-    private List<RuntimeEvidence> searchCombatStatEvidence(SubmitRuntimeTurnCommand command, Adventure adventure,
+    private static Map<String, Object> ragSearchContext(com.dndmaster.adventure.evidence.EvidenceSearchScope scope) {
+        return Map.of("ownerId", scope.ownerId(), "sessionId", scope.sessionId(),
+                "scenarioPackageId", scope.scenarioPackageId(), "stageKey", scope.stageKey(),
+                "actionIntent", scope.actionIntent(),
+                "scope", scope.documents().stream().map(document -> Map.of(
+                        "documentId", document.id(), "extractionVersion", document.extractionVersion(),
+                        "documentType", document.type())).toList(),
+                "activeLocators", scope.activeLocators());
+    }
+
+    List<RuntimeEvidence> searchCombatStatEvidence(SubmitRuntimeTurnCommand command, Adventure adventure,
             RuntimeBinding binding, ScenarioPackage scenarioPackage, List<CombatEnemyProposal> proposals) {
         if (proposals == null || proposals.isEmpty()) return List.of();
         List<UUID> selectedDocuments = knowledgeDocumentIds(adventure, scenarioPackage);
         List<UUID> rulebookDocuments = documentIdsOfType(scenarioPackage, "RULEBOOK", selectedDocuments);
-        if (rulebookDocuments.isEmpty()) return List.of();
+        List<UUID> storybookDocuments = documentIdsOfType(scenarioPackage, "STORYBOOK", selectedDocuments);
+        if (rulebookDocuments.isEmpty() && storybookDocuments.isEmpty()) return List.of();
         Map<UUID, Long> extractionVersions = scenarioPackage.documents().stream()
                 .collect(java.util.stream.Collectors.toMap(document -> document.knowledgeDocumentId().value(),
                         com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection::extractionVersion, (a, b) -> a));
         List<RuntimeEvidence> found = new ArrayList<>();
         for (CombatEnemyProposal proposal : proposals) {
             if (proposal == null) continue;
-            RuntimeEvidenceSearchRequest request = new RuntimeEvidenceSearchRequest(
-                    adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(),
-                    rulebookDocuments, binding.activeSourceContext(), proposal.enemyKey() + " " + proposal.name(), RuntimeEvidenceType.RULEBOOK,
-                    3, extractionVersions, "combat-stat:" + proposal.enemyKey(), "ADJUDICATION");
-            found.addAll(scopedSearch(request));
+            String query = proposal.enemyKey() + " " + proposal.name();
+            String contextKey = "combat-stat:" + proposal.enemyKey();
+            if (!rulebookDocuments.isEmpty()) {
+                found.addAll(scopedSearch(new RuntimeEvidenceSearchRequest(
+                        adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(),
+                        rulebookDocuments, binding.activeSourceContext(), query, RuntimeEvidenceType.RULEBOOK,
+                        3, extractionVersions, contextKey, "ADJUDICATION")));
+            }
+            if (!storybookDocuments.isEmpty()) {
+                found.addAll(scopedSearch(new RuntimeEvidenceSearchRequest(
+                        adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(),
+                        storybookDocuments, binding.activeSourceContext(), query, RuntimeEvidenceType.STORYBOOK,
+                        3, extractionVersions, contextKey, "ADJUDICATION")));
+            }
         }
         return found.stream().distinct().toList();
     }
@@ -1099,7 +1214,7 @@ public class RuntimeTurnApplicationService {
             return List.of(result);
         } catch (RuntimeException failure) {
             if (!isRecoverableLookupFailure(failure)) throw failure;
-            LOGGER.warn("runtime_fact_lookup_unavailable actionIntent={}", actionIntent(command.action()));
+            LOGGER.warn("runtime_fact_lookup_unavailable actionIntent=PLAYER_ACTION");
             return List.of(RuntimeFactLookupResult.notFound());
         }
     }
@@ -1130,50 +1245,29 @@ public class RuntimeTurnApplicationService {
                 && reference.locator().equals(evidence.locator()));
     }
 
-    private static RuntimePlan preservePendingSkillAdjudication(RuntimePlan plan, String action,
-            ScenarioPackage scenarioPackage, EvidencePack evidencePack) {
-        String searchable = (action + " " + plan.judgment() + " " + plan.narration()).toLowerCase(java.util.Locale.ROOT);
-        ScenarioResolutionUnit pending = scenarioPackage.runtimeCandidates().stream()
-                .filter(u -> u.status() == com.dndmaster.adventure.domain.scenario.ResolutionStatus.PARTIAL)
-                .filter(u -> u.kind() == ResolutionKind.SKILL_ABILITY_CHECK)
-                .filter(u -> evidencePack.resolution().stream().anyMatch(ev -> u.sourceRefs().stream().anyMatch(ref ->
-                        ref.knowledgeDocumentId().equals(ev.knowledgeDocumentId()) && ref.locator().equals(ev.locator()))))
-                .filter(u -> u.abilityOrSkill() != null && (searchable.contains(u.abilityOrSkill().toLowerCase(java.util.Locale.ROOT))
-                        || (u.abilityOrSkill().equalsIgnoreCase("perception") && matchesPerception(action))))
-                .findFirst().orElse(null);
-        if (pending == null || "PENDING_RULE_INPUT".equals(plan.resolutionStatus())) return plan;
-        String judgment = "판정 보류: " + pending.abilityOrSkill() + " 판정의 DC가 근거에 없어 GM adjudication이 필요합니다.";
-        List<String> warnings = new ArrayList<>(plan.warnings());
-        warnings.add("PENDING_RULE_INPUT: DC is missing for " + pending.abilityOrSkill());
-        return new RuntimePlan(plan.scene(), plan.npcState(), judgment, plan.narration(), plan.proposedActiveSourceContext(),
-                plan.citedEvidence(), warnings, plan.provider(), plan.model(), plan.reasoning(), false,
-                plan.requestedSelectionId(), plan.requestedSelection(), plan.effectiveSelection(), plan.attemptCount(),
-                plan.citationBindings(), plan.stateDelta(), plan.combatEnemies(), plan.combatStartRequested(), plan.mapEntryRequested());
-    }
-
-    private static boolean matchesPerception(String action) {
-        String value = action == null ? "" : action.replaceAll("\\s+", "");
-        return value.contains("살펴") || value.contains("관찰") || value.contains("둘러")
-                || value.contains("주변") || value.contains("주의깊게") || value.contains("주의 깊게");
-    }
-
-    private static boolean hasPartialSkillCheck(ScenarioPackage scenarioPackage) {
-        return scenarioPackage.runtimeCandidates().stream()
-                .anyMatch(unit -> unit.status() == com.dndmaster.adventure.domain.scenario.ResolutionStatus.PARTIAL
-                        && unit.kind() == ResolutionKind.SKILL_ABILITY_CHECK);
-    }
-
-    private static String actionIntent(String action) {
-        String normalized = action.toLowerCase(java.util.Locale.ROOT);
-        if (normalized.contains("rule") || normalized.contains("roll") || normalized.contains("damage")
-                || normalized.contains("판정") || normalized.contains("규칙") || normalized.contains("굴림")) {
-            return "RULE";
+    private static void validateCheckProposal(RuntimeCheckProposal check, EvidencePack evidencePack,
+            Adventure adventure, SubmitRuntimeTurnCommand command) {
+        if (!check.required()) return;
+        if (check.rollMethod() == RuntimeCheckProposal.RollMethod.PLAYER && command.gmOnly()) {
+            LOGGER.error("player_check_contract_rejected turnId={} reason=GM_ONLY_TURN rollMethod={} diceExpression={} "
+                            + "abilityOrSkill={} difficulty={} modifier={} characterSheetId={} evidenceKeys={}",
+                    command.turnId(), check.rollMethod(), check.diceExpression(), check.abilityOrSkill(),
+                    check.difficulty(), check.modifier(), check.characterSheetId(), check.evidenceKeys());
+            throw new IllegalArgumentException("player check cannot be requested for a GM-only turn");
         }
-        if (normalized.contains("look") || normalized.contains("inspect") || normalized.contains("search")
-                || normalized.contains("examine") || normalized.contains("살펴") || normalized.contains("조사")) {
-            return "EXPLORE";
+        boolean characterExists = adventure.party().stream().anyMatch(member ->
+                member.characterSheetId().value().equals(check.characterSheetId()));
+        if (!characterExists || (command.turnCharacterSheetId() != null
+                && !command.turnCharacterSheetId().value().equals(check.characterSheetId()))) {
+            throw new IllegalArgumentException("check proposal targets a character outside the current party turn");
         }
-        return "MIXED";
+        java.util.Set<String> evidenceKeys = evidencePack.all().stream()
+                .filter(evidence -> evidence.evidenceType() == RuntimeEvidenceType.RULEBOOK
+                        || evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK)
+                .map(RuntimeEvidence::referenceKey).collect(java.util.stream.Collectors.toSet());
+        if (!evidenceKeys.containsAll(check.evidenceKeys())) {
+            throw new IllegalArgumentException("check proposal cites rules evidence outside the turn evidence pack");
+        }
     }
 
     private List<UUID> knowledgeDocumentIds(Adventure adventure, ScenarioPackage scenarioPackage) {
@@ -1191,16 +1285,6 @@ public class RuntimeTurnApplicationService {
                 .toList();
     }
 
-    private static List<RuntimeEvidence> resolutionEvidence(ScenarioResolutionUnit unit) {
-        List<RuntimeEvidence> evidence = new ArrayList<>();
-        for (ScenarioSourceReference ref : unit.sourceRefs()) {
-            evidence.add(new RuntimeEvidence(
-                    RuntimeEvidenceType.RESOLUTION, ref.knowledgeDocumentId(), ref.extractionVersion(), ref.locator(),
-                    unit.sourceQuote()));
-        }
-        return evidence;
-    }
-
     private static String safeMessage(Throwable failure) {
         String message = failure.getMessage();
         return message == null ? "" : message.replaceAll("[\\r\\n]", " ");
@@ -1211,17 +1295,15 @@ public class RuntimeTurnApplicationService {
         return value.isBlank() ? outcome.status().name() : outcome.status().name() + ": " + value;
     }
 
-    static void logCombatGroundingRejected(IllegalArgumentException failure, int proposalCount,
-            int storybookEvidenceCount, int rulebookEvidenceCount) {
+    static void logCombatGroundingRejected(IllegalArgumentException failure, int proposalCount, int rulesEvidenceCount) {
         String category = switch (failure.getMessage() == null ? "" : failure.getMessage()) {
             case "COMBAT_SCENARIO_ACTIVE_MISMATCH", "COMBAT_SCENARIO_DUPLICATE", "COMBAT_SCENARIO_ENEMY_MISMATCH",
                     "COMBAT_SCENARIO_NOT_IN_SCENARIO_MODEL", "COMBAT_SCENARIO_REFERENCE_REQUIRED",
-                    "COMBAT_SCENARIO_REQUIRED", "COMBAT_STAT_BLOCK_NOT_FOUND", "COMBAT_STORY_EVIDENCE_REQUIRED" ->
+                    "COMBAT_SCENARIO_REQUIRED", "COMBAT_STAT_BLOCK_NOT_FOUND", "COMBAT_SCENARIO_NOT_IN_CURRENT_SITUATION" ->
                     failure.getMessage();
             default -> "UNKNOWN_GROUNDING_FAILURE";
         };
-        LOGGER.warn("combat grounding rejected category={} proposalCount={} storybookEvidenceCount={} "
-                        + "rulebookEvidenceCount={}",
-                category, proposalCount, storybookEvidenceCount, rulebookEvidenceCount);
+        LOGGER.warn("combat grounding rejected category={} proposalCount={} rulesEvidenceCount={}",
+                category, proposalCount, rulesEvidenceCount);
     }
 }

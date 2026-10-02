@@ -92,22 +92,15 @@ public final class ConversationCompactionCoordinator {
             long actualAdventureVersion, ConversationCompactionCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
         return candidate.longTermFacts().stream().map(proposed -> {
             RuntimeAddedFact confirmed = confirmedFact(proposed, runtimeFacts);
-            // The candidate can point at a fact but cannot choose its classification, wording, or disclosure.
+            // The candidate chooses only a declared kind; the persisted fact text and visibility come from confirmed play.
             // Runtime-added facts are created only from confirmed player-visible turn results.
             return new LongTermAdventureFact(adventureId, confirmed.factId(), confirmed.establishedTurnId(),
-                    actualAdventureVersion, kindOf(confirmed), confirmed.content(), true, 1);
+                    actualAdventureVersion, proposed.kind(), confirmed.content(), true, 1);
         }).toList();
     }
     private static RuntimeAddedFact confirmedFact(LongTermFactCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
         return runtimeFacts.stream().filter(fact -> fact.factId().equals(candidate.factId())
                 && fact.establishedTurnId().equals(candidate.establishedTurnId())).findFirst().orElse(null);
-    }
-    private static String kindOf(RuntimeAddedFact fact) {
-        String text = fact.content().toLowerCase(java.util.Locale.ROOT);
-        if (text.matches(".*(위협|위험|공격|습격|threat|danger|attack).*")) return "THREAT";
-        if (text.matches(".*(목표|찾아|찾기|구해|해야|goal|objective).*")) return "GOAL";
-        if (text.matches(".*(협력|약속|동맹|관계|신뢰|주기로|alliance|promise|relationship|trust).*")) return "RELATIONSHIP";
-        return "EVENT";
     }
     /** A contiguous AI Game Master response is one completed turn; a player entry starts the next turn. */
     static List<Long> completedTurnEnds(List<ConversationEntry> conversation) {

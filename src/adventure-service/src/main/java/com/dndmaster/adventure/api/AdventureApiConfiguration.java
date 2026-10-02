@@ -141,6 +141,14 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.runtime.AdventureCompletionCommitPort adventureCompletionCommitPort(
+            AdventureRepository adventures, AdventureSessionRepository sessions,
+            org.springframework.transaction.PlatformTransactionManager transactionManager) {
+        return new com.dndmaster.adventure.infrastructure.persistence.TransactionalAdventureCompletionCommitAdapter(
+                adventures, sessions, transactionManager);
+    }
+
+    @Bean
     com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService adventureAiRequestApplicationService(
             AdventureSessionRepository repository) {
         return new com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService(repository);
@@ -207,11 +215,12 @@ public class AdventureApiConfiguration {
             AiCompanionSheetCreationPort aiCompanionSheetCreationPort,
             com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort,
             StageArtifactPreparationApplicationService stagePreparation,
-            com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService) {
+            com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService,
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
         return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository,
                 runtimeBindingService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort,
                 sessionKnowledgeSetRepository, aiCompanionGenerationPort, aiCompanionSheetCreationPort,
-                combatMapPreparationPort, stagePreparation, runtimeTurnService);
+                combatMapPreparationPort, stagePreparation, runtimeTurnService, combatLifecycleService);
     }
 
     @Bean
@@ -989,7 +998,10 @@ public class AdventureApiConfiguration {
             RuntimeFactLookupService runtimeFactLookupService,
             com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService,
             RuntimeCharacterSheetReadPort characterSheetReadPort,
-            javax.sql.DataSource dataSource) {
+            com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort,
+            com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort,
+            javax.sql.DataSource dataSource,
+            com.dndmaster.adventure.application.runtime.AdventureCompletionCommitPort adventureCompletionCommitPort) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, providerBindingRepository,
@@ -999,10 +1011,13 @@ public class AdventureApiConfiguration {
         service.setApprovedPromptConfigurationReadPort(approvedPromptConfigurationReadPort);
         service.setTurnLockService(runtimeTurnLockService);
         service.setCommitOrchestrator(commitOrchestrator);
+        service.setCommitGate(new com.dndmaster.adventure.application.combat.PreparedMapEntryCommitGate(
+                combatMapViewPort, combatMapPreparationPort));
         service.setRuntimeFactLookupService(runtimeFactLookupService);
         service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(evidenceAcquisitionApplicationService));
         service.setCharacterSheetReadPort(characterSheetReadPort);
         service.setConversationCompactionJobRepository(conversationCompactionJobRepository(dataSource));
+        service.setAdventureCompletionCommitPort(adventureCompletionCommitPort);
         return service;
     }
 

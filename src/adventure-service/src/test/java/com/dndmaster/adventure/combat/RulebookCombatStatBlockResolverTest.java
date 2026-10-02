@@ -38,14 +38,21 @@ class RulebookCombatStatBlockResolverTest {
     }
 
     @Test
-    void ignores_storybook_text_when_resolving_rulebook_stats() {
+    void resolves_combat_numbers_from_a_structured_storybook_creature_entry() {
+        UUID documentId = UUID.randomUUID();
         var result = RulebookCombatStatBlockResolver.resolve(
-                new CombatEnemyProposal("instant-rat", "giant-rat", "Giant Rat", 1,
+                new CombatEnemyProposal("instant-spider", "giant-inferno-spider", "Giant Inferno Spider", 1,
                         com.dndmaster.adventure.application.runtime.CombatStartMode.INSTANT),
                 List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
-                        new KnowledgeDocumentId(UUID.randomUUID()), 1, "page-2",
-                        "Eight Giant Rats begin combat.")));
+                        new KnowledgeDocumentId(documentId), 2, "page=4:creature",
+                        "Giant Inferno Spider Armor Class 14 Hit Points 32 (5d10 + 5). "
+                                + "Flaming Bite: Melee Weapon Attack: +5 to hit. Hit: 6 (1d8 + 2) piercing damage.")));
 
-        assertTrue(result.isEmpty());
+        assertTrue(result.isPresent());
+        assertEquals(14, result.orElseThrow().armorClass());
+        assertEquals(32, result.orElseThrow().hitPointMaximum());
+        assertEquals(5, result.orElseThrow().attackModifier());
+        assertEquals("1d8 + 2", result.orElseThrow().damageDice());
+        assertEquals(documentId, result.orElseThrow().source().knowledgeDocumentId());
     }
 }

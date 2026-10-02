@@ -8,7 +8,7 @@ import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Parses a complete monster stat block from already-scoped Rulebook RAG evidence. */
+/** Parses complete enemy combat numbers from selected Rulebook or Storybook evidence. */
 public final class RulebookCombatStatBlockResolver {
     private static final Pattern DEFENSE = Pattern.compile(
             "(?is)(?:\\bArmor\\s+Class|방어도)\\s+(\\d+).*?(?:\\bHit\\s+Points|히트\\s+포인트)\\s+(\\d+)");
@@ -25,7 +25,8 @@ public final class RulebookCombatStatBlockResolver {
         String name = proposal.name().toLowerCase(Locale.ROOT);
         String key = proposal.enemyKey().toLowerCase(Locale.ROOT);
         return evidence.stream()
-                .filter(item -> item != null && item.evidenceType() == RuntimeEvidenceType.RULEBOOK)
+                .filter(item -> item != null && (item.evidenceType() == RuntimeEvidenceType.RULEBOOK
+                        || item.evidenceType() == RuntimeEvidenceType.STORYBOOK))
                 .filter(item -> containsMonster(item.excerpt(), name, key))
                 .map(RulebookCombatStatBlockResolver::parse)
                 .flatMap(Optional::stream)

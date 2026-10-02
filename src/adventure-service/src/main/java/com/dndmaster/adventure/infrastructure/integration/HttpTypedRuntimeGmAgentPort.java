@@ -5,6 +5,7 @@ import com.dndmaster.adventure.application.runtime.GmContextEnvelope;
 import com.dndmaster.adventure.application.runtime.RuntimeGmContextLimits;
 import com.dndmaster.adventure.application.runtime.RuntimeGmInputLimitException;
 import com.dndmaster.adventure.application.runtime.GmPlanResult;
+import com.dndmaster.adventure.application.runtime.CompletionCandidate;
 import com.dndmaster.adventure.application.runtime.GmToolSpec;
 import com.dndmaster.adventure.application.runtime.CombatEnemyProposal;
 import com.dndmaster.adventure.application.runtime.CombatStartMode;
@@ -13,6 +14,7 @@ import com.dndmaster.adventure.application.runtime.SituationProposal;
 import com.dndmaster.adventure.application.runtime.SituationUpdateProposal;
 import com.dndmaster.adventure.domain.runtime.EffectiveGmProviderSelection;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -25,6 +27,7 @@ import java.util.Objects;
 
 /** HTTP adapter for the role-specific Runtime GM contract. */
 public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(HttpTypedRuntimeGmAgentPort.class);
     private final HttpClient client;
     private final URI baseUri;
     private final Duration timeout;
@@ -58,17 +61,53 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                     ? EffectiveGmProviderSelection.legacyUnknown()
                     : new EffectiveGmProviderSelection(context.requestedSelection().endpointId(), Instant.now(),
                             provider, model, reasoning);
+            Map<String, com.dndmaster.adventure.application.runtime.RuntimeEvidence> evidenceByKey = context.evidencePack().all().stream()
+                    .collect(java.util.stream.Collectors.toMap(
+                            com.dndmaster.adventure.application.runtime.RuntimeEvidence::referenceKey,
+                            evidence -> evidence, (first, ignored) -> first));
+            List<String> unknownCitationKeys = response.citedEvidence().stream()
+                    .filter(key -> !evidenceByKey.containsKey(key)).distinct().toList();
+            if (!unknownCitationKeys.isEmpty()) {
+                LOGGER.warn("gm_runtime_unknown_citation_keys operationKey={} keys={}", context.turnId(), unknownCitationKeys);
+            }
+            List<com.dndmaster.adventure.application.runtime.RuntimeEvidence> citedEvidence = new java.util.ArrayList<>(response.citedEvidence().stream()
+                    .map(evidenceByKey::get).filter(Objects::nonNull).distinct().toList());
+            List<String> unknownCheckEvidenceKeys = response.checkProposal().evidenceKeys().stream()
+                    .filter(key -> !evidenceByKey.containsKey(key)).distinct().toList();
+            if (response.checkProposal().required() && !unknownCheckEvidenceKeys.isEmpty()) {
+                throw new IllegalArgumentException("runtime check proposal cites evidence outside the supplied pack");
+            }
+            if (response.checkProposal().required()) {
+                response.checkProposal().evidenceKeys().stream().map(evidenceByKey::get).filter(Objects::nonNull)
+                        .forEach(citedEvidence::add);
+                citedEvidence = citedEvidence.stream().distinct().toList();
+            }
+            var checkProposal = response.checkProposal().required()
+                    ? new com.dndmaster.adventure.application.runtime.RuntimeCheckProposal(true,
+                            response.checkProposal().reason(), response.checkProposal().abilityOrSkill(),
+                            response.checkProposal().characterSheetId(),
+                            response.checkProposal().rollMethod().equals("플레이어")
+                                    ? com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.RollMethod.PLAYER
+                                    : com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.RollMethod.SYSTEM,
+                            response.checkProposal().diceExpression(), response.checkProposal().modifier(),
+                            response.checkProposal().difficulty(), response.checkProposal().evidenceKeys(),
+                            response.checkProposal().successOutcome(), response.checkProposal().failureOutcome())
+                    : com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.none();
             RuntimePlan plan = new RuntimePlan(response.scene(), context.currentContext().npcState(), response.judgment(),
-                    response.narration(), null, context.evidencePack().storybook(), List.of(), provider, model,
+                    response.narration(), null, citedEvidence, List.of(), provider, model,
                     reasoning, false, "", context.requestedSelection(), effective, 1, List.of(), null,
                     response.combatEnemies().stream().map(enemy -> new CombatEnemyProposal(
                             enemy.scenarioId(), enemy.enemyKey(), enemy.name(), enemy.count(),
                             combatStartMode(enemy.mode()))).toList(),
-                    response.combatStart(), response.mapEntryRequested());
+                    response.combatStart(), response.mapEntryRequested(), checkProposal);
             List<com.dndmaster.adventure.application.runtime.RuntimeAddedFactCandidate> runtimeFacts = response.runtimeFacts().stream()
                     .map(fact -> new com.dndmaster.adventure.application.runtime.RuntimeAddedFactCandidate(fact.subject(), fact.content()))
                     .toList();
-            return new GmPlanResult(plan, provider, model, reasoning, List.of(), List.of(), situation(response.situation()), runtimeFacts);
+            CompletionCandidate completion = new CompletionCandidate(response.completion().complete(),
+                    response.completion().resolvedObjectiveIds(), response.completion().satisfiedResolutionCriteriaIds(),
+                    response.completion().concludingScene());
+            return new GmPlanResult(plan, provider, model, reasoning, List.of(), List.of(),
+                    situation(response.situation()), runtimeFacts, completion);
         } catch (RuntimeGmInputLimitException exception) {
             throw exception;
         } catch (InterruptedException exception) {
@@ -108,7 +147,8 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         String prompt = context.composePrompt(contextLimit);
         String body = mapper.writeValueAsString(new RuntimeRequest(context.ownerPlayerId().value(), context.operationKey(), context.action(),
                 selection.endpointId(), selection.provider(), selection.model(), selection.reasoning(),
-                endpoint.endpointId(), endpoint.endpointVersion(), endpoint.provider(), endpoint.model(), prompt));
+                endpoint.endpointId(), endpoint.endpointVersion(), endpoint.provider(), endpoint.model(), prompt,
+                context.ragSearchContext()));
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/gm/runtime-turn"))
                 .timeout(timeout)
                 .header("Content-Type", "application/json")
@@ -156,16 +196,58 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
     record RuntimeRequest(java.util.UUID soloPlayerId, String operationKey, String action,
                           java.util.UUID endpointId, String provider, String model, String reasoning,
                           java.util.UUID effectiveEndpointId, String effectiveEndpointVersion,
-                          String effectiveProvider, String effectiveModel, String prompt) { }
+                          String effectiveProvider, String effectiveModel, String prompt,
+                          java.util.Map<String, Object> ragSearchContext) { }
     record RuntimeResponse(String scene, String judgment, String narration, boolean combatStart,
                            List<CombatEnemyResponse> combatEnemies, SituationResponse situation,
-                           boolean mapEntryRequested, List<RuntimeFactResponse> runtimeFacts) {
+                           boolean mapEntryRequested, List<RuntimeFactResponse> runtimeFacts,
+                           CompletionResponse completion, List<String> citedEvidence,
+                           @JsonProperty("판정제안") CheckProposalResponse checkProposal) {
+        RuntimeResponse(String scene, String judgment, String narration, boolean combatStart,
+                List<CombatEnemyResponse> combatEnemies, SituationResponse situation,
+                boolean mapEntryRequested, List<RuntimeFactResponse> runtimeFacts) {
+            this(scene, judgment, narration, combatStart, combatEnemies, situation, mapEntryRequested,
+                    runtimeFacts, CompletionResponse.continueAdventure(), List.of(), CheckProposalResponse.none());
+        }
         RuntimeResponse {
             runtimeFacts = runtimeFacts == null ? List.of() : List.copyOf(runtimeFacts);
+            completion = completion == null ? CompletionResponse.continueAdventure() : completion;
+            citedEvidence = citedEvidence == null ? List.of() : List.copyOf(citedEvidence);
+            checkProposal = checkProposal == null ? CheckProposalResponse.none() : checkProposal;
+        }
+    }
+    record CheckProposalResponse(@JsonProperty("필요") boolean required,
+                                 @JsonProperty("이유") String reason,
+                                 @JsonProperty("판정능력또는기술") String abilityOrSkill,
+                                 @JsonProperty("대상캐릭터ID") java.util.UUID characterSheetId,
+                                 @JsonProperty("굴림주체") String rollMethod,
+                                 @JsonProperty("굴림식") String diceExpression,
+                                 @JsonProperty("보정치") int modifier,
+                                 @JsonProperty("난이도") Integer difficulty,
+                                 @JsonProperty("근거키") List<String> evidenceKeys,
+                                 @JsonProperty("성공시결과") String successOutcome,
+                                 @JsonProperty("실패시결과") String failureOutcome) {
+        CheckProposalResponse {
+            evidenceKeys = evidenceKeys == null ? List.of() : List.copyOf(evidenceKeys);
+        }
+        static CheckProposalResponse none() {
+            return new CheckProposalResponse(false, "", "", null, "", "", 0, null, List.of(), "", "");
         }
     }
     record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) { }
     record SituationResponse(String kind, String location, String problem, String threat, String goal,
                              String basis, String reference, boolean required) { }
     record RuntimeFactResponse(String subject, String content) { }
+    record CompletionResponse(boolean complete, List<String> resolvedObjectiveIds,
+            List<String> satisfiedResolutionCriteriaIds, String concludingScene) {
+        CompletionResponse {
+            resolvedObjectiveIds = resolvedObjectiveIds == null ? List.of() : List.copyOf(resolvedObjectiveIds);
+            satisfiedResolutionCriteriaIds = satisfiedResolutionCriteriaIds == null
+                    ? List.of() : List.copyOf(satisfiedResolutionCriteriaIds);
+            concludingScene = concludingScene == null ? "" : concludingScene.trim();
+        }
+        static CompletionResponse continueAdventure() {
+            return new CompletionResponse(false, List.of(), List.of(), "");
+        }
+    }
 }

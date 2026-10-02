@@ -67,13 +67,15 @@ class CombatScenarioGroundingPolicyTest {
     }
 
     @Test
-    void grounds_a_combat_from_the_current_situation_when_story_and_rulebook_evidence_support_it() {
+    void grounds_enemy_presence_from_current_situation_and_uses_both_rules_sources_for_numbers() {
         RuntimeEvidence story = evidence(RuntimeEvidenceType.STORYBOOK, "cellar-rats",
                 "Giant Rats nest behind the barrels in the cellar.");
         RuntimeEvidence rules = evidence(RuntimeEvidenceType.RULEBOOK, "monster-manual-335",
                 "Giant Rat Armor Class 12 Hit Points 7 (2d6). Bite. Melee Weapon Attack: +4 to hit.");
 
-        var grounded = CombatScenarioGroundingPolicy.ground(ScenarioModel.empty(), CurrentSituation.initial("cellar"),
+        CurrentSituation situation = new CurrentSituation(UUID.randomUUID(), 1, "cellar",
+                "Giant Rats nest behind the barrels.", "Giant Rats nest behind the barrels.", "clear the cellar");
+        var grounded = CombatScenarioGroundingPolicy.ground(ScenarioModel.empty(), situation,
                 List.of(new CombatEnemyProposal("", "giant-rat", "거대 쥐", 2, CombatStartMode.SITUATION)),
                 List.of(story), List.of(rules));
 

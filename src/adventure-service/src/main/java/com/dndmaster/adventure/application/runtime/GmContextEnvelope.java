@@ -34,7 +34,8 @@ public record GmContextEnvelope(
         List<RuntimeFactLookupResult> factLookupResults,
         String currentSituation,
         List<LongTermAdventureFact> longTermFacts,
-        String validationFeedback) {
+        String validationFeedback,
+        java.util.Map<String, Object> ragSearchContext) {
     public GmContextEnvelope {
         adventureId = Objects.requireNonNull(adventureId);
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId);
@@ -59,6 +60,7 @@ public record GmContextEnvelope(
         longTermFacts = List.copyOf(Objects.requireNonNull(longTermFacts, "long-term facts must not be null"));
         if (longTermFacts.stream().anyMatch(Objects::isNull)) throw new IllegalArgumentException("long-term facts must not contain null");
         validationFeedback = validationFeedback == null ? "" : validationFeedback.trim();
+        ragSearchContext = ragSearchContext == null ? java.util.Map.of() : java.util.Map.copyOf(ragSearchContext);
         scenarioContext = scenarioContext == null ? "" : scenarioContext.trim();
         provider = provider == null ? "" : provider.trim();
         model = model == null ? "" : model.trim();
@@ -69,6 +71,19 @@ public record GmContextEnvelope(
                     : new RequestedGmProviderSelection(null, provider, model, reasoning)
                 : requestedSelection;
         if (bindingVersion < 0) throw new IllegalArgumentException("binding version must not be negative");
+    }
+
+    public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, List<String> recentTurns, List<String> characterSnapshots,
+            String scenarioContext, String provider, String model, String reasoning,
+            RequestedGmProviderSelection requestedSelection, NarrativeContext narrativeContext, List<String> runtimeFacts,
+            List<RuntimeFactLookupResult> factLookupResults, String currentSituation,
+            List<LongTermAdventureFact> longTermFacts, String validationFeedback) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
+                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
+                provider, model, reasoning, requestedSelection, narrativeContext, runtimeFacts, factLookupResults,
+                currentSituation, longTermFacts, validationFeedback, java.util.Map.of());
     }
 
     public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,

@@ -7,6 +7,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.never;
 
 import com.dndmaster.adventure.application.runtime.InMemoryRuntimeTurnCommandRepository;
 import com.dndmaster.adventure.application.runtime.InMemorySessionEventRepository;
@@ -38,6 +40,66 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class RuntimeTurnCommitOrchestratorTest {
+    @Test
+    void failed_required_map_entry_keeps_adventure_uncommitted_and_turn_resumable() {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        RuntimeTurn ready = fixture.readyTurn();
+        fixture.turns.save(ready.beginCommit());
+        var adventureRepository = mock(AdventureRepository.class);
+        Adventure adventure = mock(Adventure.class);
+        when(adventureRepository.findById(ready.adventureId())).thenReturn(Optional.of(adventure));
+        when(adventure.version()).thenReturn(ready.version());
+        when(adventure.ownerPlayerId()).thenReturn(new OwnerPlayerId(UUID.randomUUID()));
+        var service = new RuntimeTurnApplicationService(adventureRepository, mock(RuntimeBindingRepository.class),
+                mock(ScenarioPackageRepository.class), fixture.turns, mock(RuntimeEvidenceSearchPort.class),
+                mock(RuntimePlanningPort.class), mock(NarrationSafetyPort.class), mock(SessionKnowledgeSetRepository.class));
+        service.setCommitOrchestrator(fixture.orchestrator(ignored -> RuntimeTurnCommandExecution.done("done")));
+        service.setCommitGate((pendingAdventure, pendingTurn) -> { throw new IllegalStateException("map spawn needs review"); });
+
+        assertThrows(IllegalStateException.class, () -> service.resumeRuntimeTurn(ready.turnId()));
+
+        assertEquals(RuntimeTurnLifecycle.COMMITTING, fixture.turns.findByTurnId(ready.turnId()).orElseThrow().lifecycle());
+        verify(adventure).commitRuntimeTurn(any(OwnerPlayerId.class), eq(ready.version()), eq(ready.pendingState()),
+                eq(ready.context()), eq(List.of(
+                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(0, "PLAYER", ready.action()),
+                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(1, "AI_GAME_MASTER", ready.narration()),
+                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(2, "AI_GAME_MASTER", ready.plan().judgment()))),
+                eq(ready.completionProposal()));
+        verify(adventureRepository, never()).save(adventure);
+    }
+
+    @Test
+    void repairs_pre_turn_context_and_conversation_after_older_forward_recovery() {
+        RuntimeTurnFixture fixture = new RuntimeTurnFixture();
+        RuntimeTurn committed = fixture.readyTurn().beginCommit().markSafeCommitted();
+        fixture.turns.save(committed);
+        var adventureRepository = mock(AdventureRepository.class);
+        Adventure adventure = mock(Adventure.class);
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        when(adventureRepository.findById(committed.adventureId())).thenReturn(Optional.of(adventure));
+        when(adventure.version()).thenReturn(committed.version() + 1);
+        when(adventure.ownerPlayerId()).thenReturn(owner);
+        when(adventure.currentContext()).thenReturn(committed.context());
+        when(adventure.conversation()).thenReturn(committed.conversation());
+        when(adventure.currentSituation()).thenReturn(committed.pendingState().situation());
+        var service = new RuntimeTurnApplicationService(adventureRepository, mock(RuntimeBindingRepository.class),
+                mock(ScenarioPackageRepository.class), fixture.turns, mock(RuntimeEvidenceSearchPort.class),
+                mock(RuntimePlanningPort.class), mock(NarrationSafetyPort.class), mock(SessionKnowledgeSetRepository.class));
+        service.setCommitOrchestrator(fixture.orchestrator(ignored -> RuntimeTurnCommandExecution.done("done")));
+
+        var recovered = service.resumeRuntimeTurn(committed.turnId());
+
+        assertEquals(RuntimeTurnCommitOrchestrator.Status.COMMITTED, recovered.status());
+        verify(adventure).preserveProgress(eq(owner), eq(committed.version() + 1),
+                eq(new com.dndmaster.adventure.domain.adventure.AdventureContext(
+                        committed.plan().scene(), committed.plan().npcState(), committed.action(), committed.plan().judgment())),
+                org.mockito.ArgumentMatchers.argThat(entries -> entries.size() == committed.conversation().size() + 3
+                        && entries.get(entries.size() - 3).content().equals(committed.action())
+                        && entries.get(entries.size() - 2).content().equals(committed.narration())
+                        && entries.get(entries.size() - 1).content().equals(committed.plan().judgment())));
+        verify(adventureRepository).save(adventure);
+    }
+
     @Test
     void retains_the_original_raw_follow_up_json_in_the_durable_command() {
         RuntimeTurnFixture fixture = new RuntimeTurnFixture();
@@ -441,7 +503,11 @@ class RuntimeTurnCommitOrchestratorTest {
         assertEquals(RuntimeTurnLifecycle.COMMITTED, result.turn().lifecycle());
         assertEquals(movement, result.movementResult());
         verify(adventure).commitRuntimeTurn(any(OwnerPlayerId.class), eq(ready.version()), eq(ready.pendingState()),
-                eq(ready.context()), eq(ready.conversation()), eq(ready.completionProposal()));
+                eq(ready.context()), eq(List.of(
+                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(0, "PLAYER", ready.action()),
+                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(1, "AI_GAME_MASTER", ready.narration()),
+                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(2, "AI_GAME_MASTER", ready.plan().judgment()))),
+                eq(ready.completionProposal()));
         verify(adventureRepository).save(adventure);
     }
 

@@ -44,7 +44,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     @Override
     public RuntimePlan planNarration(RuntimePlanningRequest request) {
         CandidateGeneration generated = generateCandidate(request, false);
-        return planInternal(request, false, generated).plan();
+        return planInternal(request, false, generated, true).plan();
     }
 
     @Override
@@ -68,7 +68,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         CandidateGeneration validated = new CandidateGeneration(candidateId, generated.context(), generated.hiddenData(), generated.capability(),
                 new GmPlanResult(candidatePlan, generated.result().provider(), generated.result().model(), generated.result().reasoning(),
                         generated.result().stateDelta(), generated.result().toolCalls(), generated.result().situationProposal(),
-                        generated.result().runtimeFacts()));
+                        generated.result().runtimeFacts(), generated.result().completionCandidate()));
         existing.add(validated);
         return candidatePlan;
     }
@@ -100,6 +100,11 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     }
 
     private RuntimePlanningResult planInternal(RuntimePlanningRequest request, boolean executeTools, CandidateGeneration supplied) {
+        return planInternal(request, executeTools, supplied, false);
+    }
+
+    private RuntimePlanningResult planInternal(RuntimePlanningRequest request, boolean executeTools,
+                                               CandidateGeneration supplied, boolean confirmedCombatNarration) {
         CandidateGeneration generated = supplied == null ? generateCandidate(request) : supplied;
         GmContextEnvelope context = generated.context();
         java.util.Set<String> hiddenData = generated.hiddenData();
@@ -109,7 +114,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         if (executeTools && capability == null && !generated.result().toolCalls().isEmpty()) {
             capability = issueCapability(request);
         }
-        GmPlanResult result = validateCandidate(request, generated.result(), hiddenData);
+        GmPlanResult result = validateCandidate(request, generated.result(), hiddenData, confirmedCombatNarration);
         if (executeTools && !result.toolCalls().isEmpty()) {
             if (gateway == null || saga == null) throw new IllegalStateException("GM tool gateway is not configured");
             final TurnCapability executionCapability = capability;
@@ -131,12 +136,14 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
             }
             ToolMaterialization materialization = executeToolSaga(request, context, executionCapability, calls, saggedGateway, result);
             result = materialization.result();
-            return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, materialization.outcomes()),
+            return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, materialization.outcomes(),
+                    confirmedCombatNarration),
                     materialization.outcomes(), resolutionProposal(request, result), materialization.commands());
         } else if (capability != null) {
             gateway.revoke(capability);
         }
-            return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, List.of()), List.of(), resolutionProposal(request, result));
+            return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, List.of(), confirmedCombatNarration),
+                    List.of(), resolutionProposal(request, result));
     }
 
     /** Gate 0 seam: provider candidate generation and semantic validation are isolated from execution. */
@@ -153,7 +160,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                 request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(),
                 request.recentTurns(), request.characterSnapshots(), request.scenarioContext(), request.provider(), request.model(), request.reasoning(),
                 requestedSelection(request), request.narrativeContext(), request.runtimeFacts(), request.factLookupResults(),
-                request.currentSituation(), request.longTermFacts(), validationFeedback);
+                request.currentSituation(), request.longTermFacts(), validationFeedback, request.ragSearchContext());
         java.util.Set<String> hiddenData = java.util.Set.copyOf(request.hiddenFacts());
         TurnCapability capability = issueCapability ? issueCapability(request) : null;
         List<GmToolSpec> modelTools = gateway == null ? List.of() : gateway.modelTools().stream()
@@ -172,23 +179,27 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     }
 
     private GmPlanResult validateCandidate(RuntimePlanningRequest request, GmPlanResult candidate, java.util.Set<String> hiddenData) {
-        return validator.validate(withRequiredStorybookCitation(candidate, request.evidencePack()),
-                request.evidencePack(), request.currentContext(), hiddenData);
+        return validateCandidate(request, candidate, hiddenData, false);
     }
 
-    private static GmPlanResult withRequiredStorybookCitation(GmPlanResult candidate, EvidencePack evidencePack) {
-        if (candidate.plan().citedEvidence().stream().anyMatch(evidence -> evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK)
-                || evidencePack.storybook().isEmpty()) return candidate;
-        RuntimePlan normalized = candidate.plan().withCitedEvidence(java.util.stream.Stream.concat(
-                candidate.plan().citedEvidence().stream(), evidencePack.storybook().stream().limit(1)).toList());
-        return new GmPlanResult(normalized, candidate.provider(), candidate.model(), candidate.reasoning(),
-                candidate.stateDelta(), candidate.toolCalls(), candidate.situationProposal(), candidate.runtimeFacts());
+    private GmPlanResult validateCandidate(RuntimePlanningRequest request, GmPlanResult candidate,
+                                           java.util.Set<String> hiddenData, boolean confirmedCombatNarration) {
+        if (confirmedCombatNarration) {
+            return validator.validateConfirmedCombatNarration(candidate, request.evidencePack(), request.currentContext(),
+                    hiddenData, request.action());
+        }
+        return validator.validate(candidate, request.evidencePack(), request.currentContext(), hiddenData, request.action());
     }
 
     /** Gate 0-E/F: final semantic validation and RuntimePlan/state-delta assembly. */
     private RuntimePlan finalizeCandidate(RuntimePlanningRequest request, GmPlanResult result, java.util.Set<String> hiddenData,
                                           List<RuntimeCommandOutcome> outcomes) {
-        GmPlanResult validated = validator.validate(result, request.evidencePack(), request.currentContext(), hiddenData);
+        return finalizeCandidate(request, result, hiddenData, outcomes, false);
+    }
+
+    private RuntimePlan finalizeCandidate(RuntimePlanningRequest request, GmPlanResult result, java.util.Set<String> hiddenData,
+                                          List<RuntimeCommandOutcome> outcomes, boolean confirmedCombatNarration) {
+        GmPlanResult validated = validateCandidate(request, result, hiddenData, confirmedCombatNarration);
         RuntimePlan plan;
         if (validated.stateDelta().isEmpty()) {
             plan = validated.plan();
@@ -264,8 +275,10 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                         result.plan().stateTransitionRequested(), result.plan().requestedSelectionId(), result.plan().requestedSelection(), result.plan().effectiveSelection(),
                         result.plan().attemptCount(), result.plan().citationBindings(), result.plan().stateDelta(),
                         result.plan().combatEnemies(),
-                        result.plan().combatStartRequested(), result.plan().mapEntryRequested());
-                return new ToolMaterialization(new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls(), result.situationProposal(), result.runtimeFacts()),
+                        result.plan().combatStartRequested(), result.plan().mapEntryRequested(), result.plan().checkProposal());
+                return new ToolMaterialization(new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(),
+                        result.stateDelta(), result.toolCalls(), result.situationProposal(), result.runtimeFacts(),
+                        result.completionCandidate()),
                         execution.outcomes().stream().map(GmAgentRuntimePlanningAdapter::toCommandOutcome).toList(),
                         runtimeCommands(request, calls, execution.outcomes()));
             }
@@ -278,78 +291,92 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
 
     private static RuntimeResolutionProposal resolutionProposal(RuntimePlanningRequest request, GmPlanResult result) {
         SituationProposal situation = result.situationProposal();
+        CompletionProposal completion = validatedCompletion(request, result.completionCandidate());
         List<com.dndmaster.adventure.domain.runtime.RuntimeAddedFact> runtimeFacts = new java.util.ArrayList<>(result.runtimeFacts().stream()
-                .filter(GmAgentRuntimePlanningAdapter::safeRuntimeFact)
                 .filter(candidate -> request.factLookupResults().isEmpty()
                         || request.factLookupResults().stream().allMatch(lookup -> lookup.status() == RuntimeFactLookupResult.Status.NOT_FOUND))
                 .filter(candidate -> request.runtimeFacts().stream().noneMatch(existing -> existing.equalsIgnoreCase(candidate.content())))
                 .map(candidate -> new com.dndmaster.adventure.domain.runtime.RuntimeAddedFact(
                         UUID.randomUUID(), candidate.content(), request.turnId(), candidate.subject()))
                 .toList());
-        explicitPlayerGoal(request.action(), request.turnId()).ifPresent(goal -> {
-            String goalKey = normalizeGoal(goal.content());
-            boolean alreadyRecorded = request.runtimeFacts().stream().anyMatch(existing -> normalizeGoal(existing).equals(goalKey));
-            boolean alreadyProposed = runtimeFacts.stream().anyMatch(existing -> normalizeGoal(existing.content()).equals(goalKey));
-            if (!alreadyRecorded && !alreadyProposed) runtimeFacts.add(new com.dndmaster.adventure.domain.runtime.RuntimeAddedFact(
-                    goal.factId(), goal.content(), request.turnId(), goal.subject()));
-        });
-        if (situation == null && runtimeFacts.isEmpty()) return RuntimeResolutionProposal.unchanged();
+        runtimeFacts.addAll(objectiveProgressFacts(request, result.completionCandidate()));
+        if (situation == null && runtimeFacts.isEmpty() && !completion.complete()) return RuntimeResolutionProposal.unchanged();
         return situation == null
                 ? new RuntimeResolutionProposal(com.dndmaster.adventure.domain.runtime.GameStateDelta.empty(),
                         com.dndmaster.adventure.domain.runtime.DisclosureState.empty(), null, runtimeFacts,
-                        CompletionProposal.continueAdventure(), null)
+                        completion, null)
                 : new RuntimeResolutionProposal(com.dndmaster.adventure.domain.runtime.GameStateDelta.empty(),
                         com.dndmaster.adventure.domain.runtime.DisclosureState.empty(), situation.update(), runtimeFacts,
-                        CompletionProposal.continueAdventure(), situation);
+                        completion, situation);
     }
 
-    private static boolean safeRuntimeFact(RuntimeAddedFactCandidate candidate) {
-        String text = (candidate.subject() + " " + candidate.content()).toLowerCase(java.util.Locale.ROOT);
-        return !text.matches(".*(culprit|secret|hidden|cause|clue|solution|범인|비밀|숨겨진|숨은|원인|진상|단서|정답|해답).*");
-    }
-
-    /** A durable goal is grounded only in an explicit declaration from the committed player action. */
-    private static java.util.Optional<com.dndmaster.adventure.domain.runtime.RuntimeAddedFact> explicitPlayerGoal(
-            String action, UUID turnId) {
-        if (action == null || action.isBlank()) return java.util.Optional.empty();
-        String text = action.trim();
-        java.util.regex.Matcher korean = java.util.regex.Pattern.compile(
-                "^(?:(?:내|우리(?:의)?)\\s*)?목표(?:는|:)\\s*(.+)$", java.util.regex.Pattern.CASE_INSENSITIVE)
-                .matcher(text);
-        java.util.regex.Matcher english = java.util.regex.Pattern.compile(
-                "^(?:my|our)\\s+goal\\s+is\\s+(?:to\\s+)?(.+)$", java.util.regex.Pattern.CASE_INSENSITIVE)
-                .matcher(text);
-        String objective;
-        if (korean.matches()) objective = korean.group(1).trim();
-        else if (english.matches()) objective = english.group(1).trim();
-        else if (isCoordinatedRelationshipObjective(text)) objective = text;
-        else return java.util.Optional.empty();
-
-        // These are state, secret, or promise claims, not a durable goal record.
-        String lower = objective.toLowerCase(java.util.Locale.ROOT);
-        if (objective.length() < 8 || lower.matches(".*(hp|hit points|resource|spell slot|combat|initiative|armor class|secret|hidden|promise|promised|비밀|숨은|숨겨진|약속|hp|체력|자원|주문 슬롯|전투|방어도|위치|좌표).*")) {
-            return java.util.Optional.empty();
+    private static CompletionProposal validatedCompletion(RuntimePlanningRequest request,
+            CompletionCandidate candidate) {
+        if (candidate == null || !candidate.complete()) return CompletionProposal.continueAdventure();
+        List<com.dndmaster.adventure.domain.scenario.ScenarioModelElement> required = request.scenarioModel().objectives()
+                .stream().filter(objective -> !Boolean.FALSE.equals(objective.attributes().get("required"))).toList();
+        List<com.dndmaster.adventure.domain.scenario.ScenarioModelElement> conditions = request.scenarioModel().resolutionCriteria()
+                .stream().filter(condition -> !Boolean.FALSE.equals(condition.attributes().get("required"))).toList();
+        if (required.isEmpty() || conditions.isEmpty()) return CompletionProposal.continueAdventure();
+        java.util.Set<String> requiredIds = required.stream()
+                .map(com.dndmaster.adventure.domain.scenario.ScenarioModelElement::elementId)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        java.util.Set<String> requiredConditionIds = conditions.stream()
+                .map(com.dndmaster.adventure.domain.scenario.ScenarioModelElement::elementId)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        java.util.Set<String> proposedIds = java.util.Set.copyOf(candidate.resolvedObjectiveIds());
+        java.util.Set<String> proposedConditionIds = java.util.Set.copyOf(candidate.satisfiedResolutionCriteriaIds());
+        java.util.Set<String> knownObjectiveIds = request.scenarioModel().objectives().stream()
+                .map(com.dndmaster.adventure.domain.scenario.ScenarioModelElement::elementId)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        java.util.Set<String> knownConditionIds = request.scenarioModel().resolutionCriteria().stream()
+                .map(com.dndmaster.adventure.domain.scenario.ScenarioModelElement::elementId)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        if (!knownObjectiveIds.containsAll(proposedIds) || !knownConditionIds.containsAll(proposedConditionIds)
+                || !proposedIds.containsAll(requiredIds) || !proposedConditionIds.containsAll(requiredConditionIds)) {
+            LOGGER.warn("adventure_completion_rejected adventureId={} requiredObjectiveCount={} proposedObjectiveCount={} "
+                            + "requiredConditionCount={} proposedConditionCount={} reason=resolution_set_mismatch",
+                    request.adventureId(), requiredIds.size(), proposedIds.size(),
+                    requiredConditionIds.size(), proposedConditionIds.size());
+            return CompletionProposal.continueAdventure();
         }
-        return java.util.Optional.of(new com.dndmaster.adventure.domain.runtime.RuntimeAddedFact(
-                UUID.randomUUID(), "목표: " + objective, turnId, "goal"));
+        return new CompletionProposal(true, candidate.concludingScene(), candidate.resolvedObjectiveIds(),
+                candidate.satisfiedResolutionCriteriaIds());
     }
 
-    private static boolean isCoordinatedRelationshipObjective(String text) {
-        String sentence = text.replaceFirst("[.!?。！？]+$", "").trim();
-        boolean declarative = (sentence.endsWith("다") || sentence.endsWith("습니다"))
-                && !sentence.matches("(?s).*(?:고 싶(?:다|습니다)|하고 싶(?:다|습니다))$");
-        String relationshipOutcome = "(?:신뢰|믿음|관계)(?:를|을)?\\s*(?:쌓|회복|다지|얻|형성|맺)";
-        String otherOutcome = "(?:되찾고|찾고|찾아|구하고|구해|구출하고|회복하고|보호하고|탈환하고|재회하고|해결하고|복원하고)";
-        boolean coordinated = sentence.matches("(?s).*" + otherOutcome + ".{1,80}" + relationshipOutcome + ".*")
-                || sentence.matches("(?s).*" + relationshipOutcome + "고.{1,80}" + otherOutcome + ".*");
-        boolean buildsRelationship = sentence.matches("(?s).*" + relationshipOutcome + ".*");
-        return declarative && coordinated && buildsRelationship;
+    private static List<com.dndmaster.adventure.domain.runtime.RuntimeAddedFact> objectiveProgressFacts(
+            RuntimePlanningRequest request, CompletionCandidate candidate) {
+        if (candidate == null) return List.of();
+        java.util.Map<String, com.dndmaster.adventure.domain.scenario.ScenarioModelElement> objectives =
+                request.scenarioModel().objectives().stream().collect(java.util.stream.Collectors.toMap(
+                        com.dndmaster.adventure.domain.scenario.ScenarioModelElement::elementId, value -> value, (first, ignored) -> first));
+        java.util.Map<String, com.dndmaster.adventure.domain.scenario.ScenarioModelElement> conditions =
+                request.scenarioModel().resolutionCriteria().stream().collect(java.util.stream.Collectors.toMap(
+                        com.dndmaster.adventure.domain.scenario.ScenarioModelElement::elementId, value -> value, (first, ignored) -> first));
+        boolean unknownObjective = !objectives.keySet().containsAll(candidate.resolvedObjectiveIds());
+        boolean unknownCondition = !conditions.keySet().containsAll(candidate.satisfiedResolutionCriteriaIds());
+        if (unknownObjective || unknownCondition) {
+            LOGGER.warn("adventure_resolution_progress_rejected adventureId={} unknownObjective={} unknownCondition={}",
+                    request.adventureId(), unknownObjective, unknownCondition);
+            return List.of();
+        }
+        List<com.dndmaster.adventure.domain.runtime.RuntimeAddedFact> facts = new java.util.ArrayList<>();
+        candidate.resolvedObjectiveIds().forEach(id -> addResolutionFact(request, facts, id, objectives.get(id),
+                "모험 목표 달성", "모험 목표 달성 [" + id + "]: "));
+        candidate.satisfiedResolutionCriteriaIds().forEach(id -> addResolutionFact(request, facts, id, conditions.get(id),
+                "모험 해결 조건 충족", "모험 해결 조건 충족 [" + id + "]: "));
+        return List.copyOf(facts);
     }
 
-    private static String normalizeGoal(String content) {
-        if (content == null) return "";
-        return content.trim().replaceFirst("(?i)^(?:목표|goal):\\s*", "")
-                .replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
+    private static void addResolutionFact(RuntimePlanningRequest request,
+            List<com.dndmaster.adventure.domain.runtime.RuntimeAddedFact> facts, String id,
+            com.dndmaster.adventure.domain.scenario.ScenarioModelElement element, String subject, String marker) {
+        String content = marker + String.valueOf(element.attributes().getOrDefault("value",
+                element.attributes().getOrDefault("description", id)));
+        if (request.runtimeFacts().stream().anyMatch(existing -> existing.startsWith(marker))) return;
+        UUID factId = UUID.nameUUIDFromBytes((request.turnId() + ":" + subject + ":" + id)
+                .getBytes(StandardCharsets.UTF_8));
+        facts.add(new com.dndmaster.adventure.domain.runtime.RuntimeAddedFact(factId, content, request.turnId(), subject));
     }
 
     private static List<RuntimeTurnCommand> runtimeCommands(RuntimePlanningRequest request,

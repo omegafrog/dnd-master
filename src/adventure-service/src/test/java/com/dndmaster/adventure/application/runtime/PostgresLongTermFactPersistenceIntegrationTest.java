@@ -47,7 +47,7 @@ class PostgresLongTermFactPersistenceIntegrationTest {
     }
 
     @Test
-    void persists_a_confirmed_fact_with_its_source_and_selects_it_after_reload() {
+    void persists_agent_kind_with_confirmed_fact_text_and_selects_it_after_reload() {
         AdventureId adventureId = AdventureId.generate();
         SessionId sessionId = SessionId.generate();
         PostgresAdventureRepository adventures = new PostgresAdventureRepository(dataSource);
@@ -78,7 +78,7 @@ class PostgresLongTermFactPersistenceIntegrationTest {
         assertEquals(factId, stored.factId());
         assertEquals(turnId, stored.establishedTurnId());
         assertEquals(0, stored.sourceAdventureVersion());
-        assertEquals("RELATIONSHIP", stored.kind());
+        assertEquals("EVENT", stored.kind());
         assertEquals(confirmed.content(), stored.relevance());
         assertTrue(stored.playerVisible());
         assertEquals(1, stored.version());
