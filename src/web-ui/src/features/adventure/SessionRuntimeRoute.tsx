@@ -34,6 +34,8 @@ export function SessionRuntimeRoute({ sessionId, sessionApi, adventureApi, playA
     if (session?.adventureId) refreshCombat(session.adventureId)
     void sessionApi.read(sessionId).then(setSession).catch(() => undefined)
   }, [refreshCombat, session?.adventureId, sessionApi, sessionId])
+  const completedAdventureId = session?.status === 'COMPLETED' ? session.adventureId : null
+  const combatEventCursor = combatSnapshot?.eventCursor ?? null
 
   useEffect(() => {
     let active = true
@@ -43,15 +45,15 @@ export function SessionRuntimeRoute({ sessionId, sessionApi, adventureApi, playA
   }, [sessionApi, sessionId])
 
   useEffect(() => {
-    if (!session || session.status !== 'COMPLETED' || !session.adventureId || !adventureApi.readConversation) return
+    if (!completedAdventureId || !adventureApi.readConversation) return
     let active = true
     setCompletionEntries(null)
     setCompletionMessage('')
-    void adventureApi.readConversation(session.adventureId)
+    void adventureApi.readConversation(completedAdventureId)
       .then(conversation => { if (active) setCompletionEntries(conversation.entries) })
       .catch(error => { if (active) setCompletionMessage(error instanceof Error ? error.message : '완료 기록을 불러오지 못했습니다.') })
     return () => { active = false }
-  }, [adventureApi, session?.adventureId, session?.status])
+  }, [adventureApi, completedAdventureId])
 
   useEffect(() => {
     if (!session) return
@@ -81,10 +83,10 @@ export function SessionRuntimeRoute({ sessionId, sessionApi, adventureApi, playA
   }, [refreshCombat, session?.adventureId])
 
   useEffect(() => {
-    if (!session?.adventureId || !combatSnapshot || !combatApi.subscribeEvents) return
+    if (!session?.adventureId || combatEventCursor === null || !combatApi.subscribeEvents) return
     const adventureId = session.adventureId
-    return combatApi.subscribeEvents(adventureId, combatSnapshot.eventCursor, () => refreshCombat(adventureId), () => undefined)
-  }, [combatApi, combatSnapshot?.eventCursor, refreshCombat, session?.adventureId])
+    return combatApi.subscribeEvents(adventureId, combatEventCursor, () => refreshCombat(adventureId), () => undefined)
+  }, [combatApi, combatEventCursor, refreshCombat, session?.adventureId])
 
   useEffect(() => {
     if (!session?.scenarioPackageId || !setupApi.getScenarioPackage) {
