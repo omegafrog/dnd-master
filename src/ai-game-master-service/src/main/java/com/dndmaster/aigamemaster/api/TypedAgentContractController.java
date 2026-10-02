@@ -104,14 +104,14 @@ public final class TypedAgentContractController {
                             failure.failure().reason() != com.dndmaster.aigamemaster.application.ai.AiExecutionFailure.Reason.LOCAL_EXECUTION_FAILED));
         } catch (ProviderMalformedResponseException failure) {
             String code = "SCENARIO_COMPILATION_RESPONSE_INVALID";
-            log.warn("scenario compilation agent returned invalid response operationKey={} failureType={}",
-                    request.operationKey(), failure.getClass().getSimpleName());
+            log.warn("scenario compilation agent returned invalid response operationKey={} failureType={} validationReason={}",
+                    request.operationKey(), failure.getClass().getSimpleName(), "provider response malformed");
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(new ScenarioCompilationAgentError(code, request.operationKey(), failure.getClass().getSimpleName(), false));
         } catch (IllegalArgumentException failure) {
             String code = "SCENARIO_COMPILATION_RESPONSE_INVALID";
-            log.warn("scenario compilation agent returned invalid response operationKey={} failureType={}",
-                    request.operationKey(), failure.getClass().getSimpleName());
+            log.warn("scenario compilation agent returned invalid response operationKey={} failureType={} validationReason={}",
+                    request.operationKey(), failure.getClass().getSimpleName(), safeScenarioCompilationFailureReason(failure));
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(new ScenarioCompilationAgentError(code, request.operationKey(), failure.getClass().getSimpleName(), false));
         } catch (RuntimeException failure) {
@@ -121,6 +121,18 @@ public final class TypedAgentContractController {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(new ScenarioCompilationAgentError(code, request.operationKey(), failure.getClass().getSimpleName(), false));
         }
+    }
+
+    static String safeScenarioCompilationFailureReason(IllegalArgumentException failure) {
+        String message = failure.getMessage();
+        if ("status is required".equals(message)
+                || "invalid scenario compilation status".equals(message)
+                || "READY scenario compilation requires a scenario model".equals(message)
+                || "typed agent response must be an object".equals(message)
+                || "invalid typed agent response".equals(message)) {
+            return message;
+        }
+        return "unclassified invalid response";
     }
 
     record ScenarioCompilationAgentError(String code, String correlationId, String rootCauseClass, boolean retryable) {}

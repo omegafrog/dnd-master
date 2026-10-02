@@ -403,7 +403,8 @@ export function normalizeScenarioCompilation(view: ScenarioCompilationView): Sce
 export type AgentEndpointPreflightView = {
   configured: boolean
   connected: boolean
-  state: 'LOGIN_REQUIRED' | 'CONNECTED' | 'EXPIRED' | 'FAILED' | 'NOT_CONFIGURED'
+  canRequest?: boolean
+  state: 'LOGIN_REQUIRED' | 'CONNECTED' | 'EXPIRED' | 'FAILED' | 'NOT_CONFIGURED' | 'CHECK_ON_REQUEST'
   provider?: 'OLLAMA' | 'OPENAI_COMPATIBLE' | 'CODEX_CLI'
   detail?: string | null
 }
@@ -702,10 +703,13 @@ export class HttpSetupApi implements SetupApi {
       '/api/v1/profile/agent-endpoints', { headers: this.authHeaders() }, 'AI 엔드포인트 상태를 확인하지 못했습니다.')
     const active = endpoints.find(endpoint => endpoint.active)
     if (!active) return { configured: false, connected: false, state: 'NOT_CONFIGURED', detail: 'AI 엔드포인트를 먼저 설정하세요.' }
+    if (active.provider === 'CODEX_CLI') {
+      return { configured: true, connected: false, canRequest: true, state: 'CHECK_ON_REQUEST', provider: active.provider }
+    }
     const health = await request<{ healthy: boolean; detail?: string | null }>(
       `/api/v1/profile/agent-endpoints/${active.id}/health`, { method: 'POST', headers: this.authHeaders() }, 'AI 엔드포인트 상태를 확인하지 못했습니다.')
     if (health.healthy) return { configured: true, connected: true, state: 'CONNECTED', provider: active.provider, detail: null }
-    return { configured: true, connected: false, state: active.provider === 'CODEX_CLI' ? 'LOGIN_REQUIRED' : 'FAILED', provider: active.provider, detail: health.detail ?? 'AI 엔드포인트에 연결할 수 없습니다.' }
+    return { configured: true, connected: false, state: 'FAILED', provider: active.provider, detail: health.detail ?? 'AI 엔드포인트에 연결할 수 없습니다.' }
   }
 
   getScenarioPackage(packageId: string) {

@@ -6,12 +6,22 @@ afterEach(() => {
 })
 
 describe('HttpSetupApi', () => {
-  it('preflights the active endpoint and exposes Codex login state', async () => {
+  it('allows a configured Codex endpoint to request preparation without probing server-local OAuth', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'endpoint-1', provider: 'CODEX_CLI', active: true }]), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ healthy: false, detail: 'Codex OAuth session unavailable' }), { status: 200 }))
     await expect(new HttpSetupApi(() => 'owner-token').preflightAgentEndpoint()).resolves.toMatchObject({
-      configured: true, connected: false, state: 'LOGIN_REQUIRED', provider: 'CODEX_CLI',
+      configured: true, connected: false, canRequest: true, provider: 'CODEX_CLI',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    fetchMock.mockRestore()
+  })
+
+  it('blocks preparation when a non-Codex endpoint is unhealthy', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'endpoint-1', provider: 'OLLAMA', active: true }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ healthy: false, detail: 'unavailable' }), { status: 200 }))
+    await expect(new HttpSetupApi(() => 'owner-token').preflightAgentEndpoint()).resolves.toMatchObject({
+      configured: true, connected: false, state: 'FAILED', provider: 'OLLAMA',
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
     fetchMock.mockRestore()

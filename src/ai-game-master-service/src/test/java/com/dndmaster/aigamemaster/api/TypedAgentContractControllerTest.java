@@ -26,6 +26,16 @@ class TypedAgentContractControllerTest {
     private static final UUID SELECTED_ENDPOINT_ID = UUID.fromString("00000000-0000-0000-0000-000000000322");
 
     @Test
+    void scenario_compilation_validation_reason_logs_only_known_shape_errors() {
+        org.junit.jupiter.api.Assertions.assertEquals("status is required",
+                TypedAgentContractController.safeScenarioCompilationFailureReason(
+                        new IllegalArgumentException("status is required")));
+        org.junit.jupiter.api.Assertions.assertEquals("unclassified invalid response",
+                TypedAgentContractController.safeScenarioCompilationFailureReason(
+                        new IllegalArgumentException("private Storybook text")));
+    }
+
+    @Test
     void changed_endpoint_snapshot_is_rejected_before_ai_execution() {
         AtomicReference<String> sent = new AtomicReference<>();
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> {
