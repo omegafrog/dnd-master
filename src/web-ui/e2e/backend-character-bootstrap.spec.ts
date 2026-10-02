@@ -193,16 +193,49 @@ async function compilePackage(request: APIRequestContext, bundleId: string, prim
   expect(start.ok(), await start.text()).toBeTruthy()
   const compilation = await start.json() as { compilationId: string; packageId?: string | null }
   let packageId = compilation.packageId ?? null
-  await expect.poll(async () => {
-    const response = await request.get(`${backend}/api/v1/adventures/compilations/${compilation.compilationId}`, { headers: authHeaders })
-    expect(response.ok(), await response.text()).toBeTruthy()
-    const current = await response.json() as { status: string; packageId?: string | null; failureReason?: string | null }
-    if (current.status === 'FAILED') throw new Error(current.failureReason ?? 'scenario compilation failed')
-    packageId = current.packageId ?? packageId
-    return current.status === 'COMPLETED' && packageId ? 'PUBLISHED' : current.status
-  }, { timeout: 360_000, intervals: [1000, 2000, 5000] }).toBe('PUBLISHED')
-  expect(packageId).toBeTruthy()
-  return packageId!
+  const startedAt = Date.now()
+  const observations: Array<{ observedAt: string; elapsedMs: number; status: string; attempt?: number; packageId: string | null }> = []
+  const runningStatuses = new Set(['QUEUED', 'PROCESSING', 'REQUESTED', 'RUNNING', 'WAITING_RETRY'])
+
+  try {
+    for (;;) {
+      const response = await request.get(`${backend}/api/v1/adventures/compilations/${compilation.compilationId}`, { headers: authHeaders })
+      expect(response.ok(), await response.text()).toBeTruthy()
+      const current = await response.json() as {
+        status: string
+        attempt?: number
+        packageId?: string | null
+        failureReason?: string | null
+        diagnostics?: Array<{ code?: string; message?: string }>
+      }
+      packageId = current.packageId ?? packageId
+      const last = observations.at(-1)
+      if (!last || last.status !== current.status || last.attempt !== current.attempt || last.packageId !== packageId) {
+        observations.push({
+          observedAt: new Date().toISOString(),
+          elapsedMs: Date.now() - startedAt,
+          status: current.status,
+          attempt: current.attempt,
+          packageId,
+        })
+      }
+
+      if (current.status === 'COMPLETED' || current.status === 'PUBLISHED') {
+        expect(packageId, `scenario compilation ${compilation.compilationId} finished without a package id`).toBeTruthy()
+        return packageId!
+      }
+      if (!runningStatuses.has(current.status)) {
+        const detail = current.failureReason ?? current.diagnostics?.map(item => `${item.code ?? ''} ${item.message ?? ''}`).join('; ')
+        throw new Error(detail || `scenario compilation ${compilation.compilationId} stopped at ${current.status}`)
+      }
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+  } finally {
+    await test.info().attach(`scenario-compilation-${compilation.compilationId}.json`, {
+      body: Buffer.from(JSON.stringify({ compilationId: compilation.compilationId, bundleId, observations }, null, 2)),
+      contentType: 'application/json',
+    })
+  }
 }
 
 async function getPreparation(request: APIRequestContext, packageId: string) {
@@ -246,7 +279,7 @@ async function createSession(request: APIRequestContext, packageId: string, blue
     data: { scenarioPackageId: packageId, blueprintId: packageId, blueprintRevision },
   })
   expect(response.ok(), await response.text()).toBeTruthy()
-  return response.json() as Promise<{ sessionId: string; version: number }>
+  return response.json() as Promise<{ sessionId: string; version: number; characterLimit: number }>
 }
 
 function fighterDraft() {
@@ -302,7 +335,7 @@ function mimeType(path: string) {
 test('fresh database bootstraps scenario package and completes character creation', async ({ request }) => {
   test.skip(!hasEnvironment(),
     'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD and BACKEND_E2E_STORYBOOKS_JSON')
-  test.setTimeout(360_000)
+  test.setTimeout(0)
 
   await login(request)
   const uploaded = await uploadDocuments(request)
@@ -374,10 +407,35 @@ test('fresh database bootstraps scenario package and completes character creatio
     expect.objectContaining({ characterSheetId: companion.characterSheetId, controlMode: 'AGENT' }),
   ]))
 
+  let fullParty = partyWithCompanion
+  for (let index = 2; index < session.characterLimit; index += 1) {
+    const additionalCompanionResponse = await request.post(`${backend}/internal/v1/adventure-sessions/${session.sessionId}/character-sheets`, {
+      headers: authHeaders,
+      data: companionDraft(),
+    })
+    expect(additionalCompanionResponse.ok(), await additionalCompanionResponse.text()).toBeTruthy()
+    const additionalCompanion = await additionalCompanionResponse.json() as { characterSheetId: string }
+    const additionalPartyResponse = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/party`, {
+      headers: { ...authHeaders, 'If-Match-Version': String(fullParty.version) },
+      data: {
+        characterSheetId: additionalCompanion.characterSheetId,
+        controlMode: 'AGENT',
+        nameMutableAfterStart: false,
+        raceMutableAfterStart: false,
+        characterClassMutableAfterStart: false,
+        backgroundMutableAfterStart: false,
+        startingAbilitiesMutableAfterStart: false,
+        levelMutableAfterStart: false,
+      },
+    })
+    expect(additionalPartyResponse.ok(), await additionalPartyResponse.text()).toBeTruthy()
+    fullParty = await additionalPartyResponse.json()
+  }
+
   const startResponse = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/start`, {
     headers: {
       ...authHeaders,
-      'If-Match-Version': String(partyWithCompanion.version),
+      'If-Match-Version': String(fullParty.version),
       'Idempotency-Key': crypto.randomUUID(),
       'Content-Type': 'application/json',
     },

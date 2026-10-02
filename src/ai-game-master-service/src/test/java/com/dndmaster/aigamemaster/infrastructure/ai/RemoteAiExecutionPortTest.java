@@ -16,6 +16,32 @@ import org.junit.jupiter.api.Test;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 class RemoteAiExecutionPortTest {
+    @Test void preservesReportedUsageAndUnknownValuesFromRelay() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        var responseBody = new java.util.concurrent.atomic.AtomicReference<>(
+                "{\"requestId\":\"request-usage\",\"content\":\"final\",\"usage\":{\"inputTokens\":120,\"cachedInputTokens\":0,\"outputTokens\":9}}");
+        server.createContext("/internal/executions", exchange -> {
+            byte[] response = responseBody.get().getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var port = new RemoteAiExecutionPort(HttpClient.newHttpClient(), new ObjectMapper(),
+                    URI.create("http://localhost:" + server.getAddress().getPort()), "token", Duration.ofSeconds(2));
+            var request = new AiExecutionRequest(UUID.randomUUID(), "request-usage", "work", "prompt", "model", "medium", "TEXT", null, "");
+            var reported = (com.dndmaster.aigamemaster.application.ai.AiExecutionSuccess) port.execute(request);
+            assertEquals(120L, reported.usage().inputTokens());
+            assertEquals(0L, reported.usage().cachedInputTokens());
+            assertEquals(9L, reported.usage().outputTokens());
+            responseBody.set("{\"requestId\":\"request-usage\",\"content\":\"final\"}");
+            var unknown = (com.dndmaster.aigamemaster.application.ai.AiExecutionSuccess) port.execute(request);
+            assertNull(unknown.usage().inputTokens());
+            assertNull(unknown.usage().cachedInputTokens());
+            assertNull(unknown.usage().outputTokens());
+        } finally { server.stop(0); }
+    }
     @Test
     void reports_a_typed_connection_unavailable_failure_without_a_local_fallback() {
         var result = new RemoteAiExecutionPort().execute(new AiExecutionRequest(
@@ -24,6 +50,27 @@ class RemoteAiExecutionPortTest {
 
         assertThat(result).isInstanceOf(AiExecutionFailure.class);
         assertThat(((AiExecutionFailure) result).reason()).isEqualTo(AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE);
+    }
+
+    @Test
+    void maps_a_relay_http_failure_to_delivery_failed() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/internal/executions", exchange -> {
+            exchange.sendResponseHeaders(503, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var port = new RemoteAiExecutionPort(HttpClient.newHttpClient(), new ObjectMapper(),
+                    URI.create("http://localhost:" + server.getAddress().getPort()), "token", Duration.ofSeconds(2));
+            var result = port.execute(new AiExecutionRequest(UUID.randomUUID(), "request-503", "work-503", "prompt",
+                    "model", "medium", "TEXT", null, ""));
+
+            assertThat(result).isInstanceOf(AiExecutionFailure.class);
+            assertThat(((AiExecutionFailure) result).reason()).isEqualTo(AiExecutionFailure.Reason.DELIVERY_FAILED);
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test void sendsCompletedRequestToAuthenticatedRelayAndMapsFinalResult() throws Exception {

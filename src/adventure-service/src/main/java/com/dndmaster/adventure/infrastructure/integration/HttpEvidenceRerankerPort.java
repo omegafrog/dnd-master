@@ -20,6 +20,7 @@ import java.util.UUID;
 
 /** Internal adapter for the AI Game Master's fixed-policy relatedness ordering endpoint. */
 public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(HttpEvidenceRerankerPort.class);
     private final HttpClient client;
     private final URI baseUri;
     private final Duration timeout;
@@ -42,8 +43,17 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/evidence-rerank"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
-            if (isTransient(response.statusCode())) throw new EvidenceAcquisitionTransientException("evidence reranking is unavailable");
-            if (response.statusCode() / 100 != 2) throw new EvidenceAcquisitionContractException("evidence reranking failed with status " + response.statusCode());
+            if (isTransient(response.statusCode())) throw new EvidenceAcquisitionTransientException(
+                    "evidence reranking is unavailable (HTTP " + response.statusCode() + ")");
+            if (response.statusCode() / 100 != 2) {
+                if (response.statusCode() == 422) {
+                    String responseMarker = response.body().contains("EVIDENCE_MODEL_OUTPUT_INVALID")
+                            ? "EVIDENCE_MODEL_OUTPUT_INVALID" : "UNCLASSIFIED_422";
+                    LOGGER.warn("evidence reranking contract failure status={} policy={} candidateCount={} responseChars={} responseMarker={}",
+                            response.statusCode(), request.policyId(), request.candidates().size(), response.body().length(), responseMarker);
+                }
+                throw new EvidenceAcquisitionContractException("evidence reranking failed with status " + response.statusCode());
+            }
             List<UUID> ids = List.copyOf(mapper.readValue(response.body(), Response.class).orderedCandidateIds());
             validateIds(ids, request.candidates());
             return ids;

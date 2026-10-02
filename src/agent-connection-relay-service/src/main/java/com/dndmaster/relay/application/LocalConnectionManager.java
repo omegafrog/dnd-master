@@ -115,7 +115,7 @@ public final class LocalConnectionManager implements LocalConnectionExecutor, Lo
       if (!pending.accepted())
         return Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE));
       var connectionLost = Sinks.<Throwable>one();
-      var activeRequest = new ActiveRequest(request.soloPlayerId(), connection.connectionId(), connectionLost);
+      var activeRequest = new ActiveRequest(request.soloPlayerId(), connection.connectionId(), connectionLost, request.ragSearchContext());
       var lifecycleLock = lifecycleLock(request.soloPlayerId());
       synchronized (lifecycleLock) {
         if (connections.get(request.soloPlayerId()) != connection) {
@@ -124,16 +124,15 @@ public final class LocalConnectionManager implements LocalConnectionExecutor, Lo
         } else
           activeRequests.put(request.requestId(), activeRequest);
       }
-      Mono<String> result = pending.result();
+      Mono<RelayExecutionResult> result = pending.result();
       Mono<Void> delivery = connections.get(request.soloPlayerId()) == connection
           ? Mono.defer(() -> connection.transport().send(request))
               .doOnError(failure -> completions.fail(request.requestId(), failure))
           : Mono.empty();
-      Mono<String> operation = Mono.zip(delivery.thenReturn(true), result, (ignored, content) -> content).timeout(wait);
-      Mono<String> disconnected = connectionLost.asMono().flatMap(failure -> Mono.error(failure));
+      Mono<RelayExecutionResult> operation = Mono.zip(delivery.thenReturn(true), result, (ignored, response) -> response).timeout(wait);
+      Mono<RelayExecutionResult> disconnected = connectionLost.asMono().flatMap(failure -> Mono.error(failure));
       return Mono.firstWithSignal(operation, disconnected)
-          .map(content -> {
-            var response = RelayExecutionResult.success(request.requestId(), content);
+          .map(response -> {
             if (jsonBytes(response) > maxPayloadBytes)
               throw new PayloadTooLargeException();
             return response;
@@ -163,8 +162,19 @@ public final class LocalConnectionManager implements LocalConnectionExecutor, Lo
     return completions.complete(requestId, finalContent);
   }
 
+  public boolean complete(RelayExecutionResult result) {
+    return completions.complete(result);
+  }
+
   public boolean fail(String requestId, Throwable failure) {
     return completions.fail(requestId, failure);
+  }
+
+  @Override
+  public com.fasterxml.jackson.databind.JsonNode activeRagSearchContext(UUID soloPlayerId, String connectionId, String requestId) {
+    ActiveRequest active = activeRequests.get(requestId);
+    if (active == null || !active.soloPlayerId().equals(soloPlayerId) || !active.connectionId().equals(connectionId)) return null;
+    return active.ragSearchContext();
   }
 
   private static Duration remaining(RelayExecutionRequest request) {
@@ -193,6 +203,7 @@ public final class LocalConnectionManager implements LocalConnectionExecutor, Lo
   private record Connection(String connectionId, ConnectionLocationLease lease, AgentConnectionTransport transport) {
   }
 
-  private record ActiveRequest(UUID soloPlayerId, String connectionId, Sinks.One<Throwable> connectionLost) {
+  private record ActiveRequest(UUID soloPlayerId, String connectionId, Sinks.One<Throwable> connectionLost,
+      com.fasterxml.jackson.databind.JsonNode ragSearchContext) {
   }
 }

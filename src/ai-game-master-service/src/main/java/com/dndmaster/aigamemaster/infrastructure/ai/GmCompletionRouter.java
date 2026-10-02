@@ -121,6 +121,28 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     }
 
     @Override
+    public <T> GmCompletionResult<T> completeWithResolution(UUID soloPlayerId,
+            String operationId, String prompt, StructuredResponseParser<T> parser,
+            RequestedGmProviderSelection requested, GmProviderSelectionResolver.EndpointResolution resolution) {
+        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
+        T response = completeResolved(soloPlayerId, operationId, prompt, parser, resolution.endpoint(), effective);
+        return new GmCompletionResult<>(response, effective);
+    }
+
+    @Override
+    public <T> GmCompletionResult<T> completeWithResolution(UUID soloPlayerId, String operationId, String prompt,
+            StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+            GmProviderSelectionResolver.EndpointResolution resolution,
+            com.fasterxml.jackson.databind.JsonNode ragSearchContext) {
+        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
+        T response = "codex-cli".equals(effective.provider())
+                ? parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId, operationId, operationId,
+                        prompt, effective.model(), effective.reasoning(), "JSON", null, "", ragSearchContext)).requireFinalText())
+                : completeResolved(soloPlayerId, operationId, prompt, parser, resolution.endpoint(), effective);
+        return new GmCompletionResult<>(response, effective);
+    }
+
+    @Override
     public <T> GmCandidateLifecycleResult<T> completeWithOneRepair(
             UUID soloPlayerId, String operationId, String prompt, java.util.function.Function<GmRepairContext, String> repairPrompt,
             StructuredResponseParser<T> parser, RequestedGmProviderSelection requested) {

@@ -60,6 +60,10 @@ public final class CombatLifecycleApplicationService {
         return repository.save(CombatStartPolicy.startFromCommittedGmTurn(gmTurnCommitted, adventureId, participants));
     }
 
+    public java.util.Optional<CombatEncounter> findActiveEncounter(UUID adventureId) {
+        return repository.findActive(adventureId);
+    }
+
     public CombatEncounter startFromCommittedGmTurn(UUID adventureId, GmTurn gmTurn, CombatStartProposal proposal) {
         if (gmTurn == null || gmTurn.status() != GmTurnStatus.COMMITTED) {
             throw new IllegalStateException("combat requires a committed GM turn");

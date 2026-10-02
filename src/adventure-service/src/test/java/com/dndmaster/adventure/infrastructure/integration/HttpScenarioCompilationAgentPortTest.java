@@ -10,6 +10,31 @@ import org.junit.jupiter.api.Test;
 
 class HttpScenarioCompilationAgentPortTest {
     @Test
+    void retains_safe_remote_failure_code_and_correlation_id_without_copying_response_text() {
+        var failure = HttpScenarioCompilationAgentPort.decodeFailure(503,
+                "{\"code\":\"AI_EXECUTION_CONNECTION_UNAVAILABLE\",\"correlationId\":\"scenario-compilation:compile-123\","
+                        + "\"rootCauseClass\":\"AiExecutionUnavailableException\",\"retryable\":true,\"debug\":\"private prompt\"}",
+                "scenario-compilation:fallback");
+
+        assertThat(failure.httpStatus()).isEqualTo(503);
+        assertThat(failure.code()).isEqualTo("AI_EXECUTION_CONNECTION_UNAVAILABLE");
+        assertThat(failure.correlationId()).isEqualTo("scenario-compilation:compile-123");
+        assertThat(failure.rootCauseClass()).isEqualTo("AiExecutionUnavailableException");
+        assertThat(failure.retryable()).isTrue();
+        assertThat(failure.getMessage()).doesNotContain("private prompt");
+    }
+
+    @Test
+    void falls_back_to_http_status_and_operation_key_for_unstructured_remote_errors() {
+        var failure = HttpScenarioCompilationAgentPort.decodeFailure(500, "not-json", "scenario-compilation:compile-456");
+
+        assertThat(failure.code()).isEqualTo("SCENARIO_COMPILATION_AGENT_HTTP_500");
+        assertThat(failure.correlationId()).isEqualTo("scenario-compilation:compile-456");
+        assertThat(failure.rootCauseClass()).isEqualTo("RemoteScenarioCompilationFailure");
+        assertThat(failure.retryable()).isTrue();
+    }
+
+    @Test
     void convertsStructuredStartingSituationDetailsToReadableText() {
         Map<String, Object> situation = new LinkedHashMap<>();
         situation.put("opening", "You arrive at the brewery.");

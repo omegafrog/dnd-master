@@ -160,8 +160,13 @@ public final class ScenarioCompilationWorker {
                 .orElse(null);
         if (delivery == null) return Optional.empty();
 
-        var compilation = compilationRepository.findById(delivery.work().aggregateId())
-                .orElseThrow(() -> new IllegalStateException("compilation not found"));
+        var compilation = compilationRepository.findById(delivery.work().aggregateId()).orElse(null);
+        if (compilation == null) {
+            log.warn("scenario compilation worker acknowledged orphaned work workerId={} compilationId={}",
+                    workerId, delivery.work().aggregateId());
+            queue.acknowledge(delivery);
+            return Optional.empty();
+        }
         log.info("scenario compilation worker claimed work workerId={} compilationId={} attempt={} bundleId={}",
                 workerId, compilation.id(), compilation.attempt(), compilation.bundleId());
         var claimed = processManager.claim(delivery);
@@ -280,17 +285,30 @@ public final class ScenarioCompilationWorker {
         } catch (RuntimeException exception) {
             String reason = exception.getMessage() == null || exception.getMessage().isBlank()
                     ? "scenario compilation failed" : exception.getMessage();
+            ScenarioCompilationAgentFailureException agentFailure =
+                    exception instanceof ScenarioCompilationAgentFailureException failure ? failure : null;
+            boolean terminalFailure = isCodexTurnTimeout(exception)
+                    || exception instanceof ScenarioCompilationRejectedException || claimed.attempt() >= MAX_ATTEMPTS
+                    || agentFailure != null && (!agentFailure.retryable() || claimed.attempt() >= 2);
+            List<com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic> failureDiagnostics =
+                    agentFailure != null
+                            ? List.of(terminalFailure
+                                    ? com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic.blocking(
+                                            agentFailure.code(), agentFailure.getMessage(), agentFailure.rootCauseClass())
+                                    : com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic.warning(
+                                            agentFailure.code(), agentFailure.getMessage(), agentFailure.rootCauseClass()))
+                            : claimed.diagnostics();
             if (isCodexTurnTimeout(exception)) {
                 log.error("scenario compilation provider timeout compilationId={} failureType={} reason={}",
                         claimed.id(), exception.getClass().getName(), reason, exception);
-                processManager.fail(claimed, delivery, reason);
-            } else if (exception instanceof ScenarioCompilationRejectedException || claimed.attempt() >= MAX_ATTEMPTS) {
-                processManager.fail(claimed, delivery, reason);
+                processManager.fail(claimed, delivery, reason, failureDiagnostics);
+            } else if (terminalFailure) {
+                processManager.fail(claimed, delivery, reason, failureDiagnostics);
             } else {
-                processManager.retry(claimed, delivery, reason);
+                processManager.retry(claimed, delivery, reason, failureDiagnostics);
             }
-            log.warn("scenario compilation worker failed compilationId={} attempt={} reason={}",
-                    claimed.id(), claimed.attempt(), reason, exception);
+            log.warn("scenario compilation worker failed compilationId={} attempt={} failureType={} reason={}",
+                    claimed.id(), claimed.attempt(), exception.getClass().getName(), reason, exception);
             throw exception;
         }
     }

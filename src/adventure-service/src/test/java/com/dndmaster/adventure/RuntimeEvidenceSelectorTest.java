@@ -17,22 +17,22 @@ class RuntimeEvidenceSelectorTest {
     private final UUID rulebookId = UUID.randomUUID();
 
     @Test
-    void selects_storybook_first_and_never_exceeds_eight_items() {
+    void searches_both_rules_sources_with_the_full_per_source_limit_and_keeps_all_results() {
         List<RuntimeEvidence> story = evidence(RuntimeEvidenceType.STORYBOOK, storybookId, 7);
         List<RuntimeEvidence> rules = evidence(RuntimeEvidenceType.RULEBOOK, rulebookId, 7);
         RuntimeEvidenceSelection selection = new RuntimeEvidenceSelector(request ->
                 request.evidenceType() == RuntimeEvidenceType.STORYBOOK ? story : rules)
                 .select(request("MIXED", 8), List.of());
 
-        assertEquals(8, selection.pack().storybook().size() + selection.pack().rulebook().size());
+        assertEquals(14, selection.pack().storybook().size() + selection.pack().rulebook().size());
         assertEquals(7, selection.pack().storybook().size());
-        assertEquals(1, selection.pack().rulebook().size());
-        assertEquals(8, selection.metrics().selectedCount());
+        assertEquals(7, selection.pack().rulebook().size());
+        assertEquals(14, selection.metrics().selectedCount());
         assertEquals(7, selection.metrics().selectedByType().get(RuntimeEvidenceType.STORYBOOK));
     }
 
     @Test
-    void does_not_query_rulebook_for_story_intent_and_preserves_provenance_and_key() {
+    void searches_both_sources_for_every_action_and_preserves_provenance_and_key() {
         RuntimeEvidence item = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
                 new KnowledgeDocumentId(storybookId), 12, "page:4:block:2", "지하실에는 거대 쥐 두 마리가 있습니다.", "rat-fact");
         List<RuntimeEvidenceSearchRequest> requests = new ArrayList<>();
@@ -41,18 +41,34 @@ class RuntimeEvidenceSelectorTest {
             return List.of(item);
         }).select(request("EXPLORE", 8), List.of());
 
-        assertEquals(1, requests.size());
-        assertEquals(RuntimeEvidenceType.STORYBOOK, requests.getFirst().evidenceType());
+        assertEquals(2, requests.size());
+        assertEquals(List.of(RuntimeEvidenceType.STORYBOOK, RuntimeEvidenceType.RULEBOOK),
+                requests.stream().map(RuntimeEvidenceSearchRequest::evidenceType).toList());
+        assertEquals(List.of("open the cellar", "open the cellar"), requests.stream()
+                .map(RuntimeEvidenceSearchRequest::action).toList());
         assertEquals(12, selection.pack().storybook().getFirst().extractionVersion());
         assertEquals("rat-fact", selection.pack().storybook().getFirst().citationKey());
         assertEquals("page:4:block:2", selection.pack().storybook().getFirst().locator());
     }
 
     @Test
-    void rejects_missing_storybook_as_structured_selection_failure() {
-        RuntimeEvidenceSelectionException failure = assertThrows(RuntimeEvidenceSelectionException.class,
-                () -> new RuntimeEvidenceSelector(request -> List.of()).select(request("RULE", 8), List.of()));
-        assertEquals("MISSING_STORYBOOK", failure.violation().code());
+    void does_not_apply_an_eight_item_total_cap() {
+        List<RuntimeEvidence> story = evidence(RuntimeEvidenceType.STORYBOOK, storybookId, 12);
+        List<RuntimeEvidence> rules = evidence(RuntimeEvidenceType.RULEBOOK, rulebookId, 12);
+        RuntimeEvidenceSelection selection = new RuntimeEvidenceSelector(request ->
+                request.evidenceType() == RuntimeEvidenceType.STORYBOOK ? story : rules)
+                .select(request("MIXED", 12), List.of());
+
+        assertEquals(24, selection.pack().totalEvidenceCount());
+        assertEquals(24, selection.metrics().selectedCount());
+        assertEquals(24, selection.pack().rules().size());
+    }
+
+    @Test
+    void permits_a_turn_without_a_match_in_either_rules_source() {
+        RuntimeEvidenceSelection selection = new RuntimeEvidenceSelector(request -> List.of())
+                .select(request("PLAYER_ACTION", 8), List.of());
+        assertTrue(selection.pack().all().isEmpty());
     }
 
     private RuntimeEvidenceSearchRequest request(String intent, int limit) {

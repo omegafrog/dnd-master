@@ -43,13 +43,39 @@ class CombatScenarioGroundingPolicyTest {
     }
 
     @Test
-    void grounds_a_combat_from_the_current_situation_when_story_and_rulebook_evidence_support_it() {
+    void grounds_scenario_enemy_by_stable_key_when_model_and_gm_use_different_languages() {
+        ScenarioModelElement combat = new ScenarioModelElement("watchtower-goblin", "combat-scenario",
+                Map.of("enemyKey", "goblin", "displayName", "Goblin", "count", 1,
+                        "location", "watchtower"), List.of(sourceRef()));
+        ScenarioModel model = new ScenarioModel(1, List.of(), List.of(), List.of(), List.of(), List.of(combat),
+                List.of(), List.of(), "The party enters a watchtower under attack.");
+        RuntimeEvidence rules = evidence(RuntimeEvidenceType.RULEBOOK, "basic-rules-goblin",
+                "고블린 Goblin\n방어도 15\n히트 포인트 7 (2d6)\n시미터. 근접 무기 공격: 명중 +4. "
+                        + "명중시: 5(1d6+2)점 피해.");
+        var proposal = new CombatEnemyProposal("watchtower-goblin", "goblin", "고블린", 1,
+                CombatStartMode.SCENARIO);
+
+        var grounded = CombatScenarioGroundingPolicy.ground(model, CurrentSituation.initial("watchtower"),
+                List.of(proposal), List.of(), List.of(rules));
+
+        assertEquals("goblin", grounded.get(0).enemyKey());
+        assertEquals("Goblin", grounded.get(0).name());
+        assertEquals(15, grounded.get(0).statBlock().armorClass());
+        assertEquals(7, grounded.get(0).statBlock().hitPointMaximum());
+        assertEquals(4, grounded.get(0).statBlock().attackModifier());
+        assertEquals("1d6+2", grounded.get(0).statBlock().damageDice());
+    }
+
+    @Test
+    void grounds_enemy_presence_from_current_situation_and_uses_both_rules_sources_for_numbers() {
         RuntimeEvidence story = evidence(RuntimeEvidenceType.STORYBOOK, "cellar-rats",
                 "Giant Rats nest behind the barrels in the cellar.");
         RuntimeEvidence rules = evidence(RuntimeEvidenceType.RULEBOOK, "monster-manual-335",
                 "Giant Rat Armor Class 12 Hit Points 7 (2d6). Bite. Melee Weapon Attack: +4 to hit.");
 
-        var grounded = CombatScenarioGroundingPolicy.ground(ScenarioModel.empty(), CurrentSituation.initial("cellar"),
+        CurrentSituation situation = new CurrentSituation(UUID.randomUUID(), 1, "cellar",
+                "Giant Rats nest behind the barrels.", "Giant Rats nest behind the barrels.", "clear the cellar");
+        var grounded = CombatScenarioGroundingPolicy.ground(ScenarioModel.empty(), situation,
                 List.of(new CombatEnemyProposal("", "giant-rat", "거대 쥐", 2, CombatStartMode.SITUATION)),
                 List.of(story), List.of(rules));
 

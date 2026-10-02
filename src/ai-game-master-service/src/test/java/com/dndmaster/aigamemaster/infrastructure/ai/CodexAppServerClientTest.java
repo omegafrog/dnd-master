@@ -12,6 +12,33 @@ import org.junit.jupiter.api.Test;
 
 class CodexAppServerClientTest {
     @Test
+    void capturesReportedUsageForThisTurnAndKeepsAbsentCountsUnknown() throws Exception {
+        Path executable = appServerScript("""
+                #!/usr/bin/env bash
+                while IFS= read -r line; do
+                  case "$line" in
+                    *'"method":"initialize"'*) echo '{"id":1,"result":{}}';;
+                    *'"method":"thread/start"'*) echo '{"id":2,"result":{"thread":{"id":"thread-usage"}}}';;
+                    *'"method":"turn/start"'*)
+                      echo '{"id":3,"result":{"turn":{"id":"turn-usage"}}}';
+                      echo '{"method":"thread/tokenUsage/updated","params":{"threadId":"other","turnId":"turn-usage","tokenUsage":{"total":{"inputTokens":999,"cachedInputTokens":999,"outputTokens":999}}}}';
+                      echo '{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-usage","turnId":"turn-usage","tokenUsage":{"total":{"inputTokens":120,"cachedInputTokens":0}}}}';
+                      echo '{"method":"item/agentMessage/delta","params":{"delta":"final"}}';
+                      echo '{"method":"turn/completed","params":{"turn":{"id":"turn-usage","status":"completed"}}}';;
+                  esac
+                done
+                """);
+        CodexAppServerClient client = CodexAppServerClient.shared(
+                executable.toString(), executable.getParent(), Duration.ofSeconds(2), new ObjectMapper());
+        try {
+            var result = client.completeWithUsage("usage", "prompt", "model", "medium", null, "");
+            assertThat(result.finalText()).isEqualTo("final");
+            assertThat(result.usage().inputTokens()).isEqualTo(120L);
+            assertThat(result.usage().cachedInputTokens()).isZero();
+            assertThat(result.usage().outputTokens()).isNull();
+        } finally { client.close(); }
+    }
+    @Test
     void classifiesScenarioCompilationResolutionCallsSeparatelyFromRuntimeCompletion() {
         assertThat(CodexAppServerClient.stage("scenario-compilation:abc:resolution-candidates"))
                 .isEqualTo("resolution-candidate-extraction");

@@ -31,7 +31,11 @@ public record GmContextEnvelope(
         RequestedGmProviderSelection requestedSelection,
         NarrativeContext narrativeContext,
         List<String> runtimeFacts,
-        List<RuntimeFactLookupResult> factLookupResults) {
+        List<RuntimeFactLookupResult> factLookupResults,
+        String currentSituation,
+        List<LongTermAdventureFact> longTermFacts,
+        String validationFeedback,
+        java.util.Map<String, Object> ragSearchContext) {
     public GmContextEnvelope {
         adventureId = Objects.requireNonNull(adventureId);
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId);
@@ -52,6 +56,11 @@ public record GmContextEnvelope(
         if (factLookupResults.stream().anyMatch(Objects::isNull)) {
             throw new IllegalArgumentException("fact lookup results must not contain null");
         }
+        currentSituation = currentSituation == null ? "" : currentSituation.trim();
+        longTermFacts = List.copyOf(Objects.requireNonNull(longTermFacts, "long-term facts must not be null"));
+        if (longTermFacts.stream().anyMatch(Objects::isNull)) throw new IllegalArgumentException("long-term facts must not contain null");
+        validationFeedback = validationFeedback == null ? "" : validationFeedback.trim();
+        ragSearchContext = ragSearchContext == null ? java.util.Map.of() : java.util.Map.copyOf(ragSearchContext);
         scenarioContext = scenarioContext == null ? "" : scenarioContext.trim();
         provider = provider == null ? "" : provider.trim();
         model = model == null ? "" : model.trim();
@@ -64,12 +73,59 @@ public record GmContextEnvelope(
         if (bindingVersion < 0) throw new IllegalArgumentException("binding version must not be negative");
     }
 
+    public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, List<String> recentTurns, List<String> characterSnapshots,
+            String scenarioContext, String provider, String model, String reasoning,
+            RequestedGmProviderSelection requestedSelection, NarrativeContext narrativeContext, List<String> runtimeFacts,
+            List<RuntimeFactLookupResult> factLookupResults, String currentSituation,
+            List<LongTermAdventureFact> longTermFacts, String validationFeedback) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
+                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
+                provider, model, reasoning, requestedSelection, narrativeContext, runtimeFacts, factLookupResults,
+                currentSituation, longTermFacts, validationFeedback, java.util.Map.of());
+    }
+
+    public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, List<String> recentTurns, List<String> characterSnapshots,
+            String scenarioContext, String provider, String model, String reasoning,
+            RequestedGmProviderSelection requestedSelection, NarrativeContext narrativeContext, List<String> runtimeFacts,
+            List<RuntimeFactLookupResult> factLookupResults, String currentSituation,
+            List<LongTermAdventureFact> longTermFacts) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext,
+                action, evidencePack, recentTurns, characterSnapshots, scenarioContext, provider, model, reasoning,
+                requestedSelection, narrativeContext, runtimeFacts, factLookupResults, currentSituation, longTermFacts, "");
+    }
+
+    public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, List<String> recentTurns, List<String> characterSnapshots,
+            String scenarioContext, String provider, String model, String reasoning,
+            RequestedGmProviderSelection requestedSelection, NarrativeContext narrativeContext, List<String> runtimeFacts,
+            List<RuntimeFactLookupResult> factLookupResults, String currentSituation) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext,
+                action, evidencePack, recentTurns, characterSnapshots, scenarioContext, provider, model, reasoning,
+                requestedSelection, narrativeContext, runtimeFacts, factLookupResults, currentSituation, List.of());
+    }
+
+    public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, List<String> recentTurns, List<String> characterSnapshots,
+            String scenarioContext, String provider, String model, String reasoning,
+            RequestedGmProviderSelection requestedSelection, NarrativeContext narrativeContext, List<String> runtimeFacts,
+            List<RuntimeFactLookupResult> factLookupResults) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext,
+                action, evidencePack, recentTurns, characterSnapshots, scenarioContext, provider, model, reasoning,
+                requestedSelection, narrativeContext, runtimeFacts, factLookupResults, "");
+    }
+
     public GmContextEnvelope(com.dndmaster.adventure.domain.adventure.AdventureId adventureId,
                              com.dndmaster.adventure.domain.adventure.OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
                              long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
                              String action, EvidencePack evidencePack, List<String> recentTurns) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
-                evidencePack, recentTurns, List.of(), "", "", "", "", RequestedGmProviderSelection.legacyUnknown(), null, List.of(), List.of());
+                evidencePack, recentTurns, List.of(), "", "", "", "", RequestedGmProviderSelection.legacyUnknown(), null, List.of(), List.of(), "");
     }
 
     public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
@@ -81,7 +137,7 @@ public record GmContextEnvelope(
                 activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
                 provider, model, reasoning, provider.isBlank() || model.isBlank() || reasoning.isBlank()
                         ? RequestedGmProviderSelection.legacyUnknown()
-                : new RequestedGmProviderSelection(null, provider, model, reasoning), null, List.of(), List.of());
+                : new RequestedGmProviderSelection(null, provider, model, reasoning), null, List.of(), List.of(), "");
     }
 
     public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
@@ -92,7 +148,7 @@ public record GmContextEnvelope(
                              RequestedGmProviderSelection requestedSelection, NarrativeContext narrativeContext) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
                 activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
-                provider, model, reasoning, requestedSelection, narrativeContext, List.of(), List.of());
+                provider, model, reasoning, requestedSelection, narrativeContext, List.of(), List.of(), "");
     }
 
     public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
@@ -104,7 +160,11 @@ public record GmContextEnvelope(
                              List<String> runtimeFacts) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
                 activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
-                provider, model, reasoning, requestedSelection, narrativeContext, runtimeFacts, List.of());
+                provider, model, reasoning, requestedSelection, narrativeContext, runtimeFacts, List.of(), "");
+    }
+
+    public String composePrompt(int contextLimit) {
+        return RuntimeGmPromptComposer.compose(this, contextLimit);
     }
 
     public String operationKey() {

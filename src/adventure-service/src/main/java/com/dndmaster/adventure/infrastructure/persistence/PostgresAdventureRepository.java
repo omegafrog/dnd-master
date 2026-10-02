@@ -1,6 +1,8 @@
 package com.dndmaster.adventure.infrastructure.persistence;
 
 import com.dndmaster.adventure.application.saved.AdventureRepository;
+import com.dndmaster.adventure.application.runtime.AdventureConversationCompactionCommitPort;
+import com.dndmaster.adventure.application.runtime.ConversationCompactionJob;
 import com.dndmaster.adventure.domain.adventure.*;
 import java.sql.*;
 import java.util.ArrayList;
@@ -16,7 +18,7 @@ import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
 import com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState;
 import javax.sql.DataSource;
 
-public final class PostgresAdventureRepository implements AdventureRepository {
+public final class PostgresAdventureRepository implements AdventureRepository, AdventureConversationCompactionCommitPort {
     private final DataSource dataSource;
     private final DataSource transactionDataSource;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -79,6 +81,22 @@ public final class PostgresAdventureRepository implements AdventureRepository {
                 if (!managed) rollback(connection, exception);
                 if (exception instanceof OptimisticAdventureLockException optimistic) throw optimistic;
                 throw failure("could not save adventure", exception);
+            } finally { if (!managed) connection.setAutoCommit(priorAutoCommit); }
+        } catch (SQLException exception) { throw failure("could not access adventure storage", exception); }
+    }
+
+    @Override public void saveConfirmedTurnAndRegister(Adventure adventure, ConversationCompactionJob job) {
+        try (Connection connection = dataSource.getConnection()) {
+            boolean managed = org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive();
+            boolean priorAutoCommit = connection.getAutoCommit(); if (!managed) connection.setAutoCommit(false);
+            try {
+                if (adventure.version() == 0) insert(connection, adventure); else update(connection, adventure);
+                replaceConversation(connection, adventure);
+                PostgresConversationCompactionJobRepository.register(connection, job);
+                if (!managed) connection.commit();
+            } catch (SQLException | RuntimeException exception) {
+                if (!managed) rollback(connection, exception);
+                throw failure("could not save confirmed adventure and compaction request", exception);
             } finally { if (!managed) connection.setAutoCommit(priorAutoCommit); }
         } catch (SQLException exception) { throw failure("could not access adventure storage", exception); }
     }

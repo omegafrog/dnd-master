@@ -4,6 +4,7 @@ import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import java.util.Objects;
 import java.util.UUID;
 import com.dndmaster.adventure.domain.runtime.narrative.NarrativeContext;
@@ -28,7 +29,12 @@ public record RuntimePlanningRequest(
         String model,
         String reasoning, NarrativeContext narrativeContext, UUID ruleSetId,
         java.util.List<String> runtimeFacts,
-        java.util.List<RuntimeFactLookupResult> factLookupResults) {
+        java.util.List<RuntimeFactLookupResult> factLookupResults,
+        String currentSituation,
+        java.util.List<LongTermAdventureFact> longTermFacts,
+        java.util.List<String> hiddenFacts,
+        ScenarioModel scenarioModel,
+        java.util.Map<String, Object> ragSearchContext) {
     public RuntimePlanningRequest {
         adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -53,6 +59,102 @@ public record RuntimePlanningRequest(
         if (factLookupResults.stream().anyMatch(java.util.Objects::isNull)) {
             throw new IllegalArgumentException("fact lookup results must not contain null");
         }
+        currentSituation = currentSituation == null ? "" : currentSituation.trim();
+        longTermFacts = java.util.List.copyOf(java.util.Objects.requireNonNull(longTermFacts, "long-term facts must not be null"));
+        if (longTermFacts.stream().anyMatch(java.util.Objects::isNull)) throw new IllegalArgumentException("long-term facts must not contain null");
+        hiddenFacts = java.util.List.copyOf(java.util.Objects.requireNonNull(hiddenFacts, "hidden facts must not be null"));
+        if (hiddenFacts.stream().anyMatch(value -> value == null || value.isBlank())) throw new IllegalArgumentException("hidden facts must not contain blank values");
+        scenarioModel = scenarioModel == null ? ScenarioModel.empty() : scenarioModel;
+        ragSearchContext = ragSearchContext == null ? java.util.Map.of() : java.util.Map.copyOf(ragSearchContext);
+    }
+
+    public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, java.util.List<String> recentTurns,
+            java.util.List<String> characterSnapshots, String scenarioContext, UUID providerEndpointId,
+            String provider, String model, String reasoning, NarrativeContext narrativeContext, UUID ruleSetId,
+            java.util.List<String> runtimeFacts, java.util.List<RuntimeFactLookupResult> factLookupResults,
+            String currentSituation, java.util.List<LongTermAdventureFact> longTermFacts,
+            java.util.List<String> hiddenFacts, ScenarioModel scenarioModel) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
+                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
+                providerEndpointId, provider, model, reasoning, narrativeContext, ruleSetId, runtimeFacts,
+                factLookupResults, currentSituation, longTermFacts, hiddenFacts, scenarioModel, java.util.Map.of());
+    }
+
+    public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, java.util.List<String> recentTurns, java.util.List<String> characterSnapshots,
+            String scenarioContext, UUID providerEndpointId, String provider, String model, String reasoning,
+            NarrativeContext narrativeContext, UUID ruleSetId, java.util.List<String> runtimeFacts,
+            java.util.List<RuntimeFactLookupResult> factLookupResults, String currentSituation,
+            java.util.List<LongTermAdventureFact> longTermFacts, java.util.List<String> hiddenFacts) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
+                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
+                providerEndpointId, provider, model, reasoning, narrativeContext, ruleSetId, runtimeFacts,
+                factLookupResults, currentSituation, longTermFacts, hiddenFacts, ScenarioModel.empty());
+    }
+
+    public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, java.util.List<String> recentTurns, java.util.List<String> characterSnapshots,
+            String scenarioContext, UUID providerEndpointId, String provider, String model, String reasoning,
+            NarrativeContext narrativeContext, UUID ruleSetId, java.util.List<String> runtimeFacts,
+            java.util.List<RuntimeFactLookupResult> factLookupResults, String currentSituation,
+            java.util.List<LongTermAdventureFact> longTermFacts) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
+                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
+                providerEndpointId, provider, model, reasoning, narrativeContext, ruleSetId, runtimeFacts,
+                factLookupResults, currentSituation, longTermFacts, legacyHiddenFacts(scenarioContext));
+    }
+
+    public RuntimePlanningRequest withHiddenFacts(java.util.List<String> values) {
+        return new RuntimePlanningRequest(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId,
+                bindingVersion, currentContext, activeSourceContext, action, evidencePack, recentTurns,
+                characterSnapshots, scenarioContext, providerEndpointId, provider, model, reasoning,
+                narrativeContext, ruleSetId, runtimeFacts, factLookupResults, currentSituation, longTermFacts, values, scenarioModel, ragSearchContext);
+    }
+
+    public RuntimePlanningRequest withScenarioModel(ScenarioModel value) {
+        return new RuntimePlanningRequest(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId,
+                bindingVersion, currentContext, activeSourceContext, action, evidencePack, recentTurns,
+                characterSnapshots, scenarioContext, providerEndpointId, provider, model, reasoning,
+                narrativeContext, ruleSetId, runtimeFacts, factLookupResults, currentSituation,
+                longTermFacts, hiddenFacts, value, ragSearchContext);
+    }
+
+    public RuntimePlanningRequest withRagSearchContext(java.util.Map<String, Object> value) {
+        return new RuntimePlanningRequest(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId,
+                bindingVersion, currentContext, activeSourceContext, action, evidencePack, recentTurns,
+                characterSnapshots, scenarioContext, providerEndpointId, provider, model, reasoning,
+                narrativeContext, ruleSetId, runtimeFacts, factLookupResults, currentSituation,
+                longTermFacts, hiddenFacts, scenarioModel, value);
+    }
+
+    private static java.util.List<String> legacyHiddenFacts(String scenarioContext) {
+        return scenarioContext == null || scenarioContext.isBlank() ? java.util.List.of() : java.util.List.of(scenarioContext);
+    }
+
+    public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, java.util.List<String> recentTurns, java.util.List<String> characterSnapshots,
+            String scenarioContext, UUID providerEndpointId, String provider, String model, String reasoning,
+            NarrativeContext narrativeContext, UUID ruleSetId, java.util.List<String> runtimeFacts,
+            java.util.List<RuntimeFactLookupResult> factLookupResults, String currentSituation) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext,
+                action, evidencePack, recentTurns, characterSnapshots, scenarioContext, providerEndpointId, provider, model,
+                reasoning, narrativeContext, ruleSetId, runtimeFacts, factLookupResults, currentSituation, java.util.List.of());
+    }
+
+    public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+            UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, EvidencePack evidencePack, java.util.List<String> recentTurns, java.util.List<String> characterSnapshots,
+            String scenarioContext, UUID providerEndpointId, String provider, String model, String reasoning,
+            NarrativeContext narrativeContext, UUID ruleSetId, java.util.List<String> runtimeFacts,
+            java.util.List<RuntimeFactLookupResult> factLookupResults) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext,
+                action, evidencePack, recentTurns, characterSnapshots, scenarioContext, providerEndpointId, provider, model,
+                reasoning, narrativeContext, ruleSetId, runtimeFacts, factLookupResults, "");
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
@@ -61,7 +163,7 @@ public record RuntimePlanningRequest(
             String scenarioContext, UUID providerEndpointId, String provider, String model, String reasoning, NarrativeContext narrativeContext) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext,
                 action, evidencePack, recentTurns, characterSnapshots, scenarioContext, providerEndpointId, provider, model,
-                reasoning, narrativeContext, null, java.util.List.of(), java.util.List.of());
+                reasoning, narrativeContext, null, java.util.List.of(), java.util.List.of(), "");
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
@@ -71,7 +173,7 @@ public record RuntimePlanningRequest(
             NarrativeContext narrativeContext, UUID ruleSetId) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext,
                 action, evidencePack, recentTurns, characterSnapshots, scenarioContext, providerEndpointId, provider, model,
-                reasoning, narrativeContext, ruleSetId, java.util.List.of(), java.util.List.of());
+                reasoning, narrativeContext, ruleSetId, java.util.List.of(), java.util.List.of(), "");
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
@@ -81,14 +183,14 @@ public record RuntimePlanningRequest(
             NarrativeContext narrativeContext, UUID ruleSetId, java.util.List<String> runtimeFacts) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext,
                 action, evidencePack, recentTurns, characterSnapshots, scenarioContext, providerEndpointId, provider, model,
-                reasoning, narrativeContext, ruleSetId, runtimeFacts, java.util.List.of());
+                reasoning, narrativeContext, ruleSetId, runtimeFacts, java.util.List.of(), "");
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
                                   long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
                                   String action, EvidencePack evidencePack) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
-                evidencePack, java.util.List.of(), java.util.List.of(), "", null, "", "", "", null, null, java.util.List.of(), java.util.List.of());
+                evidencePack, java.util.List.of(), java.util.List.of(), "", null, "", "", "", null, null, java.util.List.of(), java.util.List.of(), "");
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
@@ -97,7 +199,7 @@ public record RuntimePlanningRequest(
                                   java.util.List<String> characterSnapshots, String scenarioContext) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion,
                 currentContext, activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
-                null, "", "", "", null, null, java.util.List.of(), java.util.List.of());
+                null, "", "", "", null, null, java.util.List.of(), java.util.List.of(), "");
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
@@ -107,7 +209,7 @@ public record RuntimePlanningRequest(
                                   String scenarioContext) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
                 activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
-                null, "", "", "", null, null, java.util.List.of(), java.util.List.of());
+                null, "", "", "", null, null, java.util.List.of(), java.util.List.of(), "");
     }
 
     private static String required(String value, String name) {

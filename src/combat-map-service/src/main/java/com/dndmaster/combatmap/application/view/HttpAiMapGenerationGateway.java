@@ -112,17 +112,20 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
     @Override
     public PreparedMapData proposeEntryPlacement(MapGenerationRequest request) {
         try {
-            String mapData = mapper.writeValueAsString(java.util.Map.ofEntries(
-                    java.util.Map.entry("gridWidth", request.gridWidth()),
-                    java.util.Map.entry("gridHeight", request.gridHeight()),
-                    java.util.Map.entry("gridOriginX", request.gridOriginX()),
-                    java.util.Map.entry("gridOriginY", request.gridOriginY()),
-                    java.util.Map.entry("gridCellSize", request.gridCellSize()),
-                    java.util.Map.entry("gridConfirmed", request.gridConfirmed()),
-                    java.util.Map.entry("crop", request.crop()),
-                    java.util.Map.entry("obstacles", request.authoredObstacles().stream().map(HttpAiMapGenerationGateway::position).toList()),
-                    java.util.Map.entry("doors", request.authoredDoors().stream().map(door -> position(door.position())).toList()),
-                    java.util.Map.entry("boundaries", request.authoredBoundaries().stream().map(com.dndmaster.combatmap.domain.MapBoundary::encoded).toList())));
+            java.util.Map<String, Object> mapDescription = new java.util.LinkedHashMap<>();
+            mapDescription.put("gridWidth", request.gridWidth());
+            mapDescription.put("gridHeight", request.gridHeight());
+            mapDescription.put("gridOriginX", request.gridOriginX());
+            mapDescription.put("gridOriginY", request.gridOriginY());
+            mapDescription.put("gridCellSize", request.gridCellSize());
+            mapDescription.put("gridConfirmed", request.gridConfirmed());
+            mapDescription.put("crop", request.crop());
+            mapDescription.put("obstacles", request.authoredObstacles().stream().map(HttpAiMapGenerationGateway::position).toList());
+            mapDescription.put("doors", request.authoredDoors().stream().map(door -> position(door.position())).toList());
+            mapDescription.put("boundaries", request.authoredBoundaries().stream().map(com.dndmaster.combatmap.domain.MapBoundary::encoded).toList());
+            placementProjector.geometry(request).ifPresent(geometry -> mapDescription.put(
+                    "validGridCellCenterBoundsNormalized", normalizedCellCenterBounds(geometry)));
+            String mapData = mapper.writeValueAsString(mapDescription);
             EntryPlacementRequest payload = new EntryPlacementRequest(
                     request.soloPlayerId(), entryTargetScene(request.currentContext()), request.entryLocation(), request.entryFirstNarration(),
                     request.entryAction(), request.entryJudgment(), request.entryNarration(),
@@ -159,31 +162,71 @@ public final class HttpAiMapGenerationGateway implements AiMapGenerationPort {
         }
     }
 
+    private static java.util.Map<String, Double> normalizedCellCenterBounds(EntryPlacementProjector.Geometry geometry) {
+        double halfCell = geometry.cellSize() / 2.0;
+        return java.util.Map.of(
+                "xMin", (geometry.originX() + halfCell) / geometry.imageWidth(),
+                "xMax", (geometry.originX() + (geometry.grid().width() - 0.5) * geometry.cellSize()) / geometry.imageWidth(),
+                "yMin", (geometry.originY() + halfCell) / geometry.imageHeight(),
+                "yMax", (geometry.originY() + (geometry.grid().height() - 0.5) * geometry.cellSize()) / geometry.imageHeight());
+    }
+
     private PreparedMapData toEntryPlacement(JsonNode root, MapGenerationRequest request) throws IOException {
         List<MapEntryCandidate> candidates = new ArrayList<>();
         var geometry = placementProjector.geometry(request);
+        int candidateIndex = 0;
         if (root.path("candidates").isArray()) {
             for (JsonNode candidate : root.path("candidates")) {
+                int index = candidateIndex++;
                 JsonNode exitPoint = candidate.path("exitPoint");
-                if (!exitPoint.isObject()) continue;
+                if (!exitPoint.isObject()) {
+                    LOGGER.info("map_entry_candidate_rejected index={} reason=EXIT_POINT_MISSING candidate={}",
+                            index, compactLogValue(candidate.toString()));
+                    continue;
+                }
                 double xNormalized = exitPoint.path("xNormalized").asDouble(Double.NaN);
                 double yNormalized = exitPoint.path("yNormalized").asDouble(Double.NaN);
                 if (!Double.isFinite(xNormalized) || !Double.isFinite(yNormalized)
-                        || xNormalized < 0 || xNormalized > 1 || yNormalized < 0 || yNormalized > 1) continue;
-                var projected = geometry.flatMap(value -> value.project(xNormalized, yNormalized));
-                if (projected.isEmpty()) continue;
+                        || xNormalized < 0 || xNormalized > 1 || yNormalized < 0 || yNormalized > 1) {
+                    LOGGER.info("map_entry_candidate_rejected index={} reason=NORMALIZED_COORDINATE_OUT_OF_RANGE xNormalized={} yNormalized={} candidate={}",
+                            index, xNormalized, yNormalized, compactLogValue(candidate.toString()));
+                    continue;
+                }
+                if (geometry.isEmpty()) {
+                    LOGGER.info("map_entry_candidate_rejected index={} reason=GRID_GEOMETRY_UNAVAILABLE xNormalized={} yNormalized={} gridConfirmed={} imageAvailable={} grid={}x{} origin=({}, {}) gridCellSize={}",
+                            index, xNormalized, yNormalized, request.gridConfirmed(), request.mapImage() != null,
+                            request.gridWidth(), request.gridHeight(), request.gridOriginX(), request.gridOriginY(), request.gridCellSize());
+                    continue;
+                }
+                EntryPlacementProjector.Geometry confirmedGeometry = geometry.orElseThrow();
+                EntryPlacementProjector.Projection projection = confirmedGeometry.projectWithDiagnostics(xNormalized, yNormalized);
+                if (projection.position().isEmpty()) {
+                    LOGGER.info("map_entry_candidate_rejected index={} reason={} xNormalized={} yNormalized={} imagePoint=({}, {}) imageSize={}x{} gridPoint=({}, {}) grid={}x{} origin=({}, {}) gridCellSize={} candidate={}",
+                            index, projection.rejectionReason(), xNormalized, yNormalized,
+                            projection.imageX(), projection.imageY(), confirmedGeometry.imageWidth(), confirmedGeometry.imageHeight(),
+                            projection.projectedX(), projection.projectedY(), request.gridWidth(), request.gridHeight(),
+                            request.gridOriginX(), request.gridOriginY(), request.gridCellSize(), compactLogValue(candidate.toString()));
+                    continue;
+                }
+                double confidence = candidate.path("confidence").asDouble(Double.NaN);
+                if (!Double.isFinite(confidence) || confidence < 0 || confidence > 1) {
+                    LOGGER.info("map_entry_candidate_rejected index={} reason=CONFIDENCE_OUT_OF_RANGE confidence={} xNormalized={} yNormalized={} position={}",
+                            index, confidence, xNormalized, yNormalized, projection.position().orElseThrow());
+                    continue;
+                }
                 List<String> evidence = new ArrayList<>();
                 if (candidate.path("evidence").isArray()) candidate.path("evidence").forEach(item -> evidence.add(item.asText()));
-                candidates.add(new MapEntryCandidate(projected.get(), xNormalized, yNormalized,
-                        candidate.path("confidence").asDouble(Double.NaN), candidate.path("source").asText("MAP_IMAGE"),
+                if (projection.snapped()) {
+                    LOGGER.info("map_entry_candidate_snapped index={} imagePoint=({}, {}) rawGridPoint=({}, {}) position={} grid={}x{}",
+                            index, projection.imageX(), projection.imageY(), projection.projectedX(), projection.projectedY(),
+                            projection.position().orElseThrow(), request.gridWidth(), request.gridHeight());
+                }
+                candidates.add(new MapEntryCandidate(projection.position().orElseThrow(), xNormalized, yNormalized,
+                        confidence, candidate.path("source").asText("MAP_IMAGE"),
                         candidate.path("anchor").asText(""), candidate.path("reason").asText(""), evidence));
             }
         }
-        List<MapEntryCandidate> valid = candidates.stream()
-                .filter(candidate -> candidate.position().x() >= 0 && candidate.position().y() >= 0
-                        && candidate.position().x() < request.gridWidth() && candidate.position().y() < request.gridHeight()
-                        && Double.isFinite(candidate.confidence()) && candidate.confidence() >= 0 && candidate.confidence() <= 1)
-                .limit(3).toList();
+        List<MapEntryCandidate> valid = candidates.stream().limit(3).toList();
         LOGGER.info("map_entry_projection gridConfirmed={} imageGeometry={} rawCandidates={} projectedCandidates={}",
                 request.gridConfirmed(), geometry.isPresent(), root.path("candidates").size(), valid.size());
         com.fasterxml.jackson.databind.node.ObjectNode projectedResult = root.deepCopy();

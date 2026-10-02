@@ -55,13 +55,20 @@ class CrossContextHttpScenarioSourceExcerptGatewayTest {
                     "/internal/v1/evidence-candidates/preparation-search",
                     "/internal/v1/evidence-candidates/preparation-search");
             assertThat(paths).doesNotContain("/api/v1/rulebooks/" + rulebookId + "/source-preview");
-            assertThat(requestBodies).anyMatch(body -> body.contains("how player actions are resolved")
-                    && body.contains("scenarioSourceBundleId") && !body.contains("sessionId")
-                    && !body.contains("scenarioPackageId"));
-            assertThat(requestBodies).anyMatch(body -> body.contains("Extract source-grounded rule procedures.")
-                    && body.contains("\"documentType\":\"RULEBOOK\"")
-                    && body.contains("\"extractionVersion\":7")
-                    && !body.contains("sessionId") && !body.contains("scenarioPackageId"));
+            assertThat(requestBodies).hasSize(2);
+            String storybookRequest = requestBodies.stream()
+                    .filter(body -> body.contains("\"documentType\":\"STORYBOOK\""))
+                    .findFirst().orElseThrow();
+            String rulebookRequest = requestBodies.stream()
+                    .filter(body -> body.contains("\"documentType\":\"RULEBOOK\""))
+                    .findFirst().orElseThrow();
+            assertThat(storybookRequest).contains("Search this rules source for rules relevant to the adventure")
+                    .contains("scenarioSourceBundleId").doesNotContain("sessionId", "scenarioPackageId");
+            assertThat(rulebookRequest).contains("Search this rules source for rules relevant to the adventure")
+                    .contains("\"extractionVersion\":7")
+                    .doesNotContain("sessionId", "scenarioPackageId");
+            assertThat(storybookRequest.substring(storybookRequest.indexOf("\"query\":"), storybookRequest.indexOf(",\"denseLimit\"")))
+                    .isEqualTo(rulebookRequest.substring(rulebookRequest.indexOf("\"query\":"), rulebookRequest.indexOf(",\"denseLimit\"")));
         }
     }
 

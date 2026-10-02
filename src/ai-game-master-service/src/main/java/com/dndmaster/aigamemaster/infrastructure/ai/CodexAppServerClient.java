@@ -1,5 +1,6 @@
 package com.dndmaster.aigamemaster.infrastructure.ai;
 
+import com.dndmaster.aigamemaster.application.ai.AiExecutionUsage;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -63,6 +64,13 @@ public final class CodexAppServerClient implements AutoCloseable {
 
     public synchronized String complete(String operationId, String prompt, String requestedModel, String reasoning,
             JsonNode outputSchema, String imageDataUri) {
+        return completeWithUsage(operationId, prompt, requestedModel, reasoning, outputSchema, imageDataUri).finalText();
+    }
+
+    public record Completion(String finalText, AiExecutionUsage usage) {}
+
+    public synchronized Completion completeWithUsage(String operationId, String prompt, String requestedModel, String reasoning,
+            JsonNode outputSchema, String imageDataUri) {
         if (operationId == null || operationId.isBlank() || prompt == null || prompt.isBlank()) {
             throw new IllegalArgumentException("operation id and prompt required");
         }
@@ -100,9 +108,10 @@ public final class CodexAppServerClient implements AutoCloseable {
             turnParams.put("approvalPolicy", "never");
             turnParams.putObject("sandboxPolicy").put("type", "readOnly");
             if (outputSchema != null) turnParams.set("outputSchema", outputSchema);
-            request("turn/start", turnParams, deadlineNanos);
+            String turnId = request("turn/start", turnParams, deadlineNanos).path("turn").path("id").asText("");
 
             StringBuilder response = new StringBuilder();
+            AiExecutionUsage reportedUsage = AiExecutionUsage.unknown();
             String lastMethod = "turn/start";
             while (true) {
                 JsonNode message;
@@ -125,6 +134,13 @@ public final class CodexAppServerClient implements AutoCloseable {
                 }
                 if ("item/agentMessage/delta".equals(method)) response.append(params.path("delta").asText(""));
                 if ("item/completed".equals(method)) appendCompletedAgentMessage(response, params.path("item"));
+                if ("thread/tokenUsage/updated".equals(method)
+                        && threadId.equals(params.path("threadId").asText())
+                        && turnId.equals(params.path("turnId").asText())) {
+                    JsonNode total = params.path("tokenUsage").path("total");
+                    reportedUsage = new AiExecutionUsage(reportedCount(total, "inputTokens"),
+                            reportedCount(total, "cachedInputTokens"), reportedCount(total, "outputTokens"));
+                }
                 if ("turn/completed".equals(method)) {
                     turnCompletedReceived = true;
                     JsonNode turnError = params.path("turn").path("error");
@@ -142,7 +158,7 @@ public final class CodexAppServerClient implements AutoCloseable {
             String result = response.toString().trim();
             LOGGER.info("ai_agent_call_completed provider=codex operationId={} stage={} durationMs={} promptChars={} estimatedPromptTokens={} responseChars={} model={} reasoning={} turnId={} turnCompletedReceived=true timeout=false",
                     safe(operationId), stage(operationId), elapsedMillis(startedAt), prompt.length(), AiCallObservability.estimatedTokens(prompt.length()), result.length(), safe(model), safe(reasoning), safe(threadId));
-            return result;
+            return new Completion(result, reportedUsage);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             LOGGER.warn("ai_agent_call_interrupted provider=codex operationId={} stage={} durationMs={} turnId={} turnCompletedReceived={} timeout=true", safe(operationId), stage(operationId), elapsedMillis(startedAt), safe(threadId), turnCompletedReceived);
@@ -165,6 +181,12 @@ public final class CodexAppServerClient implements AutoCloseable {
                     elapsedMillis(startedAt), exception.getClass().getSimpleName(), safeMessage(exception));
             throw exception;
         }
+    }
+
+    private static Long reportedCount(JsonNode usage, String field) {
+        JsonNode value = usage.path(field);
+        return value.isIntegralNumber() && value.canConvertToLong() && value.longValue() >= 0
+                ? value.longValue() : null;
     }
 
     private static long elapsedMillis(long startedAt) {

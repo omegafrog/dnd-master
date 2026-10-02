@@ -69,11 +69,13 @@ class AgentWebSocketIntegrationTest {
     @Test
     void receivesExecutionOverWebSocketAndReturnsResultToWaitingHttpRequest() throws Exception {
         when(identityService.introspectUser("agent-token")).thenReturn(PLAYER_ID);
+        String agentConnectionId = "11111111-1111-1111-1111-111111111111";
         var connected = Sinks.<Void>one();
         var receivedRequest = Sinks.<RelayExecutionRequest>one();
         var webSocketClient = new ReactorNettyWebSocketClient();
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth("agent-token");
+        headers.set("X-Agent-Connection-Id", agentConnectionId);
 
         Mono<Void> agent = webSocketClient.execute(
                 URI.create("ws://127.0.0.1:" + port + "/ws/agent"),
@@ -102,7 +104,8 @@ class AgentWebSocketIntegrationTest {
         try {
             connected.asMono().block(Duration.ofSeconds(10));
             Mono.defer(() -> locations.find(PLAYER_ID))
-                    .filter(location -> location.isPresent())
+                    .filter(location -> location.isPresent()
+                            && agentConnectionId.equals(location.orElseThrow().connectionId()))
                     .repeatWhenEmpty(repeat -> repeat.delayElements(Duration.ofMillis(50)))
                     .block(Duration.ofSeconds(10));
 

@@ -27,6 +27,12 @@ public record RuntimeEvidence(
         citationKey = citationKey == null || citationKey.isBlank() ? null : citationKey.trim();
     }
 
+    /** Stable reference exposed to the GM for selecting this exact evidence item. */
+    public String referenceKey() {
+        return citationKey != null ? citationKey : evidenceType.name() + ":" + knowledgeDocumentId.value()
+                + ":" + extractionVersion + ":" + locator;
+    }
+
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
         return value.trim();

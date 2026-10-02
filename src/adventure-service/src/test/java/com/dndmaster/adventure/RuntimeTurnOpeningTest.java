@@ -6,6 +6,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
@@ -16,17 +17,74 @@ import com.dndmaster.adventure.application.runtime.RuntimePlanningPort;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
+import com.dndmaster.adventure.application.runtime.RuntimeCharacterSheetReadException;
+import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.RuntimeBinding;
+import com.dndmaster.adventure.domain.adventure.AdventureContext;
+import com.dndmaster.adventure.domain.adventure.AdventurePartyMember;
+import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
+import com.dndmaster.adventure.domain.adventure.ControlMode;
+import com.dndmaster.adventure.domain.adventure.SessionId;
+import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.runtime.CurrentSituation;
 import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 class RuntimeTurnOpeningTest {
+    @Test
+    void current_character_sheet_read_failure_stops_before_planning_ai() {
+        AdventureId id = AdventureId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        SessionId session = SessionId.generate();
+        UUID packageId = UUID.randomUUID();
+        var member = new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT,
+                true, true, true, true, true, true);
+        Adventure adventure = mock(Adventure.class);
+        when(adventure.id()).thenReturn(id);
+        when(adventure.ownerPlayerId()).thenReturn(owner);
+        when(adventure.sessionId()).thenReturn(session);
+        when(adventure.currentContext()).thenReturn(new AdventureContext("opening", null, null, null));
+        when(adventure.currentSituation()).thenReturn(new CurrentSituation(UUID.randomUUID(), 1,
+                "room", "find the door", "danger", "exit"));
+        when(adventure.party()).thenReturn(List.of(member));
+        when(adventure.conversation()).thenReturn(List.of());
+        RuntimeBinding binding = mock(RuntimeBinding.class);
+        when(binding.ownerPlayerId()).thenReturn(owner);
+        when(binding.scenarioPackageId()).thenReturn(packageId);
+        ScenarioPackage scenario = mock(ScenarioPackage.class);
+        when(scenario.documents()).thenReturn(List.of());
+        when(scenario.runtimeCandidates()).thenReturn(List.of());
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findById(id)).thenReturn(Optional.of(adventure));
+        RuntimeBindingRepository bindings = mock(RuntimeBindingRepository.class);
+        when(bindings.findCurrentByAdventureId(id)).thenReturn(Optional.of(binding));
+        ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(packageId)).thenReturn(Optional.of(scenario));
+        RuntimeEvidenceSearchPort evidence = mock(RuntimeEvidenceSearchPort.class);
+        when(evidence.search(any())).thenReturn(List.of());
+        RuntimePlanningPort planning = mock(RuntimePlanningPort.class);
+        SessionKnowledgeSetRepository knowledge = mock(SessionKnowledgeSetRepository.class);
+        when(knowledge.findBySessionId(session)).thenReturn(Optional.empty());
+        var service = new RuntimeTurnApplicationService(adventures, bindings, packages,
+                mock(RuntimeTurnRepository.class), evidence, planning, mock(NarrationSafetyPort.class), knowledge);
+        service.setCharacterSheetReadPort(characterSheetId -> {
+            throw new RuntimeCharacterSheetReadException("temporary character service failure");
+        });
+
+        org.junit.jupiter.api.Assertions.assertThrows(RuntimeCharacterSheetReadException.class,
+                () -> service.submitTurn(new SubmitRuntimeTurnCommand(id, owner, UUID.randomUUID(), UUID.randomUUID(), "look")));
+        verify(evidence, never()).search(any());
+        verify(planning, never()).planWithOutcomes(any());
+    }
+
     @Test
     void sends_opening_through_the_normal_turn_command_shape() {
         RuntimeTurnRepository turns = mock(RuntimeTurnRepository.class);

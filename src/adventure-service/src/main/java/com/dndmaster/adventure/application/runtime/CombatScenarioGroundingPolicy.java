@@ -38,7 +38,7 @@ public final class CombatScenarioGroundingPolicy {
             throw new IllegalArgumentException("COMBAT_SCENARIO_REFERENCE_REQUIRED");
         }
         if (proposal.mode() == CombatStartMode.INSTANT) {
-            return groundInstant(situation, proposal, seen, rulebookEvidence);
+            return groundInstant(situation, proposal, seen, storybookEvidence, rulebookEvidence);
         }
         if (proposal.mode() == CombatStartMode.SITUATION) {
             return groundSituation(situation, proposal, seen, storybookEvidence, rulebookEvidence);
@@ -53,28 +53,28 @@ public final class CombatScenarioGroundingPolicy {
                 && !situation.activeCombatScenarioId().equals(definition.scenarioId())) {
             throw new IllegalArgumentException("COMBAT_SCENARIO_ACTIVE_MISMATCH");
         }
-        if (!definition.displayName().equalsIgnoreCase(proposal.name())
-                && !definition.enemyKey().equalsIgnoreCase(proposal.name())) {
+        boolean sameEnemyKey = definition.enemyKey().equalsIgnoreCase(proposal.enemyKey());
+        boolean sameDisplayName = definition.displayName().equalsIgnoreCase(proposal.name())
+                || definition.enemyKey().equalsIgnoreCase(proposal.name());
+        if (!sameEnemyKey && !sameDisplayName) {
             throw new IllegalArgumentException("COMBAT_SCENARIO_ENEMY_MISMATCH");
         }
         CombatEnemyProposal grounded = new CombatEnemyProposal(definition.scenarioId(), definition.enemyKey(),
                 definition.displayName(), definition.count(), CombatStartMode.SCENARIO);
-        return withStats(grounded, rulebookEvidence);
+        return withStats(grounded, rulebookEvidence == null ? null
+                : combinedCombatEvidence(storybookEvidence, rulebookEvidence));
     }
 
     private static CombatEnemyProposal groundSituation(CurrentSituation situation, CombatEnemyProposal proposal,
             Set<String> seen, List<RuntimeEvidence> storybookEvidence, List<RuntimeEvidence> rulebookEvidence) {
-        boolean supportedByThisTurn = storybookEvidence.stream().anyMatch(evidence -> evidence != null
-                && (containsIgnoreCase(evidence.excerpt(), proposal.name())
-                || containsIgnoreCase(evidence.excerpt(), proposal.enemyKey().replace('-', ' '))));
         boolean supportedByCurrentSituation = containsEnemy(situation.location(), proposal)
                 || containsEnemy(situation.problem(), proposal)
                 || containsEnemy(situation.threat(), proposal)
                 || containsEnemy(situation.goal(), proposal);
-        if (!supportedByThisTurn && !supportedByCurrentSituation) {
-            throw new IllegalArgumentException("COMBAT_STORY_EVIDENCE_REQUIRED");
+        if (!supportedByCurrentSituation) {
+            throw new IllegalArgumentException("COMBAT_SCENARIO_NOT_IN_CURRENT_SITUATION");
         }
-        var stats = RulebookCombatStatBlockResolver.resolve(proposal, rulebookEvidence)
+        var stats = RulebookCombatStatBlockResolver.resolve(proposal, combinedCombatEvidence(storybookEvidence, rulebookEvidence))
                 .orElseThrow(() -> new IllegalArgumentException("COMBAT_STAT_BLOCK_NOT_FOUND"));
         String scenarioId = "situation-" + situation.situationId() + "-" + proposal.enemyKey().toLowerCase(java.util.Locale.ROOT);
         if (!seen.add(scenarioId)) throw new IllegalArgumentException("COMBAT_SCENARIO_DUPLICATE");
@@ -93,8 +93,13 @@ public final class CombatScenarioGroundingPolicy {
     }
 
     private static CombatEnemyProposal groundInstant(CurrentSituation situation, CombatEnemyProposal proposal,
-            Set<String> seen, List<RuntimeEvidence> rulebookEvidence) {
-        var stats = RulebookCombatStatBlockResolver.resolve(proposal, rulebookEvidence)
+            Set<String> seen, List<RuntimeEvidence> storybookEvidence, List<RuntimeEvidence> rulebookEvidence) {
+        boolean enemyEstablished = containsEnemy(situation.location(), proposal)
+                || containsEnemy(situation.problem(), proposal)
+                || containsEnemy(situation.threat(), proposal)
+                || containsEnemy(situation.goal(), proposal);
+        if (!enemyEstablished) throw new IllegalArgumentException("COMBAT_SCENARIO_NOT_IN_CURRENT_SITUATION");
+        var stats = RulebookCombatStatBlockResolver.resolve(proposal, combinedCombatEvidence(storybookEvidence, rulebookEvidence))
                 .orElseThrow(() -> new IllegalArgumentException("COMBAT_STAT_BLOCK_NOT_FOUND"));
         String scenarioId = "instant-" + proposal.enemyKey().toLowerCase(java.util.Locale.ROOT) + "-"
                 + Integer.toUnsignedString(stats.source().locator().hashCode(), 36);
@@ -111,5 +116,12 @@ public final class CombatScenarioGroundingPolicy {
         if (evidence == null) return proposal;
         return proposal.withStatBlock(RulebookCombatStatBlockResolver.resolve(proposal, evidence)
                 .orElseThrow(() -> new IllegalArgumentException("COMBAT_STAT_BLOCK_NOT_FOUND")));
+    }
+
+    private static List<RuntimeEvidence> combinedCombatEvidence(List<RuntimeEvidence> storybookEvidence,
+            List<RuntimeEvidence> rulebookEvidence) {
+        return java.util.stream.Stream.concat(
+                storybookEvidence == null ? java.util.stream.Stream.empty() : storybookEvidence.stream(),
+                rulebookEvidence == null ? java.util.stream.Stream.empty() : rulebookEvidence.stream()).toList();
     }
 }

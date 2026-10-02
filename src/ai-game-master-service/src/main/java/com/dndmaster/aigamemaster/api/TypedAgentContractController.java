@@ -3,8 +3,15 @@ package com.dndmaster.aigamemaster.api;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection;
+import com.dndmaster.aigamemaster.infrastructure.ai.EffectiveGmProviderSelection;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionResolver;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionUnavailableException;
+import com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -14,6 +21,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Role-specific, read-only AI boundaries. The AI process receives no tool,
@@ -21,29 +32,59 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 public final class TypedAgentContractController {
+    private static final Logger log = LoggerFactory.getLogger(TypedAgentContractController.class);
     private final GmCompletionAdapter adapter;
     private final ObjectMapper mapper;
     private final ApiRequestGuard requestGuard;
+    private final java.util.function.Function<RequestedGmProviderSelection, GmProviderSelectionResolver.EndpointResolution> selectionResolver;
 
     @Autowired
     public TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper,
-            @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
-        this(adapter, mapper, new ApiRequestGuard(internalToken));
+            @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            AgentEndpointRegistry endpointRegistry) {
+        this(adapter, mapper, new ApiRequestGuard(internalToken),
+                new GmProviderSelectionResolver(endpointRegistry)::resolveEndpoint);
     }
 
     public TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard) {
+        this(adapter, mapper, requestGuard, request -> testResolution(request));
+    }
+
+    TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard,
+            int runtimeContextWindowTokens) {
+        this(adapter, mapper, requestGuard, request -> testResolution(request));
+    }
+
+    TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard,
+            java.util.function.Function<RequestedGmProviderSelection, GmProviderSelectionResolver.EndpointResolution> selectionResolver) {
         this.adapter = Objects.requireNonNull(adapter, "adapter must not be null");
         this.mapper = Objects.requireNonNull(mapper, "mapper must not be null");
         this.requestGuard = Objects.requireNonNull(requestGuard, "request guard must not be null");
+        this.selectionResolver = Objects.requireNonNull(selectionResolver);
+    }
+
+    private static GmProviderSelectionResolver.EndpointResolution testResolution(RequestedGmProviderSelection request) {
+        java.util.UUID id = request.endpointId() == null ? java.util.UUID.nameUUIDFromBytes((request.provider() + "/" + request.model()).getBytes(java.nio.charset.StandardCharsets.UTF_8)) : request.endpointId();
+        java.time.Instant version = java.time.Instant.EPOCH;
+        var provider = switch (request.provider()) {
+            case "codex-cli" -> com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint.Provider.CODEX_CLI;
+            case "openai" -> com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint.Provider.OPENAI_COMPATIBLE;
+            default -> com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint.Provider.OLLAMA;
+        };
+        var endpoint = new com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint(id, "test", provider,
+                java.net.URI.create("http://localhost"), request.model(), null, true, version);
+        return new GmProviderSelectionResolver.EndpointResolution(endpoint,
+                new EffectiveGmProviderSelection(id, version, request.provider(), request.model(), request.reasoning()));
     }
 
     @PostMapping("/internal/gm/scenario-compilation")
-    ScenarioCompilationResponse scenarioCompilation(
+    ResponseEntity<?> scenarioCompilation(
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody ScenarioCompilationRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.complete(request.soloPlayerId(), request.operationKey(),
+        try {
+            return ResponseEntity.ok(adapter.complete(request.soloPlayerId(), request.operationKey(),
                 "ROLE=SCENARIO_COMPILATION\nSTORYBOOK_CONTEXT=" + request.storybookContext()
                         + "\nTASK=Compile the source-backed hidden ScenarioModel from the supplied Storybook excerpts. "
                         + "Find essential combat encounters: named or identifiable hostile groups that the Storybook makes part of the objective, a required obstacle, or an explicit triggered fight. Do not include every passing mention of a creature, non-hostile NPCs, or invented encounters. "
@@ -53,8 +94,48 @@ public final class TypedAgentContractController {
                         + "Each sourceRefs item must exactly cite a supplied DOCUMENT_ID, EXTRACTION_VERSION, and LOCATOR using {knowledgeDocumentId:{value:DOCUMENT_ID},extractionVersion:EXTRACTION_VERSION,locator:LOCATOR}. Never invent or rewrite a source reference. "
                         + "Also provide the ScenarioModel schema fields schemaVersion, actors, locations, objectives, revelations, encounters, relationships, resolutionCriteria, and startingSituation. schemaVersion must be an integer JSON number and startingSituation must be a plain text string. "
                         + "OUTPUT_CONTRACT=Return exactly one JSON object with status (READY or BLOCKED), scenarioModel when READY, and diagnostics. Do not use markdown or add text outside JSON.",
-                json -> parseCompilation(json));
+                this::parseCompilation));
+        } catch (AiExecutionUnavailableException failure) {
+            String code = "AI_EXECUTION_" + failure.failure().reason().name();
+            log.warn("scenario compilation agent failed operationKey={} code={}", request.operationKey(), code);
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey(),
+                            failure.getClass().getSimpleName(),
+                            failure.failure().reason() != com.dndmaster.aigamemaster.application.ai.AiExecutionFailure.Reason.LOCAL_EXECUTION_FAILED));
+        } catch (ProviderMalformedResponseException failure) {
+            String code = "SCENARIO_COMPILATION_RESPONSE_INVALID";
+            log.warn("scenario compilation agent returned invalid response operationKey={} failureType={} validationReason={}",
+                    request.operationKey(), failure.getClass().getSimpleName(), "provider response malformed");
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey(), failure.getClass().getSimpleName(), false));
+        } catch (IllegalArgumentException failure) {
+            String code = "SCENARIO_COMPILATION_RESPONSE_INVALID";
+            log.warn("scenario compilation agent returned invalid response operationKey={} failureType={} validationReason={}",
+                    request.operationKey(), failure.getClass().getSimpleName(), safeScenarioCompilationFailureReason(failure));
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey(), failure.getClass().getSimpleName(), false));
+        } catch (RuntimeException failure) {
+            String code = "SCENARIO_COMPILATION_AGENT_FAILED";
+            log.error("scenario compilation agent failed operationKey={} failureType={}",
+                    request.operationKey(), failure.getClass().getName());
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                    .body(new ScenarioCompilationAgentError(code, request.operationKey(), failure.getClass().getSimpleName(), false));
+        }
     }
+
+    static String safeScenarioCompilationFailureReason(IllegalArgumentException failure) {
+        String message = failure.getMessage();
+        if ("status is required".equals(message)
+                || "invalid scenario compilation status".equals(message)
+                || "READY scenario compilation requires a scenario model".equals(message)
+                || "typed agent response must be an object".equals(message)
+                || "invalid typed agent response".equals(message)) {
+            return message;
+        }
+        return "unclassified invalid response";
+    }
+
+    record ScenarioCompilationAgentError(String code, String correlationId, String rootCauseClass, boolean retryable) {}
 
     @PostMapping("/internal/gm/scenario-lookup")
     ScenarioLookupResponse scenarioLookup(
@@ -73,38 +154,46 @@ public final class TypedAgentContractController {
                 this::parseLookup);
     }
 
+    @PostMapping("/internal/gm/runtime-endpoint")
+    RuntimeEndpointResponse runtimeEndpoint(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody RuntimeEndpointRequest request) {
+        requestGuard.internal(token);
+        require(request);
+        var resolution = selectionResolver.apply(new RequestedGmProviderSelection(
+                request.endpointId(), request.provider(), request.model(), request.reasoning()));
+        var effective = resolution.effectiveSelection();
+        return new RuntimeEndpointResponse(effective.endpointId(), effective.endpointVersion().toString(),
+                effective.provider(), effective.model(), effective.reasoning());
+    }
+
     @PostMapping("/internal/gm/runtime-turn")
     RuntimeTurnResponse runtimeTurn(
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody RuntimeTurnRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.completeWithSelection(request.soloPlayerId(), request.operationKey(), new com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt(
-                        "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=" + write(request.factLookupResults())
-                        + "\nRUNTIME_CONTEXT=" + write(request.runtimeContext())
-                        + "\nACTION=" + request.action()
-                        + "\nLOOKUP_ORDER_RULE=Use authoritative results in this order: Game State, established Runtime-added Facts, locked Scenario Model, then Storybook RAG. If all are NOT_FOUND, create only the minimum Runtime Fact needed to keep this turn playable. Do not use a lower-priority answer to contradict a higher-priority result."
-                        + "\nGROUNDING_RULES=Distinguish canonical Storybook truth from established adventure facts. Create or reveal canonical truths such as a culprit, secret route, cause, hidden clue, or encounter structure only when the locked ScenarioModel or selected evidence supports them. RUNTIME_ADDED_FACTS contains durable facts already established in this adventure, including confirmed combat outcomes; treat them as authoritative and never narrate a defeated enemy as active again unless a later supported event explains it. A new play-created NPC reaction, opinion, refusal, negotiation, or compatible offer may be improvised only when it does not contradict canonical truth."
-                        + "\nDIALOGUE_RULE=ACTION is an executed dialogue action, not a suggestion. If ACTION directly addresses an NPC, generate the NPC reaction in the current response. Do not tell the player to ask the same question again, and do not turn a completed question into an instruction. If a canonical answer is unavailable, respond diegetically through the NPC's ignorance, refusal, evasion, or negotiation; never say that the scenario lacks the information."
-                        + "\nANTI_LOOP_RULE=Do not repeat the same dialogue action as a next choice or recommendation. Use a follow-up action such as negotiating a different condition, accepting or refusing an offer, asking a new question, or observing the surroundings."
-                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with scene, judgment, narration, situation, combatStart, combatEnemies, mapEntryRequested, and optional runtimeFacts. "
-                        + "situation must contain kind (CONTINUE or TRANSITION), location, problem, threat, goal, basis (SCENARIO, RAG, or FALLBACK), reference, and required. "
-                        + "Choose the situation basis in this order: an applicable ScenarioModel element; otherwise a matching storybook RAG citation; otherwise FALLBACK only when a new fact is necessary to keep play moving, with required=true. "
-                        + "For SCENARIO, reference is a ScenarioModel element id. For RAG, reference is a citationKey or locator from COMPOSITE_FACT_LOOKUP_RESULTS. For FALLBACK, reference is empty. "
-                        + "The next GM turn receives this saved situation, so make it concrete and playable. The player's action can express a choice to fight, but cannot prove that an enemy exists; confirm the enemy from the saved situation, ScenarioModel, or Storybook evidence. "
-                        + "MANDATORY: if a hostile creature already supported by the saved situation is attacking, has cornered the party, or the player is exchanging attacks with it, return combatStart=true and a SITUATION enemy entry in the same response. "
-                        + "MANDATORY: when the player explicitly chooses to start or join a fight against a hostile supported by the saved situation or a matching ScenarioModel combat-scenario, return combatStart=true and the matching structured enemy in the same response. Respect a clear refusal to fight. "
-                        + "Do not narrate a supported hostile creature attacking, closing in to attack, or 'combat ready' while returning combatStart=false. This is an output validity rule, not a discretionary pacing choice. "
-                        + "mapEntryRequested must be a boolean. Set it to true only when the committed situation places the party inside the prepared map area and the player should see that map now; set it to false while the party is still outside, approaching, or when no prepared map applies. Base this on the saved situation and scenario context, not on keyword matching. If ACTION together with the generated narration completes movement through an entrance or other transition into the destination area, set mapEntryRequested=true even when the scene label still contains the previous area; the completed transition and destination situation are the evidence. Do not decide this from a single word or a fixed list of words. "
-                        + "runtimeFacts is optional. Include it only for a newly established playthrough fact created by this turn's compatible NPC reaction, refusal, offer, or negotiation after all authoritative lookup results are NOT_FOUND. Each item must contain subject and content. Never use runtimeFacts for a culprit, secret route, cause, hidden clue, puzzle answer, or other canonical scenario truth. "
-                        + "When ACTION is SESSION_OPENING, LANGUAGE_CONTRACT requires all player-visible text in scene, judgment, narration, and situation to be written only in natural Korean. Do not output English or any other foreign-language words, labels, headings, or meta-commentary. Translate common nouns, class names, location names, action prompts, and proper names into Korean. Make the first player-facing narration establish the current location and why the party is here, state the immediate problem or pressure, identify a few observable things the party can respond to, and end with a Korean question inviting the player's action, such as '어떻게 하시겠어요?'. Use only RUNTIME_CONTEXT and COMPOSITE_FACT_LOOKUP_RESULTS; never reveal a puzzle answer or hidden fact. "
-                        + "A player action is not evidence that an entity exists. SCENARIO enemies must use an id present in the ScenarioModel in RUNTIME_CONTEXT; SITUATION enemies may be grounded by saved CURRENT_SITUATION or matching Storybook evidence in COMPOSITE_FACT_LOOKUP_RESULTS. Never require a precompiled id when the situation itself supports the enemy. "
-                        + "combatEnemies must always be an array of objects with mode (SCENARIO, SITUATION, or INSTANT), scenarioId, enemyKey, name, and positive count; "
-                        + "SCENARIO requires a scenarioId from the current ScenarioModel. SITUATION leaves scenarioId empty and requires matching storybook RAG evidence for the current situation. INSTANT leaves scenarioId empty and is reserved for a GM-forced consequence such as noise or a critical failure. "
-                        + "Use [] when combatStart is false. Never invent an enemy from the action alone. "
-                        + "Do not use markdown, code fences, or any other text.").text(),
-                json -> parseRuntimeTurn(json, "SESSION_OPENING".equalsIgnoreCase(request.action())),
-                new RequestedGmProviderSelection(request.endpointId(), request.provider(), request.model(), request.reasoning())).response();
+        RequestedGmProviderSelection requested = new RequestedGmProviderSelection(request.endpointId(), request.provider(), request.model(), request.reasoning());
+        GmProviderSelectionResolver.EndpointResolution resolution = selectionResolver.apply(requested);
+        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
+        if (!effective.endpointId().equals(request.effectiveEndpointId())
+                || !effective.endpointVersion().toString().equals(request.effectiveEndpointVersion())
+                || !effective.provider().equals(request.effectiveProvider())
+                || !effective.model().equals(request.effectiveModel())) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "selected GM endpoint changed before execution");
+        }
+        return adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
+                json -> {
+                    try {
+                        return parseRuntimeTurn(json);
+                    } catch (IllegalArgumentException invalid) {
+                        log.warn("gm_runtime_response_rejected operationKey={} action={} reason={}",
+                                request.operationKey(), request.action(), invalid.getMessage());
+                        throw invalid;
+                    }
+                },
+                requested, resolution, request.ragSearchContext()).response();
     }
 
     @PostMapping("/internal/gm/narration-safety")
@@ -115,6 +204,25 @@ public final class TypedAgentContractController {
         require(request);
         return adapter.complete(request.soloPlayerId(), "narration-safety", "ROLE=NARRATION_SAFETY\nNARRATION=" + request.narration()
                         + "\nDISCLOSED_FACT_IDS=" + write(request.disclosedFactIds()), this::parseSafety);
+    }
+
+    @PostMapping("/internal/gm/conversation-compaction")
+    ConversationCompactionResponse conversationCompaction(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody ConversationCompactionRequest request) {
+        requestGuard.internal(token);
+        require(request);
+        String conversation = write(request.conversation());
+        return adapter.complete(request.soloPlayerId(), "conversation-compaction:" + request.sourceStart() + ":" + request.sourceEnd(),
+                "ROLE=CONVERSATION_COMPACTION\nSOURCE_START=" + request.sourceStart()
+                        + "\nSOURCE_END=" + request.sourceEnd() + "\nEXPECTED_ADVENTURE_VERSION=" + request.expectedAdventureVersion()
+                        + "\nCONFIRMED_CONVERSATION=" + conversation
+                        + "\nCONFIRMED_RUNTIME_FACTS=" + write(request.runtimeFacts())
+                        + "\nTASK=Write one concise Korean summary across the entire confirmed conversation range, preserving its meaning, including character speech, commitments, scene flow, established consequences, unresolved choices, and current goals. You may rewrite and compress the wording. Do not add, infer, or alter facts; do not treat HP, resources, location, or combat state as authoritative."
+                        + "\nSOURCE_REFERENCE_RULE=Keep sourceStart, sourceEnd, and expectedAdventureVersion unchanged. The server binds this summary to the exact confirmed source range and version. Do not emit per-entry sequence, speaker, or quotation fields. Keep summary at most 80 percent of source content length."
+                        + "\nLONG_TERM_FACT_RULE=longTermFacts is optional. Include only a confirmed Runtime Fact from CONFIRMED_RUNTIME_FACTS that represents an established EVENT, RELATIONSHIP, GOAL, or THREAT with ongoing relevance. Each item must contain factId, establishedTurnId, kind, relevance, and playerVisible. Never create a record for simple dialogue or copy character sheets, HP, resources, location, or combat state."
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with sourceStart, sourceEnd, expectedAdventureVersion, summary, and optional longTermFacts [{factId,establishedTurnId,kind,relevance,playerVisible}]. summary must be generated prose grounded only in the supplied confirmed range. Do not use markdown.",
+                json -> parseConversationCompaction(json, request));
     }
 
     private ScenarioCompilationResponse parseCompilation(String json) {
@@ -147,21 +255,49 @@ public final class TypedAgentContractController {
         return new ScenarioLookupResponse(status, root.path("answer").asText(""), ids);
     }
 
-    private RuntimeTurnResponse parseRuntimeTurn(String json, boolean opening) {
+    private RuntimeTurnResponse parseRuntimeTurn(String json) {
         JsonNode root = readObject(json);
         String scene = required(root, "scene");
         String judgment = required(root, "judgment");
         String narration = required(root, "narration");
-        if (opening) {
-            requireKoreanPlayerText("scene", scene);
-            requireKoreanPlayerText("judgment", judgment);
-            requireKoreanPlayerText("narration", narration);
-        }
+        requireKoreanPlayerText("narration", narration);
         if (!root.has("combatStart") || !root.path("combatStart").isBoolean()) {
             throw new IllegalArgumentException("combatStart is required and must be boolean");
         }
         if (!root.has("mapEntryRequested") || !root.path("mapEntryRequested").isBoolean()) {
             throw new IllegalArgumentException("mapEntryRequested is required and must be boolean");
+        }
+        JsonNode checkNode = root.path("판정제안");
+        if (!checkNode.isObject() || !checkNode.path("필요").isBoolean()) {
+            throw new IllegalArgumentException("판정제안 with a boolean 필요 field is required");
+        }
+        CheckProposalResponse checkProposal;
+        if (!checkNode.path("필요").booleanValue()) {
+            checkProposal = CheckProposalResponse.none();
+        } else {
+            String rollMethod = required(checkNode, "굴림주체");
+            if (!rollMethod.equals("플레이어") && !rollMethod.equals("시스템")) {
+                throw new IllegalArgumentException("판정제안 굴림주체 must be 플레이어 or 시스템");
+            }
+            java.util.UUID characterSheetId;
+            try { characterSheetId = java.util.UUID.fromString(required(checkNode, "대상캐릭터ID")); }
+            catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("판정제안 대상캐릭터ID must be a UUID", invalid); }
+            int difficulty = checkNode.path("난이도").asInt(-1);
+            int modifier = checkNode.path("보정치").asInt(Integer.MIN_VALUE);
+            if (difficulty < 1 || difficulty > 40) throw new IllegalArgumentException("판정제안 난이도 is outside 1..40");
+            if (modifier < -10 || modifier > 20) throw new IllegalArgumentException("판정제안 보정치 is outside -10..20");
+            List<String> evidenceKeys;
+            try { evidenceKeys = mapper.convertValue(checkNode.path("근거키"), mapper.getTypeFactory()
+                    .constructCollectionType(List.class, String.class)); }
+            catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("판정제안 근거키 must be an array", invalid); }
+            if (evidenceKeys == null || evidenceKeys.isEmpty() || evidenceKeys.stream().anyMatch(value -> value == null || value.isBlank())) {
+                throw new IllegalArgumentException("판정제안 requires nonblank 근거키");
+            }
+            checkProposal = new CheckProposalResponse(true, required(checkNode, "이유"),
+                    required(checkNode, "판정능력또는기술"), characterSheetId,
+                    rollMethod,
+                    required(checkNode, "굴림식"), modifier, difficulty, List.copyOf(evidenceKeys),
+                    required(checkNode, "성공시결과"), required(checkNode, "실패시결과"));
         }
         JsonNode enemiesNode = root.path("combatEnemies");
         if (!enemiesNode.isArray()) throw new IllegalArgumentException("combatEnemies is required and must be an array");
@@ -179,7 +315,6 @@ public final class TypedAgentContractController {
                 throw new IllegalArgumentException("scenarioId is required for a SCENARIO combat enemy");
             }
             String name = required(enemy, "name");
-            if (opening) requireKoreanPlayerText("combatEnemies.name", name);
             enemies.add(new CombatEnemyResponse(mode, scenarioId, required(enemy, "enemyKey"), name, count));
         }
         boolean combatStart = root.path("combatStart").booleanValue();
@@ -201,12 +336,6 @@ public final class TypedAgentContractController {
         String problem = required(situation, "problem");
         String threat = required(situation, "threat");
         String goal = required(situation, "goal");
-        if (opening) {
-            requireKoreanPlayerText("situation.location", location);
-            requireKoreanPlayerText("situation.problem", problem);
-            requireKoreanPlayerText("situation.threat", threat);
-            requireKoreanPlayerText("situation.goal", goal);
-        }
         SituationResponse response = new SituationResponse(kind, location, problem, threat, goal, basis, situation.path("reference").asText(""),
                 situation.path("required").booleanValue());
         List<RuntimeFactResponse> runtimeFacts = new java.util.ArrayList<>();
@@ -217,21 +346,96 @@ public final class TypedAgentContractController {
                 if (!fact.isObject()) throw new IllegalArgumentException("runtimeFacts entries must be objects");
                 String subject = required(fact, "subject");
                 String content = required(fact, "content");
-                if (opening) {
-                    requireKoreanPlayerText("runtimeFacts.subject", subject);
-                    requireKoreanPlayerText("runtimeFacts.content", content);
-                }
                 runtimeFacts.add(new RuntimeFactResponse(subject, content));
             }
         }
+        CompletionResponse completion = CompletionResponse.continueAdventure();
+        JsonNode completionNode = root.path("completion");
+        if (!completionNode.isMissingNode()) {
+            if (!completionNode.isObject() || !completionNode.path("complete").isBoolean()) {
+                throw new IllegalArgumentException("completion must be an object with a boolean complete field");
+            }
+            List<String> resolvedObjectives = completionNode.has("resolvedObjectiveIds")
+                    ? mapper.convertValue(completionNode.path("resolvedObjectiveIds"), mapper.getTypeFactory()
+                            .constructCollectionType(List.class, String.class)) : List.of();
+            List<String> satisfiedConditions = completionNode.has("satisfiedResolutionCriteriaIds")
+                    ? mapper.convertValue(completionNode.path("satisfiedResolutionCriteriaIds"), mapper.getTypeFactory()
+                            .constructCollectionType(List.class, String.class)) : List.of();
+            if (resolvedObjectives.stream().anyMatch(value -> value == null || value.isBlank())) {
+                throw new IllegalArgumentException("resolvedObjectiveIds must not contain blank values");
+            }
+            if (satisfiedConditions.stream().anyMatch(value -> value == null || value.isBlank())) {
+                throw new IllegalArgumentException("satisfiedResolutionCriteriaIds must not contain blank values");
+            }
+            boolean complete = completionNode.path("complete").booleanValue();
+            String concludingScene = completionNode.path("concludingScene").asText("").trim();
+            if (complete && concludingScene.isBlank()) {
+                throw new IllegalArgumentException("a completed adventure requires a concludingScene");
+            }
+            if (!complete && !concludingScene.isBlank()) {
+                throw new IllegalArgumentException("an incomplete adventure cannot propose a concludingScene");
+            }
+            completion = new CompletionResponse(complete, List.copyOf(resolvedObjectives),
+                    List.copyOf(satisfiedConditions), concludingScene);
+        }
+        List<String> citedEvidence = new java.util.ArrayList<>();
+        JsonNode citedEvidenceNode = root.path("citedEvidence");
+        if (!citedEvidenceNode.isMissingNode()) {
+            if (!citedEvidenceNode.isArray()) throw new IllegalArgumentException("citedEvidence must be an array when provided");
+            for (JsonNode citation : citedEvidenceNode) {
+                if (!citation.isTextual() || citation.asText().isBlank()) {
+                    throw new IllegalArgumentException("citedEvidence entries must be non-blank evidence keys");
+                }
+                citedEvidence.add(citation.asText().trim());
+            }
+            if (citedEvidence.size() != citedEvidence.stream().distinct().count()) {
+                throw new IllegalArgumentException("citedEvidence entries must be unique");
+            }
+        }
         return new RuntimeTurnResponse(scene, judgment, narration,
-                combatStart, List.copyOf(enemies), response, root.path("mapEntryRequested").booleanValue(), List.copyOf(runtimeFacts));
+                combatStart, List.copyOf(enemies), response, root.path("mapEntryRequested").booleanValue(),
+                List.copyOf(runtimeFacts), completion, List.copyOf(citedEvidence), checkProposal);
     }
 
     private NarrationSafetyResponse parseSafety(String json) {
         JsonNode root = readObject(json);
         if (!root.has("approved") || !root.path("approved").isBoolean()) throw new IllegalArgumentException("approved is required");
         return new NarrationSafetyResponse(root.path("approved").booleanValue(), root.path("reason").asText(""));
+    }
+
+    private ConversationCompactionResponse parseConversationCompaction(String json, ConversationCompactionRequest request) {
+        JsonNode root = readObject(json);
+        long sourceStart = root.path("sourceStart").asLong(Long.MIN_VALUE);
+        long sourceEnd = root.path("sourceEnd").asLong(Long.MIN_VALUE);
+        long version = root.path("expectedAdventureVersion").asLong(Long.MIN_VALUE);
+        if (sourceStart != request.sourceStart() || sourceEnd != request.sourceEnd() || version != request.expectedAdventureVersion()) {
+            throw new IllegalArgumentException("conversation compaction response source does not match request");
+        }
+        String summary = required(root, "summary");
+        long sourceLength = request.conversation().stream().mapToLong(entry -> entry.content().length()).sum();
+        if (summary.length() * 5 > sourceLength * 4) throw new IllegalArgumentException("conversation summary must be meaningfully shorter");
+        List<LongTermFactCandidate> longTermFacts = new ArrayList<>();
+        JsonNode factNodes = root.path("longTermFacts");
+        if (factNodes.isArray()) {
+            for (JsonNode fact : factNodes) {
+                try {
+                    if (!fact.isObject()) continue;
+                    java.util.UUID factId = java.util.UUID.fromString(required(fact, "factId"));
+                    java.util.UUID establishedTurnId = java.util.UUID.fromString(required(fact, "establishedTurnId"));
+                    String kind = required(fact, "kind").toUpperCase(java.util.Locale.ROOT);
+                    if (!List.of("EVENT", "RELATIONSHIP", "GOAL", "THREAT").contains(kind)) continue;
+                    if (!fact.has("playerVisible") || !fact.path("playerVisible").isBoolean()) continue;
+                    boolean confirmed = request.runtimeFacts().stream().anyMatch(runtimeFact -> runtimeFact.factId().equals(factId)
+                            && runtimeFact.establishedTurnId().equals(establishedTurnId));
+                    if (!confirmed) continue;
+                    longTermFacts.add(new LongTermFactCandidate(factId, establishedTurnId, kind,
+                            required(fact, "relevance"), fact.path("playerVisible").booleanValue()));
+                } catch (IllegalArgumentException malformedOptionalFact) {
+                    // A proposed long-term record is optional; malformed proposals do not invalidate source excerpts.
+                }
+            }
+        }
+        return new ConversationCompactionResponse(sourceStart, sourceEnd, version, summary, List.copyOf(longTermFacts));
     }
 
     private JsonNode readObject(String json) {
@@ -252,11 +456,12 @@ public final class TypedAgentContractController {
         return value;
     }
 
-    private static void requireKoreanPlayerText(String field, String value) {
+    private void requireKoreanPlayerText(String field, String value) {
         boolean hasKoreanLetter = value.codePoints().anyMatch(TypedAgentContractController::isKoreanLetter);
-        boolean hasForeignLetter = value.codePoints()
-                .anyMatch(codePoint -> Character.isLetter(codePoint) && !isKoreanLetter(codePoint));
-        if (!hasKoreanLetter || hasForeignLetter) throw new IllegalArgumentException(field + " must be written in Korean");
+        if (!hasKoreanLetter) {
+            log.warn("gm_player_text_language_rejected field={} value={}", field, write(value));
+            throw new IllegalArgumentException(field + " must be written in Korean");
+        }
     }
 
     private static boolean isKoreanLetter(int codePoint) {
@@ -270,6 +475,14 @@ public final class TypedAgentContractController {
     private String write(Object value) {
         try { return mapper.writeValueAsString(value); }
         catch (Exception e) { throw new IllegalArgumentException("typed request serialization failed", e); }
+    }
+
+    private static List<String> stringList(Object value) {
+        if (value == null) return List.of();
+        if (!(value instanceof List<?> list) || list.stream().anyMatch(item -> !(item instanceof String))) {
+            throw new IllegalArgumentException("runtime GM text entries must be strings");
+        }
+        return list.stream().map(String.class::cast).toList();
     }
 
     private static void require(Object request) {
@@ -292,20 +505,73 @@ public final class TypedAgentContractController {
         }
     }
 
+    public record ConversationCompactionRequest(java.util.UUID soloPlayerId, long sourceStart, long sourceEnd, long expectedAdventureVersion,
+                                                 List<ConversationEntry> conversation, List<RuntimeFactReference> runtimeFacts) {
+        public ConversationCompactionRequest(long sourceStart, long sourceEnd, long expectedAdventureVersion,
+                List<ConversationEntry> conversation) {
+            this(new java.util.UUID(0L, 0L), sourceStart, sourceEnd, expectedAdventureVersion, conversation, List.of());
+        }
+        public ConversationCompactionRequest(java.util.UUID soloPlayerId, long sourceStart, long sourceEnd, long expectedAdventureVersion, List<ConversationEntry> conversation) { this(soloPlayerId, sourceStart, sourceEnd, expectedAdventureVersion, conversation, List.of()); }
+        public ConversationCompactionRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
+            if (sourceStart < 0 || sourceEnd < sourceStart || expectedAdventureVersion < 0) throw new IllegalArgumentException("invalid conversation range");
+            conversation = List.copyOf(Objects.requireNonNull(conversation, "conversation is required"));
+            runtimeFacts = List.copyOf(Objects.requireNonNull(runtimeFacts, "runtime facts are required"));
+            if (conversation.isEmpty()) throw new IllegalArgumentException("conversation is required");
+            long expectedCount = sourceEnd - sourceStart + 1;
+            if (expectedCount <= 0 || conversation.size() != expectedCount) throw new IllegalArgumentException("conversation must cover the requested range");
+            for (int i = 0; i < conversation.size(); i++) {
+                if (conversation.get(i).sequence() != sourceStart + i) throw new IllegalArgumentException("conversation must cover the requested range");
+            }
+        }
+    }
+    public record RuntimeFactReference(java.util.UUID factId, java.util.UUID establishedTurnId, String content, String subject) {
+        public RuntimeFactReference(java.util.UUID factId, java.util.UUID establishedTurnId, String content) { this(factId, establishedTurnId, content, ""); }
+        public RuntimeFactReference { factId = Objects.requireNonNull(factId, "runtime fact id is required"); establishedTurnId = Objects.requireNonNull(establishedTurnId, "runtime fact turn is required"); content = required(content, "runtime fact content"); subject = subject == null ? "" : subject.trim(); }
+    }
+    public record ConversationEntry(long sequence, String speaker, String content) {
+        public ConversationEntry { if (sequence < 0) throw new IllegalArgumentException("sequence is invalid"); speaker = required(speaker, "speaker"); content = required(content, "content"); }
+    }
+    public record LongTermFactCandidate(java.util.UUID factId, java.util.UUID establishedTurnId, String kind, String relevance, boolean playerVisible) { }
+    public record ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion,
+                                                 String summary, List<LongTermFactCandidate> longTermFacts) {
+        public ConversationCompactionResponse(long sourceStart, long sourceEnd, long expectedAdventureVersion, String summary) { this(sourceStart, sourceEnd, expectedAdventureVersion, summary, List.of()); }
+        public ConversationCompactionResponse { summary = required(summary, "summary"); longTermFacts = List.copyOf(longTermFacts); }
+    }
+
+    public record RuntimeEndpointRequest(java.util.UUID endpointId, String provider, String model, String reasoning) { }
+    public record RuntimeEndpointResponse(java.util.UUID endpointId, String endpointVersion,
+                                          String provider, String model, String reasoning) { }
+
     public record RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
                                      java.util.UUID endpointId, String provider, String model, String reasoning,
-                                     List<Map<String, Object>> factLookupResults,
-                                     Map<String, Object> runtimeContext) {
+                                     java.util.UUID effectiveEndpointId, String effectiveEndpointVersion,
+                                     String effectiveProvider, String effectiveModel, String prompt,
+                                     com.fasterxml.jackson.databind.JsonNode ragSearchContext) {
         public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
-                List<Map<String, Object>> factLookupResults) {
-            this(soloPlayerId, operationKey, action, null, "codex-cli", "gpt-5.6-luna", "medium", factLookupResults, Map.of());
+                java.util.UUID endpointId, String provider, String model, String reasoning,
+                java.util.UUID effectiveEndpointId, String effectiveEndpointVersion,
+                String effectiveProvider, String effectiveModel, String prompt) {
+            this(soloPlayerId, operationKey, action, endpointId, provider, model, reasoning,
+                    effectiveEndpointId, effectiveEndpointVersion, effectiveProvider, effectiveModel, prompt, null);
         }
-
         public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
-                List<Map<String, Object>> factLookupResults, Map<String, Object> runtimeContext) {
-            this(soloPlayerId, operationKey, action, null, "codex-cli", "gpt-5.6-luna", "medium", factLookupResults, runtimeContext);
+                java.util.List<java.util.Map<String, Object>> ignored) {
+            this(soloPlayerId, operationKey, action, null, "codex-cli", "gpt-5.6-luna", "medium",
+                    java.util.UUID.nameUUIDFromBytes("codex-cli/gpt-5.6-luna".getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                    java.time.Instant.EPOCH.toString(), "codex-cli", "gpt-5.6-luna", "ROLE=RUNTIME_GM");
         }
-
+        public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
+                java.util.List<java.util.Map<String, Object>> ignored, java.util.Map<String, Object> ignoredContext) {
+            this(soloPlayerId, operationKey, action, ignored);
+        }
+        public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
+                java.util.UUID endpointId, String provider, String model, String reasoning,
+                java.util.List<java.util.Map<String, Object>> ignored, java.util.Map<String, Object> ignoredContext) {
+            this(soloPlayerId, operationKey, action, endpointId, provider, model, reasoning,
+                    endpointId == null ? java.util.UUID.nameUUIDFromBytes((provider + "/" + model).getBytes(java.nio.charset.StandardCharsets.UTF_8)) : endpointId,
+                    java.time.Instant.EPOCH.toString(), provider, model, "ROLE=RUNTIME_GM");
+        }
         public RuntimeTurnRequest {
             soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             operationKey = required(operationKey, "operationKey");
@@ -313,8 +579,11 @@ public final class TypedAgentContractController {
             provider = required(provider, "provider");
             model = required(model, "model");
             reasoning = required(reasoning, "reasoning");
-            factLookupResults = List.copyOf(Objects.requireNonNull(factLookupResults, "factLookupResults is required"));
-            runtimeContext = Map.copyOf(Objects.requireNonNull(runtimeContext, "runtimeContext is required"));
+            effectiveEndpointId = Objects.requireNonNull(effectiveEndpointId, "effectiveEndpointId is required");
+            effectiveEndpointVersion = required(effectiveEndpointVersion, "effectiveEndpointVersion");
+            effectiveProvider = required(effectiveProvider, "effectiveProvider");
+            effectiveModel = required(effectiveModel, "effectiveModel");
+            prompt = required(prompt, "prompt");
         }
     }
 
@@ -335,19 +604,67 @@ public final class TypedAgentContractController {
     public record ScenarioLookupResponse(String status, String answer, List<String> supportingElementIds) { }
     public record RuntimeTurnResponse(String scene, String judgment, String narration, boolean combatStart,
                                       List<CombatEnemyResponse> combatEnemies, SituationResponse situation,
-                                      boolean mapEntryRequested, List<RuntimeFactResponse> runtimeFacts) {
+                                      boolean mapEntryRequested, List<RuntimeFactResponse> runtimeFacts,
+                                      CompletionResponse completion, List<String> citedEvidence,
+                                      @JsonProperty("판정제안") CheckProposalResponse checkProposal) {
         public RuntimeTurnResponse(String scene, String judgment, String narration, boolean combatStart,
                 List<CombatEnemyResponse> combatEnemies, SituationResponse situation, boolean mapEntryRequested) {
-            this(scene, judgment, narration, combatStart, combatEnemies, situation, mapEntryRequested, List.of());
+            this(scene, judgment, narration, combatStart, combatEnemies, situation, mapEntryRequested, List.of(),
+                    CompletionResponse.continueAdventure(), List.of(), CheckProposalResponse.none());
+        }
+        public RuntimeTurnResponse(String scene, String judgment, String narration, boolean combatStart,
+                List<CombatEnemyResponse> combatEnemies, SituationResponse situation, boolean mapEntryRequested,
+                List<RuntimeFactResponse> runtimeFacts) {
+            this(scene, judgment, narration, combatStart, combatEnemies, situation, mapEntryRequested, runtimeFacts,
+                    CompletionResponse.continueAdventure(), List.of(), CheckProposalResponse.none());
         }
         public RuntimeTurnResponse {
             runtimeFacts = runtimeFacts == null ? List.of() : List.copyOf(runtimeFacts);
+            completion = completion == null ? CompletionResponse.continueAdventure() : completion;
+            citedEvidence = citedEvidence == null ? List.of() : List.copyOf(citedEvidence);
+            checkProposal = checkProposal == null ? CheckProposalResponse.none() : checkProposal;
+        }
+    }
+    public record CheckProposalResponse(@JsonProperty("필요") boolean required,
+                                        @JsonProperty("이유") String reason,
+                                        @JsonProperty("판정능력또는기술") String abilityOrSkill,
+                                        @JsonProperty("대상캐릭터ID") java.util.UUID characterSheetId,
+                                        @JsonProperty("굴림주체") String rollMethod,
+                                        @JsonProperty("굴림식") String diceExpression,
+                                        @JsonProperty("보정치") int modifier,
+                                        @JsonProperty("난이도") Integer difficulty,
+                                        @JsonProperty("근거키") List<String> evidenceKeys,
+                                        @JsonProperty("성공시결과") String successOutcome,
+                                        @JsonProperty("실패시결과") String failureOutcome) {
+        public CheckProposalResponse {
+            reason = reason == null ? "" : reason;
+            abilityOrSkill = abilityOrSkill == null ? "" : abilityOrSkill;
+            rollMethod = rollMethod == null ? "" : rollMethod;
+            diceExpression = diceExpression == null ? "" : diceExpression;
+            evidenceKeys = evidenceKeys == null ? List.of() : List.copyOf(evidenceKeys);
+            successOutcome = successOutcome == null ? "" : successOutcome;
+            failureOutcome = failureOutcome == null ? "" : failureOutcome;
+        }
+        public static CheckProposalResponse none() {
+            return new CheckProposalResponse(false, "", "", null, "", "", 0, null, List.of(), "", "");
         }
     }
     public record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) { }
     public record SituationResponse(String kind, String location, String problem, String threat, String goal,
                                     String basis, String reference, boolean required) { }
     public record RuntimeFactResponse(String subject, String content) { }
+    public record CompletionResponse(boolean complete, List<String> resolvedObjectiveIds,
+            List<String> satisfiedResolutionCriteriaIds, String concludingScene) {
+        public CompletionResponse {
+            resolvedObjectiveIds = resolvedObjectiveIds == null ? List.of() : List.copyOf(resolvedObjectiveIds);
+            satisfiedResolutionCriteriaIds = satisfiedResolutionCriteriaIds == null
+                    ? List.of() : List.copyOf(satisfiedResolutionCriteriaIds);
+            concludingScene = concludingScene == null ? "" : concludingScene.trim();
+        }
+        public static CompletionResponse continueAdventure() {
+            return new CompletionResponse(false, List.of(), List.of(), "");
+        }
+    }
     public record NarrationSafetyResponse(boolean approved, String reason) { }
 
     private static String required(String value, String field) {

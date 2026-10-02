@@ -22,6 +22,8 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +34,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     private final HttpClient httpClient;
     private final URI relayEndpoint;
     private final String accessToken;
+    private final String connectionId;
     private final AiExecutionPort executionPort;
     private final ObjectMapper objectMapper;
     private final Executor executionExecutor;
@@ -39,13 +42,14 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     private final AtomicReference<CompletableFuture<Void>> executionTail =
             new AtomicReference<>(CompletableFuture.completedFuture(null));
     private final CompletableFuture<Void> closed = new CompletableFuture<>();
+    private final java.util.Map<String, CompletableFuture<JsonNode>> toolCalls = new ConcurrentHashMap<>();
 
     public CodexWebSocketAgent(
             URI relayEndpoint,
             String accessToken,
             AiExecutionPort executionPort,
             ObjectMapper objectMapper) {
-        this(relayEndpoint, accessToken, executionPort, objectMapper, ForkJoinPool.commonPool());
+        this(relayEndpoint, accessToken, "", executionPort, objectMapper, ForkJoinPool.commonPool());
     }
 
     public CodexWebSocketAgent(
@@ -54,12 +58,35 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             AiExecutionPort executionPort,
             ObjectMapper objectMapper,
             Executor executionExecutor) {
+        this(relayEndpoint, accessToken, "", executionPort, objectMapper, executionExecutor);
+    }
+
+    public CodexWebSocketAgent(
+            URI relayEndpoint,
+            String accessToken,
+            String connectionId,
+            AiExecutionPort executionPort,
+            ObjectMapper objectMapper) {
+        this(relayEndpoint, accessToken, connectionId, executionPort, objectMapper, ForkJoinPool.commonPool());
+    }
+
+    public CodexWebSocketAgent(
+            URI relayEndpoint,
+            String accessToken,
+            String connectionId,
+            AiExecutionPort executionPort,
+            ObjectMapper objectMapper,
+            Executor executionExecutor) {
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
         this.relayEndpoint = requireWebSocketUri(relayEndpoint);
         this.accessToken = required(accessToken, "access token");
+        this.connectionId = optionalConnectionId(connectionId);
         this.executionPort = Objects.requireNonNull(executionPort, "execution port must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         this.executionExecutor = Objects.requireNonNull(executionExecutor, "execution executor must not be null");
+        if (executionPort instanceof LocalCodexAiExecutionPort localPort) {
+            localPort.setRagSearchHandler(this::requestRagSearch);
+        }
     }
 
     /** Opens the persistent connection. The returned stage completes after the handshake. */
@@ -67,8 +94,12 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         if (socket.get() != null) {
             throw new IllegalStateException("WebSocket agent is already connected");
         }
-        return httpClient.newWebSocketBuilder()
-                .header("Authorization", "Bearer " + accessToken)
+        WebSocket.Builder builder = httpClient.newWebSocketBuilder()
+                .header("Authorization", "Bearer " + accessToken);
+        if (!connectionId.isEmpty()) {
+            builder.header("X-Agent-Connection-Id", connectionId);
+        }
+        return builder
                 .buildAsync(relayEndpoint, new Listener())
                 .thenApply(webSocket -> {
                     if (socket.get() != webSocket) {
@@ -123,13 +154,13 @@ public final class CodexWebSocketAgent implements AutoCloseable {
                 request.reasoning(),
                 request.outputFormat(),
                 request.outputSchema(),
-                request.imageInputs().isEmpty() ? "" : request.imageInputs().get(0)));
+                request.imageInputs().isEmpty() ? "" : request.imageInputs().get(0), request.ragSearchContext()));
         if (result instanceof AiExecutionSuccess success) {
-            return new AgentExecutionResponse(request.requestId(), success.finalText(), null);
+            return new AgentExecutionResponse(request.requestId(), success.finalText(), null, success.usage());
         }
         AiExecutionFailure failure = (AiExecutionFailure) result;
         LOGGER.warn("Codex execution failed requestId={} reason={}", request.requestId(), failure.reason());
-        return new AgentExecutionResponse(request.requestId(), "", "REMOTE_FAILURE");
+        return new AgentExecutionResponse(request.requestId(), "", "REMOTE_FAILURE", null);
     }
 
     private CompletableFuture<Void> sendResponse(AgentExecutionResponse response) {
@@ -142,6 +173,35 @@ public final class CodexWebSocketAgent implements AutoCloseable {
                     .thenApply(ignored -> null);
         } catch (JsonProcessingException exception) {
             return failedFuture(exception);
+        }
+    }
+
+    private JsonNode requestRagSearch(String requestId, String query) throws Exception {
+        String callId = UUID.randomUUID().toString();
+        CompletableFuture<JsonNode> pending = new CompletableFuture<>();
+        toolCalls.put(callId, pending);
+        try {
+            WebSocket current = socket.get();
+            if (current == null) throw new IllegalStateException("agent WebSocket is disconnected");
+            String message = objectMapper.writeValueAsString(java.util.Map.of(
+                    "type", "mcp_tool_call", "requestId", requestId, "callId", callId,
+                    "tool", "search_rules", "arguments", java.util.Map.of("query", query)));
+            current.sendText(message, true).get(10, TimeUnit.SECONDS);
+            return pending.get(150, TimeUnit.SECONDS);
+        } finally {
+            toolCalls.remove(callId);
+        }
+    }
+
+    private void acceptToolResult(String message) {
+        try {
+            JsonNode node = objectMapper.readTree(message);
+            String callId = node.path("callId").asText("");
+            CompletableFuture<JsonNode> pending = toolCalls.get(callId);
+            if (pending == null) return;
+            pending.complete(node);
+        } catch (Exception invalid) {
+            LOGGER.warn("discarded invalid MCP tool result: {}", safeMessage(invalid));
         }
     }
 
@@ -161,6 +221,11 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " is required");
         return value.trim();
+    }
+
+    private static String optionalConnectionId(String value) {
+        if (value == null || value.isBlank()) return "";
+        return UUID.fromString(value.trim()).toString();
     }
 
     private static String safeMessage(Throwable failure) {
@@ -194,7 +259,13 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             if (last) {
                 String message = fragments.toString();
                 fragments.setLength(0);
-                enqueue(message);
+                try {
+                    JsonNode node = objectMapper.readTree(message);
+                    if ("mcp_tool_result".equals(node.path("type").asText())) acceptToolResult(message);
+                    else enqueue(message);
+                } catch (JsonProcessingException invalid) {
+                    enqueue(message);
+                }
             }
             webSocket.request(1);
             return CompletableFuture.completedFuture(null);
@@ -244,11 +315,13 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             JsonNode outputSchema,
             List<String> imageInputs,
             long deadlineEpochMillis,
-            String connectionId) {
+            String connectionId,
+            JsonNode ragSearchContext) {
         private AgentExecutionRequest {
             imageInputs = imageInputs == null ? List.of() : List.copyOf(imageInputs);
         }
     }
 
-    private record AgentExecutionResponse(String requestId, String content, String failureType) {}
+    private record AgentExecutionResponse(String requestId, String content, String failureType,
+            com.dndmaster.aigamemaster.application.ai.AiExecutionUsage usage) {}
 }

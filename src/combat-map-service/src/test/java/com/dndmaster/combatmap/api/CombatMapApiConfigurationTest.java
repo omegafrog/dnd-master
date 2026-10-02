@@ -169,8 +169,10 @@ class CombatMapApiConfigurationTest {
 
     @Test
     void projectsResolvedImageAnchorWithConfirmedGridGeometry() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/internal/v1/gm/map-entry-placement", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
             byte[] response = ("{\"status\":\"RESOLVED\",\"entryInterpretation\":{\"transition\":\"DESCEND_STAIRS\"},"
                     + "\"candidates\":[{\"exitPoint\":{\"xNormalized\":0.35,\"yNormalized\":0.35},\"confidence\":0.91,"
                     + "\"source\":\"MAP_IMAGE\",\"evidence\":[\"계단 끝\"]}]}").getBytes();
@@ -186,6 +188,14 @@ class CombatMapApiConfigurationTest {
             PreparedMapData generated = gateway.proposeEntryPlacement(new MapGenerationRequest(
                     "맵 진입", "scene=저장고", 4, 3, 30, 5, java.util.List.of(), java.util.List.of(), null,
                     png(200, 100), 20, 10, 20, "20,10,80,60"));
+
+            JsonNode request = new ObjectMapper().readTree(requestBody.get());
+            JsonNode normalizedBounds = new ObjectMapper().readTree(request.path("mapData").asText())
+                    .path("validGridCellCenterBoundsNormalized");
+            assertEquals(0.15, normalizedBounds.path("xMin").asDouble(), 0.0001);
+            assertEquals(0.45, normalizedBounds.path("xMax").asDouble(), 0.0001);
+            assertEquals(0.2, normalizedBounds.path("yMin").asDouble(), 0.0001);
+            assertEquals(0.6, normalizedBounds.path("yMax").asDouble(), 0.0001);
 
             assertTrue(generated.layers().stream().anyMatch(layer -> layer.type().equals("GM_PLAYER_START_PROPOSAL")
                     && layer.value().contains("\"position\":\"2,1\"")));

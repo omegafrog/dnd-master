@@ -21,6 +21,7 @@ import java.util.UUID;
 
 /** Calls the unified Document Knowledge candidate endpoint within the already-fixed Adventure session scope. */
 public final class CrossContextHttpEvidenceCandidateSearchGateway implements EvidenceCandidateSearchPort {
+    private static final String CANDIDATE_SEARCH_PATH = "internal/v1/evidence-candidates/search";
     private final HttpClient client; private final URI baseUri; private final Duration timeout; private final ObjectMapper mapper;
     private final String internalToken;
     public CrossContextHttpEvidenceCandidateSearchGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
@@ -31,23 +32,48 @@ public final class CrossContextHttpEvidenceCandidateSearchGateway implements Evi
         Objects.requireNonNull(request,"request must not be null");
         EvidenceSearchScope scope=request.acquisitionRequest().searchScope();
         if(scope==null) throw new EvidenceAcquisitionContractException("evidence search requires a server-confirmed session document scope");
+        List<EvidenceCandidate> result = new java.util.ArrayList<>();
+        long documentTypeCount = scope.documents().stream().map(EvidenceSearchScope.Document::type).distinct().count();
+        int perRetrieverLimit = (int) Math.max(1, 30 / Math.max(1, documentTypeCount));
+        var countsByType = new LinkedHashMap<String, Integer>();
+        for (String documentType : List.of("RULEBOOK", "STORYBOOK")) {
+            List<EvidenceSearchScope.Document> documents = scope.documents().stream()
+                    .filter(document -> document.type().equals(documentType)).toList();
+            if (documents.isEmpty()) continue;
+            List<EvidenceCandidate> candidates = search(request, scope, documents, perRetrieverLimit);
+            countsByType.put(documentType, candidates.size());
+            result.addAll(candidates);
+        }
+        var seenIds = new java.util.HashSet<UUID>();
+        List<UUID> duplicateIds = result.stream().map(EvidenceCandidate::id).filter(id -> !seenIds.add(id)).distinct().toList();
+        if (result.size() > 60 || !duplicateIds.isEmpty()) {
+            throw new EvidenceAcquisitionContractException("evidence candidate response violates aggregate limit total="
+                    + result.size() + " byDocumentType=" + countsByType + " duplicateChunkIds=" + duplicateIds);
+        }
+        return List.copyOf(result);
+    }
+
+    private List<EvidenceCandidate> search(EvidenceCandidateSearchRequest request, EvidenceSearchScope scope,
+            List<EvidenceSearchScope.Document> documents, int perRetrieverLimit) {
         try {
-            Request body=new Request(scope.ownerId(),scope.sessionId(),scope.scenarioPackageId(),scope.stageKey(),scope.actionIntent(),scope.documents().stream().map(document->new Scope(document.id(),document.extractionVersion(),document.type())).toList(),scope.activeLocators(),request.query(),30,30);
-            HttpResponse<String> response=client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/evidence-candidates/search")).timeout(timeout).header("X-Internal-Token",internalToken).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build(),HttpResponse.BodyHandlers.ofString());
+            Request body=new Request(scope.ownerId(),scope.sessionId(),scope.scenarioPackageId(),scope.stageKey(),scope.actionIntent(),documents.stream().map(document->new Scope(document.id(),document.extractionVersion(),document.type())).toList(),scope.activeLocators(),request.query(),perRetrieverLimit,perRetrieverLimit);
+            HttpResponse<String> response=client.send(HttpRequest.newBuilder(baseUri.resolve(CANDIDATE_SEARCH_PATH)).timeout(timeout).header("X-Internal-Token",internalToken).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build(),HttpResponse.BodyHandlers.ofString());
             if(response.statusCode()==429||response.statusCode()>=500) throw new EvidenceAcquisitionTransientException("evidence candidate search is unavailable");
             if(response.statusCode()/100!=2) throw new EvidenceAcquisitionContractException("evidence candidate search failed with status "+response.statusCode());
             Response parsed=mapper.readValue(response.body(),Response.class);
             validateEnvelope(parsed,scope);
-            return candidates(parsed.candidates(),scope);
-        } catch(IOException exception) { throw new EvidenceAcquisitionTransientException("evidence candidate search transport failed");
+            return candidates(parsed.candidates(),documents);
+        } catch(IOException exception) { throw new EvidenceAcquisitionTransientException("evidence candidate search failed endpoint=/" + CANDIDATE_SEARCH_PATH
+                + " causeClass=" + exception.getClass().getSimpleName());
         } catch(InterruptedException exception) { Thread.currentThread().interrupt(); throw new EvidenceAcquisitionTransientException("evidence candidate search interrupted"); }
     }
     private static void validateEnvelope(Response response,EvidenceSearchScope scope) {
         if(!scope.ownerId().equals(response.ownerId())||!scope.sessionId().equals(response.sessionId())||!scope.scenarioPackageId().equals(response.scenarioPackageId())||response.candidates()==null) throw new EvidenceAcquisitionContractException("evidence candidate response scope does not match its request");
     }
-    private static List<EvidenceCandidate> candidates(List<Candidate> values,EvidenceSearchScope scope) {
+    private static List<EvidenceCandidate> candidates(List<Candidate> values,
+            List<EvidenceSearchScope.Document> requestedDocuments) {
         if(values.size()>60) throw new EvidenceAcquisitionContractException("evidence candidate response exceeds the limit");
-        var authorized=new LinkedHashMap<UUID,EvidenceSearchScope.Document>(); scope.documents().forEach(document->authorized.put(document.id(),document));
+        var authorized=new LinkedHashMap<UUID,EvidenceSearchScope.Document>(); requestedDocuments.forEach(document->authorized.put(document.id(),document));
         return values.stream().map(candidate -> {
             EvidenceSearchScope.Document document=authorized.get(candidate.documentId());
             if(document==null||document.extractionVersion()!=candidate.extractionVersion()||!document.type().equals(candidate.documentType())) throw new EvidenceAcquisitionContractException("evidence candidate is outside the session document scope");

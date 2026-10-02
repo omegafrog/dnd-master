@@ -34,27 +34,34 @@ public final class EvidenceSufficiencyJudgeService {
             JsonNode root = mapper.readTree(raw);
             if (root == null || !root.isObject() || !root.path("sufficient").isBoolean()
                     || !root.path("selectedEvidenceIds").isArray() || !root.path("selectionReasons").isObject()
-                    || !root.path("missing").isTextual()) throw invalid("required sufficiency fields are missing");
+                    || !root.path("missing").isTextual()) throw invalid(
+                            EvidenceModelOutputException.Category.INVALID_SCHEMA, "required sufficiency fields are missing");
             List<String> selected = stringArray(root.path("selectedEvidenceIds"), "selected evidence ID");
             Map<String, String> reasons = reasons(root.path("selectionReasons"));
             String missing = root.path("missing").asText().trim();
             boolean sufficient = root.path("sufficient").booleanValue();
             if (selected.size() != new HashSet<>(selected).size() || !candidateIds.containsAll(selected)
-                    || !selected.containsAll(pinnedIds) || !reasons.keySet().equals(new HashSet<>(selected))) throw invalid("selected evidence and reasons must match candidate IDs and pinned IDs");
-            if (sufficient && selected.isEmpty()) throw invalid("sufficient output requires selected evidence");
-            if (!sufficient && missing.isBlank()) throw invalid("insufficient output requires missing information");
+                    || !selected.containsAll(pinnedIds) || !reasons.keySet().equals(new HashSet<>(selected))) throw invalid(
+                            EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
+                            "selected evidence and reasons must match candidate IDs and pinned IDs");
+            if (sufficient && selected.isEmpty()) throw invalid(
+                    EvidenceModelOutputException.Category.INVALID_VALUE, "sufficient output requires selected evidence");
+            if (!sufficient && missing.isBlank()) throw invalid(
+                    EvidenceModelOutputException.Category.INVALID_VALUE, "insufficient output requires missing information");
             return new EvidenceSufficiencyResponse(sufficient, selected, reasons, missing);
         } catch (EvidenceModelOutputException exception) {
             throw exception;
         } catch (Exception exception) {
-            throw new EvidenceModelOutputException("invalid sufficiency model output", exception);
+            throw new EvidenceModelOutputException(EvidenceModelOutputException.Category.MALFORMED_JSON,
+                    "invalid sufficiency model output", exception);
         }
     }
 
     private static List<String> stringArray(JsonNode values, String name) {
         var result = new java.util.ArrayList<String>();
         for (JsonNode value : values) {
-            if (!value.isTextual() || value.asText().isBlank()) throw invalid(name + " is invalid");
+            if (!value.isTextual() || value.asText().isBlank()) throw invalid(
+                    EvidenceModelOutputException.Category.INVALID_IDENTIFIER, name + " is invalid");
             result.add(value.asText());
         }
         return result;
@@ -63,13 +70,16 @@ public final class EvidenceSufficiencyJudgeService {
     private static Map<String, String> reasons(JsonNode values) {
         Map<String, String> result = new LinkedHashMap<>();
         values.fields().forEachRemaining(entry -> {
-            if (entry.getKey().isBlank() || !entry.getValue().isTextual() || entry.getValue().asText().isBlank()) throw invalid("selection reason is invalid");
+            if (entry.getKey().isBlank() || !entry.getValue().isTextual() || entry.getValue().asText().isBlank()) throw invalid(
+                    EvidenceModelOutputException.Category.INVALID_VALUE, "selection reason is invalid");
             result.put(entry.getKey(), entry.getValue().asText());
         });
         return result;
     }
 
-    private static EvidenceModelOutputException invalid(String message) { return new EvidenceModelOutputException(message); }
+    private static EvidenceModelOutputException invalid(EvidenceModelOutputException.Category category, String message) {
+        return new EvidenceModelOutputException(category, message);
+    }
     private static String instruction(EvidenceSufficiencyRequest request, EvidenceModelPrompt.Candidates candidates,
                                       List<String> pinnedModelIds) {
         return request.policy().fixedInstruction() + "\nOUTPUT={sufficient:boolean,selectedEvidenceIds:string[],selectionReasons:object,missing:string}. "

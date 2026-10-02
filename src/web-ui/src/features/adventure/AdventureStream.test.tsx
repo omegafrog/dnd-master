@@ -296,3 +296,32 @@ it('reconciles an optimistic response without duplicating persisted entries', as
   expect(screen.getAllByText('저장된 응답')).toHaveLength(1)
   expect(screen.getAllByText('판정')).toHaveLength(1)
 })
+
+it('accepts a player roll using the dice range requested by the GM', async () => {
+  let submitted: number | undefined
+  const api: AdventureApi = {
+    async sendMessage() {
+      return {
+        narration: '굴림 결과를 기다립니다.', currentScene: '저장고', version: 1,
+        rollRequest: { pendingTurnId: 'turn-1', label: '자연', diceExpression: '1d4', prompt: '약초를 조사합니다.', expectedVersion: 1 },
+      }
+    },
+    async submitPlayerRoll(_adventureId, _pendingTurnId, result) {
+      submitted = result
+      return { narration: '판정을 마쳤습니다.', currentScene: '저장고', version: 2 }
+    },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} />)
+  await user.type(screen.getByLabelText('무엇을 하시겠어요?'), '약초를 조사한다')
+  await user.click(screen.getByRole('button', { name: '행동 보내기' }))
+
+  const rollInput = await screen.findByLabelText('1d4 결과')
+  expect(rollInput).toHaveAttribute('min', '1')
+  expect(rollInput).toHaveAttribute('max', '4')
+  await user.type(rollInput, '4')
+  await user.click(screen.getByRole('button', { name: '결과 제출' }))
+
+  expect(submitted).toBe(4)
+  expect(await screen.findByText('판정을 마쳤습니다.')).toBeInTheDocument()
+})

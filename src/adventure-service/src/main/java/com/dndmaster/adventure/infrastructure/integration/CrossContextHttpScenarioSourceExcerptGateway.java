@@ -21,8 +21,8 @@ import java.util.UUID;
 public final class CrossContextHttpScenarioSourceExcerptGateway implements ScenarioSourceExcerptPort {
     private static final int MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION = 12;
     private static final int MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION = 12;
-    private static final String RESOLUTION_SOURCE_QUERY =
-            "Find story passages that describe how player actions are resolved, including checks, thresholds, consequences, and damage.";
+    private static final String RULE_QUERY =
+            "Search this rules source for rules relevant to the adventure, including ability checks, saving throws, difficulty classes, attacks, damage, conditions, and encounter procedures. Return the source passages themselves.";
 
     private final HttpClient client;
     private final URI baseUri;
@@ -57,12 +57,12 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                     .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
                     .map(document -> new DocumentRequest(document.knowledgeDocumentId().value(), document.extractionVersion()))
                 .toList();
-        List<ResolutionExtractionPort.SourceExcerpt> rulebookExcerpts = searchPreparationSources(
-                bundle, rulebookDocuments, "RULEBOOK", "Extract source-grounded rule procedures.",
-                MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION);
         List<ResolutionExtractionPort.SourceExcerpt> scenarioExcerpts = searchPreparationSources(
-                bundle, storybookDocuments, "STORYBOOK", RESOLUTION_SOURCE_QUERY,
+                bundle, storybookDocuments, "STORYBOOK", RULE_QUERY,
                 MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION);
+        List<ResolutionExtractionPort.SourceExcerpt> rulebookExcerpts = searchPreparationSources(
+                bundle, rulebookDocuments, "RULEBOOK", RULE_QUERY,
+                MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION);
         if (!storybookDocuments.isEmpty() && scenarioExcerpts.isEmpty()) {
                 throw new ResolutionExtractionException("published storybook evidence is unavailable");
             }

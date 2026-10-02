@@ -15,14 +15,24 @@ public final class HybridEvidenceSearchService {
     private final DenseEvidenceCandidateSearchPort denseSearch;
     private final Bm25EvidenceCandidateSearchPort bm25Search;
     private final RrfFusionPolicy rrfFusionPolicy;
+    private final boolean bm25Enabled;
 
     public HybridEvidenceSearchService(
             DenseEvidenceCandidateSearchPort denseSearch,
             Bm25EvidenceCandidateSearchPort bm25Search,
             RrfFusionPolicy rrfFusionPolicy) {
+        this(denseSearch, bm25Search, rrfFusionPolicy, true);
+    }
+
+    public HybridEvidenceSearchService(
+            DenseEvidenceCandidateSearchPort denseSearch,
+            Bm25EvidenceCandidateSearchPort bm25Search,
+            RrfFusionPolicy rrfFusionPolicy,
+            boolean bm25Enabled) {
         this.denseSearch = Objects.requireNonNull(denseSearch, "dense search must not be null");
         this.bm25Search = Objects.requireNonNull(bm25Search, "BM25 search must not be null");
         this.rrfFusionPolicy = Objects.requireNonNull(rrfFusionPolicy, "RRF fusion policy must not be null");
+        this.bm25Enabled = bm25Enabled;
     }
 
     public EvidenceSearchResult search(EvidenceSearchRequest request) {
@@ -59,11 +69,13 @@ public final class HybridEvidenceSearchService {
     }
 
     private RetrievalCandidates retrieveOnce(EvidenceSearchRequest request) {
-        try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+        try (ExecutorService executor = Executors.newFixedThreadPool(bm25Enabled ? 2 : 1)) {
             Future<List<EvidenceCandidate>> dense = executor.submit(() -> denseSearch.search(request));
-            Future<List<EvidenceCandidate>> bm25 = executor.submit(() -> bm25Search.search(request));
+            Future<List<EvidenceCandidate>> bm25 = bm25Enabled
+                    ? executor.submit(() -> bm25Search.search(request))
+                    : null;
             List<EvidenceCandidate> denseCandidates = await(dense);
-            List<EvidenceCandidate> bm25Candidates = await(bm25);
+            List<EvidenceCandidate> bm25Candidates = bm25Enabled ? await(bm25) : List.of();
             return new RetrievalCandidates(
                     validatedCandidates(request, denseCandidates), validatedCandidates(request, bm25Candidates));
         }

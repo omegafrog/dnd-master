@@ -48,6 +48,26 @@ class EvidenceModelControllerTest {
         assertEquals(401, error.status());
     }
 
+    @Test
+    void mapsUnavailableAiProviderToRetryableServiceUnavailableResponse() {
+        var model = new com.dndmaster.aigamemaster.application.evidence.EvidenceModelPort() {
+            @Override public String complete(java.util.UUID soloPlayerId, String operationId, String instruction) {
+                throw new com.dndmaster.aigamemaster.application.ai.AiExecutionUnavailableException(
+                        new com.dndmaster.aigamemaster.application.ai.AiExecutionFailure(
+                                com.dndmaster.aigamemaster.application.ai.AiExecutionFailure.Reason.CONNECTION_LOST,
+                                "CONNECTION_LOST"));
+            }
+        };
+        var controller = new EvidenceModelController(new EvidenceRerankerService(model, new ObjectMapper()),
+                new EvidenceSufficiencyJudgeService(model, new ObjectMapper()), new ApiRequestGuard("secret"));
+
+        var error = assertThrows(ResponseStatusException.class,
+                () -> controller.rerank("secret", new EvidenceRerankRequest("door", "scene", CANDIDATES)));
+
+        assertEquals(503, error.getStatusCode().value());
+        assertEquals("EVIDENCE_PROVIDER_UNAVAILABLE: CONNECTION_LOST", error.getReason());
+    }
+
     private static EvidenceModelController controller(String... responses) {
         var model = new com.dndmaster.aigamemaster.application.evidence.EvidenceModelPort() {
             private int index;

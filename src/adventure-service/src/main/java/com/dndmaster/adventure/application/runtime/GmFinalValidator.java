@@ -15,7 +15,25 @@ public final class GmFinalValidator {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(GmFinalValidator.class);
     public GmPlanResult validate(
             GmPlanResult result, EvidencePack evidencePack, AdventureContext currentContext, Set<String> hiddenData) {
-        GmValidationReport report = validateReport(result, evidencePack, currentContext, hiddenData);
+        return validate(result, evidencePack, currentContext, hiddenData, "");
+    }
+
+    public GmPlanResult validate(GmPlanResult result, EvidencePack evidencePack, AdventureContext currentContext,
+                                 Set<String> hiddenData, String action) {
+        return validate(result, evidencePack, currentContext, hiddenData, action, false);
+    }
+
+    /** Validates GM prose for a result that has already been resolved by the combat system. */
+    public GmPlanResult validateConfirmedCombatNarration(GmPlanResult result, EvidencePack evidencePack,
+                                                          AdventureContext currentContext, Set<String> hiddenData,
+                                                          String action) {
+        return validate(result, evidencePack, currentContext, hiddenData, action, true);
+    }
+
+    private GmPlanResult validate(GmPlanResult result, EvidencePack evidencePack, AdventureContext currentContext,
+                                  Set<String> hiddenData, String action, boolean confirmedCombatNarration) {
+        GmValidationReport report = validateReport(result, evidencePack, currentContext, hiddenData, action,
+                confirmedCombatNarration);
         if (!report.passed()) {
             String details = report.violations().stream()
                     .map(v -> v.code() + "@" + v.fieldPath() + ":" + v.safeMessage())
@@ -28,6 +46,17 @@ public final class GmFinalValidator {
 
     public GmValidationReport validateReport(
             GmPlanResult result, EvidencePack evidencePack, AdventureContext currentContext, Set<String> hiddenData) {
+        return validateReport(result, evidencePack, currentContext, hiddenData, "");
+    }
+
+    public GmValidationReport validateReport(GmPlanResult result, EvidencePack evidencePack,
+                                              AdventureContext currentContext, Set<String> hiddenData, String action) {
+        return validateReport(result, evidencePack, currentContext, hiddenData, action, false);
+    }
+
+    private GmValidationReport validateReport(GmPlanResult result, EvidencePack evidencePack,
+                                               AdventureContext currentContext, Set<String> hiddenData, String action,
+                                               boolean confirmedCombatNarration) {
         Objects.requireNonNull(result, "result must not be null");
         Objects.requireNonNull(evidencePack, "evidence pack must not be null");
         Objects.requireNonNull(currentContext, "current context must not be null");
@@ -47,30 +76,12 @@ public final class GmFinalValidator {
                         "citation is outside the selected evidence pack"));
             }
         }
-        if (!evidencePack.storybook().isEmpty() && plan.citedEvidence().stream()
-                .noneMatch(evidence -> evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK)) {
-            violations.add(violation("STORYBOOK_CITATION_REQUIRED", "citedEvidence", true,
-                    "storybook evidence must be cited for every GM turn"));
-        }
-        if (!Objects.equals(plan.scene(), currentContext.currentScene()) && plan.citedEvidence().stream()
-                .noneMatch(evidencePack.storybook()::contains)) {
-            violations.add(violation("SCENE_TRANSITION_UNSUPPORTED", "scene", true,
-                    "scene transition requires a storybook citation"));
-        }
         if (plan.proposedActiveSourceContext() != null && allowed.stream().noneMatch(evidence ->
                 evidence.knowledgeDocumentId().equals(plan.proposedActiveSourceContext().knowledgeDocumentId())
                         && evidence.extractionVersion() == plan.proposedActiveSourceContext().extractionVersion()
                         && evidence.locator().equals(plan.proposedActiveSourceContext().locator()))) {
             violations.add(violation("ACTIVE_SOURCE_NOT_IN_EVIDENCE_PACK", "proposedActiveSourceContext", true,
                     "active source is outside the selected evidence pack"));
-        }
-        String combined = (plan.judgment() + " " + plan.narration()).toLowerCase(Locale.ROOT);
-        boolean ruleClaim = combined.contains("rule") || combined.contains("must") || combined.contains("roll")
-                || combined.contains("damage") || combined.contains("check") || combined.contains("판정")
-                || combined.contains("규칙") || combined.contains("굴림");
-        if (ruleClaim && plan.citedEvidence().isEmpty()) {
-            violations.add(violation("RULE_CLAIM_REQUIRES_CITATION", "citedEvidence", true,
-                    "rule claims require a citation"));
         }
         for (String secret : hiddenData) {
             if (secret != null && !secret.isBlank() && plan.narration().contains(secret)) {

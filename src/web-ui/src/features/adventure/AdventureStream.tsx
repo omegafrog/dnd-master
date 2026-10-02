@@ -167,8 +167,9 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
     event.preventDefault()
     if (!rollRequest || !api.submitPlayerRoll) return
     const result = Number(rollValue)
-    if (!Number.isInteger(result) || result < 1 || result > 20) {
-      setNotice('d20 결과는 1에서 20 사이여야 합니다.')
+    const range = diceResultRange(rollRequest.diceExpression)
+    if (!Number.isInteger(result) || result < range.minimum || result > range.maximum) {
+      setNotice(`굴림 결과는 ${range.minimum}에서 ${range.maximum} 사이여야 합니다.`)
       return
     }
     setSending(true); setProjectionStatus('processing'); setNotice('')
@@ -201,7 +202,7 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       <p role="alert">{notice}</p>
       {rollRequest && <form onSubmit={submitRoll} aria-label="주사위 굴림 요청">
         <p><strong>{rollRequest.label}</strong>: {rollRequest.prompt}</p>
-        <label>d20 결과<input type="number" min="1" max="20" step="1" value={rollValue} onChange={event => setRollValue(event.target.value)} disabled={sending} required /></label>
+        <label>{rollRequest.diceExpression} 결과<input type="number" min={diceResultRange(rollRequest.diceExpression).minimum} max={diceResultRange(rollRequest.diceExpression).maximum} step="1" value={rollValue} onChange={event => setRollValue(event.target.value)} disabled={sending} required /></label>
         <button type="submit" disabled={sending}>결과 제출</button>
       </form>}
       <form onSubmit={send} aria-disabled={hydrationPending || projectionVersion.current == null || rollRequest !== null} aria-busy={hydrationPending}>
@@ -210,6 +211,14 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       </form>
     </section>
   )
+}
+
+function diceResultRange(expression: string) {
+  const match = /^(\d+)d(\d+)$/i.exec(expression.replace(/\s+/g, ''))
+  if (!match) return { minimum: 1, maximum: Number.MAX_SAFE_INTEGER }
+  const count = Number(match[1])
+  const sides = Number(match[2])
+  return { minimum: count, maximum: count * sides }
 }
 
 function reconcileHydratedMessages(

@@ -29,6 +29,7 @@ public final class CombatActionApplicationService {
     private final AiCombatDecisionPort decisionPort;
     private final MapMovementCoordinator movementCoordinator;
     private final CombatEndPort combatEndPort;
+    private final CombatNarrationPort narrationPort;
 
     public CombatActionApplicationService(CombatEncounterRepository encounterRepository,
                                           CombatActionOperationRepository operationRepository,
@@ -72,6 +73,17 @@ public final class CombatActionApplicationService {
                                           CharacterCombatPort characterPort, AiCombatPort aiPort,
                                           CombatMapPort mapPort, AiCombatDecisionPort decisionPort,
                                           CombatEndPort combatEndPort) {
+        this(encounterRepository, operationRepository, eventRepository, rulesEngine, dicePort, characterPort, aiPort,
+                mapPort, decisionPort, combatEndPort, CombatNarrationPort.disabled());
+    }
+
+    public CombatActionApplicationService(CombatEncounterRepository encounterRepository,
+                                          CombatActionOperationRepository operationRepository,
+                                          CombatEventRepository eventRepository,
+                                          CombatRulesEngine rulesEngine, DiceCombatPort dicePort,
+                                          CharacterCombatPort characterPort, AiCombatPort aiPort,
+                                          CombatMapPort mapPort, AiCombatDecisionPort decisionPort,
+                                          CombatEndPort combatEndPort, CombatNarrationPort narrationPort) {
         this.encounterRepository = Objects.requireNonNull(encounterRepository);
         this.operationRepository = Objects.requireNonNull(operationRepository);
         this.eventRepository = Objects.requireNonNull(eventRepository);
@@ -82,6 +94,7 @@ public final class CombatActionApplicationService {
         this.movementCoordinator = new MapMovementCoordinator(Objects.requireNonNull(mapPort));
         this.decisionPort = Objects.requireNonNull(decisionPort);
         this.combatEndPort = Objects.requireNonNull(combatEndPort);
+        this.narrationPort = Objects.requireNonNull(narrationPort);
     }
 
     public CombatActionResponse submitFreeForm(FreeFormCombatCommand command) {
@@ -147,9 +160,6 @@ public final class CombatActionApplicationService {
             eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(), "ACTION_RESOLVED",
                     "{\"operationId\":\"" + command.action().operationId() + "\",\"kind\":\"FREE_FORM\",\"judgment\":\""
                             + escape(plan.judgment()) + "\"}"));
-            eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor() + 1, "GM_NARRATION",
-                    "{\"operationId\":\"" + command.action().operationId() + "\",\"narration\":\""
-                            + escape(plan.narration()) + "\"}"));
             if (committed.allEnemiesDefeated()) {
                 CombatEndResult ended = combatEndPort.endWhenEnemiesDefeated(command.action().adventureId().value());
                 response = new CombatActionResponse(committed.encounterId(), command.action().operationId(),
@@ -158,6 +168,9 @@ public final class CombatActionApplicationService {
                 operation.committed(response);
                 operationRepository.save(operation);
             }
+            response = narrateAfterCommit(command.action(), response, command.declaration().text());
+            operation.committed(response);
+            operationRepository.save(operation);
             return response;
         } catch (CombatCommandRejectedException exception) {
             throw exception;
@@ -330,6 +343,9 @@ public final class CombatActionApplicationService {
                 operation.committed(response);
                 operationRepository.save(operation);
             }
+            response = narrateAfterCommit(command, response, aiActor ? null : command.action());
+            operation.committed(response);
+            operationRepository.save(operation);
             return response;
         } catch (RuntimeCombatRejectionException exception) {
             operation.failed(exception);
@@ -424,6 +440,9 @@ public final class CombatActionApplicationService {
             eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(),
                     "MOVEMENT_RESOLVED", "{\"operationId\":\"" + command.operationId()
                     + "\",\"distance\":" + distance + "}"));
+            response = narrateAfterCommit(command, response, command.action());
+            operation.committed(response);
+            operationRepository.save(operation);
             return response;
         } catch (CombatCommandRejectedException exception) {
             throw exception;
@@ -520,6 +539,37 @@ public final class CombatActionApplicationService {
     private CombatEncounter activeEncounter(CombatActionCommand command) {
         return encounterRepository.findActive(command.adventureId().value())
                 .orElseThrow(() -> new CombatCommandRejectedException("COMBAT_NOT_ACTIVE", List.of("COMBAT_NOT_ACTIVE")));
+    }
+
+    private CombatActionResponse narrateAfterCommit(CombatActionCommand command, CombatActionResponse response,
+                                                     String playerInput) {
+        String narration = null;
+        try {
+            String generated = narrationPort.narrate(CombatNarrationRequest.postResolution(command,
+                    response.encounterVersion(), response.diceTotal(), response.judgment(), playerInput));
+            if (generated != null && !generated.isBlank()) narration = generated;
+        } catch (CombatNarrationPersistenceException exception) {
+            throw exception;
+        } catch (RuntimeException ignored) {
+            // The canonical combat result is already committed; never publish an unchecked fallback narration.
+            narration = null;
+        }
+        if (narration == null || narration.isBlank()) {
+            return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
+                    response.status(), response.diceTotal(), response.judgment(), response.violations(), null);
+        }
+        try {
+            long nextSequence = eventRepository.after(response.encounterId(), -1).stream()
+                    .mapToLong(CombatEvent::sequence).max().orElse(0L) + 1;
+            eventRepository.append(new CombatEvent(response.encounterId(), nextSequence, "GM_NARRATION",
+                    "{\"operationId\":\"" + command.operationId() + "\",\"narration\":\""
+                            + escape(narration) + "\"}"));
+            return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
+                    response.status(), response.diceTotal(), response.judgment(), response.violations(), narration);
+        } catch (RuntimeException ignored) {
+            return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
+                    response.status(), response.diceTotal(), response.judgment(), response.violations(), null);
+        }
     }
 
     private static String escape(String value) {

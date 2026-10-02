@@ -53,6 +53,8 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuntim
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetOwnershipGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
 import com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPort;
+import com.dndmaster.adventure.infrastructure.integration.HttpConversationCompactionCandidatePort;
+import com.dndmaster.adventure.infrastructure.integration.HttpRuntimeCharacterSheetReadPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpScenarioModelLookupAgentPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpScenarioCompilationAgentPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpDiceToolPort;
@@ -139,6 +141,14 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.runtime.AdventureCompletionCommitPort adventureCompletionCommitPort(
+            AdventureRepository adventures, AdventureSessionRepository sessions,
+            org.springframework.transaction.PlatformTransactionManager transactionManager) {
+        return new com.dndmaster.adventure.infrastructure.persistence.TransactionalAdventureCompletionCommitAdapter(
+                adventures, sessions, transactionManager);
+    }
+
+    @Bean
     com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService adventureAiRequestApplicationService(
             AdventureSessionRepository repository) {
         return new com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService(repository);
@@ -205,11 +215,12 @@ public class AdventureApiConfiguration {
             AiCompanionSheetCreationPort aiCompanionSheetCreationPort,
             com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort,
             StageArtifactPreparationApplicationService stagePreparation,
-            com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService) {
+            com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService,
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
         return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository,
                 runtimeBindingService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort,
                 sessionKnowledgeSetRepository, aiCompanionGenerationPort, aiCompanionSheetCreationPort,
-                combatMapPreparationPort, stagePreparation, runtimeTurnService);
+                combatMapPreparationPort, stagePreparation, runtimeTurnService, combatLifecycleService);
     }
 
     @Bean
@@ -854,9 +865,10 @@ public class AdventureApiConfiguration {
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            @Value("${GM_RUNTIME_CONTEXT_LIMITS:}") String contextLimits) {
         return new HttpTypedRuntimeGmAgentPort(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken, contextLimits);
     }
 
     @Bean
@@ -945,7 +957,7 @@ public class AdventureApiConfiguration {
     RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort, GmToolGateway gmToolGateway,
                                             RuntimeCommandSagaApplicationService saga,
                                             @Value("${adventure.runtime.best-of-n.count:1}") int candidateCount,
-                                            @Value("${adventure.runtime.best-of-n.retry-count:1}") int retryCount,
+                                            @Value("${adventure.runtime.best-of-n.retry-count:2}") int retryCount,
                                             @Value("${adventure.runtime.best-of-n.simple:false}") boolean simpleTurn,
                                             PlanAuditPort planAuditPort) {
         RuntimePlanningPort planner = new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator(), gmToolGateway, saga);
@@ -954,16 +966,7 @@ public class AdventureApiConfiguration {
 
     @Bean
     NarrationSafetyPort narrationSafetyPort() {
-        return request -> {
-            String narration = request.narration();
-            String reason = "approved";
-            if (narration == null || narration.isBlank()) reason = "blank narration";
-            else if (narration.contains("\"") || narration.contains("“") || narration.contains("”")) reason = "quotation mark detected";
-            else if (com.dndmaster.adventure.application.runtime.NarrationLeakDetector
-                    .isLikelySourceLeak(narration, request.evidencePack())) reason = "source leak or prohibited reference detected";
-            boolean approved = "approved".equals(reason);
-            return new NarrationSafetyAssessment(approved, reason);
-        };
+        return new com.dndmaster.adventure.application.runtime.DefaultNarrationSafetyPolicy();
     }
 
     @Bean
@@ -993,7 +996,12 @@ public class AdventureApiConfiguration {
             RuntimeTurnLockService runtimeTurnLockService,
             RuntimeTurnCommitOrchestrator commitOrchestrator,
             RuntimeFactLookupService runtimeFactLookupService,
-            com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService) {
+            com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService,
+            RuntimeCharacterSheetReadPort characterSheetReadPort,
+            com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort,
+            com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort,
+            javax.sql.DataSource dataSource,
+            com.dndmaster.adventure.application.runtime.AdventureCompletionCommitPort adventureCompletionCommitPort) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, providerBindingRepository,
@@ -1003,9 +1011,49 @@ public class AdventureApiConfiguration {
         service.setApprovedPromptConfigurationReadPort(approvedPromptConfigurationReadPort);
         service.setTurnLockService(runtimeTurnLockService);
         service.setCommitOrchestrator(commitOrchestrator);
+        service.setCommitGate(new com.dndmaster.adventure.application.combat.PreparedMapEntryCommitGate(
+                combatMapViewPort, combatMapPreparationPort));
         service.setRuntimeFactLookupService(runtimeFactLookupService);
         service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(evidenceAcquisitionApplicationService));
+        service.setCharacterSheetReadPort(characterSheetReadPort);
+        service.setConversationCompactionJobRepository(conversationCompactionJobRepository(dataSource));
+        service.setAdventureCompletionCommitPort(adventureCompletionCommitPort);
         return service;
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.runtime.ConversationCompactionJobRepository conversationCompactionJobRepository(
+            javax.sql.DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresConversationCompactionJobRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.runtime.ConversationCompactionWorker conversationCompactionWorker(
+            com.dndmaster.adventure.application.runtime.ConversationCompactionJobRepository jobs,
+            AdventureRepository adventures, ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new com.dndmaster.adventure.application.runtime.ConversationCompactionWorker(jobs, adventures,
+                new HttpConversationCompactionCandidatePort(HttpClient.newHttpClient(), URI.create(baseUrl),
+                        Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken));
+    }
+
+    @Bean(name = "conversationCompactionScheduler")
+    org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler conversationCompactionScheduler() {
+        var scheduler = new org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("conversation-compaction-");
+        scheduler.setWaitForTasksToCompleteOnShutdown(false);
+        return scheduler;
+    }
+
+    @Bean
+    RuntimeCharacterSheetReadPort runtimeCharacterSheetReadPort(
+            @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
+        return new HttpRuntimeCharacterSheetReadPort(HttpClient.newHttpClient(), URI.create(baseUrl),
+                Duration.ofSeconds(10), token);
     }
 
     @Bean
@@ -1310,10 +1358,12 @@ public class AdventureApiConfiguration {
             @Qualifier("aiCombatPort") AiCombatPort aiPort,
             @Qualifier("combatMapPort") CombatMapPort mapPort,
             com.dndmaster.adventure.application.combat.AiCombatDecisionPort decisionPort,
-            com.dndmaster.adventure.application.combat.CombatEndPort combatEndPort) {
+            com.dndmaster.adventure.application.combat.CombatEndPort combatEndPort,
+            RuntimeTurnApplicationService runtimeTurnApplicationService) {
         return new com.dndmaster.adventure.application.combat.CombatActionApplicationService(
                 encounterRepository, operationRepository, eventRepository, rulesEngine,
-                dicePort, characterPort, aiPort, mapPort, decisionPort, combatEndPort);
+                dicePort, characterPort, aiPort, mapPort, decisionPort, combatEndPort,
+                runtimeTurnApplicationService::narrateConfirmedCombat);
     }
 
     @Bean

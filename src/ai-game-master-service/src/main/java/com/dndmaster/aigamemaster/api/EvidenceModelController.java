@@ -7,6 +7,7 @@ import com.dndmaster.aigamemaster.application.evidence.EvidenceRerankerService;
 import com.dndmaster.aigamemaster.application.evidence.EvidenceSufficiencyJudgeService;
 import com.dndmaster.aigamemaster.application.evidence.EvidenceSufficiencyRequest;
 import com.dndmaster.aigamemaster.application.evidence.EvidenceSufficiencyResponse;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionUnavailableException;
 import java.util.Objects;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,6 +38,8 @@ public final class EvidenceModelController {
             return reranker.rerank(Objects.requireNonNull(request, "request is required"));
         } catch (EvidenceModelOutputException error) {
             throw invalidModelOutput(error);
+        } catch (AiExecutionUnavailableException error) {
+            throw providerUnavailable(error);
         }
     }
 
@@ -48,10 +51,17 @@ public final class EvidenceModelController {
             return judge.judge(Objects.requireNonNull(request, "request is required"));
         } catch (EvidenceModelOutputException error) {
             throw invalidModelOutput(error);
+        } catch (AiExecutionUnavailableException error) {
+            throw providerUnavailable(error);
         }
     }
 
     private static ResponseStatusException invalidModelOutput(EvidenceModelOutputException error) {
         return new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "EVIDENCE_MODEL_OUTPUT_INVALID", error);
+    }
+
+    private static ResponseStatusException providerUnavailable(AiExecutionUnavailableException error) {
+        return new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "EVIDENCE_PROVIDER_UNAVAILABLE: " + error.failure().reason(), error);
     }
 }
