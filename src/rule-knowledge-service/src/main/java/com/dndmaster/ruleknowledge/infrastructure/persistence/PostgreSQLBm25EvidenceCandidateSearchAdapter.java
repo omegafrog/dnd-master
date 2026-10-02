@@ -81,6 +81,7 @@ public final class PostgreSQLBm25EvidenceCandidateSearchAdapter implements Bm25E
         String placeholders = String.join(", ", java.util.Collections.nCopies(scopeSize, "(?, ?, ?, ?)"));
         return """
                 WITH authorized_scope(document_id, extraction_version, document_type, owner_player_id) AS (VALUES %s),
+                query_terms AS (SELECT unnest(?) AS term),
                 scoped_chunks AS (
                     SELECT c.*, r.document_type,
                            CASE WHEN c.extraction_version ~ '^[0-9]+$' THEN c.extraction_version::bigint
@@ -97,38 +98,37 @@ public final class PostgreSQLBm25EvidenceCandidateSearchAdapter implements Bm25E
                          AND scope.document_type = r.document_type
                          AND scope.owner_player_id = c.owner_player_id
                      WHERE c.document_length > 0
-                       AND EXISTS (SELECT 1 FROM chunk_term_frequency frequency WHERE frequency.chunk_id = c.chunk_id)
                 ), corpus AS (
                     SELECT COUNT(*)::double precision AS document_count,
                            COALESCE(AVG(document_length), 0)::double precision AS average_length
                       FROM scoped_chunks
                 ), matching_terms AS (
-                    SELECT frequency.term, COUNT(DISTINCT frequency.chunk_id)::double precision AS document_frequency
-                      FROM chunk_term_frequency frequency
+                    SELECT query_term.term, COUNT(*)::double precision AS document_frequency
+                      FROM query_terms query_term
+                      JOIN chunk_term_frequency frequency ON frequency.term = query_term.term
                       JOIN scoped_chunks chunk ON chunk.chunk_id = frequency.chunk_id
-                     WHERE frequency.term = ANY (?)
-                     GROUP BY frequency.term
+                     GROUP BY query_term.term
                 ), scored AS (
-                    SELECT chunk.*, SUM(
+                    SELECT chunk.chunk_id, SUM(
                         LN(1 + ((corpus.document_count - matching_terms.document_frequency + .5)
                             / (matching_terms.document_frequency + .5)))
                         * (frequency.term_frequency * (? + 1))
                         / (frequency.term_frequency + ? * (1 - %f + %f * chunk.document_length / NULLIF(corpus.average_length, 0)))
                     ) AS score
-                      FROM scoped_chunks chunk
-                      JOIN chunk_term_frequency frequency ON frequency.chunk_id = chunk.chunk_id
-                      JOIN matching_terms ON matching_terms.term = frequency.term
+                      FROM matching_terms
+                      JOIN chunk_term_frequency frequency ON frequency.term = matching_terms.term
+                      JOIN scoped_chunks chunk ON chunk.chunk_id = frequency.chunk_id
                      CROSS JOIN corpus
-                     GROUP BY chunk.document_id, chunk.owner_player_id, chunk.extraction_version, chunk.processor_chunk_id,
-                              chunk.chunk_id, chunk.sequence, chunk.content, chunk.embedding_text, chunk.embedding,
-                              chunk.embedding_model, chunk.embedding_dimension, chunk.section_path, chunk.page_number,
-                              chunk.bbox, chunk.table_cell, chunk.original_locator, chunk.created_at, chunk.parent_key,
-                              chunk.document_length, chunk.document_type, chunk.numeric_extraction_version
+                     GROUP BY chunk.chunk_id
                 )
-                SELECT document_id, chunk_id, numeric_extraction_version AS extraction_version, document_type,
-                       original_locator, content, page_number, section_path, bbox, table_cell
-                  FROM scored
-                 ORDER BY CASE WHEN original_locator = ANY (?) THEN 0 ELSE 1 END, score DESC, chunk_id
+                SELECT chunk.document_id, chunk.chunk_id,
+                       chunk.numeric_extraction_version AS extraction_version, chunk.document_type,
+                       chunk.original_locator, chunk.content, chunk.page_number, chunk.section_path,
+                       chunk.bbox, chunk.table_cell
+                  FROM scoped_chunks chunk
+                  JOIN scored ON scored.chunk_id = chunk.chunk_id
+                 ORDER BY CASE WHEN chunk.original_locator = ANY (?) THEN 0 ELSE 1 END,
+                          scored.score DESC, chunk.chunk_id
                  LIMIT ?
                 """.formatted(placeholders, B, B);
     }

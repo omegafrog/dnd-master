@@ -31,7 +31,7 @@ class RuleKnowledgeApiConfigurationTest {
 
         assertEquals(PostgreSQLDenseEvidenceCandidateSearchAdapter.class, dense.getClass());
         assertEquals(HybridEvidenceSearchService.class,
-                configuration.hybridEvidenceSearchService(dense, bm25).getClass());
+                configuration.hybridEvidenceSearchService(dense, bm25, true).getClass());
     }
 
     @Test
