@@ -215,7 +215,7 @@ public final class CharacterSheetApplicationService {
     }
 
     private void requireSessionActive(CharacterSheet sheet) {
-        if (!sessionPolicyPort.policyFor(sheet.adventureId(), sheet.id()).acceptingCharacterSheets()) {
+        if (!sessionPolicyPort.policyFor(sheet.adventureId(), sheet.id()).sessionActive()) {
             throw new IllegalStateException("character sheet belongs to a terminated adventure session");
         }
     }

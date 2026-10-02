@@ -137,6 +137,20 @@ class CharacterSheetApplicationServiceTest {
     }
 
     @Test
+    void allows_reading_a_party_sheet_after_its_session_has_started() {
+        InMemoryRepository repository = new InMemoryRepository();
+        AdventureId adventureId = adventure();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(
+                repository, id -> SheetEdition.DND_5E_2014,
+                id -> SessionCharacterPolicy.started("DND_5E_2014"));
+        CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                SheetEdition.DND_5E_2014, new CharacterSheetData2014("Aria", 1, false));
+        repository.save(sheet);
+
+        assertEquals(sheet.id(), service.openSheet(sheet.id(), SheetEdition.DND_5E_2014).id());
+    }
+
+    @Test
     void enforces_all_six_initial_attribute_policies() {
         InMemoryRepository repository = new InMemoryRepository();
         AdventureId adventureId = adventure();
