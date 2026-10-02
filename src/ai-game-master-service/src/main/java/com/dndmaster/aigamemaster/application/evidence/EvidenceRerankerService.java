@@ -28,23 +28,35 @@ public final class EvidenceRerankerService {
     private EvidenceRerankResponse parse(String raw, Set<String> candidateIds) {
         try {
             JsonNode root = mapper.readTree(raw);
-            if (root == null || !root.isObject() || !root.path("orderedCandidateIds").isArray()) throw invalid(
-                    EvidenceModelOutputException.Category.INVALID_SCHEMA, "orderedCandidateIds array is required");
+            if (root == null || !root.isObject() || !root.path("orderedCandidateIds").isArray()) {
+                String rootType = root == null ? "NULL" : root.getNodeType().name();
+                String fieldType = root == null || !root.isObject() || !root.has("orderedCandidateIds")
+                        ? "MISSING" : root.get("orderedCandidateIds").getNodeType().name();
+                throw invalid(EvidenceModelOutputException.Category.INVALID_SCHEMA,
+                        "orderedCandidateIds must be an array; rootType=" + rootType + " fieldType=" + fieldType);
+            }
             List<String> ids = new java.util.ArrayList<>();
             for (JsonNode id : root.path("orderedCandidateIds")) {
                 if (!id.isTextual() || id.asText().isBlank()) throw invalid(
-                        EvidenceModelOutputException.Category.INVALID_IDENTIFIER, "ordered candidate ID is invalid");
+                        EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
+                        "ordered candidate ID must be nonblank text; index=" + ids.size()
+                                + " valueType=" + id.getNodeType().name());
                 ids.add(id.asText());
             }
-            if (ids.size() > 30 || ids.size() != new HashSet<>(ids).size() || !candidateIds.containsAll(ids)) throw invalid(
+            if (ids.size() > 30) throw invalid(EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
+                    "ordered candidate ID count exceeds 30; idCount=" + ids.size());
+            if (ids.size() != new HashSet<>(ids).size()) throw invalid(
                     EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
-                    "rerank IDs must be unique candidate IDs with a maximum of 30");
+                    "ordered candidate IDs contain duplicates; idCount=" + ids.size());
+            long unknownIdCount = ids.stream().filter(id -> !candidateIds.contains(id)).count();
+            if (unknownIdCount > 0) throw invalid(EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
+                    "ordered candidate IDs include IDs outside the supplied candidates; unknownIdCount=" + unknownIdCount);
             return new EvidenceRerankResponse(ids);
         } catch (EvidenceModelOutputException exception) {
             throw exception;
         } catch (Exception exception) {
             throw new EvidenceModelOutputException(EvidenceModelOutputException.Category.MALFORMED_JSON,
-                    "invalid rerank model output", exception);
+                    "model response is not valid JSON", exception);
         }
     }
 

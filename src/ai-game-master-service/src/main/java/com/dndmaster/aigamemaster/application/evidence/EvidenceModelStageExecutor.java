@@ -21,8 +21,8 @@ final class EvidenceModelStageExecutor {
         try {
             return parser.apply(raw);
         } catch (EvidenceModelOutputException exception) {
-            log.warn("evidence model output rejected requestId={} category={} causeType={}", requestId,
-                    exception.category().name(), causeType(exception));
+            log.warn("evidence model output rejected requestId={} category={} reason={} causeType={} outputChars={}", requestId,
+                    exception.category().name(), exception.getMessage(), causeType(exception), raw.length());
             throw exception;
         }
     }

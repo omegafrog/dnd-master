@@ -343,7 +343,7 @@ class TypedAgentContractControllerTest {
         GmCompletionAdapter adapter = selectedAdapter((operation, value, requested) -> {
             prompt.set(value);
             selection.set(requested);
-            return "{\"scene\":\"양조장\",\"judgment\":\"안전함\",\"narration\":\"방 안은 조용합니다.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush") + ",\"combatStart\":true,\"mapEntryRequested\":true,\"combatEnemies\":[{\"scenarioId\":\"cellar-rat-ambush\",\"enemyKey\":\"giant-rat\",\"name\":\"거대 쥐\",\"count\":8}]}";
+            return "{\"scene\":\"양조장\",\"judgment\":\"안전함\",\"narration\":\"방 안은 조용합니다.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush") + ",\"combatStart\":true,\"mapEntryRequested\":true,\"판정제안\":{\"필요\":false},\"combatEnemies\":[{\"scenarioId\":\"cellar-rat-ambush\",\"enemyKey\":\"giant-rat\",\"name\":\"거대 쥐\",\"count\":8}]}";
         });
 
         TypedAgentContractController controller = new TypedAgentContractController(
@@ -365,8 +365,9 @@ class TypedAgentContractControllerTest {
     void runtime_turn_reads_optional_runtime_facts_from_the_typed_response() {
         var adapter = selectedAdapter((operation, value, requested) -> "{\"scene\":\"양조장\",\"judgment\":\"협상 가능\",\"narration\":\"글로우킨이 조건을 제안합니다.\",\"situation\":"
                 + situation("SCENARIO", "cellar")
-                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"combatEnemies\":[],"
-                + "\"runtimeFacts\":[{\"subject\":\"보상\",\"content\":\"글로우킨이 30골드를 제안했습니다.\"}]}");
+                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},\"combatEnemies\":[],"
+                + "\"runtimeFacts\":[{\"subject\":\"보상\",\"content\":\"글로우킨이 30골드를 제안했습니다.\"}],"
+                + "\"citedEvidence\":[\"RULEBOOK:rules:2:page=63\",\"STORYBOOK:story:2:page=3\"]}");
         TypedAgentContractController controller = new TypedAgentContractController(
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
@@ -375,13 +376,36 @@ class TypedAgentContractControllerTest {
 
         org.junit.jupiter.api.Assertions.assertEquals(1, response.runtimeFacts().size());
         org.junit.jupiter.api.Assertions.assertEquals("보상", response.runtimeFacts().get(0).subject());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of("RULEBOOK:rules:2:page=63", "STORYBOOK:story:2:page=3"), response.citedEvidence());
+    }
+
+    @Test
+    void runtime_turn_accepts_a_structured_player_check_proposal() {
+        String key = "RULEBOOK:rules:2:page=18";
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"복도\",\"judgment\":\"지각 판정\","
+                + "\"narration\":\"굴림 결과를 기다립니다.\",\"situation\":" + situation("FALLBACK", "")
+                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"combatEnemies\":[],"
+                + "\"citedEvidence\":[\"" + key + "\"],"
+                + "\"판정제안\":{\"필요\":true,\"이유\":\"숨은 움직임을 확인합니다.\",\"판정능력또는기술\":\"지각\","
+                + "\"대상캐릭터ID\":\"" + SOLO_PLAYER_ID + "\",\"굴림주체\":\"플레이어\",\"굴림식\":\"1d20\","
+                + "\"보정치\":2,\"난이도\":12,\"근거키\":[\"" + key + "\"],"
+                + "\"성공시결과\":\"움직임의 방향을 파악합니다.\",\"실패시결과\":\"확신할 단서를 찾지 못합니다.\"}}");
+        TypedAgentContractController controller = new TypedAgentContractController(
+                adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        var response = controller.runtimeTurn("service-secret",
+                new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "살펴본다", List.of()));
+
+        org.junit.jupiter.api.Assertions.assertTrue(response.checkProposal().required());
+        org.junit.jupiter.api.Assertions.assertEquals("플레이어", response.checkProposal().rollMethod());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(key), response.checkProposal().evidenceKeys());
     }
 
     @Test
     void opening_rejects_player_visible_text_that_contains_a_foreign_language() {
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"양조장\",\"judgment\":\"안전함\","
                 + "\"narration\":\"The room is quiet.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
-                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"combatEnemies\":[]}");
+                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},\"combatEnemies\":[]}");
         TypedAgentContractController controller = new TypedAgentContractController(
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
@@ -394,7 +418,7 @@ class TypedAgentContractControllerTest {
     void opening_rejects_player_visible_text_without_korean_letters() {
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"양조장\",\"judgment\":\"안전함\","
                 + "\"narration\":\"123 !!!\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
-                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"combatEnemies\":[]}");
+                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},\"combatEnemies\":[]}");
         TypedAgentContractController controller = new TypedAgentContractController(
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
@@ -416,7 +440,7 @@ class TypedAgentContractControllerTest {
 
     @Test
     void runtime_turn_rejects_combat_without_a_structured_enemy_name() {
-        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"brewery\",\"judgment\":\"combat\",\"narration\":\"The door bursts open.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,\"mapEntryRequested\":false,\"combatEnemies\":[]}");
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"brewery\",\"judgment\":\"combat\",\"narration\":\"The door bursts open.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},\"combatEnemies\":[]}");
         TypedAgentContractController controller = new TypedAgentContractController(
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
@@ -429,7 +453,7 @@ class TypedAgentContractControllerTest {
     void runtime_turn_accepts_an_explicit_instant_combat_mode_without_a_scenario_id() {
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"cellar\",\"judgment\":\"critical failure\","
                 + "\"narration\":\"The noise draws a giant rat.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,\"mapEntryRequested\":false,"
-                + "\"combatEnemies\":[{\"mode\":\"INSTANT\",\"scenarioId\":\"\","
+                + "\"판정제안\":{\"필요\":false},\"combatEnemies\":[{\"mode\":\"INSTANT\",\"scenarioId\":\"\","
                 + "\"enemyKey\":\"giant-rat\",\"name\":\"Giant Rat\",\"count\":1}]}");
         TypedAgentContractController controller = new TypedAgentContractController(
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));

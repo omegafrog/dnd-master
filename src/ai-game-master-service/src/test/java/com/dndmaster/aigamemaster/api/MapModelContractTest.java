@@ -97,6 +97,35 @@ class MapModelContractTest {
     }
 
     @Test
+    void permits_player_placement_when_saved_scene_already_places_party_inside_map() {
+        java.util.concurrent.atomic.AtomicReference<String> prompt = new java.util.concurrent.atomic.AtomicReference<>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operationId, String value, StructuredResponseParser<T> parser) {
+                prompt.set(value);
+                return parser.parse("{\"status\":\"RESOLVED\",\"entryInterpretation\":{\"transition\":\"party already inside the room\"},"
+                        + "\"candidates\":[{\"exitPoint\":{\"xNormalized\":0.35,\"yNormalized\":0.62},"
+                        + "\"confidence\":0.82,\"source\":\"MAP_IMAGE\",\"anchor\":\"combat area\","
+                        + "\"reason\":\"walkable ground near the described encounter\",\"evidence\":[\"party is inside the lab\"]}],"
+                        + "\"reason\":\"saved location matches the mapped room\"}");
+            }
+        };
+        MapEntryPlacementModelPort model = new AiGameMasterApiConfiguration().mapEntryPlacementModelPort(adapter, mapper);
+
+        MapEntryPlacementModelPort.EntryPlacementOutput output = model.propose(
+                new MapEntryPlacementModelPort.EntryPlacementInput(UUID.randomUUID(), "실험실", "실험실 안",
+                        "파티는 이미 실험실 안에 있습니다.", "거미를 공격한다", "전투 시작", "거미가 천장에 있습니다.", "{}", ""));
+
+        assertEquals("RESOLVED", output.status());
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains(
+                "A new door or stair transition is not required when TARGET_SCENE, LOCATION, or FIRST_NARRATION already establishes that the party is inside this mapped area."));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains(
+                "MAP_DATA.validGridCellCenterBoundsNormalized gives the allowed image-coordinate rectangle for cell centers"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains(
+                "Return UNRESOLVED with an empty candidates array only when the saved scene/location cannot be matched to the map image"));
+    }
+
+    @Test
     void rejectsDoorThatOverlapsObstacle() {
         GmCompletionAdapter adapter = fixed("{\"width\":4,\"height\":3,\"obstacles\":[\"1,1\"],\"doors\":[\"1,1\"],\"playerStart\":\"0,0\"}");
         MapModelPort model = new AiGameMasterApiConfiguration().mapModelPort(adapter, mapper);
