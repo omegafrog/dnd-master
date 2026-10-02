@@ -169,9 +169,12 @@ public record RuntimePlan(
     public RuntimePlan withoutCombat(String reason) {
         List<String> nextWarnings = new java.util.ArrayList<>(warnings);
         nextWarnings.add(reason);
-        return new RuntimePlan(scene, npcState, reason, narration, proposedActiveSourceContext, citedEvidence,
+        return new RuntimePlan(scene, npcState, reason,
+                "요청한 전투는 시작되지 않았고 행동은 처리되지 않았습니다. 다시 행동을 선택해 주세요.",
+                proposedActiveSourceContext, citedEvidence,
                 nextWarnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
-                effectiveSelection, attemptCount, citationBindings, stateDelta, List.of(), false, mapEntryRequested, checkProposal);
+                effectiveSelection, attemptCount, citationBindings, stateDelta, List.of(), false, mapEntryRequested,
+                RuntimeCheckProposal.none());
     }
 
     public RuntimePlan withCheckProposal(RuntimeCheckProposal proposal) {

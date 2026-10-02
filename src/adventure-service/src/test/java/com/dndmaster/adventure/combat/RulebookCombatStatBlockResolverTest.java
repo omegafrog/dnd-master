@@ -38,6 +38,28 @@ class RulebookCombatStatBlockResolverTest {
     }
 
     @Test
+    void resolves_plural_scenario_name_from_singular_rulebook_monster_entry() {
+        UUID documentId = UUID.randomUUID();
+        RuntimeEvidence evidence = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
+                new KnowledgeDocumentId(documentId), 3, "page=123:chunk=giant-rat",
+                "거대 쥐 Giant Rat\n방어도 12\n히트 포인트 7 (2d6)\n"
+                        + "물기. 근접 무기 공격: 명중 +4, 간격 5ft, 목표 하나. 명중시: 4(1d4+2) 점의 관통 피해.");
+
+        var result = RulebookCombatStatBlockResolver.resolve(
+                new CombatEnemyProposal("encounter-beer-cellar-giant-rats", "giant-rats", "Giant Rats", 8,
+                        com.dndmaster.adventure.application.runtime.CombatStartMode.SCENARIO),
+                List.of(evidence));
+
+        assertTrue(result.isPresent());
+        CombatEnemyStatBlock stats = result.orElseThrow();
+        assertEquals(12, stats.armorClass());
+        assertEquals(7, stats.hitPointMaximum());
+        assertEquals(4, stats.attackModifier());
+        assertEquals("1d4+2", stats.damageDice());
+        assertEquals(documentId, stats.source().knowledgeDocumentId());
+    }
+
+    @Test
     void resolves_combat_numbers_from_a_structured_storybook_creature_entry() {
         UUID documentId = UUID.randomUUID();
         var result = RulebookCombatStatBlockResolver.resolve(

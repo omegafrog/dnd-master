@@ -36,7 +36,37 @@ public final class RulebookCombatStatBlockResolver {
     private static boolean containsMonster(String text, String name, String key) {
         if (text == null) return false;
         String normalized = text.toLowerCase(Locale.ROOT);
-        return normalized.contains(name) || normalized.contains(key.replace('-', ' '));
+        return containsName(normalized, name) || containsName(normalized, key.replace('-', ' '));
+    }
+
+    private static boolean containsName(String text, String candidate) {
+        String normalized = candidate.toLowerCase(Locale.ROOT).trim();
+        if (normalized.isBlank() || text.contains(normalized)) return !normalized.isBlank();
+        int lastSpace = normalized.lastIndexOf(' ');
+        String prefix = lastSpace < 0 ? "" : normalized.substring(0, lastSpace + 1);
+        String lastWord = normalized.substring(lastSpace + 1);
+        String singular = singularizeEnglish(lastWord);
+        if (!singular.equals(lastWord) && text.contains(prefix + singular)) return true;
+        String plural = pluralizeEnglish(singular);
+        return !plural.equals(singular) && text.contains(prefix + plural);
+    }
+
+    private static String singularizeEnglish(String word) {
+        if (word.endsWith("ies") && word.length() > 3) return word.substring(0, word.length() - 3) + "y";
+        if (word.endsWith("s") && !word.endsWith("ss") && word.length() > 1) return word.substring(0, word.length() - 1);
+        return word;
+    }
+
+    private static String pluralizeEnglish(String word) {
+        if (word.endsWith("y") && word.length() > 1 && !isEnglishVowel(word.charAt(word.length() - 2))) {
+            return word.substring(0, word.length() - 1) + "ies";
+        }
+        if (word.endsWith("s")) return word;
+        return word + "s";
+    }
+
+    private static boolean isEnglishVowel(char character) {
+        return "aeiou".indexOf(character) >= 0;
     }
 
     private static Optional<CombatEnemyStatBlock> parse(RuntimeEvidence evidence) {
