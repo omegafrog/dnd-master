@@ -7,6 +7,7 @@ import java.util.Map;
 public final class RuntimeGmPromptComposer {
     private static final com.fasterxml.jackson.databind.ObjectMapper MAPPER = new com.fasterxml.jackson.databind.ObjectMapper();
     private static final String RULE_MARKER = "\nLOOKUP_ORDER_RULE=";
+    private static final String SUMMARY_PREFIX = "압축된 이전 대화: ";
 
     private RuntimeGmPromptComposer() { }
 
@@ -117,13 +118,19 @@ public final class RuntimeGmPromptComposer {
         String fixedZone = "고정 지침·잠긴 자료\n" + fixed + "\nLOCKED_SCENARIO_AND_MAP_DATA=" + lockedScenario;
         String memoryZone = "\n\n현재 상황 관련 장기 기록 (GM이 문맥으로 판단)\n" + selectedLongTermFacts(longTermFacts,
                 RuntimeGmInputBudget.inputLimit(contextLimit) * 10 / 100);
-        String summaryZone = "\n\n압축된 이전 대화\n";
+        List<String> compressedHistory = new java.util.ArrayList<>();
+        List<String> uncompressedRecent = new java.util.ArrayList<>();
+        for (String turn : recentTurns) {
+            if (turn.startsWith(SUMMARY_PREFIX)) compressedHistory.add(turn.substring(SUMMARY_PREFIX.length()));
+            else uncompressedRecent.add(turn);
+        }
+        String summaryZone = "\n\n압축된 이전 대화\n" + String.join("\n", compressedHistory);
         String recentHeading = "\n\n압축하지 않은 최근 대화\n";
         String currentZone = "\n\n최신 캐릭터 시트·Current Situation·이번 턴 근거·플레이어 입력\n"
                 + "CHARACTER_SHEETS=" + characterSheets
                 + "\nRUNTIME_CONTEXT=" + currentJson + evidenceText + actionText;
         List<String> selected = RuntimeGmInputBudget.selectRecent(contextLimit, fixedZone,
-                memoryZone, summaryZone, recentTurns, currentZone + recentHeading);
+                memoryZone, summaryZone, uncompressedRecent, currentZone + recentHeading);
         String prompt = fixedZone + memoryZone + summaryZone + recentHeading + selected + currentZone;
         if (prompt.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > RuntimeGmInputBudget.inputLimit(contextLimit)) {
             throw new RuntimeGmInputBudget.InputTooLargeException();

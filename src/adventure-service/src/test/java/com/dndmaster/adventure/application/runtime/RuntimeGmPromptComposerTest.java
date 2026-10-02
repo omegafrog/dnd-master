@@ -169,6 +169,29 @@ class RuntimeGmPromptComposerTest {
         assertTrue(prompt.substring(current).contains("COMPOSITE_FACT_LOOKUP_RESULTS"));
         assertEquals(1, prompt.split("ACTION=go", -1).length - 1);
     }
+
+    @Test
+    void keeps_published_summaries_in_the_compressed_history_zone_separate_from_recent_dialogue() {
+        String legacy = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[]\nRUNTIME_CONTEXT={}\nACTION=go"
+                + "\nLOOKUP_ORDER_RULE=rules\nOUTPUT_CONTRACT=json";
+        String prompt = RuntimeGmPromptComposer.compose(legacy,
+                List.of("압축된 이전 대화: 이전 전투에서 문지기에게 길을 물었다",
+                        "PLAYER: 이번 차례에 검으로 공격한다",
+                        "AI_GAME_MASTER: 공격 결과를 확정했다"),
+                List.of("current sheet"), Map.of(), 10_000);
+
+        int summaryStart = prompt.indexOf("압축된 이전 대화");
+        int recentStart = prompt.indexOf("압축하지 않은 최근 대화");
+        int currentStart = prompt.indexOf("최신 캐릭터 시트·Current Situation·이번 턴 근거·플레이어 입력");
+        String summaryZone = prompt.substring(summaryStart, recentStart);
+        String recentZone = prompt.substring(recentStart, currentStart);
+
+        assertTrue(summaryZone.contains("이전 전투에서 문지기에게 길을 물었다"));
+        assertTrue(!summaryZone.contains("이번 차례에 검으로 공격한다"));
+        assertTrue(recentZone.contains("이번 차례에 검으로 공격한다"));
+        assertTrue(recentZone.contains("공격 결과를 확정했다"));
+        assertTrue(!recentZone.contains("이전 전투에서 문지기에게 길을 물었다"));
+    }
     @Test
     void fixed_prefix_is_identical_for_different_turn_content() {
         String first = "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=[one]\nRUNTIME_CONTEXT={}\nACTION=go"
