@@ -172,7 +172,15 @@ public final class TypedAgentContractController {
                     org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "selected GM endpoint changed before execution");
         }
         return adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
-                json -> parseRuntimeTurn(json, "SESSION_OPENING".equalsIgnoreCase(request.action())),
+                json -> {
+                    try {
+                        return parseRuntimeTurn(json, "SESSION_OPENING".equalsIgnoreCase(request.action()));
+                    } catch (IllegalArgumentException invalid) {
+                        log.warn("gm_runtime_response_rejected operationKey={} action={} reason={}",
+                                request.operationKey(), request.action(), invalid.getMessage());
+                        throw invalid;
+                    }
+                },
                 requested, resolution, request.ragSearchContext()).response();
     }
 
@@ -241,8 +249,6 @@ public final class TypedAgentContractController {
         String judgment = required(root, "judgment");
         String narration = required(root, "narration");
         if (opening) {
-            requireKoreanPlayerText("scene", scene);
-            requireKoreanPlayerText("judgment", judgment);
             requireKoreanPlayerText("narration", narration);
         }
         if (!root.has("combatStart") || !root.path("combatStart").isBoolean()) {
@@ -299,7 +305,6 @@ public final class TypedAgentContractController {
                 throw new IllegalArgumentException("scenarioId is required for a SCENARIO combat enemy");
             }
             String name = required(enemy, "name");
-            if (opening) requireKoreanPlayerText("combatEnemies.name", name);
             enemies.add(new CombatEnemyResponse(mode, scenarioId, required(enemy, "enemyKey"), name, count));
         }
         boolean combatStart = root.path("combatStart").booleanValue();
@@ -321,12 +326,6 @@ public final class TypedAgentContractController {
         String problem = required(situation, "problem");
         String threat = required(situation, "threat");
         String goal = required(situation, "goal");
-        if (opening) {
-            requireKoreanPlayerText("situation.location", location);
-            requireKoreanPlayerText("situation.problem", problem);
-            requireKoreanPlayerText("situation.threat", threat);
-            requireKoreanPlayerText("situation.goal", goal);
-        }
         SituationResponse response = new SituationResponse(kind, location, problem, threat, goal, basis, situation.path("reference").asText(""),
                 situation.path("required").booleanValue());
         List<RuntimeFactResponse> runtimeFacts = new java.util.ArrayList<>();
@@ -337,10 +336,6 @@ public final class TypedAgentContractController {
                 if (!fact.isObject()) throw new IllegalArgumentException("runtimeFacts entries must be objects");
                 String subject = required(fact, "subject");
                 String content = required(fact, "content");
-                if (opening) {
-                    requireKoreanPlayerText("runtimeFacts.subject", subject);
-                    requireKoreanPlayerText("runtimeFacts.content", content);
-                }
                 runtimeFacts.add(new RuntimeFactResponse(subject, content));
             }
         }
@@ -451,11 +446,12 @@ public final class TypedAgentContractController {
         return value;
     }
 
-    private static void requireKoreanPlayerText(String field, String value) {
+    private void requireKoreanPlayerText(String field, String value) {
         boolean hasKoreanLetter = value.codePoints().anyMatch(TypedAgentContractController::isKoreanLetter);
-        boolean hasForeignLetter = value.codePoints()
-                .anyMatch(codePoint -> Character.isLetter(codePoint) && !isKoreanLetter(codePoint));
-        if (!hasKoreanLetter || hasForeignLetter) throw new IllegalArgumentException(field + " must be written in Korean");
+        if (!hasKoreanLetter) {
+            log.warn("gm_player_text_language_rejected field={} value={}", field, write(value));
+            throw new IllegalArgumentException(field + " must be written in Korean");
+        }
     }
 
     private static boolean isKoreanLetter(int codePoint) {

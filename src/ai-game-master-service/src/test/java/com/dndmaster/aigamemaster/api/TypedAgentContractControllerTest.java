@@ -402,7 +402,7 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
-    void opening_rejects_player_visible_text_that_contains_a_foreign_language() {
+    void opening_rejects_player_visible_text_written_only_in_a_foreign_language() {
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"양조장\",\"judgment\":\"안전함\","
                 + "\"narration\":\"The room is quiet.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
                 + ",\"combatStart\":false,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},\"combatEnemies\":[]}");
@@ -412,6 +412,43 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> controller.runtimeTurn("service-secret",
                         new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "SESSION_OPENING", List.of())));
+    }
+
+    @Test
+    void opening_accepts_korean_text_with_names_abbreviations_and_dice_notation() {
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"Potent Brew 양조장\",\"judgment\":\"HP 변화 없이 DC 12 확인과 1d20 굴림을 기다립니다.\","
+                + "\"narration\":\"NPC Bob이 입구에서 기다립니다. 어떻게 하시겠어요?\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
+                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},\"combatEnemies\":[]}");
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        var response = controller.runtimeTurn("service-secret",
+                new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "SESSION_OPENING", List.of()));
+
+        org.junit.jupiter.api.Assertions.assertEquals("Potent Brew 양조장", response.scene());
+        org.junit.jupiter.api.Assertions.assertEquals("HP 변화 없이 DC 12 확인과 1d20 굴림을 기다립니다.", response.judgment());
+        org.junit.jupiter.api.Assertions.assertEquals("NPC Bob이 입구에서 기다립니다. 어떻게 하시겠어요?", response.narration());
+    }
+
+    @Test
+    void opening_accepts_original_language_internal_values_with_korean_narration() {
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> """
+                {"scene":"Wizard’s Tower Brewing Co.","judgment":"No check required",
+                 "narration":"양조장 입구에서 주인이 도움을 요청합니다. 어떻게 하시겠어요?",
+                 "situation":{"kind":"CONTINUE","location":"Wizard’s Tower Brewing Co.",
+                   "problem":"Rats in cellar","threat":"Supplies at risk","goal":"Investigate cellar",
+                   "basis":"FALLBACK","reference":"","required":true},
+                 "combatStart":false,"mapEntryRequested":false,"판정제안":{"필요":false},
+                 "combatEnemies":[{"mode":"INSTANT","enemyKey":"giant-rat","name":"Giant Rat","count":1}],
+                 "runtimeFacts":[{"subject":"Brewery owner","content":"Requested help"}]}
+                """);
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        var response = controller.runtimeTurn("service-secret",
+                new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "SESSION_OPENING", List.of()));
+
+        org.junit.jupiter.api.Assertions.assertEquals("Wizard’s Tower Brewing Co.", response.scene());
+        org.junit.jupiter.api.Assertions.assertEquals("No check required", response.judgment());
+        org.junit.jupiter.api.Assertions.assertEquals("양조장 입구에서 주인이 도움을 요청합니다. 어떻게 하시겠어요?", response.narration());
     }
 
     @Test
