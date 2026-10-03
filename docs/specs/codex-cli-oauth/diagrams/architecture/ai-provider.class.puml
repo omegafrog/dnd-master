@@ -1,0 +1,88 @@
+@startuml
+title AI 제공자 공통 실행 구조 (ARCH-COAUTH-01)
+skinparam classAttributeIconSize 0
+
+interface AiProvider {
+  +execute(request: AiExecutionRequest): AiExecutionResult
+}
+
+class AiExecutionRequest {
+  +prompt: String
+}
+
+class AiExecutionResult {
+  +content: String
+  +usage: AiUsage
+}
+
+class AiUsage {
+  +inputTokens: Integer
+  +outputTokens: Integer
+}
+
+class AiProviderRegistry {
+  +select(providerId: String): AiProvider
+}
+
+class AiExecutionRouter {
+  +execute(providerId: String, request: AiExecutionRequest): AiExecutionResult
+}
+
+interface ProviderCredentialSetup {
+  +getStatus(): ProviderConnectionStatus
+  +startOperation(type: ConnectionOperationType): ConnectionOperationResult
+  +disconnect(): ProviderConnectionStatus
+}
+
+class ProviderConnectionStatus {
+  +status: String
+}
+
+class ConnectionOperationType {
+  +value: String
+}
+
+class ConnectionOperationResult {
+  +operationId: String
+  +status: String
+}
+
+class CodexCliAdapter {
+  +execute(request: AiExecutionRequest): AiExecutionResult
+  +getStatus(): ProviderConnectionStatus
+  +startOperation(type: ConnectionOperationType): ConnectionOperationResult
+  +disconnect(): ProviderConnectionStatus
+}
+
+class ClaudeAdapter
+class ApiKeyAdapter
+
+AiExecutionRouter --> AiProviderRegistry : 제공자 선택
+AiProviderRegistry --> AiProvider : 실행 계약 반환
+AiProvider <|.. CodexCliAdapter
+AiProvider <|.. ClaudeAdapter
+AiProvider <|.. ApiKeyAdapter
+AiExecutionRouter --> AiProvider : 공통 실행 요청
+CodexCliAdapter ..|> ProviderCredentialSetup
+CodexCliAdapter --> "Codex CLI" : codex exec --json
+CodexCliAdapter --> "Codex CLI" : codex login status / codex login
+
+AiProvider ..> ProviderCredentialSetup : 선택 제공자만 연결 설정 제공
+AiProvider --> AiExecutionRequest : 입력
+AiProvider --> AiExecutionResult : 결과
+AiExecutionResult *-- AiUsage
+
+note right of ProviderCredentialSetup
+  공통 실행 계약과 자격 증명 설정은 분리한다.
+  모든 제공자가 연결 절차를 구현할 필요는 없다.
+  Codex CLI는 현재 연결/로그인 기능을 제공한다.
+  Claude 및 API key adapter는 후보이며 구현 범위가 아니다.
+end note
+
+note bottom of CodexCliAdapter
+  인증 정보와 토큰은 사용자 PC의 Codex CLI에만 둔다.
+  백엔드와 relay에는 인증 자료를 보내지 않는다.
+  연결 해제는 이 설치의 활성화 설정만 해제하며
+  codex logout은 호출하지 않는다.
+end note
+@enduml
