@@ -54,6 +54,7 @@ class CodexCliAdapter {
   +disconnect(): ProviderConnectionStatus
 }
 
+class CodexAppServerClient
 class ClaudeAdapter
 class ApiKeyAdapter
 
@@ -64,25 +65,29 @@ AiProvider <|.. ClaudeAdapter
 AiProvider <|.. ApiKeyAdapter
 AiExecutionRouter --> AiProvider : 공통 실행 요청
 CodexCliAdapter ..|> ProviderCredentialSetup
-CodexCliAdapter --> "Codex CLI" : codex exec --json
-CodexCliAdapter --> "Codex CLI" : codex login status / codex login
+CodexCliAdapter --> CodexAppServerClient : 계정 확인·로그인 및 AI 실행
+CodexAppServerClient --> "Codex app-server" : stdio JSON-RPC
 
-AiProvider ..> ProviderCredentialSetup : 선택 제공자만 연결 설정 제공
+AiProvider ..> ProviderCredentialSetup : 제공자별 선택 기능
 AiProvider --> AiExecutionRequest : 입력
 AiProvider --> AiExecutionResult : 결과
 AiExecutionResult *-- AiUsage
 
 note right of ProviderCredentialSetup
-  공통 실행 계약과 자격 증명 설정은 분리한다.
-  모든 제공자가 연결 절차를 구현할 필요는 없다.
-  Codex CLI는 현재 연결/로그인 기능을 제공한다.
-  Claude 및 API key adapter는 후보이며 구현 범위가 아니다.
+  공통 실행 계약과 연결 설정 기능은 분리한다.
+  모든 제공자가 같은 인증 절차를 구현하지 않는다.
+  Codex는 현재 app-server 연결·계정 기능을 제공한다.
+  Claude 및 API 방식은 후속 확장 후보이며 구현 범위가 아니다.
 end note
 
-note bottom of CodexCliAdapter
-  인증 정보와 토큰은 사용자 PC의 Codex CLI에만 둔다.
-  백엔드와 relay에는 인증 자료를 보내지 않는다.
-  연결 해제는 이 설치의 활성화 설정만 해제하며
-  codex logout은 호출하지 않는다.
+note bottom of CodexAppServerClient
+  사용자 PC에서 Codex app-server 실행 파일 사용 가능 여부를 확인한다.
+  account/read로 Codex 관리 로그인을 확인하고 기존 로그인을 재사용한다.
+  로그인이 없으면 account/login/start의 authUrl을 로컬 사용자에게 표시하고,
+  account/login/completed 또는 account/updated 알림이나 account/read로 완료를 확인한다.
+  계정 전환은 기존 로그인 여부와 관계없이 account/login/start를 시작한다.
+  기존 AI 실행의 streaming/thread 동작을 유지한다.
+  토큰은 백엔드나 relay에 전달하거나 서버에 저장하지 않는다.
+  연결 해제는 이 설치의 활성화 설정만 해제하고 로그아웃하지 않는다.
 end note
 @enduml
