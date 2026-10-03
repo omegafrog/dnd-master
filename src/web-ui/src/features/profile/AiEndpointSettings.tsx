@@ -41,7 +41,6 @@ export function AiEndpointSettings({ session, connectionOnly = false, connection
             operationId: activeOperation.operationId, message: activeOperation.message }
           setConnection(terminalStatus)
           onConnectionChange?.(terminalStatus)
-          operationIdHint.current = null
           if (activeOperation.message) setMessage(activeOperation.message)
         } else {
           const pendingStatus = { ...status, status: 'AUTHENTICATING' as const, operationId }
@@ -60,6 +59,27 @@ export function AiEndpointSettings({ session, connectionOnly = false, connection
   }, [connectionApi, onConnectionChange])
 
   useEffect(() => { void refreshConnection() }, [refreshConnection])
+
+  useEffect(() => {
+    const operationId = connectionHint?.operationId
+    if (!operationId || operationId === operationIdHint.current) return
+    operationIdHint.current = operationId
+    setConnection(connectionHint)
+    void connectionApi.operation(operationId).then(next => {
+      setOperation(next)
+      if (!next.pending) {
+        const terminalStatus = { status: next.status, cliAvailable: true,
+          operationId: next.operationId, message: next.message }
+        setConnection(terminalStatus)
+        onConnectionChange?.(terminalStatus)
+        if (next.message) setMessage(next.message)
+      } else {
+        const pendingStatus = { ...connectionHint, status: 'AUTHENTICATING' as const, operationId }
+        setConnection(pendingStatus)
+        onConnectionChange?.(pendingStatus)
+      }
+    }).catch(() => setMessage('Codex 연결 상태를 새로고침할 수 없습니다.'))
+  }, [connectionApi, connectionHint, onConnectionChange])
 
   useEffect(() => {
     if (!operation?.pending) return

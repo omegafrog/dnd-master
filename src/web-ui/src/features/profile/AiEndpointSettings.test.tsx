@@ -36,11 +36,12 @@ describe('Codex account settings', () => {
   })
 
   it('recovers a cancelled result from the gate hint after status has become disconnected', async () => {
+    const operationMessage = '승인 흐름이 취소되었습니다. 다시 연결할 수 있습니다.'
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
       if (url.endsWith('/profile/codex-connection/operations/op-cancelled')) {
         return Response.json({ operationId: 'op-cancelled', status: 'CANCELLED', pending: false,
-          message: 'Codex 계정 승인이 취소되었습니다. 다시 시도할 수 있습니다.' })
+          message: operationMessage })
       }
       if (url.endsWith('/profile/codex-connection')) {
         return Response.json({ status: 'DISCONNECTED', cliAvailable: true })
@@ -53,9 +54,36 @@ describe('Codex account settings', () => {
       status: 'CANCELLED', cliAvailable: true, operationId: 'op-cancelled',
     }} />)
 
-    expect(await screen.findAllByText('Codex 계정 승인이 취소되었습니다. 다시 시도할 수 있습니다.')).not.toHaveLength(0)
+    expect(await screen.findAllByText(operationMessage)).not.toHaveLength(0)
     expect(screen.getByRole('button', { name: /^Codex 계정 연결$/ })).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/profile/codex-connection/operations/op-cancelled',
+      expect.objectContaining({ headers: { Authorization: 'Bearer profile-session' } }))
+  })
+
+  it('loads a terminal operation when the gate receives its operation hint after mounting', async () => {
+    const operationMessage = 'Codex 계정 승인이 취소되었습니다. 다시 시도할 수 있습니다.'
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/profile/codex-connection/operations/op-late')) {
+        return Response.json({ operationId: 'op-late', status: 'CANCELLED', pending: false, message: operationMessage })
+      }
+      if (url.endsWith('/profile/codex-connection')) {
+        return Response.json({ status: 'DISCONNECTED', cliAvailable: true })
+      }
+      return Response.json([])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const { rerender } = render(<AiEndpointSettings session={session} connectionOnly connectionHint={{
+      status: 'DISCONNECTED', cliAvailable: true,
+    }} />)
+
+    rerender(<AiEndpointSettings session={session} connectionOnly connectionHint={{
+      status: 'CANCELLED', cliAvailable: true, operationId: 'op-late', message: operationMessage,
+    }} />)
+
+    expect(await screen.findAllByText(operationMessage)).not.toHaveLength(0)
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/profile/codex-connection/operations/op-late',
       expect.objectContaining({ headers: { Authorization: 'Bearer profile-session' } }))
   })
 

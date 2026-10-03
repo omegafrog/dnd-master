@@ -79,4 +79,42 @@ describe('AppShell Codex connection gate', () => {
     expect(await screen.findAllByText('Codex 계정 승인이 취소되었습니다. 다시 시도할 수 있습니다.', { exact: true })).not.toHaveLength(0)
     expect(screen.getByRole('button', { name: /^Codex 계정 연결$/ })).toBeInTheDocument()
   }, 12000)
+
+  it('keeps a completed cancellation when a later status refresh has no operation id', async () => {
+    localStorage.setItem('dnd-master.auth-session', JSON.stringify(session))
+    window.location.hash = '#/profile'
+    let switchStarted = false
+    let disconnectedStatusReads = 0
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/profile/codex-connection/operations') && init?.method === 'POST') {
+        switchStarted = true
+        return Response.json({ operationId: 'switch-2', status: 'AUTHENTICATING', pending: true })
+      }
+      if (url.endsWith('/profile/codex-connection/operations/switch-2')) {
+        return Response.json({ operationId: 'switch-2', status: 'CANCELLED', pending: false,
+          message: 'Codex 계정 승인이 취소되었습니다. 다시 시도할 수 있습니다.' })
+      }
+      if (url.endsWith('/profile/codex-connection')) {
+        if (!switchStarted) return Response.json({ status: 'CONNECTED', cliAvailable: true })
+        disconnectedStatusReads += 1
+        return Response.json({ status: 'DISCONNECTED', cliAvailable: true })
+      }
+      if (url.endsWith('/profile/agent-endpoints')) return Response.json([])
+      return Response.json({})
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(window, 'open').mockReturnValue({ opener: null, location: { href: 'about:blank' }, close: vi.fn() } as unknown as Window)
+
+    render(<App identityApi={identityApi} />)
+    fireEvent.click(await screen.findByRole('button', { name: '다른 Codex 계정으로 전환' }))
+
+    expect(await screen.findByRole('heading', { name: 'Codex 계정을 연결해 주세요' })).toBeInTheDocument()
+    expect(await screen.findAllByText('Codex 계정 승인이 취소되었습니다. 다시 시도할 수 있습니다.', { exact: true })).not.toHaveLength(0)
+    await act(async () => { await new Promise(resolve => window.setTimeout(resolve, 1700)) })
+
+    expect(disconnectedStatusReads).toBeGreaterThan(0)
+    expect(await screen.findAllByText('Codex 계정 승인이 취소되었습니다. 다시 시도할 수 있습니다.', { exact: true })).not.toHaveLength(0)
+    expect(screen.getByRole('button', { name: /^Codex 계정 연결$/ })).toBeInTheDocument()
+  }, 12000)
 })
