@@ -9,9 +9,10 @@ import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Properties;
 
-/** Persists a single non-secret enabled flag in the user's local settings directory. */
+/** Persists non-secret Codex connection flags in the user's local settings directory. */
 public final class FileInstallationLinkStore implements InstallationLinkStore {
     private static final String KEY = "codex.connection.enabled";
+    private static final String REAUTHENTICATION_REQUIRED_KEY = "codex.connection.reauthentication-required";
     private final Path settingsFile;
 
     public FileInstallationLinkStore(Path settingsFile) {
@@ -34,6 +35,24 @@ public final class FileInstallationLinkStore implements InstallationLinkStore {
     public synchronized void setEnabled(boolean enabled) {
         Properties properties = load();
         properties.setProperty(KEY, Boolean.toString(enabled));
+        save(properties);
+    }
+
+    @Override
+    public synchronized Optional<Boolean> getReauthenticationRequired() {
+        if (!Files.isRegularFile(settingsFile)) return Optional.empty();
+        String value = load().getProperty(REAUTHENTICATION_REQUIRED_KEY);
+        return value == null ? Optional.empty() : Optional.of(Boolean.parseBoolean(value));
+    }
+
+    @Override
+    public synchronized void setReauthenticationRequired(boolean required) {
+        Properties properties = load();
+        properties.setProperty(REAUTHENTICATION_REQUIRED_KEY, Boolean.toString(required));
+        save(properties);
+    }
+
+    private void save(Properties properties) {
         try {
             Files.createDirectories(settingsFile.getParent());
             Path temporary = Files.createTempFile(settingsFile.getParent(), "settings-", ".tmp");

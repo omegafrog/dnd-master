@@ -147,12 +147,12 @@ public final class CodexAppServerClient implements AutoCloseable, CodexAccountCl
                     turnCompletedReceived = true;
                     JsonNode turnError = params.path("turn").path("error");
                     if (!turnError.isMissingNode() && !turnError.isNull()) {
-                        throw new CodexTurnFailedException(threadId, method, "Codex turn failed: " + compact(turnError));
+                        throw turnFailure(threadId, method, turnError);
                     }
                     break;
                 }
                 if ("turn/failed".equals(method) || "turn/aborted".equals(method)) {
-                    throw new CodexTurnFailedException(threadId, method, "Codex turn terminated: " + compact(params));
+                    throw turnFailure(threadId, method, params.path("error"));
                 }
                 if (message.has("error")) throw rpcError(message);
             }
@@ -429,7 +429,23 @@ public final class CodexAppServerClient implements AutoCloseable, CodexAccountCl
     }
 
     private static IllegalStateException rpcError(JsonNode message) {
+        if (isAuthenticationRejection(message.path("error"))) return new CodexAuthenticationRejectedException();
         return new IllegalStateException("Codex app-server request failed");
+    }
+
+    private static RuntimeException turnFailure(String turnId, String method, JsonNode error) {
+        if (isAuthenticationRejection(error)) return new CodexAuthenticationRejectedException();
+        return new CodexTurnFailedException(turnId, method, "Codex app-server execution failed");
+    }
+
+    private static boolean isAuthenticationRejection(JsonNode error) {
+        String codexErrorInfo = error.path("codexErrorInfo").asText("").toLowerCase(java.util.Locale.ROOT);
+        String code = error.path("code").asText("").toLowerCase(java.util.Locale.ROOT);
+        String message = error.path("message").asText("").toLowerCase(java.util.Locale.ROOT);
+        return codexErrorInfo.contains("unauthorized") || codexErrorInfo.contains("authentication")
+                || code.contains("unauthorized") || code.contains("authentication")
+                || message.contains("login required") || message.contains("not authenticated")
+                || message.contains("authentication required") || message.contains("credentials expired");
     }
 
     private void closeProcess() {

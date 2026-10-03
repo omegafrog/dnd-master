@@ -124,6 +124,39 @@ class CodexConnectionServiceTest {
         assertThat(account.loginStarts).isZero();
     }
 
+    @Test
+    void executionAuthenticationRejectionKeepsTheInstallationInReauthenticationRequiredState() {
+        var account = new FakeAccountClient(true, true);
+        var links = new MemoryLinkStore();
+        links.enabled = Optional.of(true);
+        var service = service(account, links, new ArrayDeque<>());
+
+        service.requireReauthentication();
+
+        assertThat(service.getStatus().status()).isEqualTo(ProviderConnectionStatus.REAUTH_REQUIRED);
+        assertThat(links.enabled).contains(true);
+        assertThat(account.authenticated).isTrue();
+    }
+
+    @Test
+    void explicitReauthenticationClearsExecutionRejectionStateOnlyAfterLoginCompletes() {
+        var account = new FakeAccountClient(true, true);
+        var links = new MemoryLinkStore();
+        links.enabled = Optional.of(true);
+        var work = new ArrayDeque<Runnable>();
+        var service = service(account, links, work);
+        service.requireReauthentication();
+
+        var started = service.start("reauthenticate", ConnectionOperationType.REAUTHENTICATE);
+        assertThat(started.status()).isEqualTo(ProviderConnectionStatus.AUTHENTICATING);
+        assertThat(service.getStatus().status()).isEqualTo(ProviderConnectionStatus.AUTHENTICATING);
+
+        work.remove().run();
+
+        assertThat(service.getOperation("reauthenticate").status()).isEqualTo(ProviderConnectionStatus.CONNECTED);
+        assertThat(service.getStatus().status()).isEqualTo(ProviderConnectionStatus.CONNECTED);
+    }
+
     private static CodexConnectionService service(FakeAccountClient account, MemoryLinkStore links, Queue<Runnable> work) {
         return new CodexConnectionService(account, links, work::add,
                 Duration.ofMillis(5), Duration.ofMillis(1));
@@ -151,7 +184,10 @@ class CodexConnectionServiceTest {
 
     private static final class MemoryLinkStore implements InstallationLinkStore {
         private Optional<Boolean> enabled = Optional.empty();
+        private Optional<Boolean> reauthenticationRequired = Optional.empty();
         @Override public Optional<Boolean> getEnabled() { return enabled; }
         @Override public void setEnabled(boolean value) { enabled = Optional.of(value); }
+        @Override public Optional<Boolean> getReauthenticationRequired() { return reauthenticationRequired; }
+        @Override public void setReauthenticationRequired(boolean value) { reauthenticationRequired = Optional.of(value); }
     }
 }

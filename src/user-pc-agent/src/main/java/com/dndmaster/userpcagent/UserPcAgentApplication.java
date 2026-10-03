@@ -3,6 +3,7 @@ package com.dndmaster.userpcagent;
 import com.dndmaster.aigamemaster.localcodex.CodexWebSocketAgent;
 import com.dndmaster.aigamemaster.localcodex.CodexConnectionService;
 import com.dndmaster.aigamemaster.localcodex.FileInstallationLinkStore;
+import com.dndmaster.aigamemaster.localcodex.InstallationGuardedAiExecutionPort;
 import com.dndmaster.aigamemaster.localcodex.LocalCodexAiExecutionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.CodexAppServerClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,17 +26,21 @@ public final class UserPcAgentApplication {
                 settings.codexWorkDirectory(),
                 settings.codexTimeout(),
                 objectMapper);
+        var loginExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        CodexConnectionService connectionService = new CodexConnectionService(appServer,
+                FileInstallationLinkStore.forCurrentUser(), loginExecutor,
+                Duration.ofMinutes(15), Duration.ofSeconds(2));
+        var guardedCodex = new InstallationGuardedAiExecutionPort(codex, connectionService);
 
-        try (codex; var loginExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        try (codex; loginExecutor;
                 CodexWebSocketAgent agent = new CodexWebSocketAgent(
                 settings.relayWebSocketUrl(),
                 settings.accessToken(),
                 settings.connectionId(),
-                codex,
+                guardedCodex,
                 objectMapper,
                 java.util.concurrent.ForkJoinPool.commonPool(),
-                new CodexConnectionService(appServer, FileInstallationLinkStore.forCurrentUser(),
-                        loginExecutor, Duration.ofMinutes(15), Duration.ofSeconds(2)))) {
+                connectionService)) {
             Runtime.getRuntime().addShutdownHook(new Thread(agent::close, "user-pc-agent-shutdown"));
             agent.connect().toCompletableFuture().join();
             System.out.println("사용자 PC 에이전트 연결됨: " + settings.relayWebSocketUrl());

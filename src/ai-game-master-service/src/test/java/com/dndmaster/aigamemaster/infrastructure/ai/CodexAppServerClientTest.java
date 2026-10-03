@@ -181,9 +181,8 @@ class CodexAppServerClientTest {
                 executable.toString(), executable.getParent(), Duration.ofSeconds(2), new ObjectMapper());
         try {
             assertThatThrownBy(() -> client.complete("turn-error", "complete", "gpt-5.6-luna"))
-                    .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("Codex turn failed")
-                    .hasMessageContaining("unauthorized");
+                    .isInstanceOf(CodexAuthenticationRejectedException.class)
+                    .hasMessage("Codex app-server rejected authentication");
         } finally {
             client.close();
         }
@@ -233,7 +232,7 @@ class CodexAppServerClientTest {
         try {
             assertThatThrownBy(() -> client.complete("turn-failed", "complete", "gpt-5.6-luna"))
                     .isInstanceOf(CodexTurnFailedException.class)
-                    .hasMessageContaining("bad turn");
+                    .hasMessage("Codex app-server execution failed");
         } finally {
             client.close();
         }

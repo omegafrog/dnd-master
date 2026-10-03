@@ -10,6 +10,7 @@ sourceSets {
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexCliCompletionAdapter.java",
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexCliCharacterTagProvider.java",
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexTurnFailedException.java",
+            "com/dndmaster/aigamemaster/infrastructure/ai/CodexAuthenticationRejectedException.java",
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexTurnTimeoutException.java",
             "com/dndmaster/aigamemaster/localcodex/**",
         )
@@ -20,6 +21,9 @@ sourceSets {
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexAppServerClientTest.java",
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexCliCharacterTagProviderTest.java",
             "com/dndmaster/aigamemaster/localcodex/CodexConnectionServiceTest.java",
+            "com/dndmaster/aigamemaster/localcodex/InstallationGuardedAiExecutionPortTest.java",
+            "com/dndmaster/aigamemaster/localcodex/FileInstallationLinkStoreTest.java",
+            "com/dndmaster/aigamemaster/localcodex/CodexWebSocketAgentTest.java",
         )
     }
 }

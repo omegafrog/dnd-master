@@ -17,6 +17,7 @@ public final class CodexConnectionService {
     private final Duration pollInterval;
     private final Map<String, MutableOperation> operations = new ConcurrentHashMap<>();
     private String activeOperationId;
+    private boolean reauthenticationRequired;
 
     public CodexConnectionService(CodexAccountClient account, InstallationLinkStore links, Executor executor,
                                   Duration loginTimeout, Duration pollInterval) {
@@ -25,6 +26,7 @@ public final class CodexConnectionService {
         this.executor = executor;
         this.loginTimeout = positive(loginTimeout, "loginTimeout");
         this.pollInterval = positive(pollInterval, "pollInterval");
+        this.reauthenticationRequired = links.getReauthenticationRequired().orElse(false);
     }
 
     public synchronized ConnectionStatus getStatus() {
@@ -32,6 +34,8 @@ public final class CodexConnectionService {
         if (!available) return new ConnectionStatus(ProviderConnectionStatus.CLI_UNAVAILABLE, false, activeOperationId);
         if (activeOperationId != null) return new ConnectionStatus(
                 ProviderConnectionStatus.AUTHENTICATING, true, activeOperationId);
+        if (reauthenticationRequired) return new ConnectionStatus(
+                ProviderConnectionStatus.REAUTH_REQUIRED, true, null);
         Optional<Boolean> enabled = links.getEnabled();
         if (enabled.equals(Optional.of(false))) return new ConnectionStatus(ProviderConnectionStatus.DISCONNECTED, true, activeOperationId);
         try {
@@ -47,11 +51,34 @@ public final class CodexConnectionService {
                 : ProviderConnectionStatus.AUTH_REQUIRED, true, activeOperationId);
     }
 
+    /** Checks whether an explicitly enabled installation may start one Codex AI request. */
+    public synchronized ConnectionStatus getExecutionStatus() {
+        if (!account.isAvailable()) return new ConnectionStatus(ProviderConnectionStatus.CLI_UNAVAILABLE, false, activeOperationId);
+        if (activeOperationId != null) return new ConnectionStatus(
+                ProviderConnectionStatus.AUTHENTICATING, true, activeOperationId);
+        if (reauthenticationRequired) return new ConnectionStatus(
+                ProviderConnectionStatus.REAUTH_REQUIRED, true, null);
+        Optional<Boolean> enabled = links.getEnabled();
+        if (!enabled.orElse(false)) return new ConnectionStatus(
+                enabled.isEmpty() ? ProviderConnectionStatus.AUTH_REQUIRED : ProviderConnectionStatus.DISCONNECTED,
+                true, null);
+        try {
+            return new ConnectionStatus(account.isAuthenticated() ? ProviderConnectionStatus.CONNECTED
+                    : ProviderConnectionStatus.REAUTH_REQUIRED, true, null);
+        } catch (RuntimeException failure) {
+            return new ConnectionStatus(ProviderConnectionStatus.REAUTH_REQUIRED, true, null);
+        }
+    }
+
     public synchronized ConnectionOperationResult start(String operationId, ConnectionOperationType type) {
         required(operationId, "operationId");
         if (type == null) throw new IllegalArgumentException("connection operation type is required");
         MutableOperation existing = operations.get(operationId);
         if (existing != null) return existing.snapshot();
+        if (reauthenticationRequired && type == ConnectionOperationType.CONNECT) {
+            return save(operationId, ProviderConnectionStatus.REAUTH_REQUIRED, null,
+                    "Codex 계정을 다시 인증해 주세요.");
+        }
         if (activeOperationId != null) {
             return new ConnectionOperationResult(operationId, ProviderConnectionStatus.FAILED, null,
                     "다른 계정 연결 작업이 진행 중입니다. 잠시 뒤 상태를 다시 확인해 주세요.");
@@ -60,6 +87,8 @@ public final class CodexConnectionService {
                 null, "Codex CLI를 설치한 뒤 다시 시도해 주세요.");
         if (type == ConnectionOperationType.SWITCH_ACCOUNT) {
             links.setEnabled(false);
+            reauthenticationRequired = false;
+            links.setReauthenticationRequired(false);
         }
         if (type == ConnectionOperationType.CONNECT) {
             try {
@@ -104,7 +133,14 @@ public final class CodexConnectionService {
             activeOperationId = null;
         }
         links.setEnabled(false);
+        links.setReauthenticationRequired(false);
+        reauthenticationRequired = false;
         return new ConnectionStatus(ProviderConnectionStatus.DISCONNECTED, account.isAvailable(), null);
+    }
+
+    public synchronized void requireReauthentication() {
+        reauthenticationRequired = true;
+        links.setReauthenticationRequired(true);
     }
 
     private void awaitLogin(MutableOperation operation) {
@@ -115,6 +151,8 @@ public final class CodexConnectionService {
             switch (result) {
                 case AUTHENTICATED -> {
                     links.setEnabled(true);
+                    reauthenticationRequired = false;
+                    links.setReauthenticationRequired(false);
                     operation.status = ProviderConnectionStatus.CONNECTED;
                     operation.message = "Codex 계정 연결을 완료했습니다.";
                 }

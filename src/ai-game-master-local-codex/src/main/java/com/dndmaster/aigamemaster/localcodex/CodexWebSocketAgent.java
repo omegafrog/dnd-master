@@ -186,7 +186,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         }
     }
 
-    private AgentExecutionResponse execute(AgentExecutionRequest request) {
+    AgentExecutionResponse execute(AgentExecutionRequest request) {
         AiExecutionResult result = executionPort.execute(new AiExecutionRequest(
                 request.soloPlayerId(),
                 request.requestId(),
@@ -202,7 +202,15 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         }
         AiExecutionFailure failure = (AiExecutionFailure) result;
         LOGGER.warn("Codex execution failed requestId={} reason={}", request.requestId(), failure.reason());
-        return new AgentExecutionResponse(request.requestId(), "", "REMOTE_FAILURE", null);
+        String failureType = switch (failure.reason()) {
+            case CONNECTION_UNAVAILABLE -> "NO_CONNECTION";
+            case CONNECTION_REQUIRED -> "CONNECTION_REQUIRED";
+            case REAUTH_REQUIRED -> "REAUTH_REQUIRED";
+            case CONNECTION_LOST -> "CONNECTION_LOST";
+            case TIMEOUT -> "TIMEOUT";
+            default -> "REMOTE_FAILURE";
+        };
+        return new AgentExecutionResponse(request.requestId(), "", failureType, null);
     }
 
     private CompletableFuture<Void> sendResponse(Object response) {
@@ -308,7 +316,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record AgentExecutionRequest(
+    record AgentExecutionRequest(
             UUID soloPlayerId,
             String requestId,
             String operationId,
@@ -320,11 +328,11 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             List<String> imageInputs,
             long deadlineEpochMillis,
             String connectionId) {
-        private AgentExecutionRequest {
+        AgentExecutionRequest {
             imageInputs = imageInputs == null ? List.of() : List.copyOf(imageInputs);
         }
     }
 
-    private record AgentExecutionResponse(String requestId, String content, String failureType,
+    record AgentExecutionResponse(String requestId, String content, String failureType,
             com.dndmaster.aigamemaster.application.ai.AiExecutionUsage usage) {}
 }

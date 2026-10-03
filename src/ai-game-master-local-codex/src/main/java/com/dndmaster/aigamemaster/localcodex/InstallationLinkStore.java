@@ -6,4 +6,6 @@ import java.util.Optional;
 public interface InstallationLinkStore {
     Optional<Boolean> getEnabled();
     void setEnabled(boolean enabled);
+    Optional<Boolean> getReauthenticationRequired();
+    void setReauthenticationRequired(boolean required);
 }

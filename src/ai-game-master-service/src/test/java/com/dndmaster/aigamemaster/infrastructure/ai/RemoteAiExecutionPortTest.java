@@ -52,6 +52,29 @@ class RemoteAiExecutionPortTest {
         assertThat(((AiExecutionFailure) result).reason()).isEqualTo(AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE);
     }
 
+    @Test
+    void preservesTheReauthenticationRequiredResultFromTheLocalAgent() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/internal/executions", exchange -> {
+            byte[] response = "{\"requestId\":\"request-reauth\",\"content\":\"\",\"failureType\":\"REAUTH_REQUIRED\"}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        try {
+            var port = new RemoteAiExecutionPort(HttpClient.newHttpClient(), new ObjectMapper(),
+                    URI.create("http://localhost:" + server.getAddress().getPort()), "token", Duration.ofSeconds(2));
+            var result = (AiExecutionFailure) port.execute(new AiExecutionRequest(UUID.randomUUID(), "request-reauth",
+                    "work", "prompt", "model", "medium", "TEXT", null, ""));
+
+            assertThat(result.reason()).isEqualTo(AiExecutionFailure.Reason.REAUTH_REQUIRED);
+        } finally {
+            server.stop(0);
+        }
+    }
+
     @Test void sendsCompletedRequestToAuthenticatedRelayAndMapsFinalResult() throws Exception {
         var token = new java.util.concurrent.atomic.AtomicReference<String>();
         var body = new java.util.concurrent.atomic.AtomicReference<String>();
