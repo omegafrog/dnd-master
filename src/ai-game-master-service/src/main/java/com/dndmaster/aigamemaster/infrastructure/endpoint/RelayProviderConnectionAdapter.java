@@ -12,6 +12,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -24,6 +25,7 @@ public final class RelayProviderConnectionAdapter implements RemoteProviderConne
     private final String internalToken;
     private final Duration timeout;
 
+    @Autowired
     public RelayProviderConnectionAdapter(ObjectMapper mapper,
             @Value("${ai-game-master.relay.base-url:http://agent-connection-relay-service:8080}") URI relayBaseUri,
             @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
