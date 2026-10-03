@@ -13,6 +13,9 @@ import java.time.Duration;
 import java.util.ArrayDeque;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -71,6 +74,44 @@ class InstallationGuardedAiExecutionPortTest {
         assertThat(retry.reason()).isEqualTo(AiExecutionFailure.Reason.REAUTH_REQUIRED);
         assertThat(calls).hasValue(1);
         assertThat(links.enabled).contains(true);
+    }
+
+    @Test
+    void serializesDisconnectUntilTheInFlightProviderRequestFinishes() throws Exception {
+        var connection = connection(new FakeAccountClient(true, true),
+                new MemoryLinkStore(Optional.of(true)));
+        var providerEntered = new CountDownLatch(1);
+        var finishProvider = new CountDownLatch(1);
+        var disconnectStarted = new CountDownLatch(1);
+        var guarded = new InstallationGuardedAiExecutionPort(ignored -> {
+            providerEntered.countDown();
+            try {
+                if (!finishProvider.await(2, TimeUnit.SECONDS)) throw new IllegalStateException("test timed out");
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("test interrupted", interrupted);
+            }
+            return new AiExecutionSuccess("finished", AiExecutionUsage.unknown());
+        }, connection);
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var execution = workers.submit(() -> guarded.execute(request()));
+            assertThat(providerEntered.await(2, TimeUnit.SECONDS)).isTrue();
+            var disconnect = workers.submit(() -> {
+                disconnectStarted.countDown();
+                return connection.disconnect();
+            });
+            assertThat(disconnectStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(disconnect.isDone()).isFalse();
+
+            finishProvider.countDown();
+
+            assertThat(execution.get(2, TimeUnit.SECONDS)).isInstanceOf(AiExecutionSuccess.class);
+            assertThat(disconnect.get(2, TimeUnit.SECONDS).status()).isEqualTo(ProviderConnectionStatus.DISCONNECTED);
+        } finally {
+            finishProvider.countDown();
+            workers.shutdownNow();
+        }
     }
 
     private static AiExecutionRequest request() {

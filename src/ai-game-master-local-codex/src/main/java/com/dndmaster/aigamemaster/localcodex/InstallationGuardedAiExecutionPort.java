@@ -1,6 +1,5 @@
 package com.dndmaster.aigamemaster.localcodex;
 
-import com.dndmaster.aigamemaster.application.ai.AiExecutionFailure;
 import com.dndmaster.aigamemaster.application.ai.AiExecutionPort;
 import com.dndmaster.aigamemaster.application.ai.AiExecutionRequest;
 import com.dndmaster.aigamemaster.application.ai.AiExecutionResult;
@@ -18,20 +17,6 @@ public final class InstallationGuardedAiExecutionPort implements AiExecutionPort
 
     @Override
     public AiExecutionResult execute(AiExecutionRequest request) {
-        ConnectionStatus status = connection.getExecutionStatus();
-        if (status.status() != ProviderConnectionStatus.CONNECTED) {
-            AiExecutionFailure.Reason reason = switch (status.status()) {
-                case CLI_UNAVAILABLE -> AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE;
-                case REAUTH_REQUIRED -> AiExecutionFailure.Reason.REAUTH_REQUIRED;
-                default -> AiExecutionFailure.Reason.CONNECTION_REQUIRED;
-            };
-            return new AiExecutionFailure(reason, reason.name());
-        }
-        AiExecutionResult result = delegate.execute(request);
-        if (result instanceof AiExecutionFailure failure
-                && failure.reason() == AiExecutionFailure.Reason.REAUTH_REQUIRED) {
-            connection.requireReauthentication();
-        }
-        return result;
+        return connection.executeIfConnected(() -> delegate.execute(request));
     }
 }

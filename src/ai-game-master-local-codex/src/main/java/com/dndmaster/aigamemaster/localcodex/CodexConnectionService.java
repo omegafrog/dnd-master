@@ -1,5 +1,7 @@
 package com.dndmaster.aigamemaster.localcodex;
 
+import com.dndmaster.aigamemaster.application.ai.AiExecutionFailure;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionResult;
 import com.dndmaster.aigamemaster.infrastructure.ai.CodexAccountClient;
 import com.dndmaster.aigamemaster.infrastructure.ai.LoginWaitResult;
 import java.time.Duration;
@@ -7,6 +9,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 
 /** Owns this installation's enabled flag and transient asynchronous login operations. */
 public final class CodexConnectionService {
@@ -68,6 +71,25 @@ public final class CodexConnectionService {
         } catch (RuntimeException failure) {
             return new ConnectionStatus(ProviderConnectionStatus.REAUTH_REQUIRED, true, null);
         }
+    }
+
+    /** Keeps connection changes serialized with the full request dispatch. */
+    public synchronized AiExecutionResult executeIfConnected(Supplier<AiExecutionResult> execution) {
+        ConnectionStatus status = getExecutionStatus();
+        if (status.status() != ProviderConnectionStatus.CONNECTED) {
+            AiExecutionFailure.Reason reason = switch (status.status()) {
+                case CLI_UNAVAILABLE -> AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE;
+                case REAUTH_REQUIRED -> AiExecutionFailure.Reason.REAUTH_REQUIRED;
+                default -> AiExecutionFailure.Reason.CONNECTION_REQUIRED;
+            };
+            return new AiExecutionFailure(reason, reason.name());
+        }
+        AiExecutionResult result = execution.get();
+        if (result instanceof AiExecutionFailure failure
+                && failure.reason() == AiExecutionFailure.Reason.REAUTH_REQUIRED) {
+            requireReauthentication();
+        }
+        return result;
     }
 
     public synchronized ConnectionOperationResult start(String operationId, ConnectionOperationType type) {
