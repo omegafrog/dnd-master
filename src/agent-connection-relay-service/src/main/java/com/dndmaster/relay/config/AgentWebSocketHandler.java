@@ -64,14 +64,28 @@ public class AgentWebSocketHandler implements WebSocketHandler {
     WebSocketConnectionTransport transport = new WebSocketConnectionTransport(session, objectMapper);
     Mono<Void> receive = session.receive()
         .filter(message -> message.getType() == WebSocketMessage.Type.TEXT)
-        .flatMap(message -> Mono.fromCallable(() -> objectMapper.readValue(
-            message.getPayloadAsText(), RelayExecutionResult.class))
+        .flatMap(message -> Mono.fromCallable(() -> objectMapper.readTree(message.getPayloadAsText()))
             .doOnNext(result -> {
-              if (result.success()) {
-                completionRegistry.complete(result);
-              } else {
-                completionRegistry.fail(result.requestId(),
-                    new IllegalStateException(result.failureType().name()));
+              if ("CONNECTION_CONTROL_RESULT".equals(result.path("messageType").asText())) {
+                try {
+                  var control = objectMapper.treeToValue(result,
+                      com.dndmaster.relay.application.AgentConnectionControlResult.class);
+                  completionRegistry.complete(RelayExecutionResult.success(control.requestId(),
+                      objectMapper.writeValueAsString(control)));
+                } catch (Exception ignored) {
+                  completionRegistry.fail(result.path("requestId").asText(),
+                      new IllegalStateException("connection result could not be decoded"));
+                }
+                return;
+              }
+              try {
+                var execution = objectMapper.treeToValue(result, RelayExecutionResult.class);
+                if (execution.success()) completionRegistry.complete(execution);
+                else completionRegistry.fail(execution.requestId(),
+                    new IllegalStateException(execution.failureType().name()));
+              } catch (Exception ignored) {
+                completionRegistry.fail(result.path("requestId").asText(),
+                    new IllegalStateException("agent execution result could not be decoded"));
               }
             }))
         .then();

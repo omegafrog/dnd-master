@@ -29,6 +29,18 @@ public final class HttpOwnedInstanceClient implements OwnedInstanceClient {
                 .flatMap(result -> request.requestId().equals(result.requestId()) ? Mono.just(result)
                         : Mono.error(new IllegalStateException("owned instance returned a mismatched requestId")));
     }
+    @Override public Mono<AgentConnectionControlResult> control(String internalAddress, ConnectionControlRequest request) {
+        var endpoint = URI.create(internalAddress).resolve("/internal/owned-connection-controls");
+        long remainingMillis = request.deadlineEpochMillis() - System.currentTimeMillis();
+        if (request.deadlineEpochMillis() > 0 && remainingMillis <= 0) return Mono.just(
+                AgentConnectionControlResult.failure(request.requestId(), "TIMEOUT", "연결 요청 시간이 초과되었습니다."));
+        Duration remaining = request.deadlineEpochMillis() == 0 ? timeout : Duration.ofMillis(Math.min(timeout.toMillis(), remainingMillis));
+        return client.post().uri(endpoint).header("X-Internal-Token", internalToken)
+                .header("X-Internal-Caller", "agent-connection-relay-service").header("X-Relay-Instance-Id", instanceId)
+                .bodyValue(request).retrieve().bodyToMono(AgentConnectionControlResult.class).timeout(remaining)
+                .flatMap(result -> request.requestId().equals(result.requestId()) ? Mono.just(result)
+                        : Mono.error(new IllegalStateException("owned instance returned a mismatched requestId")));
+    }
     private static String required(String token) {
         if (token == null || token.isBlank()) throw new IllegalStateException("INTERNAL_SERVICE_TOKEN is required"); return token;
     }

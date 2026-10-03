@@ -18,6 +18,7 @@ import { CombatMapView } from '../features/combat-map/CombatMapView'
 import { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
 import { AdventureSessionPanel } from '../features/adventure-session/AdventureSessionPanel'
 import { AiEndpointSettings } from '../features/profile/AiEndpointSettings'
+import { CodexConnectionApi, type CodexConnectionState } from '../features/profile/CodexConnectionApi'
 import { CombatScreen } from '../features/combat/CombatScreen'
 import { HttpCombatApi, type CombatFinalSummary, type CombatSnapshot } from '../features/combat/CombatApi'
 import { parseRoute, type Route } from './route'
@@ -28,6 +29,8 @@ export function AppShell() {
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash))
   const [selectedBundleId, setSelectedBundleId] = useState(() => window.localStorage.getItem('dnd-selected-bundle-id') ?? '')
   const [mapRefreshToken, setMapRefreshToken] = useState(0)
+  const [connectionGate, setConnectionGate] = useState<{ token: string; status: CodexConnectionState } | null>(null)
+  const connectionReady = connectionGate?.token === auth.session?.accessToken && connectionGate?.status.status === 'CONNECTED'
   const sessionApi = useMemo(() => new AdventureSessionApi(auth.session?.accessToken ?? ''), [auth.session?.accessToken])
   const setupApi = useMemo(() => new HttpSetupApi(() => auth.session?.accessToken ?? ''), [auth.session?.accessToken])
   const rawSetupApi = useMemo(() => new HttpSetupApi(() => auth.session?.accessToken ?? ''), [auth.session?.accessToken])
@@ -42,6 +45,18 @@ export function AppShell() {
     if (auth.session && route.page === 'login') window.location.hash = '#/adventures'
   }, [auth.session, route.page])
   useEffect(() => {
+    const session = auth.session
+    if (!session) { setConnectionGate(null); return }
+    let active = true
+    const api = new CodexConnectionApi(session)
+    const refresh = () => void api.status()
+      .then(status => { if (active) setConnectionGate({ token: session.accessToken, status }) })
+      .catch(() => { if (active) setConnectionGate({ token: session.accessToken, status: { status: 'UNAVAILABLE', cliAvailable: false } }) })
+    refresh()
+    const timer = connectionReady ? undefined : window.setInterval(refresh, 1500)
+    return () => { active = false; if (timer !== undefined) window.clearInterval(timer) }
+  }, [auth.session, connectionReady])
+  useEffect(() => {
     if (!auth.session || route.page !== 'adventures') return
     const currentPath = window.location.hash.split('?')[0]
     if (currentPath === '#/setup') window.location.hash = '#/adventures'
@@ -52,7 +67,7 @@ export function AppShell() {
     return () => window.removeEventListener('dnd-selected-bundle-change', refreshSelectedBundle)
   }, [])
   useEffect(() => {
-    if (!auth.session) return
+    if (!auth.session || !connectionReady) return
     const sessionId = route.page === 'character-blueprint' || route.page === 'character-create' || route.page === 'session' || route.page === 'party' || route.page === 'session-runtime'
       ? route.sessionId
       : null
@@ -72,9 +87,9 @@ export function AppShell() {
       })
       .catch(() => undefined)
     return () => { active = false }
-  }, [auth.session, rawSetupApi, route, sessionApi])
+  }, [auth.session, connectionReady, rawSetupApi, route, sessionApi])
   useEffect(() => {
-    if (!auth.session || route.page !== 'adventures' || selectedBundleId || !rawSetupApi.listScenarioBundles) return
+    if (!auth.session || !connectionReady || route.page !== 'adventures' || selectedBundleId || !rawSetupApi.listScenarioBundles) return
     let active = true
     void rawSetupApi.listScenarioBundles()
       .then(bundles => {
@@ -86,7 +101,7 @@ export function AppShell() {
       })
       .catch(() => undefined)
     return () => { active = false }
-  }, [auth.session, rawSetupApi, route.page, selectedBundleId])
+  }, [auth.session, connectionReady, rawSetupApi, route.page, selectedBundleId])
 
   const token = auth.session?.accessToken ?? ''
   const playerId = auth.session?.playerId ?? ''
@@ -97,7 +112,7 @@ export function AppShell() {
   const [combatFinalSummary, setCombatFinalSummary] = useState<CombatFinalSummary | null>(null)
   const [adventureVersion, setAdventureVersion] = useState<number | null>(null)
   const refreshCombat = useCallback(() => {
-    if (!auth.session || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) return
+    if (!auth.session || !connectionReady || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) return
     const summaryRequest = combatApi.readFinalSummary
       ? combatApi.readFinalSummary(route.adventureId)
       : Promise.resolve(null)
@@ -105,17 +120,17 @@ export function AppShell() {
       setCombatSnapshot(snapshot)
       setCombatFinalSummary(snapshot ? null : summary)
     }).catch(() => undefined)
-  }, [auth.session, combatApi, route])
+  }, [auth.session, combatApi, connectionReady, route])
   useEffect(() => {
-    if (!auth.session || route.page !== 'adventure') return
+    if (!auth.session || !connectionReady || route.page !== 'adventure') return
     let active = true
     void adventureApi.readConversation(route.adventureId).then(response => {
       if (active) setAdventureVersion(response.version)
     }).catch(() => { if (active) setAdventureVersion(null) })
     return () => { active = false }
-  }, [auth.session, adventureApi, route])
+  }, [auth.session, adventureApi, connectionReady, route])
   useEffect(() => {
-    if (!auth.session || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) {
+    if (!auth.session || !connectionReady || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) {
       setCombatSnapshot(null)
       setCombatFinalSummary(null)
       return
@@ -135,9 +150,9 @@ export function AppShell() {
         if (active) { setCombatSnapshot(null); setCombatFinalSummary(null) }
       })
     return () => { active = false }
-  }, [auth.session, combatApi, route])
+  }, [auth.session, combatApi, connectionReady, route])
   useEffect(() => {
-    if (!auth.session || route.page !== 'adventure' || !combatApi.subscribeEvents || combatSnapshot?.eventCursor == null) return
+    if (!auth.session || !connectionReady || route.page !== 'adventure' || !combatApi.subscribeEvents || combatSnapshot?.eventCursor == null) return
     const adventureId = route.adventureId
     let active = true
     const cursor = combatSnapshot?.eventCursor ?? -1
@@ -158,7 +173,7 @@ export function AppShell() {
       void combatApi.readSnapshot(adventureId).then(snapshot => { if (active) setCombatSnapshot(snapshot) }).catch(() => undefined)
     }, () => undefined)
     return () => { active = false; close() }
-  }, [auth.session, combatApi, route, combatSnapshot?.eventCursor])
+  }, [auth.session, combatApi, connectionReady, route, combatSnapshot?.eventCursor])
 
   if (!auth.session) {
     return <div className="app-shell auth-shell">
@@ -170,6 +185,24 @@ export function AppShell() {
           <p>룰북과 이야기 자료를 준비하면 AI 게임 마스터가 캐릭터 생성부터 모험의 결말까지 함께합니다.</p>
         </div>
         <div className="auth-panel"><p role="status" aria-live="polite">{auth.message}</p><LoginForm /></div>
+      </main>
+    </div>
+  }
+
+  const activeConnection = connectionGate?.token === auth.session.accessToken ? connectionGate.status : null
+  if (!connectionReady) {
+    return <div className="app-shell auth-shell codex-connection-gate">
+      <header className="app-header auth-header"><Brand /></header>
+      <main id="main" className="auth-main">
+        <div className="auth-intro">
+          <p className="eyebrow">CODEX ACCOUNT CONNECTION</p>
+          <h1>Codex 계정을 연결해 주세요</h1>
+          <p>Codex 계정 연결을 완료하면 모험과 AI 기능을 사용할 수 있습니다. 연결이 취소되거나 실패해도 다시 시도할 수 있습니다.</p>
+        </div>
+        <div className="auth-panel">
+          {!activeConnection && <p role="status" aria-live="polite">Codex 연결 상태를 확인하고 있습니다.</p>}
+          <AiEndpointSettings session={auth.session} connectionOnly />
+        </div>
       </main>
     </div>
   }

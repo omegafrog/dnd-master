@@ -12,6 +12,66 @@ import org.junit.jupiter.api.Test;
 
 class CodexAppServerClientTest {
     @Test
+    void checksExecutableAvailabilityWithoutStartingAProcess() throws Exception {
+        Path executable = appServerScript("#!/usr/bin/env bash\ntouch started\nexit 0\n");
+        CodexAppServerClient available = CodexAppServerClient.shared(
+                executable.toString(), executable.getParent(), Duration.ofSeconds(2), new ObjectMapper());
+        CodexAppServerClient missing = CodexAppServerClient.shared(
+                executable.resolveSibling("missing-codex").toString(), executable.getParent(), Duration.ofSeconds(2), new ObjectMapper());
+        try {
+            assertThat(available.isAvailable()).isTrue();
+            assertThat(missing.isAvailable()).isFalse();
+            assertThat(Files.exists(executable.getParent().resolve("started"))).isFalse();
+        } finally {
+            available.close();
+            missing.close();
+        }
+    }
+
+    @Test
+    void reusesExistingAccountAndExplicitLoginStartsEvenWhenAlreadyAuthenticated() throws Exception {
+        Path executable = appServerScript("""
+                #!/usr/bin/env bash
+                while IFS= read -r line; do
+                  case "$line" in
+                    *'"method":"initialize"'*) echo '{"id":1,"result":{}}';;
+                    *'"method":"account/read"'*) echo '{"id":2,"result":{"account":{"type":"chatgpt"}}}';;
+                    *'"method":"account/login/start"'*) echo '{"id":3,"result":{"authUrl":"https://auth.example/approve"}}';;
+                  esac
+                done
+                """);
+        CodexAppServerClient client = CodexAppServerClient.shared(
+                executable.toString(), executable.getParent(), Duration.ofSeconds(2), new ObjectMapper());
+        try {
+            assertThat(client.isAuthenticated()).isTrue();
+            assertThat(client.startBrowserLogin()).isEqualTo("https://auth.example/approve");
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    void neverIncludesRawAppServerErrorDetailsInAccountFailures() throws Exception {
+        Path executable = appServerScript("""
+                #!/usr/bin/env bash
+                while IFS= read -r line; do
+                  case "$line" in
+                    *'"method":"initialize"'*) echo '{"id":1,"result":{}}';;
+                    *'"method":"account/read"'*) echo '{"id":2,"error":{"code":401,"message":"PRIVATE_TOKEN_VALUE"}}';;
+                  esac
+                done
+                """);
+        CodexAppServerClient client = CodexAppServerClient.shared(
+                executable.toString(), executable.getParent(), Duration.ofSeconds(2), new ObjectMapper());
+        try {
+            assertThatThrownBy(client::isAuthenticated)
+                    .hasMessageNotContaining("PRIVATE_TOKEN_VALUE");
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
     void capturesReportedUsageForThisTurnAndKeepsAbsentCountsUnknown() throws Exception {
         Path executable = appServerScript("""
                 #!/usr/bin/env bash

@@ -36,6 +36,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     private final AiExecutionPort executionPort;
     private final ObjectMapper objectMapper;
     private final Executor executionExecutor;
+    private final CodexConnectionService connectionService;
     private final AtomicReference<WebSocket> socket = new AtomicReference<>();
     private final AtomicReference<CompletableFuture<Void>> executionTail =
             new AtomicReference<>(CompletableFuture.completedFuture(null));
@@ -74,6 +75,17 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             AiExecutionPort executionPort,
             ObjectMapper objectMapper,
             Executor executionExecutor) {
+        this(relayEndpoint, accessToken, connectionId, executionPort, objectMapper, executionExecutor, null);
+    }
+
+    public CodexWebSocketAgent(
+            URI relayEndpoint,
+            String accessToken,
+            String connectionId,
+            AiExecutionPort executionPort,
+            ObjectMapper objectMapper,
+            Executor executionExecutor,
+            CodexConnectionService connectionService) {
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
         this.relayEndpoint = requireWebSocketUri(relayEndpoint);
         this.accessToken = required(accessToken, "access token");
@@ -81,6 +93,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         this.executionPort = Objects.requireNonNull(executionPort, "execution port must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         this.executionExecutor = Objects.requireNonNull(executionExecutor, "execution executor must not be null");
+        this.connectionService = connectionService;
     }
 
     /** Opens the persistent connection. The returned stage completes after the handshake. */
@@ -121,13 +134,48 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     }
 
     private CompletableFuture<Void> executeAndReply(String message) {
-        return CompletableFuture.supplyAsync(() -> parseRequest(message), executionExecutor)
-                .thenApply(this::execute)
+        return CompletableFuture.supplyAsync(() -> parseMessage(message), executionExecutor)
+                .thenApply(this::dispatch)
                 .thenCompose(this::sendResponse)
                 .exceptionally(failure -> {
-                    LOGGER.warn("user-PC agent request failed: {}", safeMessage(failure));
+                    LOGGER.warn("user-PC agent request failed");
                     return null;
                 });
+    }
+
+    private Object parseMessage(String message) {
+        try {
+            JsonNode root = objectMapper.readTree(message);
+            if ("CONNECTION_CONTROL".equals(root.path("messageType").asText())) {
+                return objectMapper.treeToValue(root, AgentConnectionControlCommand.class);
+            }
+            return objectMapper.treeToValue(root, AgentExecutionRequest.class);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalArgumentException("relay request could not be decoded");
+        }
+    }
+
+    private Object dispatch(Object message) {
+        if (message instanceof AgentConnectionControlCommand command) return control(command);
+        return execute((AgentExecutionRequest) message);
+    }
+
+    private AgentConnectionControlResponse control(AgentConnectionControlCommand command) {
+        if (connectionService == null) {
+            return new AgentConnectionControlResponse("CONNECTION_CONTROL_RESULT", command.requestId(),
+                    "UNAVAILABLE", false, command.operationId(), null, false, null,
+                    "현재 설치의 연결 기능을 사용할 수 없습니다.");
+        }
+        return switch (command.action()) {
+            case "STATUS" -> AgentConnectionControlResponse.from(command.requestId(), connectionService.getStatus());
+            case "START" -> AgentConnectionControlResponse.from(command.requestId(), connectionService.start(
+                    command.operationId(), ConnectionOperationType.valueOf(command.operationType())));
+            case "POLL" -> AgentConnectionControlResponse.from(command.requestId(), connectionService.getOperation(command.operationId()));
+            case "DISCONNECT" -> AgentConnectionControlResponse.from(command.requestId(), connectionService.disconnect());
+            default -> new AgentConnectionControlResponse("CONNECTION_CONTROL_RESULT", command.requestId(),
+                    "FAILED", true, command.operationId(), null, false, null,
+                    "지원하지 않는 연결 요청입니다.");
+        };
     }
 
     private AgentExecutionRequest parseRequest(String message) {
@@ -157,7 +205,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         return new AgentExecutionResponse(request.requestId(), "", "REMOTE_FAILURE", null);
     }
 
-    private CompletableFuture<Void> sendResponse(AgentExecutionResponse response) {
+    private CompletableFuture<Void> sendResponse(Object response) {
         WebSocket current = socket.get();
         if (current == null) {
             return failedFuture(new IllegalStateException("WebSocket agent is not connected"));
@@ -194,10 +242,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     }
 
     private static String safeMessage(Throwable failure) {
-        Throwable cause = failure;
-        while (cause.getCause() != null) cause = cause.getCause();
-        String message = cause.getMessage();
-        return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
+        return "local operation failed";
     }
 
     private static <T> CompletableFuture<T> failedFuture(Throwable failure) {

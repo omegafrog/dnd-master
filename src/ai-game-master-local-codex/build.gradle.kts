@@ -5,6 +5,8 @@ sourceSets {
         java.srcDir("../ai-game-master-service/src/main/java")
         java.include(
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexAppServerClient.java",
+            "com/dndmaster/aigamemaster/infrastructure/ai/CodexAccountClient.java",
+            "com/dndmaster/aigamemaster/infrastructure/ai/LoginWaitResult.java",
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexCliCompletionAdapter.java",
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexCliCharacterTagProvider.java",
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexTurnFailedException.java",
@@ -17,6 +19,7 @@ sourceSets {
         java.include(
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexAppServerClientTest.java",
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexCliCharacterTagProviderTest.java",
+            "com/dndmaster/aigamemaster/localcodex/CodexConnectionServiceTest.java",
         )
     }
 }

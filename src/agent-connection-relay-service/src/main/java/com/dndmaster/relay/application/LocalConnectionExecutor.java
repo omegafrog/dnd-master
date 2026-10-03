@@ -3,4 +3,9 @@ package com.dndmaster.relay.application;
 import reactor.core.publisher.Mono;
 
 @FunctionalInterface
-public interface LocalConnectionExecutor { Mono<RelayExecutionResult> execute(RelayExecutionRequest request); }
+public interface LocalConnectionExecutor {
+  Mono<RelayExecutionResult> execute(RelayExecutionRequest request);
+  default Mono<AgentConnectionControlResult> control(ConnectionControlRequest request) {
+    return Mono.just(AgentConnectionControlResult.failure(request.requestId(), "UNAVAILABLE", "사용자 PC 연결을 사용할 수 없습니다."));
+  }
+}

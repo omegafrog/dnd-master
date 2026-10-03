@@ -41,4 +41,9 @@ public class RelayConfiguration {
             @Value("${relay.execution-timeout:PT3M}") Duration timeout) {
         return new RelayExecutionDispatcher(instanceId, locations::find, local, remote, metrics, timeout);
     }
+    @Bean RelayConnectionControlService relayConnectionControlService(@Value("${relay.instance-id}") String instanceId,
+            ConnectionLocationRepository locations, LocalConnectionExecutor local, OwnedInstanceClient remote,
+            @Value("${relay.execution-timeout:PT3M}") Duration timeout) {
+        return new RelayConnectionControlDispatcher(instanceId, locations::find, local, remote, timeout);
+    }
 }
