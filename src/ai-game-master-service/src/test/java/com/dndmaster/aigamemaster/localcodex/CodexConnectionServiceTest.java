@@ -40,6 +40,18 @@ class CodexConnectionServiceTest {
     }
 
     @Test
+    void statusReusesAnExistingCodexLoginOnFirstInstallation() {
+        var account = new FakeAccountClient(true, true);
+        var links = new MemoryLinkStore();
+        var service = service(account, links, new ArrayDeque<>());
+
+        var status = service.getStatus();
+
+        assertThat(status.status()).isEqualTo(ProviderConnectionStatus.CONNECTED);
+        assertThat(links.enabled).contains(true);
+    }
+
+    @Test
     void explicitAccountSwitchStartsLoginAndExposesOnlyTheApprovalUrlWhilePending() {
         var account = new FakeAccountClient(true, true);
         var links = new MemoryLinkStore();

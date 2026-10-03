@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { IdentitySession } from '../auth/IdentityApi'
 import { CodexConnectionApi, type CodexConnectionOperation, type CodexConnectionState } from './CodexConnectionApi'
 
@@ -15,28 +15,49 @@ type Endpoint = {
 const headers = (session: IdentitySession) => ({ Authorization: `Bearer ${session.accessToken}` })
 const providerLabel = (provider: Endpoint['provider']) => provider === 'CODEX_CLI' ? 'Codex OAuth' : provider === 'OPENAI_COMPATIBLE' ? 'OpenAI 호환' : 'Ollama'
 
-export function AiEndpointSettings({ session, connectionOnly = false }: { session: IdentitySession; connectionOnly?: boolean }) {
+export function AiEndpointSettings({ session, connectionOnly = false, connectionHint, onConnectionChange }: {
+  session: IdentitySession
+  connectionOnly?: boolean
+  connectionHint?: CodexConnectionState | null
+  onConnectionChange?: (connection: CodexConnectionState) => void
+}) {
   const [endpoints, setEndpoints] = useState<Endpoint[]>([])
   const [message, setMessage] = useState('')
   const [provider, setProvider] = useState<Endpoint['provider']>('OLLAMA')
   const [connection, setConnection] = useState<CodexConnectionState | null>(null)
   const [operation, setOperation] = useState<CodexConnectionOperation | null>(null)
+  const operationIdHint = useRef(connectionHint?.operationId ?? null)
   const connectionApi = useMemo(() => new CodexConnectionApi(session), [session])
 
   const refreshConnection = useCallback(async () => {
     try {
       const status = await connectionApi.status()
-      setConnection(status)
-      if (status.status === 'AUTHENTICATING' && status.operationId) {
-        const activeOperation = await connectionApi.operation(status.operationId)
+      const operationId = status.operationId ?? operationIdHint.current
+      if (operationId) {
+        const activeOperation = await connectionApi.operation(operationId)
         setOperation(activeOperation)
+        if (!activeOperation.pending) {
+          const terminalStatus = { status: activeOperation.status, cliAvailable: true,
+            operationId: activeOperation.operationId, message: activeOperation.message }
+          setConnection(terminalStatus)
+          onConnectionChange?.(terminalStatus)
+          operationIdHint.current = null
+          if (activeOperation.message) setMessage(activeOperation.message)
+        } else {
+          const pendingStatus = { ...status, status: 'AUTHENTICATING' as const, operationId }
+          setConnection(pendingStatus)
+          onConnectionChange?.(pendingStatus)
+        }
+      } else {
+        setConnection(status)
+        onConnectionChange?.(status)
       }
       setMessage('')
     } catch (error) {
       setConnection({ status: 'UNAVAILABLE', cliAvailable: false })
       setMessage(error instanceof Error ? error.message : 'Codex 연결 상태를 확인하지 못했습니다.')
     }
-  }, [connectionApi])
+  }, [connectionApi, onConnectionChange])
 
   useEffect(() => { void refreshConnection() }, [refreshConnection])
 
@@ -46,13 +67,15 @@ export function AiEndpointSettings({ session, connectionOnly = false }: { sessio
       void connectionApi.operation(operation.operationId).then(next => {
         setOperation(next)
         if (!next.pending) {
-          setConnection({ status: next.status, cliAvailable: true, operationId: next.operationId, message: next.message })
+          const terminalStatus = { status: next.status, cliAvailable: true, operationId: next.operationId, message: next.message }
+          setConnection(terminalStatus)
+          onConnectionChange?.(terminalStatus)
           if (next.message) setMessage(next.message)
         }
       }).catch(() => setMessage('Codex 연결 상태를 새로고침할 수 없습니다.'))
     }, 1500)
     return () => window.clearInterval(timer)
-  }, [connectionApi, operation])
+  }, [connectionApi, onConnectionChange, operation])
 
   async function connect(type: 'CONNECT' | 'REAUTHENTICATE' | 'SWITCH_ACCOUNT') {
     const popup = window.open('about:blank', '_blank')
@@ -60,7 +83,10 @@ export function AiEndpointSettings({ session, connectionOnly = false }: { sessio
     try {
       const started = await connectionApi.start(type)
       setOperation(started)
-      setConnection({ status: started.status, cliAvailable: true, operationId: started.operationId, message: started.message })
+      operationIdHint.current = started.pending ? started.operationId : null
+      const startedStatus = { status: started.status, cliAvailable: true, operationId: started.operationId, message: started.message }
+      setConnection(startedStatus)
+      onConnectionChange?.(startedStatus)
       if (started.authUrl) {
         if (popup) popup.location.href = started.authUrl
         else window.open(started.authUrl, '_blank', 'noopener,noreferrer')
@@ -81,6 +107,7 @@ export function AiEndpointSettings({ session, connectionOnly = false }: { sessio
       const result = await connectionApi.disconnect()
       setOperation(null)
       setConnection(result)
+      onConnectionChange?.(result)
       setMessage('이 설치의 Codex 연결을 해제했습니다. Codex CLI 로그인은 유지됩니다.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Codex 연결을 해제하지 못했습니다.')

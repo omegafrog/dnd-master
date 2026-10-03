@@ -30,7 +30,11 @@ export function AppShell() {
   const [selectedBundleId, setSelectedBundleId] = useState(() => window.localStorage.getItem('dnd-selected-bundle-id') ?? '')
   const [mapRefreshToken, setMapRefreshToken] = useState(0)
   const [connectionGate, setConnectionGate] = useState<{ token: string; status: CodexConnectionState } | null>(null)
+  const sessionToken = auth.session?.accessToken
   const connectionReady = connectionGate?.token === auth.session?.accessToken && connectionGate?.status.status === 'CONNECTED'
+  const onConnectionChange = useCallback((status: CodexConnectionState) => {
+    if (sessionToken) setConnectionGate(current => mergeConnectionStatus(current, sessionToken, status))
+  }, [sessionToken])
   const sessionApi = useMemo(() => new AdventureSessionApi(auth.session?.accessToken ?? ''), [auth.session?.accessToken])
   const setupApi = useMemo(() => new HttpSetupApi(() => auth.session?.accessToken ?? ''), [auth.session?.accessToken])
   const rawSetupApi = useMemo(() => new HttpSetupApi(() => auth.session?.accessToken ?? ''), [auth.session?.accessToken])
@@ -50,8 +54,8 @@ export function AppShell() {
     let active = true
     const api = new CodexConnectionApi(session)
     const refresh = () => void api.status()
-      .then(status => { if (active) setConnectionGate({ token: session.accessToken, status }) })
-      .catch(() => { if (active) setConnectionGate({ token: session.accessToken, status: { status: 'UNAVAILABLE', cliAvailable: false } }) })
+      .then(status => { if (active) setConnectionGate(current => mergeConnectionStatus(current, session.accessToken, status)) })
+      .catch(() => { if (active) setConnectionGate(current => mergeConnectionStatus(current, session.accessToken, { status: 'UNAVAILABLE', cliAvailable: false })) })
     refresh()
     const timer = connectionReady ? undefined : window.setInterval(refresh, 1500)
     return () => { active = false; if (timer !== undefined) window.clearInterval(timer) }
@@ -201,7 +205,8 @@ export function AppShell() {
         </div>
         <div className="auth-panel">
           {!activeConnection && <p role="status" aria-live="polite">Codex 연결 상태를 확인하고 있습니다.</p>}
-          <AiEndpointSettings session={auth.session} connectionOnly />
+          <AiEndpointSettings session={auth.session} connectionOnly connectionHint={activeConnection}
+            onConnectionChange={onConnectionChange} />
         </div>
       </main>
     </div>
@@ -236,7 +241,7 @@ export function AppShell() {
     <main id="main" className={creatorRoute ? 'creator-main' : `app-content app-page-${route.page}`}>
       <div className="app-notices"><p role="status" aria-live="polite">{auth.message}</p></div>
       {route.page === 'login' && <section className="welcome-card"><p className="eyebrow">ADVENTURE AWAITS</p><h2>모험 준비가 완료되었습니다</h2><a className="text-link" href="#/setup">자료 설정으로 이동</a></section>}
-      {route.page === 'profile' && <ProfilePage session={auth.session} />}
+      {route.page === 'profile' && <ProfilePage session={auth.session} onConnectionChange={onConnectionChange} />}
       {route.page === 'backoffice' && <BackofficePage session={auth.session} />}
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
@@ -264,6 +269,24 @@ function Brand() {
   return <a className="app-brand" href="#/adventures" aria-label="D&D Master 홈"><img src="/assets/characters/compass.png" alt="" aria-hidden="true" /><span><strong>D&amp;D Master</strong><small>Solo Adventure Studio</small></span></a>
 }
 
-function ProfilePage({ session }: { session: NonNullable<ReturnType<typeof useAuth>['session']> }) {
-  return <section aria-labelledby="profile-title" className="profile-page"><div className="page-heading"><div><p className="eyebrow">PLAYER SETTINGS</p><h1 id="profile-title">내 설정</h1></div></div><section className="setup-panel"><h2>내 정보</h2><dl><dt>이름</dt><dd>{session.playerName}</dd><dt>플레이어 ID</dt><dd>{session.playerId}</dd><dt>인증 만료</dt><dd>{new Date(session.expiresAt).toLocaleString('ko-KR')}</dd></dl></section><AiEndpointSettings session={session} /></section>
+function mergeConnectionStatus(
+  current: { token: string; status: CodexConnectionState } | null,
+  token: string,
+  status: CodexConnectionState,
+) {
+  const sameSession = current !== null && current.token === token
+  const unlinked = status.status === 'DISCONNECTED' || status.status === 'AUTH_REQUIRED'
+  const hasUnresolvedSwitch = sameSession && current.status.status === 'AUTHENTICATING'
+    && Boolean(current.status.operationId)
+  const hasTerminalSwitch = sameSession
+    && (current.status.status === 'CANCELLED' || current.status.status === 'FAILED')
+  if (unlinked && (hasUnresolvedSwitch || hasTerminalSwitch)) return current
+  return { token, status }
+}
+
+function ProfilePage({ session, onConnectionChange }: {
+  session: NonNullable<ReturnType<typeof useAuth>['session']>
+  onConnectionChange: (status: CodexConnectionState) => void
+}) {
+  return <section aria-labelledby="profile-title" className="profile-page"><div className="page-heading"><div><p className="eyebrow">PLAYER SETTINGS</p><h1 id="profile-title">내 설정</h1></div></div><section className="setup-panel"><h2>내 정보</h2><dl><dt>이름</dt><dd>{session.playerName}</dd><dt>플레이어 ID</dt><dd>{session.playerId}</dd><dt>인증 만료</dt><dd>{new Date(session.expiresAt).toLocaleString('ko-KR')}</dd></dl></section><AiEndpointSettings session={session} onConnectionChange={onConnectionChange} /></section>
 }

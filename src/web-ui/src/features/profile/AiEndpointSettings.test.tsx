@@ -35,6 +35,30 @@ describe('Codex account settings', () => {
       expect.objectContaining({ headers: { Authorization: 'Bearer profile-session' } }))
   })
 
+  it('recovers a cancelled result from the gate hint after status has become disconnected', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/profile/codex-connection/operations/op-cancelled')) {
+        return Response.json({ operationId: 'op-cancelled', status: 'CANCELLED', pending: false,
+          message: 'Codex 계정 승인이 취소되었습니다. 다시 시도할 수 있습니다.' })
+      }
+      if (url.endsWith('/profile/codex-connection')) {
+        return Response.json({ status: 'DISCONNECTED', cliAvailable: true })
+      }
+      return Response.json([])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<AiEndpointSettings session={session} connectionOnly connectionHint={{
+      status: 'CANCELLED', cliAvailable: true, operationId: 'op-cancelled',
+    }} />)
+
+    expect(await screen.findAllByText('Codex 계정 승인이 취소되었습니다. 다시 시도할 수 있습니다.')).not.toHaveLength(0)
+    expect(screen.getByRole('button', { name: /^Codex 계정 연결$/ })).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/profile/codex-connection/operations/op-cancelled',
+      expect.objectContaining({ headers: { Authorization: 'Bearer profile-session' } }))
+  })
+
   it('starts an explicit account switch, opens the returned approval URL, and polls operation status', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
