@@ -51,7 +51,7 @@ class CodexConnectionServiceTest {
         assertThat(started.status()).isEqualTo(ProviderConnectionStatus.AUTHENTICATING);
         assertThat(started.authUrl()).isEqualTo("https://auth.example/approve");
         assertThat(account.loginStarts).isEqualTo(1);
-        assertThat(links.enabled).isEmpty();
+        assertThat(links.enabled).contains(false);
         assertThat(service.getStatus().status()).isEqualTo(ProviderConnectionStatus.AUTHENTICATING);
         assertThat(service.getStatus().operationId()).isEqualTo("switch-account");
 
@@ -59,6 +59,42 @@ class CodexConnectionServiceTest {
 
         assertThat(service.getOperation("switch-account").status()).isEqualTo(ProviderConnectionStatus.CONNECTED);
         assertThat(links.enabled).contains(true);
+    }
+
+    @Test
+    void failedAccountSwitchLeavesThisInstallationUnlinked() {
+        var account = new FakeAccountClient(true, true);
+        account.completion = LoginWaitResult.FAILED;
+        var links = new MemoryLinkStore();
+        links.enabled = Optional.of(true);
+        var work = new ArrayDeque<Runnable>();
+        var service = service(account, links, work);
+
+        service.start("switch-fails", ConnectionOperationType.SWITCH_ACCOUNT);
+        assertThat(links.enabled).contains(false);
+
+        work.remove().run();
+
+        assertThat(service.getOperation("switch-fails").status()).isEqualTo(ProviderConnectionStatus.FAILED);
+        assertThat(links.enabled).contains(false);
+        assertThat(account.authenticated).isTrue();
+    }
+
+    @Test
+    void cancelledAccountSwitchLeavesThisInstallationUnlinked() {
+        var account = new FakeAccountClient(true, true);
+        account.completion = LoginWaitResult.CANCELLED;
+        var links = new MemoryLinkStore();
+        links.enabled = Optional.of(true);
+        var work = new ArrayDeque<Runnable>();
+        var service = service(account, links, work);
+
+        service.start("switch-cancelled", ConnectionOperationType.SWITCH_ACCOUNT);
+        work.remove().run();
+
+        assertThat(service.getOperation("switch-cancelled").status()).isEqualTo(ProviderConnectionStatus.CANCELLED);
+        assertThat(links.enabled).contains(false);
+        assertThat(account.authenticated).isTrue();
     }
 
     @Test

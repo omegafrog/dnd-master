@@ -58,6 +58,9 @@ public final class CodexConnectionService {
         }
         if (!account.isAvailable()) return save(operationId, ProviderConnectionStatus.CLI_UNAVAILABLE,
                 null, "Codex CLI를 설치한 뒤 다시 시도해 주세요.");
+        if (type == ConnectionOperationType.SWITCH_ACCOUNT) {
+            links.setEnabled(false);
+        }
         if (type == ConnectionOperationType.CONNECT) {
             try {
                 if (account.isAuthenticated()) {
