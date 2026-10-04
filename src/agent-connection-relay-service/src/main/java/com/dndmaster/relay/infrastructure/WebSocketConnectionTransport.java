@@ -4,15 +4,13 @@ import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
 
 import com.dndmaster.relay.application.AgentConnectionTransport;
+import com.dndmaster.relay.application.AgentConnectionControlMessage;
 import com.dndmaster.relay.application.RelayExecutionRequest;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
-@Slf4j
 public class WebSocketConnectionTransport implements AgentConnectionTransport {
 
   private final WebSocketSession session;
@@ -27,17 +25,18 @@ public class WebSocketConnectionTransport implements AgentConnectionTransport {
 
   @Override
   public Mono<Void> send(RelayExecutionRequest request) {
-    return Mono.fromRunnable(() -> {
+    return sendMessage(request);
+  }
 
-      WebSocketMessage message = null;
-      try {
-        message = session.textMessage(ObjectMapper.writeValueAsString(request));
-      } catch (JsonProcessingException e) {
-        log.error("request : {}", request.toString());
-      }
-      sink.tryEmitNext(message);
-    });
+  @Override
+  public Mono<Void> sendConnectionControl(AgentConnectionControlMessage request) {
+    return sendMessage(request);
+  }
 
+  private Mono<Void> sendMessage(Object request) {
+    return Mono.fromCallable(() -> session.textMessage(ObjectMapper.writeValueAsString(request)))
+        .doOnNext(message -> sink.tryEmitNext(message))
+        .then();
   }
 
   public Mono<Void> startSend() {

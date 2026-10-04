@@ -19,6 +19,7 @@ export function SessionRuntimeRoute({ sessionId, sessionApi, adventureApi, playA
   const [handoutsLoading, setHandoutsLoading] = useState(false)
   const [handoutsMessage, setHandoutsMessage] = useState('')
   const [message, setMessage] = useState('')
+  const combatEventCursor = combatSnapshot?.eventCursor
   const getHandoutPreview = useCallback((knowledgeDocumentId: string) => setupApi.getSourcePreview(knowledgeDocumentId), [setupApi])
   const refreshCombat = useCallback((adventureId: string) => {
     void Promise.all([combatApi.readSnapshot(adventureId), combatApi.readFinalSummary?.(adventureId) ?? Promise.resolve(null)])
@@ -65,10 +66,10 @@ export function SessionRuntimeRoute({ sessionId, sessionApi, adventureApi, playA
   }, [refreshCombat, session?.adventureId])
 
   useEffect(() => {
-    if (!session?.adventureId || !combatSnapshot || !combatApi.subscribeEvents) return
+    if (!session?.adventureId || combatEventCursor === undefined || !combatApi.subscribeEvents) return
     const adventureId = session.adventureId
-    return combatApi.subscribeEvents(adventureId, combatSnapshot.eventCursor, () => refreshCombat(adventureId), () => undefined)
-  }, [combatApi, combatSnapshot?.eventCursor, refreshCombat, session?.adventureId])
+    return combatApi.subscribeEvents(adventureId, combatEventCursor, () => refreshCombat(adventureId), () => undefined)
+  }, [combatApi, combatEventCursor, refreshCombat, session?.adventureId])
 
   useEffect(() => {
     if (!session?.scenarioPackageId || !setupApi.getScenarioPackage) {

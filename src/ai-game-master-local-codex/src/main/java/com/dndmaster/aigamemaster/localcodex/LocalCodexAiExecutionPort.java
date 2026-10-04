@@ -24,6 +24,8 @@ public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoClo
             var completion = client.completeWithUsage(request.requestId(), request.completedPrompt(), request.model(),
                     request.reasoning(), request.outputSchema(), request.imageDataUri());
             return new AiExecutionSuccess(completion.finalText(), completion.usage());
+        } catch (com.dndmaster.aigamemaster.infrastructure.ai.CodexAuthenticationRejectedException rejected) {
+            return new AiExecutionFailure(AiExecutionFailure.Reason.REAUTH_REQUIRED, "Codex account reauthentication is required");
         } catch (com.dndmaster.aigamemaster.infrastructure.ai.CodexTurnTimeoutException timeout) {
             return new AiExecutionFailure(AiExecutionFailure.Reason.TIMEOUT, timeout.getMessage());
         } catch (RuntimeException failure) {

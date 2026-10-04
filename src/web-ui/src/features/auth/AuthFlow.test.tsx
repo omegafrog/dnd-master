@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../../app/App'
 import type { IdentityApi, IdentitySession, LoginCredentials } from './IdentityApi'
 
@@ -29,7 +29,17 @@ class FakeIdentityApi implements IdentityApi {
 
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllGlobals()
   window.localStorage.clear()
+})
+
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).endsWith('/profile/codex-connection')) {
+      return Response.json({ status: 'CONNECTED', cliAvailable: true })
+    }
+    return Response.json([])
+  }))
 })
 
 describe('authentication flow', () => {
@@ -44,7 +54,7 @@ describe('authentication flow', () => {
     await user.click(screen.getByRole('button', { name: '로그인' }))
 
     expect(api.credentials).toEqual({ email: 'hero@example.com', password: 'swordfish' })
-    expect(screen.getByRole('navigation', { name: '주요 메뉴' })).toBeInTheDocument()
+    expect(await screen.findByRole('navigation', { name: '주요 메뉴' })).toBeInTheDocument()
     expect(screen.queryByText('Minsc님 환영합니다!')).not.toBeInTheDocument()
   })
 
@@ -55,7 +65,7 @@ describe('authentication flow', () => {
     await user.type(screen.getByLabelText('이메일'), 'hero@example.com')
     await user.type(screen.getByLabelText('비밀번호'), 'swordfish')
     await user.click(screen.getByRole('button', { name: '로그인' }))
-    await user.click(screen.getByRole('button', { name: '로그아웃' }))
+    await user.click(await screen.findByRole('button', { name: '로그아웃' }))
 
     expect(api.logoutToken).toBe('public-api-token')
     expect(screen.getByRole('heading', { name: '로그인' })).toBeInTheDocument()
@@ -70,7 +80,7 @@ describe('authentication flow', () => {
     await user.type(screen.getByLabelText('비밀번호'), 'swordfish')
     await user.click(screen.getByRole('button', { name: '로그인' }))
 
-    await user.click(screen.getByRole('button', { name: '계정 메뉴' }))
+    await user.click(await screen.findByRole('button', { name: '계정 메뉴' }))
     expect(screen.getByText('M')).toBeInTheDocument()
     await user.click(screen.getByRole('link', { name: '내 설정' }))
 
@@ -89,7 +99,7 @@ describe('authentication flow', () => {
 
     render(<App identityApi={new FakeIdentityApi()} />)
 
-    expect(screen.getByRole('navigation', { name: '주요 메뉴' })).toBeInTheDocument()
+    expect(await screen.findByRole('navigation', { name: '주요 메뉴' })).toBeInTheDocument()
     expect(screen.queryByText('Minsc님 환영합니다!')).not.toBeInTheDocument()
   })
 

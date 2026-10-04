@@ -1,0 +1,47 @@
+@startuml
+' UC-COAUTH-02 연결 복구 및 계정 변경
+skinparam shadowing false
+start
+
+if (사용자가 이 클라이언트의 연결만 해제하는가?) then (예)
+  :이 클라이언트 설치의 현재 연결 해제;
+  :codex logout을 실행하지 않음;
+  :Codex CLI 로그인 유지;
+  stop
+else (아니오)
+  if (사용자가 명시적으로 다른 계정으로 전환하는가?) then (예)
+    :기존 로그인 상태와 무관하게
+    Codex CLI 로그인 명령(codex login) 실행;
+    if (인증 성공?) then (예)
+      :Codex CLI의 공유 계정을 새 계정으로 변경;
+      :같은 PC의 다른 Codex CLI 사용에도 변경 적용;
+      :이 클라이언트 설치의 새 연결 저장;
+      :이후 실행에서 새 연결 재사용;
+      stop
+    else (아니오: 취소 또는 실패)
+      :설정 미완료로 종료;
+      :다시 전환을 시도할 수 있음;
+      stop
+    endif
+  else (아니오)
+    :저장된 연결로 AI 요청;
+    if (로그인 토큰이 유효한가?) then (예)
+      :AI 요청 진행;
+      stop
+    else (아니오: 무효 또는 만료)
+      :AI 요청 차단;
+      :재인증 안내 표시;
+      :Codex CLI 계정 OAuth 재인증;
+      if (재인증 성공?) then (예)
+        :저장된 연결 갱신;
+        :사용자가 AI 요청 다시 시도;
+        stop
+      else (아니오: 취소 또는 실패)
+        :AI 요청 차단 상태 유지;
+        :나중에 재인증 가능;
+        stop
+      endif
+    endif
+  endif
+endif
+@enduml

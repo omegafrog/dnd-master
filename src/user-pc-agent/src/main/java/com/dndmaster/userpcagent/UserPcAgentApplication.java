@@ -1,11 +1,16 @@
 package com.dndmaster.userpcagent;
 
 import com.dndmaster.aigamemaster.localcodex.CodexWebSocketAgent;
+import com.dndmaster.aigamemaster.localcodex.CodexConnectionService;
+import com.dndmaster.aigamemaster.localcodex.FileInstallationLinkStore;
+import com.dndmaster.aigamemaster.localcodex.InstallationGuardedAiExecutionPort;
 import com.dndmaster.aigamemaster.localcodex.LocalCodexAiExecutionPort;
+import com.dndmaster.aigamemaster.infrastructure.ai.CodexAppServerClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.concurrent.Executors;
 
 /** Starts the user PC agent and keeps its authenticated relay connection alive. */
 public final class UserPcAgentApplication {
@@ -14,18 +19,28 @@ public final class UserPcAgentApplication {
     public static void main(String[] args) {
         Settings settings = Settings.fromEnvironment();
         ObjectMapper objectMapper = new ObjectMapper();
+        CodexAppServerClient appServer = CodexAppServerClient.shared(settings.codexExecutable(),
+                settings.codexWorkDirectory(), settings.codexTimeout(), objectMapper);
         LocalCodexAiExecutionPort codex = new LocalCodexAiExecutionPort(
                 settings.codexExecutable(),
                 settings.codexWorkDirectory(),
                 settings.codexTimeout(),
                 objectMapper);
+        var loginExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        CodexConnectionService connectionService = new CodexConnectionService(appServer,
+                FileInstallationLinkStore.forCurrentUser(), loginExecutor,
+                Duration.ofMinutes(15), Duration.ofSeconds(2));
+        var guardedCodex = new InstallationGuardedAiExecutionPort(codex, connectionService);
 
-        try (codex; CodexWebSocketAgent agent = new CodexWebSocketAgent(
+        try (codex; loginExecutor;
+                CodexWebSocketAgent agent = new CodexWebSocketAgent(
                 settings.relayWebSocketUrl(),
                 settings.accessToken(),
                 settings.connectionId(),
-                codex,
-                objectMapper)) {
+                guardedCodex,
+                objectMapper,
+                java.util.concurrent.ForkJoinPool.commonPool(),
+                connectionService)) {
             Runtime.getRuntime().addShutdownHook(new Thread(agent::close, "user-pc-agent-shutdown"));
             agent.connect().toCompletableFuture().join();
             System.out.println("사용자 PC 에이전트 연결됨: " + settings.relayWebSocketUrl());

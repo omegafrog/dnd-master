@@ -33,6 +33,10 @@ sourceSets {
         java.exclude(
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexAppServerClientTest.java",
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexCliCharacterTagProviderTest.java",
+            "com/dndmaster/aigamemaster/localcodex/CodexConnectionServiceTest.java",
+            "com/dndmaster/aigamemaster/localcodex/InstallationGuardedAiExecutionPortTest.java",
+            "com/dndmaster/aigamemaster/localcodex/FileInstallationLinkStoreTest.java",
+            "com/dndmaster/aigamemaster/localcodex/CodexWebSocketAgentTest.java",
         )
     }
 }
