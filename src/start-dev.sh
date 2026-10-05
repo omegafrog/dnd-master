@@ -97,6 +97,10 @@ require_env BACKEND_E2E_EMAIL
 require_env BACKEND_E2E_PASSWORD
 require_env BACKEND_E2E_STORYBOOKS_JSON
 
+for port in "$BACKEND_SERVER_PORT" "$FRONTEND_DEV_PORT" "$POSTGRES_PORT" "$REDIS_PORT" "$LOCAL_AGENT_CONNECTION_RELAY_PORT"; do
+    require_available_port "$port"
+done
+
 if [ ! -d "$RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT" ]; then
     echo "ERROR: RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT directory was not found: $RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT" >&2
     exit 1
@@ -177,10 +181,6 @@ cp -R "$ROOT/gradle" "$GRADLEW_TMP_DIR/gradle"
 chmod +x "$GRADLEW_TMP_DIR/gradlew"
 
 echo "==> Starting local agent connection relay..."
-for port in "$BACKEND_SERVER_PORT" "$FRONTEND_DEV_PORT" "$POSTGRES_PORT" "$REDIS_PORT"; do
-    require_available_port "$port"
-done
-require_available_port "$LOCAL_AGENT_CONNECTION_RELAY_PORT"
 (cd "$ROOT" && exec bash "$GRADLEW_TMP_DIR/gradlew" :agent-connection-relay-service:bootRun --args="--server.port=$LOCAL_AGENT_CONNECTION_RELAY_PORT") &
 RELAY_PID=$!
 echo "    Relay PID: $RELAY_PID"
