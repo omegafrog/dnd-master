@@ -136,7 +136,7 @@ class CombatActionPolicyTest {
     }
 
     @Test
-    void narration_failure_does_not_rollback_the_confirmed_combat_result() {
+    void narration_failure_keeps_the_confirmed_combat_result_and_returns_a_korean_result_message() {
         CombatActionCommand command = command(UUID.randomUUID(), heroId, 1);
         Fixture fixture = fixture(command);
         CombatActionApplicationService service = new CombatActionApplicationService(fixture.encounters, fixture.operations,
@@ -149,9 +149,51 @@ class CombatActionPolicyTest {
         CombatActionResponse result = service.submit(command);
 
         assertEquals("COMMITTED", result.status());
+        assertTrue(result.narration() != null && !result.narration().isBlank());
+        assertTrue(result.narration().matches(".*[가-힣].*"));
         assertEquals(2L, fixture.encounters.value.version());
         assertEquals(CombatActionOperation.Status.COMMITTED, fixture.operations.values.get(command.operationId()).status());
-        assertEquals(0, fixture.events.values.stream().filter(event -> event.eventType().equals("GM_NARRATION")).count());
+        assertEquals(1, fixture.events.values.stream().filter(event -> event.eventType().equals("GM_NARRATION")).count());
+    }
+
+    @Test
+    void narration_for_a_defeated_enemy_uses_the_committed_hit_point_result() {
+        CombatActionCommand command = new CombatActionCommand(UUID.randomUUID(), new AdventureId(adventureId), sessionId,
+                new RuleSetId(ruleSetId), new CharacterSheetId(heroId), null, CombatActorRole.PLAYER, "attack", null,
+                ownerId, heroId, 1, 12, 3, new CharacterSheetId(goblinId), 2, false);
+        Fixture fixture = fixture(command);
+        var initial = fixture.encounters.value;
+        var goblin = new CombatParticipant(goblinId, "거대 쥐", CombatParticipant.Controller.AI, 10, null,
+                com.dndmaster.adventure.domain.combat.TurnResources.initial(),
+                new com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock(12, 2, 2, "1d4+2",
+                        new com.dndmaster.adventure.domain.combat.CombatStatBlockSource(UUID.randomUUID(), 1, "p. 1")));
+        fixture.encounters.value = new CombatEncounter(initial.encounterId(), adventureId, CombatEncounter.Status.ACTIVE,
+                1, heroId, List.of(initial.participants().getFirst(), goblin), 1, 0);
+        AiCombatPort hitForTwoDamage = new AiCombatPort() {
+            @Override public void controlState(CombatActionCommand ignored) {}
+            @Override public String adjudicate(CombatActionCommand ignored, int diceTotal) { return "hit"; }
+            @Override public com.dndmaster.adventure.application.combat.CombatOutcome adjudicateOutcome(
+                    CombatActionCommand ignored, int diceTotal) {
+                return new com.dndmaster.adventure.application.combat.CombatOutcome("hit",
+                        new com.dndmaster.adventure.application.combat.CombatCharacterMutation(-2, 0, List.of(), List.of()));
+            }
+        };
+        CombatActionApplicationService service = new CombatActionApplicationService(fixture.encounters, fixture.operations,
+                fixture.events, new com.dndmaster.adventure.domain.combat.CombatRulesEngine(), ignored -> 18,
+                usableCharacter(), hitForTwoDamage, ignored -> {},
+                context -> com.dndmaster.adventure.domain.combat.FreeFormActionPlan.narrativeOnly(
+                        context.declaration().actorId(), com.dndmaster.adventure.domain.combat.TurnResourceCost.actionOnly(),
+                        "자유 행동", "자유 행동"), ignored -> new com.dndmaster.adventure.application.combat.CombatEndResult(
+                                new com.dndmaster.adventure.domain.combat.PostCombatProjectionPolicy.PostCombatSummary(
+                                        adventureId, initial.encounterId(), "ENEMIES_DEFEATED", "전투가 끝났습니다.", false, List.of()), 3),
+                ignored -> "거대 쥐는 아직 쓰러지지 않았습니다.");
+
+        CombatActionResponse result = service.submit(command);
+
+        assertTrue(fixture.encounters.value.participants().stream().filter(p -> p.participantId().equals(goblinId))
+                .findFirst().orElseThrow().isDefeated());
+        assertTrue(result.narration().contains("공격에 쓰러진 대상은 거대 쥐입니다."));
+        assertTrue(result.narration().contains("전투가 끝났습니다."));
     }
 
     @Test

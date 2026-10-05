@@ -173,7 +173,7 @@ public final class CombatActionApplicationService {
                 operation.committed(response);
                 operationRepository.save(operation);
             }
-            response = narrateAfterCommit(command.action(), response, command.declaration().text());
+            response = narrateAfterCommit(command.action(), response, command.declaration().text(), committed);
             operation.committed(response);
             operationRepository.save(operation);
             return response;
@@ -270,7 +270,7 @@ public final class CombatActionApplicationService {
             operationRepository.save(operation);
             eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(), "ACTION_RESOLVED",
                     "{\"operationId\":\"" + command.operationId() + "\",\"kind\":\"SPELL\",\"spell\":\"마법 화살\",\"damage\":" + damage + "}"));
-            response = narrateAfterCommit(command, response, "마루가 마법 화살을 1레벨 주문 슬롯으로 시전했습니다.");
+            response = narrateAfterCommit(command, response, "마루가 마법 화살을 1레벨 주문 슬롯으로 시전했습니다.", committed);
             operation.committed(response);
             operationRepository.save(operation);
             return response;
@@ -445,7 +445,7 @@ public final class CombatActionApplicationService {
                 operation.committed(response);
                 operationRepository.save(operation);
             }
-            response = narrateAfterCommit(command, response, aiActor ? null : command.action());
+            response = narrateAfterCommit(command, response, aiActor ? null : command.action(), committed);
             operation.committed(response);
             operationRepository.save(operation);
             return response;
@@ -542,7 +542,7 @@ public final class CombatActionApplicationService {
             eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(),
                     "MOVEMENT_RESOLVED", "{\"operationId\":\"" + command.operationId()
                     + "\",\"distance\":" + distance + "}"));
-            response = narrateAfterCommit(command, response, command.action());
+            response = narrateAfterCommit(command, response, command.action(), committed);
             operation.committed(response);
             operationRepository.save(operation);
             return response;
@@ -644,22 +644,21 @@ public final class CombatActionApplicationService {
     }
 
     private CombatActionResponse narrateAfterCommit(CombatActionCommand command, CombatActionResponse response,
-                                                     String playerInput) {
+                                                     String playerInput, CombatEncounter committedEncounter) {
         String narration = null;
-        try {
-            String generated = narrationPort.narrate(CombatNarrationRequest.postResolution(command,
-                    response.encounterVersion(), response.diceTotal(), response.judgment(), playerInput));
-            if (generated != null && !generated.isBlank()) narration = generated;
-        } catch (CombatNarrationPersistenceException exception) {
-            throw exception;
-        } catch (RuntimeException ignored) {
-            // The canonical combat result is already committed; never publish an unchecked fallback narration.
-            narration = null;
+        narration = defeatedTargetNarration(command, committedEncounter);
+        if (narration == null) {
+            try {
+                String generated = narrationPort.narrate(CombatNarrationRequest.postResolution(command,
+                        response.encounterVersion(), response.diceTotal(), response.judgment(), playerInput));
+                if (generated != null && !generated.isBlank()) narration = generated;
+            } catch (CombatNarrationPersistenceException exception) {
+                throw exception;
+            } catch (RuntimeException ignored) {
+                // The canonical combat result is already committed; use only a Korean summary of that result.
+            }
         }
-        if (narration == null || narration.isBlank()) {
-            return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
-                    response.status(), response.diceTotal(), response.judgment(), response.violations(), null);
-        }
+        if (narration == null || narration.isBlank()) narration = safeResultNarration(command, response);
         try {
             long nextSequence = eventRepository.after(response.encounterId(), -1).stream()
                     .mapToLong(CombatEvent::sequence).max().orElse(0L) + 1;
@@ -672,6 +671,37 @@ public final class CombatActionApplicationService {
             return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
                     response.status(), response.diceTotal(), response.judgment(), response.violations(), null);
         }
+    }
+
+    private static String defeatedTargetNarration(CombatActionCommand command, CombatEncounter encounter) {
+        if (command.targetCharacterSheetId() == null) return null;
+        var target = encounter.participants().stream()
+                .filter(participant -> participant.participantId().equals(command.targetCharacterSheetId().value()))
+                .filter(com.dndmaster.adventure.domain.combat.CombatParticipant::isDefeated)
+                .findFirst().orElse(null);
+        if (target == null) return null;
+        boolean enemiesRemain = encounter.participants().stream()
+                .anyMatch(participant -> participant.controller() == com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI
+                        && participant.statBlock() != null && !participant.isDefeated());
+        return "공격에 쓰러진 대상은 " + target.displayName() + "입니다. "
+                + (enemiesRemain ? "다른 적들은 여전히 전투 중입니다. 다음 행동을 선택하세요."
+                        : "모든 적이 쓰러져 전투가 끝났습니다.");
+    }
+
+    private static String safeResultNarration(CombatActionCommand command, CombatActionResponse response) {
+        String action = command.action() == null ? "" : command.action().trim().toLowerCase(java.util.Locale.ROOT);
+        String judgment = response.judgment() == null ? "" : response.judgment().trim().toLowerCase(java.util.Locale.ROOT);
+        if (action.equals("attack") || (action.equals("ai_turn") && judgment.contains("attack="))) {
+            return judgment.startsWith("hit") || judgment.startsWith("critical hit")
+                    ? "공격이 적중했습니다. 전투 결과를 반영했습니다. 다음 행동을 선택하세요."
+                    : judgment.startsWith("miss") || judgment.startsWith("critical miss")
+                            ? "공격이 빗나갔습니다. 전투 결과를 반영했습니다. 다음 행동을 선택하세요."
+                            : "공격 판정 결과를 반영했습니다. 다음 행동을 선택하세요.";
+        }
+        if (action.equals("cast_spell")) {
+            return "주문 판정 결과를 전투에 반영했습니다. 다음 행동을 선택하세요.";
+        }
+        return "전투 행동의 결과를 반영했습니다. 다음 행동을 선택하세요.";
     }
 
     private static String escape(String value) {
