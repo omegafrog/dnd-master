@@ -26,6 +26,29 @@ export type RuntimeHandout = {
 
 export type RuntimeHandoutPreviewLoader = (knowledgeDocumentId: string) => Promise<SourcePreviewView>
 
+function stableSpatialCommandId(key: string): string {
+  let h1 = 1779033703, h2 = 3144134277, h3 = 1013904223, h4 = 2773480762
+  for (let i = 0; i < key.length; i += 1) {
+    const code = key.charCodeAt(i)
+    h1 = h2 ^ Math.imul(h1 ^ code, 597399067)
+    h2 = h3 ^ Math.imul(h2 ^ code, 2869860233)
+    h3 = h4 ^ Math.imul(h3 ^ code, 951274213)
+    h4 = h1 ^ Math.imul(h4 ^ code, 2716044179)
+  }
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067)
+  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233)
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213)
+  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179)
+  const hex = [h1 ^ h2 ^ h3 ^ h4, h2 ^ h1, h3 ^ h1, h4 ^ h1]
+    .map(value => (value >>> 0).toString(16).padStart(8, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+function isSpatialVersionConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null
+    && 'code' in error && error.code === 'SPATIAL_MAP_VERSION_CONFLICT'
+}
+
 export function SpatialTurnRuntime({ adventureId, playApi, combatSnapshot }: { adventureId: string; playApi: AdventurePlayApi; combatSnapshot?: CombatSnapshot | null }) {
   const spatialTurnKey = useRef<string | null>(null)
 
@@ -34,19 +57,34 @@ export function SpatialTurnRuntime({ adventureId, playApi, combatSnapshot }: { a
     let active = true
     void playApi.getCombatMap(adventureId).then(map => {
       if (!active || !map.mapId) return
-      const key = `${map.mapId}:${combatSnapshot.round}:${combatSnapshot.currentParticipantId}`
+      const turnIdentity = `${adventureId}:${map.mapId}:${combatSnapshot.encounterId}:${combatSnapshot.round}:${combatSnapshot.currentParticipantId}`
+      const key = turnIdentity
       if (spatialTurnKey.current === key) return
       spatialTurnKey.current = key
-      const commandId = globalThis.crypto && 'randomUUID' in globalThis.crypto
-        ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`
-      return playApi.combatTurnStartSpatial!(adventureId, {
-        mapId: map.mapId, expectedVersion: map.version ?? 0, commandId,
-      }).then(result => playApi.advanceSpatialDurations
-        ? playApi.advanceSpatialDurations(adventureId, {
-          mapId: map.mapId!, expectedVersion: result.mapVersion, commandId: globalThis.crypto && 'randomUUID' in globalThis.crypto
-            ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-        })
-        : result)
+      const startCommandId = stableSpatialCommandId(`${turnIdentity}:turn-start`)
+      const durationCommandId = stableSpatialCommandId(`${turnIdentity}:advance-durations`)
+      const startTurn = async (expectedVersion: number) => {
+        try {
+          return await playApi.combatTurnStartSpatial!(adventureId, { mapId: map.mapId!, expectedVersion, commandId: startCommandId })
+        } catch (error) {
+          if (!isSpatialVersionConflict(error)) throw error
+          const latest = await playApi.getCombatMap(adventureId)
+          if (latest.mapId !== map.mapId) throw error
+          return playApi.combatTurnStartSpatial!(adventureId, { mapId: latest.mapId!, expectedVersion: latest.version ?? 0, commandId: startCommandId })
+        }
+      }
+      const advanceDurations = async (expectedVersion: number) => {
+        if (!playApi.advanceSpatialDurations) return undefined
+        try {
+          return await playApi.advanceSpatialDurations(adventureId, { mapId: map.mapId!, expectedVersion, commandId: durationCommandId })
+        } catch (error) {
+          if (!isSpatialVersionConflict(error)) throw error
+          const latest = await playApi.getCombatMap(adventureId)
+          if (latest.mapId !== map.mapId) throw error
+          return playApi.advanceSpatialDurations(adventureId, { mapId: latest.mapId!, expectedVersion: latest.version ?? 0, commandId: durationCommandId })
+        }
+      }
+      return startTurn(map.version ?? 0).then(result => advanceDurations(result.mapVersion))
     }).catch(() => undefined)
     return () => { active = false }
   }, [adventureId, combatSnapshot, playApi])

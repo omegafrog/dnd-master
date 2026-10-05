@@ -91,6 +91,40 @@ class CharacterSheetApplicationServiceTest {
     }
 
     @Test
+    void consumes_spell_slot_once_and_rejects_when_no_slot_remains() throws Exception {
+        InMemoryRepository repository = new InMemoryRepository();
+        UUID owner = UUID.randomUUID();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(repository,
+                id -> SheetEdition.DND_5E_2014, id -> SessionCharacterPolicy.started("DND_5E_2014"));
+        AdventureId adventureId = adventure();
+        CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("마루", 1, false, "인간", "위저드", "학자", "INT=16", "{}",
+                        "{\"learnedSpells\":[\"마법 화살\"],\"ownedEquipment\":[]}",
+                        "{\"currentHitPoints\":8,\"equippedItems\":{}}"), 0, null, null);
+        repository.save(sheet);
+        UUID commandId = UUID.randomUUID();
+        RuntimeCharacterMutation mutation = new RuntimeCharacterMutation(0, 0, List.of(), List.of(), 1);
+
+        CharacterSheet consumed = service.applyRuntimeMutation(sheet.id(), new SessionId(adventureId.value()), owner,
+                mutation, commandId, 0);
+        CharacterSheet replay = service.applyRuntimeMutation(sheet.id(), new SessionId(adventureId.value()), owner,
+                mutation, commandId, 0);
+
+        var state = new com.fasterxml.jackson.databind.ObjectMapper().readTree(consumed.data().characterState());
+        assertEquals(1, state.path("spellSlots").path("1").intValue());
+        assertEquals(1, consumed.version());
+        assertEquals(1, replay.version());
+        CharacterSheet secondCast = service.applyRuntimeMutation(sheet.id(), new SessionId(adventureId.value()), owner,
+                mutation, UUID.randomUUID(), 1);
+        assertEquals(0, new com.fasterxml.jackson.databind.ObjectMapper().readTree(secondCast.data().characterState())
+                .path("spellSlots").path("1").intValue());
+        assertThrows(IllegalArgumentException.class, () -> service.applyRuntimeMutation(sheet.id(),
+                new SessionId(adventureId.value()), owner, mutation, UUID.randomUUID(), 2));
+        assertEquals(2, repository.findById(sheet.id()).orElseThrow().version());
+    }
+
+    @Test
     void rejects_missing_runtime_hp_when_delta_would_exceed_derived_baseline() {
         InMemoryRepository repository = new InMemoryRepository();
         UUID owner = UUID.randomUUID();

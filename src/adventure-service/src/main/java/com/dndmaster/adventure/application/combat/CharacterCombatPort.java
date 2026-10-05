@@ -3,6 +3,14 @@ package com.dndmaster.adventure.application.combat;
 public interface CharacterCombatPort {
     void requireUsableCharacter(CombatActionCommand command);
 
+    default com.dndmaster.adventure.domain.combat.CombatSpellcastingProfile spellcastingProfile(CombatActionCommand command) {
+        return com.dndmaster.adventure.domain.combat.CombatSpellcastingProfile.empty();
+    }
+
+    default void consumeSpellSlot(CombatActionCommand command, int slotLevel) {
+        throw new UnsupportedOperationException("spell slot consumption is unavailable");
+    }
+
     /** Returns the name that may be shown for a party member in the encounter order. */
     default String displayName(java.util.UUID characterSheetId, java.util.UUID ownerPlayerId, java.util.UUID sessionId) {
         return characterSheetId.toString();

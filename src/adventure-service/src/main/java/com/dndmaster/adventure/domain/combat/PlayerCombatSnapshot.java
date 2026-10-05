@@ -7,7 +7,15 @@ public record PlayerCombatSnapshot(UUID encounterId, UUID adventureId, CombatEnc
                                    int round, UUID currentParticipantId, List<PlayerParticipant> initiative,
                                    TurnResources resources, long version, long eventCursor,
                                    List<NarrativeCombatPosition> narrativePositions, PlayerReaction pendingReaction,
-                                   ProcessingFailure processingFailure) {
+                                   ProcessingFailure processingFailure, CombatSpellcastingProfile spellcasting) {
+    public PlayerCombatSnapshot(UUID encounterId, UUID adventureId, CombatEncounter.Status status,
+                                int round, UUID currentParticipantId, List<PlayerParticipant> initiative,
+                                TurnResources resources, long version, long eventCursor,
+                                List<NarrativeCombatPosition> narrativePositions, PlayerReaction pendingReaction,
+                                ProcessingFailure processingFailure) {
+        this(encounterId, adventureId, status, round, currentParticipantId, initiative, resources, version, eventCursor,
+                narrativePositions, pendingReaction, processingFailure, null);
+    }
     public PlayerCombatSnapshot(UUID encounterId, UUID adventureId, CombatEncounter.Status status,
                                 int round, UUID currentParticipantId, List<PlayerParticipant> initiative,
                                 TurnResources resources, long version, long eventCursor) {

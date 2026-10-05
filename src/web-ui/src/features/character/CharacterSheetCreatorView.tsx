@@ -1205,6 +1205,7 @@ export function CharacterSheetCreatorView({
           currentHitPoints: startingHitPoints,
           temporaryHitPoints: 0,
           experience: 0,
+          spellSlots: effectiveClass === "위저드" && Number(effectiveLevel) === 1 ? { "1": 2 } : {},
         }),
       });
       setMessage("캐릭터 시트를 저장했습니다.");

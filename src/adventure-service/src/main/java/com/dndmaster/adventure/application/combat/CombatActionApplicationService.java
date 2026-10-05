@@ -105,6 +105,11 @@ public final class CombatActionApplicationService {
             if (existing.status() == CombatActionOperation.Status.COMMITTED) return existing.response();
         }
 
+        if (FreeFormInterpretationPolicy.requestsSpellUse(command.declaration().text())) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED",
+                    List.of("주문은 전투 화면의 주문 선택에서 골라 시전하세요."));
+        }
+
         CombatEncounter encounter = activeEncounter(command.action());
         FreeFormActionPlan plan = decisionPort.interpretFreeForm(new FreeFormCombatContext(encounter, command.declaration()));
         CombatActionEvaluation evaluation = rulesEngine.validateFreeFormProposal(encounter, plan);
@@ -169,6 +174,103 @@ public final class CombatActionApplicationService {
                 operationRepository.save(operation);
             }
             response = narrateAfterCommit(command.action(), response, command.declaration().text());
+            operation.committed(response);
+            operationRepository.save(operation);
+            return response;
+        } catch (CombatCommandRejectedException exception) {
+            throw exception;
+        } catch (RuntimeCombatRejectionException exception) {
+            operation.failed(exception);
+            operationRepository.save(operation);
+            throw exception;
+        } catch (RuntimeException exception) {
+            operation.failed(exception);
+            operationRepository.save(operation);
+            throw new CombatExternalFailureException(exception);
+        }
+    }
+
+    /** Resolves the currently supported first-level Magic Missile action. */
+    public CombatActionResponse castSpell(CombatActionCommand command, String spellName) {
+        Objects.requireNonNull(command, "combat action command must not be null");
+        if (!"마법 화살".equals(spellName)) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("현재 전투에서 사용할 수 없는 주문입니다."));
+        }
+        CombatActionOperation existing = operationRepository.findByCommandId(command.operationId()).orElse(null);
+        if (existing != null) {
+            existing.requireSame(command.fingerprint() + "|SPELL|" + spellName);
+            if (existing.status() == CombatActionOperation.Status.COMMITTED) return existing.response();
+        }
+
+        CombatEncounter encounter = activeEncounter(command);
+        CombatActionEvaluation evaluation = rulesEngine.validateAction(encounter,
+                new CombatActionIntent(command.characterSheetId().value(), "CAST_SPELL", TurnResourceCost.actionOnly()));
+        if (!evaluation.accepted()) throw new CombatCommandRejectedException("COMBAT_STATE_REJECTED", evaluation.violations());
+        if (command.targetCharacterSheetId() == null) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("주문 대상을 선택하세요."));
+        }
+        var target = encounter.participants().stream()
+                .filter(participant -> participant.participantId().equals(command.targetCharacterSheetId().value()))
+                .findFirst().orElseThrow(() -> new CombatCommandRejectedException(
+                        "ACTION_NOT_ALLOWED", List.of("전투에 참여 중인 대상을 선택하세요.")));
+        if (target.controller() != com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI
+                || target.statBlock() == null || target.isDefeated()) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("마법 화살은 전투 중인 적을 대상으로 합니다."));
+        }
+        var profile = characterPort.spellcastingProfile(command);
+        boolean spellKnown = profile.availableSpells().stream()
+                .anyMatch(spell -> spell.name().equals(spellName) && spell.level() == 1);
+        if (!spellKnown) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("이 캐릭터는 마법 화살을 사용할 수 없습니다."));
+        }
+        if (profile.availableSlots().getOrDefault(1, 0) < 1) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("1레벨 주문 슬롯이 부족합니다."));
+        }
+
+        TurnResources.Reservation reservation;
+        try {
+            reservation = encounter.reserveAction(command.characterSheetId().value(), evaluation.cost(), command.expectedVersion());
+        } catch (RuntimeException exception) {
+            throw new CombatCommandRejectedException("COMBAT_STATE_REJECTED", List.of(exception.getMessage()));
+        }
+        String fingerprint = command.fingerprint() + "|SPELL|" + spellName;
+        CombatActionOperation operation = existing == null
+                ? new CombatActionOperation(command.operationId(), fingerprint, encounter.encounterId(),
+                        command.characterSheetId().value(), evaluation.cost(), List.of(
+                        new CombatActionStep("dice", command.operationId() + ":dice", CombatActionStep.Status.PENDING),
+                        new CombatActionStep("character", command.operationId() + ":character", CombatActionStep.Status.PENDING)))
+                : existing;
+        operationRepository.save(operation);
+        if (existing == null) eventRepository.append(new CombatEvent(encounter.encounterId(), encounter.eventCursor() + 1,
+                "ACTION_RESERVED", "{\"operationId\":\"" + command.operationId() + "\",\"kind\":\"SPELL\"}"));
+
+        try {
+            characterPort.requireUsableCharacter(command);
+            int damage;
+            if (operation.diceTotal() != null && stepDone(operation, "dice")) {
+                damage = operation.diceTotal();
+            } else {
+                damage = dicePort.rollDamage(3, 4, 3);
+                operation.recordDiceTotal(damage);
+                operation.completeStep("dice");
+                operationRepository.save(operation);
+            }
+            if (!stepDone(operation, "character")) {
+                characterPort.consumeSpellSlot(command, 1);
+                operation.completeStep("character");
+                operationRepository.save(operation);
+            }
+            CombatEncounter committed = encounter.commitAction(command.characterSheetId().value(), reservation,
+                    target.participantId(), damage);
+            encounterRepository.save(committed, encounter.version());
+            String judgment = "마법 화살 적중 · 피해 " + damage;
+            CombatActionResponse response = new CombatActionResponse(committed.encounterId(), command.operationId(),
+                    committed.version(), "COMMITTED", damage, judgment, List.of());
+            operation.committed(response);
+            operationRepository.save(operation);
+            eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(), "ACTION_RESOLVED",
+                    "{\"operationId\":\"" + command.operationId() + "\",\"kind\":\"SPELL\",\"spell\":\"마법 화살\",\"damage\":" + damage + "}"));
+            response = narrateAfterCommit(command, response, "마루가 마법 화살을 1레벨 주문 슬롯으로 시전했습니다.");
             operation.committed(response);
             operationRepository.save(operation);
             return response;

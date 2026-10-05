@@ -77,4 +77,59 @@ describe('SessionRuntime', () => {
     expect(advanceSpatialDurations).toHaveBeenCalledWith('adventure-1', expect.objectContaining({ mapId: 'map-1', expectedVersion: 8 }))
     expect(combatTurnStartSpatial.mock.calls[0][1].commandId).not.toBe(advanceSpatialDurations.mock.calls[0][1].commandId)
   })
+
+  it('같은 전투 차례로 화면을 다시 열어도 지도 요청 번호를 재사용한다', async () => {
+    const combatTurnStartSpatial = vi.fn().mockResolvedValue({ mapId: 'map-1', mapVersion: 8, publicEvents: [] })
+    const advanceSpatialDurations = vi.fn().mockResolvedValue({ mapId: 'map-1', mapVersion: 9, publicEvents: [] })
+    const playApi = {
+      getCombatMap: vi.fn().mockResolvedValue({ mapId: 'map-1', version: 7, status: 'authoritative-map' }),
+      combatTurnStartSpatial,
+      advanceSpatialDurations,
+    } as unknown as AdventurePlayApi
+    const props = {
+      adventureId: 'adventure-1', adventureApi: {} as AdventureApi, playApi,
+      combatSnapshot: {
+        encounterId: 'encounter-1', adventureId: 'adventure-1', status: 'ACTIVE' as const, round: 2,
+        currentParticipantId: 'character-1', version: 4, eventCursor: 3,
+        resources: { movement: 30, actionAvailable: true, bonusActionAvailable: false, reactionAvailable: true }, initiative: [],
+      },
+    }
+    const first = render(<SessionRuntime {...props} />)
+    await waitFor(() => expect(advanceSpatialDurations).toHaveBeenCalledTimes(1))
+    const firstStartId = combatTurnStartSpatial.mock.calls[0][1].commandId
+    const firstAdvanceId = advanceSpatialDurations.mock.calls[0][1].commandId
+
+    first.unmount()
+    render(<SessionRuntime {...props} />)
+    await waitFor(() => expect(advanceSpatialDurations).toHaveBeenCalledTimes(2))
+
+    expect(combatTurnStartSpatial.mock.calls[1][1].commandId).toBe(firstStartId)
+    expect(advanceSpatialDurations.mock.calls[1][1].commandId).toBe(firstAdvanceId)
+  })
+
+  it('지도 버전 충돌 뒤 최신 버전으로 같은 요청을 한 번 재시도한다', async () => {
+    const conflict = Object.assign(new Error('conflict'), { status: 409, code: 'SPATIAL_MAP_VERSION_CONFLICT' })
+    const combatTurnStartSpatial = vi.fn()
+      .mockRejectedValueOnce(conflict)
+      .mockResolvedValueOnce({ mapId: 'map-1', mapVersion: 9, publicEvents: [] })
+    const advanceSpatialDurations = vi.fn().mockResolvedValue({ mapId: 'map-1', mapVersion: 10, publicEvents: [] })
+    const getCombatMap = vi.fn()
+      .mockResolvedValueOnce({ mapId: 'map-1', version: 7, status: 'authoritative-map' })
+      .mockResolvedValueOnce({ mapId: 'map-1', version: 8, status: 'authoritative-map' })
+    render(<SessionRuntime
+      adventureId="adventure-1"
+      adventureApi={{} as AdventureApi}
+      playApi={{ getCombatMap, combatTurnStartSpatial, advanceSpatialDurations } as unknown as AdventurePlayApi}
+      combatSnapshot={{
+        encounterId: 'encounter-1', adventureId: 'adventure-1', status: 'ACTIVE', round: 2,
+        currentParticipantId: 'character-1', version: 4, eventCursor: 3,
+        resources: { movement: 30, actionAvailable: true, bonusActionAvailable: false, reactionAvailable: true }, initiative: [],
+      }}
+    />)
+
+    await waitFor(() => expect(advanceSpatialDurations).toHaveBeenCalledTimes(1))
+    expect(combatTurnStartSpatial).toHaveBeenCalledTimes(2)
+    expect(combatTurnStartSpatial.mock.calls[0][1].commandId).toBe(combatTurnStartSpatial.mock.calls[1][1].commandId)
+    expect(combatTurnStartSpatial.mock.calls[1][1].expectedVersion).toBe(8)
+  })
 })

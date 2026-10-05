@@ -258,6 +258,42 @@ class AdventureAiRequestControllerTest {
                                 && "committed turn store unavailable".equals(failure.getMessage())));
     }
 
+    @Test
+    void committed_turn_that_proposes_combat_does_not_fail_when_an_encounter_is_already_active() {
+        Fixture fixture = fixture();
+        UUID commandId = UUID.randomUUID();
+        UUID turnId = UUID.randomUUID();
+        var plan = new com.dndmaster.adventure.application.runtime.RuntimePlan(
+                "저장고", null, "전투 중에는 짧은 휴식을 취할 수 없습니다.", "쥐가 계속 다가옵니다.", null,
+                java.util.List.of(), java.util.List.of(), "test", "test-model", "", false, "", null, null,
+                1, java.util.List.of(), null,
+                java.util.List.of(new com.dndmaster.adventure.application.runtime.CombatEnemyProposal(
+                        "encounter-rats", "거대 쥐", 1)), true, false);
+        var resultTurn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        when(resultTurn.plan()).thenReturn(plan);
+        when(resultTurn.adventureId()).thenReturn(fixture.adventure().id());
+        when(resultTurn.sessionId()).thenReturn(fixture.adventure().sessionId().value());
+        when(resultTurn.turnId()).thenReturn(turnId);
+        when(resultTurn.lifecycle()).thenReturn(com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMITTED);
+        when(fixture.runtimeTurns().submitTurn(any())).thenReturn(
+                new com.dndmaster.adventure.application.runtime.RuntimeTurnResult(resultTurn,
+                        fixture.adventure().currentContext(), java.util.List.of(), fixture.adventure().version() + 1));
+        var activeEncounter = com.dndmaster.adventure.domain.combat.CombatStartPolicy.startFromCommittedGmTurn(true,
+                fixture.adventure().id().value(), java.util.List.of(new com.dndmaster.adventure.domain.combat.CombatParticipant(
+                        UUID.randomUUID(), "영웅", com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER, 10, null)));
+        when(fixture.combatLifecycle().findActiveEncounter(fixture.adventure().id().value()))
+                .thenReturn(Optional.of(activeEncounter));
+
+        var response = fixture.adventureController().submitTypedTurn(
+                fixture.adventure().id().value(), commandId, fixture.adventure().version(),
+                new AdventureController.GmTurnRequest(turnId,
+                        new AdventureController.GmInputRequest("TEXT", "짧은 휴식을 취하겠습니다.", null, null, null, null)));
+
+        assertEquals(org.springframework.http.HttpStatus.ACCEPTED, response.getStatusCode());
+        verify(fixture.combatLifecycle(), never()).startFromCommittedGmTurn(any(), any(), any());
+        verify(fixture.scheduler(), never()).scheduleNext(any(), any(), org.mockito.ArgumentMatchers.anyInt(), any(), any());
+    }
+
     @SuppressWarnings("unchecked")
     private static Fixture fixture() {
         return fixture(mock(AdventureAiRequestApplicationService.class));
@@ -284,6 +320,7 @@ class AdventureAiRequestControllerTest {
                 mock(com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder.class);
         com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEvents =
                 mock(com.dndmaster.adventure.application.runtime.SessionEventRepository.class);
+        var combatLifecycle = mock(com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService.class);
 
         RuntimeTurnRepository runtimeTurnRepository = mock(RuntimeTurnRepository.class);
         AdventureController adventureController = new AdventureController(
@@ -302,7 +339,7 @@ class AdventureAiRequestControllerTest {
                 provider(mock(com.dndmaster.adventure.application.combat.CombatMapPreparationPort.class)),
                 mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class),
                 mock(com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository.class),
-                mock(com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService.class),
+                combatLifecycle,
                 mock(com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService.class), aiRequests);
         CombatController combatController = new CombatController(
                 encounters, playerResolver,
@@ -311,7 +348,7 @@ class AdventureAiRequestControllerTest {
                 workItems, scheduler,
                 mock(com.dndmaster.adventure.application.combat.CharacterCombatPort.class), aiRequests);
         return new Fixture(adventure, adventureController, combatController, aiRequests, gmTurns, runtimeTurns, runtimeTurnRepository,
-                combatActions, encounters, workItems, scheduler, gmTurnFailures, sessionEvents);
+                combatActions, encounters, workItems, scheduler, gmTurnFailures, sessionEvents, combatLifecycle);
     }
 
     private static <T> ObjectProvider<T> provider(T value) {
@@ -336,5 +373,6 @@ class AdventureAiRequestControllerTest {
             com.dndmaster.adventure.application.combat.CombatEncounterRepository encounters,
             CombatWorkItemRepository workItems, CombatWorkItemScheduler scheduler,
             com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder gmTurnFailures,
-            com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEvents) { }
+            com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEvents,
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycle) { }
 }

@@ -31,6 +31,25 @@ describe('CombatScreen', () => {
     expect(screen.queryByText(/AC|HP|정확한/)).not.toBeInTheDocument()
   })
 
+  it('restores committed GM narration from the durable event stream after mounting', async () => {
+    const subscribeEvents = vi.fn((_adventureId: string, afterSequence: number,
+      onEvent: (event: { sequence: number; type: string; payload: string }) => void) => {
+      expect(afterSequence).toBe(0)
+      onEvent({ sequence: 8, type: 'ACTION_RESOLVED', payload: JSON.stringify({ judgment: 'hit (attack=16, AC=12)', diceTotal: 11 }) })
+      onEvent({ sequence: 9, type: 'GM_NARRATION', payload: JSON.stringify({ narration: '영웅의 검이 거대 쥐를 쓰러뜨립니다.' }) })
+      return vi.fn()
+    })
+    render(<CombatScreen api={{ readSnapshot: vi.fn(), submitAction: vi.fn(), endTurn: vi.fn(), subscribeEvents }}
+      snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE', round: 1,
+        currentParticipantId: 'p1', version: 3, eventCursor: 9,
+        resources: { movement: 30, actionAvailable: true, bonusActionAvailable: false, reactionAvailable: true },
+        initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
+
+    expect(await screen.findByText('영웅의 검이 거대 쥐를 쓰러뜨립니다.')).toBeInTheDocument()
+    expect(screen.queryByText(/attack=16|AC=12|diceTotal/)).not.toBeInTheDocument()
+    expect(subscribeEvents).toHaveBeenCalledOnce()
+  })
+
   it('submits an action and ends the human turn explicitly', async () => {
     const user = userEvent.setup()
     const submitAction = vi.fn(async () => ({ status: 'COMMITTED' as const }))
@@ -50,6 +69,67 @@ describe('CombatScreen', () => {
     expect(endTurn).toHaveBeenCalledWith('a1', 'p1', 3)
   })
 
+  it('shows safe Korean action status instead of private mechanics or operation identifiers', async () => {
+    const user = userEvent.setup()
+    const submitAction = vi.fn(async () => ({
+      status: 'COMMITTED' as const,
+      operationId: 'private-operation',
+      diceTotal: 11,
+      judgment: 'hit (attack=16, AC=12)',
+    }))
+    render(<CombatScreen api={{ readSnapshot: vi.fn(), submitAction, endTurn: vi.fn() }} snapshot={{
+      encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE', round: 1,
+      currentParticipantId: 'p1', version: 3, eventCursor: 2,
+      resources: { movement: 30, actionAvailable: true, bonusActionAvailable: true, reactionAvailable: true },
+      initiative: [
+        { participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' },
+        { participantId: 'enemy-1', displayName: '거대 쥐', controller: 'AI', initiative: 10, publicCondition: null },
+      ],
+    }} />)
+
+    await user.selectOptions(screen.getByRole('combobox', { name: '공격 대상' }), 'enemy-1')
+    await user.click(screen.getByRole('button', { name: '공격' }))
+
+    expect(await screen.findByText('행동 결과를 반영했습니다.')).toBeInTheDocument()
+    expect(screen.queryByText(/attack=16|AC=12|diceTotal|private-operation/)).not.toBeInTheDocument()
+  })
+
+  it('casts a selected spell at a selected enemy and displays remaining spell slots', async () => {
+    const user = userEvent.setup()
+    const castSpell = vi.fn(async () => ({ status: 'COMMITTED' as const, judgment: '마법 화살 적중 · 피해 9' }))
+    const api = { readSnapshot: vi.fn(), submitAction: vi.fn(), castSpell, endTurn: vi.fn() }
+    render(<CombatScreen api={api} snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE', round: 1,
+      currentParticipantId: 'p1', version: 3, eventCursor: 2,
+      resources: { movement: 30, actionAvailable: true, bonusActionAvailable: true, reactionAvailable: true },
+      spellcasting: { availableSpells: [{ name: '마법 화살', level: 1 }], availableSlots: { '1': 2 } },
+      initiative: [
+        { participantId: 'p1', displayName: '마루', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' },
+        { participantId: 'rat-3', displayName: '거대 쥐 3', controller: 'AI', initiative: 10, publicCondition: null },
+      ] }} />)
+
+    expect(screen.getByText('1레벨 주문 슬롯: 2')).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: '사용할 주문' }), '마법 화살')
+    await user.selectOptions(screen.getByRole('combobox', { name: '주문 대상' }), 'rat-3')
+    await user.click(screen.getByRole('button', { name: '시전' }))
+
+    expect(castSpell).toHaveBeenCalledWith('a1', {
+      characterSheetId: 'p1', spellName: '마법 화살', targetParticipantId: 'rat-3',
+    }, 3)
+  })
+
+  it('shows insufficient slots and prevents the player from submitting a spell', () => {
+    render(<CombatScreen api={{ readSnapshot: vi.fn(), submitAction: vi.fn(), castSpell: vi.fn(), endTurn: vi.fn() }}
+      snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE', round: 1,
+        currentParticipantId: 'p1', version: 3, eventCursor: 2,
+        resources: { movement: 30, actionAvailable: true, bonusActionAvailable: true, reactionAvailable: true },
+        spellcasting: { availableSpells: [{ name: '마법 화살', level: 1 }], availableSlots: { '1': 0 } },
+        initiative: [{ participantId: 'p1', displayName: '마루', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
+
+    expect(screen.getByText('1레벨 주문 슬롯: 0')).toBeInTheDocument()
+    expect(screen.getByText('1레벨 주문 슬롯이 부족합니다.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '시전' })).toBeDisabled()
+  })
+
   it('renders mapless range and cover and sends movement through Combat API', async () => {
     const user = userEvent.setup()
     const submitMovement = vi.fn(async () => ({ status: 'MOVE_COMMITTED' as const, judgment: 'NEAR range, HALF cover' }))
@@ -67,9 +147,9 @@ describe('CombatScreen', () => {
     expect(submitMovement).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', movementPath: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }), 4)
   })
 
-  it('keeps player action input, result, and game master narration in separate areas', async () => {
+  it('does not render narration directly from an action response', async () => {
     const user = userEvent.setup()
-    const submitFreeForm = vi.fn(async () => ({ status: 'COMMITTED', judgment: '햄이 명중했습니다.', narration: '고블린이 움찔합니다.' }))
+    const submitFreeForm = vi.fn(async () => ({ status: 'COMMITTED', judgment: 'hit (attack=16, AC=12)', narration: '비밀 통로는 동쪽 벽 뒤에 있습니다.' }))
     const api = { readSnapshot: vi.fn(), submitAction: vi.fn(), submitFreeForm, endTurn: vi.fn() }
     render(<CombatScreen api={api} snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE', round: 1,
       currentParticipantId: 'p1', version: 4, eventCursor: 3,
@@ -80,13 +160,14 @@ describe('CombatScreen', () => {
     await user.click(screen.getByRole('button', { name: '행동 보내기' }))
 
     expect(submitFreeForm).toHaveBeenCalledWith('a1', 'p1', 'throw ham at the goblin', 4)
-    expect(screen.getByRole('heading', { name: '판정 결과' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '행동 상태' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '게임 마스터 서술' })).toBeInTheDocument()
-    expect(screen.getByRole('list', { name: '판정 결과' })).toHaveTextContent('햄이 명중했습니다.')
-    expect(screen.getByRole('list', { name: '게임 마스터 서술' })).toHaveTextContent('고블린이 움찔합니다.')
+    expect(screen.getByRole('list', { name: '행동 상태' })).toHaveTextContent('행동 결과를 반영했습니다.')
+    expect(screen.getByRole('list', { name: '행동 상태' })).not.toHaveTextContent(/attack=16|AC=12/)
+    expect(screen.getByRole('list', { name: '게임 마스터 서술' })).not.toHaveTextContent('비밀 통로는 동쪽 벽 뒤에 있습니다.')
   })
 
-  it('shows the failed operation and retries that same operation', async () => {
+  it('hides internal failure details and retries the available operation', async () => {
     const user = userEvent.setup()
     const retry = vi.fn(async () => ({ status: 'RETRY_SCHEDULED' as const, operationId: 'op-1' }))
     const api = { readSnapshot: vi.fn(), submitAction: vi.fn(), endTurn: vi.fn(), retry }
@@ -96,11 +177,11 @@ describe('CombatScreen', () => {
       processingFailure: { operationId: 'op-1', failure: 'AI unavailable', attempts: 3 },
       initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
 
-    expect(screen.getByText(/작업 op-1/)).toBeInTheDocument()
-    expect(screen.getByText(/시도 3\/3/)).toBeInTheDocument()
+    expect(screen.getByText('전투 처리를 완료하지 못했습니다.')).toBeInTheDocument()
+    expect(screen.queryByText(/op-1|AI unavailable|시도 3\/3/)).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '다시 시도' }))
 
     expect(retry).toHaveBeenCalledWith('a1', 'op-1', 8)
-    expect(screen.getAllByRole('status').at(-1)).toHaveTextContent('RETRY_SCHEDULED')
+    expect(screen.getAllByRole('status').at(-1)).toHaveTextContent('전투 처리를 다시 요청했습니다.')
   })
 })

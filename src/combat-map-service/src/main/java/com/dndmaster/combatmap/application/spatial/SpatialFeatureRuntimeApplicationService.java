@@ -75,7 +75,11 @@ public final class SpatialFeatureRuntimeApplicationService {
     private SpatialRuntimeResult save(VersionedOwnedCombatMap state, MapOwnerId owner, UUID commandId,
             String fingerprint, List<String> events) {
         long nextVersion = state.version() + 1;
-        store.update(owner, state.map(), state.version(), nextVersion, commandId, fingerprint);
+        try {
+            store.update(owner, state.map(), state.version(), nextVersion, commandId, fingerprint);
+        } catch (com.dndmaster.combatmap.infrastructure.persistence.OptimisticCombatMapLockException conflict) {
+            throw new SpatialMapVersionConflictException();
+        }
         return new SpatialRuntimeResult(state.map().id(), nextVersion, events);
     }
 
@@ -97,7 +101,7 @@ public final class SpatialFeatureRuntimeApplicationService {
     }
 
     private static void requireVersion(VersionedOwnedCombatMap state, long expectedVersion) {
-        if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
+        if (state.version() != expectedVersion) throw new SpatialMapVersionConflictException();
     }
 
     private CombatMap replay(VersionedOwnedCombatMap state, MapOwnerId owner, UUID commandId, String fingerprint) {

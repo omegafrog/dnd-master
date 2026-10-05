@@ -91,8 +91,14 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
         requireVersion(expectedVersion);
         if (pendingReaction != null) throw new IllegalStateException("REACTION_PENDING");
         int currentIndex = participants.indexOf(currentParticipant());
-        int nextIndex = (currentIndex + 1) % participants.size();
-        int nextRound = nextIndex == 0 ? round + 1 : round;
+        int nextIndex = currentIndex;
+        do {
+            nextIndex = (nextIndex + 1) % participants.size();
+            if (nextIndex == currentIndex && participants.get(nextIndex).isDefeated()) {
+                throw new IllegalStateException("NO_ACTIVE_COMBAT_PARTICIPANTS");
+            }
+        } while (participants.get(nextIndex).isDefeated());
+        int nextRound = nextIndex <= currentIndex ? round + 1 : round;
         UUID nextParticipantId = participants.get(nextIndex).participantId();
         List<CombatParticipant> resetParticipants = participants.stream()
                 .map(p -> p.participantId().equals(nextParticipantId) ? p.withResources(TurnResources.initial()) : p)

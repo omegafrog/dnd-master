@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.combatmap.application.spatial.SpatialFeatureRuntimeApplicationService;
+import com.dndmaster.combatmap.application.spatial.SpatialMapVersionConflictException;
 import com.dndmaster.combatmap.application.view.CombatMapViewStore;
 import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.VersionedOwnedCombatMap;
@@ -55,6 +56,8 @@ class SpatialFeatureRuntimeApplicationServiceTest {
         var first = service.interact(map.id(), owner, tokenId, target, 0, commandId);
 
         assertEquals(1, first.mapVersion());
+        assertThrows(SpatialMapVersionConflictException.class,
+                () -> service.combatTurnStart(map.id(), owner, 0, UUID.randomUUID()));
         assertEquals(List.of(), first.publicEvents());
         assertEquals(SpatialFeatureVisibility.HIDDEN, feature.visibility());
         feature.discover();
