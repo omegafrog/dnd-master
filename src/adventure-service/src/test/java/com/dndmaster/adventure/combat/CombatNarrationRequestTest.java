@@ -10,6 +10,11 @@ import com.dndmaster.adventure.application.combat.ConfirmedCombatState;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
+import com.dndmaster.adventure.domain.combat.CombatEncounter;
+import com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock;
+import com.dndmaster.adventure.domain.combat.CombatParticipant;
+import com.dndmaster.adventure.domain.combat.CombatStatBlockSource;
+import com.dndmaster.adventure.domain.combat.TurnResources;
 import java.util.UUID;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -64,6 +69,29 @@ class CombatNarrationRequestTest {
         assertEquals(2, state.enemies().size());
         assertEquals(List.of(false, true), state.enemies().stream().map(ConfirmedCombatState.Enemy::defeated).toList());
         assertEquals(List.of(4, 0), state.enemies().stream().map(ConfirmedCombatState.Enemy::currentHitPoints).toList());
+    }
+
+    @Test
+    void snapshot_reads_current_enemy_hp_and_omits_participants_without_enemy_numbers() {
+        UUID heroId = UUID.randomUUID();
+        UUID enemyId = UUID.randomUUID();
+        UUID allyId = UUID.randomUUID();
+        CombatEnemyStatBlock stats = new CombatEnemyStatBlock(13, 7, 3, "1d6",
+                new CombatStatBlockSource(UUID.randomUUID(), 1, "page:enemy"));
+        CombatEncounter encounter = new CombatEncounter(UUID.randomUUID(), UUID.randomUUID(), CombatEncounter.Status.ACTIVE,
+                2, heroId, List.of(
+                new CombatParticipant(heroId, "영웅", CombatParticipant.Controller.PLAYER, 15, null),
+                new CombatParticipant(enemyId, "고블린", CombatParticipant.Controller.AI, 12, null,
+                        TurnResources.initial(), stats, 3),
+                new CombatParticipant(allyId, "동료", CombatParticipant.Controller.AI, 8, null)), 5, 10);
+
+        ConfirmedCombatState state = ConfirmedCombatState.from(encounter);
+
+        assertEquals(5, state.encounterVersion());
+        assertEquals(1, state.enemies().size());
+        assertEquals(enemyId, state.enemies().getFirst().participantId());
+        assertEquals(3, state.enemies().getFirst().currentHitPoints());
+        assertEquals(7, state.enemies().getFirst().maximumHitPoints());
     }
 
     private static ConfirmedCombatState state(long version) {
