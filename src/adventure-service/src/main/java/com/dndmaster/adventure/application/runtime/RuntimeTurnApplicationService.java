@@ -649,21 +649,18 @@ public class RuntimeTurnApplicationService {
                 : narrativeStateService.load(adventure.sessionId().value());
         ScenarioModel narrationScenarioModel = HiddenScenarioFacts.withoutUnrevealedRevelations(
                 scenarioPackage.scenarioModel(), adventure.storyRuntimeState());
-        java.util.Set<ScenarioSourceReference> unrevealedSourceRefs = HiddenScenarioFacts.unrevealedRevelationSourceRefs(
-                scenarioPackage.scenarioModel(), adventure.storyRuntimeState());
-        java.util.Set<String> unrevealedElementIds = HiddenScenarioFacts.unrevealedRevelationIds(
-                scenarioPackage.scenarioModel(), adventure.storyRuntimeState());
-        EvidencePack evidencePack = withoutUnrevealedRevelationEvidence(
-                prefetchEvidence(contextCommand, adventure, binding, scenarioPackage), unrevealedSourceRefs);
-        List<RuntimeFactLookupResult> factLookupResults = lookupRuntimeFacts(
-                contextCommand, adventure, evidencePack, narrationScenarioModel);
-        factLookupResults = withoutUnrevealedRevelationLookupResults(factLookupResults, unrevealedSourceRefs, unrevealedElementIds);
+        EvidencePack evidencePack = new EvidencePack(List.of(), List.of(), List.of());
+        List<RuntimeFactLookupResult> factLookupResults = List.of();
         String situation = adventure.currentSituation() == null ? "" : adventure.currentSituation().toString();
         NarrativeContext narrativeContext = narrativeState.project(adventure.ownerPlayerId().value().toString(), situation);
         List<String> recentTurns = new ArrayList<>(recentConversationForPrompt(adventure));
         runtimeTurnRepository.findAllByAdventureId(adventure.id()).stream()
                 .filter(turn -> turn.lifecycle() == RuntimeTurnLifecycle.PENDING_ROLL)
                 .forEach(turn -> recentTurns.add("PENDING_ROLL: " + turn.action()));
+        List<String> hiddenFacts = new ArrayList<>(hiddenFactsForPlayer(scenarioPackage, adventure, narrativeState));
+        hiddenFacts.addAll(request.combatState().enemies().stream()
+                .map(enemy -> enemy.displayName() + " 현재 HP=" + enemy.currentHitPoints() + "/" + enemy.maximumHitPoints())
+                .toList());
         RuntimePlanningRequest planningRequest = new RuntimePlanningRequest(adventure.id(), adventure.ownerPlayerId(),
                 adventure.sessionId().value(), request.command().operationId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), contextCommand.action(), evidencePack, recentTurns,
@@ -672,8 +669,8 @@ public class RuntimeTurnApplicationService {
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value(),
                 adventure.runtimeAddedFacts().stream().map(RuntimeAddedFact::content).toList(), factLookupResults, situation,
                 longTermFactsForPrompt(adventure))
-                .withHiddenFacts(hiddenFactsForPlayer(scenarioPackage, adventure, narrativeState))
-                .withScenarioModel(scenarioPackage.scenarioModel());
+                .withHiddenFacts(hiddenFacts)
+                .withScenarioModel(narrationScenarioModel);
         String narration = planningPort.planNarration(planningRequest).narration();
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                 narration, evidencePack, adventure.currentContext(), contextCommand.action(), planningRequest.hiddenFacts()));
@@ -712,6 +709,12 @@ public class RuntimeTurnApplicationService {
     private static String combatNarrationAction(CombatNarrationRequest request) {
         return "확정된 전투 행동을 플레이어에게 서술합니다. "
                 + (request.hasPlayerInput() ? "플레이어 입력=" + request.playerInput() : "전투 참여자 행동=" + request.command().action())
+                + "; 적의 현재 상태(내부 참고, HP 숫자는 플레이어에게 말하지 않음)="
+                + request.combatState().enemies().stream().map(enemy -> "식별자=" + enemy.participantId() + " " + enemy.displayName()
+                        + " 현재 HP=" + enemy.currentHitPoints() + "/" + enemy.maximumHitPoints()
+                        + (enemy.defeated() ? " 쓰러짐" : " 전투 중"))
+                        .collect(java.util.stream.Collectors.joining(", "))
+                + ". 이 최신 목록은 과거 대화보다 우선합니다. 쓰러진 적은 행동하지 못하며, 적이나 피해를 새로 만들지 마세요."
                 + ";"
                 + " 전투 버전=" + request.encounterVersion()
                 + "; 주사위 결과=" + (request.diceTotal() == null ? "없음" : request.diceTotal())

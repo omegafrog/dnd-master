@@ -6,28 +6,32 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatNarrationRequest;
+import com.dndmaster.adventure.application.combat.ConfirmedCombatState;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import java.util.UUID;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class CombatNarrationRequestTest {
     @Test
     void carries_only_the_confirmed_result_to_adventure_runtime() {
         CombatActionCommand command = command();
-        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command, 7L, 18, "명중", "검을 휘두른다");
+        ConfirmedCombatState state = state(7L);
+        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command, 7L, state, 18, "명중", "검을 휘두른다");
 
         assertEquals(command, request.command());
         assertEquals("검을 휘두른다", request.playerInput());
         assertEquals(7L, request.encounterVersion());
         assertEquals(18, request.diceTotal());
         assertEquals("명중", request.judgment());
+        assertEquals(state, request.combatState());
     }
 
     @Test
     void keeps_the_canonical_result_separate_from_the_narration_request() {
-        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command(), 7L, 18, "명중", "attack");
+        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command(), 7L, state(7L), 18, "명중", "attack");
 
         assertEquals(7L, request.encounterVersion());
         assertEquals(18, request.diceTotal());
@@ -41,10 +45,31 @@ class CombatNarrationRequestTest {
                 CombatActorRole.AI, "attack", null, UUID.randomUUID(), UUID.randomUUID(), 6L,
                 15, 4, new CharacterSheetId(UUID.randomUUID()), 6, false);
 
-        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command, 7L, 18, "명중", null);
+        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command, 7L, state(7L), 18, "명중", null);
 
         assertFalse(request.hasPlayerInput());
         assertEquals("AI가 조종하는 전투 참여자", request.confirmedActor());
+    }
+
+    @Test
+    void rejects_a_snapshot_from_a_different_encounter_version() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> CombatNarrationRequest.postResolution(command(), 7L, state(6L), 18, "명중", "검을 휘두른다"));
+    }
+
+    @Test
+    void snapshot_keeps_living_and_defeated_enemy_hit_points_internal() {
+        ConfirmedCombatState state = state(7L);
+
+        assertEquals(2, state.enemies().size());
+        assertEquals(List.of(false, true), state.enemies().stream().map(ConfirmedCombatState.Enemy::defeated).toList());
+        assertEquals(List.of(4, 0), state.enemies().stream().map(ConfirmedCombatState.Enemy::currentHitPoints).toList());
+    }
+
+    private static ConfirmedCombatState state(long version) {
+        return new ConfirmedCombatState(version, List.of(
+                new ConfirmedCombatState.Enemy(UUID.randomUUID(), "고블린", 4, 7, false),
+                new ConfirmedCombatState.Enemy(UUID.randomUUID(), "거대 쥐", 0, 5, true)));
     }
 
     private static CombatActionCommand command() {

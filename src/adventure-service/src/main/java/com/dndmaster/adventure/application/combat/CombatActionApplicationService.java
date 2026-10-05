@@ -650,7 +650,8 @@ public final class CombatActionApplicationService {
         if (narration == null) {
             try {
                 String generated = narrationPort.narrate(CombatNarrationRequest.postResolution(command,
-                        response.encounterVersion(), response.diceTotal(), response.judgment(), playerInput));
+                        response.encounterVersion(), ConfirmedCombatState.from(committedEncounter), response.diceTotal(),
+                        response.judgment(), playerInput));
                 if (generated != null && !generated.isBlank()) narration = generated;
             } catch (CombatNarrationPersistenceException exception) {
                 throw exception;

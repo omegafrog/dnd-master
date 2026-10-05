@@ -3,7 +3,10 @@ package com.dndmaster.adventure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -22,12 +25,15 @@ import com.dndmaster.adventure.application.runtime.RuntimeGmPromptComposer;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
 import com.dndmaster.adventure.application.runtime.RuntimePlanningPort;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.RuntimeFactLookupService;
+import com.dndmaster.adventure.application.runtime.RuntimeFactLookupRequest;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatNarrationRequest;
+import com.dndmaster.adventure.application.combat.ConfirmedCombatState;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
@@ -114,11 +120,11 @@ class CombatNarrationPromptContractTest {
         when(pending.action()).thenReturn("Perception: inspect the gate");
         when(turns.findAllByAdventureId(adventureId)).thenReturn(List.of(pending));
         RuntimeEvidenceSearchPort evidenceSearch = mock(RuntimeEvidenceSearchPort.class);
-        when(evidenceSearch.search(any())).thenReturn(List.of(hiddenEvidence, allowedEvidence));
         AtomicReference<String> prompt = new AtomicReference<>();
         RuntimePlanningPort planning = new GmAgentRuntimePlanningAdapter(context -> {
             verify(adventures).save(argThat(saved -> saved.conversation().stream()
-                    .anyMatch(entry -> entry.content().startsWith("확정 전투 결과:"))));
+                    .anyMatch(entry -> entry.content().startsWith("확정 전투 결과:"))
+                    && saved.conversation().stream().noneMatch(entry -> entry.content().contains("현재 HP=4/7"))));
             prompt.set(RuntimeGmPromptComposer.compose(context, 128_000));
             return new GmPlanResult(new RuntimePlan("성문", null, "명중", "검이 갑옷을 두드린다.",
                     null, List.of(), List.of()), "provider", "model", "reasoning", List.of());
@@ -126,23 +132,34 @@ class CombatNarrationPromptContractTest {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventures, bindings, packages, turns, evidenceSearch, planning,
                 new DefaultNarrationSafetyPolicy(), knowledge);
+        RuntimeFactLookupService factLookup = mock(RuntimeFactLookupService.class);
+        service.setRuntimeFactLookupService(factLookup);
         service.setCharacterSheetReadPort(ignored -> "현재 시트");
         CombatActionCommand command = new CombatActionCommand(UUID.randomUUID(), adventureId, sessionUuid,
                 new RuleSetId(UUID.randomUUID()), sheet, null, CombatActorRole.PLAYER, "ATTACK", null,
                 playerUuid, null, 1);
 
-        service.narrateConfirmedCombat(CombatNarrationRequest.postResolution(command, 3, 17, "명중", "검을 휘두른다."));
+        ConfirmedCombatState combatState = new ConfirmedCombatState(3, List.of(
+                new ConfirmedCombatState.Enemy(UUID.randomUUID(), "고블린", 4, 7, false),
+                new ConfirmedCombatState.Enemy(UUID.randomUUID(), "거대 쥐", 0, 5, true)));
+        service.narrateConfirmedCombat(CombatNarrationRequest.postResolution(command, 3, combatState, 17, "명중", "검을 휘두른다."));
 
         assertThat(prompt.get()).contains("확정된 전투 행동", "주사위 결과=17", "판정=명중");
+        assertThat(prompt.get()).contains("고블린", "현재 HP=4/7", "거대 쥐", "현재 HP=0/5", "쓰러짐");
         assertThat(prompt.get()).contains("PLAYER: 검을 휘두른다.");
         assertThat(prompt.get()).contains(
                 "PLAYER: 문지기에게 길을 묻는다.",
                 "AI_GAME_MASTER: 문지기가 성문을 지키고 있다.");
         assertThat(prompt.get()).contains("확정 전투 결과:", "PENDING_ROLL: Perception: inspect the gate");
-        assertThat(prompt.get()).contains("보초", "A stone gate stands beneath a weathered crest.");
+        assertThat(prompt.get()).doesNotContain("A stone gate stands beneath a weathered crest.");
         assertThat(prompt.get()).contains("성문 앞에서 추격자가 다가온다.",
                 "고정 지침·잠긴 자료", "현재 상황 관련 장기 기록", "압축된 이전 대화",
                 "압축하지 않은 최근 대화", "최신 캐릭터 시트·Current Situation·이번 턴 근거·플레이어 입력");
         assertThat(prompt.get()).doesNotContain(hiddenFact, hiddenElementId, hiddenLocator, "secret-citation", "UNKNOWN", "R-17");
+        verify(evidenceSearch, never()).search(any());
+        verify(factLookup, never()).lookup(any(RuntimeFactLookupRequest.class), anyList());
+        verify(adventures, atLeastOnce()).save(argThat(saved -> saved.conversation().stream()
+                .filter(entry -> entry.content().startsWith("확정 전투 결과:"))
+                .noneMatch(entry -> entry.content().contains("현재 HP=") || entry.content().contains("HP=4/7"))));
     }
 }
