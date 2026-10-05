@@ -661,9 +661,6 @@ public class RuntimeTurnApplicationService {
                 .filter(turn -> turn.lifecycle() == RuntimeTurnLifecycle.PENDING_ROLL)
                 .forEach(turn -> recentTurns.add("PENDING_ROLL: " + turn.action()));
         List<String> hiddenFacts = new ArrayList<>(hiddenFactsForPlayer(scenarioPackage, adventure, narrativeState));
-        hiddenFacts.addAll(request.combatState().enemies().stream()
-                .map(enemy -> enemy.displayName() + " 현재 HP=" + enemy.currentHitPoints() + "/" + enemy.maximumHitPoints())
-                .toList());
         RuntimePlanningRequest planningRequest = new RuntimePlanningRequest(adventure.id(), adventure.ownerPlayerId(),
                 adventure.sessionId().value(), request.command().operationId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), contextCommand.action(), evidencePack, recentTurns,
@@ -715,12 +712,12 @@ public class RuntimeTurnApplicationService {
     private static String combatNarrationAction(CombatNarrationRequest request) {
         return "확정된 전투 행동을 플레이어에게 서술합니다. "
                 + (request.hasPlayerInput() ? "플레이어 입력=" + request.playerInput() : "전투 참여자 행동=" + request.command().action())
-                + "; 적의 현재 상태(내부 참고, HP 숫자는 플레이어에게 말하지 않음)="
+                + "; 적의 현재 상태(정확한 HP 숫자 없이 서술)="
                 + request.combatState().enemies().stream().map(enemy -> "식별자=" + enemy.participantId() + " " + enemy.displayName()
-                        + " 현재 HP=" + enemy.currentHitPoints() + "/" + enemy.maximumHitPoints()
-                        + (enemy.defeated() ? " 쓰러짐" : " 전투 중"))
+                        + " 상태=" + (enemy.defeated() ? "쓰러짐" : enemy.currentHitPoints() < enemy.maximumHitPoints()
+                                ? "피해를 입었고 전투 중" : "피해 없이 전투 중"))
                         .collect(java.util.stream.Collectors.joining(", "))
-                + ". 이 최신 목록은 과거 대화보다 우선합니다. 쓰러진 적은 행동하지 못하며, 적이나 피해를 새로 만들지 마세요."
+                + ". 이 최신 목록은 과거 대화보다 우선합니다. 쓰러진 적은 행동하지 못하며, 적이나 피해를 새로 만들지 마세요. 정확한 체력 숫자는 출력하지 마세요."
                 + ";"
                 + " 전투 버전=" + request.encounterVersion()
                 + "; 주사위 결과=" + (request.diceTotal() == null ? "없음" : request.diceTotal())

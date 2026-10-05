@@ -17,6 +17,10 @@ class NarrationLeakDetectorTest {
         assertThat(NarrationLeakDetector.isHitPointValueDisclosure("고블린의 HP는 4/7 남았다.", combatState)).isTrue();
         assertThat(NarrationLeakDetector.isHitPointValueDisclosure("고블린은 4 HP가 남았다.", combatState)).isTrue();
         assertThat(NarrationLeakDetector.isHitPointValueDisclosure("남은 HP는 4/7이다.", combatState)).isTrue();
+        ConfirmedCombatState englishName = new ConfirmedCombatState(3, List.of(
+                new ConfirmedCombatState.Enemy(UUID.randomUUID(), "Goblin", 4, 7, false)));
+        assertThat(NarrationLeakDetector.isHitPointValueDisclosure("The goblin has four of seven health left.", englishName)).isTrue();
+        assertThat(NarrationLeakDetector.isHitPointValueDisclosure("The goblin is down to four of seven.", englishName)).isTrue();
     }
 
     @Test

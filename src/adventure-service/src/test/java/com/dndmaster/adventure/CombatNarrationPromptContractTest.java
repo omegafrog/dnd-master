@@ -146,7 +146,8 @@ class CombatNarrationPromptContractTest {
         service.narrateConfirmedCombat(CombatNarrationRequest.postResolution(command, 3, combatState, 17, "명중", "검을 휘두른다."));
 
         assertThat(prompt.get()).contains("확정된 전투 행동", "주사위 결과=17", "판정=명중");
-        assertThat(prompt.get()).contains("고블린", "현재 HP=4/7", "거대 쥐", "현재 HP=0/5", "쓰러짐");
+        assertThat(prompt.get()).contains("고블린", "피해를 입었고 전투 중", "거대 쥐", "쓰러짐");
+        assertThat(prompt.get()).doesNotContain("현재 HP=", "4/7", "0/5");
         assertThat(prompt.get()).contains("PLAYER: 검을 휘두른다.");
         assertThat(prompt.get()).contains(
                 "PLAYER: 문지기에게 길을 묻는다.",
