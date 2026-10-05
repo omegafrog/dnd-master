@@ -649,7 +649,10 @@ public class RuntimeTurnApplicationService {
                 : narrativeStateService.load(adventure.sessionId().value());
         ScenarioModel narrationScenarioModel = HiddenScenarioFacts.withoutUnrevealedRevelations(
                 scenarioPackage.scenarioModel(), adventure.storyRuntimeState());
-        EvidencePack evidencePack = new EvidencePack(List.of(), List.of(), List.of());
+        java.util.Set<ScenarioSourceReference> unrevealedSourceRefs = HiddenScenarioFacts.unrevealedRevelationSourceRefs(
+                scenarioPackage.scenarioModel(), adventure.storyRuntimeState());
+        EvidencePack evidencePack = withoutUnrevealedRevelationEvidence(
+                prefetchEvidence(contextCommand, adventure, binding, scenarioPackage), unrevealedSourceRefs);
         List<RuntimeFactLookupResult> factLookupResults = List.of();
         String situation = adventure.currentSituation() == null ? "" : adventure.currentSituation().toString();
         NarrativeContext narrativeContext = narrativeState.project(adventure.ownerPlayerId().value().toString(), situation);

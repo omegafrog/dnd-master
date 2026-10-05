@@ -120,6 +120,7 @@ class CombatNarrationPromptContractTest {
         when(pending.action()).thenReturn("Perception: inspect the gate");
         when(turns.findAllByAdventureId(adventureId)).thenReturn(List.of(pending));
         RuntimeEvidenceSearchPort evidenceSearch = mock(RuntimeEvidenceSearchPort.class);
+        when(evidenceSearch.search(any())).thenReturn(List.of(hiddenEvidence, allowedEvidence));
         AtomicReference<String> prompt = new AtomicReference<>();
         RuntimePlanningPort planning = new GmAgentRuntimePlanningAdapter(context -> {
             verify(adventures).save(argThat(saved -> saved.conversation().stream()
@@ -151,12 +152,12 @@ class CombatNarrationPromptContractTest {
                 "PLAYER: 문지기에게 길을 묻는다.",
                 "AI_GAME_MASTER: 문지기가 성문을 지키고 있다.");
         assertThat(prompt.get()).contains("확정 전투 결과:", "PENDING_ROLL: Perception: inspect the gate");
-        assertThat(prompt.get()).doesNotContain("A stone gate stands beneath a weathered crest.");
+        assertThat(prompt.get()).contains("A stone gate stands beneath a weathered crest.");
         assertThat(prompt.get()).contains("성문 앞에서 추격자가 다가온다.",
                 "고정 지침·잠긴 자료", "현재 상황 관련 장기 기록", "압축된 이전 대화",
                 "압축하지 않은 최근 대화", "최신 캐릭터 시트·Current Situation·이번 턴 근거·플레이어 입력");
         assertThat(prompt.get()).doesNotContain(hiddenFact, hiddenElementId, hiddenLocator, "secret-citation", "UNKNOWN", "R-17");
-        verify(evidenceSearch, never()).search(any());
+        verify(evidenceSearch).search(any());
         verify(factLookup, never()).lookup(any(RuntimeFactLookupRequest.class), anyList());
         verify(adventures, atLeastOnce()).save(argThat(saved -> saved.conversation().stream()
                 .filter(entry -> entry.content().startsWith("확정 전투 결과:"))
