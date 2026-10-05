@@ -678,6 +678,9 @@ public class RuntimeTurnApplicationService {
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                 narration, evidencePack, adventure.currentContext(), contextCommand.action(), planningRequest.hiddenFacts()));
         if (!safety.approved()) throw new IllegalStateException("combat narration safety rejected: " + safety.reason());
+        if (NarrationLeakDetector.isHitPointValueDisclosure(narration, request.combatState())) {
+            throw new IllegalStateException("combat narration contains private enemy hit-point information");
+        }
         persistCombatNarration(adventure, narration);
         return narration;
     }
