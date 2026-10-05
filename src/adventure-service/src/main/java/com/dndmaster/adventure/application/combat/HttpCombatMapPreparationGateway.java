@@ -143,7 +143,8 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
                 if (response.body() != null && response.body().contains("MAP_SPAWN_REVIEW_REQUIRED")) {
                     throw new CombatMapPlacementRequiredException();
                 }
-                throw new IllegalStateException("combat map preparation failed with status " + response.statusCode());
+                throw new IllegalStateException("combat map preparation failed with status " + response.statusCode()
+                        + ": " + response.body());
             }
             Response result = mapper.readValue(response.body(), Response.class);
             if (result.status() == Status.BLOCKED) throw new CombatMapPreparationBlockedException();

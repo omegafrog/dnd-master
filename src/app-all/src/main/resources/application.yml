@@ -4,6 +4,10 @@ server:
 character:
   integration:
     internal-token: ${INTERNAL_SERVICE_TOKEN:}
+    identity:
+      base-url: ${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}
+    adventure:
+      base-url: ${ADVENTURE_BASE_URL:${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}}
 dice:
   integration:
     internal-token: ${INTERNAL_SERVICE_TOKEN:}
@@ -22,21 +26,31 @@ logging:
 adventure:
   integration:
     internal-token: ${INTERNAL_SERVICE_TOKEN:}
+    character-management:
+      base-url: ${CHARACTER_MANAGEMENT_BASE_URL:${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}}
+    character:
+      base-url: ${CHARACTER_BASE_URL:${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}}
     identity-access:
       base-url: ${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}
+    dice-roll:
+      base-url: ${DICE_ROLL_BASE_URL:${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}}
     rule-knowledge:
       base-url: ${RULE_KNOWLEDGE_BASE_URL:http://127.0.0.1:8080/}
+    combat-map:
+      base-url: ${COMBAT_MAP_BASE_URL:${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}}
+      prepare-timeout: ${ADVENTURE_COMBAT_MAP_PREPARE_TIMEOUT:300s}
     ai-game-master:
       base-url: ${AI_GAME_MASTER_BASE_URL:http://127.0.0.1:8080/}
     scenario-compilation:
       timeout: 900s
-    combat-map:
-      prepare-timeout: ${ADVENTURE_COMBAT_MAP_PREPARE_TIMEOUT:300s}
 
 combat-map:
   integration:
     ai-game-master:
+      base-url: ${AI_GAME_MASTER_BASE_URL:http://127.0.0.1:8080/}
       map-generation-timeout: ${COMBAT_MAP_AI_GENERATION_TIMEOUT:300s}
+    rule-knowledge:
+      base-url: ${RULE_KNOWLEDGE_BASE_URL:http://127.0.0.1:8080/}
 
 spring:
   datasource:
