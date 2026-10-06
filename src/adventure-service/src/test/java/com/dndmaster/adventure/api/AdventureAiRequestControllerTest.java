@@ -202,6 +202,31 @@ class AdventureAiRequestControllerTest {
     }
 
     @Test
+    void combat_snapshot_hides_internal_error_for_failed_ai_turn_work() {
+        Fixture fixture = fixture();
+        UUID enemyId = UUID.randomUUID();
+        var encounter = com.dndmaster.adventure.domain.combat.CombatStartPolicy.startFromCommittedGmTurn(true,
+                fixture.adventure().id().value(), java.util.List.of(new com.dndmaster.adventure.domain.combat.CombatParticipant(
+                        enemyId, "적", com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI,
+                        10, "비밀 상태", com.dndmaster.adventure.domain.combat.TurnResources.initial(), null, null, "goblin")));
+        when(fixture.encounters().findActive(fixture.adventure().id().value())).thenReturn(Optional.of(encounter));
+        var failed = com.dndmaster.adventure.application.combat.CombatWorkItem.restore(UUID.randomUUID(),
+                encounter.encounterId(), UUID.randomUUID(), encounter.version(),
+                com.dndmaster.adventure.application.combat.CombatWorkItem.WorkType.AI_TURN,
+                java.time.Instant.now(), 1, com.dndmaster.adventure.application.combat.CombatWorkItem.Status.FAILED,
+                null, null, "provider exception includes hidden stat block AC 19", null, null, 0);
+        when(fixture.workItems().findFailedByEncounterId(encounter.encounterId())).thenReturn(Optional.of(failed));
+
+        var response = fixture.combatController().snapshot(fixture.adventure().id().value());
+
+        var snapshot = (com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot) response.getBody();
+        assertNotNull(snapshot);
+        assertEquals("COMBAT_PROCESSING_FAILED", snapshot.processingFailure().failure());
+        assertFalse(snapshot.toString().contains("provider exception"));
+        assertFalse(snapshot.toString().contains("AC 19"));
+    }
+
+    @Test
     void manual_combat_retry_reacquires_the_session_request_with_a_new_request_id() {
         AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
         UUID requestId = UUID.randomUUID();

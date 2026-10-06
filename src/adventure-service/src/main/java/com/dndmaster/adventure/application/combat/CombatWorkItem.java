@@ -192,7 +192,8 @@ public final class CombatWorkItem {
     public UUID aiRequestId() { return aiRequestId; }
     public EnemySheetPreparationRequest enemySheetPreparationRequest() { return enemySheetPreparationRequest; }
     public String playerVisibleFailure() {
-        return workType == WorkType.ENEMY_SHEET_PREPARATION && status == Status.FAILED
-                ? "COMBAT_PREPARATION_BLOCKED" : failure;
+        if (status != Status.FAILED) return null;
+        return workType == WorkType.ENEMY_SHEET_PREPARATION
+                ? "COMBAT_PREPARATION_BLOCKED" : "COMBAT_PROCESSING_FAILED";
     }
 }
