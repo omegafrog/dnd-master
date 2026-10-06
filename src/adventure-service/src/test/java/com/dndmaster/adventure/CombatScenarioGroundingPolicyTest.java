@@ -67,6 +67,19 @@ class CombatScenarioGroundingPolicyTest {
     }
 
     @Test
+    void reuses_prepared_numbers_without_searching_rule_evidence_again() {
+        ScenarioModel model = modelWithRatCombat();
+        var prepared = new com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock(12, 7, 4, "1d6+2",
+                new com.dndmaster.adventure.domain.combat.CombatStatBlockSource(UUID.randomUUID(), 1, "page-2"), 2);
+
+        var grounded = CombatScenarioGroundingPolicy.groundWithPreparedSheets(model, CurrentSituation.initial("cellar"),
+                List.of(new CombatEnemyProposal("cellar-rat-ambush", "giant-rat", "Giant Rat", 1,
+                        CombatStartMode.SCENARIO)), List.of(), List.of(), Map.of("giant-rat", prepared));
+
+        assertEquals(prepared, grounded.get(0).statBlock());
+    }
+
+    @Test
     void grounds_enemy_presence_from_current_situation_and_uses_both_rules_sources_for_numbers() {
         RuntimeEvidence story = evidence(RuntimeEvidenceType.STORYBOOK, "cellar-rats",
                 "Giant Rats nest behind the barrels in the cellar.");

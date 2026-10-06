@@ -93,12 +93,23 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                             response.checkProposal().difficulty(), response.checkProposal().evidenceKeys(),
                             response.checkProposal().successOutcome(), response.checkProposal().failureOutcome())
                     : com.dndmaster.adventure.application.runtime.RuntimeCheckProposal.none();
+            for (CombatEnemyResponse enemy : response.combatEnemies()) {
+                java.util.stream.Stream.concat(enemy.abilities().stream().flatMap(a -> a.citationKeys().stream()),
+                        enemy.actions().stream().flatMap(a -> a.citationKeys().stream()))
+                        .filter(key -> !evidenceByKey.containsKey(key)).findFirst().ifPresent(key -> {
+                            throw new IllegalArgumentException("enemy sheet candidate cites evidence outside the supplied pack");
+                        });
+            }
             RuntimePlan plan = new RuntimePlan(response.scene(), context.currentContext().npcState(), response.judgment(),
                     response.narration(), null, citedEvidence, List.of(), provider, model,
                     reasoning, false, "", context.requestedSelection(), effective, 1, List.of(), null,
                     response.combatEnemies().stream().map(enemy -> new CombatEnemyProposal(
                             enemy.scenarioId(), enemy.enemyKey(), enemy.name(), enemy.count(),
-                            combatStartMode(enemy.mode()))).toList(),
+                            combatStartMode(enemy.mode())).withSheetCandidates(
+                                    enemy.abilities().stream().map(a -> new com.dndmaster.adventure.application.runtime.CombatEnemyAbilityProposal(
+                                            a.ability(), a.score(), a.citationKeys())).toList(),
+                                    enemy.actions().stream().map(a -> new com.dndmaster.adventure.application.runtime.CombatEnemyActionProposal(
+                                            a.name(), a.description(), a.citationKeys())).toList())).toList(),
                     response.combatStart(), response.mapEntryRequested(), checkProposal);
             List<com.dndmaster.adventure.application.runtime.RuntimeAddedFactCandidate> runtimeFacts = response.runtimeFacts().stream()
                     .map(fact -> new com.dndmaster.adventure.application.runtime.RuntimeAddedFactCandidate(fact.subject(), fact.content()))
@@ -247,7 +258,22 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             return new CheckProposalResponse(false, "", "", null, "", "", 0, null, List.of(), "", "");
         }
     }
-    record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) { }
+    record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count,
+            List<CombatEnemyAbilityResponse> abilities, List<CombatEnemyActionResponse> actions) {
+        CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) {
+            this(mode, scenarioId, enemyKey, name, count, List.of(), List.of());
+        }
+        CombatEnemyResponse {
+            abilities = abilities == null ? List.of() : List.copyOf(abilities);
+            actions = actions == null ? List.of() : List.copyOf(actions);
+        }
+    }
+    record CombatEnemyAbilityResponse(String ability, int score, List<String> citationKeys) {
+        CombatEnemyAbilityResponse { citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys); }
+    }
+    record CombatEnemyActionResponse(String name, String description, List<String> citationKeys) {
+        CombatEnemyActionResponse { citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys); }
+    }
     record SituationResponse(String kind, String location, String problem, String threat, String goal,
                              String basis, String reference, boolean required) { }
     record RuntimeFactResponse(String subject, String content) { }

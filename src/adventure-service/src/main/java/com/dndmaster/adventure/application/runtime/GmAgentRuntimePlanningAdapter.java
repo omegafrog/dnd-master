@@ -42,6 +42,12 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     }
 
     @Override
+    public RuntimePlan prepareEnemySheets(RuntimePlanningRequest request) {
+        CandidateGeneration generated = generateCandidate(request, false);
+        return planInternal(request, false, generated).plan();
+    }
+
+    @Override
     public RuntimePlan planNarration(RuntimePlanningRequest request) {
         CandidateGeneration generated = generateCandidate(request, false);
         return planInternal(request, false, generated, true).plan();

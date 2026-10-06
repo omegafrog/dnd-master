@@ -31,17 +31,35 @@ public final class CombatScenarioGroundingPolicy {
         return proposals.stream().map(proposal -> groundOne(model, situation, proposal, seen, storybookEvidence, rulebookEvidence)).toList();
     }
 
+    public static List<CombatEnemyProposal> groundWithPreparedSheets(ScenarioModel model, CurrentSituation situation,
+            List<CombatEnemyProposal> proposals, List<RuntimeEvidence> storybookEvidence,
+            List<RuntimeEvidence> rulebookEvidence, java.util.Map<String, com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock> prepared) {
+        Objects.requireNonNull(model, "scenario model must not be null");
+        Objects.requireNonNull(situation, "current situation must not be null");
+        if (proposals == null || proposals.isEmpty()) throw new IllegalArgumentException("COMBAT_SCENARIO_REQUIRED");
+        Set<String> seen = new HashSet<>();
+        return proposals.stream().map(proposal -> groundOne(model, situation, proposal, seen, storybookEvidence,
+                rulebookEvidence, prepared == null ? java.util.Map.of() : prepared)).toList();
+    }
+
     private static CombatEnemyProposal groundOne(ScenarioModel model, CurrentSituation situation,
             CombatEnemyProposal proposal, Set<String> seen, List<RuntimeEvidence> storybookEvidence,
             List<RuntimeEvidence> rulebookEvidence) {
+        return groundOne(model, situation, proposal, seen, storybookEvidence, rulebookEvidence, java.util.Map.of());
+    }
+
+    private static CombatEnemyProposal groundOne(ScenarioModel model, CurrentSituation situation,
+            CombatEnemyProposal proposal, Set<String> seen, List<RuntimeEvidence> storybookEvidence,
+            List<RuntimeEvidence> rulebookEvidence,
+            java.util.Map<String, com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock> prepared) {
         if (proposal == null) {
             throw new IllegalArgumentException("COMBAT_SCENARIO_REFERENCE_REQUIRED");
         }
         if (proposal.mode() == CombatStartMode.INSTANT) {
-            return groundInstant(situation, proposal, seen, storybookEvidence, rulebookEvidence);
+            return groundInstant(situation, proposal, seen, storybookEvidence, rulebookEvidence, prepared);
         }
         if (proposal.mode() == CombatStartMode.SITUATION) {
-            return groundSituation(situation, proposal, seen, storybookEvidence, rulebookEvidence);
+            return groundSituation(situation, proposal, seen, storybookEvidence, rulebookEvidence, prepared);
         }
         if (proposal.scenarioId() == null || proposal.scenarioId().isBlank()) {
             throw new IllegalArgumentException("COMBAT_SCENARIO_REFERENCE_REQUIRED");
@@ -61,12 +79,14 @@ public final class CombatScenarioGroundingPolicy {
         }
         CombatEnemyProposal grounded = new CombatEnemyProposal(definition.scenarioId(), definition.enemyKey(),
                 definition.displayName(), definition.count(), CombatStartMode.SCENARIO);
-        return withStats(grounded, rulebookEvidence == null ? null
-                : combinedCombatEvidence(storybookEvidence, rulebookEvidence));
+        var cached = prepared.get(proposal.enemyKey().toLowerCase(java.util.Locale.ROOT));
+        return cached == null ? withStats(grounded, rulebookEvidence == null ? null
+                : combinedCombatEvidence(storybookEvidence, rulebookEvidence)) : grounded.withStatBlock(cached);
     }
 
     private static CombatEnemyProposal groundSituation(CurrentSituation situation, CombatEnemyProposal proposal,
-            Set<String> seen, List<RuntimeEvidence> storybookEvidence, List<RuntimeEvidence> rulebookEvidence) {
+            Set<String> seen, List<RuntimeEvidence> storybookEvidence, List<RuntimeEvidence> rulebookEvidence,
+            java.util.Map<String, com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock> prepared) {
         boolean supportedByCurrentSituation = containsEnemy(situation.location(), proposal)
                 || containsEnemy(situation.problem(), proposal)
                 || containsEnemy(situation.threat(), proposal)
@@ -74,7 +94,9 @@ public final class CombatScenarioGroundingPolicy {
         if (!supportedByCurrentSituation) {
             throw new IllegalArgumentException("COMBAT_SCENARIO_NOT_IN_CURRENT_SITUATION");
         }
-        var stats = RulebookCombatStatBlockResolver.resolve(proposal, combinedCombatEvidence(storybookEvidence, rulebookEvidence))
+        var stats = prepared.get(proposal.enemyKey().toLowerCase(java.util.Locale.ROOT));
+        if (stats == null) stats = RulebookCombatStatBlockResolver.resolve(proposal,
+                combinedCombatEvidence(storybookEvidence, rulebookEvidence))
                 .orElseThrow(() -> new IllegalArgumentException("COMBAT_STAT_BLOCK_NOT_FOUND"));
         String scenarioId = "situation-" + situation.situationId() + "-" + proposal.enemyKey().toLowerCase(java.util.Locale.ROOT);
         if (!seen.add(scenarioId)) throw new IllegalArgumentException("COMBAT_SCENARIO_DUPLICATE");
@@ -93,13 +115,16 @@ public final class CombatScenarioGroundingPolicy {
     }
 
     private static CombatEnemyProposal groundInstant(CurrentSituation situation, CombatEnemyProposal proposal,
-            Set<String> seen, List<RuntimeEvidence> storybookEvidence, List<RuntimeEvidence> rulebookEvidence) {
+            Set<String> seen, List<RuntimeEvidence> storybookEvidence, List<RuntimeEvidence> rulebookEvidence,
+            java.util.Map<String, com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock> prepared) {
         boolean enemyEstablished = containsEnemy(situation.location(), proposal)
                 || containsEnemy(situation.problem(), proposal)
                 || containsEnemy(situation.threat(), proposal)
                 || containsEnemy(situation.goal(), proposal);
         if (!enemyEstablished) throw new IllegalArgumentException("COMBAT_SCENARIO_NOT_IN_CURRENT_SITUATION");
-        var stats = RulebookCombatStatBlockResolver.resolve(proposal, combinedCombatEvidence(storybookEvidence, rulebookEvidence))
+        var stats = prepared.get(proposal.enemyKey().toLowerCase(java.util.Locale.ROOT));
+        if (stats == null) stats = RulebookCombatStatBlockResolver.resolve(proposal,
+                combinedCombatEvidence(storybookEvidence, rulebookEvidence))
                 .orElseThrow(() -> new IllegalArgumentException("COMBAT_STAT_BLOCK_NOT_FOUND"));
         String scenarioId = "instant-" + proposal.enemyKey().toLowerCase(java.util.Locale.ROOT) + "-"
                 + Integer.toUnsignedString(stats.source().locator().hashCode(), 36);

@@ -315,7 +315,22 @@ public final class TypedAgentContractController {
                 throw new IllegalArgumentException("scenarioId is required for a SCENARIO combat enemy");
             }
             String name = required(enemy, "name");
-            enemies.add(new CombatEnemyResponse(mode, scenarioId, required(enemy, "enemyKey"), name, count));
+            List<CombatEnemyAbilityResponse> abilities = new java.util.ArrayList<>();
+            JsonNode abilityArray = enemy.path("abilities");
+            if (abilityArray.isArray()) for (JsonNode ability : abilityArray) {
+                int score = ability.path("score").asInt(-1);
+                if (score < 1 || score > 30) throw new IllegalArgumentException("combat enemy ability score must be within 1..30");
+                abilities.add(new CombatEnemyAbilityResponse(required(ability, "ability"), score,
+                        citationKeys(ability.path("citationKeys"), "combat enemy ability")));
+            }
+            List<CombatEnemyActionResponse> actions = new java.util.ArrayList<>();
+            JsonNode actionArray = enemy.path("actions");
+            if (actionArray.isArray()) for (JsonNode action : actionArray) {
+                actions.add(new CombatEnemyActionResponse(required(action, "name"), required(action, "description"),
+                        citationKeys(action.path("citationKeys"), "combat enemy action")));
+            }
+            enemies.add(new CombatEnemyResponse(mode, scenarioId, required(enemy, "enemyKey"), name, count,
+                    List.copyOf(abilities), List.copyOf(actions)));
         }
         boolean combatStart = root.path("combatStart").booleanValue();
         if (combatStart && enemies.isEmpty()) {
@@ -448,6 +463,16 @@ public final class TypedAgentContractController {
         } catch (Exception e) {
             throw new IllegalArgumentException("invalid typed agent response", e);
         }
+    }
+
+    private static List<String> citationKeys(JsonNode array, String subject) {
+        if (!array.isArray() || array.isEmpty()) throw new IllegalArgumentException(subject + " requires citationKeys");
+        List<String> keys = new java.util.ArrayList<>();
+        for (JsonNode key : array) {
+            if (!key.isTextual() || key.asText().isBlank()) throw new IllegalArgumentException(subject + " has invalid citationKeys");
+            keys.add(key.asText().trim());
+        }
+        return List.copyOf(keys);
     }
 
     private static String required(JsonNode root, String field) {
@@ -649,7 +674,22 @@ public final class TypedAgentContractController {
             return new CheckProposalResponse(false, "", "", null, "", "", 0, null, List.of(), "", "");
         }
     }
-    public record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) { }
+    public record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count,
+                                     List<CombatEnemyAbilityResponse> abilities, List<CombatEnemyActionResponse> actions) {
+        public CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) {
+            this(mode, scenarioId, enemyKey, name, count, List.of(), List.of());
+        }
+        public CombatEnemyResponse {
+            abilities = abilities == null ? List.of() : List.copyOf(abilities);
+            actions = actions == null ? List.of() : List.copyOf(actions);
+        }
+    }
+    public record CombatEnemyAbilityResponse(String ability, int score, List<String> citationKeys) {
+        public CombatEnemyAbilityResponse { citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys); }
+    }
+    public record CombatEnemyActionResponse(String name, String description, List<String> citationKeys) {
+        public CombatEnemyActionResponse { citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys); }
+    }
     public record SituationResponse(String kind, String location, String problem, String threat, String goal,
                                     String basis, String reference, boolean required) { }
     public record RuntimeFactResponse(String subject, String content) { }

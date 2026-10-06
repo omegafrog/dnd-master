@@ -89,7 +89,7 @@ public final class RulebookCombatStatBlockResolver {
         Matcher dexterity = DEXTERITY_MODIFIER.matcher(excerpt);
         int initiativeModifier = dexterity.find() ? Integer.parseInt(dexterity.group(1)) : 0;
         return Optional.of(new CombatEnemyStatBlock(armorClass, hitPoints, attackModifier, damageDice,
-                new CombatStatBlockSource(evidence.knowledgeDocumentId().value(), evidence.extractionVersion(), evidence.locator()),
+                new CombatStatBlockSource(evidence.knowledgeDocumentId().value(), evidence.extractionVersion(), evidence.locator(), evidence.referenceKey()),
                 initiativeModifier));
     }
 

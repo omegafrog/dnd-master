@@ -115,6 +115,22 @@ public record RuntimePlanningRequest(
                 narrativeContext, ruleSetId, runtimeFacts, factLookupResults, currentSituation, longTermFacts, values, scenarioModel, ragSearchContext);
     }
 
+    public RuntimePlanningRequest withAction(String value) {
+        return new RuntimePlanningRequest(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId,
+                bindingVersion, currentContext, activeSourceContext, value, evidencePack, recentTurns,
+                characterSnapshots, scenarioContext, providerEndpointId, provider, model, reasoning,
+                narrativeContext, ruleSetId, runtimeFacts, factLookupResults, currentSituation, longTermFacts,
+                hiddenFacts, scenarioModel, ragSearchContext);
+    }
+
+    public RuntimePlanningRequest withEvidencePack(EvidencePack value) {
+        return new RuntimePlanningRequest(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId,
+                bindingVersion, currentContext, activeSourceContext, action, value, recentTurns,
+                characterSnapshots, scenarioContext, providerEndpointId, provider, model, reasoning,
+                narrativeContext, ruleSetId, runtimeFacts, factLookupResults, currentSituation, longTermFacts,
+                hiddenFacts, scenarioModel, ragSearchContext);
+    }
+
     public RuntimePlanningRequest withScenarioModel(ScenarioModel value) {
         return new RuntimePlanningRequest(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId,
                 bindingVersion, currentContext, activeSourceContext, action, evidencePack, recentTurns,

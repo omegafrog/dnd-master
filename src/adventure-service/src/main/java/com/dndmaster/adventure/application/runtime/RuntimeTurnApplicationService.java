@@ -65,6 +65,7 @@ public class RuntimeTurnApplicationService {
     private RuntimePlayerActionEvidenceAcquirer playerActionEvidenceAcquirer;
     private RuntimeCharacterSheetReadPort characterSheetReadPort;
     private ConversationCompactionJobRepository conversationCompactionJobRepository;
+    private com.dndmaster.adventure.application.combat.EnemyCharacterSheetRepository enemyCharacterSheetRepository;
     private final ResolutionPort resolutionPort = new DefaultResolutionPort();
     private final NarrativeVerificationPolicy verificationPolicy = new NarrativeVerificationPolicy();
 
@@ -139,6 +140,11 @@ public class RuntimeTurnApplicationService {
                 SESSION_OPENING_ACTION, -1, null, -1, true, true, false, List.of()));
     }
 
+
+    public void setEnemyCharacterSheetRepository(
+            com.dndmaster.adventure.application.combat.EnemyCharacterSheetRepository repository) {
+        this.enemyCharacterSheetRepository = Objects.requireNonNull(repository);
+    }
 
     public void setFailurePersistence(RuntimeTurnFailurePersistence failurePersistence) {
         this.failurePersistence = Objects.requireNonNull(failurePersistence, "failure persistence must not be null");
@@ -322,14 +328,15 @@ public class RuntimeTurnApplicationService {
                     Adventure recovered = adventureRepository.findById(command.adventureId())
                             .orElseThrow(() -> new IllegalStateException("adventure not found after runtime recovery"));
                     return new RuntimeTurnResult(resumed.turn(), recovered.currentContext(), recovered.conversation(),
-                            recovered.version(), null, resumed.movementResult());
+                            recovered.version(), null, resumed.movementResult(), preparationRequest(recovered, resumed.turn()));
                 }
                 RuntimeTurn resumed = resumeCommittedTurn(command, adventure, existing);
                 return new RuntimeTurnResult(resumed, resumed.context(), resumed.conversation(), resumed.version(), null,
-                        movementResultForTurn(resumed.turnId()));
+                        movementResultForTurn(resumed.turnId()), preparationRequest(adventure, resumed));
             }
             return new RuntimeTurnResult(existing, existing.context(), existing.conversation(), existing.version(),
-                    publicProjectionForExisting(command, adventure, existing), movementResultForTurn(existing.turnId()));
+                    publicProjectionForExisting(command, adventure, existing), movementResultForTurn(existing.turnId()),
+                    preparationRequest(adventure, existing));
         }
         if (command.expectedVersion() >= 0 && adventure.version() != command.expectedVersion()) {
             throw new IllegalStateException("ADVENTURE_VERSION_CONFLICT expected=" + command.expectedVersion() + " actual=" + adventure.version());
@@ -759,6 +766,135 @@ public class RuntimeTurnApplicationService {
         }
     }
 
+    private static String enemySheetCandidateInstruction(List<CombatEnemyProposal> enemies, List<String> missingKinds) {
+        var requested = enemies.stream().filter(enemy -> missingKinds.contains(enemy.enemyKey().toLowerCase(java.util.Locale.ROOT)))
+                .map(enemy -> enemy.enemyKey() + " / " + enemy.name()).toList();
+        return "전투 진입 전 적 캐릭터 시트 후보를 작성한다. 요청된 적 종류마다 STR, DEX, CON, INT, WIS, CHA 수치와 룰북에 명시된 모든 전투 행동·기술을 빠짐없이 반환한다. 각 능력치와 각 행동에는 제공된 근거키 중 해당 규칙을 뒷받침하는 인용을 넣는다. 다른 적 종류를 추가하지 않는다. 요청: " + String.join(", ", requested);
+    }
+
+    private static List<CombatEnemyProposal> attachEnemySheetCandidates(List<CombatEnemyProposal> grounded,
+            List<CombatEnemyProposal> candidates, List<String> requestedKinds) {
+        if (candidates == null || candidates.isEmpty()) throw new IllegalStateException("ENEMY_SHEET_CANDIDATE_RETRY_REQUIRED");
+        var byKind = candidates.stream().collect(java.util.stream.Collectors.groupingBy(
+                candidate -> candidate.enemyKey().toLowerCase(java.util.Locale.ROOT)));
+        if (requestedKinds.stream().anyMatch(kind -> byKind.getOrDefault(kind, List.of()).size() != 1)) {
+            throw new IllegalStateException("ENEMY_SHEET_CANDIDATE_RETRY_REQUIRED");
+        }
+        return grounded.stream().map(enemy -> {
+            String kind = enemy.enemyKey().toLowerCase(java.util.Locale.ROOT);
+            if (!requestedKinds.contains(kind)) return enemy;
+            CombatEnemyProposal candidate = byKind.get(kind).get(0);
+            if (candidate.abilities().size() != 6 || candidate.actions().isEmpty()) {
+                throw new IllegalStateException("ENEMY_SHEET_CANDIDATE_INCOMPLETE_RETRY_REQUIRED");
+            }
+            return enemy.withSheetCandidates(candidate.abilities(), candidate.actions());
+        }).toList();
+    }
+
+    private java.util.Map<String, com.dndmaster.adventure.application.combat.EnemyCharacterSheet> findPreparedEnemySheets(
+            Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage,
+            List<CombatEnemyProposal> proposals) {
+        if (enemyCharacterSheetRepository == null) return java.util.Map.of();
+        var found = new java.util.LinkedHashMap<String, com.dndmaster.adventure.application.combat.EnemyCharacterSheet>();
+        for (CombatEnemyProposal proposal : proposals) {
+            String kind = proposal.enemyKey().toLowerCase(java.util.Locale.ROOT);
+            var identity = enemySheetIdentity(adventure, binding, scenarioPackage, kind);
+            enemyCharacterSheetRepository.find(identity).ifPresent(sheet -> found.put(kind, sheet));
+        }
+        return java.util.Map.copyOf(found);
+    }
+
+    private java.util.Map<String, com.dndmaster.adventure.application.combat.EnemyCharacterSheet> savePreparedEnemySheets(
+            Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage,
+            List<CombatEnemyProposal> proposals, EvidencePack evidencePack) {
+        if (enemyCharacterSheetRepository == null) return java.util.Map.of();
+        var saved = new java.util.LinkedHashMap<String, com.dndmaster.adventure.application.combat.EnemyCharacterSheet>();
+        var cited = java.util.stream.Stream.concat(evidencePack.storybook().stream(), evidencePack.rulebook().stream())
+                .collect(java.util.stream.Collectors.toMap(RuntimeEvidence::referenceKey, evidence -> evidence, (left, right) -> left));
+        var pinnedKeys = cited.keySet();
+        for (CombatEnemyProposal proposal : proposals) {
+            String kind = proposal.enemyKey().toLowerCase(java.util.Locale.ROOT);
+            var block = proposal.statBlock();
+            if (block == null) continue;
+            RuntimeEvidence source = cited.get(block.source().citationKey());
+            if (source == null) {
+                enemyCharacterSheetRepository.find(enemySheetIdentity(adventure, binding, scenarioPackage, kind))
+                        .ifPresent(sheet -> saved.put(kind, sheet));
+                continue;
+            }
+            if (proposal.abilities().size() != 6 || proposal.actions().isEmpty()) {
+                throw new IllegalStateException("ENEMY_SHEET_CANDIDATE_INCOMPLETE_RETRY_REQUIRED");
+            }
+            var candidate = new com.dndmaster.adventure.application.combat.EnemyCharacterSheet(
+                    enemySheetIdentity(adventure, binding, scenarioPackage, kind), proposal.name(), block,
+                    proposal.abilities(), proposal.actions().stream().map(action ->
+                            new com.dndmaster.adventure.application.combat.EnemyCharacterSheet.EnemyCombatAction(
+                                    action.name(), action.description(), action.citationKeys())).toList());
+            var verified = com.dndmaster.adventure.application.combat.EnemyCharacterSheetPolicy.verify(candidate, pinnedKeys);
+            saved.put(kind, enemyCharacterSheetRepository.saveIfAbsent(verified));
+        }
+        return java.util.Map.copyOf(saved);
+    }
+
+    private static com.dndmaster.adventure.application.combat.EnemyCharacterSheetIdentity enemySheetIdentity(
+            Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage, String kind) {
+        return new com.dndmaster.adventure.application.combat.EnemyCharacterSheetIdentity(adventure.id().value(),
+                scenarioPackage.bundleId().value(), scenarioPackage.bundleRevision(), scenarioPackage.packageId(),
+                binding.rulebookIds(), kind);
+    }
+
+    private com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest preparationRequest(
+            Adventure adventure, RuntimeTurn turn) {
+        if (!turn.plan().combatStartRequested() || turn.plan().combatEnemies().isEmpty()
+                || enemyCharacterSheetRepository == null) return null;
+        RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(turn.adventureId())
+                .orElseThrow(() -> new IllegalStateException("runtime binding not found for enemy preparation recovery"));
+        ScenarioPackage scenario = scenarioPackageRepository.findById(turn.scenarioPackageId())
+                .orElseThrow(() -> new IllegalStateException("scenario package not found for enemy preparation recovery"));
+        List<CombatEnemyProposal> enemies = turn.plan().combatEnemies().stream().map(enemy ->
+                enemy.sheetIdentity() == null ? enemy.withSheetIdentity(enemySheetIdentity(adventure, binding, scenario,
+                        enemy.enemyKey().toLowerCase(java.util.Locale.ROOT))) : enemy).toList();
+        List<String> missingKinds = enemies.stream().filter(enemy -> enemyCharacterSheetRepository.find(enemy.sheetIdentity()).isEmpty())
+                .map(enemy -> enemy.sheetIdentity().enemyKind()).distinct().toList();
+        RuntimePlanningRequest candidateRequest = missingKinds.isEmpty() ? null : new RuntimePlanningRequest(
+                turn.adventureId(), adventure.ownerPlayerId(), turn.scenarioPackageId(), turn.bindingVersion(),
+                turn.context(), turn.activeSourceContext(), enemySheetCandidateInstruction(enemies, missingKinds),
+                turn.evidencePack());
+        return new com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest(turn.turnId(),
+                turn.adventureId().value(), enemies.stream().map(enemy ->
+                new com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest.Enemy(
+                        enemy.sheetIdentity(), enemy)).toList(), candidateRequest);
+    }
+
+    public void prepareEnemySheetsForWork(
+            com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest request) {
+        if (request == null || request.planningRequest() == null || enemyCharacterSheetRepository == null) {
+            throw new IllegalStateException("ENEMY_SHEET_CANDIDATE_CONTEXT_MISSING");
+        }
+        var missing = request.enemies().stream().filter(enemy -> enemyCharacterSheetRepository.find(enemy.identity()).isEmpty()).toList();
+        if (missing.isEmpty()) return;
+        var evidence = request.planningRequest().evidencePack();
+        var pinnedKeys = java.util.stream.Stream.concat(evidence.storybook().stream(), evidence.rulebook().stream())
+                .map(RuntimeEvidence::referenceKey).collect(java.util.stream.Collectors.toSet());
+        if (pinnedKeys.isEmpty()) throw new AbsentEnemyRuleEvidenceException("ENEMY_SHEET_RULE_EVIDENCE_ABSENT");
+        RuntimePlan candidatePlan = planningPort.prepareEnemySheets(request.planningRequest());
+        List<String> kinds = missing.stream().map(enemy -> enemy.identity().enemyKind()).toList();
+        var candidates = attachEnemySheetCandidates(missing.stream().map(
+                        com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest.Enemy::proposal).toList(),
+                candidatePlan.combatEnemies(), kinds);
+        for (var entry : missing) {
+            CombatEnemyProposal candidate = candidates.stream().filter(enemy ->
+                    enemy.enemyKey().equalsIgnoreCase(entry.identity().enemyKind())).findFirst().orElseThrow();
+            if (candidate.statBlock() == null) throw new IllegalStateException("ENEMY_SHEET_CANDIDATE_INCOMPLETE_RETRY_REQUIRED");
+            var profile = new com.dndmaster.adventure.application.combat.EnemyCharacterSheet(entry.identity(),
+                    candidate.name(), candidate.statBlock(), candidate.abilities(), candidate.actions().stream()
+                    .map(action -> new com.dndmaster.adventure.application.combat.EnemyCharacterSheet.EnemyCombatAction(
+                            action.name(), action.description(), action.citationKeys())).toList());
+            enemyCharacterSheetRepository.saveIfAbsent(
+                    com.dndmaster.adventure.application.combat.EnemyCharacterSheetPolicy.verify(profile, pinnedKeys));
+        }
+    }
+
     private RuntimeTurnResult submitSafeScenarioRuntimeTurn(SubmitRuntimeTurnCommand command, Adventure adventure,
             RuntimeBinding binding, ScenarioPackage scenarioPackage) {
         List<String> characterSheets = stage(command.turnId(), "character_sheet_reads", () -> adventure.party().stream()
@@ -811,13 +947,41 @@ public class RuntimeTurnApplicationService {
                 ? adventure.currentSituation()
                 : SituationUpdatePolicy.apply(adventure.currentSituation(), proposal.situationUpdate());
         List<CombatEnemyProposal> groundedCombatEnemies = List.of();
+        com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest enemySheetPreparationRequest = null;
         if (plan.combatStartRequested()) {
             try {
-                evidencePack = evidencePack.prioritizingCombatEvidence(searchCombatStatEvidence(
-                        command, adventure, binding, scenarioPackage, plan.combatEnemies()));
-                groundedCombatEnemies = CombatScenarioGroundingPolicy.ground(
+                var preparedSheets = findPreparedEnemySheets(adventure, binding, scenarioPackage, plan.combatEnemies());
+                boolean allPrepared = preparedSheets.size() == plan.combatEnemies().stream()
+                        .map(enemy -> enemy.enemyKey().toLowerCase(java.util.Locale.ROOT)).distinct().count();
+                if (!allPrepared) {
+                    evidencePack = evidencePack.prioritizingCombatEvidence(searchCombatStatEvidence(
+                            command, adventure, binding, scenarioPackage, plan.combatEnemies()));
+                }
+                groundedCombatEnemies = CombatScenarioGroundingPolicy.groundWithPreparedSheets(
                         scenarioPackage.scenarioModel(), nextSituation, plan.combatEnemies(),
-                        evidencePack.rules(), List.of());
+                        evidencePack.storybook(), evidencePack.rulebook(), preparedSheets.entrySet().stream()
+                                .collect(java.util.stream.Collectors.toMap(java.util.Map.Entry::getKey,
+                                        entry -> entry.getValue().statBlock())));
+                var missingKinds = groundedCombatEnemies.stream().map(enemy -> enemy.enemyKey().toLowerCase(java.util.Locale.ROOT))
+                        .filter(kind -> !preparedSheets.containsKey(kind)).distinct().toList();
+                groundedCombatEnemies = groundedCombatEnemies.stream().map(enemy -> {
+                    var sheet = preparedSheets.get(enemy.enemyKey().toLowerCase(java.util.Locale.ROOT));
+                    var identity = sheet == null ? enemySheetIdentity(adventure, binding, scenarioPackage,
+                            enemy.enemyKey().toLowerCase(java.util.Locale.ROOT)) : sheet.identity();
+                    if (sheet == null) return enemy.withSheetIdentity(identity);
+                    return enemy.withStatBlock(sheet.statBlock()).withSheetCandidates(sheet.abilities(),
+                            sheet.actions().stream().map(action -> new CombatEnemyActionProposal(action.name(),
+                                    action.description(), action.citationKeys())).toList()).withSheetIdentity(identity);
+                }).toList();
+                if (enemyCharacterSheetRepository != null) {
+                    RuntimePlanningRequest candidateRequest = missingKinds.isEmpty() ? null : planningRequest
+                            .withEvidencePack(evidencePack)
+                            .withAction(enemySheetCandidateInstruction(groundedCombatEnemies, missingKinds));
+                    enemySheetPreparationRequest = new com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest(
+                            command.turnId(), adventure.id().value(), groundedCombatEnemies.stream()
+                                    .map(enemy -> new com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest.Enemy(
+                                            enemy.sheetIdentity(), enemy)).toList(), candidateRequest);
+                }
                 plan = plan.withCombatEnemies(groundedCombatEnemies);
             } catch (IllegalArgumentException groundingFailure) {
                 logCombatGroundingRejected(groundingFailure, plan.combatEnemies().size(), evidencePack.rules().size());
@@ -920,7 +1084,7 @@ public class RuntimeTurnApplicationService {
         RuntimeTurn committed = commitResult.turn();
         PlayerVisibleTurn visible = new PlayerVisibleTurn(ready.narration(), plan.scene(), List.of(), visibleInput.stateDelta(), narrativeContext);
         return new RuntimeTurnResult(committed, adventure.currentContext(), adventure.conversation(), adventure.version(), visible,
-                commitResult.movementResult());
+                commitResult.movementResult(), enemySheetPreparationRequest);
     }
 
     private static void logSituationDiagnostic(UUID turnId, String outcome,
