@@ -15,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -31,25 +32,35 @@ public final class CodexAppServerClient implements AutoCloseable, CodexAccountCl
     private static final Executor CANCEL_EXECUTOR = command -> Thread.startVirtualThread(command);
 
     public static CodexAppServerClient shared(String executable, Path workDirectory, Duration timeout, ObjectMapper mapper) {
-        String key = executable + "|" + workDirectory.toAbsolutePath().normalize();
-        return SHARED.computeIfAbsent(key, ignored -> new CodexAppServerClient(executable, workDirectory, timeout, mapper));
+        return shared(executable, workDirectory, timeout, mapper, List.of());
+    }
+
+    public static CodexAppServerClient shared(String executable, Path workDirectory, Duration timeout,
+            ObjectMapper mapper, List<String> startupConfigOverrides) {
+        List<String> overrides = startupConfigOverrides == null ? List.of() : List.copyOf(startupConfigOverrides);
+        String key = executable + "|" + workDirectory.toAbsolutePath().normalize() + "|" + overrides;
+        return SHARED.computeIfAbsent(key, ignored -> new CodexAppServerClient(
+                executable, workDirectory, timeout, mapper, overrides));
     }
 
     private final String executable;
     private final Path workDirectory;
     private final Duration timeout;
     private final ObjectMapper mapper;
+    private final List<String> startupConfigOverrides;
     private Process process;
     private BufferedWriter input;
     private BufferedReader output;
     private long requestId;
     private LoginWaitResult loginWaitResult = LoginWaitResult.PENDING;
 
-    private CodexAppServerClient(String executable, Path workDirectory, Duration timeout, ObjectMapper mapper) {
+    private CodexAppServerClient(String executable, Path workDirectory, Duration timeout, ObjectMapper mapper,
+            List<String> startupConfigOverrides) {
         this.executable = require(executable, "Codex executable");
         this.workDirectory = workDirectory.toAbsolutePath().normalize();
         this.timeout = timeout;
         this.mapper = mapper;
+        this.startupConfigOverrides = List.copyOf(startupConfigOverrides);
         if (timeout.isZero() || timeout.isNegative()) throw new IllegalArgumentException("Codex timeout must be positive");
     }
 
@@ -109,7 +120,7 @@ public final class CodexAppServerClient implements AutoCloseable, CodexAccountCl
             putModel(turnParams, requestedModel);
             turnParams.put("approvalPolicy", "never");
             turnParams.putObject("sandboxPolicy").put("type", "readOnly");
-            if (outputSchema != null) turnParams.set("outputSchema", outputSchema);
+            if (outputSchema != null && !outputSchema.isNull()) turnParams.set("outputSchema", outputSchema);
             String turnId = request("turn/start", turnParams, deadlineNanos).path("turn").path("id").asText("");
 
             StringBuilder response = new StringBuilder();
@@ -333,7 +344,9 @@ public final class CodexAppServerClient implements AutoCloseable, CodexAccountCl
         if (process != null && process.isAlive()) return;
         if (!isAvailable()) throw new IllegalStateException("Codex CLI is unavailable; install Codex and retry");
         closeProcess();
-        process = new ProcessBuilder(List.of(executable, "app-server", "--stdio"))
+        List<String> command = new ArrayList<>(List.of(executable, "app-server", "--stdio"));
+        for (String override : startupConfigOverrides) command.addAll(List.of("-c", override));
+        process = new ProcessBuilder(command)
                 .directory(workDirectory.toFile())
                 .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .start();

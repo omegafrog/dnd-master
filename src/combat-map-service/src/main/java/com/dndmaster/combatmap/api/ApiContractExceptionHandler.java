@@ -3,6 +3,7 @@ package com.dndmaster.combatmap.api;
 import com.dndmaster.combatmap.application.view.MapPlacementRequiredException;
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationCommandConflictException;
 import com.dndmaster.combatmap.application.spatial.SpatialPreparationVersionConflictException;
+import com.dndmaster.combatmap.application.spatial.SpatialMapVersionConflictException;
 import com.dndmaster.combatmap.domain.CombatMapMovementDeniedException;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementStaleException;
 import com.dndmaster.combatmap.application.movement.CombatMapMovementPreviewMismatchException;
@@ -62,6 +63,11 @@ public final class ApiContractExceptionHandler {
     @ExceptionHandler(SpatialPreparationVersionConflictException.class)
     ResponseEntity<ErrorResponse> handle(SpatialPreparationVersionConflictException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse("SPATIAL_PREPARATION_VERSION_CONFLICT"));
+    }
+
+    @ExceptionHandler(SpatialMapVersionConflictException.class)
+    ResponseEntity<ErrorResponse> handle(SpatialMapVersionConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(SpatialMapVersionConflictException.ERROR_CODE));
     }
 
     @ExceptionHandler(CombatMapMovementDeniedException.class)

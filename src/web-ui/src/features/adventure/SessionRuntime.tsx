@@ -26,6 +26,29 @@ export type RuntimeHandout = {
 
 export type RuntimeHandoutPreviewLoader = (knowledgeDocumentId: string) => Promise<SourcePreviewView>
 
+function stableSpatialCommandId(key: string): string {
+  let h1 = 1779033703, h2 = 3144134277, h3 = 1013904223, h4 = 2773480762
+  for (let i = 0; i < key.length; i += 1) {
+    const code = key.charCodeAt(i)
+    h1 = h2 ^ Math.imul(h1 ^ code, 597399067)
+    h2 = h3 ^ Math.imul(h2 ^ code, 2869860233)
+    h3 = h4 ^ Math.imul(h3 ^ code, 951274213)
+    h4 = h1 ^ Math.imul(h4 ^ code, 2716044179)
+  }
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067)
+  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233)
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213)
+  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179)
+  const hex = [h1 ^ h2 ^ h3 ^ h4, h2 ^ h1, h3 ^ h1, h4 ^ h1]
+    .map(value => (value >>> 0).toString(16).padStart(8, '0')).join('')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`
+}
+
+function isSpatialVersionConflict(error: unknown): boolean {
+  return typeof error === 'object' && error !== null
+    && 'code' in error && error.code === 'SPATIAL_MAP_VERSION_CONFLICT'
+}
+
 export function SpatialTurnRuntime({ adventureId, playApi, combatSnapshot }: { adventureId: string; playApi: AdventurePlayApi; combatSnapshot?: CombatSnapshot | null }) {
   const spatialTurnKey = useRef<string | null>(null)
 
@@ -34,19 +57,34 @@ export function SpatialTurnRuntime({ adventureId, playApi, combatSnapshot }: { a
     let active = true
     void playApi.getCombatMap(adventureId).then(map => {
       if (!active || !map.mapId) return
-      const key = `${map.mapId}:${combatSnapshot.round}:${combatSnapshot.currentParticipantId}`
+      const turnIdentity = `${adventureId}:${map.mapId}:${combatSnapshot.encounterId}:${combatSnapshot.round}:${combatSnapshot.currentParticipantId}`
+      const key = turnIdentity
       if (spatialTurnKey.current === key) return
       spatialTurnKey.current = key
-      const commandId = globalThis.crypto && 'randomUUID' in globalThis.crypto
-        ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`
-      return playApi.combatTurnStartSpatial!(adventureId, {
-        mapId: map.mapId, expectedVersion: map.version ?? 0, commandId,
-      }).then(result => playApi.advanceSpatialDurations
-        ? playApi.advanceSpatialDurations(adventureId, {
-          mapId: map.mapId!, expectedVersion: result.mapVersion, commandId: globalThis.crypto && 'randomUUID' in globalThis.crypto
-            ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-        })
-        : result)
+      const startCommandId = stableSpatialCommandId(`${turnIdentity}:turn-start`)
+      const durationCommandId = stableSpatialCommandId(`${turnIdentity}:advance-durations`)
+      const startTurn = async (expectedVersion: number) => {
+        try {
+          return await playApi.combatTurnStartSpatial!(adventureId, { mapId: map.mapId!, expectedVersion, commandId: startCommandId })
+        } catch (error) {
+          if (!isSpatialVersionConflict(error)) throw error
+          const latest = await playApi.getCombatMap(adventureId)
+          if (latest.mapId !== map.mapId) throw error
+          return playApi.combatTurnStartSpatial!(adventureId, { mapId: latest.mapId!, expectedVersion: latest.version ?? 0, commandId: startCommandId })
+        }
+      }
+      const advanceDurations = async (expectedVersion: number) => {
+        if (!playApi.advanceSpatialDurations) return undefined
+        try {
+          return await playApi.advanceSpatialDurations(adventureId, { mapId: map.mapId!, expectedVersion, commandId: durationCommandId })
+        } catch (error) {
+          if (!isSpatialVersionConflict(error)) throw error
+          const latest = await playApi.getCombatMap(adventureId)
+          if (latest.mapId !== map.mapId) throw error
+          return playApi.advanceSpatialDurations(adventureId, { mapId: latest.mapId!, expectedVersion: latest.version ?? 0, commandId: durationCommandId })
+        }
+      }
+      return startTurn(map.version ?? 0).then(result => advanceDurations(result.mapVersion))
     }).catch(() => undefined)
     return () => { active = false }
   }, [adventureId, combatSnapshot, playApi])
@@ -58,7 +96,9 @@ export function SessionRuntime({ adventureId, adventureApi, expectedVersion, pla
   const [mapOpen, setMapOpen] = useState(false)
   const [noteOpen, setNoteOpen] = useState(false)
   const [partyOpen, setPartyOpen] = useState(true)
-  const current = combatSnapshot?.initiative.find(item => item.participantId === combatSnapshot.currentParticipantId)
+  const [currentScene, setCurrentScene] = useState(initialScene ?? '')
+
+  useEffect(() => { setCurrentScene(initialScene ?? '') }, [adventureId, initialScene])
 
   useEffect(() => {
     if (mapRefreshToken === undefined) return
@@ -76,27 +116,29 @@ export function SessionRuntime({ adventureId, adventureApi, expectedVersion, pla
       <Button className="session-runtime-settings" variant="ghost" size="icon" aria-label="세션 설정"><Settings size={17} aria-hidden="true" /></Button>
     </header>
     <div className={`session-runtime-columns${partyOpen ? '' : ' runtime-party-collapsed'}`}>
-      <PartyPanel snapshot={combatSnapshot} currentParticipant={current?.displayName} characters={partyCharacters} open={partyOpen} onToggle={() => setPartyOpen(value => !value)} />
-      <main className="runtime-feed-panel" aria-label="게임 기록"><AdventureStream adventureId={adventureId} api={adventureApi} expectedVersion={expectedVersion} onTurnCommitted={onTurnCommitted} /></main>
+      <PartyPanel snapshot={combatSnapshot} characters={partyCharacters} open={partyOpen} onToggle={() => setPartyOpen(value => !value)} />
+      <main className="runtime-feed-panel" aria-label="게임 기록"><AdventureStream adventureId={adventureId} api={adventureApi} expectedVersion={expectedVersion} onTurnCommitted={onTurnCommitted} onCurrentSceneChanged={setCurrentScene} /></main>
       <aside className="runtime-context-panel" aria-label="현재 상황">
-        <ContextPanel initialScene={initialScene} combatSnapshot={combatSnapshot} mapOpen={mapOpen} setMapOpen={setMapOpen} noteOpen={noteOpen} setNoteOpen={setNoteOpen} map={mapOpen ? <CombatMapView adventureId={adventureId} api={playApi} refreshToken={mapRefreshToken} compact /> : null} handouts={handouts} handoutsLoading={handoutsLoading} handoutsMessage={handoutsMessage} getHandoutPreview={getHandoutPreview} />
+        <ContextPanel currentScene={currentScene} combatSnapshot={combatSnapshot} mapOpen={mapOpen} setMapOpen={setMapOpen} noteOpen={noteOpen} setNoteOpen={setNoteOpen} map={mapOpen ? <CombatMapView adventureId={adventureId} api={playApi} refreshToken={mapRefreshToken} compact /> : null} handouts={handouts} handoutsLoading={handoutsLoading} handoutsMessage={handoutsMessage} getHandoutPreview={getHandoutPreview} />
       </aside>
     </div>
   </section></>
 }
 
-function PartyPanel({ snapshot, currentParticipant, characters, open, onToggle }: { snapshot?: CombatSnapshot | null; currentParticipant?: string; characters: RuntimePartyCharacter[]; open: boolean; onToggle: () => void }) {
+function PartyPanel({ snapshot, characters, open, onToggle }: { snapshot?: CombatSnapshot | null; characters: RuntimePartyCharacter[]; open: boolean; onToggle: () => void }) {
   const combatPlayers = snapshot?.initiative.filter(item => item.controller === 'PLAYER') ?? []
   const participants = characters.length > 0
     ? characters.map(character => {
-      const combat = combatPlayers.find(item => item.displayName === character.name || item.participantId === character.characterSheetId)
+      const sameName = combatPlayers.filter(item => item.displayName === character.name)
+      const combat = combatPlayers.find(item => item.participantId === character.characterSheetId)
+        ?? (sameName.length === 1 ? sameName[0] : undefined)
       return {
         id: character.characterSheetId,
         name: character.name,
         detail: [character.characterClass, character.level ? `Lv.${character.level}` : null].filter(Boolean).join(' · ') || character.race || (character.controlMode === 'AGENT' ? 'AI 동료' : '플레이어'),
         condition: combat?.publicCondition,
         initiative: combat?.initiative,
-        current: combat?.displayName === currentParticipant,
+        current: combat?.participantId === snapshot?.currentParticipantId,
       }
     })
     : combatPlayers.map((participant, index) => ({
@@ -105,7 +147,7 @@ function PartyPanel({ snapshot, currentParticipant, characters, open, onToggle }
       detail: '플레이어',
       condition: participant.publicCondition,
       initiative: participant.initiative,
-      current: participant.displayName === currentParticipant,
+      current: participant.participantId === snapshot?.currentParticipantId,
     }))
 
   return <aside className={`runtime-party-panel${open ? '' : ' runtime-party-panel-collapsed'}`} aria-label="플레이 캐릭터 패널">
@@ -121,7 +163,7 @@ function PartyPanel({ snapshot, currentParticipant, characters, open, onToggle }
   </aside>
 }
 
-function ContextPanel({ initialScene, combatSnapshot, mapOpen, setMapOpen, noteOpen, setNoteOpen, map, handouts, handoutsLoading, handoutsMessage, getHandoutPreview }: { initialScene?: string | null; combatSnapshot?: CombatSnapshot | null; mapOpen: boolean; setMapOpen: (value: boolean) => void; noteOpen: boolean; setNoteOpen: (value: boolean) => void; map: ReactNode; handouts: RuntimeHandout[]; handoutsLoading: boolean; handoutsMessage: string; getHandoutPreview?: RuntimeHandoutPreviewLoader }) {
+function ContextPanel({ currentScene, combatSnapshot, mapOpen, setMapOpen, noteOpen, setNoteOpen, map, handouts, handoutsLoading, handoutsMessage, getHandoutPreview }: { currentScene: string; combatSnapshot?: CombatSnapshot | null; mapOpen: boolean; setMapOpen: (value: boolean) => void; noteOpen: boolean; setNoteOpen: (value: boolean) => void; map: ReactNode; handouts: RuntimeHandout[]; handoutsLoading: boolean; handoutsMessage: string; getHandoutPreview?: RuntimeHandoutPreviewLoader }) {
   const [selectedHandout, setSelectedHandout] = useState<RuntimeHandout | null>(null)
   const [handoutPreview, setHandoutPreview] = useState<SourcePreviewView | null>(null)
   const [handoutPreviewLoading, setHandoutPreviewLoading] = useState(false)
@@ -151,7 +193,7 @@ function ContextPanel({ initialScene, combatSnapshot, mapOpen, setMapOpen, noteO
     <div className="runtime-panel-heading"><div><p className="eyebrow">CURRENT</p><h2>현재 상황</h2></div><MoreHorizontal size={17} aria-hidden="true" /></div>
     <Separator />
     <dl className="runtime-context-list">
-      <div><dt>현재 위치</dt><dd>{initialScene || '현재 장면'}</dd></div>
+      <div><dt>현재 위치</dt><dd>{currentScene || '현재 장면'}</dd></div>
       <div><dt>진행</dt><dd>{combatSnapshot ? `Round ${combatSnapshot.round}` : '탐색'}</dd></div>
       <div><dt>현재 차례</dt><dd>{combatSnapshot?.currentParticipantId ? '플레이어' : '게임 마스터'}</dd></div>
       <div><dt>전투</dt><dd>{combatSnapshot ? '진행 중' : '없음'}</dd></div>

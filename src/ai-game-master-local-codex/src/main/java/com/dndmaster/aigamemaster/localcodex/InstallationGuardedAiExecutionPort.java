@@ -19,4 +19,10 @@ public final class InstallationGuardedAiExecutionPort implements AiExecutionPort
     public AiExecutionResult execute(AiExecutionRequest request) {
         return connection.executeIfConnected(() -> delegate.execute(request));
     }
+
+    public void setRagSearchHandler(LocalCodexAiExecutionPort.RagSearchHandler handler) {
+        if (delegate instanceof LocalCodexAiExecutionPort localCodex) {
+            localCodex.setRagSearchHandler(handler);
+        }
+    }
 }

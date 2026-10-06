@@ -41,10 +41,22 @@ require_available_port() {
 # production credentials. Deployments must provide their own values.
 export INTERNAL_SERVICE_TOKEN="${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}"
 export LOCAL_AGENT_CONNECTION_RELAY_PORT="${LOCAL_AGENT_CONNECTION_RELAY_PORT:-8081}"
+export BACKEND_SERVER_PORT="${BACKEND_SERVER_PORT:-8080}"
+export FRONTEND_DEV_PORT="${FRONTEND_DEV_PORT:-5173}"
+export POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+export REDIS_PORT="${REDIS_PORT:-6379}"
+export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-dnd-master-$(printf '%s' "$ROOT" | sha256sum | cut -c1-8)}"
+export SERVER_PORT="$BACKEND_SERVER_PORT"
+export SPRING_DATASOURCE_URL="${SPRING_DATASOURCE_URL:-jdbc:postgresql://127.0.0.1:$POSTGRES_PORT/postgres}"
+export SPRING_DATA_REDIS_PORT="${SPRING_DATA_REDIS_PORT:-$REDIS_PORT}"
+export BACKEND_E2E_URL="${BACKEND_E2E_URL:-http://127.0.0.1:$BACKEND_SERVER_PORT}"
+export IDENTITY_ACCESS_BASE_URL="${IDENTITY_ACCESS_BASE_URL:-$BACKEND_E2E_URL/}"
+export RULE_KNOWLEDGE_BASE_URL="${RULE_KNOWLEDGE_BASE_URL:-$BACKEND_E2E_URL/}"
+export AI_GAME_MASTER_BASE_URL="${AI_GAME_MASTER_BASE_URL:-$BACKEND_E2E_URL/}"
 LOCAL_AGENT_CONNECTION_RELAY_URL="http://127.0.0.1:${LOCAL_AGENT_CONNECTION_RELAY_PORT}"
 export AGENT_CONNECTION_RELAY_URL="${AGENT_CONNECTION_RELAY_URL:-$LOCAL_AGENT_CONNECTION_RELAY_URL}"
 export RELAY_INTERNAL_ADDRESS="${RELAY_INTERNAL_ADDRESS:-$LOCAL_AGENT_CONNECTION_RELAY_URL}"
-export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:-/home/jiwoo/workspace/dnd-master/docs/assets}"
+export RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT="${RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT:-$ROOT/../docs/assets}"
 # Keep the repository's local catalog-admin marker and the seeded demo player's
 # actual identity together. The browser Backoffice sends the authenticated
 # player ID, so omitting the seeded ID makes local catalog publication fail
@@ -67,12 +79,11 @@ export RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY="${RULE_KNOWLEDGE_PREPROCE
 export LD_LIBRARY_PATH="/home/jiwoo/.local/usr/lib/x86_64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export TESSDATA_PREFIX="${TESSDATA_PREFIX:-/home/jiwoo/.local/usr/share/tesseract-ocr/5/tessdata}"
 export RULE_KNOWLEDGE_OCR_LANGUAGES="${RULE_KNOWLEDGE_OCR_LANGUAGES:-eng}"
-export BACKEND_E2E_URL="${BACKEND_E2E_URL:-http://localhost:8080}"
 export BACKEND_E2E_EMAIL="${BACKEND_E2E_EMAIL:-demo-player@example.com}"
 export BACKEND_E2E_PASSWORD="${BACKEND_E2E_PASSWORD:-secret-password}"
 export USER_PC_AGENT_RELAY_WEBSOCKET_URL="${USER_PC_AGENT_RELAY_WEBSOCKET_URL:-ws://127.0.0.1:${LOCAL_AGENT_CONNECTION_RELAY_PORT}/ws/agent}"
 if [ -z "${BACKEND_E2E_STORYBOOKS_JSON:-}" ]; then
-    export BACKEND_E2E_STORYBOOKS_JSON='[{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew.pdf","role":"MAIN_SCENARIO"},{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf","role":"MAP"},{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf","role":"HANDOUT"}]'
+    export BACKEND_E2E_STORYBOOKS_JSON="[{\"path\":\"$ROOT/../docs/assets/892902-A_Most_Potent_Brew.pdf\",\"role\":\"MAIN_SCENARIO\"},{\"path\":\"$ROOT/../docs/assets/892902-A_Potent_Brew_Map.pdf\",\"role\":\"MAP\"},{\"path\":\"$ROOT/../docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf\",\"role\":\"HANDOUT\"}]"
 fi
 require_env INTERNAL_SERVICE_TOKEN
 require_env AGENT_CONNECTION_RELAY_URL
@@ -85,6 +96,10 @@ require_env BACKEND_E2E_URL
 require_env BACKEND_E2E_EMAIL
 require_env BACKEND_E2E_PASSWORD
 require_env BACKEND_E2E_STORYBOOKS_JSON
+
+for port in "$BACKEND_SERVER_PORT" "$FRONTEND_DEV_PORT" "$POSTGRES_PORT" "$REDIS_PORT" "$LOCAL_AGENT_CONNECTION_RELAY_PORT"; do
+    require_available_port "$port"
+done
 
 if [ ! -d "$RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT" ]; then
     echo "ERROR: RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT directory was not found: $RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT" >&2
@@ -166,7 +181,6 @@ cp -R "$ROOT/gradle" "$GRADLEW_TMP_DIR/gradle"
 chmod +x "$GRADLEW_TMP_DIR/gradlew"
 
 echo "==> Starting local agent connection relay..."
-require_available_port "$LOCAL_AGENT_CONNECTION_RELAY_PORT"
 (cd "$ROOT" && exec bash "$GRADLEW_TMP_DIR/gradlew" :agent-connection-relay-service:bootRun --args="--server.port=$LOCAL_AGENT_CONNECTION_RELAY_PORT") &
 RELAY_PID=$!
 echo "    Relay PID: $RELAY_PID"
@@ -277,14 +291,14 @@ if [ ! -d "$UI/node_modules" ] || ! (cd "$UI" && run_node -e "require.resolve('@
     rm -rf "$UI/node_modules"
     (cd "$UI" && run_npm install --include=optional)
 fi
-(cd "$UI" && run_npm run dev) &
+(cd "$UI" && run_npm run dev -- --host 127.0.0.1 --port "$FRONTEND_DEV_PORT" --strictPort) &
 FRONTEND_PID=$!
 echo "    Frontend PID: $FRONTEND_PID"
 
 echo ""
-echo "  Backend:  http://localhost:8080"
-echo "  Frontend: http://localhost:5173"
-echo "  Swagger:  http://localhost:8080/swagger-ui.html"
+echo "  Backend:  $BACKEND_E2E_URL"
+echo "  Frontend: http://127.0.0.1:$FRONTEND_DEV_PORT"
+echo "  Swagger:  $BACKEND_E2E_URL/swagger-ui.html"
 echo "  Demo login: demo-player@example.com / secret-password"
 echo "  Press Ctrl+C to stop all."
 echo ""

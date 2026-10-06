@@ -25,7 +25,7 @@ public final class ConversationCompactionWorker {
         for (ConversationCompactionJob job : jobs.ready(now)) {
             var adventure = adventures.findById(job.adventureId()).orElse(null);
             if (adventure != null) return coordinator.runOnce(job.adventureId(), adventure.ownerPlayerId().value(),
-                    adventure.version(), adventure.conversation(), now);
+                    adventure.version(), adventure.conversation(), adventure.runtimeAddedFacts(), now);
         }
         return false;
     }

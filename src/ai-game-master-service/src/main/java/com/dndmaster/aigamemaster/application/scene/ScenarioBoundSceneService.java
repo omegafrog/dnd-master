@@ -25,7 +25,6 @@ public final class ScenarioBoundSceneService {
         }
         String grounded = SceneCitationGrounder.groundOrFallback(output.scene(), request,
                 output.alignment() == ScenarioAlignment.RUNTIME_INTERACTION);
-        grounded = SceneChoicePolicy.replaceImmediateRepeat(grounded, request);
         return new SceneOutput(output.scenarioId(), output.ruleSetId(), output.alignment(), grounded, output.npcs());
     }
 }

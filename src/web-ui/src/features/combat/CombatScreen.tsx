@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CombatApi, CombatParticipant, CombatSnapshot } from './CombatApi'
 
 export function CombatScreen({ snapshot, api, map, onCommandCommitted }: { snapshot: CombatSnapshot; api?: CombatApi; map?: ReactNode; onCommandCommitted?: () => void }) {
@@ -6,19 +6,53 @@ export function CombatScreen({ snapshot, api, map, onCommandCommitted }: { snaps
   const [movementPath, setMovementPath] = useState('')
   const [actionText, setActionText] = useState('')
   const [targetId, setTargetId] = useState('')
+  const [spellTargetId, setSpellTargetId] = useState('')
+  const [spellName, setSpellName] = useState('')
   const [combatLog, setCombatLog] = useState<string[]>([])
   const [gmNarration, setGmNarration] = useState<string[]>([])
+  const seenNarrationEvents = useRef(new Set<number>())
+  const seenNarrationTexts = useRef(new Set<string>())
+  useEffect(() => {
+    if (!api?.subscribeEvents || snapshot.status === 'ENDED') return
+    return api.subscribeEvents(snapshot.adventureId, 0, event => {
+      if (event.type !== 'GM_NARRATION') return
+      try {
+        const payload = JSON.parse(event.payload) as { narration?: unknown }
+        const narration = payload.narration
+        if (typeof narration !== 'string' || !narration.trim() || seenNarrationEvents.current.has(event.sequence)
+          || seenNarrationTexts.current.has(narration)) return
+        seenNarrationEvents.current.add(event.sequence)
+        seenNarrationTexts.current.add(narration)
+        setGmNarration(current => [...current, narration])
+      } catch {
+        // Ignore malformed or non-player-facing event payloads.
+      }
+    })
+  }, [api, snapshot.adventureId, snapshot.status])
   const current = snapshot.initiative.find(item => item.participantId === snapshot.currentParticipantId)
   const humanTurn = current?.controller === 'PLAYER'
-  const send = async (operation: () => Promise<{ status: string; judgment?: string; narration?: string }>) => {
-    try { const result = await operation(); setFeedback(result.judgment ?? result.status); onCommandCommitted?.(); return result }
+  const send = async (operation: () => Promise<{ status: string; operationId?: string; judgment?: string; narration?: string }>) => {
+    try { const result = await operation(); setFeedback(playerCombatMessage(result.status)); onCommandCommitted?.(); return result }
     catch (error) { setFeedback(error instanceof Error ? error.message : '전투 행동을 처리할 수 없습니다.'); return null }
   }
   const enemies = snapshot.initiative.filter(item => item.controller === 'AI')
+  const availableSpells = snapshot.spellcasting?.availableSpells ?? []
+  const firstLevelSlots = snapshot.spellcasting?.availableSlots['1'] ?? 0
+  const selectedSpell = availableSpells.find(spell => spell.name === spellName) ?? availableSpells[0]
   const runAction = () => {
     if (!api) return
     if (!targetId) return setFeedback('공격할 적을 선택하세요.')
     return send(() => api.submitAction(snapshot.adventureId, { characterSheetId: snapshot.currentParticipantId, action: 'attack', targetCharacterSheetId: targetId }, snapshot.version))
+  }
+  const castSpell = () => {
+    if (!api?.castSpell || !selectedSpell) return
+    if (!spellTargetId) return setFeedback('주문 대상을 선택하세요.')
+    if (firstLevelSlots < 1) return setFeedback('1레벨 주문 슬롯이 부족합니다.')
+    return send(() => api.castSpell!(snapshot.adventureId, {
+      characterSheetId: snapshot.currentParticipantId,
+      spellName: selectedSpell.name,
+      targetParticipantId: spellTargetId,
+    }, snapshot.version))
   }
   const endTurn = () => api && send(() => api.endTurn(snapshot.adventureId, snapshot.currentParticipantId, snapshot.version))
   const resolveReaction = (choice: 'USE' | 'PASS') => api?.resolveReaction && snapshot.pendingReaction && send(() => api.resolveReaction!(snapshot.adventureId, snapshot.pendingReaction!.reactionId, choice, snapshot.version))
@@ -41,8 +75,7 @@ export function CombatScreen({ snapshot, api, map, onCommandCommitted }: { snaps
     if (!api?.submitFreeForm || !actionText.trim()) return
     const result = await send(() => api.submitFreeForm!(snapshot.adventureId, snapshot.currentParticipantId, actionText.trim(), snapshot.version))
     if (!result) return
-    setCombatLog(log => [...log, result.judgment ?? result.status])
-    if (result.narration) setGmNarration(narration => [...narration, result.narration!])
+    setCombatLog(log => [...log, playerCombatMessage(result.status)])
     setActionText('')
   }
   if (snapshot.status === 'ENDED') return <section className="combat-screen combat-ended" aria-labelledby="combat-title"><header className="combat-command-header"><p className="eyebrow">전투 종료</p><h1 id="combat-title">전투 종료 요약</h1></header>{snapshot.finalSummary && <><p>{snapshot.finalSummary.summary}</p><p>상세 전투 기록은 종료 후 제공되지 않습니다.</p></>}</section>
@@ -53,11 +86,22 @@ export function CombatScreen({ snapshot, api, map, onCommandCommitted }: { snaps
       <main className="combat-battlefield" aria-label="전장">{map ? <div className="combat-map-frame">{map}</div> : <div className="combat-map-empty"><strong>전장 위치 정보가 없습니다.</strong><span>게임 마스터의 서술을 기준으로 전투를 진행합니다.</span></div>}{snapshot.narrativePositions?.length ? <section className="combat-position-summary" aria-labelledby="narrative-position-title"><h2 id="narrative-position-title">전장 상황</h2>{snapshot.narrativePositions.map(position => <p key={`${position.subjectId}-${position.targetId}`}>거리: {position.rangeBand} · 엄폐: {position.cover}</p>)}</section> : null}</main>
       <aside className="combat-actions" aria-labelledby="actions-title"><header><p className="eyebrow">내 차례</p><h2 id="actions-title">행동 선택</h2></header><dl className="combat-resources"><div><dt>이동</dt><dd>{snapshot.resources.movement}ft</dd></div><div><dt>행동</dt><dd>{snapshot.resources.actionAvailable ? '가능' : '사용'}</dd></div><div><dt>추가 행동</dt><dd>{snapshot.resources.bonusActionAvailable ? '가능' : '사용'}</dd></div><div><dt>반응 행동</dt><dd>{snapshot.resources.reactionAvailable ? '가능' : '사용'}</dd></div></dl>
         {snapshot.pendingReaction && <section className="combat-alert" aria-labelledby="reaction-title" role="alert"><h3 id="reaction-title">반응 행동 선택</h3><p>{snapshot.pendingReaction.trigger}</p><div><button type="button" onClick={() => void resolveReaction('USE')}>사용</button><button type="button" onClick={() => void resolveReaction('PASS')}>넘기기</button></div></section>}
-        {snapshot.processingFailure && <section className="combat-alert combat-error" aria-labelledby="processing-failure-title" role="alert"><h3 id="processing-failure-title">전투 처리 실패</h3><p>작업 {snapshot.processingFailure.operationId}</p><p>{snapshot.processingFailure.failure} · 시도 {snapshot.processingFailure.attempts}/3</p>{api?.retry && <button type="button" onClick={() => void retryFailedOperation()}>다시 시도</button>}</section>}
-        {humanTurn && <div className="combat-action-controls"><label>공격 대상<select aria-label="공격 대상" value={targetId} onChange={event => setTargetId(event.target.value)}><option value="">적 선택</option>{enemies.map(enemy => <option key={enemy.participantId} value={enemy.participantId}>{enemy.displayName}</option>)}</select></label><button className="combat-primary-action" type="button" onClick={() => void runAction()} disabled={!snapshot.resources.actionAvailable}>공격</button><details><summary>좌표로 이동</summary><label>이동 경로 (x,y; x,y)<input aria-label="이동 경로" value={movementPath} onChange={event => setMovementPath(event.target.value)} placeholder="0,0;1,0" /></label><button type="button" onClick={() => void runMovement()} disabled={!snapshot.resources.movement || !movementPath}>이동 실행</button></details><label className="combat-action-text">원하는 행동을 적으세요<textarea aria-label="행동 선언" value={actionText} onChange={event => setActionText(event.target.value)} placeholder="주변을 살피며 엄폐물 뒤로 이동한다." /></label><button type="button" onClick={() => void submitActionText()} disabled={!api?.submitFreeForm || !actionText.trim()}>행동 보내기</button><button className="combat-end-turn" type="button" onClick={() => void endTurn()}>턴 종료</button></div>}{feedback && <p className="combat-feedback" role="status">{feedback}</p>}</aside>
+        {snapshot.processingFailure && <section className="combat-alert combat-error" aria-labelledby="processing-failure-title" role="alert"><h3 id="processing-failure-title">전투 처리 실패</h3><p>전투 처리를 완료하지 못했습니다.</p>{api?.retry && <button type="button" onClick={() => void retryFailedOperation()}>다시 시도</button>}</section>}
+        {humanTurn && <div className="combat-action-controls"><label>공격 대상<select aria-label="공격 대상" value={targetId} onChange={event => setTargetId(event.target.value)}><option value="">적 선택</option>{enemies.map(enemy => <option key={enemy.participantId} value={enemy.participantId}>{enemy.displayName}</option>)}</select></label><button className="combat-primary-action" type="button" onClick={() => void runAction()} disabled={!snapshot.resources.actionAvailable}>공격</button>{availableSpells.length > 0 && <section className="combat-spell-controls" aria-label="주문 사용"><h3>주문</h3><p>1레벨 주문 슬롯: {firstLevelSlots}</p><label>사용할 주문<select aria-label="사용할 주문" value={selectedSpell?.name ?? ''} onChange={event => setSpellName(event.target.value)}><option value="">주문 선택</option>{availableSpells.map(spell => <option key={`${spell.name}-${spell.level}`} value={spell.name}>{spell.name} · {spell.level}레벨</option>)}</select></label><label>주문 대상<select aria-label="주문 대상" value={spellTargetId} onChange={event => setSpellTargetId(event.target.value)}><option value="">적 선택</option>{enemies.map(enemy => <option key={enemy.participantId} value={enemy.participantId}>{enemy.displayName}</option>)}</select></label><button type="button" onClick={() => void castSpell()} disabled={!api?.castSpell || !selectedSpell || !snapshot.resources.actionAvailable || firstLevelSlots < 1}>시전</button>{firstLevelSlots < 1 && <p role="status">1레벨 주문 슬롯이 부족합니다.</p>}</section>}<details><summary>좌표로 이동</summary><label>이동 경로 (x,y; x,y)<input aria-label="이동 경로" value={movementPath} onChange={event => setMovementPath(event.target.value)} placeholder="0,0;1,0" /></label><button type="button" onClick={() => void runMovement()} disabled={!snapshot.resources.movement || !movementPath}>이동 실행</button></details><label className="combat-action-text">원하는 행동을 적으세요<textarea aria-label="행동 선언" value={actionText} onChange={event => setActionText(event.target.value)} placeholder="주변을 살피며 엄폐물 뒤로 이동한다." /></label><button type="button" onClick={() => void submitActionText()} disabled={!api?.submitFreeForm || !actionText.trim()}>행동 보내기</button><button className="combat-end-turn" type="button" onClick={() => void endTurn()}>턴 종료</button></div>}{feedback && <p className="combat-feedback" role="status">{feedback}</p>}</aside>
     </div>
-    <section className="combat-history" aria-labelledby="combat-history-title"><header><p className="eyebrow">진행 기록</p><h2 id="combat-history-title">판정과 서술</h2></header><div><section><h3>판정 결과</h3><ol aria-label="판정 결과">{combatLog.length ? combatLog.map((entry, index) => <li key={`${index}-${entry}`}>{entry}</li>) : <li>아직 기록이 없습니다.</li>}</ol></section><section><h3>게임 마스터 서술</h3><ol aria-label="게임 마스터 서술">{gmNarration.length ? gmNarration.map((entry, index) => <li key={`${index}-${entry}`}>{entry}</li>) : <li>행동 결과가 여기에 표시됩니다.</li>}</ol></section></div></section>
+    <section className="combat-history" aria-labelledby="combat-history-title"><header><p className="eyebrow">진행 기록</p><h2 id="combat-history-title">행동과 서술</h2></header><div><section><h3>행동 상태</h3><ol aria-label="행동 상태">{combatLog.length ? combatLog.map((entry, index) => <li key={`${index}-${entry}`}>{entry}</li>) : <li>아직 기록이 없습니다.</li>}</ol></section><section><h3>게임 마스터 서술</h3><ol aria-label="게임 마스터 서술">{gmNarration.length ? gmNarration.map((entry, index) => <li key={`${index}-${entry}`}>{entry}</li>) : <li>행동 결과가 여기에 표시됩니다.</li>}</ol></section></div></section>
   </section>
+}
+
+function playerCombatMessage(status: string) {
+  switch (status) {
+    case 'COMMITTED': return '행동 결과를 반영했습니다.'
+    case 'MOVE_COMMITTED': return '이동을 마쳤습니다.'
+    case 'TURN_ENDED': return '차례가 끝났습니다.'
+    case 'RETRY_SCHEDULED': return '전투 처리를 다시 요청했습니다.'
+    case 'COMBAT_ENDED': return '전투가 끝났습니다.'
+    default: return '전투 상태를 갱신했습니다.'
+  }
 }
 
 function InitiativeEntry({ item, current, playerNumber }: { item: CombatParticipant; current: boolean; playerNumber: number }) {

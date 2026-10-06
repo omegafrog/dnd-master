@@ -25,6 +25,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 class HttpEvidenceModelPortsTest {
     private WireMockServer server;
@@ -44,7 +47,8 @@ class HttpEvidenceModelPortsTest {
     }
 
     @Test
-    void sends_only_the_candidate_contract_to_the_fixed_policy_reranker_with_internal_token() {
+    @ExtendWith(OutputCaptureExtension.class)
+    void sends_only_the_candidate_contract_to_the_fixed_policy_reranker_with_internal_token(CapturedOutput output) {
         server.stubFor(post(urlEqualTo("/internal/v1/gm/evidence-rerank"))
                 .withHeader("X-Internal-Token", equalTo("internal-token"))
                 .withRequestBody(equalToJson("""
@@ -59,6 +63,7 @@ class HttpEvidenceModelPortsTest {
 
         assertEquals(List.of(candidateId), port.rerank(new EvidenceRerankRequest("RULE_GUIDANCE", "question", List.of(candidate()), soloPlayerId)));
         server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/evidence-rerank")));
+        org.assertj.core.api.Assertions.assertThat(output).doesNotContain("dev_agent_http operation=evidence_rerank");
     }
 
     @Test
@@ -69,6 +74,45 @@ class HttpEvidenceModelPortsTest {
 
         assertThrows(EvidenceAcquisitionTransientException.class,
                 () -> port.judge(new EvidenceSufficiencyRequest("RULE_GUIDANCE", "question", List.of(candidate()), List.of(), 0)));
+    }
+
+    @Test
+    void maps_a_transient_reranker_failure_to_the_common_retry_signal_with_http_status() {
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/evidence-rerank"))
+                .willReturn(aResponse().withStatus(503)));
+        var port = new HttpEvidenceRerankerPort(HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"),
+                Duration.ofSeconds(2), mapper, "internal-token");
+
+        var failure = assertThrows(EvidenceAcquisitionTransientException.class,
+                () -> port.rerank(new EvidenceRerankRequest("RULE_GUIDANCE", "question", List.of(candidate()), soloPlayerId)));
+
+        assertEquals("evidence reranking is unavailable (HTTP 503)", failure.getMessage());
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void logs_diagnostic_context_only_for_a_422_reranker_contract_failure(CapturedOutput output) {
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/evidence-rerank"))
+                .willReturn(aResponse().withStatus(422)
+                        .withBody("{\"detail\":\"EVIDENCE_MODEL_OUTPUT_INVALID\"}")));
+        var port = new HttpEvidenceRerankerPort(HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"),
+                Duration.ofSeconds(2), mapper, "internal-token");
+
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            assertThrows(EvidenceAcquisitionContractException.class,
+                    () -> port.rerank(new EvidenceRerankRequest("RULE_GUIDANCE", "question", List.of(candidate()), soloPlayerId)));
+        } finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
+
+        org.assertj.core.api.Assertions.assertThat(output)
+                .contains("dev_agent_http operation=evidence_rerank status=422")
+                .contains("policy=RULE_GUIDANCE")
+                .contains("candidateCount=1")
+                .contains("responseMarker=EVIDENCE_MODEL_OUTPUT_INVALID");
     }
 
     @Test

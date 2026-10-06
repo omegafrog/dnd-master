@@ -2,6 +2,7 @@ package com.dndmaster.adventure.combat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 import com.dndmaster.adventure.application.combat.CombatStartParticipantFactory;
 import com.dndmaster.adventure.application.runtime.CombatEnemyProposal;
@@ -66,5 +67,23 @@ class CombatStartParticipantFactoryTest {
         assertEquals("Giant Rat 8", participants.get(8).displayName());
         assertEquals(12, participants.get(1).statBlock().armorClass());
         assertEquals(7, participants.get(8).statBlock().hitPointMaximum());
+    }
+
+    @Test
+    void rolls_each_participants_initiative_before_encounter_start_and_adds_their_modifier() {
+        UUID adventureId = UUID.randomUUID();
+        UUID heroId = UUID.randomUUID();
+        var participants = CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, List.of(
+                        new AdventurePartyMember(new CharacterSheetId(heroId), ControlMode.DIRECT,
+                                true, true, true, true, true, true)),
+                List.of(new CombatEnemyProposal("rat", "Giant Rat", 1,
+                        com.dndmaster.adventure.application.runtime.CombatStartMode.INSTANT,
+                        new CombatEnemyStatBlock(12, 7, 4, "1d6+2",
+                                new CombatStatBlockSource(UUID.randomUUID(), 1, "p. 1"), 2))),
+                ignored -> "Hero", ignored -> 3, new java.util.concurrent.atomic.AtomicInteger(10)::getAndIncrement);
+
+        assertEquals(13, participants.get(0).initiative());
+        assertEquals(13, participants.get(1).initiative());
+        assertNotEquals(0, participants.get(0).initiative());
     }
 }

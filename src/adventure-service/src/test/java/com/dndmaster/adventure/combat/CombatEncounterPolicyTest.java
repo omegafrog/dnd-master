@@ -11,6 +11,9 @@ class CombatEncounterPolicyTest {
     private static final UUID ADVENTURE = UUID.randomUUID();
     private static final UUID HERO = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID GOBLIN = UUID.fromString("00000000-0000-0000-0000-000000000002");
+    private static final UUID SECOND_GOBLIN = UUID.fromString("00000000-0000-0000-0000-000000000003");
+    private static final CombatEnemyStatBlock GOBLIN_STATS = new CombatEnemyStatBlock(12, 7, 3, "1d6+1",
+            new CombatStatBlockSource(UUID.fromString("00000000-0000-0000-0000-000000000004"), 1, "test"));
 
     @Test
     void combat_start_requires_committed_gm_turn_and_creates_first_turn() {
@@ -56,6 +59,36 @@ class CombatEncounterPolicyTest {
         assertNull(snapshot.initiative().get(1).publicCondition());
         assertFalse(snapshot.toString().contains("hp=7"));
         assertFalse(snapshot.toString().contains("ac=15"));
+    }
+
+    @Test
+    void player_projection_omits_defeated_enemies_from_initiative() {
+        var defeatedGoblin = new CombatParticipant(GOBLIN, "Goblin", CombatParticipant.Controller.AI,
+                10, "enemy", TurnResources.initial(), GOBLIN_STATS, 0);
+        var encounter = CombatStartPolicy.startFromCommittedGmTurn(true, ADVENTURE, List.of(
+                new CombatParticipant(HERO, "Hero", CombatParticipant.Controller.PLAYER, 15, "healthy"),
+                defeatedGoblin));
+
+        var snapshot = PlayerCombatProjectionPolicy.toSnapshot(encounter, HERO);
+
+        assertEquals(List.of(HERO), snapshot.initiative().stream()
+                .map(PlayerCombatSnapshot.PlayerParticipant::participantId).toList());
+    }
+
+    @Test
+    void ending_turn_skips_defeated_enemies_without_advancing_the_round_early() {
+        var encounter = CombatStartPolicy.startFromCommittedGmTurn(true, ADVENTURE, List.of(
+                new CombatParticipant(HERO, "Hero", CombatParticipant.Controller.PLAYER, 15, "healthy"),
+                new CombatParticipant(GOBLIN, "Defeated Goblin", CombatParticipant.Controller.AI,
+                        12, "enemy", TurnResources.initial(), GOBLIN_STATS, 0),
+                new CombatParticipant(SECOND_GOBLIN, "Goblin", CombatParticipant.Controller.AI,
+                        10, "enemy", TurnResources.initial(), GOBLIN_STATS, 7)));
+
+        var next = encounter.endCurrentTurn(encounter.version());
+
+        assertEquals(SECOND_GOBLIN, next.currentParticipantId());
+        assertEquals(1, next.round());
+        assertEquals(3, next.participants().size(), "defeated enemies remain in the encounter record for outcome checks");
     }
 
     @Test

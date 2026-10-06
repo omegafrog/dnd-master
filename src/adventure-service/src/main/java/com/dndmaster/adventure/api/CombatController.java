@@ -115,6 +115,26 @@ public final class CombatController {
         }
     }
 
+    @PostMapping("/api/v1/adventures/{adventureId}/combat/spells")
+    public ResponseEntity<CombatActionResponse> castSpell(@PathVariable UUID adventureId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("If-Match-Version") long expectedVersion,
+            @RequestBody CastSpellRequest request) {
+        var adventure = assertOwnerAndLoad(adventureId);
+        UUID commandId = uuidHeader(idempotencyKey, "Idempotency-Key");
+        var actor = new CharacterSheetId(request.characterSheetId());
+        var command = new CombatActionCommand(commandId, adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(),
+                actor, null, CombatActorRole.PLAYER, "CAST_SPELL", null, playerResolver.playerId(), actor.value(),
+                expectedVersion, null, null,
+                request.targetParticipantId() == null ? null : new CharacterSheetId(request.targetParticipantId()), null, false);
+        try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
+                adventure.sessionId(), adventure.ownerPlayerId(), commandId)) {
+            CombatActionResponse response = actionService.castSpell(command, request.spellName());
+            handOffToScheduledAiFollowUp(adventure, command, permit);
+            return ResponseEntity.accepted().body(response);
+        }
+    }
+
     @PostMapping("/api/v1/adventures/{adventureId}/combat/turn/end")
     public ResponseEntity<CombatActionResponse> endTurn(@PathVariable UUID adventureId,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
@@ -201,9 +221,24 @@ public final class CombatController {
             return new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot.PlayerParticipant(
                     entry.participantId(), name, entry.controller(), entry.initiative(), entry.publicCondition());
         }).toList();
+        var spellcasting = snapshot.spellcasting();
+        if (snapshot.currentParticipantId() != null && snapshot.initiative().stream()
+                .anyMatch(entry -> entry.participantId().equals(snapshot.currentParticipantId())
+                        && entry.controller() == com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER)) {
+            try {
+                var currentAdventure = adventure;
+                var command = new CombatActionCommand(UUID.randomUUID(), currentAdventure.id(), currentAdventure.sessionId().value(),
+                        currentAdventure.ruleSetId(), new CharacterSheetId(snapshot.currentParticipantId()), null,
+                        CombatActorRole.PLAYER, "READ_SPELLS", null, currentAdventure.ownerPlayerId().value(),
+                        snapshot.currentParticipantId(), snapshot.version(), null, null, null, null, false);
+                spellcasting = characterCombatPort.spellcastingProfile(command);
+            } catch (RuntimeException ignored) {
+                spellcasting = com.dndmaster.adventure.domain.combat.CombatSpellcastingProfile.empty();
+            }
+        }
         return new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot(snapshot.encounterId(), snapshot.adventureId(),
                 snapshot.status(), snapshot.round(), snapshot.currentParticipantId(), entries, snapshot.resources(),
-                snapshot.version(), snapshot.eventCursor(), snapshot.narrativePositions(), snapshot.pendingReaction(), snapshot.processingFailure());
+                snapshot.version(), snapshot.eventCursor(), snapshot.narrativePositions(), snapshot.pendingReaction(), snapshot.processingFailure(), spellcasting);
     }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat/final-summary")
@@ -284,6 +319,7 @@ public final class CombatController {
     public record TurnEndRequest(UUID characterSheetId) {}
     public record RetryRequest(UUID operationId) {}
     public record FreeFormActionRequest(UUID characterSheetId, String declaration) {}
+    public record CastSpellRequest(UUID characterSheetId, String spellName, UUID targetParticipantId) {}
     public record FinalSummaryResponse(UUID adventureId, UUID encounterId, String reason, String summary,
                                        boolean detailedReplayAvailable) {}
     public record ReactionRequest(String choice, UUID actorId) {

@@ -14,6 +14,7 @@ export type CombatSnapshot = {
   currentParticipantId: string
   initiative: CombatParticipant[]
   resources: { movement: number; actionAvailable: boolean; bonusActionAvailable: boolean; reactionAvailable: boolean }
+  spellcasting?: { availableSpells: Array<{ name: string; level: number }>; availableSlots: Record<string, number> } | null
   version: number
   eventCursor: number
   narrativePositions?: Array<{ subjectId: string; targetId: string; rangeBand: string; cover: string }>
@@ -64,6 +65,7 @@ export interface CombatApi {
   submitAction(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult>
   submitMovement?(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult>
   submitFreeForm?(adventureId: string, characterSheetId: string, declaration: string, version: number): Promise<CombatCommandResult>
+  castSpell?(adventureId: string, request: { characterSheetId: string; spellName: string; targetParticipantId: string }, version: number): Promise<CombatCommandResult>
   endTurn(adventureId: string, characterSheetId: string, version: number): Promise<CombatCommandResult>
   resolveReaction?(adventureId: string, reactionId: string, choice: 'USE' | 'PASS', version: number): Promise<CombatCommandResult>
   retry?(adventureId: string, operationId: string, version: number): Promise<CombatCommandResult>
@@ -127,6 +129,10 @@ export class HttpCombatApi implements CombatApi {
     return this.postCommand(`/api/v1/adventures/${adventureId}/combat/free-form`, { characterSheetId, declaration }, version)
   }
 
+  async castSpell(adventureId: string, request: { characterSheetId: string; spellName: string; targetParticipantId: string }, version: number): Promise<CombatCommandResult> {
+    return this.postCommand(`/api/v1/adventures/${adventureId}/combat/spells`, request, version)
+  }
+
   async endTurn(adventureId: string, characterSheetId: string, version: number): Promise<CombatCommandResult> {
     return this.postCommand(`/api/v1/adventures/${adventureId}/combat/turn/end`, { characterSheetId }, version)
   }
@@ -153,7 +159,14 @@ export class HttpCombatApi implements CombatApi {
       },
       body: JSON.stringify(body),
     })
-    if (!response.ok) throw new Error(`combat command failed: ${response.status}`)
+    if (!response.ok) {
+      let message = `전투 행동을 처리하지 못했습니다. (${response.status})`
+      try {
+        const body = await response.json() as { message?: string; violations?: string[] }
+        message = body.message ?? body.violations?.[0] ?? message
+      } catch { /* Keep the status-based message for non-JSON errors. */ }
+      throw new Error(message)
+    }
     return response.json() as Promise<CombatCommandResult>
   }
 }

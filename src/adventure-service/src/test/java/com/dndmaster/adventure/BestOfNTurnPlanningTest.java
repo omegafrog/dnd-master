@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.runtime.CandidateHardFilter;
@@ -34,6 +35,12 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class BestOfNTurnPlanningTest {
+    @Test
+    void rejects_retry_count_above_validation_retry_limit() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new BestOfNRuntimePlanningAdapter(request -> null, 1, 3, false, audit -> { }));
+    }
+
     @Test
     void candidate_count_defaults_to_one() {
         assertEquals(1, PlanningContext.candidateCount(false));
@@ -249,6 +256,32 @@ class BestOfNTurnPlanningTest {
 
         assertEquals(List.of(story), selected.citedEvidence());
         assertEquals(2, calls[0]);
+    }
+
+    @Test
+    void ordinary_scene_transition_does_not_require_storybook_evidence_or_regeneration() {
+        var calls = new int[1];
+        var prompts = new java.util.ArrayList<String>();
+        GmAgentPort agent = context -> {
+            calls[0]++;
+            prompts.add(context.composePrompt(32_000));
+            String scene = calls[0] < 3 ? "다른 장소" : "현재 장소";
+            return new GmPlanResult(new RuntimePlan(scene, "주변 인물", "계속 살핀다", "주변에서 소리가 난다",
+                    null, List.of(), List.of(), "p", "m", "r"), "p", "m", "r", List.of());
+        };
+        var adapter = new BestOfNRuntimePlanningAdapter(new GmAgentRuntimePlanningAdapter(agent, new GmFinalValidator()),
+                1, 2, false, audit -> { });
+
+        RuntimePlan selected = adapter.plan(new RuntimePlanningRequest(AdventureId.generate(),
+                new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
+                new AdventureContext("현재 장소", "주변 인물", "살핀다", ""), null, "주변을 살핀다",
+                new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of(), "stage", null,
+                "provider", "model", "reasoning", new NarrativeContext("player", "현재 장소", 0,
+                        Set.of(), List.of(), java.util.Map.of(), List.of(), List.of(), List.of())));
+
+        assertEquals(1, calls[0]);
+        assertEquals("다른 장소", selected.scene());
+        assertTrue(!prompts.get(0).contains("VALIDATION_FEEDBACK="));
     }
 
     @Test

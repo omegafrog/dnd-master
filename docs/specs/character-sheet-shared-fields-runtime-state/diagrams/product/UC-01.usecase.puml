@@ -1,0 +1,41 @@
+@startuml
+' UC-01 / G-01, G-02, G-03 / BR-01~BR-06
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+actor "Solo Player" as player
+rectangle "모험 준비" {
+  usecase "룰북 근거가 있는\n추가 캐릭터 항목 살펴보기" as UC01a
+  usecase "제안 출처 확인하기" as UC01b
+  usecase "추가할 항목 선택하기" as UC01c
+  usecase "현재 모험의 모든 PC 시트에\n항목 적용하기" as UC01d
+  usecase "PC별 값 입력하기" as UC01e
+  usecase "필수 값 누락 확인하기" as UC01f
+  usecase "모험 시작하기" as UC01g
+  usecase "실패 이유 확인 후 재시도하기" as UC01h
+}
+player --> UC01a
+player --> UC01b
+player --> UC01c
+player --> UC01e
+player --> UC01g
+player --> UC01h
+UC01c ..> UC01a : <<include>>
+UC01c ..> UC01b : <<include>>
+UC01d ..> UC01c : <<include>>
+UC01e ..> UC01d : <<include>>
+UC01g ..> UC01f : <<include>>
+UC01h ..> UC01d : 재시도
+note bottom of UC01d
+이미 만든 시트를 포함한다.
+전체 시트 적용이 실패하면 일부에도 적용하지 않는다.
+같은 항목은 현재 준비 중인 모험에만 적용한다.
+end note
+note bottom of UC01f
+룰북이 명시적으로 선택 사항이라고 한 경우를 제외하면
+룰북에 언급된 항목의 값은 필수다.
+필수 값이 빠져 있으면 시작을 막는다.
+모험 시작 시 공통 구성을 고정한다.
+end note
+@enduml

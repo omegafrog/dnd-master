@@ -18,9 +18,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class CrossContextHttpCombatGateway
         implements CharacterCombatPort, DiceCombatPort, EnemyObservationRollPort, CombatMapPort, AiCombatPort {
+    private static final Logger log = LoggerFactory.getLogger(CrossContextHttpCombatGateway.class);
     private static final int GRID_DISTANCE_UNIT = 5;
     private final HttpClient client;
     private final URI baseUri;
@@ -57,6 +60,94 @@ public final class CrossContextHttpCombatGateway
             throw new RuntimeCombatRejectionException(RuntimeCombatRejectionException.ZERO_HIT_POINTS_MESSAGE);
         }
         characterSheetViews.put(command.operationId(), character);
+    }
+
+    @Override
+    public int initiativeModifier(java.util.UUID characterSheetId, java.util.UUID ownerPlayerId,
+            java.util.UUID sessionId) {
+        try {
+            HttpRequest.Builder builder = HttpRequest.newBuilder(baseUri.resolve(
+                            "internal/v1/character-sheets/" + characterSheetId + "/runtime"))
+                    .timeout(timeout).header("X-Internal-Token", internalToken)
+                    .header("X-Session-ID", sessionId.toString());
+            if (ownerPlayerId != null) builder.header("X-Owner-Player-ID", ownerPlayerId.toString());
+            HttpResponse<String> response = client.send(builder.GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("cross-context call failed with status " + response.statusCode());
+            }
+            CharacterSheetView sheet = objectMapper.readValue(response.body(), CharacterSheetView.class);
+            int dexterity = parseDexterity(sheet.startingAbilities());
+            return Math.floorDiv(dexterity - 10, 2);
+        } catch (IOException exception) {
+            throw new CrossContextCallException("character initiative data could not be read", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("character initiative lookup was interrupted", exception);
+        }
+    }
+
+    private int parseDexterity(String startingAbilities) throws IOException {
+        if (startingAbilities == null || startingAbilities.isBlank()) return 10;
+        var textMatch = java.util.regex.Pattern.compile("(?i)(?:^|,)\\s*(?:dexterity|dex|민첩)\\s*=\\s*(\\d+)")
+                .matcher(startingAbilities);
+        if (textMatch.find()) return Integer.parseInt(textMatch.group(1));
+        JsonNode abilities = objectMapper.readTree(startingAbilities);
+        return abilities.path("dexterity").asInt(
+                abilities.path("dex").asInt(abilities.path("민첩").asInt(10)));
+    }
+
+    @Override
+    public com.dndmaster.adventure.domain.combat.CombatSpellcastingProfile spellcastingProfile(CombatActionCommand command) {
+        CharacterSheetView character = readCharacterSheet(command);
+        if ("CAST_SPELL".equals(command.action())) characterSheetViews.put(command.operationId(), character);
+        try {
+            JsonNode build = objectMapper.readTree(character.characterBuild());
+            JsonNode state = objectMapper.readTree(character.characterState());
+            List<com.dndmaster.adventure.domain.combat.CombatSpell> spells = new ArrayList<>();
+            if (character.characterClass().equals("위저드") && character.level() == 1) {
+                for (String field : List.of("learnedSpells", "preparedSpells", "learnedOrPreparedSpells")) {
+                    JsonNode values = build.path(field);
+                    if (values.isArray()) for (JsonNode value : values) if ("마법 화살".equals(value.asText())) {
+                            spells.add(new com.dndmaster.adventure.domain.combat.CombatSpell("마법 화살", 1));
+                            break;
+                        }
+                    if (!spells.isEmpty()) break;
+                }
+            }
+            int firstLevelSlots = state.path("spellSlots").path("1").asInt(-1);
+            if (firstLevelSlots < 0 && character.characterClass().equals("위저드") && character.level() == 1) {
+                firstLevelSlots = 2;
+            }
+            Map<Integer, Integer> slots = firstLevelSlots < 0 ? Map.of() : Map.of(1, firstLevelSlots);
+            return new com.dndmaster.adventure.domain.combat.CombatSpellcastingProfile(spells, slots);
+        } catch (IOException exception) {
+            throw new CrossContextCallException("character spellcasting data could not be read", exception);
+        }
+    }
+
+    @Override
+    public void consumeSpellSlot(CombatActionCommand command, int slotLevel) {
+        CharacterSheetView current = characterSheetViews.computeIfAbsent(command.operationId(), ignored -> readCharacterSheet(command));
+        RuntimeMutationRequest mutation = new RuntimeMutationRequest(0, 0, List.of(), List.of(), slotLevel);
+        try {
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/character-sheets/" + command.characterSheetId().value() + "/runtime-mutations"))
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .header("X-Session-ID", command.sessionId().toString())
+                    .header("X-Owner-Player-ID", Objects.requireNonNull(command.ownerPlayerId()).toString())
+                    .header("Idempotency-Key", command.operationId().toString())
+                    .header("If-Match-Version", Long.toString(current.version()))
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(mutation))).build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 422) throw new RuntimeCombatRejectionException("주문 슬롯이 부족합니다.");
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("spell slot update failed with status " + response.statusCode());
+            }
+        } catch (IOException exception) {
+            throw new CrossContextCallException("spell slot update serialization failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("spell slot update interrupted", exception);
+        }
     }
 
     @Override
@@ -331,6 +422,15 @@ public final class CrossContextHttpCombatGateway
                     .header("Idempotency-Key", commandId.toString()).POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body))).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                String errorCode = "UNKNOWN_SPATIAL_ERROR";
+                try {
+                    JsonNode error = objectMapper.readTree(response.body());
+                    errorCode = error.path("error").asText(error.path("code").asText(errorCode));
+                } catch (IOException ignored) { }
+                long expectedVersion = body instanceof SpatialTurnRequest turn ? turn.expectedVersion() : -1;
+                log.warn("Combat map spatial request failed: mapId={}, action={}, commandId={}, expectedVersion={}, status={}, errorCode={}",
+                        mapId, action, commandId, expectedVersion, response.statusCode(), errorCode);
+                if (response.statusCode() == 409) throw new CombatMapSpatialConflictException(errorCode);
                 throw new CrossContextCallException("combat map spatial action failed with status " + response.statusCode());
             }
             JsonNode value = objectMapper.readTree(response.body());
@@ -609,7 +709,12 @@ public final class CrossContextHttpCombatGateway
             String characterName, int level, boolean inspiration, String race, String characterClass, String background,
             String startingAbilities, String derivedStatistics, String characterBuild, String characterState,
             java.util.Map<String, String> blueprintValues) {}
-    private record RuntimeMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems, List<String> removeItems) {}
+    private record RuntimeMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems,
+            List<String> removeItems, int consumeSpellSlotLevel) {
+        private RuntimeMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems, List<String> removeItems) {
+            this(hitPointDelta, currencyDelta, addItems, removeItems, 0);
+        }
+    }
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)
     private record MoveRequest(
             java.util.UUID playerId, java.util.UUID tokenId, List<PositionRequest> positions, int distance,

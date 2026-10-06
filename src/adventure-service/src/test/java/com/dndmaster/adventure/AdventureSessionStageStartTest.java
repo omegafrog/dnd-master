@@ -46,6 +46,80 @@ import org.junit.jupiter.api.Test;
 
 class AdventureSessionStageStartTest {
     @Test
+    void creates_the_encounter_when_the_committed_session_opening_plan_starts_combat() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        UUID packageId = UUID.randomUUID();
+        ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
+        when(scenarioPackage.packageId()).thenReturn(packageId);
+        when(scenarioPackage.bundleRevision()).thenReturn(1L);
+        when(scenarioPackage.isReady()).thenReturn(true);
+        when(scenarioPackage.scenarioModel()).thenReturn(mock(com.dndmaster.adventure.domain.scenario.ScenarioModel.class));
+        AdventureSessionRuntimeConfiguration configuration = configuration(packageId);
+        when(scenarioPackage.initialMapDefinition(configuration.initialScene()))
+                .thenReturn(Optional.of(mock(MapDefinition.class)));
+        AdventureSession session = AdventureSession.rehydrate(SessionId.generate(), owner, packageId, 1,
+                packageId, 1, 1, List.of(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()),
+                        ControlMode.DIRECT, true, true, true, true, true, true)), configuration,
+                AdventureSession.Status.DRAFT, null, null, 0);
+        AdventureId adventureId = AdventureId.generate();
+        Adventure adventure = Adventure.beginScenarioRuntime(adventureId, session.id(), owner,
+                configuration.scenarioId(), configuration.ruleSetId(), packageId, 1, session.party(),
+                new AdventureContext(configuration.initialScene(), null, null, null));
+        adventure.initializeScenarioRuntime(owner, GameState.empty(), DisclosureState.empty(),
+                new CurrentSituation(UUID.randomUUID(), 1, "양조장 지하", "거대 쥐가 달려든다", "거대 쥐",
+                        "위협을 막는다", "cellar-rat-ambush"), List.of(),
+                new AdventureContext(configuration.initialScene(), null, null, null));
+
+        AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        when(adventures.findById(adventureId)).thenReturn(Optional.of(adventure));
+        StageArtifactPreparationApplicationService preparation = mock(StageArtifactPreparationApplicationService.class);
+        var prepared = mock(StageArtifactPreparationApplicationService.Result.class);
+        var opening = mock(com.dndmaster.adventure.domain.scenario.SituationDefinition.class);
+        when(opening.situationId()).thenReturn("opening");
+        when(prepared.openingSituation()).thenReturn(opening);
+        when(preparation.prepare(packageId)).thenReturn(prepared);
+        var plan = mock(com.dndmaster.adventure.application.runtime.RuntimePlan.class);
+        when(plan.combatStartRequested()).thenReturn(true);
+        var statBlock = new com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock(12, 7, 3, "1d4+1",
+                new com.dndmaster.adventure.domain.combat.CombatStatBlockSource(UUID.randomUUID(), 1, "page 1"));
+        when(plan.combatEnemies()).thenReturn(List.of(new com.dndmaster.adventure.application.runtime.CombatEnemyProposal(
+                "cellar-rat-ambush", "giant-rat", "거대 쥐", 1,
+                com.dndmaster.adventure.application.runtime.CombatStartMode.SITUATION, statBlock)));
+        var openingTurn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        when(openingTurn.committed()).thenReturn(true);
+        when(openingTurn.plan()).thenReturn(plan);
+        var openingResult = mock(com.dndmaster.adventure.application.runtime.RuntimeTurnResult.class);
+        when(openingResult.turn()).thenReturn(openingTurn);
+        RuntimeTurnApplicationService openingRuntime = mock(RuntimeTurnApplicationService.class);
+        UUID requestId = UUID.randomUUID();
+        when(openingRuntime.openSessionTurn(adventureId, owner, requestId)).thenReturn(openingResult);
+        var maps = mock(CombatMapPreparationPort.class);
+        when(maps.mapLayoutConfirmed(adventureId, owner.value())).thenReturn(true);
+        var lifecycle = mock(com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService.class);
+        var encounter = mock(com.dndmaster.adventure.domain.combat.CombatEncounter.class);
+        when(lifecycle.startFromCommittedGmTurn(org.mockito.ArgumentMatchers.eq(adventureId.value()),
+                org.mockito.ArgumentMatchers.eq(true), org.mockito.ArgumentMatchers.anyList())).thenReturn(encounter);
+
+        AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions,
+                packageRepository(scenarioPackage), adventures, mock(RuntimeBindingApplicationService.class),
+                mock(AdventureSessionStartCoordinator.class), mock(CharacterSheetOwnershipPort.class),
+                mock(SessionKnowledgeSetRepository.class), mock(AiCompanionGenerationPort.class),
+                mock(AiCompanionSheetCreationPort.class), maps, preparation, openingRuntime, lifecycle);
+
+        service.start(session.id(), owner, 0, requestId, adventureId);
+
+        verify(lifecycle).startFromCommittedGmTurn(org.mockito.ArgumentMatchers.eq(adventureId.value()),
+                org.mockito.ArgumentMatchers.eq(true), org.mockito.ArgumentMatchers.argThat(participants ->
+                        participants.size() == 2 && participants.stream().anyMatch(p -> p.displayName().equals("거대 쥐"))));
+        verify(lifecycle).scheduleFirstAiTurn(encounter, requestId);
+        verify(maps).activatePrepared(org.mockito.ArgumentMatchers.eq(adventureId),
+                org.mockito.ArgumentMatchers.eq(owner.value()), org.mockito.ArgumentMatchers.eq(configuration.ruleSetId()),
+                org.mockito.ArgumentMatchers.eq(1), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
     void initializes_the_real_session_start_from_the_prepared_opening_situation() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);

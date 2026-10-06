@@ -92,10 +92,14 @@ public final class ScenarioCompilation {
     }
 
     public ScenarioCompilation retry(UUID deliveryToken, String reason) {
+        return retry(deliveryToken, reason, diagnostics);
+    }
+
+    public ScenarioCompilation retry(UUID deliveryToken, String reason, List<ScenarioCompilationDiagnostic> nextDiagnostics) {
         requireLease(deliveryToken);
         requireStatus(ScenarioCompilationStatus.RUNNING, ScenarioCompilationStatus.PROCESSING);
-        return next(ScenarioCompilationStatus.WAITING_RETRY, attempt, null, null,
-                Objects.requireNonNull(reason, "retry reason must not be null"));
+        return nextWithDiagnostics(ScenarioCompilationStatus.WAITING_RETRY, attempt, null, null,
+                Objects.requireNonNull(reason, "retry reason must not be null"), nextDiagnostics);
     }
 
     public ScenarioCompilation publish(UUID deliveryToken, UUID packageId) {
@@ -119,10 +123,14 @@ public final class ScenarioCompilation {
     }
 
     public ScenarioCompilation fail(UUID deliveryToken, String reason) {
+        return fail(deliveryToken, reason, diagnostics);
+    }
+
+    public ScenarioCompilation fail(UUID deliveryToken, String reason, List<ScenarioCompilationDiagnostic> nextDiagnostics) {
         requireLease(deliveryToken);
         requireStatus(ScenarioCompilationStatus.RUNNING, ScenarioCompilationStatus.PROCESSING);
-        return next(ScenarioCompilationStatus.FAILED, attempt, null, null,
-                Objects.requireNonNull(reason, "failure reason must not be null"));
+        return nextWithDiagnostics(ScenarioCompilationStatus.FAILED, attempt, null, null,
+                Objects.requireNonNull(reason, "failure reason must not be null"), nextDiagnostics);
     }
 
     private ScenarioCompilation next(ScenarioCompilationStatus nextStatus, int nextAttempt,

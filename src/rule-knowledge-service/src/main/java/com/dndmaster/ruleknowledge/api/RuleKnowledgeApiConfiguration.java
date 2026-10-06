@@ -175,8 +175,9 @@ public class RuleKnowledgeApiConfiguration {
 
     @Bean
     HybridEvidenceSearchService hybridEvidenceSearchService(
-            DenseEvidenceCandidateSearchPort denseSearch, Bm25EvidenceCandidateSearchPort bm25Search) {
-        return new HybridEvidenceSearchService(denseSearch, bm25Search, new RrfFusionPolicy());
+            DenseEvidenceCandidateSearchPort denseSearch, Bm25EvidenceCandidateSearchPort bm25Search,
+            @Value("${rule-knowledge.search.bm25-enabled:true}") boolean bm25Enabled) {
+        return new HybridEvidenceSearchService(denseSearch, bm25Search, new RrfFusionPolicy(), bm25Enabled);
     }
 
     @Bean

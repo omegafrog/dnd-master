@@ -46,6 +46,7 @@ public final class RuntimeTurnCommitOrchestrator {
         return resume(readyTurn.turnId(), localAdventureCommit);
     }
 
+
     public Result resume(UUID turnId, Runnable localAdventureCommit) {
         Objects.requireNonNull(turnId, "turn id must not be null");
         Objects.requireNonNull(localAdventureCommit, "local adventure commit must not be null");

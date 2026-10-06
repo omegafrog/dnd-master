@@ -39,6 +39,75 @@ import org.springframework.beans.factory.ObjectProvider;
 
 class AdventureAiRequestControllerTest {
     @Test
+    void completed_player_roll_commits_the_matching_gm_turn_and_publishes_completion_event() {
+        Fixture fixture = fixture();
+        UUID commandId = UUID.randomUUID();
+        UUID gmTurnId = UUID.randomUUID();
+        UUID runtimeTurnId = UUID.randomUUID();
+        var gmTurn = com.dndmaster.adventure.domain.runtime.GmTurn.start(gmTurnId, commandId,
+                fixture.adventure().version(), new com.dndmaster.adventure.domain.runtime.GmInput.TextInput("저장고를 살핀다"))
+                .process();
+        when(fixture.gmTurns().findByCommandId(commandId)).thenReturn(Optional.of(gmTurn));
+
+        var runtimeTurn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        var plan = new com.dndmaster.adventure.application.runtime.RuntimePlan(
+                "저장고", null, "지각 판정 성공", "쥐를 발견한다", null, java.util.List.of(), java.util.List.of());
+        when(runtimeTurn.turnId()).thenReturn(runtimeTurnId);
+        when(runtimeTurn.commandId()).thenReturn(commandId);
+        when(runtimeTurn.adventureId()).thenReturn(fixture.adventure().id());
+        when(runtimeTurn.sessionId()).thenReturn(fixture.adventure().sessionId().value());
+        when(runtimeTurn.plan()).thenReturn(plan);
+        when(runtimeTurn.lifecycle()).thenReturn(com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.PRESENTED);
+        when(fixture.runtimeTurns().submitPlayerRoll(any())).thenReturn(
+                new com.dndmaster.adventure.application.runtime.RuntimeTurnResult(runtimeTurn,
+                        fixture.adventure().currentContext(), java.util.List.of(), fixture.adventure().version() + 1));
+
+        fixture.adventureController().submitPlayerRoll(fixture.adventure().id().value(), runtimeTurnId,
+                new AdventureController.PlayerRollRequest(9, fixture.adventure().version()));
+
+        verify(fixture.gmTurns()).save(org.mockito.ArgumentMatchers.argThat(saved ->
+                saved.commandId().equals(commandId)
+                        && saved.status() == com.dndmaster.adventure.domain.runtime.GmTurnStatus.COMMITTED),
+                org.mockito.ArgumentMatchers.eq(fixture.adventure().id().value()));
+        verify(fixture.sessionEvents()).appendNext(org.mockito.ArgumentMatchers.eq(fixture.adventure().sessionId().value()), any(),
+                org.mockito.ArgumentMatchers.eq("GM_TURN_COMMITTED"),
+                org.mockito.ArgumentMatchers.eq(runtimeTurnId.toString()));
+    }
+
+    @Test
+    void next_action_recovers_a_presented_turn_left_processing_by_an_older_roll_request() {
+        Fixture fixture = fixture();
+        UUID oldCommandId = UUID.randomUUID();
+        UUID oldTurnId = UUID.randomUUID();
+        var oldGmTurn = com.dndmaster.adventure.domain.runtime.GmTurn.start(oldTurnId, oldCommandId,
+                0, new com.dndmaster.adventure.domain.runtime.GmInput.TextInput("저장고를 살핀다"))
+                .process();
+        when(fixture.gmTurns().findProcessingByAdventureId(fixture.adventure().id().value()))
+                .thenReturn(Optional.of(oldGmTurn));
+        when(fixture.gmTurns().findByCommandId(oldCommandId)).thenReturn(Optional.of(oldGmTurn));
+        var presentedTurn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        when(presentedTurn.commandId()).thenReturn(oldCommandId);
+        when(presentedTurn.turnId()).thenReturn(oldTurnId);
+        when(presentedTurn.sessionId()).thenReturn(fixture.adventure().sessionId().value());
+        when(presentedTurn.plan()).thenReturn(new com.dndmaster.adventure.application.runtime.RuntimePlan(
+                "저장고", null, "지각 판정 성공", "쥐를 발견한다", null, java.util.List.of(), java.util.List.of()));
+        when(presentedTurn.lifecycle()).thenReturn(com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.PRESENTED);
+        when(fixture.runtimeTurnRepository().findByCommandId(oldCommandId)).thenReturn(Optional.of(presentedTurn));
+
+        var response = fixture.adventureController().submitTypedTurn(fixture.adventure().id().value(),
+                UUID.randomUUID(), fixture.adventure().version(),
+                new AdventureController.GmTurnRequest(UUID.randomUUID(),
+                        new AdventureController.GmInputRequest("TEXT", "쥐를 공격한다", null, null, null, null)));
+
+        assertEquals(org.springframework.http.HttpStatus.CONFLICT, response.getStatusCode());
+        assertEquals("PREVIOUS_TURN_RECOVERED", ((java.util.Map<?, ?>) response.getBody()).get("error"));
+        verify(fixture.gmTurns()).save(org.mockito.ArgumentMatchers.argThat(saved ->
+                saved.commandId().equals(oldCommandId)
+                        && saved.status() == com.dndmaster.adventure.domain.runtime.GmTurnStatus.COMMITTED),
+                org.mockito.ArgumentMatchers.eq(fixture.adventure().id().value()));
+    }
+
+    @Test
     void competing_chat_or_map_action_is_rejected_before_any_turn_is_saved() {
         Fixture fixture = fixture();
         UUID requestId = UUID.randomUUID();
@@ -189,6 +258,42 @@ class AdventureAiRequestControllerTest {
                                 && "committed turn store unavailable".equals(failure.getMessage())));
     }
 
+    @Test
+    void committed_turn_that_proposes_combat_does_not_fail_when_an_encounter_is_already_active() {
+        Fixture fixture = fixture();
+        UUID commandId = UUID.randomUUID();
+        UUID turnId = UUID.randomUUID();
+        var plan = new com.dndmaster.adventure.application.runtime.RuntimePlan(
+                "저장고", null, "전투 중에는 짧은 휴식을 취할 수 없습니다.", "쥐가 계속 다가옵니다.", null,
+                java.util.List.of(), java.util.List.of(), "test", "test-model", "", false, "", null, null,
+                1, java.util.List.of(), null,
+                java.util.List.of(new com.dndmaster.adventure.application.runtime.CombatEnemyProposal(
+                        "encounter-rats", "거대 쥐", 1)), true, false);
+        var resultTurn = mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        when(resultTurn.plan()).thenReturn(plan);
+        when(resultTurn.adventureId()).thenReturn(fixture.adventure().id());
+        when(resultTurn.sessionId()).thenReturn(fixture.adventure().sessionId().value());
+        when(resultTurn.turnId()).thenReturn(turnId);
+        when(resultTurn.lifecycle()).thenReturn(com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle.COMMITTED);
+        when(fixture.runtimeTurns().submitTurn(any())).thenReturn(
+                new com.dndmaster.adventure.application.runtime.RuntimeTurnResult(resultTurn,
+                        fixture.adventure().currentContext(), java.util.List.of(), fixture.adventure().version() + 1));
+        var activeEncounter = com.dndmaster.adventure.domain.combat.CombatStartPolicy.startFromCommittedGmTurn(true,
+                fixture.adventure().id().value(), java.util.List.of(new com.dndmaster.adventure.domain.combat.CombatParticipant(
+                        UUID.randomUUID(), "영웅", com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER, 10, null)));
+        when(fixture.combatLifecycle().findActiveEncounter(fixture.adventure().id().value()))
+                .thenReturn(Optional.of(activeEncounter));
+
+        var response = fixture.adventureController().submitTypedTurn(
+                fixture.adventure().id().value(), commandId, fixture.adventure().version(),
+                new AdventureController.GmTurnRequest(turnId,
+                        new AdventureController.GmInputRequest("TEXT", "짧은 휴식을 취하겠습니다.", null, null, null, null)));
+
+        assertEquals(org.springframework.http.HttpStatus.ACCEPTED, response.getStatusCode());
+        verify(fixture.combatLifecycle(), never()).startFromCommittedGmTurn(any(), any(), any());
+        verify(fixture.scheduler(), never()).scheduleNext(any(), any(), org.mockito.ArgumentMatchers.anyInt(), any(), any());
+    }
+
     @SuppressWarnings("unchecked")
     private static Fixture fixture() {
         return fixture(mock(AdventureAiRequestApplicationService.class));
@@ -215,11 +320,13 @@ class AdventureAiRequestControllerTest {
                 mock(com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder.class);
         com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEvents =
                 mock(com.dndmaster.adventure.application.runtime.SessionEventRepository.class);
+        var combatLifecycle = mock(com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService.class);
 
+        RuntimeTurnRepository runtimeTurnRepository = mock(RuntimeTurnRepository.class);
         AdventureController adventureController = new AdventureController(
                 mock(com.dndmaster.adventure.application.saved.SavedAdventureApplicationService.class), runtimeTurns,
                 adventures, gmTurnFailures, gmTurns,
-                mock(RuntimeTurnRepository.class), sessionEvents,
+                runtimeTurnRepository, sessionEvents,
                 mock(com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService.class),
                 mock(AdventureCombatApplicationService.class), combatActions,
                 mock(com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService.class),
@@ -232,7 +339,7 @@ class AdventureAiRequestControllerTest {
                 provider(mock(com.dndmaster.adventure.application.combat.CombatMapPreparationPort.class)),
                 mock(com.dndmaster.adventure.application.combat.PendingMapMovementConfirmationRepository.class),
                 mock(com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository.class),
-                mock(com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService.class),
+                combatLifecycle,
                 mock(com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService.class), aiRequests);
         CombatController combatController = new CombatController(
                 encounters, playerResolver,
@@ -240,8 +347,8 @@ class AdventureAiRequestControllerTest {
                 mock(com.dndmaster.adventure.application.combat.CombatReactionApplicationService.class),
                 workItems, scheduler,
                 mock(com.dndmaster.adventure.application.combat.CharacterCombatPort.class), aiRequests);
-        return new Fixture(adventure, adventureController, combatController, aiRequests, gmTurns, runtimeTurns,
-                combatActions, encounters, workItems, scheduler, gmTurnFailures, sessionEvents);
+        return new Fixture(adventure, adventureController, combatController, aiRequests, gmTurns, runtimeTurns, runtimeTurnRepository,
+                combatActions, encounters, workItems, scheduler, gmTurnFailures, sessionEvents, combatLifecycle);
     }
 
     private static <T> ObjectProvider<T> provider(T value) {
@@ -261,9 +368,11 @@ class AdventureAiRequestControllerTest {
     private record Fixture(Adventure adventure, AdventureController adventureController,
             CombatController combatController, AdventureAiRequestApplicationService aiRequests,
             GmTurnRepository gmTurns, RuntimeTurnApplicationService runtimeTurns,
+            RuntimeTurnRepository runtimeTurnRepository,
             CombatActionApplicationService combatActions,
             com.dndmaster.adventure.application.combat.CombatEncounterRepository encounters,
             CombatWorkItemRepository workItems, CombatWorkItemScheduler scheduler,
             com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder gmTurnFailures,
-            com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEvents) { }
+            com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEvents,
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycle) { }
 }

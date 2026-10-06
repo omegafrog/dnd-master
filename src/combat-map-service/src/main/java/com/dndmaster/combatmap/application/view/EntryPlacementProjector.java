@@ -4,6 +4,7 @@ import com.dndmaster.combatmap.domain.GridPosition;
 import com.dndmaster.combatmap.domain.GridSpec;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.Objects;
 import java.util.Optional;
 import javax.imageio.ImageIO;
 
@@ -32,8 +33,15 @@ public final class EntryPlacementProjector {
         }
 
         public Optional<GridPosition> project(double xNormalized, double yNormalized) {
+            return projectWithDiagnostics(xNormalized, yNormalized).position();
+        }
+
+        public Projection projectWithDiagnostics(double xNormalized, double yNormalized) {
             if (!Double.isFinite(xNormalized) || !Double.isFinite(yNormalized)
-                    || xNormalized < 0 || xNormalized > 1 || yNormalized < 0 || yNormalized > 1) return Optional.empty();
+                    || xNormalized < 0 || xNormalized > 1 || yNormalized < 0 || yNormalized > 1) {
+                return new Projection(Optional.empty(), Double.NaN, Double.NaN, null, null,
+                        "NORMALIZED_COORDINATE_OUT_OF_RANGE", false);
+            }
             double imageX = Math.min(Math.nextDown((double) imageWidth), xNormalized * imageWidth);
             double imageY = Math.min(Math.nextDown((double) imageHeight), yNormalized * imageHeight);
             int projectedX = (int) Math.floor((imageX - originX) / cellSize);
@@ -43,11 +51,24 @@ public final class EntryPlacementProjector {
             // boundary error and snap it to the nearest edge cell; larger
             // errors remain unresolved instead of inventing a location.
             if (projectedX < -1 || projectedX > grid.width()
-                    || projectedY < -1 || projectedY > grid.height()) return Optional.empty();
+                    || projectedY < -1 || projectedY > grid.height()) {
+                return new Projection(Optional.empty(), imageX, imageY, projectedX, projectedY,
+                        "OUTSIDE_GRID_BOUNDS", false);
+            }
+            boolean snapped = projectedX == -1 || projectedX == grid.width()
+                    || projectedY == -1 || projectedY == grid.height();
             GridPosition position = new GridPosition(
                     Math.max(0, Math.min(grid.width() - 1, projectedX)),
                     Math.max(0, Math.min(grid.height() - 1, projectedY)));
-            return Optional.of(position);
+            return new Projection(Optional.of(position), imageX, imageY, projectedX, projectedY, "", snapped);
+        }
+    }
+
+    public record Projection(Optional<GridPosition> position, double imageX, double imageY,
+                             Integer projectedX, Integer projectedY, String rejectionReason, boolean snapped) {
+        public Projection {
+            position = Objects.requireNonNull(position);
+            rejectionReason = Objects.requireNonNull(rejectionReason);
         }
     }
 }

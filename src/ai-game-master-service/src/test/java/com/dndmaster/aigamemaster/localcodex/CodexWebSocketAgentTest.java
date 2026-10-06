@@ -17,7 +17,7 @@ class CodexWebSocketAgentTest {
                 new ObjectMapper())) {
             var request = new CodexWebSocketAgent.AgentExecutionRequest(UUID.randomUUID(), "request-reauth",
                     "operation-reauth", "completed conversation prompt", "model", "medium", "TEXT",
-                    null, List.of(), System.currentTimeMillis() + 60_000, "");
+                    null, List.of(), System.currentTimeMillis() + 60_000, "", null);
 
             var response = agent.execute(request);
 

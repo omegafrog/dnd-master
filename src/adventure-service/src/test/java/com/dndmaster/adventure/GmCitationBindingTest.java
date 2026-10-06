@@ -49,8 +49,28 @@ class GmCitationBindingTest {
         assertTrue(report.violations().stream().anyMatch(v -> v.code().equals("CITATION_NOT_IN_EVIDENCE_PACK")));
     }
 
+    @Test
+    void does_not_infer_citation_need_from_player_or_gm_wording_but_checks_citation_scope() {
+        GmFinalValidator validator = new GmFinalValidator();
+        RuntimePlan moved = plan("복도를 따라 옆방으로 이동한다.", null).withCitedEvidence(List.of());
+        GmPlanResult movedResult = new GmPlanResult(moved, "ollama", "model", "", List.of());
+        assertDoesNotThrow(() -> validator.validate(movedResult, pack, context, Set.of(), "옆방으로 이동한다"));
+
+        GmPlanResult truthQuestion = new GmPlanResult(plan("그는 대답한다.", null).withCitedEvidence(List.of()), "ollama", "model", "", List.of());
+        assertDoesNotThrow(() -> validator.validate(truthQuestion, pack, context, Set.of(), "범인은 누구야?"));
+
+        RuntimeEvidence rule = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK, story.knowledgeDocumentId(), 7,
+                "chapter:2", "공격 굴림은 d20을 사용합니다.", "attack-roll");
+        EvidencePack withRule = new EvidencePack(List.of(story), List.of(rule), List.of());
+        GmPlanResult ruleQuestion = new GmPlanResult(plan("기본 규칙을 적용합니다.", null).withCitedEvidence(List.of()), "ollama", "model", "", List.of());
+        assertDoesNotThrow(() -> validator.validate(ruleQuestion, withRule, context, Set.of(), "공격 굴림 규칙이 뭐야?"));
+        assertDoesNotThrow(() -> validator.validate(new GmPlanResult(plan("기본 규칙을 적용합니다.", null)
+                .withCitedEvidence(List.of(story)), "ollama", "model", "", List.of()),
+                withRule, context, Set.of(), "공격 굴림 규칙이 뭐야?"));
+    }
+
     private RuntimePlan plan(String narration, GmCitationBinding binding) {
         return new RuntimePlan("cellar", "guard", "judgment", narration, null, List.of(story), List.of(),
-                "ollama", "model", "", false, "", List.of(binding));
+                "ollama", "model", "", false, "", binding == null ? List.of() : List.of(binding));
     }
 }

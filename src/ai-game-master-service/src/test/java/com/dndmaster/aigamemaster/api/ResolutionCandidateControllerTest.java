@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -19,6 +20,27 @@ class ResolutionCandidateControllerTest {
                 () -> ResolutionCandidateController.validateCanonicalContract(mapper.readTree("{}")));
         assertThrows(IllegalArgumentException.class,
                 () -> ResolutionCandidateController.validateCanonicalContract(mapper.readTree("{\"trigger\":{\"type\":\"PLAYER_ACTION\",\"condition\":\"search\"},\"check\":{\"rollMethod\":\"SYSTEM\",\"method\":\"Perception\"},\"stateEffect\":{\"stateKey\":\"trap\",\"successEffect\":\"safe\",\"failureEffect\":\"hurt\"},\"reveal\":{\"condition\":\"ON_SUCCESS\",\"level\":\"CLUE\",\"hiddenFact\":\"trap\"},\"priorKnowledge\":{\"alreadyPublic\":false}}")));
+    }
+
+    @Test
+    void llmContractValidatorRejectsRevealConditionOutsideDomainEnum() throws Exception {
+        var mapper = new ObjectMapper();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> ResolutionCandidateController.validateCanonicalContract(mapper.readTree(
+                        "{\"trigger\":{\"type\":\"WORLD_EVENT\",\"condition\":\"target starts its turn\"},"
+                                + "\"check\":{\"rollMethod\":\"SYSTEM\",\"method\":\"damage roll\"},"
+                                + "\"stateEffect\":{\"stateKey\":\"fire\",\"successEffect\":\"damage\",\"failureEffect\":\"damage\"},"
+                                + "\"reveal\":{\"condition\":\"ON_TRIGGER\",\"level\":\"CLUE\",\"hiddenFact\":\"ongoing fire damage\"},"
+                                + "\"priorKnowledge\":{\"alreadyPublic\":false,\"knownFacts\":[]}}")));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> ResolutionCandidateController.validateCanonicalContract(mapper.readTree(
+                        "{\"trigger\":{\"type\":\"WORLD_EVENT\",\"condition\":\"target starts its turn\"},"
+                                + "\"check\":{\"rollMethod\":\"SYSTEM\",\"method\":\"damage roll\"},"
+                                + "\"stateEffect\":{\"stateKey\":\"fire\",\"successEffect\":\"damage\",\"failureEffect\":\"damage\"},"
+                                + "\"reveal\":{\"condition\":\"ALWAYS\",\"level\":\"NONE\",\"hiddenFact\":\"\"},"
+                                + "\"priorKnowledge\":{\"alreadyPublic\":false,\"knownFacts\":[]}}")));
     }
 
     @Test
@@ -79,6 +101,20 @@ class ResolutionCandidateControllerTest {
                         "The creature must make a DC 12 Dexterity sa")));
 
         assertTrue(candidates.isEmpty());
+    }
+
+    @Test
+    void acceptsSourceQuoteWhenPdfLineWrapSplitsKoreanWord() {
+        var documentId = java.util.UUID.randomUUID();
+        String locator = "page=123:chunk=centipede";
+        var candidate = new ResolutionCandidateController.Candidate(
+                "SAVING_THROW", "Constitution", null, "1d20", "GM_REFERENCE",
+                "목표는 DC 11의 건강 내성에 실패할 시 10(3d6)점의 독성 피해를 받습니다.",
+                List.of(new ResolutionCandidateController.SourceRef(documentId, 2, locator)), null, "source text");
+        var excerpt = new ResolutionCandidateController.Excerpt(documentId, 2, locator,
+                "목표는 DC 11의 건강 내성에 실패할 시 10(3d6)점의 독\n성 피해를 받습니다.");
+
+        assertNull(ResolutionCandidateController.sourceEvidenceFailure(candidate, List.of(excerpt)));
     }
 
     @Test

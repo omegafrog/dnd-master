@@ -16,6 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.combat.AdventureCombatApplicationService;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
+import com.dndmaster.adventure.application.combat.CombatMapSpatialConflictException;
+import com.dndmaster.adventure.application.combat.CombatMapSpatialTurnCommand;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatOperation;
 import com.dndmaster.adventure.application.combat.CombatOperationRepository;
@@ -45,6 +47,26 @@ class CrossContextHttpIntegrationTest {
 
     @AfterEach
     void stopServer() { if (server != null) server.stop(); }
+
+    @Test
+    void preserves_spatial_map_conflict_code_for_safe_retry_and_diagnostics() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/spatial/combat-turn-start"))
+                .willReturn(aResponse().withStatus(409).withHeader("Content-Type", "application/json")
+                        .withBody("{\"code\":\"SPATIAL_MAP_VERSION_CONFLICT\"}")));
+        var gateway = new CrossContextHttpCombatGateway(
+                HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2));
+        var commandId = UUID.randomUUID();
+        var command = new CombatMapSpatialTurnCommand(UUID.randomUUID(), UUID.randomUUID(), 12, commandId);
+
+        var conflict = assertThrows(CombatMapSpatialConflictException.class, () -> gateway.combatTurnStart(command));
+
+        assertEquals("SPATIAL_MAP_VERSION_CONFLICT", conflict.code());
+        server.verify(postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/spatial/combat-turn-start"))
+                .withHeader("Idempotency-Key", equalTo(commandId.toString()))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.containing("\"expectedVersion\":12")));
+    }
 
     @Test
     void retries_only_failed_bc_step_and_never_duplicates_completed_adjudication() {
@@ -148,6 +170,26 @@ class CrossContextHttpIntegrationTest {
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/internal/v1/gm/intent-classifications"))
                 .withHeader("X-Internal-Token", equalTo("internal-token"))
                 .withRequestBody(equalToJson("{\"question\":\"What happened in the tavern?\"}")));
+    }
+
+    @Test
+    void reads_dexterity_modifier_from_character_sheet_before_initiative_is_rolled() {
+        server = new WireMockServer(0);
+        server.start();
+        UUID characterId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        server.stubFor(get(urlEqualTo("/internal/v1/character-sheets/" + characterId + "/runtime"))
+                .willReturn(aResponse().withStatus(200).withBody("""
+                        {"startingAbilities":"strength=10,dexterity=15,constitution=12"}
+                        """)));
+        var gateway = new CrossContextHttpCombatGateway(
+                HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2));
+
+        assertEquals(2, gateway.initiativeModifier(characterId, ownerId, sessionId));
+        server.verify(getRequestedFor(urlEqualTo("/internal/v1/character-sheets/" + characterId + "/runtime"))
+                .withHeader("X-Owner-Player-ID", equalTo(ownerId.toString()))
+                .withHeader("X-Session-ID", equalTo(sessionId.toString())));
     }
 
     private static final class MemoryRepository implements CombatOperationRepository {

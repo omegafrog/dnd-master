@@ -243,6 +243,55 @@ body:has(.app-page-session-runtime) > #root > .app-shell > .app-header {
   color: var(--rework-muted) !important;
 }
 
+.adventure-credits {
+  display: grid;
+  justify-items: center;
+  gap: 2.5rem;
+  min-height: 100dvh;
+  padding: 1.5rem 1rem 4rem;
+  background: radial-gradient(ellipse at 50% 15%, #fffdf6 0, var(--rework-paper) 54%, #e8e1d3 100%);
+  color: var(--rework-ink);
+  text-align: center;
+}
+
+.adventure-credits-back {
+  justify-self: start;
+  color: var(--rework-muted);
+  font-size: .78rem;
+  text-decoration: none;
+}
+
+.adventure-credits-back:hover { color: var(--rework-oxblood); }
+
+.adventure-credits-heading { display: grid; justify-items: center; align-content: center; min-height: 28vh; }
+.adventure-credits-heading .eyebrow,
+.adventure-credits .eyebrow { margin: 0; color: var(--rework-oxblood); font-size: .68rem; letter-spacing: .2em; text-transform: uppercase; }
+.adventure-credits-heading h1 { margin: .8rem 0 1.4rem; font: 500 clamp(2rem, 6vw, 4rem)/1.12 Georgia, 'Times New Roman', serif; }
+.adventure-credits-rule { width: 5rem; height: 1px; background: var(--rework-oxblood); }
+
+.adventure-credits-story { width: min(100%, 46rem); text-align: left; }
+.adventure-credits-story h2,
+.adventure-credits-cast h2 { margin: .4rem 0 1.4rem; font: 500 1.6rem/1.2 Georgia, 'Times New Roman', serif; text-align: center; }
+.adventure-credits-opening { margin: 0 auto 2rem; max-width: 38rem; color: var(--rework-muted); font: italic 1rem/1.8 Georgia, 'Times New Roman', serif; text-align: center; }
+.adventure-credits-story ol { display: grid; gap: 1.5rem; margin: 0; padding: 0; list-style: none; }
+.adventure-credits-story li { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: .8rem; padding-bottom: 1.35rem; border-bottom: 1px solid var(--rework-rule); }
+.adventure-credits-number { color: var(--rework-oxblood); font: 1.1rem Georgia, 'Times New Roman', serif; }
+.adventure-credits-story li p { margin: 0; line-height: 1.8; white-space: pre-wrap; }
+.adventure-credits-story li .adventure-credits-choice { display: grid; gap: .18rem; margin-top: .6rem; color: var(--rework-muted); font-size: .78rem; }
+.adventure-credits-choice span { color: var(--rework-oxblood); font-size: .64rem; letter-spacing: .08em; }
+
+.adventure-credits-cast { display: grid; justify-items: center; width: min(100%, 34rem); padding-top: 1rem; }
+.adventure-credits-cast ul { display: flex; flex-wrap: wrap; justify-content: center; gap: .5rem 1.2rem; margin: 0 0 1.2rem; padding: 0; list-style: none; font: 1.05rem Georgia, 'Times New Roman', serif; }
+.adventure-credits-role { display: grid; gap: .25rem; margin: .5rem 0; color: var(--rework-muted); font-size: .74rem; }
+.adventure-credits-role strong { color: var(--rework-ink); font: 1rem Georgia, 'Times New Roman', serif; }
+.adventure-credits-end { margin: 2.5rem 0 0; color: var(--rework-oxblood); font: 1.25rem Georgia, 'Times New Roman', serif; letter-spacing: .2em; }
+
+@media (max-width: 600px) {
+  .adventure-credits { gap: 1.8rem; padding-inline: 1.1rem; }
+  .adventure-credits-heading { min-height: 22vh; }
+  .adventure-credits-story li { grid-template-columns: 1.8rem minmax(0, 1fr); gap: .55rem; }
+}
+
 .session-runtime-columns {
   display: grid !important;
   grid-template-columns: 15rem minmax(0, 1fr) 17.5rem !important;

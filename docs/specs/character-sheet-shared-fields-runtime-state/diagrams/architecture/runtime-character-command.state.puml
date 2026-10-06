@@ -1,0 +1,43 @@
+@startuml
+title 모험 중 캐릭터 상태 변경 명령의 설계 상태
+skinparam shadowing false
+
+[*] --> ActionReceived : 게임 안 행동 입력
+ActionReceived --> DirectEditRejected : [직접 시트 수정 요청] / 상태 변경 없이 거부
+ActionReceived --> ProposalReady : [게임 행동 요청]
+ProposalReady --> RulesValidation : AI Game Master가 결과 후보 제안
+RulesValidation --> Rejected : [선택 규칙 위반 또는 근거 없음] / 변경 없음, 거부 사유 반환
+RulesValidation --> CommandPersisted : [선택 규칙으로 승인] / sessionId·turnId·commandId·expectedVersion 저장
+CommandPersisted --> ApplyingEffects : 명령별 실행 / 동일 식별자 재실행은 멱등 처리
+ApplyingEffects --> ApplyingEffects : [현재 경계 저장 성공 && 다음 효과 있음] / 저장 결과 기록, 다음 효과 실행
+ApplyingEffects --> AdventureCommit : [필수 효과 모두 저장 성공]
+ApplyingEffects --> RetryWait : [일시 오류] / 실패 명령과 실행 위치 보존
+RetryWait --> ApplyingEffects : 재시도 / 이미 성공한 명령은 건너뜀
+ApplyingEffects --> RepairRequired : [영구 오류]
+AdventureCommit --> Narrated : 로컬 Adventure 상태 저장 성공 / 적용 결과로 서술
+AdventureCommit --> RetryWait : [일시 오류] / 외부 경계의 확인된 저장 유지
+AdventureCommit --> RepairRequired : [영구 오류 또는 복구 불가]
+RepairRequired --> ApplyingEffects : 복구 조치 후 재개 / 확인된 외부 저장 유지
+
+note right of ActionReceived
+  요구사항 연결: AC-07..10
+  Player의 직접 시트 수정은 시작 뒤 거부한다. AI Game Master는 변경을 제안할 뿐이다.
+  ADR-020: 이미 확인·저장된 다른 경계의 상태를 오류 때 되돌리지 않는다.
+end note
+
+note right of DirectEditRejected
+  시작 후 임의 직접 수정은 시트 값을 바꾸지 않는다.
+  승인된 게임 결과 명령만 Character Management 경로로 전달한다.
+end note
+
+note right of ApplyingEffects
+  Character Management가 expectedVersion, 소유권, 규칙과 파생 값을 검증한다.
+  정의된 효과만 반영한다. 눈 부상 규칙이 없으면 서술과 공격 HP 피해만 처리한다.
+end note
+
+note bottom of RetryWait
+  sessionId·turnId·commandId와 경계별 멱등성을 사용해 재시도한다.
+  이미 성공한 외부 저장은 보상 취소하지 않는다.
+end note
+
+@enduml

@@ -15,6 +15,7 @@ import java.util.UUID;
 
 /** Adapter for the AI ScenarioModel lookup endpoint; it sends no RAG or mutation capability. */
 public final class HttpScenarioModelLookupAgentPort implements ScenarioModelLookupAgentPort {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(HttpScenarioModelLookupAgentPort.class);
     private final HttpClient client;
     private final URI baseUri;
     private final Duration timeout;
@@ -44,8 +45,16 @@ public final class HttpScenarioModelLookupAgentPort implements ScenarioModelLook
                     .header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() / 100 != 2) throw new IllegalStateException("scenario lookup returned " + response.statusCode());
+            if (response.statusCode() / 100 != 2) {
+                devLog("dev_agent_http operation=scenario_lookup outcome=http_error playerId={} queryFingerprint={} status={} response={}",
+                        soloPlayerId, com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.query()),
+                        response.statusCode(), com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.safeBody(response.body()));
+                throw new IllegalStateException("scenario lookup returned " + response.statusCode());
+            }
             LookupResponse result = mapper.readValue(response.body(), LookupResponse.class);
+            devLog("dev_agent_http operation=scenario_lookup outcome=success playerId={} queryFingerprint={} resultStatus={} supportingElementIds={}",
+                    soloPlayerId, com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.query()),
+                    result.status(), result.supportingElementIds());
             if ("NOT_FOUND".equals(result.status())) return ScenarioLookupResult.notFound();
             if (!"FOUND".equals(result.status())) throw new IllegalStateException("invalid scenario lookup status");
             return ScenarioLookupResult.found(result.answer(), result.supportingElementIds());
@@ -55,8 +64,15 @@ public final class HttpScenarioModelLookupAgentPort implements ScenarioModelLook
         } catch (ScenarioLookupFailureException exception) {
             throw exception;
         } catch (Exception exception) {
+            devLog("dev_agent_http operation=scenario_lookup outcome=exception playerId={} queryFingerprint={} failureClass={} failure={}",
+                    soloPlayerId, com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.query()),
+                    exception.getClass().getName(), exception.getMessage());
             throw new ScenarioLookupFailureException("scenario lookup failed", exception);
         }
+    }
+
+    private static void devLog(String pattern, Object... args) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.warn(pattern, args);
     }
 
     record LookupRequest(UUID soloPlayerId, String query, Object lockedScenarioModel) { }

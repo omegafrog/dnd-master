@@ -10,7 +10,7 @@ public final class SituationProposalGroundingPolicy {
     private SituationProposalGroundingPolicy() {}
 
     public static RuntimeResolutionProposal ground(RuntimeResolutionProposal proposal, ScenarioModel scenarioModel,
-            List<RuntimeEvidence> storybookEvidence, UUID turnId) {
+            List<RuntimeEvidence> rulesEvidence, UUID turnId) {
         if (proposal.situationProposal() == null) return proposal;
         SituationProposal situation = proposal.situationProposal();
         switch (situation.basis()) {
@@ -20,7 +20,7 @@ public final class SituationProposalGroundingPolicy {
                 }
             }
             case RAG -> {
-                boolean found = storybookEvidence.stream().anyMatch(evidence -> situation.reference().equals(evidence.citationKey())
+                boolean found = rulesEvidence.stream().anyMatch(evidence -> situation.reference().equals(evidence.citationKey())
                         || situation.reference().equals(evidence.locator()));
                 if (!found) throw new IllegalArgumentException("SITUATION_RAG_REFERENCE_REQUIRED");
             }

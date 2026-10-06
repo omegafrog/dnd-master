@@ -201,6 +201,43 @@ public record RuntimeTurn(
         return withLifecycle(RuntimeTurnLifecycle.RESOLVING);
     }
 
+    public RuntimeTurn pendingPlayerRoll(PendingRuntimeState pending, CompletionProposal completion) {
+        requireLifecycle(RuntimeTurnLifecycle.REQUESTED);
+        if (!plan.checkProposal().required()
+                || plan.checkProposal().rollMethod() != RuntimeCheckProposal.RollMethod.PLAYER) {
+            throw new IllegalStateException("turn does not have a player check proposal");
+        }
+        RuntimeTurnLifecycle planning = lifecycle.transitionTo(RuntimeTurnLifecycle.PLANNING);
+        planning.transitionTo(RuntimeTurnLifecycle.PENDING_ROLL);
+        return new RuntimeTurn(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action,
+                evidencePack, plan.forPendingCheck(), activeSourceContext, context, conversation, version, citations,
+                warnings, false, playerOrigin, origin, advancesState, turnCharacterSheetId, turnIndex, expectedVersion,
+                gmOnly, agentOrigin, RuntimeTurnLifecycle.PENDING_ROLL,
+                ResolvedTurnPlan.pending(TurnPlan.from(plan.forPendingCheck()), List.of()), null,
+                Objects.requireNonNull(pending, "pending state must not be null"),
+                Objects.requireNonNull(completion, "completion proposal must not be null"), "굴림 결과를 제출해 주세요.");
+    }
+
+    public RuntimeTurn resolvePlayerRoll(int d20, int total, boolean success) {
+        requireLifecycle(RuntimeTurnLifecycle.PENDING_ROLL);
+        if (plan.checkProposal().rollMethod() != RuntimeCheckProposal.RollMethod.PLAYER) {
+            throw new IllegalStateException("saved check is not waiting for a player roll");
+        }
+        RuntimeTurnLifecycle resolving = lifecycle.transitionTo(RuntimeTurnLifecycle.RESOLVING);
+        RuntimeTurnLifecycle resolvedLifecycle = resolving.transitionTo(RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED);
+        RuntimePlan resolved = plan.withCheckOutcome(success);
+        List<String> outcomes = List.of("PLAYER_ROLL=" + d20, "CHECK_TOTAL=" + total,
+                success ? "CHECK_SUCCEEDED" : "CHECK_FAILED");
+        ResolvedTurnPlan artifact = new ResolvedTurnPlan(TurnPlan.from(resolved), outcomes,
+                RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED);
+        RuntimeTurnResolution resolution = new RuntimeTurnResolution(
+                success ? "check succeeded" : "check failed", d20, outcomes);
+        return new RuntimeTurn(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action,
+                evidencePack, resolved, activeSourceContext, context, conversation, version, citations, warnings, false,
+                playerOrigin, origin, advancesState, turnCharacterSheetId, turnIndex, expectedVersion, gmOnly,
+                agentOrigin, resolvedLifecycle, artifact, resolution, pendingState, completionProposal, resolved.narration());
+    }
+
     public RuntimeTurn fixResolution(RuntimeTurnResolution resolution, PendingRuntimeState pending,
             CompletionProposal completion) {
         requireLifecycle(RuntimeTurnLifecycle.RESOLVING);
@@ -231,11 +268,14 @@ public record RuntimeTurn(
     public RuntimeTurn readyToCommit(String safeNarration) {
         requireLifecycle(RuntimeTurnLifecycle.SAFETY_CHECKING);
         if (safeNarration == null || safeNarration.isBlank()) throw new IllegalArgumentException("safe narration must not be blank");
+        CompletionProposal committedCompletion = completionProposal.complete()
+                ? new CompletionProposal(true, safeNarration, completionProposal.resolvedObjectiveIds(),
+                        completionProposal.satisfiedResolutionCriteriaIds()) : completionProposal;
         return new RuntimeTurn(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action,
                 evidencePack, withNarration(plan, safeNarration), activeSourceContext, context, conversation, version,
                 citations, warnings, false, playerOrigin, origin, advancesState, turnCharacterSheetId, turnIndex,
                 expectedVersion, gmOnly, agentOrigin, RuntimeTurnLifecycle.READY_TO_COMMIT, resolvedPlan,
-                fixedResolution, pendingState, completionProposal, safeNarration);
+                fixedResolution, pendingState, committedCompletion, safeNarration);
     }
 
     public RuntimeTurn beginCommit() {
@@ -280,6 +320,7 @@ public record RuntimeTurn(
         return new RuntimePlan(plan.scene(), plan.npcState(), plan.judgment(), narration, plan.proposedActiveSourceContext(),
                 plan.citedEvidence(), plan.warnings(), plan.provider(), plan.model(), plan.reasoning(), plan.stateTransitionRequested(),
                 plan.requestedSelectionId(), plan.requestedSelection(), plan.effectiveSelection(), plan.attemptCount(),
-                plan.citationBindings(), plan.stateDelta(), plan.combatEnemies(), plan.combatStartRequested(), plan.mapEntryRequested());
+                plan.citationBindings(), plan.stateDelta(), plan.combatEnemies(), plan.combatStartRequested(), plan.mapEntryRequested(),
+                plan.checkProposal());
     }
 }

@@ -27,7 +27,7 @@ public enum RuntimeTurnLifecycle {
         if (next == null || next == this) return false;
         return switch (this) {
             case REQUESTED -> next == PLANNING || next == RESOLVING;
-            case PLANNING -> next == RESOLVING;
+            case PLANNING -> next == RESOLVING || next == PENDING_ROLL;
             case PENDING_ROLL -> next == RESOLVING;
             case RESOLVING -> next == RESOLVED_UNCOMMITTED || next == RESOLUTION_FIXED || next == PENDING_ROLL;
             case RESOLUTION_FIXED -> next == NARRATING || next == DISCARDED;

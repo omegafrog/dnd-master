@@ -55,9 +55,9 @@ public final class ResolutionCandidateController {
         String prompt = "Extract only directly supported tabletop resolution candidates from these source excerpts. "
                 + (request.attempt() > 0 ? "This is retry attempt " + request.attempt() + ". Failed candidate: " + request.failedCandidate()
                         + ". Diagnostics: " + request.diagnostics() + ". Correct the diagnosed failure and return a replacement candidate. " : "")
-                + "Return exactly a JSON array, never an object wrapper. Use these exact enum values and field types. "
+                + "Return exactly a JSON array, never an object wrapper. Use only these exact enum values and field types; do not create aliases or other values. "
                 + "Template: [{\"kind\":\"SAVING_THROW\",\"abilityOrSkill\":\"Dexterity\",\"dc\":{\"type\":\"FIXED\",\"value\":12},\"diceExpression\":\"1d10\",\"visibility\":\"GM_REFERENCE\",\"sourceQuote\":\"exact quote\",\"sourceRefs\":[{\"documentId\":\"uuid\",\"extractionVersion\":2,\"locator\":\"offset 0-10\"}],\"detail\":{\"trigger\":{\"type\":\"WORLD_EVENT\",\"condition\":\"entering the room\"},\"check\":{\"rollMethod\":\"SYSTEM\",\"method\":\"Dexterity saving throw\"},\"stateEffect\":{\"stateKey\":\"trap\",\"successEffect\":\"avoided\",\"failureEffect\":\"damaged\"},\"reveal\":{\"condition\":\"ON_SUCCESS\",\"level\":\"CLUE\",\"hiddenFact\":\"a concealed trap\"},\"priorKnowledge\":{\"alreadyPublic\":false,\"knownFacts\":[]}},\"provenance\":\"source text\"}]. "
-                + "kind must be one of SKILL_ABILITY_CHECK,SAVING_THROW,PASSIVE_THRESHOLD,DICE_ROLL,ATTACK_ROLL,DAMAGE_ROLL,HEALING_ROLL,OPPOSED_CHECK,INITIATIVE_ROLL,RECHARGE_ROLL,RANDOM_TABLE,SPECIAL_ROLL. "
+                + "Enum values by field: kind is one of SKILL_ABILITY_CHECK,SAVING_THROW,PASSIVE_THRESHOLD,DICE_ROLL,ATTACK_ROLL,DAMAGE_ROLL,HEALING_ROLL,OPPOSED_CHECK,INITIATIVE_ROLL,RECHARGE_ROLL,RANDOM_TABLE,SPECIAL_ROLL; visibility is GM_REFERENCE or PLAYER_SAFE; dc.type is FIXED or CASTER_SPELL_SAVE_DC; trigger.type is WORLD_EVENT or PLAYER_ACTION (COMBAT_EVENT is a legacy alias for WORLD_EVENT); check.rollMethod is SYSTEM or PLAYER; reveal.condition is ON_SUCCESS, ON_FAILURE, or ALWAYS; reveal.level domain values are NONE, CLUE, FACT, and FULL. These lists are exhaustive. Candidate constraints: reveal.hiddenFact must be a non-empty fact, so reveal.level must be CLUE, FACT, or FULL; never use NONE for a candidate. ON_TRIGGER is not a valid reveal.condition: use ALWAYS when a fact is revealed whenever the trigger occurs, or use ON_SUCCESS/ON_FAILURE only when reveal depends on the check result. PLAYER_ACTION must use check.rollMethod PLAYER; WORLD_EVENT/COMBAT_EVENT must use SYSTEM. Every required string in detail must be non-empty. "
                 + "Field rules: for ATTACK_ROLL, abilityOrSkill is optional because source text may provide only an attack bonus; provide a valid d20 attack expression such as 1d20+5. For RECHARGE_ROLL, encode 'Recharge 5-6' as diceExpression exactly '5-6'; use only an inclusive numeric N-M range, never 'Recharge 5-6', '5 to 6', or null when the range is present. "
                 + "visibility must be GM_REFERENCE or PLAYER_SAFE. Keep sourceRefs only when the excerpt supplies an exact object reference. "
                 + "For SAVING_THROW dc, use {\"type\":\"FIXED\",\"value\":N} only for explicit numeric DCs; for the caster's or user's spell save DC use {\"type\":\"CASTER_SPELL_SAVE_DC\"}. Never invent a number. "
@@ -84,11 +84,26 @@ public final class ResolutionCandidateController {
             candidates = List.of();
         }
         if (!candidates.isEmpty()) {
-            List<Candidate> verified = candidates.stream().filter(candidate -> canonicalContractValid(candidate.detail()))
-                    .filter(candidate -> verifiedAgainstExcerpts(candidate, request.excerpts()))
-                    .map(candidate -> enrichSymbolicDc(candidate, request.excerpts())).toList();
+            List<Candidate> verified = new ArrayList<>();
+            int rejectedContract = 0;
+            int rejectedSource = 0;
+            for (int index = 0; index < candidates.size(); index++) {
+                Candidate candidate = candidates.get(index);
+                String contractFailure = canonicalContractFailure(candidate.detail());
+                String sourceFailure = contractFailure == null
+                        ? sourceEvidenceFailure(candidate, request.excerpts()) : null;
+                if (contractFailure != null) rejectedContract++;
+                else if (sourceFailure != null) rejectedSource++;
+                else verified.add(enrichSymbolicDc(candidate, request.excerpts()));
+                log.info("resolution_candidate_diagnostic operationId={} index={} accepted={} rejection={} candidate={}",
+                        request.operationId(), index, contractFailure == null && sourceFailure == null,
+                        contractFailure != null ? "canonical_contract:" + contractFailure
+                                : sourceFailure != null ? "source_evidence:" + sourceFailure : "none",
+                        candidateJson(candidate));
+            }
             List<Candidate> deduplicated = deduplicate(verified);
-            log.info("resolution_candidate_ai_result operationId={} aiCandidates={} deduplicated={} excerpts={}", request.operationId(), candidates.size(), deduplicated.size(), request.excerpts().size());
+            log.info("resolution_candidate_ai_result operationId={} aiCandidates={} rejectedContract={} rejectedSource={} verified={} deduplicated={} excerpts={}",
+                    request.operationId(), candidates.size(), rejectedContract, rejectedSource, verified.size(), deduplicated.size(), request.excerpts().size());
             return new Response(deduplicated);
         }
         List<Candidate> fallback = deduplicate(fallbackCandidates(request.excerpts()).stream()
@@ -100,12 +115,22 @@ public final class ResolutionCandidateController {
     private static boolean verifiedAgainstExcerpts(Candidate candidate, List<Excerpt> excerpts) {
         if (candidate == null || candidate.sourceQuote() == null || candidate.sourceQuote().isBlank()
                 || candidate.sourceRefs() == null || candidate.sourceRefs().isEmpty()) return false;
-        String quote = normalize(candidate.sourceQuote());
         return candidate.sourceRefs().stream().anyMatch(ref -> excerpts.stream().anyMatch(excerpt ->
                 ref != null && excerpt != null && ref.documentId().equals(excerpt.documentId())
                         && ref.extractionVersion() == excerpt.extractionVersion()
                         && ref.locator().equals(excerpt.locator())
-                        && normalize(excerpt.text()).contains(quote)));
+                        && containsNormalizedQuote(excerpt.text(), candidate.sourceQuote())));
+    }
+
+    private static boolean containsNormalizedQuote(String excerpt, String quote) {
+        if (normalize(excerpt).contains(normalize(quote))) return true;
+        return normalizePdfLineWrappedWords(excerpt).contains(normalizePdfLineWrappedWords(quote));
+    }
+
+    private static String normalizePdfLineWrappedWords(String value) {
+        if (value == null) return "";
+        String joinedLines = value.replaceAll("(?U)(?<=[\\p{L}\\p{N}])\\R(?=[\\p{L}\\p{N}])", "");
+        return normalize(joinedLines);
     }
 
     private static String normalize(String value) {
@@ -151,6 +176,43 @@ public final class ResolutionCandidateController {
         }
     }
 
+    private static String canonicalContractFailure(JsonNode detail) {
+        try {
+            validateCanonicalContract(detail);
+            return null;
+        } catch (IllegalArgumentException invalid) {
+            return invalid.getMessage();
+        }
+    }
+
+    private String candidateJson(Candidate candidate) {
+        try {
+            return objectMapper.writeValueAsString(candidate);
+        } catch (Exception serializationFailure) {
+            return String.valueOf(candidate);
+        }
+    }
+
+    static String sourceEvidenceFailure(Candidate candidate, List<Excerpt> excerpts) {
+        if (candidate == null || candidate.sourceQuote() == null || candidate.sourceQuote().isBlank()) {
+            return "source_quote_missing";
+        }
+        if (candidate.sourceRefs() == null || candidate.sourceRefs().isEmpty()) return "source_references_missing";
+        if (verifiedAgainstExcerpts(candidate, excerpts)) return null;
+        boolean matchedReference = false;
+        for (SourceRef ref : candidate.sourceRefs()) {
+            if (ref == null || excerpts == null) continue;
+            for (Excerpt excerpt : excerpts) {
+                if (excerpt != null && ref.documentId().equals(excerpt.documentId())
+                        && ref.extractionVersion() == excerpt.extractionVersion()
+                        && ref.locator().equals(excerpt.locator())) {
+                    matchedReference = true;
+                }
+            }
+        }
+        return matchedReference ? "quoted_text_not_found_in_referenced_excerpt" : "source_reference_not_found";
+    }
+
     static void validateCanonicalContract(JsonNode detail) {
         if (detail == null || !detail.isObject()) throw new IllegalArgumentException("canonical resolution contract is missing");
         JsonNode trigger = detail.get("trigger");
@@ -167,6 +229,18 @@ public final class ResolutionCandidateController {
         }
         String triggerType = trigger.get("type").asText();
         String rollMethod = check.get("rollMethod").asText();
+        if (!List.of("WORLD_EVENT", "COMBAT_EVENT", "PLAYER_ACTION").contains(triggerType)) {
+            throw new IllegalArgumentException("unsupported canonical trigger type");
+        }
+        if (!List.of("SYSTEM", "PLAYER").contains(rollMethod)) {
+            throw new IllegalArgumentException("unsupported canonical roll method");
+        }
+        if (!List.of("ON_SUCCESS", "ON_FAILURE", "ALWAYS").contains(reveal.get("condition").asText())) {
+            throw new IllegalArgumentException("unsupported canonical reveal condition");
+        }
+        if (!List.of("NONE", "CLUE", "FACT", "FULL").contains(reveal.get("level").asText())) {
+            throw new IllegalArgumentException("unsupported canonical reveal level");
+        }
         if (("PLAYER_ACTION".equals(triggerType) && "SYSTEM".equals(rollMethod))
                 || ("WORLD_EVENT".equals(triggerType) && "PLAYER".equals(rollMethod))) {
             throw new IllegalArgumentException("canonical resolution contract is contradictory");

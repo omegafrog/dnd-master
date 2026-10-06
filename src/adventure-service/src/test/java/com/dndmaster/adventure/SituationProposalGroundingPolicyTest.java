@@ -40,6 +40,15 @@ class SituationProposalGroundingPolicyTest {
     }
 
     @Test
+    void accepts_a_matching_rules_reference_regardless_of_which_rules_collection_it_came_from() {
+        RuntimeEvidence evidence = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
+                new KnowledgeDocumentId(UUID.randomUUID()), 1, "page-5", "The creature has a reaction.", "rules:reaction");
+        var grounded = SituationProposalGroundingPolicy.ground(proposal(SituationProposal.Basis.RAG, "rules:reaction"),
+                ScenarioModel.empty(), List.of(evidence), UUID.randomUUID());
+        assertEquals("rats are nearby", grounded.situationUpdate().threat());
+    }
+
+    @Test
     void creates_a_persisted_fallback_fact_only_when_the_gm_marks_it_required() {
         var grounded = SituationProposalGroundingPolicy.ground(proposal(SituationProposal.Basis.FALLBACK, ""),
                 ScenarioModel.empty(), List.of(), UUID.randomUUID());

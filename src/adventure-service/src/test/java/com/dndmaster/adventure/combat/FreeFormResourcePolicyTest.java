@@ -2,6 +2,7 @@ package com.dndmaster.adventure.combat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.combat.AiCombatDecisionPort;
 import com.dndmaster.adventure.application.combat.AiCombatDecisionPortAdapter;
@@ -26,6 +27,8 @@ import com.dndmaster.adventure.domain.combat.CombatEncounter;
 import com.dndmaster.adventure.domain.combat.CombatEvent;
 import com.dndmaster.adventure.domain.combat.CombatParticipant;
 import com.dndmaster.adventure.domain.combat.CombatStartPolicy;
+import com.dndmaster.adventure.domain.combat.CombatSpell;
+import com.dndmaster.adventure.domain.combat.CombatSpellcastingProfile;
 import com.dndmaster.adventure.domain.combat.FreeFormActionPlan;
 import com.dndmaster.adventure.domain.combat.TurnResourceCost;
 import java.util.ArrayList;
@@ -37,6 +40,76 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class FreeFormResourcePolicyTest {
+    @Test
+    void free_form_spell_request_is_redirected_to_structured_spell_selection() {
+        UUID adventureId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        Fixture fixture = fixture(adventureId, actorId, UUID.randomUUID());
+        long startingVersion = fixture.encounters.value.version();
+
+        com.dndmaster.adventure.application.combat.CombatCommandRejectedException rejection = assertThrows(
+                com.dndmaster.adventure.application.combat.CombatCommandRejectedException.class,
+                () -> fixture.service.submitFreeForm(command(adventureId, actorId,
+                        "마루는 주문 슬롯이 없으므로 마법 화살 시전 요청을 거부해야 한다", startingVersion)));
+
+        assertEquals("ACTION_NOT_ALLOWED", rejection.code());
+        assertTrue(rejection.violations().getFirst().contains("주문 선택"));
+        assertEquals(startingVersion, fixture.encounters.value.version());
+        assertEquals(true, fixture.encounters.value.currentParticipant().resources().actionAvailable());
+        assertEquals(0, fixture.operations.values.size());
+        assertEquals(0, fixture.events.values.size());
+        assertEquals(0, fixture.calls.characterMutations);
+    }
+
+    @Test
+    void magic_missile_with_a_slot_commits_damage_and_consumes_the_slot_once() {
+        UUID adventureId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID targetId = UUID.randomUUID();
+        Fixture fixture = fixture(adventureId, actorId, targetId);
+        fixture.calls.spellcasting = new CombatSpellcastingProfile(List.of(new CombatSpell("마법 화살", 1)), Map.of(1, 1));
+        CombatActionCommand command = spellCommand(adventureId, actorId, targetId, 1);
+
+        CombatActionResponse first = fixture.service.castSpell(command, "마법 화살");
+        CombatActionResponse retry = fixture.service.castSpell(command, "마법 화살");
+
+        assertEquals("COMMITTED", first.status());
+        assertEquals(first, retry);
+        assertEquals(0, fixture.encounters.value.participants().stream()
+                .filter(participant -> participant.participantId().equals(targetId)).findFirst().orElseThrow().currentHitPoints());
+        assertEquals(false, fixture.encounters.value.currentParticipant().resources().actionAvailable());
+        assertEquals(1, fixture.calls.spellSlotConsumptions);
+        assertEquals(1, fixture.calls.damageRolls);
+    }
+
+    @Test
+    void magic_missile_without_a_slot_is_rejected_without_spending_turn_or_creating_operation() {
+        UUID adventureId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID targetId = UUID.randomUUID();
+        Fixture fixture = fixture(adventureId, actorId, targetId);
+        fixture.calls.spellcasting = new CombatSpellcastingProfile(List.of(new CombatSpell("마법 화살", 1)), Map.of(1, 0));
+
+        com.dndmaster.adventure.application.combat.CombatCommandRejectedException rejection = assertThrows(
+                com.dndmaster.adventure.application.combat.CombatCommandRejectedException.class,
+                () -> fixture.service.castSpell(spellCommand(adventureId, actorId, targetId, 1), "마법 화살"));
+
+        assertEquals("ACTION_NOT_ALLOWED", rejection.code());
+        assertTrue(rejection.violations().getFirst().contains("주문 슬롯"));
+        assertEquals(true, fixture.encounters.value.currentParticipant().resources().actionAvailable());
+        assertEquals(0, fixture.operations.values.size());
+        assertEquals(0, fixture.events.values.size());
+        assertEquals(0, fixture.calls.spellSlotConsumptions);
+        assertEquals(0, fixture.calls.damageRolls);
+    }
+
+    private static CombatActionCommand spellCommand(UUID adventureId, UUID actorId, UUID targetId, long version) {
+        AdventureId id = new AdventureId(adventureId);
+        return new CombatActionCommand(UUID.randomUUID(), id, id.value(), new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(actorId), null, CombatActorRole.PLAYER, "CAST_SPELL", null,
+                UUID.randomUUID(), actorId, version, null, null, new CharacterSheetId(targetId), null, false);
+    }
+
     @Test
     void interpreted_cost_is_reserved_and_committed_once_through_the_standard_operation() {
         UUID adventureId = UUID.randomUUID();
@@ -122,9 +195,21 @@ class FreeFormResourcePolicyTest {
                 FreeFormActionPlan.narrativeOnly(context.declaration().actorId(), TurnResourceCost.actionOnly(),
                         "ok", "ok"));
         CombatActionApplicationService service = new CombatActionApplicationService(encounters, operations, events,
-                new com.dndmaster.adventure.domain.combat.CombatRulesEngine(), command -> { calls.dice++; return 18; },
+                new com.dndmaster.adventure.domain.combat.CombatRulesEngine(), new com.dndmaster.adventure.application.combat.DiceCombatPort() {
+                    @Override public int roll(CombatActionCommand ignored) { calls.dice++; return 18; }
+                    @Override public int rollDamage(int diceCount, int dieSides, int modifier) {
+                        calls.damageRolls++;
+                        return 9;
+                    }
+                },
                 new CharacterCombatPort() {
                     @Override public void requireUsableCharacter(CombatActionCommand ignored) { }
+                    @Override public CombatSpellcastingProfile spellcastingProfile(CombatActionCommand ignored) {
+                        return calls.spellcasting;
+                    }
+                    @Override public void consumeSpellSlot(CombatActionCommand ignored, int slotLevel) {
+                        calls.spellSlotConsumptions++;
+                    }
                     @Override public void applyOutcome(CombatActionCommand command, CombatOutcome outcome) {
                         calls.characterMutations++;
                         calls.command = command;
@@ -175,7 +260,10 @@ class FreeFormResourcePolicyTest {
     }
     private static final class Calls {
         private int dice;
+        private int damageRolls;
         private int characterMutations;
+        private int spellSlotConsumptions;
+        private CombatSpellcastingProfile spellcasting = CombatSpellcastingProfile.empty();
         private CombatActionCommand command;
         private com.dndmaster.adventure.application.combat.CombatCharacterMutation mutation;
     }

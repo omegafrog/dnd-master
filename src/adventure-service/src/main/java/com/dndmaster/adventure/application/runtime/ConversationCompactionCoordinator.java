@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.ConversationEntry;
+import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -29,6 +30,10 @@ public final class ConversationCompactionCoordinator {
     }
     public boolean runOnce(AdventureId adventureId, UUID ownerPlayerId, long actualAdventureVersion,
                            List<ConversationEntry> conversation, Instant now) {
+        return runOnce(adventureId, ownerPlayerId, actualAdventureVersion, conversation, List.of(), now);
+    }
+    public boolean runOnce(AdventureId adventureId, UUID ownerPlayerId, long actualAdventureVersion,
+                           List<ConversationEntry> conversation, List<RuntimeAddedFact> runtimeFacts, Instant now) {
         var leased = repository.lease(adventureId, now, now.plus(LEASE)); if (leased.isEmpty()) return false;
         ConversationCompactionJob job = leased.get();
         try {
@@ -36,22 +41,23 @@ public final class ConversationCompactionCoordinator {
             if (!completeRange(job, source)) { repository.manualReview(job, "SOURCE_RANGE_INCOMPLETE"); return false; }
             ConversationCompactionCandidate candidate;
             try {
-                candidate = candidatePort.create(ownerPlayerId, job, source);
+                candidate = candidatePort.create(ownerPlayerId, job, source, runtimeFacts);
             } catch (TransientConversationCompactionException first) {
-                try { candidate = candidatePort.create(ownerPlayerId, job, source); }
+                try { candidate = candidatePort.create(ownerPlayerId, job, source, runtimeFacts); }
                 catch (TransientConversationCompactionException second) {
                     second.addSuppressed(first);
                     throw second;
                 }
             }
-            if (!validCandidate(job, source, candidate)) {
-                repository.manualReview(job, "CANDIDATE_PROVENANCE_MISMATCH");
+            String candidateFailure = candidateFailure(job, source, candidate, runtimeFacts);
+            if (candidateFailure != null) {
+                repository.manualReview(job, candidateFailure);
                 return false;
             }
-            String renderedSummary = candidate.excerpts().stream().map(excerpt -> excerpt.speaker() + ": " + excerpt.text())
-                    .collect(java.util.stream.Collectors.joining(" "));
+            String renderedSummary = candidate.summary().trim();
             long summaryVersion = repository.summaries(adventureId).size() + 1;
-            boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), renderedSummary), actualAdventureVersion);
+            List<LongTermAdventureFact> facts = longTermFacts(adventureId, job, actualAdventureVersion, candidate, runtimeFacts);
+            boolean published = repository.publish(job, new ConversationSummary(adventureId, summaryVersion, job.sourceStart(), job.sourceEnd(), job.expectedAdventureVersion(), renderedSummary), facts, runtimeFacts, actualAdventureVersion);
             if (!published) repository.manualReview(job, "SOURCE_RANGE_OR_VERSION_REJECTED");
             return published;
         } catch (TransientConversationCompactionException error) {
@@ -67,28 +73,34 @@ public final class ConversationCompactionCoordinator {
                 && source.stream().map(ConversationEntry::sequence).distinct().count() == expectedCount
                 && source.getFirst().sequence() == job.sourceStart() && source.getLast().sequence() == job.sourceEnd();
     }
-    private static boolean validCandidate(ConversationCompactionJob job, List<ConversationEntry> source, ConversationCompactionCandidate candidate) {
-        return candidate.sourceStart() == job.sourceStart() && candidate.sourceEnd() == job.sourceEnd()
-                && candidate.expectedAdventureVersion() == job.expectedAdventureVersion() && validExcerpts(candidate.excerpts(), source);
+    static String candidateFailure(ConversationCompactionJob job, List<ConversationEntry> source,
+                                   ConversationCompactionCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
+        if (candidate.sourceStart() != job.sourceStart() || candidate.sourceEnd() != job.sourceEnd()
+                || candidate.expectedAdventureVersion() != job.expectedAdventureVersion()) return "CANDIDATE_SOURCE_OR_VERSION_MISMATCH";
+        if (candidate.summary() == null || candidate.summary().isBlank()) return "CANDIDATE_SUMMARY_EMPTY";
+        long summaryLength = candidate.summary().trim().length();
+        long sourceLength = source.stream().mapToLong(entry -> entry.content().length()).sum();
+        if (summaryLength * 5 > sourceLength * 4) return "CANDIDATE_SUMMARY_TOO_LONG";
+        if (candidate.longTermFacts().stream().anyMatch(fact -> !matchesConfirmedFact(fact, runtimeFacts)))
+            return "CANDIDATE_FACT_REFERENCE_MISMATCH";
+        return null;
     }
-    private static boolean validExcerpts(List<ConversationCompactionCandidate.SourceExcerpt> excerpts, List<ConversationEntry> source) {
-        if (excerpts == null || excerpts.isEmpty()) return false;
-        java.util.Map<Long, ConversationEntry> entries = source.stream().collect(java.util.stream.Collectors.toMap(ConversationEntry::sequence, entry -> entry));
-        long previousSequence = -1;
-        java.util.Set<Long> covered = new java.util.HashSet<>();
-        long renderedLength = 0;
-        long excerptCount = 0;
-        for (ConversationCompactionCandidate.SourceExcerpt excerpt : excerpts) {
-            if (excerpt == null || excerpt.sequence() <= previousSequence) return false;
-            ConversationEntry entry = entries.get(excerpt.sequence());
-            if (entry == null || !entry.speaker().equals(excerpt.speaker()) || excerpt.text() == null || excerpt.text().isBlank() || !entry.content().contains(excerpt.text())) return false;
-            previousSequence = excerpt.sequence();
-            covered.add(excerpt.sequence());
-            renderedLength += excerpt.speaker().length() + 2L + excerpt.text().length();
-            excerptCount++;
-        }
-        long inputLength = source.stream().mapToLong(entry -> entry.content().length()).sum();
-        return covered.equals(entries.keySet()) && (renderedLength + Math.max(0, excerptCount - 1)) * 5 <= inputLength * 4;
+    private static boolean matchesConfirmedFact(LongTermFactCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
+        return confirmedFact(candidate, runtimeFacts) != null;
+    }
+    private static List<LongTermAdventureFact> longTermFacts(AdventureId adventureId, ConversationCompactionJob job,
+            long actualAdventureVersion, ConversationCompactionCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
+        return candidate.longTermFacts().stream().map(proposed -> {
+            RuntimeAddedFact confirmed = confirmedFact(proposed, runtimeFacts);
+            // The candidate chooses only a declared kind; the persisted fact text and visibility come from confirmed play.
+            // Runtime-added facts are created only from confirmed player-visible turn results.
+            return new LongTermAdventureFact(adventureId, confirmed.factId(), confirmed.establishedTurnId(),
+                    actualAdventureVersion, proposed.kind(), confirmed.content(), true, 1);
+        }).toList();
+    }
+    private static RuntimeAddedFact confirmedFact(LongTermFactCandidate candidate, List<RuntimeAddedFact> runtimeFacts) {
+        return runtimeFacts.stream().filter(fact -> fact.factId().equals(candidate.factId())
+                && fact.establishedTurnId().equals(candidate.establishedTurnId())).findFirst().orElse(null);
     }
     /** A contiguous AI Game Master response is one completed turn; a player entry starts the next turn. */
     static List<Long> completedTurnEnds(List<ConversationEntry> conversation) {

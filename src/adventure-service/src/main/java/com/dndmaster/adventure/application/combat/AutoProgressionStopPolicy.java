@@ -16,7 +16,13 @@ public final class AutoProgressionStopPolicy {
         if (encounter.status() == CombatEncounter.Status.REACTION_PENDING) return Reason.REACTION_PENDING;
         if (encounter.status() != CombatEncounter.Status.ACTIVE) return Reason.NOT_AI_TURN;
         if (encounter.currentParticipant().controller() == CombatParticipant.Controller.PLAYER) return Reason.HUMAN_TURN;
-        if (completedSteps >= maxSteps) return Reason.MAX_STEPS;
+        if (completedSteps >= effectiveMaxSteps(encounter, maxSteps)) return Reason.MAX_STEPS;
         return Reason.CONTINUE;
+    }
+
+    /** Allow each participant one action and one turn-end decision, while retaining a finite guard. */
+    public static int effectiveMaxSteps(CombatEncounter encounter, int configuredMaxSteps) {
+        if (configuredMaxSteps < 1) throw new IllegalArgumentException("invalid progression step bound");
+        return Math.max(configuredMaxSteps, Math.multiplyExact(encounter.participants().size(), 2));
     }
 }

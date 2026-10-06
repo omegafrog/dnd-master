@@ -208,6 +208,23 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void acknowledgesAnOrphanedDeliveryWithoutRetryingIt() {
+        ScenarioSourceBundle bundle = bundle(List.of(document(
+                new KnowledgeDocumentId(UUID.randomUUID()),
+                ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
+        Fixture fixture = new Fixture(bundle);
+        fixture.queue.pending.clear();
+        fixture.queue.pending.add(new WorkEnvelope(UUID.randomUUID(), "orphaned-compilation", UUID.randomUUID(),
+                bundle.currentRevision().revision(), "orphaned", 0));
+
+        assertTrue(fixture.worker().processNext("worker", Duration.ofMinutes(1)).isEmpty());
+
+        assertEquals(1, fixture.queue.acknowledged);
+        assertEquals(0, fixture.queue.retried);
+        assertTrue(fixture.queue.pending.isEmpty());
+    }
+
+    @Test
     void workerMarksPermanentFailureAfterThirdAttempt() {
         ScenarioSourceBundle bundle = bundle(List.of(document(
                 new KnowledgeDocumentId(UUID.randomUUID()),
@@ -343,6 +360,48 @@ class ScenarioCompilationWorkerTest {
         assertEquals("cellar-rats", result.scenarioModel().combatScenarios().getFirst().scenarioId());
     }
 
+    @Test
+    void records_structured_scenario_agent_failure_in_retry_status_without_source_text() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
+        Fixture fixture = new Fixture(bundle);
+        fixture.queue.pending.clear();
+        ScenarioCompilationInputSnapshot input = ScenarioCompilationInputSnapshot.capture(
+                bundle.id(), 1, bundle.currentRevision().documents(), storybook.value(), "", ScenarioCreativity.CONSERVATIVE);
+        ScenarioCompilation requested = ScenarioCompilation.request(input, "fp-agent-failure", "key-agent-failure");
+        fixture.compilations.save(requested);
+        fixture.queue.pending.add(new WorkEnvelope(UUID.randomUUID(), "scenario", requested.id(), 1, "fp-agent-failure", 0));
+        var excerpt = new ResolutionExtractionPort.SourceExcerpt(storybook, 1, "page:2", "private story excerpt");
+        ScenarioCompilationAgentPort failedAgent = request -> {
+            throw new ScenarioCompilationAgentFailureException(503,
+                    "AI_EXECUTION_CONNECTION_UNAVAILABLE", request.operationKey(),
+                    "AiExecutionUnavailableException", true);
+        };
+        var worker = new ScenarioCompilationWorker(fixture.manager, fixture.compilations, fixture.queue,
+                new Bundles(bundle), request -> List.of(), ignored -> List.of(excerpt), fixture.tags, fixture.search,
+                new ScenarioPackageCompilationService(fixture.packages), fixture.packages, failedAgent);
+
+        assertThrows(ScenarioCompilationAgentFailureException.class,
+                () -> worker.processNext("worker", Duration.ofMinutes(1)));
+
+        ScenarioCompilation retried = fixture.compilations.findByInputFingerprint("fp-agent-failure").orElseThrow();
+        assertEquals(ScenarioCompilationStatus.WAITING_RETRY, retried.status());
+        assertEquals("AI_EXECUTION_CONNECTION_UNAVAILABLE", retried.diagnostics().getFirst().code());
+        assertEquals(ScenarioCompilationDiagnostic.Severity.WARNING, retried.diagnostics().getFirst().severity());
+        assertEquals("AiExecutionUnavailableException", retried.diagnostics().getFirst().rootCauseClass());
+        assertTrue(retried.failureReason().contains("correlationId=scenario-compilation:"));
+        assertTrue(!retried.diagnostics().getFirst().message().contains("private story excerpt"));
+
+        assertThrows(ScenarioCompilationAgentFailureException.class,
+                () -> worker.processNext("worker", Duration.ofMinutes(1)));
+
+        ScenarioCompilation failed = fixture.compilations.findByInputFingerprint("fp-agent-failure").orElseThrow();
+        assertEquals(ScenarioCompilationStatus.FAILED, failed.status());
+        assertEquals(ScenarioCompilationDiagnostic.Severity.BLOCKING, failed.diagnostics().getFirst().severity());
+        assertEquals(0, fixture.queue.pending.size());
+    }
+
     private static ScenarioSourceBundle bundle(List<ScenarioBundleDocumentSelection> documents) {
         return ScenarioSourceBundle.create(new ScenarioBundleId(UUID.randomUUID()), new OwnerPlayerId(UUID.randomUUID()),
                 new ScenarioSourceBundleRevision(1, documents));
@@ -420,12 +479,14 @@ class ScenarioCompilationWorkerTest {
 
     private static final class Queue implements WorkQueuePort {
         final java.util.Queue<WorkEnvelope> pending = new ArrayDeque<>();
+        int acknowledged;
+        int retried;
         @Override public void enqueue(WorkEnvelope work) { pending.add(work); }
         @Override public Optional<Delivery> claim(String workerId, Duration lease) {
             WorkEnvelope work = pending.poll();
             return work == null ? Optional.empty() : Optional.of(new Delivery(work, UUID.randomUUID(), workerId));
         }
-        @Override public void acknowledge(Delivery delivery) {}
-        @Override public void retry(Delivery delivery, String reason) { pending.add(delivery.work()); }
+        @Override public void acknowledge(Delivery delivery) { acknowledged++; }
+        @Override public void retry(Delivery delivery, String reason) { retried++; pending.add(delivery.work()); }
     }
 }

@@ -43,6 +43,17 @@ public final class PostgresGmTurnRepository implements GmTurnRepository {
     }
 
     @Override
+    public Optional<GmTurn> findProcessingByAdventureId(UUID adventureId) {
+        try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement(
+                "SELECT * FROM adventure_gm_turn WHERE adventure_id = ? AND status = 'PROCESSING'")) {
+            s.setObject(1, adventureId);
+            try (ResultSet r = s.executeQuery()) {
+                return r.next() ? Optional.of(read(r)) : Optional.empty();
+            }
+        } catch (SQLException e) { throw new GmTurnPersistenceException("could not load processing GM turn", e); }
+    }
+
+    @Override
     public Optional<GmTurn> findByTurnId(UUID turnId) {
         try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement(
                 "SELECT * FROM adventure_gm_turn WHERE turn_id = ?")) {
@@ -98,15 +109,8 @@ public final class PostgresGmTurnRepository implements GmTurnRepository {
                 case "META_QUESTION" -> new GmInput.MetaQuestionInput(json.get("question").asText());
                 default -> throw new IllegalStateException("unsupported input type");
             };
-            RequestedGmProviderSelection requested = row.getString("requested_provider") == null
-                    ? RequestedGmProviderSelection.legacyUnknown()
-                    : new RequestedGmProviderSelection((UUID) row.getObject("requested_endpoint_id"), row.getString("requested_provider"),
-                    row.getString("requested_model"), row.getString("requested_reasoning"));
-            EffectiveGmProviderSelection effective = row.getString("effective_provider") == null
-                    ? EffectiveGmProviderSelection.legacyUnknown()
-                    : new EffectiveGmProviderSelection((UUID) row.getObject("effective_endpoint_id"),
-                    row.getTimestamp("effective_endpoint_version").toInstant(), row.getString("effective_provider"),
-                    row.getString("effective_model"), row.getString("effective_reasoning"));
+            RequestedGmProviderSelection requested = readRequestedSelection(row);
+            EffectiveGmProviderSelection effective = readEffectiveSelection(row);
             int attempts = row.getInt("attempt_count");
             GmTurn turn = GmTurn.start((UUID) row.getObject("turn_id"), (UUID) row.getObject("command_id"), row.getLong("expected_session_version"), input, requested);
             return switch (row.getString("status")) {
@@ -119,6 +123,31 @@ public final class PostgresGmTurnRepository implements GmTurnRepository {
             };
         } catch (Exception e) { throw new SQLException("could not read GM turn", e); }
     }
+
+    /** Provider audit fields must never prevent a persisted gameplay turn from being recovered. */
+    private static RequestedGmProviderSelection readRequestedSelection(ResultSet row) throws SQLException {
+        String provider = row.getString("requested_provider");
+        String model = row.getString("requested_model");
+        String reasoning = row.getString("requested_reasoning");
+        if (blank(provider) || blank(model) || blank(reasoning)) return RequestedGmProviderSelection.legacyUnknown();
+        return new RequestedGmProviderSelection((UUID) row.getObject("requested_endpoint_id"), provider, model, reasoning);
+    }
+
+    /** Missing or partial execution metadata is treated as unknown audit data, not a turn failure. */
+    private static EffectiveGmProviderSelection readEffectiveSelection(ResultSet row) throws SQLException {
+        String provider = row.getString("effective_provider");
+        String model = row.getString("effective_model");
+        String reasoning = row.getString("effective_reasoning");
+        UUID endpointId = (UUID) row.getObject("effective_endpoint_id");
+        java.sql.Timestamp endpointVersion = row.getTimestamp("effective_endpoint_version");
+        if (blank(provider) || "LEGACY_UNKNOWN".equalsIgnoreCase(provider) || blank(model) || blank(reasoning)
+                || endpointId == null || endpointVersion == null) {
+            return EffectiveGmProviderSelection.legacyUnknown();
+        }
+        return new EffectiveGmProviderSelection(endpointId, endpointVersion.toInstant(), provider, model, reasoning);
+    }
+
+    private static boolean blank(String value) { return value == null || value.isBlank(); }
 
     private static Map<String, Object> inputJson(GmInput input) {
         if (input instanceof GmInput.TextInput text) return Map.of("text", text.text());

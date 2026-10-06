@@ -70,6 +70,61 @@ it('hydrates persisted conversation on mount', async () => {
   expect(screen.getByText('저장된 프롤로그')).toBeInTheDocument()
 })
 
+it('restores an outstanding player roll and persisted current scene after reopening', async () => {
+  const onCurrentSceneChanged = vi.fn()
+  const api: AdventureApi = {
+    async readConversation() {
+      return {
+        adventureId: 'a1', version: 4, currentScene: 'beer-cellar',
+        entries: [{ sequence: 0, speaker: 'AI_GAME_MASTER', content: '판정이 필요합니다.' }],
+        pendingRoll: { pendingTurnId: 'pending-turn', label: '지각', diceExpression: '1d20', prompt: '굴림 결과를 제출하세요.', expectedVersion: 4 },
+      }
+    },
+    async submitPlayerRoll(_adventureId, turnId, result, expectedVersion) {
+      expect([turnId, result, expectedVersion]).toEqual(['pending-turn', 13, 4])
+      return { narration: '판정을 마쳤습니다.', currentScene: 'beer-cellar', version: 5 }
+    },
+    async sendMessage() { throw new Error('not used') },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} onCurrentSceneChanged={onCurrentSceneChanged} />)
+
+  expect(await screen.findByRole('form', { name: '주사위 굴림 요청' })).toBeInTheDocument()
+  expect(screen.getByRole('textbox', { name: '무엇을 하시겠어요?' })).toBeDisabled()
+  expect(onCurrentSceneChanged).toHaveBeenCalledWith('beer-cellar')
+  await user.type(screen.getByLabelText('1d20 결과'), '13')
+  await user.click(screen.getByRole('button', { name: '결과 제출' }))
+  expect(await screen.findByText('판정을 마쳤습니다.')).toBeInTheDocument()
+})
+
+it('reloads current scene and pending roll after the conversation event connection drops', async () => {
+  let failEvents: (() => void) | undefined
+  let reads = 0
+  const api: AdventureApi = {
+    subscribeEvents(_adventureId, _version, _onEvent, onError) {
+      failEvents = onError
+      return () => undefined
+    },
+    async readConversation() {
+      reads += 1
+      if (reads === 1) return { adventureId: 'a1', version: 5, currentScene: '입구', entries: [] }
+      return {
+        adventureId: 'a1', version: 6, currentScene: '저장고', entries: [],
+        pendingRoll: { pendingTurnId: 'pending-turn', label: '운동', diceExpression: '1d20', prompt: '굴림을 제출하세요.', expectedVersion: 6 },
+      }
+    },
+    async sendMessage() { throw new Error('not used') },
+  }
+  const onCurrentSceneChanged = vi.fn()
+  render(<AdventureStream adventureId="a1" api={api} onCurrentSceneChanged={onCurrentSceneChanged} />)
+  await waitFor(() => expect(failEvents).toBeDefined())
+  act(() => failEvents?.())
+
+  expect(await screen.findByRole('form', { name: '주사위 굴림 요청' })).toBeInTheDocument()
+  expect(onCurrentSceneChanged).toHaveBeenCalledWith('저장고')
+  expect(reads).toBe(2)
+})
+
 it('uses the persisted conversation version for the next turn', async () => {
   let receivedVersion: number | undefined
   const api: AdventureApi = {
@@ -294,4 +349,33 @@ it('reconciles an optimistic response without duplicating persisted entries', as
   await waitFor(() => expect(screen.getByRole('list', { name: '대화 기록' }).querySelectorAll('li')).toHaveLength(3))
   expect(screen.getAllByText('저장된 응답')).toHaveLength(1)
   expect(screen.getAllByText('판정')).toHaveLength(1)
+})
+
+it('accepts a player roll using the dice range requested by the GM', async () => {
+  let submitted: number | undefined
+  const api: AdventureApi = {
+    async sendMessage() {
+      return {
+        narration: '굴림 결과를 기다립니다.', currentScene: '저장고', version: 1,
+        rollRequest: { pendingTurnId: 'turn-1', label: '자연', diceExpression: '1d4', prompt: '약초를 조사합니다.', expectedVersion: 1 },
+      }
+    },
+    async submitPlayerRoll(_adventureId, _pendingTurnId, result) {
+      submitted = result
+      return { narration: '판정을 마쳤습니다.', currentScene: '저장고', version: 2 }
+    },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} />)
+  await user.type(screen.getByLabelText('무엇을 하시겠어요?'), '약초를 조사한다')
+  await user.click(screen.getByRole('button', { name: '행동 보내기' }))
+
+  const rollInput = await screen.findByLabelText('1d4 결과')
+  expect(rollInput).toHaveAttribute('min', '1')
+  expect(rollInput).toHaveAttribute('max', '4')
+  await user.type(rollInput, '4')
+  await user.click(screen.getByRole('button', { name: '결과 제출' }))
+
+  expect(submitted).toBe(4)
+  expect(await screen.findByText('판정을 마쳤습니다.')).toBeInTheDocument()
 })

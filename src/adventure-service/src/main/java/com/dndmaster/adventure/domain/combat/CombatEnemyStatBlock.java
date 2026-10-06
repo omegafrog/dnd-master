@@ -4,7 +4,11 @@ import java.util.Objects;
 
 /** Rulebook-derived combat data kept server-side for deterministic adjudication. */
 public record CombatEnemyStatBlock(int armorClass, int hitPointMaximum, int attackModifier,
-        String damageDice, CombatStatBlockSource source) {
+        String damageDice, CombatStatBlockSource source, int initiativeModifier) {
+    public CombatEnemyStatBlock(int armorClass, int hitPointMaximum, int attackModifier,
+            String damageDice, CombatStatBlockSource source) {
+        this(armorClass, hitPointMaximum, attackModifier, damageDice, source, 0);
+    }
     public CombatEnemyStatBlock {
         if (armorClass < 1 || hitPointMaximum < 1 || attackModifier < -30 || attackModifier > 30) {
             throw new IllegalArgumentException("combat stat block values are invalid");

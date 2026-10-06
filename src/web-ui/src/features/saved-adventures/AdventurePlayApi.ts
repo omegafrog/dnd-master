@@ -200,7 +200,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     if (problem?.error === 'MAP_PLACEMENT_REQUIRED') {
       throw new AdventureRequestError('맵은 준비됐지만 시작 위치가 정해지지 않았습니다. 지도에서 시작 위치를 선택해주세요.', response.status)
     }
-    throw new AdventureRequestError('적용 규칙상 해당 요청을 처리할 수 없습니다.', response.status)
+    throw new AdventureRequestError('적용 규칙상 해당 요청을 처리할 수 없습니다.', response.status, problem?.error)
   }
   if (!response.ok) throw new Error('요청을 처리하지 못했습니다.')
   if (response.status === 204 || response.headers.get('content-length') === '0') return undefined as T
@@ -208,7 +208,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 class AdventureRequestError extends Error {
-  constructor(message: string, readonly status: number) { super(message); this.name = 'AdventureRequestError' }
+  constructor(message: string, readonly status: number, readonly code?: string) { super(message); this.name = 'AdventureRequestError' }
 }
 
 export class HttpAdventurePlayApi implements AdventurePlayApi {

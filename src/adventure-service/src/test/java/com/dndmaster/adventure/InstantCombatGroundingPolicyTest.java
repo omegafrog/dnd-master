@@ -25,7 +25,7 @@ class InstantCombatGroundingPolicyTest {
                         + "Bite. Melee Weapon Attack: +4 to hit. Hit: 4 (1d6 + 2) piercing damage.");
 
         var grounded = CombatScenarioGroundingPolicy.ground(ScenarioModel.empty(),
-                CurrentSituation.initial("cellar"),
+                situation("cellar", "Giant Rat"),
                 List.of(new CombatEnemyProposal("", "giant-rat", "Giant Rat", 1, CombatStartMode.INSTANT)),
                 List.of(story), List.of(rules));
 
@@ -36,16 +36,53 @@ class InstantCombatGroundingPolicyTest {
     }
 
     @Test
-    void rejects_instant_combat_without_a_rulebook_stat_block() {
+    void rejects_instant_combat_without_structured_enemy_combat_numbers() {
         RuntimeEvidence story = evidence(RuntimeEvidenceType.STORYBOOK, "page-2", "A loud noise echoes.");
 
         IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
                 () -> CombatScenarioGroundingPolicy.ground(ScenarioModel.empty(),
-                        CurrentSituation.initial("cellar"),
+                        situation("cellar", "Giant Rat"),
                         List.of(new CombatEnemyProposal("", "giant-rat", "Giant Rat", 1, CombatStartMode.INSTANT)),
                         List.of(story), List.of()));
 
         assertEquals("COMBAT_STAT_BLOCK_NOT_FOUND", failure.getMessage());
+    }
+
+    @Test
+    void reads_combat_numbers_from_additional_rules_but_requires_the_enemy_in_current_situation() {
+        RuntimeEvidence story = evidence(RuntimeEvidenceType.STORYBOOK, "page-4",
+                "Giant Inferno Spider Armor Class 14 Hit Points 32 (5d10 + 5). "
+                        + "Flaming Bite: Melee Weapon Attack: +5 to hit. Hit: 6 (1d8 + 2) piercing damage.");
+
+        var grounded = CombatScenarioGroundingPolicy.ground(ScenarioModel.empty(),
+                situation("laboratory", "Giant Inferno Spider"),
+                List.of(new CombatEnemyProposal("", "giant-inferno-spider", "Giant Inferno Spider", 1,
+                        CombatStartMode.INSTANT)),
+                List.of(story), List.of());
+
+        assertEquals(14, grounded.getFirst().statBlock().armorClass());
+        assertEquals(32, grounded.getFirst().statBlock().hitPointMaximum());
+        assertEquals(5, grounded.getFirst().statBlock().attackModifier());
+        assertEquals(story.knowledgeDocumentId().value(),
+                grounded.getFirst().statBlock().source().knowledgeDocumentId());
+    }
+
+    @Test
+    void rules_evidence_alone_does_not_establish_that_an_enemy_is_present() {
+        RuntimeEvidence rules = evidence(RuntimeEvidenceType.RULEBOOK, "page-135",
+                "Giant Rat Armor Class 12 Hit Points 7 (2d6) Bite. Melee Weapon Attack: +4 to hit.");
+
+        var failure = assertThrows(IllegalArgumentException.class,
+                () -> CombatScenarioGroundingPolicy.ground(ScenarioModel.empty(),
+                        CurrentSituation.initial("quiet cellar"),
+                        List.of(new CombatEnemyProposal("", "giant-rat", "Giant Rat", 1, CombatStartMode.INSTANT)),
+                        List.of(), List.of(rules)));
+
+        assertEquals("COMBAT_SCENARIO_NOT_IN_CURRENT_SITUATION", failure.getMessage());
+    }
+
+    private static CurrentSituation situation(String location, String threat) {
+        return new CurrentSituation(UUID.randomUUID(), 1, location, threat, threat, threat);
     }
 
     private static RuntimeEvidence evidence(RuntimeEvidenceType type, String locator, String text) {

@@ -1,6 +1,7 @@
 package com.dndmaster.ruleknowledge.application.search;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
@@ -20,6 +21,25 @@ class HybridEvidenceSearchServiceTest {
     private static final OwnerPlayerId OWNER = new OwnerPlayerId(UUID.fromString("00000000-0000-0000-0000-000000000001"));
     private static final AuthorizedDocumentScope SCOPE = new AuthorizedDocumentScope(
             new KnowledgeDocumentId(UUID.fromString("00000000-0000-0000-0000-000000000002")), 7, DocumentType.RULEBOOK);
+
+    @Test
+    void searchesDenseOnlyWhenBm25IsDisabled() {
+        AtomicInteger bm25Calls = new AtomicInteger();
+        DenseEvidenceCandidateSearchPort dense = request -> List.of(candidate("dense-only"));
+        Bm25EvidenceCandidateSearchPort bm25 = request -> {
+            bm25Calls.incrementAndGet();
+            return List.of(candidate("must-not-run"));
+        };
+
+        EvidenceSearchResult result = new HybridEvidenceSearchService(dense, bm25, new RrfFusionPolicy(), false)
+                .search(request());
+
+        assertEquals(1, result.candidates().size());
+        assertEquals("dense-only", result.candidates().getFirst().excerpt());
+        assertEquals(1, result.candidates().getFirst().denseRank());
+        assertNull(result.candidates().getFirst().bm25Rank());
+        assertEquals(0, bm25Calls.get());
+    }
 
     @Test
     void searchesBothRetrieversWithTheAuthorizedScopeAndFusesTheirThirtyCandidates() {

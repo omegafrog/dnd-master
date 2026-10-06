@@ -5,7 +5,7 @@ import type { PlayerRollRequest } from './AdventureApi'
 type ChatMessageEntry = { speaker: string; text: string }
 type LocalTurn = { action: ChatMessageEntry; response: ChatMessageEntry[]; expectedVersion: number; committedVersion?: number }
 
-export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommitted }: { adventureId: string; api: AdventureApi; expectedVersion?: number | null; onTurnCommitted?: () => void }) {
+export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommitted, onCurrentSceneChanged }: { adventureId: string; api: AdventureApi; expectedVersion?: number | null; onTurnCommitted?: () => void; onCurrentSceneChanged?: (scene: string) => void }) {
   const [messages, setMessages] = useState<ChatMessageEntry[]>([])
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
@@ -34,6 +34,9 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
     void api.readConversation(adventureId).then(response => {
       if (cancelled) return
       projectionVersion.current = Math.max(knownVersion, response.version)
+      if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
+      setRollRequest(response.pendingRoll ?? null)
+      setRollValue('')
       setMessages(current => reconcileHydratedMessages(
         response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content })),
         response.version,
@@ -50,7 +53,7 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       setNotice('대화 기록을 불러오지 못했습니다.')
     })
     return () => { cancelled = true }
-  }, [adventureId, api])
+  }, [adventureId, api, onCurrentSceneChanged])
 
   // Opening narration is an ordinary GM message. Do not split it into a
   // separate "opening scene" card, which duplicated the conversation and
@@ -73,6 +76,9 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       if (event.type === 'GM_TURN_COMMITTED' && api.readConversation) {
         void api.readConversation(adventureId).then(response => {
           projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version, event.version)
+          if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
+          setRollRequest(response.pendingRoll ?? null)
+          setRollValue('')
           setMessages(current => reconcileHydratedMessages(
             response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content })),
             response.version,
@@ -90,10 +96,20 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       setConversationHydrated(false)
       void api.readConversation?.(adventureId).then(response => {
         projectionVersion.current = response.version
+        if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
+        setRollRequest(response.pendingRoll ?? null)
+        setRollValue('')
+        setMessages(current => reconcileHydratedMessages(
+          response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content })),
+          response.version,
+          current,
+          localTurn.current,
+          true,
+        ))
         setConversationHydrated(true)
       }).catch(() => undefined)
     })
-  }, [adventureId, api, eventSubscriptionReady])
+  }, [adventureId, api, eventSubscriptionReady, onCurrentSceneChanged])
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -128,10 +144,12 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       const response: AdventureMessageResponse = await api.sendMessage(adventureId, text, command, currentVersion)
       if (response.rollRequest) {
         setRollRequest(response.rollRequest)
+        if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
         setProjectionStatus('idle')
         return
       }
       const responseEntries = responseMessages(response.narration, (response as AdventureMessageResponse & { judgment?: string }).judgment ?? '')
+      if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
       localTurn.current = { action, response: responseEntries, expectedVersion: localTurn.current?.expectedVersion ?? projectionVersion.current, committedVersion: response.version }
       projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)
       committedVersion.current = Math.max(committedVersion.current, response.version)
@@ -157,14 +175,16 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
     event.preventDefault()
     if (!rollRequest || !api.submitPlayerRoll) return
     const result = Number(rollValue)
-    if (!Number.isInteger(result) || result < 1 || result > 20) {
-      setNotice('d20 결과는 1에서 20 사이여야 합니다.')
+    const range = diceResultRange(rollRequest.diceExpression)
+    if (!Number.isInteger(result) || result < range.minimum || result > range.maximum) {
+      setNotice(`굴림 결과는 ${range.minimum}에서 ${range.maximum} 사이여야 합니다.`)
       return
     }
     setSending(true); setProjectionStatus('processing'); setNotice('')
     try {
       const response = await api.submitPlayerRoll(adventureId, rollRequest.pendingTurnId, result, rollRequest.expectedVersion)
       setRollRequest(null); setRollValue('')
+      if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
       const responseEntries = responseMessages(response.narration, '')
       setMessages(current => [...current, ...responseEntries])
       projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)
@@ -191,7 +211,7 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       <p role="alert">{notice}</p>
       {rollRequest && <form onSubmit={submitRoll} aria-label="주사위 굴림 요청">
         <p><strong>{rollRequest.label}</strong>: {rollRequest.prompt}</p>
-        <label>d20 결과<input type="number" min="1" max="20" step="1" value={rollValue} onChange={event => setRollValue(event.target.value)} disabled={sending} required /></label>
+        <label>{rollRequest.diceExpression} 결과<input type="number" min={diceResultRange(rollRequest.diceExpression).minimum} max={diceResultRange(rollRequest.diceExpression).maximum} step="1" value={rollValue} onChange={event => setRollValue(event.target.value)} disabled={sending} required /></label>
         <button type="submit" disabled={sending}>결과 제출</button>
       </form>}
       <form onSubmit={send} aria-disabled={hydrationPending || projectionVersion.current == null || rollRequest !== null} aria-busy={hydrationPending}>
@@ -200,6 +220,14 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       </form>
     </section>
   )
+}
+
+function diceResultRange(expression: string) {
+  const match = /^(\d+)d(\d+)$/i.exec(expression.replace(/\s+/g, ''))
+  if (!match) return { minimum: 1, maximum: Number.MAX_SAFE_INTEGER }
+  const count = Number(match[1])
+  const sides = Number(match[2])
+  return { minimum: count, maximum: count * sides }
 }
 
 function reconcileHydratedMessages(

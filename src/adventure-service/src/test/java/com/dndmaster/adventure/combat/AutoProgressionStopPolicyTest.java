@@ -37,6 +37,6 @@ class AutoProgressionStopPolicyTest {
                 new CombatParticipant(ai, "Goblin", CombatParticipant.Controller.AI, 20, null),
                 new CombatParticipant(human, "Hero", CombatParticipant.Controller.PLAYER, 10, null)));
         assertEquals(AutoProgressionStopPolicy.Reason.MAX_STEPS,
-                AutoProgressionStopPolicy.reason(aiTurn, 3, 3));
+                AutoProgressionStopPolicy.reason(aiTurn, 4, 3));
     }
 }

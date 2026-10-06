@@ -20,9 +20,10 @@ public final class RuntimeGmInputBudget {
         int memorySize = size(memory);
         int summarySize = size(summary);
         int currentSize = size(current);
-        if (fixedSize > budget * 30L / 100 || memorySize > budget * 10L / 100
+        if (fixedSize > budget * 40L / 100 || memorySize > budget * 10L / 100
                 || summarySize > budget * 15L / 100 || currentSize > budget - fixedSize - memorySize - summarySize) {
-            throw new InputTooLargeException();
+            throw new InputTooLargeException("budgetBytes=" + budget + ", fixedBytes=" + fixedSize
+                    + ", memoryBytes=" + memorySize + ", summaryBytes=" + summarySize + ", currentBytes=" + currentSize);
         }
         int recentLimit = Math.min((int) (budget * 20L / 100),
                 budget - fixedSize - memorySize - summarySize - currentSize);
@@ -48,6 +49,14 @@ public final class RuntimeGmInputBudget {
         List<List<String>> turns = new ArrayList<>();
         List<String> current = null;
         for (String entry : recent) {
+            if (entry.startsWith("PENDING_ROLL: ")) {
+                if (current == null) {
+                    current = new ArrayList<>();
+                    turns.add(current);
+                }
+                current.add(entry);
+                continue;
+            }
             if (current == null || entry.startsWith("PLAYER: ") || !entry.startsWith("AI_GAME_MASTER: ")) {
                 current = new ArrayList<>();
                 turns.add(current);
@@ -63,7 +72,11 @@ public final class RuntimeGmInputBudget {
 
     public static final class InputTooLargeException extends RuntimeGmInputLimitException {
         InputTooLargeException() {
-            super("required GM input exceeds the configured model context limit");
+            this("required prompt section exceeds its budget");
+        }
+
+        InputTooLargeException(String details) {
+            super("required GM input exceeds the configured model context limit (" + details + ")");
         }
     }
 }

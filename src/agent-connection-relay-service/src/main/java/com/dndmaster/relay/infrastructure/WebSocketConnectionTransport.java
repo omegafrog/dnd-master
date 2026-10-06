@@ -39,6 +39,10 @@ public class WebSocketConnectionTransport implements AgentConnectionTransport {
         .then();
   }
 
+  public Mono<Void> sendText(String value) {
+    return Mono.fromRunnable(() -> sink.tryEmitNext(session.textMessage(value)));
+  }
+
   public Mono<Void> startSend() {
     return session.send(sink.asFlux());
   }

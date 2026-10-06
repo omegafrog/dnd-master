@@ -53,6 +53,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping
 public class RuleKnowledgeController {
+    private static final org.slf4j.Logger DEV_LOGGER = org.slf4j.LoggerFactory.getLogger(RuleKnowledgeController.class);
     private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
     private final BatchRulebookUploadApplicationService batchUploadService;
     private final RulebookPipelineApplicationService pipelineService;
@@ -650,13 +651,25 @@ public class RuleKnowledgeController {
                 scope.add(new AuthorizedDocumentScope(new KnowledgeDocumentId(item.documentId()), item.extractionVersion(),
                         item.documentType(), new OwnerPlayerId(publishedCatalogRulebook ? CATALOG_OWNER : request.ownerId())));
             }
+            if (devDiagnosticsEnabled()) DEV_LOGGER.info(
+                    "dev_preparation_search stage=request bundleId={} ownerId={} documentScopes={} queryFingerprint={} denseLimit={} bm25Limit={}",
+                    request.scenarioSourceBundleId(), request.ownerId(), scopeKeys, queryFingerprint(request.query()),
+                    request.denseLimit(), request.bm25Limit());
             EvidenceSearchResult result = hybridEvidenceSearchService.search(
                     new com.dndmaster.ruleknowledge.application.search.PreparationEvidenceSearchRequest(
                             new OwnerPlayerId(request.ownerId()), request.scenarioSourceBundleId(), scope,
                             request.activeLocators(), request.query(), request.denseLimit(), request.bm25Limit()).asSharedSearchRequest());
+            if (devDiagnosticsEnabled()) DEV_LOGGER.info(
+                    "dev_preparation_search stage=response bundleId={} queryFingerprint={} candidateCount={} candidates={}",
+                    request.scenarioSourceBundleId(), queryFingerprint(request.query()), result.candidates().size(),
+                    result.candidates().stream().map(candidate -> candidate.chunkId().value() + ":"
+                            + candidate.documentId().value() + ":" + candidate.locator() + ":dense="
+                            + candidate.denseRank() + ":bm25=" + candidate.bm25Rank()).toList());
             return ResponseEntity.ok(new PreparationEvidenceCandidateSearchResponse(request.ownerId(), request.scenarioSourceBundleId(),
                     result.candidates().stream().map(this::candidateResponse).toList()));
         } catch (EvidenceSearchUnavailableException exception) {
+            devLog("dev_preparation_search stage=response bundleId={} outcome=unavailable failureClass={}",
+                    request.scenarioSourceBundleId(), exception.getClass().getName());
             return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
         } catch (ResponseStatusException exception) {
             int status = exception.getStatusCode().value();
@@ -671,6 +684,25 @@ public class RuleKnowledgeController {
 
     private static ResponseEntity<EvidenceSearchErrorResponse> evidenceSearchError(HttpStatus status, String code) {
         return ResponseEntity.status(status).body(new EvidenceSearchErrorResponse(code));
+    }
+
+    private static boolean devDiagnosticsEnabled() {
+        return Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+    }
+
+    private static void devLog(String pattern, Object... args) {
+        if (devDiagnosticsEnabled()) DEV_LOGGER.warn(pattern, args);
+    }
+
+    private static String queryFingerprint(String query) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(query.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest, 0, 8);
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
     }
 
     private UnifiedEvidenceCandidateResponse candidateResponse(EvidenceCandidate candidate) {

@@ -28,7 +28,8 @@ public final class CombatWorkItemScheduler {
                                          UUID aiRequestId) {
         if (encounter.status() != CombatEncounter.Status.ACTIVE
                 || encounter.currentParticipant().controller() != CombatParticipant.Controller.AI
-                || completedSteps >= maxSteps) return OptionalSchedule.NOT_SCHEDULED;
+                || completedSteps >= AutoProgressionStopPolicy.effectiveMaxSteps(encounter, maxSteps))
+            return OptionalSchedule.NOT_SCHEDULED;
         UUID actorId = encounter.currentParticipantId();
         UUID operationId = UUID.randomUUID();
         CombatActionCommand command = new CombatActionCommand(operationId, template.adventureId(), template.sessionId(),

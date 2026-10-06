@@ -7,7 +7,13 @@ import java.util.UUID;
 /** Server-confirmed input for one completed AI execution request. */
 public record AiExecutionRequest(UUID soloPlayerId, String requestId, String workId, String completedPrompt,
                                  String model, String reasoning, String outputFormat, JsonNode outputSchema,
-                                 String imageDataUri) {
+                                 String imageDataUri, JsonNode ragSearchContext) {
+    public AiExecutionRequest(UUID soloPlayerId, String requestId, String workId, String completedPrompt,
+                              String model, String reasoning, String outputFormat, JsonNode outputSchema,
+                              String imageDataUri) {
+        this(soloPlayerId, requestId, workId, completedPrompt, model, reasoning, outputFormat, outputSchema,
+                imageDataUri, null);
+    }
     public AiExecutionRequest {
         if (soloPlayerId == null) throw new IllegalArgumentException("solo player id is required");
         requestId = required(requestId, "request id");

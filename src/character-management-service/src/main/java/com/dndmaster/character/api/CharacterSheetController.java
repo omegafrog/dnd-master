@@ -171,7 +171,7 @@ public class CharacterSheetController {
         requestGuard.internal(internalToken);
         return CharacterSheetResponse.from(characterSheetService.applyRuntimeMutation(
                 new CharacterSheetId(sheetId), new SessionId(sessionId), ownerPlayerId,
-                new com.dndmaster.character.application.RuntimeCharacterMutation(request.hitPointDelta(), request.currencyDelta(), request.addItems(), request.removeItems()), commandId, expectedVersion));
+                new com.dndmaster.character.application.RuntimeCharacterMutation(request.hitPointDelta(), request.currencyDelta(), request.addItems(), request.removeItems(), request.consumeSpellSlotLevel()), commandId, expectedVersion));
     }
 
     @GetMapping("/internal/v1/character-sheets")
@@ -291,10 +291,15 @@ public class CharacterSheetController {
                     background, startingAbilities, null, null, null, null);
         }
     }
-    public record RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems, List<String> removeItems) {
+    public record RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems,
+            List<String> removeItems, int consumeSpellSlotLevel) {
+        public RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems, List<String> removeItems) {
+            this(hitPointDelta, currencyDelta, addItems, removeItems, 0);
+        }
         public RuntimeCharacterMutationRequest {
             if (addItems == null) addItems = List.of();
             if (removeItems == null) removeItems = List.of();
+            if (consumeSpellSlotLevel < 0) throw new IllegalArgumentException("spell slot level cannot be negative");
         }
     }
 

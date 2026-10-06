@@ -178,6 +178,26 @@ class LocalConnectionManagerTest {
         StepVerifier.create(manager.execute(request)).expectNextMatches(result -> result.failureType() == RelayFailureType.CONNECTION_LOST).verifyComplete();
     }
 
+    @Test void lateDisconnectFromPreviousSocketDoesNotRemoveReconnectedSocket() {
+        var repository = new InMemoryConnectionLocationRepository(Clock.systemUTC());
+        var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),
+                RelayMetrics.noop(), Duration.ofSeconds(1));
+        var player = UUID.randomUUID();
+        var previous = new ConnectionLocationLease(player, "relay", "http://relay", "old-session", "old-id", Instant.now());
+        manager.connect(previous, Duration.ofSeconds(30), ignored -> Mono.empty()).block();
+        var reconnected = new ConnectionLocationLease(player, "relay", "http://relay", "new-session", "new-id", Instant.now());
+        manager.connect(reconnected, Duration.ofSeconds(30), request -> {
+            manager.complete(request.requestId(), "reconnected");
+            return Mono.empty();
+        }).block();
+
+        assertFalse(manager.disconnect(player, "old-id").block());
+        StepVerifier.create(manager.execute(new RelayExecutionRequest(
+                player, "after-reconnect", "operation", "prompt", "model", "medium", "text", null, List.of())))
+                .expectNextMatches(result -> result.failureType() == null && "reconnected".equals(result.content()))
+                .verifyComplete();
+    }
+
     @Test void rejectsLocalConnectionWhenRedisNowPointsToAnotherInstance() {
         var repository = new InMemoryConnectionLocationRepository(Clock.systemUTC());
         var manager = new LocalConnectionManager(new ConnectionLeaseService(repository), new RequestCompletionRegistry(),

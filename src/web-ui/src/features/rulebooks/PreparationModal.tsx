@@ -59,7 +59,7 @@ export function PreparationModal({ bundleId, revision, storybookDocuments, api, 
     try {
       const status = preflight ?? (api.preflightAgentEndpoint ? await api.preflightAgentEndpoint() : { configured: true, connected: true, state: 'CONNECTED' as const })
       setPreflight(status)
-      if (!status.connected) { setMessage(status.detail ?? '게임 준비 전에 AI 엔드포인트를 연결하세요.'); return }
+      if (!status.connected && !status.canRequest) { setMessage(status.detail ?? '게임 준비 전에 AI 엔드포인트를 연결하세요.'); return }
       const started = await api.startScenarioCompilation(bundleId, ownerId, retry ? `${fingerprint}:retry:${Date.now()}` : fingerprint,
         { primaryStorybookId: primaryStorybookId || null })
       window.localStorage.setItem(storageKey, started.compilationId)
@@ -71,7 +71,7 @@ export function PreparationModal({ bundleId, revision, storybookDocuments, api, 
   return <section ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="preparation-modal-title" className="preparation-modal">
     <div className="preparation-modal-card">
       <div className="bundle-card-heading"><div><p className="eyebrow">GAME PREPARATION</p><h2 id="preparation-modal-title">게임 준비</h2></div><Button type="button" variant="outline" onClick={onClose}>닫기</Button></div>
-      {!preflight ? <p role="status">AI 연결 상태를 확인하는 중…</p> : preflight.connected ? <p role="status">AI 엔드포인트 연결됨</p> : <div role="alert"><p>{preflight.state === 'LOGIN_REQUIRED' ? 'Codex OAuth 로그인이 필요합니다.' : preflight.state === 'NOT_CONFIGURED' ? 'AI 엔드포인트를 설정해야 합니다.' : preflight.state === 'EXPIRED' ? 'AI 엔드포인트 연결이 만료되었습니다.' : 'AI 엔드포인트 연결에 실패했습니다.'}</p><a href="#/profile">AI 엔드포인트 설정 열기</a></div>}
+      {!preflight ? <p role="status">AI 연결 상태를 확인하는 중…</p> : preflight.state === 'CHECK_ON_REQUEST' ? <p role="status">사용자 PC 에이전트에서 Codex 로그인과 연결을 확인하세요.</p> : preflight.connected ? <p role="status">AI 엔드포인트 연결됨</p> : <div role="alert"><p>{preflight.state === 'LOGIN_REQUIRED' ? 'Codex OAuth 로그인이 필요합니다.' : preflight.state === 'NOT_CONFIGURED' ? 'AI 엔드포인트를 설정해야 합니다.' : preflight.state === 'EXPIRED' ? 'AI 엔드포인트 연결이 만료되었습니다.' : 'AI 엔드포인트 연결에 실패했습니다.'}</p><a href="#/profile">AI 엔드포인트 설정 열기</a></div>}
       {storybookDocuments.length > 1 ? <label>Primary Storybook
         <Select aria-label="Primary Storybook" value={primaryStorybookId} onChange={event => setPrimaryStorybookId(event.currentTarget.value)}>
           <option value="">선택</option>
@@ -80,7 +80,7 @@ export function PreparationModal({ bundleId, revision, storybookDocuments, api, 
       </label> : null}
       {compilation && <div role="status"><p>{labels[compilation.status]}</p>{(compilation.failureReason || compilation.status === 'BLOCKED') && <><p role="alert">{compilation.failureReason || compilation.diagnostics?.map(diagnostic => diagnostic.message).join(', ') || '입력 또는 정책 때문에 게임 준비가 차단되었습니다.'}</p>{compilation.diagnostics?.map(diagnostic => <p key={diagnostic.code}>{diagnostic.code}</p>)}</>}{compilation.status === 'FAILED' && <Button type="button" onClick={() => void start(true)} disabled={busy}>다시 준비</Button>}{(compilation.status === 'PUBLISHED' || compilation.status === 'COMPLETED') && <div><Button type="button" onClick={() => onCharacter(compilation.packageId!)}>캐릭터 생성 시작</Button><Button type="button" variant="outline" onClick={() => onAdventure(compilation.packageId!)}>이 자료로 모험 만들기</Button></div>}</div>}
       {message && <p role="alert">{message}</p>}
-      {(!compilation || compilation.status === 'REQUESTED' || compilation.status === 'QUEUED' || compilation.status === 'RUNNING' || compilation.status === 'PROCESSING' || compilation.status === 'WAITING_RETRY' || compilation.status === 'BLOCKED') && <Button type="button" onClick={() => void start()} disabled={busy || !preflight?.connected}>{busy ? '준비 요청 중…' : compilation?.status === 'BLOCKED' ? '입력 수정 후 다시 준비' : '게임 준비 시작'}</Button>}
+      {(!compilation || compilation.status === 'REQUESTED' || compilation.status === 'QUEUED' || compilation.status === 'RUNNING' || compilation.status === 'PROCESSING' || compilation.status === 'WAITING_RETRY' || compilation.status === 'BLOCKED') && <Button type="button" onClick={() => void start()} disabled={busy || !(preflight?.connected || preflight?.canRequest)}>{busy ? '준비 요청 중…' : compilation?.status === 'BLOCKED' ? '입력 수정 후 다시 준비' : '게임 준비 시작'}</Button>}
     </div>
   </section>
 }

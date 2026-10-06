@@ -2,6 +2,8 @@
 
 # Execution Preconditions
 
+- **플레이어 출력의 언어**: 플레이어에게 전달하는 최종 서술은 한국어로 작성한다. 장면 이름, 내부 판정 설명, 현재 상황, 몬스터 이름, 내부 사실 기록에는 한국어를 강제하지 않는다. 한국어 서술 안의 고유명사·약어·주사위식은 원래 표기를 사용할 수 있다.
+
 - **Rulebook Administration Precondition**: 모험 실행 여정을 시작하기 전에 관리자가 Shared Rulebook Catalog에 룰북을 등록하고, 추출·색인·검증을 완료한 뒤 공개 상태로 게시해야 한다.
 - **End-User Rulebook Selection**: 엔드유저(Solo Player)는 관리자에 의해 공개된 룰북 중 하나를 선택만 한다. 엔드유저가 룰북을 업로드·등록·색인·검증·게시하거나 그 처리를 기다리는 흐름은 지원하지 않는다.
 - **Adventure Start Gate**: 공개된 룰북이 하나 이상 없으면 번들 구성과 모험 시작을 허용하지 않고, 관리자 사전 준비가 필요하다는 상태를 표시한다.
@@ -12,7 +14,7 @@
 - **Player Dashboard**: 로그인 후 Solo Player가 처음 도착하는 상태 기반 시작 화면. 진행 중 모험, 작성 중 세션, 준비된 번들, 최초 자료 준비 순서로 다음 행동을 제시한다.
 - **Game System Definition**: AI가 룰북 근거에서 추출하고 백엔드가 검증·버전 관리·게시하는 선언형 게임 규칙 계약. 캐릭터 필드, 자원, 판정, 공식, 이벤트 조건, 상태 변경을 정의하며 실행 코드나 임의 HTML은 포함하지 않는다. 사용자가 파일을 직접 편집하지 않으므로 검증된 버전형 JSON을 정본으로 사용한다.
 - **Shared Rulebook Catalog**: 관리자가 플레이어 사용 전에 업로드·색인·검증·공개한 공용 Rulebook 목록. Solo Player는 이 목록에서 공개된 Rulebook만 선택하며, 업로드·seed·색인·공개를 수행하거나 기다리지 않는다. 새 로컬 DB도 사용자 여정을 시작하기 전에 필요한 공개 Rulebook을 관리자 운영 단계에서 준비해야 한다.
-- **Bundle Rulebook Cardinality**: 하나의 Scenario Bundle Revision은 정확히 하나의 Rulebook만 포함한다. Game System Definition은 이 Rulebook 하나에서 생성하며 여러 룰북의 병합이나 우선순위 규칙은 두지 않는다.
+- **Base Rulebook and Supplemental Rulebook**: `RULEBOOK`은 기본 룰북이고 `STORYBOOK`은 추가 룰북이다. 하나의 Scenario Bundle Revision은 기본 룰북 하나를 포함하고 추가 룰북은 여러 개 선택할 수 있다. 두 자료는 각각 독립 검색하며 한쪽의 발췌 결과로 다른 쪽의 검색어를 만들거나 좁히지 않는다. 검색 후보를 받은 뒤의 기존 관련도 재정렬 흐름은 유지한다.
 - **Rulebook-Only Bundle**: Rulebook 하나만 포함하고 Main Scenario나 다른 시나리오 자료가 없는 유효한 Scenario Bundle. 캐릭터·판정 규칙은 제공하지만 모험 서사 시작점은 별도로 정해야 한다.
 - **Adventure Story Plan**: 모험 시작부터 결말까지의 대략적인 진행 절차를 메인 줄기, 조건부 분기, 복수 결말, 단계별 목표·갈등·핵심 인물·단서·전환 조건으로 표현한 백엔드 전용 계획. 시나리오 자료가 있으면 자료에서 컴파일하고, Rulebook-Only Bundle이면 AI가 전체 골격을 생성한다. Solo Player에게 내용·검토 화면·요약을 노출하지 않는다.
 - **GM Elaboration**: AI Game Master가 Adventure Story Plan의 현재 단계와 전환 조건을 유지하면서 장면 묘사, 대화, 분위기, 세부 사건을 살을 붙여 서술하는 행위.
@@ -25,11 +27,11 @@
 - **Rule Support Severity**: `UNSUPPORTED` Runtime Rule의 승인 영향도. 캐릭터 생성 필수 스탯, 핵심 판정·자원 변화, 사망·전투·진행 규칙은 `BLOCKING`이며 Game System Review 승인을 막는다. 희귀 선택·부가 규칙은 `WARNING`이며 명시적 경고 확인 후 승인할 수 있다.
 - **Bundle Lock**: 캐릭터 생성에 진입하기 전에 선택된 Scenario Bundle Revision·Scenario Package·Knowledge Document 집합·Game System Definition·캐릭터 생성 스키마의 정확한 버전을 모험 준비 흐름에 고정하는 규칙. 캐릭터 생성을 시작한 뒤에는 해당 흐름이 참조하는 리비전을 바꾸지 않는다. 원본 번들의 후속 변경은 새 리비전으로 만들며 미래 모험에서 사용할 수 있다.
 - **Adventure Start Lock**: 모험 시작 전환 시 파티 구성과 런타임 구성을 고정하는 규칙. 시작 후에는 캐릭터 구성이나 실행 설정을 변경하지 않는다.
-- **Knowledge Document**: RAG 원본 파일. Solo Player는 Storybook과 Handout 등 자신의 모험 자료만 업로드한다. Rulebook은 Shared Rulebook Catalog 관리자가 사전에 등록·공개하며 Solo Player가 업로드하는 자료가 아니다.
-- **Document Type**: Knowledge Document의 의미 메타데이터. 초기 값은 `RULEBOOK`과 `STORYBOOK`이다. 저장·검색·근거 표시에 사용한다.
+- **Knowledge Document**: RAG 원본 파일. `STORYBOOK`은 Solo Player가 추가하는 룰북이고 `RULEBOOK`은 Shared Rulebook Catalog 관리자가 사전에 등록·공개하는 기본 룰북이다. Handout 등 모험 자료는 규칙 문서와 다른 용도로 사용한다.
+- **Document Type**: Knowledge Document의 의미 메타데이터. `RULEBOOK`은 기본 룰북, `STORYBOOK`은 추가 룰북이다. 저장·독립 검색·근거 표시에 사용한다.
 - **Batch Upload**: 여러 Knowledge Document를 한 요청으로 접수하는 행위. 각 파일은 별도 처리 상태·실패 사유·재시도 단위를 가진다.
 - **Session Knowledge Set**: 특정 모험 세션에 고정하는 Knowledge Document 목록. 해당 세션 RAG 검색은 이 목록만 대상으로 한다.
-- **Query Intent Priority**: GM agent가 질의를 룰 또는 스토리 관련으로 판별해, Session Knowledge Set 안에서 해당 Document Type의 검색 결과에 우선순위를 부여하는 정책.
+- **Query Intent Priority**: GM agent가 질의를 판별해 Session Knowledge Set 안의 기본 룰북과 추가 룰북에서 각각 검색한 후보를 기존 순위 재정렬 흐름에 전달하는 정책. 한 자료의 검색어를 다른 자료의 검색 결과로 만들지 않는다.
 - **복합 검색**: 의미 유사도로 찾는 Dense 검색과 단어 일치도를 사용하는 BM25 검색에서 각각 최대 30개의 후보를 얻고, 두 순위에서 반복해서 상위에 나타난 후보를 우선하는 RRF 방식으로 합치는 검색 절차. 같은 청크는 하나로 합치며 전체 후보가 부족하면 있는 만큼 사용한다.
 - **관련도 재정렬**: 복합 검색 후보를 판정 질문과의 관련도 순서로 다시 정렬하는 단계. 점수 기준으로 후보를 제거하지 않고 최대 30개를 다음 단계에 전달한다.
 - **근거 충분성 판단**: 선택된 작업 정책의 맥락과 후보 근거만으로 후속 결과를 만들 수 있는지 판단하고, 충분한 조합 중 가능한 한 작은 임의 부분집합을 선택하는 단계. 부족하면 이미 유효한 근거와 추가로 필요한 정보를 함께 반환한다.
@@ -80,5 +82,5 @@
 - **GM Context Compaction**: 확정된 GM Turn의 오래된 대화 기록만 줄여 이후 대화에서 이전 상황을 이어가게 하는 과정. 캐릭터 시트와 Current Situation 같은 확정 상태는 대화 요약으로 갱신하지 않고 최신 정본을 별도로 전달하며, 최근 대화는 원문으로 유지한다.
 - **Current Situation**: 현재 플레이에서 확인된 장소·문제·위협·목표를 나타내는 현재 상황. 플레이어 입력만으로 새 사실을 만들지 않으며 AI Game Master의 제안은 Adventure Runtime이 검증한 뒤 반영한다.
 - **전투 결과 저장**: 전투가 끝나면 누가 쓰러졌는지와 전투가 어떻게 끝났는지를 모험의 저장 상태에 기록하고 이후 AI Game Master 턴의 근거로 전달한다. 대화 서술만 남기는 것과 구분한다.
-- **룰북에서 확인한 몬스터 전투 수치**: Rulebook Evidence에서 확인해 저장하는 몬스터의 방어도, 최대 HP, 공격 보정치, 피해 주사위와 출처. 플레이어에게 내부 수치를 그대로 공개하지 않고 전투 판정에 사용한다.
+- **모험책·룰북에서 확인한 몬스터 전투 수치**: 선택한 Storybook 또는 Rulebook 근거에서 확인해 저장하는 몬스터의 방어도, 최대 HP, 공격 보정치, 피해 주사위와 출처. 플레이어에게 내부 수치를 그대로 공개하지 않고 전투 판정에 사용한다.
 - **즉발 전투**: 시나리오에 미리 전투가 적혀 있지 않아도 소음, 굴림 대실패, 그에 따른 페널티처럼 현재 상황에서 AI Game Master가 전투 전환을 판단한 경우의 전투. 적의 존재와 전투 수치는 Storybook·Rulebook 근거를 확인한 뒤 생성한다.

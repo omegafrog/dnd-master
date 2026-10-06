@@ -32,7 +32,7 @@ public final class RuntimeFactLookupService {
     private RuntimeFactLookupResult lookup(RuntimeFactLookupRequest request, List<RuntimeEvidence> storybookEvidence, UUID soloPlayerId) {
         Objects.requireNonNull(request, "lookup request must not be null");
         storybookEvidence = List.copyOf(Objects.requireNonNull(storybookEvidence, "storybook evidence must not be null"));
-        String query = lookupTopic(request.query());
+        String query = request.query();
 
         Optional<RuntimeFactLookupResult> established = findEstablished(request, query);
         if (established.isPresent()) return established.get();
@@ -85,21 +85,7 @@ public final class RuntimeFactLookupService {
 
     private static boolean contains(String value, String query) {
         if (value == null || query == null || query.isBlank()) return false;
-        String normalized = value.toLowerCase(Locale.ROOT);
-        return switch (query) {
-            case "reward" -> normalized.matches(".*(reward|보상|대가|gold|gp|골드|금화).*");
-            case "price" -> normalized.matches(".*(price|값|금액|가격).*");
-            case "name" -> normalized.matches(".*(name|이름).*");
-            default -> normalized.contains(query);
-        };
-    }
-
-    private static String lookupTopic(String query) {
-        String normalized = query == null ? "" : query.toLowerCase(Locale.ROOT);
-        if (normalized.matches(".*(reward|보상|대가|gold|gp|골드|금화).*")) return "reward";
-        if (normalized.matches(".*(price|값|금액|가격).*")) return "price";
-        if (normalized.matches(".*(name|이름).*")) return "name";
-        return normalized;
+        return value.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT));
     }
 
     private static void validateSupportingElementIds(ScenarioLookupResult result, RuntimeFactLookupRequest request) {

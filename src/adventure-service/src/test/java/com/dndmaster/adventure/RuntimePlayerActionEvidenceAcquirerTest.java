@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
@@ -33,12 +34,16 @@ class RuntimePlayerActionEvidenceAcquirerTest {
         EvidenceAcquisitionApplicationService service = new EvidenceAcquisitionApplicationService(
                 request -> {
                     assertEquals(scope, request.acquisitionRequest().searchScope());
-                    assertEquals("open the cellar", request.query());
+                    assertEquals(1, request.acquisitionRequest().additionalSearchLimit());
+                    assertTrue(request.query().contains("플레이어 행동: open the cellar"));
+                    assertTrue(request.query().contains("현재 상황: 문 뒤에서 이상한 소리가 들린다."));
+                    assertTrue(request.query().contains("지각"));
                     return candidates;
                 }, request -> List.of(ruleChunkId, storyChunkId),
                 request -> SufficiencyDecision.sufficient(List.of(ruleChunkId), Map.of(ruleChunkId, "The rule resolves the action.")));
 
-        List<RuntimeEvidence> result = new RuntimePlayerActionEvidenceAcquirer(service).acquire(scope, "open the cellar");
+        List<RuntimeEvidence> result = new RuntimePlayerActionEvidenceAcquirer(service)
+                .acquire(scope, "open the cellar", "문 뒤에서 이상한 소리가 들린다.");
 
         assertEquals(1, result.size());
         assertEquals(RuntimeEvidenceType.RULEBOOK, result.getFirst().evidenceType());

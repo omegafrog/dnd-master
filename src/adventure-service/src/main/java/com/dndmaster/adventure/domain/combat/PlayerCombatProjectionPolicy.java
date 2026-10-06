@@ -10,7 +10,7 @@ public final class PlayerCombatProjectionPolicy {
 
     public static PlayerCombatSnapshot toSnapshot(CombatEncounter encounter, UUID playerId,
                                                   PlayerCombatSnapshot.ProcessingFailure processingFailure) {
-        var entries = encounter.participants().stream().map(p -> new PlayerCombatSnapshot.PlayerParticipant(
+        var entries = encounter.participants().stream().filter(p -> !p.isDefeated()).map(p -> new PlayerCombatSnapshot.PlayerParticipant(
                 p.participantId(), p.displayName(), p.controller(), p.initiative(),
                 p.controller() == CombatParticipant.Controller.PLAYER || p.participantId().equals(playerId)
                         ? p.publicCondition() : null)).toList();

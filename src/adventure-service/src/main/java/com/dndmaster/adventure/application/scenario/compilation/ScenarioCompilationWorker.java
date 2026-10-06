@@ -160,8 +160,13 @@ public final class ScenarioCompilationWorker {
                 .orElse(null);
         if (delivery == null) return Optional.empty();
 
-        var compilation = compilationRepository.findById(delivery.work().aggregateId())
-                .orElseThrow(() -> new IllegalStateException("compilation not found"));
+        var compilation = compilationRepository.findById(delivery.work().aggregateId()).orElse(null);
+        if (compilation == null) {
+            log.warn("scenario compilation worker acknowledged orphaned work workerId={} compilationId={}",
+                    workerId, delivery.work().aggregateId());
+            queue.acknowledge(delivery);
+            return Optional.empty();
+        }
         log.info("scenario compilation worker claimed work workerId={} compilationId={} attempt={} bundleId={}",
                 workerId, compilation.id(), compilation.attempt(), compilation.bundleId());
         var claimed = processManager.claim(delivery);
@@ -169,10 +174,15 @@ public final class ScenarioCompilationWorker {
             ScenarioSourceBundle bundle = bundleRepository.findById(claimed.bundleId())
                     .orElseThrow(() -> new IllegalStateException("scenario bundle not found"));
             List<ResolutionExtractionPort.SourceExcerpt> excerpts = excerptPort.load(bundle);
+            devLog("dev_compilation_stage compilationId={} bundleId={} stage=source_search excerpts={} storybook={} rulebook={} locators={}",
+                    claimed.id(), bundle.id().value(), excerpts.size(), countType(excerpts, "STORYBOOK"),
+                    countType(excerpts, "RULEBOOK"), excerptKeys(excerpts));
             Set<String> bundleSources = bundle.currentRevision().documents().stream()
                     .map(document -> document.knowledgeDocumentId().value() + ":" + document.extractionVersion())
                     .collect(java.util.stream.Collectors.toSet());
             List<ResolutionExtractionPort.SourceExcerpt> resolutionExcerpts = selectResolutionExcerpts(excerpts, bundleSources);
+            devLog("dev_compilation_stage compilationId={} bundleId={} stage=excerpt_selection sourceCount={} selectedCount={} selected={}",
+                    claimed.id(), bundle.id().value(), excerpts.size(), resolutionExcerpts.size(), excerptKeys(resolutionExcerpts));
             List<ResolutionCandidate> candidates = extractionPort.extract(
                     new ResolutionExtractionPort.ResolutionExtractionRequest(
                             bundle.ownerPlayerId().value(), claimed.id().toString(), excerpts == null ? List.of() : excerpts.stream()
@@ -181,10 +191,16 @@ public final class ScenarioCompilationWorker {
                                     .toList(),
                             "resolution-candidate-v2", "resolution-prompt-v2"));
             List<ResolutionCandidate> extractedCandidates = candidates == null ? List.of() : List.copyOf(candidates);
+            devLog("dev_compilation_stage compilationId={} bundleId={} stage=candidate_extraction inputExcerptCount={} candidateCount={} candidates={}",
+                    claimed.id(), bundle.id().value(), resolutionExcerpts.size(), extractedCandidates.size(), candidateKeys(extractedCandidates));
             List<ScenarioResolutionUnit> rawResolutionUnits = compiler.validateResolutionCandidates(bundle,
                     extractedCandidates, resolutionExcerpts);
+            devLog("dev_compilation_stage compilationId={} bundleId={} stage=candidate_validation candidateCount={} unitStatuses={}",
+                    claimed.id(), bundle.id().value(), extractedCandidates.size(), unitStatuses(rawResolutionUnits));
             candidates = repairInvalidCandidates(
                     claimed.id().toString(), bundle, extractedCandidates, resolutionExcerpts);
+            devLog("dev_compilation_stage compilationId={} bundleId={} stage=candidate_repair candidatesBefore={} candidatesAfter={} candidates={}",
+                    claimed.id(), bundle.id().value(), extractedCandidates.size(), candidates.size(), candidateKeys(candidates));
 
             List<CharacterContextSearchPort.Evidence> characterContext = searchCharacterContext(bundle);
             List<CharacterInputTagExtractionPort.SourceExcerpt> tagExcerpts = characterContext.stream()
@@ -249,6 +265,9 @@ public final class ScenarioCompilationWorker {
             }
             List<com.dndmaster.adventure.domain.scenario.CompilationCandidate> diagnostics =
                     CompilationCandidateFactory.from(claimed.id(), extractedCandidates, rawResolutionUnits, scenarioPackage.units());
+            devLog("dev_compilation_stage compilationId={} bundleId={} stage=package_compilation extractedCount={} validatedCount={} packageUnitCount={} warningCodes={}",
+                    claimed.id(), bundle.id().value(), extractedCandidates.size(), rawResolutionUnits.size(),
+                    scenarioPackage.units().size(), scenarioPackage.report().warnings());
             candidateRepository.saveAll(claimed.id(), diagnostics);
             log.info("scenario compilation candidate diagnostics compilationId={} bundleId={} extractedCandidates={} "
                             + "validatedCandidates={} candidateStatuses={} validationCodes={} outcome={} reportStatus={}",
@@ -280,19 +299,59 @@ public final class ScenarioCompilationWorker {
         } catch (RuntimeException exception) {
             String reason = exception.getMessage() == null || exception.getMessage().isBlank()
                     ? "scenario compilation failed" : exception.getMessage();
+            ScenarioCompilationAgentFailureException agentFailure =
+                    exception instanceof ScenarioCompilationAgentFailureException failure ? failure : null;
+            boolean terminalFailure = isCodexTurnTimeout(exception)
+                    || exception instanceof ScenarioCompilationRejectedException || claimed.attempt() >= MAX_ATTEMPTS
+                    || agentFailure != null && (!agentFailure.retryable() || claimed.attempt() >= 2);
+            List<com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic> failureDiagnostics =
+                    agentFailure != null
+                            ? List.of(terminalFailure
+                                    ? com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic.blocking(
+                                            agentFailure.code(), agentFailure.getMessage(), agentFailure.rootCauseClass())
+                                    : com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic.warning(
+                                            agentFailure.code(), agentFailure.getMessage(), agentFailure.rootCauseClass()))
+                            : claimed.diagnostics();
             if (isCodexTurnTimeout(exception)) {
                 log.error("scenario compilation provider timeout compilationId={} failureType={} reason={}",
                         claimed.id(), exception.getClass().getName(), reason, exception);
-                processManager.fail(claimed, delivery, reason);
-            } else if (exception instanceof ScenarioCompilationRejectedException || claimed.attempt() >= MAX_ATTEMPTS) {
-                processManager.fail(claimed, delivery, reason);
+                processManager.fail(claimed, delivery, reason, failureDiagnostics);
+            } else if (terminalFailure) {
+                processManager.fail(claimed, delivery, reason, failureDiagnostics);
             } else {
-                processManager.retry(claimed, delivery, reason);
+                processManager.retry(claimed, delivery, reason, failureDiagnostics);
             }
-            log.warn("scenario compilation worker failed compilationId={} attempt={} reason={}",
-                    claimed.id(), claimed.attempt(), reason, exception);
+            log.warn("scenario compilation worker failed compilationId={} attempt={} failureType={} reason={}",
+                    claimed.id(), claimed.attempt(), exception.getClass().getName(), reason, exception);
             throw exception;
         }
+    }
+
+    private static void devLog(String pattern, Object... arguments) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) log.info(pattern, arguments);
+    }
+
+    private static long countType(List<ResolutionExtractionPort.SourceExcerpt> excerpts, String type) {
+        return excerpts.stream().filter(Objects::nonNull).filter(excerpt -> type.equalsIgnoreCase(excerpt.documentType())).count();
+    }
+
+    private static List<String> excerptKeys(List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
+        return excerpts.stream().filter(Objects::nonNull)
+                .map(excerpt -> excerpt.documentType() + ":" + excerpt.documentId().value() + ":"
+                        + excerpt.extractionVersion() + ":" + excerpt.locator())
+                .toList();
+    }
+
+    private static List<String> candidateKeys(List<ResolutionCandidate> candidates) {
+        return candidates.stream().filter(Objects::nonNull)
+                .map(candidate -> candidate.kind() + ":" + (candidate.sourceRefs() == null ? List.of()
+                        : candidate.sourceRefs().stream().map(ref -> ref.knowledgeDocumentId().value() + ":"
+                                + ref.extractionVersion() + ":" + ref.locator()).toList()))
+                .toList();
+    }
+
+    private static List<String> unitStatuses(List<ScenarioResolutionUnit> units) {
+        return units.stream().map(unit -> unit.status() + ":" + unit.validationMessages()).toList();
     }
 
     private static String scenarioContext(List<ResolutionExtractionPort.SourceExcerpt> excerpts) {

@@ -3,7 +3,9 @@ package com.dndmaster.adventure.infrastructure.persistence;
 import com.dndmaster.adventure.application.runtime.ConversationCompactionJob;
 import com.dndmaster.adventure.application.runtime.ConversationCompactionJobRepository;
 import com.dndmaster.adventure.application.runtime.ConversationSummary;
+import com.dndmaster.adventure.application.runtime.LongTermAdventureFact;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -60,7 +62,11 @@ public final class PostgresConversationCompactionJobRepository implements Conver
             statement.setString(1, reason == null ? "UNKNOWN" : reason.substring(0, Math.min(reason.length(), 1000))); statement.setObject(2, leasedJob.id()); statement.setObject(3, leasedJob.leaseToken()); return statement.executeUpdate() == 1;
         } catch (SQLException error) { throw new AdventurePersistenceException("could not record conversation compaction failure", error); }
     }
-    @Override public boolean publish(ConversationCompactionJob job, ConversationSummary summary, long actualAdventureVersion) {
+    @Override public boolean publish(ConversationCompactionJob job, ConversationSummary summary, List<LongTermAdventureFact> facts, long actualAdventureVersion) {
+        return publish(job, summary, facts, null, actualAdventureVersion);
+    }
+    @Override public boolean publish(ConversationCompactionJob job, ConversationSummary summary, List<LongTermAdventureFact> facts,
+            List<RuntimeAddedFact> confirmedRuntimeFacts, long actualAdventureVersion) {
         // Later confirmed turns may advance the Adventure while this immutable source range remains valid.
         // The locked Adventure row, lease token, and exact source-range uniqueness fence publication.
         if (actualAdventureVersion < job.expectedAdventureVersion()) return false;
@@ -73,19 +79,72 @@ public final class PostgresConversationCompactionJobRepository implements Conver
                     try (ResultSet rows = existing.executeQuery()) { if (rows.next()) { if (!managed) connection.commit(); return false; } }
                 }
                 try (PreparedStatement complete = connection.prepareStatement("UPDATE adventure_conversation_compaction_job SET status='DONE', lease_until=NULL, lease_token=NULL WHERE job_id=? AND status='LEASED' AND lease_token=?")) {
-                    complete.setObject(1, job.id()); complete.setObject(2, job.leaseToken()); if (complete.executeUpdate() != 1) { if (!managed) connection.commit(); return false; }
+                    complete.setObject(1, job.id()); complete.setObject(2, job.leaseToken());
+                    if (complete.executeUpdate() != 1) { if (!managed) connection.rollback(); return false; }
                 }
+                if (confirmedRuntimeFacts != null) reconcileLongTermFacts(connection, summary.adventureId(), confirmedRuntimeFacts);
+                for (LongTermAdventureFact fact : facts) archiveLongTermFact(connection, fact.adventureId(), fact.factId());
                 try (PreparedStatement insert = connection.prepareStatement("INSERT INTO adventure_conversation_summary(adventure_id, summary_version, source_start, source_end, source_adventure_version, summary_text) VALUES (?, ?, ?, ?, ?, ?)")) {
                     insert.setObject(1, summary.adventureId().value()); insert.setLong(2, summary.version()); insert.setLong(3, summary.sourceStart()); insert.setLong(4, summary.sourceEnd()); insert.setLong(5, summary.sourceAdventureVersion()); insert.setString(6, summary.text()); insert.executeUpdate();
+                }
+                try (PreparedStatement insert = connection.prepareStatement("INSERT INTO adventure_long_term_fact(adventure_id, fact_id, established_turn_id, source_adventure_version, fact_kind, relevance, player_visible, fact_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (adventure_id, fact_id) DO UPDATE SET established_turn_id=EXCLUDED.established_turn_id, source_adventure_version=EXCLUDED.source_adventure_version, fact_kind=EXCLUDED.fact_kind, relevance=EXCLUDED.relevance, player_visible=EXCLUDED.player_visible, fact_version=adventure_long_term_fact.fact_version + 1")) {
+                    for (LongTermAdventureFact fact : facts) {
+                        insert.setObject(1, fact.adventureId().value()); insert.setObject(2, fact.factId()); insert.setObject(3, fact.establishedTurnId());
+                        insert.setLong(4, fact.sourceAdventureVersion()); insert.setString(5, fact.kind()); insert.setString(6, fact.relevance());
+                        insert.setBoolean(7, fact.playerVisible()); insert.setLong(8, fact.version()); insert.addBatch();
+                    }
+                    if (!facts.isEmpty()) insert.executeBatch();
                 }
                 if (!managed) connection.commit(); return true;
             } catch (SQLException | RuntimeException error) { if (!managed) connection.rollback(); throw error; } finally { if (!managed) connection.setAutoCommit(autoCommit); }
         } catch (SQLException error) { throw new AdventurePersistenceException("could not publish conversation summary", error); }
     }
+    private static void reconcileLongTermFacts(Connection connection, AdventureId adventureId,
+            List<RuntimeAddedFact> confirmedRuntimeFacts) throws SQLException {
+        List<java.util.UUID> stale = new ArrayList<>();
+        try (PreparedStatement select = connection.prepareStatement("SELECT fact_id, established_turn_id FROM adventure_long_term_fact WHERE adventure_id=?")) {
+            select.setObject(1, adventureId.value());
+            try (ResultSet rows = select.executeQuery()) { while (rows.next()) {
+                java.util.UUID factId = rows.getObject(1, java.util.UUID.class);
+                java.util.UUID turnId = rows.getObject(2, java.util.UUID.class);
+                if (confirmedRuntimeFacts.stream().noneMatch(source -> source.factId().equals(factId)
+                        && source.establishedTurnId().equals(turnId))) stale.add(factId);
+            } }
+        }
+        if (stale.isEmpty()) return;
+        for (java.util.UUID factId : stale) archiveLongTermFact(connection, adventureId, factId);
+        try (PreparedStatement delete = connection.prepareStatement("DELETE FROM adventure_long_term_fact WHERE adventure_id=? AND fact_id=?")) {
+            for (java.util.UUID factId : stale) { delete.setObject(1, adventureId.value()); delete.setObject(2, factId); delete.addBatch(); }
+            delete.executeBatch();
+        }
+    }
+    private static void archiveLongTermFact(Connection connection, AdventureId adventureId, java.util.UUID factId) throws SQLException {
+        try (PreparedStatement archive = connection.prepareStatement("INSERT INTO adventure_long_term_fact_history(adventure_id, fact_id, established_turn_id, source_adventure_version, fact_kind, relevance, player_visible, fact_version) SELECT adventure_id, fact_id, established_turn_id, source_adventure_version, fact_kind, relevance, player_visible, fact_version FROM adventure_long_term_fact WHERE adventure_id=? AND fact_id=? ON CONFLICT (adventure_id, fact_id, fact_version) DO NOTHING")) {
+            archive.setObject(1, adventureId.value()); archive.setObject(2, factId); archive.executeUpdate();
+        }
+    }
     @Override public List<ConversationSummary> summaries(AdventureId adventureId) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("SELECT summary_version, source_start, source_end, source_adventure_version, summary_text FROM adventure_conversation_summary WHERE adventure_id=? ORDER BY summary_version")) {
             statement.setObject(1, adventureId.value()); List<ConversationSummary> result = new ArrayList<>(); try (ResultSet rows = statement.executeQuery()) { while (rows.next()) result.add(new ConversationSummary(adventureId, rows.getLong(1), rows.getLong(2), rows.getLong(3), rows.getLong(4), rows.getString(5))); } return List.copyOf(result);
         } catch (SQLException error) { throw new AdventurePersistenceException("could not load conversation summaries", error); }
+    }
+    @Override public List<LongTermAdventureFact> longTermFacts(AdventureId adventureId) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("SELECT fact_id, established_turn_id, source_adventure_version, fact_kind, relevance, player_visible, fact_version FROM adventure_long_term_fact WHERE adventure_id=? ORDER BY fact_version, fact_id")) {
+            statement.setObject(1, adventureId.value()); List<LongTermAdventureFact> result = new ArrayList<>();
+            try (ResultSet rows = statement.executeQuery()) { while (rows.next()) result.add(new LongTermAdventureFact(adventureId,
+                    rows.getObject(1, java.util.UUID.class), rows.getObject(2, java.util.UUID.class), rows.getLong(3), rows.getString(4),
+                    rows.getString(5), rows.getBoolean(6), rows.getLong(7))); }
+            return List.copyOf(result);
+        } catch (SQLException error) { throw new AdventurePersistenceException("could not load long-term adventure facts", error); }
+    }
+    @Override public List<LongTermAdventureFact> longTermFactHistory(AdventureId adventureId) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("SELECT fact_id, established_turn_id, source_adventure_version, fact_kind, relevance, player_visible, fact_version FROM adventure_long_term_fact_history WHERE adventure_id=? ORDER BY fact_id, fact_version")) {
+            statement.setObject(1, adventureId.value()); List<LongTermAdventureFact> result = new ArrayList<>();
+            try (ResultSet rows = statement.executeQuery()) { while (rows.next()) result.add(new LongTermAdventureFact(adventureId,
+                    rows.getObject(1, java.util.UUID.class), rows.getObject(2, java.util.UUID.class), rows.getLong(3), rows.getString(4),
+                    rows.getString(5), rows.getBoolean(6), rows.getLong(7))); }
+            return List.copyOf(result);
+        } catch (SQLException error) { throw new AdventurePersistenceException("could not load long-term fact history", error); }
     }
     @Override public long coveredThrough(AdventureId adventureId) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("SELECT COALESCE(MAX(source_end), -1) FROM adventure_conversation_compaction_job WHERE adventure_id=?")) {

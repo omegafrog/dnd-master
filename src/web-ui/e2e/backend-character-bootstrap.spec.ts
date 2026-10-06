@@ -206,28 +206,33 @@ async function compilePackage(request: APIRequestContext, bundleId: string, prim
         attempt?: number
         packageId?: string | null
         failureReason?: string | null
+        diagnostics?: Array<{ code?: string; message?: string }>
       }
       packageId = current.packageId ?? packageId
-      observations.push({
-        observedAt: new Date().toISOString(),
-        elapsedMs: Date.now() - startedAt,
-        status: current.status,
-        attempt: current.attempt,
-        packageId,
-      })
+      const last = observations.at(-1)
+      if (!last || last.status !== current.status || last.attempt !== current.attempt || last.packageId !== packageId) {
+        observations.push({
+          observedAt: new Date().toISOString(),
+          elapsedMs: Date.now() - startedAt,
+          status: current.status,
+          attempt: current.attempt,
+          packageId,
+        })
+      }
 
       if (current.status === 'COMPLETED' || current.status === 'PUBLISHED') {
         expect(packageId, `scenario compilation ${compilation.compilationId} finished without a package id`).toBeTruthy()
         return packageId!
       }
       if (!runningStatuses.has(current.status)) {
-        throw new Error(`scenario compilation ${compilation.compilationId} stopped at ${current.status}: ${current.failureReason ?? ''}`)
+        const detail = current.failureReason ?? current.diagnostics?.map(item => `${item.code ?? ''} ${item.message ?? ''}`).join('; ')
+        throw new Error(detail || `scenario compilation ${compilation.compilationId} stopped at ${current.status}`)
       }
-      await new Promise(resolve => setTimeout(resolve, 5000))
+      await new Promise(resolve => setTimeout(resolve, 1000))
     }
   } finally {
-    await test.info().attach('scenario-compilation-observations.json', {
-      body: Buffer.from(JSON.stringify({ compilationId: compilation.compilationId, observations }, null, 2)),
+    await test.info().attach(`scenario-compilation-${compilation.compilationId}.json`, {
+      body: Buffer.from(JSON.stringify({ compilationId: compilation.compilationId, bundleId, observations }, null, 2)),
       contentType: 'application/json',
     })
   }

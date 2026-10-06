@@ -179,6 +179,25 @@ public final class CharacterSheetApplicationService {
                 for (String item : mutation.removeItems()) { boolean removed = false; for (int i = items.size() - 1; i >= 0; i--) if (item.equals(items.get(i).asText())) { items.remove(i); removed = true; break; } if (!removed) throw new IllegalArgumentException("character does not own item: " + item); }
                 for (String item : mutation.addItems()) { boolean exists = false; for (JsonNode value : items) if (item.equals(value.asText())) exists = true; if (!exists) items.add(item); }
             }
+            if (mutation.consumeSpellSlotLevel() > 0) {
+                ObjectNode slots;
+                JsonNode existingSlots = state.get("spellSlots");
+                if (existingSlots == null || existingSlots.isNull()) {
+                    slots = state.putObject("spellSlots");
+                    int initialSlots = current.characterClass().equals("위저드") && current.level() == 1 ? 2 : 0;
+                    if (initialSlots > 0) slots.put("1", initialSlots);
+                } else if (existingSlots.isObject()) {
+                    slots = (ObjectNode) existingSlots;
+                } else {
+                    throw new IllegalArgumentException("spellSlots must be an object");
+                }
+                String levelKey = Integer.toString(mutation.consumeSpellSlotLevel());
+                JsonNode available = slots.get(levelKey);
+                if (available == null || !available.isIntegralNumber() || available.intValue() < 1) {
+                    throw new IllegalArgumentException("주문 슬롯이 부족합니다.");
+                }
+                slots.put(levelKey, available.intValue() - 1);
+            }
             String nextBuild = JSON.writeValueAsString(build), nextState = JSON.writeValueAsString(state);
             return current instanceof CharacterSheetData2014 data
                     ? new CharacterSheetData2014(data.characterName(), data.level(), data.inspiration(), data.race(), data.characterClass(), data.background(), data.startingAbilities(), data.derivedStatistics(), nextBuild, nextState)
@@ -215,7 +234,7 @@ public final class CharacterSheetApplicationService {
     }
 
     private void requireSessionActive(CharacterSheet sheet) {
-        if (!sessionPolicyPort.policyFor(sheet.adventureId(), sheet.id()).acceptingCharacterSheets()) {
+        if (!sessionPolicyPort.policyFor(sheet.adventureId(), sheet.id()).sessionActive()) {
             throw new IllegalStateException("character sheet belongs to a terminated adventure session");
         }
     }

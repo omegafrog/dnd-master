@@ -19,20 +19,17 @@ describe('AdventureSessionPanel lifecycle', () => {
     expect(screen.getByText('파티 정원 2명에 맞춰야 시작할 수 있습니다.')).toBeTruthy()
   })
 
-  it('offers termination actions and submits completion', async () => {
+  it('does not let the player complete a session manually', async () => {
     const api = {
       read: vi.fn().mockResolvedValue({ sessionId: 's', characterLimit: 1, version: 3, status: 'STARTED', adventureId: 'a', runtimeConfiguration: null, party: [] }),
       listOwnedCharacters: vi.fn().mockResolvedValue([]),
       copyOwnedCharacter: vi.fn(),
       addMember: vi.fn(), removeMember: vi.fn(), start: vi.fn(),
-      complete: vi.fn().mockResolvedValue({ sessionId: 's', characterLimit: 1, version: 4, status: 'COMPLETED', adventureId: 'a', runtimeConfiguration: null, party: [] }),
       delete: vi.fn(),
     }
     render(<AdventureSessionPanel api={api} ownerPlayerId="p" sessionId="s" />)
-    expect(await screen.findByRole('button', { name: '세션 완료' })).toBeTruthy()
-    await userEvent.click(screen.getByRole('button', { name: '세션 완료' }))
-    await userEvent.click(screen.getByRole('button', { name: '종료 확인' }))
-    expect(api.complete).toHaveBeenCalledWith('s', 3)
+    expect(await screen.findByRole('button', { name: '세션 삭제' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '세션 완료' })).toBeNull()
   })
 
   it('blocks start when runtime configuration is missing', async () => {
