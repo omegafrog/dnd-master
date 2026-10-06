@@ -15,6 +15,17 @@ import org.junit.jupiter.api.Test;
 
 class RuntimeGmPromptComposerTest {
     @Test
+    void enemy_sheet_preparation_prompt_supplies_required_runtime_judgment_without_starting_combat_again() {
+        String instruction = RuntimeTurnApplicationService.enemySheetCandidateInstruction(
+                List.of(new CombatEnemyProposal("encounter-rats", "giant-rat", "거대 쥐", 1)), List.of("giant-rat"));
+
+        assertTrue(instruction.contains("judgment"));
+        assertTrue(instruction.contains("combatStart=false"));
+        assertTrue(instruction.contains("mapEntryRequested=false"));
+        assertTrue(instruction.contains("판정제안"));
+    }
+
+    @Test
     void supplies_both_evidence_types_and_exact_reference_keys_for_model_selection() {
         String storybookKey = "STORYBOOK:doc-story:2:page=3";
         String rulebookKey = "RULEBOOK:doc-rules:2:page=63";

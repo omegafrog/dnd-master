@@ -847,10 +847,13 @@ public class RuntimeTurnApplicationService {
         }
     }
 
-    private static String enemySheetCandidateInstruction(List<CombatEnemyProposal> enemies, List<String> missingKinds) {
+    static String enemySheetCandidateInstruction(List<CombatEnemyProposal> enemies, List<String> missingKinds) {
         var requested = enemies.stream().filter(enemy -> missingKinds.contains(enemy.enemyKey().toLowerCase(java.util.Locale.ROOT)))
                 .map(enemy -> enemy.enemyKey() + " / " + enemy.name()).toList();
-        return "전투 진입 전 적 캐릭터 시트 후보를 작성한다. 요청된 적 종류마다 STR, DEX, CON, INT, WIS, CHA 수치와 룰북에 명시된 모든 전투 행동·기술을 빠짐없이 반환한다. 각 능력치와 각 행동에는 제공된 근거키 중 해당 규칙을 뒷받침하는 인용을 넣는다. 다른 적 종류를 추가하지 않는다. 요청: " + String.join(", ", requested);
+        return "전투 진입 전 적 캐릭터 시트 후보를 작성한다. 요청된 적 종류마다 STR, DEX, CON, INT, WIS, CHA 수치와 룰북에 명시된 모든 전투 행동·기술을 빠짐없이 반환한다. 각 능력치와 각 행동에는 제공된 근거키 중 해당 규칙을 뒷받침하는 인용을 넣는다. "
+                + "기존 Runtime 응답 계약 필드도 모두 채운다: judgment에는 '적 시트 자료를 준비했습니다'처럼 비어 있지 않은 값을 쓰고, narration에는 자연스러운 한국어 한 문장을 쓴다. "
+                + "판정제안은 필요=false, combatStart=false, mapEntryRequested=false로 둔다. 이 작업 자체로 전투를 시작하거나 현재 장면·상황을 바꾸지 않는다. "
+                + "다른 적 종류를 추가하지 않는다. 요청: " + String.join(", ", requested);
     }
 
     private static List<CombatEnemyProposal> attachEnemySheetCandidates(List<CombatEnemyProposal> grounded,
