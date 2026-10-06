@@ -40,6 +40,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ScenarioPackageCompilationService {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(ScenarioPackageCompilationService.class);
     private static final String SCENARIO_MODEL_COMPILATION_VERSION = "scenario-model-v3";
     private static final String COMPILER_VERSION = "resolution-compiler-v3";
     private static final String DICE_PATTERN = "(?i)\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?";
@@ -178,6 +179,11 @@ public final class ScenarioPackageCompilationService {
                 .map(candidate -> normalizeVisibility(candidate, documents))
                 .map(ScenarioPackageCompilationService::normalizeLegacyDetail)
                 .toList();
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_compilation_stage bundleId={} stage=override_application requestedCount={} effectiveCount={} overrideCount={} overrideWarnings={}",
+                    bundle.id().value(), candidates.size(), effectiveCandidates.size(), overrideResult.overrides().size(),
+                    overrideResult.warnings());
+        }
         List<ScenarioResolutionUnit> units = effectiveCandidates.stream()
                 .map(candidate -> validate(candidate, documents, availableExcerpts, verifyEvidence))
                 .toList();

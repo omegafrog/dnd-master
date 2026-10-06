@@ -17,6 +17,7 @@ public final class RulebookCombatStatBlockResolver {
             "(?i)(?:(?:melee|ranged)\\s+weapon\\s+attack:\\s*|(?:근접|원거리)\\s+무기\\s+공격:\\s*(?:명중\\s*)?)([+-]?\\d+)(?:\\s+to\\s+hit)?");
     private static final Pattern DAMAGE = Pattern.compile(
             "(?i)(?:\\bHit:|명중시:)\\s*\\d+\\s*\\(([0-9]+d[0-9]+(?:\\s*[+-]\\s*[0-9]+)?)\\)");
+    private static final Pattern DEXTERITY_MODIFIER = Pattern.compile("(?i)\\bDEX\\s+\\d+\\s*\\(([+-]\\d+)\\)");
     private static final int MAX_MONSTER_HEADING_LINES = 3;
 
     private RulebookCombatStatBlockResolver() {}
@@ -85,8 +86,11 @@ public final class RulebookCombatStatBlockResolver {
         int attackModifier = Integer.parseInt(attack.group(1));
         Matcher damage = DAMAGE.matcher(excerpt);
         String damageDice = damage.find() ? damage.group(1).replaceAll("\\s+", " ") : "";
+        Matcher dexterity = DEXTERITY_MODIFIER.matcher(excerpt);
+        int initiativeModifier = dexterity.find() ? Integer.parseInt(dexterity.group(1)) : 0;
         return Optional.of(new CombatEnemyStatBlock(armorClass, hitPoints, attackModifier, damageDice,
-                new CombatStatBlockSource(evidence.knowledgeDocumentId().value(), evidence.extractionVersion(), evidence.locator())));
+                new CombatStatBlockSource(evidence.knowledgeDocumentId().value(), evidence.extractionVersion(), evidence.locator()),
+                initiativeModifier));
     }
 
     private static boolean hasMatchingMonsterHeading(String excerpt, String name, String key) {

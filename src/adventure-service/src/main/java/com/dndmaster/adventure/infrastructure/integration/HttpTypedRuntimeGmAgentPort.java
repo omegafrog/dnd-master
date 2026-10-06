@@ -114,6 +114,8 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("typed runtime GM interrupted", exception);
         } catch (Exception exception) {
+            devLog("dev_agent_http operation=typed_runtime_gm outcome=exception turnId={} operationKey={} failureClass={} failure={}",
+                    context.turnId(), context.operationKey(), exception.getClass().getName(), exception.getMessage());
             throw new IllegalStateException("typed runtime GM call failed: " + exception.getMessage(), exception);
         }
     }
@@ -160,6 +162,9 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             throw new RuntimeGmInputLimitException("selected GM endpoint changed or input limit is unavailable");
         }
         if (response.statusCode() / 100 != 2) {
+            devLog("dev_agent_http operation=typed_runtime_gm outcome=http_error turnId={} operationKey={} status={} response={}",
+                    context.turnId(), context.operationKey(), response.statusCode(),
+                    com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.safeBody(response.body()));
             throw new IllegalStateException("typed runtime GM returned " + response.statusCode() + ": " + response.body());
         }
         RuntimeResponse result = mapper.readValue(response.body(), RuntimeResponse.class);
@@ -171,7 +176,15 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         if (result.combatEnemies() == null || (result.combatStart() && result.combatEnemies().isEmpty())) {
             throw new IllegalStateException("typed runtime GM combat response is incomplete");
         }
+        devLog("dev_agent_response operation=typed_runtime_gm turnId={} operationKey={} scene={} situationKind={} situationLocation={} situationBasis={} situationReference={} combatStart={} enemyCount={} mapEntryRequested={}",
+                context.turnId(), context.operationKey(), result.scene(), result.situation().kind(), result.situation().location(),
+                result.situation().basis(), result.situation().reference(), result.combatStart(),
+                result.combatEnemies().size(), result.mapEntryRequested());
         return result;
+    }
+
+    private static void devLog(String pattern, Object... args) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.info(pattern, args);
     }
 
     private static SituationProposal situation(SituationResponse response) {

@@ -22,6 +22,15 @@ public final class CombatStartParticipantFactory {
     public static List<CombatParticipant> fromPartyAndGmProposal(UUID adventureId,
             List<AdventurePartyMember> party, List<CombatEnemyProposal> enemies,
             Function<AdventurePartyMember, String> displayNameFor) {
+        return fromPartyAndGmProposal(adventureId, party, enemies, displayNameFor, ignored -> 0,
+                () -> java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 21));
+    }
+
+    public static List<CombatParticipant> fromPartyAndGmProposal(UUID adventureId,
+            List<AdventurePartyMember> party, List<CombatEnemyProposal> enemies,
+            Function<AdventurePartyMember, String> displayNameFor,
+            Function<AdventurePartyMember, Integer> initiativeModifier,
+            java.util.function.IntSupplier d20) {
         if (enemies == null || enemies.isEmpty()) {
             throw new IllegalArgumentException("combat start requires at least one structured enemy");
         }
@@ -31,7 +40,7 @@ public final class CombatStartParticipantFactory {
                         member.controlMode() == com.dndmaster.adventure.domain.adventure.ControlMode.AGENT
                                 ? CombatParticipant.Controller.AI
                                 : CombatParticipant.Controller.PLAYER,
-                        0, null))
+                        d20.getAsInt() + initiativeModifier.apply(member), null))
                 .toList());
 
         int index = 0;
@@ -45,7 +54,7 @@ public final class CombatStartParticipantFactory {
                         (adventureId + "|combat-enemy|" + index + "|" + enemy.scenarioId() + "|" + instance)
                                 .getBytes(StandardCharsets.UTF_8));
                 participants.add(new CombatParticipant(enemyId, displayName,
-                        CombatParticipant.Controller.AI, 0, "enemy",
+                        CombatParticipant.Controller.AI, d20.getAsInt() + enemy.statBlock().initiativeModifier(), "enemy",
                         com.dndmaster.adventure.domain.combat.TurnResources.initial(), enemy.statBlock()));
                 index++;
             }

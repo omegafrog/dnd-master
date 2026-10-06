@@ -172,6 +172,26 @@ class CrossContextHttpIntegrationTest {
                 .withRequestBody(equalToJson("{\"question\":\"What happened in the tavern?\"}")));
     }
 
+    @Test
+    void reads_dexterity_modifier_from_character_sheet_before_initiative_is_rolled() {
+        server = new WireMockServer(0);
+        server.start();
+        UUID characterId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        server.stubFor(get(urlEqualTo("/internal/v1/character-sheets/" + characterId + "/runtime"))
+                .willReturn(aResponse().withStatus(200).withBody("""
+                        {"startingAbilities":"strength=10,dexterity=15,constitution=12"}
+                        """)));
+        var gateway = new CrossContextHttpCombatGateway(
+                HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2));
+
+        assertEquals(2, gateway.initiativeModifier(characterId, ownerId, sessionId));
+        server.verify(getRequestedFor(urlEqualTo("/internal/v1/character-sheets/" + characterId + "/runtime"))
+                .withHeader("X-Owner-Player-ID", equalTo(ownerId.toString()))
+                .withHeader("X-Session-ID", equalTo(sessionId.toString())));
+    }
+
     private static final class MemoryRepository implements CombatOperationRepository {
         private final Map<UUID, CombatOperation> values = new HashMap<>();
         @Override public Optional<CombatOperation> findById(UUID operationId) { return Optional.ofNullable(values.get(operationId)); }

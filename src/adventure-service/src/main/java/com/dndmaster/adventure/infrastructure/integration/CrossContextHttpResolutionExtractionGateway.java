@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Objects;
 
 public final class CrossContextHttpResolutionExtractionGateway implements ResolutionExtractionPort {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CrossContextHttpResolutionExtractionGateway.class);
     private static final String SCENARIO_COMPILATION_OPERATION_PREFIX = "scenario-compilation:";
     private final HttpClient client;
     private final URI baseUri;
@@ -52,20 +53,32 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 String detail = response.body() == null ? "" : response.body().trim();
                 if (detail.length() > 500) detail = detail.substring(0, 500);
+                devLog("dev_agent_http operation=resolution_candidates outcome=http_error operationId={} excerptCount={} status={} response={}",
+                        operationId, request.excerpts().size(), response.statusCode(),
+                        com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.safeBody(detail));
                 throw new ResolutionExtractionException(
                         "resolution extraction failed with status " + response.statusCode()
                                 + (detail.isEmpty() ? "" : ": " + detail));
             }
             ExtractionResponse extracted = objectMapper.readValue(response.body(), ExtractionResponse.class);
-            return extracted.candidates() == null ? List.of() : extracted.candidates().stream()
+            List<ResolutionCandidate> candidates = extracted.candidates() == null ? List.of() : extracted.candidates().stream()
                     .filter(Objects::nonNull)
                     .map(CrossContextHttpResolutionExtractionGateway::toCandidate).toList();
+            devLog("dev_agent_response operation=resolution_candidates operationId={} excerptCount={} candidateCount={} candidates={}",
+                    operationId, request.excerpts().size(), candidates.size(), candidates.stream().map(candidate ->
+                            candidate.kind() + ":" + (candidate.sourceRefs() == null ? List.of() : candidate.sourceRefs().stream()
+                                    .map(ref -> ref.knowledgeDocumentId().value() + ":" + ref.locator()).toList())).toList());
+            return candidates;
         } catch (IOException exception) {
             throw new ResolutionExtractionException("resolution extraction failed", exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new ResolutionExtractionException("resolution extraction interrupted", exception);
         }
+    }
+
+    private static void devLog(String pattern, Object... args) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.info(pattern, args);
     }
 
     private static String requireInternalToken(String value) {

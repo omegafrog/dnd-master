@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.UUID;
 
 public final class CrossContextHttpScenarioSourceExcerptGateway implements ScenarioSourceExcerptPort {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(CrossContextHttpScenarioSourceExcerptGateway.class);
     private static final int MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION = 12;
     private static final int MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION = 12;
     private static final String RULE_QUERY =
@@ -91,6 +92,10 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                devLog("dev_preparation_search outcome=http_error bundleId={} documentType={} queryFingerprint={} status={} response={}",
+                        bundle.id().value(), documentType,
+                        com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(situation),
+                        response.statusCode(), com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.safeBody(response.body()));
                 throw new ResolutionExtractionException("source excerpt lookup failed with status " + response.statusCode());
             }
             PreparationSearchResponse extracted = objectMapper.readValue(response.body(), PreparationSearchResponse.class);
@@ -98,7 +103,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                     || extracted.candidates() == null) {
                 throw new ResolutionExtractionException("preparation evidence response scope does not match its request");
             }
-            return extracted.candidates().stream()
+            List<ResolutionExtractionPort.SourceExcerpt> selected = extracted.candidates().stream()
                     .filter(Objects::nonNull)
                     .limit(limit)
                     .map(candidate -> {
@@ -110,12 +115,22 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                         return new ResolutionExtractionPort.SourceExcerpt(documentType, toProvenance(candidate.documentId(),
                                 candidate.extractionVersion(), candidate.locator(), candidate.provenance()), candidate.excerpt());
                     }).toList();
+            devLog("dev_preparation_search outcome=success bundleId={} documentType={} queryFingerprint={} scopeCount={} limit={} candidateCount={} candidates={}",
+                    bundle.id().value(), documentType,
+                    com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(situation),
+                    documents.size(), limit, selected.size(), selected.stream().map(item -> item.documentId().value()
+                            + ":" + item.extractionVersion() + ":" + item.locator()).toList());
+            return selected;
         } catch (IOException exception) {
             throw new ResolutionExtractionException("source excerpt lookup failed", exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new ResolutionExtractionException("source excerpt lookup interrupted", exception);
         }
+    }
+
+    private static void devLog(String pattern, Object... args) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.info(pattern, args);
     }
 
     private static PublishedEvidenceProvenance toProvenance(

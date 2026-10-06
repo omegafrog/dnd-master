@@ -19,7 +19,7 @@ class RulebookCombatStatBlockResolverTest {
         UUID documentId = UUID.randomUUID();
         RuntimeEvidence evidence = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
                 new KnowledgeDocumentId(documentId), 3, "page-135",
-                "Giant Rat\nArmor Class 12 Hit Points 7 (2d6) Speed 30 ft.\n"
+                "Giant Rat\nArmor Class 12 Hit Points 7 (2d6) Speed 30 ft. STR 7 (-2) DEX 15 (+2)\n"
                         + "Bite. Melee Weapon Attack: +4 to hit, reach 5 ft., one target. "
                         + "Hit: 4 (1d6 + 2) piercing damage.");
 
@@ -34,6 +34,7 @@ class RulebookCombatStatBlockResolverTest {
         assertEquals(7, stats.hitPointMaximum());
         assertEquals(4, stats.attackModifier());
         assertEquals("1d6 + 2", stats.damageDice());
+        assertEquals(2, stats.initiativeModifier());
         assertEquals(documentId, stats.source().knowledgeDocumentId());
     }
 

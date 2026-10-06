@@ -43,19 +43,28 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/evidence-rerank"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+            devLog("dev_agent_http operation=evidence_rerank status={} policy={} queryFingerprint={} candidateCount={} candidates={} response={}",
+                    response.statusCode(), request.policyId(), com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.query()),
+                    request.candidates().size(), request.candidates().stream().map(candidate -> candidate.id() + ":"
+                            + candidate.documentType() + ":" + candidate.locator()).toList(), response.statusCode() / 100 == 2 ? "" :
+                            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.safeBody(response.body()));
             if (isTransient(response.statusCode())) throw new EvidenceAcquisitionTransientException(
                     "evidence reranking is unavailable (HTTP " + response.statusCode() + ")");
             if (response.statusCode() / 100 != 2) {
                 if (response.statusCode() == 422) {
                     String responseMarker = response.body().contains("EVIDENCE_MODEL_OUTPUT_INVALID")
                             ? "EVIDENCE_MODEL_OUTPUT_INVALID" : "UNCLASSIFIED_422";
-                    LOGGER.warn("evidence reranking contract failure status={} policy={} candidateCount={} responseChars={} responseMarker={}",
-                            response.statusCode(), request.policyId(), request.candidates().size(), response.body().length(), responseMarker);
+                    devLog("dev_evidence_rerank_contract status={} policy={} candidateCount={} responseChars={} responseMarker={} response={}",
+                            response.statusCode(), request.policyId(), request.candidates().size(), response.body().length(), responseMarker,
+                            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.safeBody(response.body()));
                 }
                 throw new EvidenceAcquisitionContractException("evidence reranking failed with status " + response.statusCode());
             }
             List<UUID> ids = List.copyOf(mapper.readValue(response.body(), Response.class).orderedCandidateIds());
             validateIds(ids, request.candidates());
+            devLog("dev_agent_response operation=evidence_rerank policy={} queryFingerprint={} inputCount={} orderedIds={}",
+                    request.policyId(), com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.query()),
+                    request.candidates().size(), ids);
             return ids;
         } catch (IOException exception) {
             throw new EvidenceAcquisitionTransientException("evidence reranking transport failed");
@@ -75,6 +84,9 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
         }
     }
     private static boolean isTransient(int status) { return status == 429 || status >= 500; }
+    private static void devLog(String pattern, Object... args) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.info(pattern, args);
+    }
     private static String required(String value, String name) { if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank"); return value; }
     record Request(UUID soloPlayerId, String query, String taskContext, List<Candidate> candidates) {}
     record Candidate(String evidenceId, String documentType, String locator, String excerpt) {}

@@ -787,18 +787,23 @@ public class RuntimeTurnApplicationService {
         RuntimePlanningResult planningResult = stage(command.turnId(), "gm_runtime_planning",
                 () -> planningPort.planWithOutcomes(planningRequest));
         RuntimePlan plan = planningResult.plan();
+        logSituationDiagnostic(command.turnId(), "proposed", planningResult.resolutionProposal(), null);
         EvidencePack groundingEvidencePack = evidencePack;
         RuntimeResolutionProposal proposal = stage(command.turnId(), "resolution_proposal_grounding", () -> {
             try {
-                return SituationProposalGroundingPolicy.ground(planningResult.resolutionProposal(),
+                RuntimeResolutionProposal grounded = SituationProposalGroundingPolicy.ground(planningResult.resolutionProposal(),
                         scenarioPackage.scenarioModel(), groundingEvidencePack.rules(), command.turnId());
+                logSituationDiagnostic(command.turnId(), "grounded", grounded, null);
+                return grounded;
             } catch (IllegalArgumentException failure) {
                 SituationProposal situation = planningResult.resolutionProposal().situationProposal();
-                LOGGER.error("situation_proposal_grounding_rejected turnId={} reason={} basis={} proposedReference={} "
-                                + "storybookEvidence={} rulebookEvidence={} resolutionEvidence={}",
-                        command.turnId(), safeMessage(failure), situation == null ? null : situation.basis(),
-                        situation == null ? null : situation.reference(), evidenceReferences(groundingEvidencePack.storybook()),
-                        evidenceReferences(groundingEvidencePack.rulebook()), evidenceReferences(groundingEvidencePack.resolution()));
+                if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                    LOGGER.error("dev_situation_grounding outcome=rejected turnId={} reason={} basis={} proposedReference={} "
+                                    + "storybookEvidence={} rulebookEvidence={} resolutionEvidence={}",
+                            command.turnId(), safeMessage(failure), situation == null ? null : situation.basis(),
+                            situation == null ? null : situation.reference(), evidenceReferences(groundingEvidencePack.storybook()),
+                            evidenceReferences(groundingEvidencePack.rulebook()), evidenceReferences(groundingEvidencePack.resolution()));
+                }
                 throw failure;
             }
         });
@@ -916,6 +921,18 @@ public class RuntimeTurnApplicationService {
         PlayerVisibleTurn visible = new PlayerVisibleTurn(ready.narration(), plan.scene(), List.of(), visibleInput.stateDelta(), narrativeContext);
         return new RuntimeTurnResult(committed, adventure.currentContext(), adventure.conversation(), adventure.version(), visible,
                 commitResult.movementResult());
+    }
+
+    private static void logSituationDiagnostic(UUID turnId, String outcome,
+            RuntimeResolutionProposal proposal, String reason) {
+        if (!com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) return;
+        SituationProposal situation = proposal == null ? null : proposal.situationProposal();
+        SituationUpdateProposal update = proposal == null ? null : proposal.situationUpdate();
+        LOGGER.info("dev_situation_transition outcome={} turnId={} hasProposal={} kind={} location={} basis={} reference={} required={} reason={}",
+                outcome, turnId, situation != null,
+                update == null ? null : update.kind(), update == null ? null : update.location(),
+                situation == null ? null : situation.basis(), situation == null ? null : situation.reference(),
+                situation == null ? null : situation.required(), reason);
     }
 
     private List<String> recentConversationForPrompt(Adventure adventure) {

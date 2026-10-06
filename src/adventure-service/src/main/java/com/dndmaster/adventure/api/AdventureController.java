@@ -350,10 +350,14 @@ public class AdventureController {
                         .orElseThrow(() -> new IllegalStateException("adventure disappeared after runtime commit"));
                 boolean combatStartRequested = result.turn().plan().combatStartRequested();
                 boolean mapEntryRequested = result.turn().plan().mapEntryRequested();
-                LOGGER.info("gm_turn_committed adventureId={} turnId={} scene={} situationLocation={} mapEntryRequested={} combatStart={} action={} narration={}",
+                LOGGER.info("gm_turn_committed adventureId={} turnId={} scene={} situationLocation={} mapEntryRequested={} combatStart={}",
                         adventureId, turn.turnId(), result.turn().plan().scene(),
                         committedAdventure.currentSituation() == null ? "" : committedAdventure.currentSituation().location(),
-                        mapEntryRequested, combatStartRequested, turn.input().actionText(), result.turn().plan().narration());
+                        mapEntryRequested, combatStartRequested);
+                if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                    LOGGER.info("dev_gm_turn_content turnId={} action={} narration={}",
+                            turn.turnId(), turn.input().actionText(), result.turn().plan().narration());
+                }
                 com.dndmaster.adventure.domain.combat.CombatEncounter combat = null;
                 if (combatStartRequested) {
                     if (combatLifecycleService.findActiveEncounter(adventureId).isEmpty()) {
@@ -364,7 +368,11 @@ public class AdventureController {
                                         CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, adventure.party(),
                                                 result.turn().plan().combatEnemies(), member -> characterCombatPort.displayName(
                                                         member.characterSheetId().value(), adventure.ownerPlayerId().value(),
-                                                        adventure.sessionId().value()))));
+                                                        adventure.sessionId().value()),
+                                                member -> characterCombatPort.initiativeModifier(
+                                                        member.characterSheetId().value(), adventure.ownerPlayerId().value(),
+                                                        adventure.sessionId().value()),
+                                                () -> java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 21))));
                     } else {
                         LOGGER.warn("gm_turn_combat_start_skipped adventureId={} reason=ACTIVE_COMBAT_ALREADY_EXISTS turnId={}",
                                 adventureId, result.turn().turnId());
@@ -448,7 +456,11 @@ public class AdventureController {
                                 CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, adventure.party(),
                                         result.turn().plan().combatEnemies(), member -> characterCombatPort.displayName(
                                                 member.characterSheetId().value(), adventure.ownerPlayerId().value(),
-                                                adventure.sessionId().value()))));
+                                                adventure.sessionId().value()),
+                                        member -> characterCombatPort.initiativeModifier(
+                                                member.characterSheetId().value(), adventure.ownerPlayerId().value(),
+                                                adventure.sessionId().value()),
+                                        () -> java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 21))));
                 if (encounter != null) combatLifecycleService.scheduleFirstAiTurn(encounter, result.turn().commandId());
             }
         }

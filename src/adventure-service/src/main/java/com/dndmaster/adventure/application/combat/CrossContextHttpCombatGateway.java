@@ -63,6 +63,40 @@ public final class CrossContextHttpCombatGateway
     }
 
     @Override
+    public int initiativeModifier(java.util.UUID characterSheetId, java.util.UUID ownerPlayerId,
+            java.util.UUID sessionId) {
+        try {
+            HttpRequest.Builder builder = HttpRequest.newBuilder(baseUri.resolve(
+                            "internal/v1/character-sheets/" + characterSheetId + "/runtime"))
+                    .timeout(timeout).header("X-Internal-Token", internalToken)
+                    .header("X-Session-ID", sessionId.toString());
+            if (ownerPlayerId != null) builder.header("X-Owner-Player-ID", ownerPlayerId.toString());
+            HttpResponse<String> response = client.send(builder.GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("cross-context call failed with status " + response.statusCode());
+            }
+            CharacterSheetView sheet = objectMapper.readValue(response.body(), CharacterSheetView.class);
+            int dexterity = parseDexterity(sheet.startingAbilities());
+            return Math.floorDiv(dexterity - 10, 2);
+        } catch (IOException exception) {
+            throw new CrossContextCallException("character initiative data could not be read", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("character initiative lookup was interrupted", exception);
+        }
+    }
+
+    private int parseDexterity(String startingAbilities) throws IOException {
+        if (startingAbilities == null || startingAbilities.isBlank()) return 10;
+        var textMatch = java.util.regex.Pattern.compile("(?i)(?:^|,)\\s*(?:dexterity|dex|민첩)\\s*=\\s*(\\d+)")
+                .matcher(startingAbilities);
+        if (textMatch.find()) return Integer.parseInt(textMatch.group(1));
+        JsonNode abilities = objectMapper.readTree(startingAbilities);
+        return abilities.path("dexterity").asInt(
+                abilities.path("dex").asInt(abilities.path("민첩").asInt(10)));
+    }
+
+    @Override
     public com.dndmaster.adventure.domain.combat.CombatSpellcastingProfile spellcastingProfile(CombatActionCommand command) {
         CharacterSheetView character = readCharacterSheet(command);
         if ("CAST_SPELL".equals(command.action())) characterSheetViews.put(command.operationId(), character);

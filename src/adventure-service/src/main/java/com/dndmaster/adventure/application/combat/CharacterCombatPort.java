@@ -22,6 +22,10 @@ public interface CharacterCombatPort {
     /** Returns the average damage of the character sheet's first listed attack. */
     default Integer damageAmount(CombatActionCommand command) { return null; }
 
+    /** Returns the dexterity modifier used for the character's initiative roll. */
+    default int initiativeModifier(java.util.UUID characterSheetId, java.util.UUID ownerPlayerId,
+            java.util.UUID sessionId) { return 0; }
+
     /**
      * Gives the owning Character service a terminal, idempotent commit boundary.
      * Existing action mutations remain the authoritative state; this hook must

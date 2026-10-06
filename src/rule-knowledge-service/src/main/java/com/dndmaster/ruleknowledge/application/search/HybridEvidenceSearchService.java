@@ -12,6 +12,7 @@ import java.util.concurrent.Future;
 
 /** Collects both required scoped candidate lists and fuses them deterministically with RRF. */
 public final class HybridEvidenceSearchService {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(HybridEvidenceSearchService.class);
     private final DenseEvidenceCandidateSearchPort denseSearch;
     private final Bm25EvidenceCandidateSearchPort bm25Search;
     private final RrfFusionPolicy rrfFusionPolicy;
@@ -40,6 +41,9 @@ public final class HybridEvidenceSearchService {
         RetrievalCandidates retrievalCandidates = retrieveTogether(request);
         List<EvidenceCandidate> denseCandidates = retrievalCandidates.denseCandidates();
         List<EvidenceCandidate> bm25Candidates = retrievalCandidates.bm25Candidates();
+        devLog("dev_evidence_search stage=retrieval ownerId={} scenarioPackageId={} stageKey={} queryFingerprint={} scope={} denseCount={} bm25Count={} denseChunks={} bm25Chunks={}",
+                request.ownerPlayerId().value(), request.scenarioPackageId(), request.stageKey(), fingerprint(request.query()),
+                scopeKeys(request), denseCandidates.size(), bm25Candidates.size(), chunkIds(denseCandidates), chunkIds(bm25Candidates));
 
         Map<String, EvidenceCandidate> candidatesByStableId = new LinkedHashMap<>();
         addCandidates(candidatesByStableId, denseCandidates);
@@ -48,9 +52,14 @@ public final class HybridEvidenceSearchService {
         rrfFusionPolicy.fuse(stableIds(denseCandidates), stableIds(bm25Candidates))
                 .forEach(rank -> ranksByStableId.put(rank.stableChunkId(), rank));
 
-        return new EvidenceSearchResult(ranksByStableId.values().stream()
+        EvidenceSearchResult result = new EvidenceSearchResult(ranksByStableId.values().stream()
                 .map(rank -> withRanks(candidatesByStableId.get(rank.stableChunkId()), rank))
                 .toList());
+        devLog("dev_evidence_search stage=rank_fusion ownerId={} scenarioPackageId={} stageKey={} queryFingerprint={} fusedCount={} fused={}",
+                request.ownerPlayerId().value(), request.scenarioPackageId(), request.stageKey(), fingerprint(request.query()), result.candidates().size(),
+                result.candidates().stream().map(candidate -> candidate.chunkId().value() + ":dense="
+                        + candidate.denseRank() + ":bm25=" + candidate.bm25Rank() + ":rrf=" + candidate.rrfScore()).toList());
+        return result;
     }
 
     private RetrievalCandidates retrieveTogether(EvidenceSearchRequest request) {
@@ -59,26 +68,77 @@ public final class HybridEvidenceSearchService {
             return retrieveOnce(request);
         } catch (RuntimeException exception) {
             firstFailure = exception;
+            devLog("dev_evidence_search stage=retrieval_attempt attempt=1 outcome=failed ownerId={} bundleId={} failureClass={}",
+                    request.ownerPlayerId().value(), request.scenarioPackageId(), exception.getClass().getName());
         }
         try {
-            return retrieveOnce(request);
+            RetrievalCandidates retry = retrieveOnce(request);
+            devLog("dev_evidence_search stage=retrieval_attempt attempt=2 outcome=success ownerId={} bundleId={} denseCount={} bm25Count={}",
+                    request.ownerPlayerId().value(), request.scenarioPackageId(), retry.denseCandidates().size(), retry.bm25Candidates().size());
+            return retry;
         } catch (RuntimeException retryFailure) {
             retryFailure.addSuppressed(firstFailure);
+            devLog("dev_evidence_search stage=retrieval_attempt attempt=2 outcome=failed ownerId={} bundleId={} failureClass={}",
+                    request.ownerPlayerId().value(), request.scenarioPackageId(), retryFailure.getClass().getName());
             throw new EvidenceSearchUnavailableException(retryFailure);
         }
     }
 
     private RetrievalCandidates retrieveOnce(EvidenceSearchRequest request) {
         try (ExecutorService executor = Executors.newFixedThreadPool(bm25Enabled ? 2 : 1)) {
-            Future<List<EvidenceCandidate>> dense = executor.submit(() -> denseSearch.search(request));
+            Future<List<EvidenceCandidate>> dense = executor.submit(() -> searchDense(request));
             Future<List<EvidenceCandidate>> bm25 = bm25Enabled
-                    ? executor.submit(() -> bm25Search.search(request))
+                    ? executor.submit(() -> searchBm25(request))
                     : null;
             List<EvidenceCandidate> denseCandidates = await(dense);
             List<EvidenceCandidate> bm25Candidates = bm25Enabled ? await(bm25) : List.of();
             return new RetrievalCandidates(
                     validatedCandidates(request, denseCandidates), validatedCandidates(request, bm25Candidates));
         }
+    }
+
+    private List<EvidenceCandidate> searchDense(EvidenceSearchRequest request) {
+        try {
+            return denseSearch.search(request);
+        } catch (RuntimeException failure) {
+            devLog("dev_evidence_search stage=dense outcome=failed ownerId={} bundleId={} failureClass={} failure={}",
+                    request.ownerPlayerId().value(), request.scenarioPackageId(), failure.getClass().getName(), failure.getMessage());
+            throw failure;
+        }
+    }
+
+    private List<EvidenceCandidate> searchBm25(EvidenceSearchRequest request) {
+        try {
+            return bm25Search.search(request);
+        } catch (RuntimeException failure) {
+            devLog("dev_evidence_search stage=bm25 outcome=failed ownerId={} bundleId={} failureClass={} failure={}",
+                    request.ownerPlayerId().value(), request.scenarioPackageId(), failure.getClass().getName(), failure.getMessage());
+            throw failure;
+        }
+    }
+
+    private static List<String> chunkIds(List<EvidenceCandidate> candidates) {
+        return candidates.stream().map(candidate -> candidate.chunkId().value().toString()).toList();
+    }
+
+    private static List<String> scopeKeys(EvidenceSearchRequest request) {
+        return request.scope().stream().map(scope -> scope.documentId().value() + ":" + scope.extractionVersion()
+                + ":" + scope.documentType()).toList();
+    }
+
+    private static String fingerprint(String value) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest, 0, 8);
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 is unavailable", impossible);
+        }
+    }
+
+    private static void devLog(String pattern, Object... arguments) {
+        if (Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")))) LOGGER.info(pattern, arguments);
     }
 
     private static List<EvidenceCandidate> await(Future<List<EvidenceCandidate>> retrieval) {

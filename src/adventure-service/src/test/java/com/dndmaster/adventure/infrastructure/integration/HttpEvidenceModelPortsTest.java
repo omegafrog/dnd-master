@@ -63,7 +63,7 @@ class HttpEvidenceModelPortsTest {
 
         assertEquals(List.of(candidateId), port.rerank(new EvidenceRerankRequest("RULE_GUIDANCE", "question", List.of(candidate()), soloPlayerId)));
         server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/evidence-rerank")));
-        org.assertj.core.api.Assertions.assertThat(output).doesNotContain("evidence reranking contract failure");
+        org.assertj.core.api.Assertions.assertThat(output).doesNotContain("dev_agent_http operation=evidence_rerank");
     }
 
     @Test
@@ -98,11 +98,18 @@ class HttpEvidenceModelPortsTest {
         var port = new HttpEvidenceRerankerPort(HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"),
                 Duration.ofSeconds(2), mapper, "internal-token");
 
-        assertThrows(EvidenceAcquisitionContractException.class,
-                () -> port.rerank(new EvidenceRerankRequest("RULE_GUIDANCE", "question", List.of(candidate()), soloPlayerId)));
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            assertThrows(EvidenceAcquisitionContractException.class,
+                    () -> port.rerank(new EvidenceRerankRequest("RULE_GUIDANCE", "question", List.of(candidate()), soloPlayerId)));
+        } finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
 
         org.assertj.core.api.Assertions.assertThat(output)
-                .contains("evidence reranking contract failure status=422")
+                .contains("dev_agent_http operation=evidence_rerank status=422")
                 .contains("policy=RULE_GUIDANCE")
                 .contains("candidateCount=1")
                 .contains("responseMarker=EVIDENCE_MODEL_OUTPUT_INVALID");
