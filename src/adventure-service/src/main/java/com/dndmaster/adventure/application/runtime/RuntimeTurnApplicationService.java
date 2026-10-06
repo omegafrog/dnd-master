@@ -868,11 +868,12 @@ public class RuntimeTurnApplicationService {
 
     public void prepareEnemySheetsForWork(
             com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest request) {
-        if (request == null || request.planningRequest() == null || enemyCharacterSheetRepository == null) {
+        if (request == null || enemyCharacterSheetRepository == null) {
             throw new IllegalStateException("ENEMY_SHEET_CANDIDATE_CONTEXT_MISSING");
         }
         var missing = request.enemies().stream().filter(enemy -> enemyCharacterSheetRepository.find(enemy.identity()).isEmpty()).toList();
         if (missing.isEmpty()) return;
+        if (request.planningRequest() == null) throw new IllegalStateException("ENEMY_SHEET_CANDIDATE_CONTEXT_MISSING");
         var evidence = request.planningRequest().evidencePack();
         var pinnedKeys = java.util.stream.Stream.concat(evidence.storybook().stream(), evidence.rulebook().stream())
                 .map(RuntimeEvidence::referenceKey).collect(java.util.stream.Collectors.toSet());

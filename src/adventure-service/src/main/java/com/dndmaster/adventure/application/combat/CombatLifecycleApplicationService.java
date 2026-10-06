@@ -19,30 +19,42 @@ public final class CombatLifecycleApplicationService {
     private final CombatWorkItemRepository workItemRepository;
     private final CombatWorkItemScheduler workItemScheduler;
     private final CombatEndGuard endGuard;
+    private final org.springframework.transaction.support.TransactionTemplate preparationTransactions;
     public CombatLifecycleApplicationService(CombatEncounterRepository repository) {
         this.repository = repository; this.eventRepository = null; this.adventureRepository = null;
         this.characterPort = null; this.mapPort = null; this.operationRepository = null;
         this.workItemRepository = null; this.endGuard = new CombatEndGuard();
         this.workItemScheduler = null;
+        this.preparationTransactions = null;
     }
     public CombatLifecycleApplicationService(CombatEncounterRepository repository, CombatEventRepository eventRepository) {
         this.repository = repository; this.eventRepository = eventRepository;
         this.adventureRepository = null; this.characterPort = null; this.mapPort = null;
         this.operationRepository = null; this.workItemRepository = null; this.endGuard = new CombatEndGuard();
         this.workItemScheduler = null;
+        this.preparationTransactions = null;
     }
     public CombatLifecycleApplicationService(CombatEncounterRepository repository, CombatEventRepository eventRepository,
                                              AdventureRepository adventureRepository, CharacterCombatPort characterPort,
                                              CombatMapPort mapPort, CombatActionOperationRepository operationRepository,
                                              CombatWorkItemRepository workItemRepository) {
         this(repository, eventRepository, adventureRepository, characterPort, mapPort, operationRepository,
-                workItemRepository, null);
+                workItemRepository, null, null);
     }
     public CombatLifecycleApplicationService(CombatEncounterRepository repository, CombatEventRepository eventRepository,
                                              AdventureRepository adventureRepository, CharacterCombatPort characterPort,
                                              CombatMapPort mapPort, CombatActionOperationRepository operationRepository,
                                              CombatWorkItemRepository workItemRepository,
                                              CombatWorkItemScheduler workItemScheduler) {
+        this(repository, eventRepository, adventureRepository, characterPort, mapPort, operationRepository,
+                workItemRepository, workItemScheduler, null);
+    }
+    public CombatLifecycleApplicationService(CombatEncounterRepository repository, CombatEventRepository eventRepository,
+                                             AdventureRepository adventureRepository, CharacterCombatPort characterPort,
+                                             CombatMapPort mapPort, CombatActionOperationRepository operationRepository,
+                                             CombatWorkItemRepository workItemRepository,
+                                             CombatWorkItemScheduler workItemScheduler,
+                                             org.springframework.transaction.PlatformTransactionManager transactionManager) {
         this.repository = repository;
         this.eventRepository = eventRepository;
         this.adventureRepository = adventureRepository;
@@ -52,6 +64,8 @@ public final class CombatLifecycleApplicationService {
         this.workItemRepository = workItemRepository;
         this.workItemScheduler = workItemScheduler;
         this.endGuard = new CombatEndGuard();
+        this.preparationTransactions = transactionManager == null ? null
+                : new org.springframework.transaction.support.TransactionTemplate(transactionManager);
     }
     public CombatEncounter startFromCommittedGmTurn(UUID adventureId, boolean gmTurnCommitted,
                                                     List<CombatParticipant> participants) {
@@ -90,6 +104,24 @@ public final class CombatLifecycleApplicationService {
         if (adventureRepository == null || workItemRepository == null) {
             throw new IllegalStateException("durable combat preparation is not configured");
         }
+        if (request == null || !request.adventureId().equals(adventureId)) {
+            throw new IllegalArgumentException("ENEMY_SHEET_PREPARATION_REQUEST_REQUIRED");
+        }
+        if (request.enemies().isEmpty()) throw new IllegalArgumentException("ENEMY_SHEET_IDENTITY_REQUIRED");
+        request.enemies().forEach(enemy -> {
+            if (enemy.identity() == null || !enemy.identity().adventureId().equals(adventureId)) {
+                throw new IllegalArgumentException("ENEMY_SHEET_IDENTITY_REQUIRED");
+            }
+        });
+        Adventure adventure = adventureRepository.findById(new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId))
+                .orElseThrow(() -> new IllegalStateException("adventure disappeared after combat preparation"));
+        java.util.function.Supplier<CombatEncounter> persist = () -> persistPreparingEncounter(adventureId,
+                participants, request, adventure);
+        return preparationTransactions == null ? persist.get() : preparationTransactions.execute(status -> persist.get());
+    }
+
+    private CombatEncounter persistPreparingEncounter(UUID adventureId, List<CombatParticipant> participants,
+            EnemySheetPreparationRequest request, Adventure adventure) {
         CombatEncounter existing = repository.findActive(adventureId).orElse(null);
         if (existing != null && existing.status() != CombatEncounter.Status.PREPARING) {
             throw new com.dndmaster.adventure.domain.combat.ActiveCombatEncounterException(
@@ -105,17 +137,6 @@ public final class CombatLifecycleApplicationService {
             eventRepository.append(new CombatEvent(saved.encounterId(), 1, "COMBAT_PREPARATION_STARTED",
                     "{\"encounterId\":\"" + saved.encounterId() + "\",\"round\":1}"));
         }
-        Adventure adventure = adventureRepository.findById(new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId))
-                .orElseThrow(() -> new IllegalStateException("adventure disappeared after combat preparation"));
-        if (request == null || !request.adventureId().equals(adventureId)) {
-            throw new IllegalArgumentException("ENEMY_SHEET_PREPARATION_REQUEST_REQUIRED");
-        }
-        List<EnemySheetPreparationRequest.Enemy> requested = request.enemies().stream().map(enemy -> {
-            if (enemy.identity() == null || !enemy.identity().adventureId().equals(adventureId)) {
-                throw new IllegalArgumentException("ENEMY_SHEET_IDENTITY_REQUIRED");
-            }
-            return enemy;
-        }).toList();
         UUID actorId = saved.currentParticipantId();
         CombatActionCommand template = new CombatActionCommand(UUID.randomUUID(), adventure.id(), adventure.sessionId().value(),
                 adventure.ruleSetId(), new com.dndmaster.adventure.domain.adventure.CharacterSheetId(actorId), null,

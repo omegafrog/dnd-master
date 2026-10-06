@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.dndmaster.adventure.application.combat.CombatEncounterRepository;
 import com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService;
 import com.dndmaster.adventure.application.combat.CombatWorkItemScheduler;
+import com.dndmaster.adventure.application.combat.EnemyCharacterSheetIdentity;
+import com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest;
 import com.dndmaster.adventure.application.combat.InMemoryCombatWorkItemRepository;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.domain.adventure.Adventure;
@@ -71,6 +73,32 @@ class CombatStartCommitWiringTest {
         assertTrue(service.scheduleFirstAiTurn(encounter, turn.commandId()));
 
         assertTrue(workItems.claim("test-worker", Duration.ofSeconds(10), Instant.now()).isPresent());
+    }
+
+    @Test
+    void invalid_enemy_preparation_request_does_not_persist_preparing_encounter() {
+        UUID adventureId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        var repository = new RecordingCombatRepository();
+        var adventure = Adventure.create(new AdventureId(adventureId), new SessionId(UUID.randomUUID()),
+                new OwnerPlayerId(playerId), new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(playerId), new AdventureContext("전투", "위협", "대치", null));
+        var workItems = new InMemoryCombatWorkItemRepository();
+        var service = new CombatLifecycleApplicationService(repository, null, new AdventureStore(adventure), null, null,
+                null, workItems, new CombatWorkItemScheduler(workItems, 20));
+        UUID otherAdventureId = UUID.randomUUID();
+        var proposal = new com.dndmaster.adventure.application.runtime.CombatEnemyProposal("scene", "goblin", "Goblin", 1);
+        var request = new EnemySheetPreparationRequest(UUID.randomUUID(), adventureId,
+                List.of(new EnemySheetPreparationRequest.Enemy(new EnemyCharacterSheetIdentity(otherAdventureId,
+                        UUID.randomUUID(), 1, UUID.randomUUID(), List.of(UUID.randomUUID()), "goblin"), proposal)));
+        var participants = List.of(new CombatParticipant(UUID.randomUUID(), "Goblin", CombatParticipant.Controller.AI,
+                20, "enemy", com.dndmaster.adventure.domain.combat.TurnResources.initial(), null, null, "goblin"));
+
+        assertThrows(IllegalArgumentException.class, () -> service.startPreparingFromCommittedGmTurn(adventureId,
+                committedTurn(), participants, request));
+
+        assertEquals(0, repository.saved);
+        assertTrue(workItems.claim("worker", Duration.ofSeconds(10), Instant.now()).isEmpty());
     }
 
     private static GmTurn committedTurn() {

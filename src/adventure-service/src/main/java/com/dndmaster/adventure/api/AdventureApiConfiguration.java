@@ -104,9 +104,11 @@ public class AdventureApiConfiguration {
             @Qualifier("combatMapPort") CombatMapPort mapPort,
             com.dndmaster.adventure.application.combat.CombatActionOperationRepository operationRepository,
             com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItemRepository,
-            com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler) {
+            com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler,
+            org.springframework.transaction.PlatformTransactionManager transactionManager) {
         return new com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService(repository, eventRepository,
-                adventureRepository, characterPort, mapPort, operationRepository, workItemRepository, workItemScheduler);
+                adventureRepository, characterPort, mapPort, operationRepository, workItemRepository, workItemScheduler,
+                transactionManager);
     }
 
     @Bean
