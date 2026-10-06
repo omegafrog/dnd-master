@@ -2,6 +2,8 @@ package com.dndmaster.adventure.api;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -166,6 +168,37 @@ class AdventureAiRequestControllerTest {
 
         verify(fixture.scheduler(), never()).scheduleNext(any(), any(), org.mockito.ArgumentMatchers.anyInt(), any(), any());
         verify(fixture.aiRequests(), never()).begin(any(), any(), any());
+    }
+
+    @Test
+    void combat_snapshot_projects_only_generic_block_for_terminal_enemy_evidence_failure() {
+        Fixture fixture = fixture();
+        UUID enemyId = UUID.randomUUID();
+        var encounter = com.dndmaster.adventure.domain.combat.CombatStartPolicy.prepareFromCommittedGmTurn(true,
+                fixture.adventure().id().value(), java.util.List.of(new com.dndmaster.adventure.domain.combat.CombatParticipant(
+                        enemyId, "적", com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI,
+                        10, "비밀 상태", com.dndmaster.adventure.domain.combat.TurnResources.initial(), null, null, "goblin")));
+        when(fixture.encounters().findActive(fixture.adventure().id().value())).thenReturn(Optional.of(encounter));
+        var identity = new com.dndmaster.adventure.application.combat.EnemyCharacterSheetIdentity(
+                fixture.adventure().id().value(), UUID.randomUUID(), 1, UUID.randomUUID(), java.util.List.of(UUID.randomUUID()), "goblin");
+        var request = new com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest(UUID.randomUUID(),
+                fixture.adventure().id().value(), java.util.List.of(new com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest.Enemy(
+                        identity, new com.dndmaster.adventure.application.runtime.CombatEnemyProposal("scene", "goblin", "적", 1))));
+        var pending = com.dndmaster.adventure.application.combat.CombatWorkItem.enemySheetPreparation(UUID.randomUUID(),
+                encounter.encounterId(), encounter.version(), java.time.Instant.now(), request);
+        UUID lease = UUID.randomUUID();
+        var terminal = pending.claimed(lease, java.time.Instant.now().plusSeconds(30))
+                .failed(lease, "internal provider detail and hidden stat block");
+        when(fixture.workItems().findFailedByEncounterId(encounter.encounterId())).thenReturn(Optional.of(terminal));
+
+        var response = fixture.combatController().snapshot(fixture.adventure().id().value());
+
+        assertEquals(org.springframework.http.HttpStatus.OK, response.getStatusCode());
+        var snapshot = (com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot) response.getBody();
+        assertNotNull(snapshot);
+        assertEquals("COMBAT_PREPARATION_BLOCKED", snapshot.processingFailure().failure());
+        assertFalse(snapshot.toString().contains("internal provider detail"));
+        assertFalse(snapshot.toString().contains("hidden stat block"));
     }
 
     @Test
