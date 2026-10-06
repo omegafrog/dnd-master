@@ -9,6 +9,9 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 class EvidenceAcquisitionApplicationServiceTest {
     @Test
@@ -39,6 +42,30 @@ class EvidenceAcquisitionApplicationServiceTest {
 
         assertEquals(3, searches.get());
         assertEquals(List.of(first.id(), third.id()), result.decision().selectedEvidenceIds());
+    }
+
+    @Test
+    void respects_a_single_additional_search_limit_for_runtime_turn_evidence() {
+        EvidenceCandidate first = candidate("runtime-first");
+        EvidenceCandidate second = candidate("runtime-second");
+        AtomicInteger searches = new AtomicInteger();
+        AtomicInteger judgments = new AtomicInteger();
+        EvidenceAcquisitionApplicationService service = new EvidenceAcquisitionApplicationService(
+                request -> {
+                    searches.incrementAndGet();
+                    return request.additionalSearches() == 0 ? List.of(first) : List.of(second);
+                }, request -> request.candidates().stream().map(EvidenceCandidate::id).toList(),
+                request -> {
+                    judgments.incrementAndGet();
+                    return SufficiencyDecision.insufficient(List.of(), Map.of(), "specific missing rule");
+                });
+
+        EvidenceAcquisitionResult result = service.acquire(
+                new EvidenceAcquisitionRequest("PLAYER_ACTION", "action", List.of(), null, 1));
+
+        assertEquals(2, searches.get());
+        assertEquals(2, judgments.get());
+        assertEquals(1, result.additionalSearches());
     }
 
     @Test
@@ -79,6 +106,49 @@ class EvidenceAcquisitionApplicationServiceTest {
 
         assertThrows(IllegalArgumentException.class,
                 () -> service.acquire(new EvidenceAcquisitionRequest("RULE_GUIDANCE", "question", List.of())));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void suppresses_evidence_trace_and_source_text_when_development_diagnostics_are_disabled(CapturedOutput output) {
+        withDiagnosticsFlag("false", () -> acquireSensitiveEvidence());
+
+        org.assertj.core.api.Assertions.assertThat(output)
+                .doesNotContain("dev_evidence_search_decision")
+                .doesNotContain("SECRET_RULE_EXCERPT")
+                .doesNotContain("SECRET_SEARCH_QUERY");
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void logs_evidence_identifiers_without_source_text_when_development_diagnostics_are_enabled(CapturedOutput output) {
+        withDiagnosticsFlag("true", () -> acquireSensitiveEvidence());
+
+        org.assertj.core.api.Assertions.assertThat(output)
+                .contains("dev_evidence_search_decision")
+                .contains("dev_evidence_sufficiency_decision")
+                .contains("queryFingerprint=")
+                .doesNotContain("SECRET_RULE_EXCERPT")
+                .doesNotContain("SECRET_SEARCH_QUERY");
+    }
+
+    private static void acquireSensitiveEvidence() {
+        EvidenceCandidate secret = new EvidenceCandidate(UUID.randomUUID(), "book", "RULEBOOK", "page=1", "SECRET_RULE_EXCERPT");
+        EvidenceAcquisitionApplicationService service = new EvidenceAcquisitionApplicationService(
+                request -> List.of(secret), request -> List.of(secret.id()),
+                request -> SufficiencyDecision.sufficient(List.of(secret.id()), Map.of(secret.id(), "needed")));
+        service.acquire(new EvidenceAcquisitionRequest("RULE_GUIDANCE", "SECRET_SEARCH_QUERY", List.of()));
+    }
+
+    private static void withDiagnosticsFlag(String value, Runnable action) {
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", value);
+        try {
+            action.run();
+        } finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
     }
 
     @Test

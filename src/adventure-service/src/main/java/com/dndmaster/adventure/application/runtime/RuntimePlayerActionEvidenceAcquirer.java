@@ -26,7 +26,7 @@ public final class RuntimePlayerActionEvidenceAcquirer {
     public List<RuntimeEvidence> acquire(EvidenceSearchScope scope, String action, String currentSituation) {
         Objects.requireNonNull(scope, "evidence search scope must not be null");
         String query = turnRulesQuery(action, currentSituation, scope.stageKey());
-        var result = acquisitionService.acquire(new EvidenceAcquisitionRequest("PLAYER_ACTION", query, List.of(), scope));
+        var result = acquisitionService.acquire(new EvidenceAcquisitionRequest("PLAYER_ACTION", query, List.of(), scope, 1));
         Map<UUID, EvidenceSearchScope.Document> documents = new LinkedHashMap<>();
         scope.documents().forEach(document -> documents.put(document.id(), document));
         Map<UUID, EvidenceCandidate> candidates = new LinkedHashMap<>();

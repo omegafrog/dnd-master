@@ -7,8 +7,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
+import com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics;
 
-/** Owns retries, candidate accumulation, validation, and the two additional-search limit. */
+/** Owns retries, candidate accumulation, validation, and the request's additional-search limit. */
 public final class EvidenceAcquisitionApplicationService {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(EvidenceAcquisitionApplicationService.class);
     private final EvidenceCandidateSearchPort search; private final EvidenceRerankerPort reranker; private final EvidenceSufficiencyJudgePort judge;
@@ -22,19 +23,24 @@ public final class EvidenceAcquisitionApplicationService {
             List<EvidenceCandidate> found = retry(() -> search.search(
                     new EvidenceCandidateSearchRequest(request, queryForSearch, additionalSearches)));
             validateSearchCandidates(found);
-            LOGGER.info("evidence_search_decision session={} package={} stage={} policy={} query={} additionalSearch={} candidateCount={} candidates={}",
-                    sessionId(request), packageId(request), stageKey(request), request.policyId(), queryForSearch,
-                    additionalSearches, found.size(), candidateAudit(found));
+            if (DevelopmentDiagnostics.enabled()) {
+                LOGGER.info("dev_evidence_search_decision session={} package={} stage={} policy={} queryFingerprint={} additionalSearch={} candidateCount={} candidates={}",
+                        sessionId(request), packageId(request), stageKey(request), request.policyId(),
+                        DevelopmentDiagnostics.fingerprint(queryForSearch), additionalSearches, found.size(), candidateAudit(found));
+            }
             found.forEach(candidate -> pool.putIfAbsent(candidate.id(), candidate));
             List<EvidenceCandidate> reranked=rerank(request, List.copyOf(pool.values()), pinned);
             List<UUID> pinnedForJudge = List.copyOf(pinned);
             SufficiencyDecision decision=retry(() -> judge.judge(new EvidenceSufficiencyRequest(request.policyId(),request.query(),reranked,pinnedForJudge,additionalSearches,soloPlayerId(request))));
             validateDecision(decision, reranked, pinned);
-            LOGGER.info("evidence_sufficiency_decision session={} package={} stage={} policy={} additionalSearch={} rerankedCandidates={} sufficient={} selected={} reasons={} missing={}",
-                    sessionId(request), packageId(request), stageKey(request), request.policyId(), additionalSearches,
-                    candidateAudit(reranked), decision.sufficient(), decision.selectedEvidenceIds(),
-                    decision.selectionReasons(), decision.missing());
-            if(decision.sufficient() || additional==2) return new EvidenceAcquisitionResult(reranked,decision,additional);
+            if (DevelopmentDiagnostics.enabled()) {
+                LOGGER.info("dev_evidence_sufficiency_decision session={} package={} stage={} policy={} queryFingerprint={} additionalSearch={} rerankedCandidates={} sufficient={} selected={} reasons={} missing={}",
+                        sessionId(request), packageId(request), stageKey(request), request.policyId(),
+                        DevelopmentDiagnostics.fingerprint(request.query()), additionalSearches,
+                        candidateAudit(reranked), decision.sufficient(), decision.selectedEvidenceIds(),
+                        decision.selectionReasons(), DevelopmentDiagnostics.safeBody(decision.missing()));
+            }
+            if(decision.sufficient() || additional >= request.additionalSearchLimit()) return new EvidenceAcquisitionResult(reranked,decision,additional);
             pinned = new ArrayList<>(new LinkedHashSet<>(decision.selectedEvidenceIds()));
             searchQuery = decision.missing();
         }
@@ -45,18 +51,17 @@ public final class EvidenceAcquisitionApplicationService {
         LinkedHashMap<UUID,EvidenceCandidate> available=new LinkedHashMap<>(); pool.forEach(c -> available.put(c.id(),c));
         if(!available.keySet().containsAll(ids) || !available.keySet().containsAll(pinned)) throw new EvidenceAcquisitionContractException("model returned candidate outside supplied scope");
         List<EvidenceCandidate> selected=new ArrayList<>(); for(UUID id:pinned) selected.add(available.get(id)); for(UUID id:ids) if(selected.size()<30&&!pinned.contains(id)) selected.add(available.get(id));
-        LOGGER.info("evidence_reranker_decision session={} package={} stage={} policy={} query={} pool={} modelOrder={} pinned={} finalOrder={}",
-                sessionId(request), packageId(request), stageKey(request), request.policyId(), request.query(),
-                candidateAudit(pool), ids, pinned, candidateAudit(selected));
+        if (DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_evidence_reranker_decision session={} package={} stage={} policy={} queryFingerprint={} pool={} modelOrder={} pinned={} finalOrder={}",
+                    sessionId(request), packageId(request), stageKey(request), request.policyId(),
+                    DevelopmentDiagnostics.fingerprint(request.query()), candidateAudit(pool), ids, pinned, candidateAudit(selected));
+        }
         return List.copyOf(selected);
     }
     private static List<String> candidateAudit(List<EvidenceCandidate> candidates) {
         return candidates.stream().map(candidate -> {
-            String preview = "RULEBOOK".equals(candidate.documentType())
-                    ? candidate.excerpt().replaceAll("\\s+", " ").substring(0, Math.min(220, candidate.excerpt().replaceAll("\\s+", " ").length()))
-                    : "<숨김 자료 본문은 로그에서 제외>";
             return candidate.id() + "|" + candidate.documentType() + "|" + candidate.documentId() + "|"
-                    + candidate.locator() + "|" + preview;
+                    + candidate.locator();
         }).toList();
     }
     private static String sessionId(EvidenceAcquisitionRequest request) {

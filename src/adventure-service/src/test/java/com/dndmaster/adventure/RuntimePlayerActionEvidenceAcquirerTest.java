@@ -34,6 +34,7 @@ class RuntimePlayerActionEvidenceAcquirerTest {
         EvidenceAcquisitionApplicationService service = new EvidenceAcquisitionApplicationService(
                 request -> {
                     assertEquals(scope, request.acquisitionRequest().searchScope());
+                    assertEquals(1, request.acquisitionRequest().additionalSearchLimit());
                     assertTrue(request.query().contains("플레이어 행동: open the cellar"));
                     assertTrue(request.query().contains("현재 상황: 문 뒤에서 이상한 소리가 들린다."));
                     assertTrue(request.query().contains("지각"));
