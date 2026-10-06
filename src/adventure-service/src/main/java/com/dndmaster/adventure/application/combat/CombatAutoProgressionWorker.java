@@ -27,12 +27,14 @@ public final class CombatAutoProgressionWorker {
     private final int maxSteps;
     private final CombatWorkItemScheduler scheduler;
     private final AdventureAiRequestApplicationService aiRequestService;
+    private final EnemyCharacterSheetRepository enemyCharacterSheetRepository;
+    private final com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService;
 
     public CombatAutoProgressionWorker(String workerId, CombatWorkItemRepository workItems,
                                        CombatEncounterRepository encounters, AiCombatDecisionPort decisions,
                                        CombatAiActionExecutor actionExecutor,
                                        CombatAiTurnEndExecutor turnEndExecutor, int maxSteps) {
-        this(workerId, workItems, encounters, decisions, actionExecutor, turnEndExecutor, maxSteps, null, null);
+        this(workerId, workItems, encounters, decisions, actionExecutor, turnEndExecutor, maxSteps, null, null, null);
     }
 
     public CombatAutoProgressionWorker(String workerId, CombatWorkItemRepository workItems,
@@ -40,7 +42,7 @@ public final class CombatAutoProgressionWorker {
                                        CombatAiActionExecutor actionExecutor,
                                        CombatAiTurnEndExecutor turnEndExecutor, int maxSteps,
                                        CombatWorkItemScheduler scheduler) {
-        this(workerId, workItems, encounters, decisions, actionExecutor, turnEndExecutor, maxSteps, scheduler, null);
+        this(workerId, workItems, encounters, decisions, actionExecutor, turnEndExecutor, maxSteps, scheduler, null, null);
     }
 
     public CombatAutoProgressionWorker(String workerId, CombatWorkItemRepository workItems,
@@ -49,6 +51,29 @@ public final class CombatAutoProgressionWorker {
                                        CombatAiTurnEndExecutor turnEndExecutor, int maxSteps,
                                        CombatWorkItemScheduler scheduler,
                                        AdventureAiRequestApplicationService aiRequestService) {
+        this(workerId, workItems, encounters, decisions, actionExecutor, turnEndExecutor, maxSteps,
+                scheduler, aiRequestService, null, null);
+    }
+
+    public CombatAutoProgressionWorker(String workerId, CombatWorkItemRepository workItems,
+                                       CombatEncounterRepository encounters, AiCombatDecisionPort decisions,
+                                       CombatAiActionExecutor actionExecutor,
+                                       CombatAiTurnEndExecutor turnEndExecutor, int maxSteps,
+                                       CombatWorkItemScheduler scheduler,
+                                       AdventureAiRequestApplicationService aiRequestService,
+                                       EnemyCharacterSheetRepository enemyCharacterSheetRepository) {
+        this(workerId, workItems, encounters, decisions, actionExecutor, turnEndExecutor, maxSteps,
+                scheduler, aiRequestService, enemyCharacterSheetRepository, null);
+    }
+
+    public CombatAutoProgressionWorker(String workerId, CombatWorkItemRepository workItems,
+                                       CombatEncounterRepository encounters, AiCombatDecisionPort decisions,
+                                       CombatAiActionExecutor actionExecutor,
+                                       CombatAiTurnEndExecutor turnEndExecutor, int maxSteps,
+                                       CombatWorkItemScheduler scheduler,
+                                       AdventureAiRequestApplicationService aiRequestService,
+                                       EnemyCharacterSheetRepository enemyCharacterSheetRepository,
+                                       com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService) {
         this.workerId = Objects.requireNonNull(workerId);
         this.workItems = Objects.requireNonNull(workItems);
         this.encounters = Objects.requireNonNull(encounters);
@@ -59,6 +84,8 @@ public final class CombatAutoProgressionWorker {
         this.maxSteps = maxSteps;
         this.scheduler = scheduler;
         this.aiRequestService = aiRequestService;
+        this.enemyCharacterSheetRepository = enemyCharacterSheetRepository;
+        this.runtimeTurnService = runtimeTurnService;
     }
 
     @Scheduled(fixedDelayString = "${adventure.combat.auto-progression.poll-delay-ms:250}")
@@ -72,6 +99,10 @@ public final class CombatAutoProgressionWorker {
         if (encounter == null) {
             workItems.save(item.failed(item.leaseToken(), "COMBAT_NOT_FOUND"));
             releaseInitialRequest(item, "COMBAT_NOT_FOUND");
+            return true;
+        }
+        if (item.workType() == CombatWorkItem.WorkType.ENEMY_SHEET_PREPARATION) {
+            processEnemySheetPreparation(item, encounter, now);
             return true;
         }
 
@@ -125,6 +156,43 @@ public final class CombatAutoProgressionWorker {
         }
         return true;
     }
+
+    private void processEnemySheetPreparation(CombatWorkItem item, CombatEncounter encounter, Instant now) {
+        try {
+            if (enemyCharacterSheetRepository == null || item.enemySheetPreparationRequest() == null) {
+                throw new IllegalStateException("ENEMY_SHEET_PREPARATION_NOT_CONFIGURED");
+            }
+            if (runtimeTurnService != null) runtimeTurnService.prepareEnemySheetsForWork(item.enemySheetPreparationRequest());
+            var stats = new java.util.LinkedHashMap<String, com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock>();
+            for (var requested : item.enemySheetPreparationRequest().enemies()) {
+                var sheet = enemyCharacterSheetRepository.find(requested.identity())
+                        .orElseThrow(() -> new IllegalStateException("ENEMY_SHEET_NOT_READY"));
+                if (!sheet.identity().equals(requested.identity())) throw new IllegalStateException("ENEMY_SHEET_IDENTITY_MISMATCH");
+                stats.put(sheet.identity().enemyKind(), sheet.statBlock());
+            }
+            CombatEncounter active = encounter.status() == CombatEncounter.Status.PREPARING
+                    ? encounters.save(encounter.activateWithPreparedEnemyStats(stats), encounter.version())
+                    : encounter.status() == CombatEncounter.Status.ACTIVE ? encounter
+                    : throwIllegalState("COMBAT_NOT_PREPARING");
+            boolean scheduled = scheduler != null && item.command() != null
+                    && scheduler.scheduleNext(item.command(), active, 0, AiTacticalInstructionContext.none(),
+                            item.aiRequestId()) == CombatWorkItemScheduler.OptionalSchedule.SCHEDULED;
+            CombatWorkItem completed = item.completed(item.leaseToken());
+            workItems.save(completed);
+            if (!scheduled) releaseInitialRequest(completed, "ENEMY_SHEET_PREPARATION_COMPLETE");
+        } catch (com.dndmaster.adventure.application.runtime.AbsentEnemyRuleEvidenceException failure) {
+            CombatWorkItem failed = item.failed(item.leaseToken(), failureReason(failure));
+            workItems.save(failed);
+            releaseInitialRequest(failed, "ENEMY_RULE_EVIDENCE_ABSENT");
+        } catch (RuntimeException failure) {
+            int delaySeconds = Math.min(60, 1 << Math.min(item.attemptCount(), 6));
+            workItems.save(item.retry(item.leaseToken(), now.plusSeconds(delaySeconds), failureReason(failure)));
+            LOGGER.warn("enemy_sheet_preparation_retry encounterId={} workItemId={} attempt={} reason={}",
+                    item.encounterId(), item.workItemId(), item.attemptCount(), failureReason(failure));
+        }
+    }
+
+    private static CombatEncounter throwIllegalState(String reason) { throw new IllegalStateException(reason); }
 
     private static CombatActionCommand commandForPlan(CombatActionCommand base, AiTurnPlan plan,
                                                        UUID actorId, long expectedVersion) {

@@ -4,24 +4,30 @@ import java.util.UUID;
 
 public record CombatParticipant(UUID participantId, String displayName, Controller controller,
                                 int initiative, String publicCondition, TurnResources resources,
-                                CombatEnemyStatBlock statBlock, Integer currentHitPoints) {
+                                CombatEnemyStatBlock statBlock, Integer currentHitPoints, String enemyKind) {
     public enum Controller { PLAYER, AI }
 
     public CombatParticipant(UUID participantId, String displayName, Controller controller,
                              int initiative, String publicCondition) {
-        this(participantId, displayName, controller, initiative, publicCondition, TurnResources.initial());
+        this(participantId, displayName, controller, initiative, publicCondition, TurnResources.initial(), null, null, null);
     }
 
     public CombatParticipant(UUID participantId, String displayName, Controller controller,
                              int initiative, String publicCondition, TurnResources resources) {
-        this(participantId, displayName, controller, initiative, publicCondition, resources, null);
+        this(participantId, displayName, controller, initiative, publicCondition, resources, null, null, null);
     }
 
     public CombatParticipant(UUID participantId, String displayName, Controller controller,
                              int initiative, String publicCondition, TurnResources resources,
                              CombatEnemyStatBlock statBlock) {
         this(participantId, displayName, controller, initiative, publicCondition, resources, statBlock,
-                statBlock == null ? null : statBlock.hitPointMaximum());
+                statBlock == null ? null : statBlock.hitPointMaximum(), null);
+    }
+
+    public CombatParticipant(UUID participantId, String displayName, Controller controller,
+                             int initiative, String publicCondition, TurnResources resources,
+                             CombatEnemyStatBlock statBlock, Integer currentHitPoints) {
+        this(participantId, displayName, controller, initiative, publicCondition, resources, statBlock, currentHitPoints, null);
     }
 
     public CombatParticipant {
@@ -29,6 +35,7 @@ public record CombatParticipant(UUID participantId, String displayName, Controll
             throw new IllegalArgumentException("participant identity is required");
         }
         if (resources == null) throw new IllegalArgumentException("turn resources are required");
+        enemyKind = enemyKind == null || enemyKind.isBlank() ? null : enemyKind.trim().toLowerCase(java.util.Locale.ROOT);
         if (statBlock == null && currentHitPoints != null) {
             throw new IllegalArgumentException("current hit points require enemy combat numbers");
         }
@@ -40,13 +47,19 @@ public record CombatParticipant(UUID participantId, String displayName, Controll
 
     public CombatParticipant withResources(TurnResources updated) {
         return new CombatParticipant(participantId, displayName, controller, initiative, publicCondition, updated,
-                statBlock, currentHitPoints);
+                statBlock, currentHitPoints, enemyKind);
     }
 
     public CombatParticipant withCurrentHitPoints(int updated) {
         if (statBlock == null) throw new IllegalStateException("participant has no enemy combat numbers");
         return new CombatParticipant(participantId, displayName, controller, initiative, publicCondition, resources,
-                statBlock, updated);
+                statBlock, updated, enemyKind);
+    }
+
+    public CombatParticipant withEnemySheet(CombatEnemyStatBlock prepared) {
+        if (enemyKind == null || prepared == null) throw new IllegalStateException("participant enemy kind and prepared combat numbers are required");
+        return new CombatParticipant(participantId, displayName, controller, initiative, publicCondition, TurnResources.initial(),
+                prepared, prepared.hitPointMaximum(), enemyKind);
     }
 
     public boolean isDefeated() {

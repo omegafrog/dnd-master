@@ -6,7 +6,7 @@ import java.util.UUID;
 
 /** Durable unit of AI progression. The lease is the delivery/claim boundary. */
 public final class CombatWorkItem {
-    public enum WorkType { AI_TURN }
+    public enum WorkType { AI_TURN, ENEMY_SHEET_PREPARATION }
     public enum Status { PENDING, CLAIMED, COMPLETED, FAILED }
 
     private final UUID workItemId;
@@ -24,12 +24,13 @@ public final class CombatWorkItem {
     private final CombatActionCommand command;
     private final int completedSteps;
     private final UUID aiRequestId;
+    private final EnemySheetPreparationRequest enemySheetPreparationRequest;
 
     public CombatWorkItem(UUID workItemId, UUID encounterId, UUID operationId, long expectedEncounterVersion,
                           WorkType workType, Instant dueAt, int attemptCount,
                           AiTacticalInstructionContext tacticalInstruction) {
         this(workItemId, encounterId, operationId, expectedEncounterVersion, workType, dueAt, attemptCount,
-                Status.PENDING, null, null, null, tacticalInstruction, null, 0, null);
+                Status.PENDING, null, null, null, tacticalInstruction, null, 0, null, null);
     }
 
     public CombatWorkItem(UUID workItemId, UUID encounterId, UUID operationId, long expectedEncounterVersion,
@@ -44,7 +45,7 @@ public final class CombatWorkItem {
                           AiTacticalInstructionContext tacticalInstruction, CombatActionCommand command,
                           int completedSteps) {
         this(workItemId, encounterId, operationId, expectedEncounterVersion, workType, dueAt, attemptCount,
-                Status.PENDING, null, null, null, tacticalInstruction, command, completedSteps, null);
+                Status.PENDING, null, null, null, tacticalInstruction, command, completedSteps, null, null);
     }
 
     public CombatWorkItem(UUID workItemId, UUID encounterId, UUID operationId, long expectedEncounterVersion,
@@ -52,7 +53,7 @@ public final class CombatWorkItem {
                           AiTacticalInstructionContext tacticalInstruction, CombatActionCommand command,
                           int completedSteps, UUID aiRequestId) {
         this(workItemId, encounterId, operationId, expectedEncounterVersion, workType, dueAt, attemptCount,
-                Status.PENDING, null, null, null, tacticalInstruction, command, completedSteps, aiRequestId);
+                Status.PENDING, null, null, null, tacticalInstruction, command, completedSteps, aiRequestId, null);
     }
 
     public static CombatWorkItem restore(UUID workItemId, UUID encounterId, UUID operationId,
@@ -61,7 +62,7 @@ public final class CombatWorkItem {
                                          String failure, AiTacticalInstructionContext tacticalInstruction,
                                          CombatActionCommand command, int completedSteps) {
         return new CombatWorkItem(workItemId, encounterId, operationId, expectedEncounterVersion, workType, dueAt,
-                attemptCount, status, leaseToken, leaseUntil, failure, tacticalInstruction, command, completedSteps, null);
+                attemptCount, status, leaseToken, leaseUntil, failure, tacticalInstruction, command, completedSteps, null, null);
     }
 
     public static CombatWorkItem restore(UUID workItemId, UUID encounterId, UUID operationId,
@@ -69,15 +70,38 @@ public final class CombatWorkItem {
                                          int attemptCount, Status status, UUID leaseToken, Instant leaseUntil,
                                          String failure, AiTacticalInstructionContext tacticalInstruction,
                                          CombatActionCommand command, int completedSteps, UUID aiRequestId) {
+        return restore(workItemId, encounterId, operationId, expectedEncounterVersion, workType, dueAt, attemptCount,
+                status, leaseToken, leaseUntil, failure, tacticalInstruction, command, completedSteps, aiRequestId, null);
+    }
+
+    public static CombatWorkItem restore(UUID workItemId, UUID encounterId, UUID operationId,
+                                         long expectedEncounterVersion, WorkType workType, Instant dueAt,
+                                         int attemptCount, Status status, UUID leaseToken, Instant leaseUntil,
+                                         String failure, AiTacticalInstructionContext tacticalInstruction,
+                                         CombatActionCommand command, int completedSteps, UUID aiRequestId,
+                                         EnemySheetPreparationRequest preparationRequest) {
         return new CombatWorkItem(workItemId, encounterId, operationId, expectedEncounterVersion, workType, dueAt,
-                attemptCount, status, leaseToken, leaseUntil, failure, tacticalInstruction, command, completedSteps, aiRequestId);
+                attemptCount, status, leaseToken, leaseUntil, failure, tacticalInstruction, command, completedSteps, aiRequestId, preparationRequest);
+    }
+
+    public static CombatWorkItem enemySheetPreparation(UUID workItemId, UUID encounterId, long expectedVersion,
+                                                        Instant dueAt, EnemySheetPreparationRequest request) {
+        return enemySheetPreparation(workItemId, encounterId, expectedVersion, dueAt, request, null);
+    }
+
+    public static CombatWorkItem enemySheetPreparation(UUID workItemId, UUID encounterId, long expectedVersion,
+                                                        Instant dueAt, EnemySheetPreparationRequest request,
+                                                        CombatActionCommand firstAiTurnTemplate) {
+        return new CombatWorkItem(workItemId, encounterId, null, expectedVersion, WorkType.ENEMY_SHEET_PREPARATION,
+                dueAt, 0, Status.PENDING, null, null, null, AiTacticalInstructionContext.none(), firstAiTurnTemplate,
+                0, request.sourceTurnId(), request);
     }
 
     private CombatWorkItem(UUID workItemId, UUID encounterId, UUID operationId, long expectedEncounterVersion,
                            WorkType workType, Instant dueAt, int attemptCount, Status status,
                            UUID leaseToken, Instant leaseUntil, String failure,
                            AiTacticalInstructionContext tacticalInstruction, CombatActionCommand command,
-                           int completedSteps, UUID aiRequestId) {
+                           int completedSteps, UUID aiRequestId, EnemySheetPreparationRequest preparationRequest) {
         this.workItemId = Objects.requireNonNull(workItemId);
         this.encounterId = Objects.requireNonNull(encounterId);
         if (expectedEncounterVersion < 0 || attemptCount < 0 || completedSteps < 0) throw new IllegalArgumentException("invalid work item counters");
@@ -94,6 +118,7 @@ public final class CombatWorkItem {
         this.command = command;
         this.completedSteps = completedSteps;
         this.aiRequestId = aiRequestId;
+        this.enemySheetPreparationRequest = preparationRequest;
     }
 
     public CombatWorkItem claimed(UUID token, Instant until) {
@@ -116,13 +141,13 @@ public final class CombatWorkItem {
     public CombatWorkItem retry(UUID token, Instant nextDueAt, String reason) {
         requireLease(token);
         return new CombatWorkItem(workItemId, encounterId, operationId, expectedEncounterVersion, workType,
-                nextDueAt, attemptCount, Status.PENDING, null, null, reason, tacticalInstruction, command, completedSteps, aiRequestId);
+                nextDueAt, attemptCount, Status.PENDING, null, null, reason, tacticalInstruction, command, completedSteps, aiRequestId, enemySheetPreparationRequest);
     }
 
     public CombatWorkItem defer(UUID token, Instant nextDueAt) {
         requireLease(token);
         return new CombatWorkItem(workItemId, encounterId, operationId, expectedEncounterVersion, workType,
-                nextDueAt, attemptCount - 1, Status.PENDING, null, null, failure, tacticalInstruction, command, completedSteps, aiRequestId);
+                nextDueAt, attemptCount - 1, Status.PENDING, null, null, failure, tacticalInstruction, command, completedSteps, aiRequestId, enemySheetPreparationRequest);
     }
 
     public CombatWorkItem manualRetry(Instant nextDueAt) {
@@ -132,7 +157,7 @@ public final class CombatWorkItem {
     public CombatWorkItem manualRetry(Instant nextDueAt, UUID nextAiRequestId) {
         if (status != Status.FAILED) throw new IllegalStateException("combat work item is not failed");
         return new CombatWorkItem(workItemId, encounterId, operationId, expectedEncounterVersion, workType,
-                nextDueAt, 0, Status.PENDING, null, null, null, tacticalInstruction, command, completedSteps, nextAiRequestId);
+                nextDueAt, 0, Status.PENDING, null, null, null, tacticalInstruction, command, completedSteps, nextAiRequestId, enemySheetPreparationRequest);
     }
 
     public CombatWorkItem failed(UUID token, String reason) {
@@ -143,7 +168,7 @@ public final class CombatWorkItem {
     private CombatWorkItem copy(Status nextStatus, UUID token, Instant until, String reason, int attempts,
                                 CombatActionCommand nextCommand, int nextCompletedSteps, UUID nextOperationId) {
         return new CombatWorkItem(workItemId, encounterId, nextOperationId, expectedEncounterVersion, workType, dueAt,
-                attempts, nextStatus, token, until, reason, tacticalInstruction, nextCommand, nextCompletedSteps, aiRequestId);
+                attempts, nextStatus, token, until, reason, tacticalInstruction, nextCommand, nextCompletedSteps, aiRequestId, enemySheetPreparationRequest);
     }
 
     private void requireLease(UUID token) {
@@ -165,4 +190,9 @@ public final class CombatWorkItem {
     public CombatActionCommand command() { return command; }
     public int completedSteps() { return completedSteps; }
     public UUID aiRequestId() { return aiRequestId; }
+    public EnemySheetPreparationRequest enemySheetPreparationRequest() { return enemySheetPreparationRequest; }
+    public String playerVisibleFailure() {
+        return workType == WorkType.ENEMY_SHEET_PREPARATION && status == Status.FAILED
+                ? "COMBAT_PREPARATION_BLOCKED" : failure;
+    }
 }

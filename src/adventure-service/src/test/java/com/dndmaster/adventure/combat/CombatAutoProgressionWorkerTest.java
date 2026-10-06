@@ -12,6 +12,11 @@ import com.dndmaster.adventure.application.combat.CombatActionResponse;
 import com.dndmaster.adventure.application.combat.CombatAutoProgressionWorker;
 import com.dndmaster.adventure.application.combat.CombatTransientFailureException;
 import com.dndmaster.adventure.application.combat.CombatWorkItem;
+import com.dndmaster.adventure.application.combat.EnemyCharacterSheet;
+import com.dndmaster.adventure.application.combat.EnemyCharacterSheetIdentity;
+import com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest;
+import com.dndmaster.adventure.application.combat.InMemoryEnemyCharacterSheetRepository;
+import com.dndmaster.adventure.application.runtime.CombatEnemyAbilityProposal;
 import com.dndmaster.adventure.application.combat.InMemoryCombatWorkItemRepository;
 import com.dndmaster.adventure.application.combat.CombatEncounterRepository;
 import com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService;
@@ -32,6 +37,46 @@ import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.mock;
 
 class CombatAutoProgressionWorkerTest {
+    @Test
+    void enemy_preparation_work_activates_only_after_profile_is_present_and_initializes_combat_state() {
+        UUID adventureId = UUID.randomUUID();
+        UUID enemyId = UUID.randomUUID();
+        var identity = new EnemyCharacterSheetIdentity(adventureId, UUID.randomUUID(), 1, UUID.randomUUID(),
+                List.of(UUID.randomUUID()), "goblin");
+        var preparing = CombatStartPolicy.prepareFromCommittedGmTurn(true, adventureId, List.of(
+                new CombatParticipant(enemyId, "Goblin", CombatParticipant.Controller.AI, 20, "enemy",
+                        com.dndmaster.adventure.domain.combat.TurnResources.initial(), null, null, "goblin")));
+        var encounters = new EncounterStore(preparing);
+        var workItems = new InMemoryCombatWorkItemRepository();
+        var sheets = new InMemoryEnemyCharacterSheetRepository();
+        var request = new EnemySheetPreparationRequest(UUID.randomUUID(), adventureId,
+                List.of(new EnemySheetPreparationRequest.Enemy(identity,
+                        new com.dndmaster.adventure.application.runtime.CombatEnemyProposal("scene", "goblin", "Goblin", 1))));
+        UUID workId = UUID.randomUUID();
+        var work = CombatWorkItem.enemySheetPreparation(workId, preparing.encounterId(), preparing.version(),
+                Instant.parse("2026-01-01T00:00:00Z"), request);
+        workItems.enqueue(work);
+        var worker = new CombatAutoProgressionWorker("worker", workItems, encounters, decisions(enemyId),
+                (ignoredCommand, ignoredPlan) -> null, ignoredCommand -> null, 10, null, null, sheets);
+
+        worker.processOnce(Instant.parse("2026-01-01T00:00:00Z"));
+        assertEquals(CombatEncounter.Status.PREPARING, encounters.value.status());
+        assertEquals(CombatWorkItem.Status.PENDING, workItems.get(workId).status());
+
+        var abilities = List.of("STR", "DEX", "CON", "INT", "WIS", "CHA").stream()
+                .map(name -> new CombatEnemyAbilityProposal(name, 10, List.of("goblin-rule"))).toList();
+        sheets.saveIfAbsent(new EnemyCharacterSheet(identity, "Goblin",
+                new com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock(12, 7, 2, "1d6",
+                        new com.dndmaster.adventure.domain.combat.CombatStatBlockSource(UUID.randomUUID(), 1, "goblin-rule")),
+                abilities, List.of(new EnemyCharacterSheet.EnemyCombatAction("Scimitar", "Melee attack", List.of("goblin-rule")))));
+        worker.processOnce(Instant.parse("2026-01-01T00:00:03Z"));
+
+        assertEquals(CombatEncounter.Status.ACTIVE, encounters.value.status());
+        var goblin = encounters.value.participants().getFirst();
+        assertEquals(7, goblin.currentHitPoints());
+        assertEquals(CombatWorkItem.Status.COMPLETED, workItems.get(workId).status());
+    }
+
     @Test
     void releases_the_initial_request_after_a_successful_terminal_ai_follow_up() {
         UUID adventureId = UUID.randomUUID();

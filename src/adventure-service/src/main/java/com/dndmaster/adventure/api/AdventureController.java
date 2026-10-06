@@ -360,19 +360,21 @@ public class AdventureController {
                 }
                 com.dndmaster.adventure.domain.combat.CombatEncounter combat = null;
                 if (combatStartRequested) {
-                    if (combatLifecycleService.findActiveEncounter(adventureId).isEmpty()) {
+                    var existingCombat = combatLifecycleService.findActiveEncounter(adventureId);
+                    if (existingCombat.isEmpty() || existingCombat.orElseThrow().status()
+                            == com.dndmaster.adventure.domain.combat.CombatEncounter.Status.PREPARING) {
                         CombatStartTransitionPolicy.requireCommittedCombatSituation(committedAdventure.currentSituation(),
                                 result.turn().plan().combatEnemies());
-                        combat = combatLifecycleService.startFromCommittedGmTurn(adventureId, committedTurn,
-                                new com.dndmaster.adventure.domain.combat.CombatStartProposal(true,
-                                        CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, adventure.party(),
+                        combat = combatLifecycleService.startPreparingFromCommittedGmTurn(adventureId, committedTurn,
+                                        CombatStartParticipantFactory.preparingFromPartyAndGmProposal(adventureId, adventure.party(),
                                                 result.turn().plan().combatEnemies(), member -> characterCombatPort.displayName(
                                                         member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                         adventure.sessionId().value()),
                                                 member -> characterCombatPort.initiativeModifier(
                                                         member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                         adventure.sessionId().value()),
-                                                () -> java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 21))));
+                                                () -> java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 21)),
+                                        result.enemySheetPreparationRequest());
                     } else {
                         LOGGER.warn("gm_turn_combat_start_skipped adventureId={} reason=ACTIVE_COMBAT_ALREADY_EXISTS turnId={}",
                                 adventureId, result.turn().turnId());
@@ -380,7 +382,7 @@ public class AdventureController {
                 }
                 sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                         result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
-                if (combat != null && combatLifecycleService.scheduleFirstAiTurn(combat, commandId)) {
+                if (combat != null) {
                     permit.handOffToCombatFollowUp();
                 }
                 return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
@@ -450,18 +452,18 @@ public class AdventureController {
             CombatStartTransitionPolicy.requireCommittedCombatSituation(adventure.currentSituation(),
                     result.turn().plan().combatEnemies());
             var activeEncounter = combatLifecycleService.findActiveEncounter(adventureId);
-            if (activeEncounter.isEmpty()) {
-                var encounter = combatLifecycleService.startFromCommittedGmTurn(adventureId, committed,
-                        new com.dndmaster.adventure.domain.combat.CombatStartProposal(true,
-                                CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, adventure.party(),
+            if (activeEncounter.isEmpty() || activeEncounter.orElseThrow().status()
+                    == com.dndmaster.adventure.domain.combat.CombatEncounter.Status.PREPARING) {
+                var encounter = combatLifecycleService.startPreparingFromCommittedGmTurn(adventureId, committed,
+                                CombatStartParticipantFactory.preparingFromPartyAndGmProposal(adventureId, adventure.party(),
                                         result.turn().plan().combatEnemies(), member -> characterCombatPort.displayName(
                                                 member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                 adventure.sessionId().value()),
                                         member -> characterCombatPort.initiativeModifier(
                                                 member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                 adventure.sessionId().value()),
-                                        () -> java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 21))));
-                if (encounter != null) combatLifecycleService.scheduleFirstAiTurn(encounter, result.turn().commandId());
+                                                () -> java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 21)),
+                                result.enemySheetPreparationRequest());
             }
         }
     }

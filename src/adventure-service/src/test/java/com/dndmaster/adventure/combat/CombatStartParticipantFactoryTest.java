@@ -70,6 +70,29 @@ class CombatStartParticipantFactoryTest {
     }
 
     @Test
+    void reuses_profile_data_but_initializes_each_encounters_hit_points_and_resources_fresh() {
+        UUID adventureId = UUID.randomUUID();
+        var reusableSheet = new CombatEnemyStatBlock(12, 7, 4, "1d6+2",
+                new CombatStatBlockSource(UUID.randomUUID(), 1, "p. 4"));
+        var party = List.<AdventurePartyMember>of();
+
+        var firstEncounter = CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, party,
+                List.of(new CombatEnemyProposal("rat", "Giant Rat", 1,
+                        com.dndmaster.adventure.application.runtime.CombatStartMode.SCENARIO, reusableSheet)),
+                ignored -> "", ignored -> 0, () -> 10);
+        var damaged = firstEncounter.get(0).withCurrentHitPoints(1);
+        var secondEncounter = CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, party,
+                List.of(new CombatEnemyProposal("rat", "Giant Rat", 1,
+                        com.dndmaster.adventure.application.runtime.CombatStartMode.SCENARIO, reusableSheet)),
+                ignored -> "", ignored -> 0, () -> 10);
+
+        assertEquals(reusableSheet, secondEncounter.get(0).statBlock());
+        assertEquals(7, secondEncounter.get(0).currentHitPoints());
+        assertEquals(com.dndmaster.adventure.domain.combat.TurnResources.initial(), secondEncounter.get(0).resources());
+        assertEquals(1, damaged.currentHitPoints());
+    }
+
+    @Test
     void rolls_each_participants_initiative_before_encounter_start_and_adds_their_modifier() {
         UUID adventureId = UUID.randomUUID();
         UUID heroId = UUID.randomUUID();

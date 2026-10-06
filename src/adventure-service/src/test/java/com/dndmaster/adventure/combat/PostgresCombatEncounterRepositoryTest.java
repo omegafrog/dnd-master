@@ -40,7 +40,7 @@ class PostgresCombatEncounterRepositoryTest {
             statement.execute("DROP TABLE IF EXISTS combat_participant");
             statement.execute("DROP TABLE IF EXISTS combat_encounter");
             statement.execute("CREATE TABLE combat_encounter (encounter_id UUID PRIMARY KEY, adventure_id UUID NOT NULL, status TEXT NOT NULL, round INT NOT NULL, current_participant_id UUID NOT NULL, version BIGINT NOT NULL, event_cursor BIGINT NOT NULL, pending_reaction_id UUID, pending_reaction_trigger TEXT, pending_reaction_actor_id UUID, pending_reaction_operation_id UUID, pending_reaction_resume_step TEXT, pending_reaction_options JSONB)");
-            statement.execute("CREATE TABLE combat_participant (encounter_id UUID NOT NULL, participant_id UUID NOT NULL, display_name TEXT NOT NULL, controller TEXT NOT NULL, initiative INT NOT NULL, public_condition TEXT, movement_remaining INT NOT NULL DEFAULT 30, action_available BOOLEAN NOT NULL DEFAULT TRUE, bonus_action_available BOOLEAN NOT NULL DEFAULT TRUE, reaction_available BOOLEAN NOT NULL DEFAULT TRUE, stat_block_json JSONB, current_hit_points INT, PRIMARY KEY (encounter_id, participant_id))");
+            statement.execute("CREATE TABLE combat_participant (encounter_id UUID NOT NULL, participant_id UUID NOT NULL, display_name TEXT NOT NULL, controller TEXT NOT NULL, initiative INT NOT NULL, public_condition TEXT, movement_remaining INT NOT NULL DEFAULT 30, action_available BOOLEAN NOT NULL DEFAULT TRUE, bonus_action_available BOOLEAN NOT NULL DEFAULT TRUE, reaction_available BOOLEAN NOT NULL DEFAULT TRUE, stat_block_json JSONB, current_hit_points INT, enemy_kind TEXT, PRIMARY KEY (encounter_id, participant_id))");
             statement.execute("CREATE TABLE combat_narrative_position (encounter_id UUID NOT NULL, subject_id UUID NOT NULL, target_id UUID NOT NULL, range_band TEXT NOT NULL, cover TEXT NOT NULL, PRIMARY KEY (encounter_id, subject_id, target_id))");
         }
     }
@@ -65,6 +65,21 @@ class PostgresCombatEncounterRepositoryTest {
         assertTrue(loaded.isPresent());
         assertEquals(encounterId, loaded.orElseThrow().encounterId());
         assertEquals(1, loaded.orElseThrow().participants().size());
+    }
+
+    @Test
+    void persists_enemy_kind_on_preparing_participant_for_restart_activation() {
+        UUID encounterId = UUID.randomUUID();
+        UUID adventureId = UUID.randomUUID();
+        UUID enemyId = UUID.randomUUID();
+        var repository = new PostgresCombatEncounterRepository(dataSource);
+        var preparing = new CombatEncounter(encounterId, adventureId, CombatEncounter.Status.PREPARING, 1,
+                enemyId, List.of(new CombatParticipant(enemyId, "Goblin", CombatParticipant.Controller.AI, 12,
+                "enemy", TurnResources.initial(), null, null, "goblin")), 1, 0);
+
+        repository.save(preparing);
+
+        assertEquals("goblin", repository.findByEncounterId(encounterId).orElseThrow().participants().getFirst().enemyKind());
     }
 
     @Test

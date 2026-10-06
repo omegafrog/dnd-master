@@ -61,4 +61,26 @@ public final class CombatStartParticipantFactory {
         }
         return List.copyOf(participants);
     }
+
+    public static List<CombatParticipant> preparingFromPartyAndGmProposal(UUID adventureId,
+            List<AdventurePartyMember> party, List<CombatEnemyProposal> enemies,
+            Function<AdventurePartyMember, String> displayNameFor,
+            Function<AdventurePartyMember, Integer> initiativeModifier,
+            java.util.function.IntSupplier d20) {
+        List<CombatParticipant> resolved = fromPartyAndGmProposal(adventureId, party, enemies,
+                displayNameFor, initiativeModifier, d20);
+        int partySize = party.size();
+        List<CombatParticipant> pending = new ArrayList<>(resolved.subList(0, partySize));
+        int participantIndex = partySize;
+        for (CombatEnemyProposal enemy : enemies) {
+            if (enemy.sheetIdentity() == null) throw new IllegalArgumentException("ENEMY_SHEET_IDENTITY_REQUIRED");
+            for (int instance = 0; instance < enemy.count(); instance++) {
+                CombatParticipant participant = resolved.get(participantIndex++);
+                pending.add(new CombatParticipant(participant.participantId(), participant.displayName(), participant.controller(),
+                        participant.initiative(), participant.publicCondition(), participant.resources(), null, null,
+                        enemy.sheetIdentity().enemyKind()));
+            }
+        }
+        return List.copyOf(pending);
+    }
 }

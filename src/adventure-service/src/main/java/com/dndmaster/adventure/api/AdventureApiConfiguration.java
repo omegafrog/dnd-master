@@ -1001,7 +1001,8 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort,
             com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort,
             javax.sql.DataSource dataSource,
-            com.dndmaster.adventure.application.runtime.AdventureCompletionCommitPort adventureCompletionCommitPort) {
+            com.dndmaster.adventure.application.runtime.AdventureCompletionCommitPort adventureCompletionCommitPort,
+            com.dndmaster.adventure.application.combat.EnemyCharacterSheetRepository enemyCharacterSheetRepository) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, providerBindingRepository,
@@ -1018,6 +1019,7 @@ public class AdventureApiConfiguration {
         service.setCharacterSheetReadPort(characterSheetReadPort);
         service.setConversationCompactionJobRepository(conversationCompactionJobRepository(dataSource));
         service.setAdventureCompletionCommitPort(adventureCompletionCommitPort);
+        service.setEnemyCharacterSheetRepository(enemyCharacterSheetRepository);
         return service;
     }
 
@@ -1313,6 +1315,12 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.combat.EnemyCharacterSheetRepository enemyCharacterSheetRepository(
+            DataSource dataSource, ObjectMapper objectMapper) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresEnemyCharacterSheetRepository(dataSource, objectMapper);
+    }
+
+    @Bean
     com.dndmaster.adventure.application.combat.CombatWorkItemScheduler combatWorkItemScheduler(
             com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems,
             @Value("${adventure.combat.auto-progression.max-steps:10}") int maxSteps) {
@@ -1327,10 +1335,13 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.combat.CombatActionApplicationService actionService,
             com.dndmaster.adventure.application.combat.CombatWorkItemScheduler scheduler,
             com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService aiRequestService,
+            com.dndmaster.adventure.application.combat.EnemyCharacterSheetRepository enemyCharacterSheetRepository,
+            com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService,
             @Value("${adventure.combat.auto-progression.max-steps:10}") int maxSteps) {
         return new com.dndmaster.adventure.application.combat.CombatAutoProgressionWorker(
                 "adventure-service", workItems, encounters, decisions, actionService::submitAi,
-                actionService::endTurnAi, maxSteps, scheduler, aiRequestService);
+                actionService::endTurnAi, maxSteps, scheduler, aiRequestService, enemyCharacterSheetRepository,
+                runtimeTurnService);
     }
 
     @Bean

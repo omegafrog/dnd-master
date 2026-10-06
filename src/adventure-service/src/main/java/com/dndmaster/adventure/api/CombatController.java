@@ -186,7 +186,7 @@ public final class CombatController {
                 .map(e -> ResponseEntity.ok(withCharacterNames(PlayerCombatProjectionPolicy.toSnapshot(e, playerResolver.playerId(),
                         workItems.findFailedByEncounterId(e.encounterId()).map(item ->
                                 new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot.ProcessingFailure(
-                                        item.operationId(), item.failure(), item.attemptCount())).orElse(null)), adventure)))
+                                        item.operationId(), item.playerVisibleFailure(), item.attemptCount())).orElse(null)), adventure)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 

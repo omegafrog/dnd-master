@@ -32,6 +32,23 @@ class CombatEncounterPolicyTest {
     }
 
     @Test
+    void preparing_encounter_only_becomes_active_with_every_enemy_profile_and_starts_fresh() {
+        var pending = CombatStartPolicy.prepareFromCommittedGmTurn(true, ADVENTURE, List.of(
+                new CombatParticipant(HERO, "Hero", CombatParticipant.Controller.PLAYER, 12, null),
+                new CombatParticipant(GOBLIN, "Goblin", CombatParticipant.Controller.AI, 11, "enemy",
+                        TurnResources.initial(), null, null, "goblin")));
+        assertEquals(CombatEncounter.Status.PREPARING, pending.status());
+        assertThrows(IllegalArgumentException.class, () -> pending.activateWithPreparedEnemyStats(java.util.Map.of()));
+
+        var active = pending.activateWithPreparedEnemyStats(java.util.Map.of("goblin", GOBLIN_STATS));
+        var goblin = active.participants().stream().filter(p -> p.participantId().equals(GOBLIN)).findFirst().orElseThrow();
+        assertEquals(CombatEncounter.Status.ACTIVE, active.status());
+        assertEquals(GOBLIN_STATS.hitPointMaximum(), goblin.currentHitPoints());
+        assertEquals(TurnResources.initial(), goblin.resources());
+        assertEquals("goblin", goblin.enemyKind());
+    }
+
+    @Test
     void active_encounter_is_unique_per_adventure() {
         var first = CombatStartPolicy.startFromCommittedGmTurn(true, ADVENTURE,
                 List.of(new CombatParticipant(HERO, "Hero", CombatParticipant.Controller.PLAYER, 10, null)));

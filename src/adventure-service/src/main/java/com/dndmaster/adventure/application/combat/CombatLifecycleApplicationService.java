@@ -82,6 +82,51 @@ public final class CombatLifecycleApplicationService {
         return saved;
     }
 
+    public CombatEncounter startPreparingFromCommittedGmTurn(UUID adventureId, GmTurn gmTurn,
+            List<CombatParticipant> participants, EnemySheetPreparationRequest request) {
+        if (gmTurn == null || gmTurn.status() != GmTurnStatus.COMMITTED) {
+            throw new IllegalStateException("combat preparation requires a committed GM turn");
+        }
+        if (adventureRepository == null || workItemRepository == null) {
+            throw new IllegalStateException("durable combat preparation is not configured");
+        }
+        CombatEncounter existing = repository.findActive(adventureId).orElse(null);
+        if (existing != null && existing.status() != CombatEncounter.Status.PREPARING) {
+            throw new com.dndmaster.adventure.domain.combat.ActiveCombatEncounterException(
+                    "adventure already has an active combat encounter");
+        }
+        CombatEncounter saved = existing;
+        if (saved == null) {
+            CombatEncounter encounter = CombatStartPolicy.prepareFromCommittedGmTurn(true, adventureId, participants)
+                    .withEventCursor(1);
+            saved = repository.save(encounter);
+        }
+        if (existing == null && eventRepository != null) {
+            eventRepository.append(new CombatEvent(saved.encounterId(), 1, "COMBAT_PREPARATION_STARTED",
+                    "{\"encounterId\":\"" + saved.encounterId() + "\",\"round\":1}"));
+        }
+        Adventure adventure = adventureRepository.findById(new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId))
+                .orElseThrow(() -> new IllegalStateException("adventure disappeared after combat preparation"));
+        if (request == null || !request.adventureId().equals(adventureId)) {
+            throw new IllegalArgumentException("ENEMY_SHEET_PREPARATION_REQUEST_REQUIRED");
+        }
+        List<EnemySheetPreparationRequest.Enemy> requested = request.enemies().stream().map(enemy -> {
+            if (enemy.identity() == null || !enemy.identity().adventureId().equals(adventureId)) {
+                throw new IllegalArgumentException("ENEMY_SHEET_IDENTITY_REQUIRED");
+            }
+            return enemy;
+        }).toList();
+        UUID actorId = saved.currentParticipantId();
+        CombatActionCommand template = new CombatActionCommand(UUID.randomUUID(), adventure.id(), adventure.sessionId().value(),
+                adventure.ruleSetId(), new com.dndmaster.adventure.domain.adventure.CharacterSheetId(actorId), null,
+                CombatActorRole.AI, "AI_TURN", null, adventure.ownerPlayerId().value(), actorId, saved.version());
+        UUID workId = UUID.nameUUIDFromBytes((adventureId + "|enemy-sheet-preparation|" + request.sourceTurnId())
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        workItemRepository.enqueue(CombatWorkItem.enemySheetPreparation(workId, saved.encounterId(), saved.version(),
+                java.time.Instant.now(), request, template));
+        return saved;
+    }
+
     public boolean scheduleFirstAiTurn(CombatEncounter encounter, UUID aiRequestId) {
         if (workItemScheduler == null || adventureRepository == null
                 || encounter.currentParticipant().controller() != CombatParticipant.Controller.AI) return false;

@@ -36,6 +36,22 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
                 .findFirst().orElseThrow(() -> new IllegalStateException("current combat participant is missing"));
     }
 
+    public CombatEncounter activateWithPreparedEnemyStats(java.util.Map<String, CombatEnemyStatBlock> preparedStats) {
+        if (status != Status.PREPARING) throw new IllegalStateException("COMBAT_NOT_PREPARING");
+        if (preparedStats == null || preparedStats.isEmpty()) throw new IllegalArgumentException("ENEMY_SHEETS_NOT_PREPARED");
+        List<CombatParticipant> activated = participants.stream().map(participant -> {
+            if (participant.enemyKind() == null) return participant;
+            CombatEnemyStatBlock stats = preparedStats.get(participant.enemyKind());
+            if (stats == null) throw new IllegalArgumentException("ENEMY_SHEET_NOT_PREPARED:" + participant.enemyKind());
+            return participant.withEnemySheet(stats);
+        }).toList();
+        if (activated.stream().noneMatch(participant -> participant.enemyKind() != null)) {
+            throw new IllegalArgumentException("ENEMY_SHEET_IDENTITY_REQUIRED");
+        }
+        return new CombatEncounter(encounterId, adventureId, Status.ACTIVE, 1, currentParticipantId,
+                activated, version + 1, eventCursor + 1, narrativePositions, null);
+    }
+
     public TurnResources.Reservation reserveAction(UUID actorId, TurnResourceCost cost, long expectedVersion) {
         requireVersion(expectedVersion);
         if (pendingReaction != null) throw new IllegalStateException("REACTION_PENDING");
