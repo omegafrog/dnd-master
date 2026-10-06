@@ -6,9 +6,57 @@ import { SessionRuntime } from './SessionRuntime'
 import type { AdventureApi } from './AdventureApi'
 import type { AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
 
-vi.mock('./AdventureStream', () => ({ AdventureStream: () => <div>게임 기록</div> }))
+vi.mock('./AdventureStream', () => ({ AdventureStream: ({ onCurrentSceneChanged }: { onCurrentSceneChanged?: (scene: string) => void }) => <div><button type="button" onClick={() => onCurrentSceneChanged?.('맥주 저장고')}>장면 변경 테스트</button>게임 기록</div> }))
 
 describe('SessionRuntime', () => {
+  it('현재 장면이 갱신되면 현재 위치에 반영한다', async () => {
+    const user = userEvent.setup()
+    render(
+      <SessionRuntime
+        adventureId="adventure-1"
+        adventureApi={{} as AdventureApi}
+        playApi={{} as AdventurePlayApi}
+        initialScene="시작 장면"
+      />,
+    )
+
+    expect(screen.getByText('시작 장면')).toBeVisible()
+    await user.click(screen.getByRole('button', { name: '장면 변경 테스트' }))
+    expect(screen.getByText('맥주 저장고')).toBeVisible()
+  })
+
+  it('이름이 같은 파티원도 캐릭터 시트 ID로 전투 상태와 현재 차례를 연결한다', () => {
+    render(
+      <SessionRuntime
+        adventureId="adventure-1"
+        adventureApi={{} as AdventureApi}
+        playApi={{} as AdventurePlayApi}
+        partyCharacters={[
+          { characterSheetId: 'sheet-1', name: '린', characterClass: '클레릭', level: 1 },
+          { characterSheetId: 'sheet-2', name: '린', characterClass: '파이터', level: 1 },
+        ]}
+        combatSnapshot={{
+          encounterId: 'encounter-1', adventureId: 'adventure-1', status: 'ACTIVE', round: 1,
+          currentParticipantId: 'sheet-2', version: 3, eventCursor: 2,
+          resources: { movement: 30, actionAvailable: true, bonusActionAvailable: true, reactionAvailable: true },
+          initiative: [
+            { participantId: 'sheet-1', displayName: '린', controller: 'PLAYER', initiative: 12, publicCondition: '건강함' },
+            { participantId: 'sheet-2', displayName: '린', controller: 'PLAYER', initiative: 20, publicCondition: '부상' },
+          ],
+        }}
+      />,
+    )
+
+    const partyRows = [...document.querySelectorAll('.runtime-party-list li')]
+    expect(partyRows).toHaveLength(2)
+    expect(partyRows[0]).toHaveTextContent('INIT 12')
+    expect(partyRows[0]).toHaveTextContent('건강함')
+    expect(partyRows[0]).not.toHaveClass('runtime-party-current')
+    expect(partyRows[1]).toHaveTextContent('INIT 20')
+    expect(partyRows[1]).toHaveTextContent('부상')
+    expect(partyRows[1]).toHaveClass('runtime-party-current')
+  })
+
   it('접기 버튼으로 플레이 캐릭터 패널을 숨겼다가 다시 펼친다', async () => {
     const user = userEvent.setup()
     render(

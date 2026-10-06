@@ -5,7 +5,7 @@ import type { PlayerRollRequest } from './AdventureApi'
 type ChatMessageEntry = { speaker: string; text: string }
 type LocalTurn = { action: ChatMessageEntry; response: ChatMessageEntry[]; expectedVersion: number; committedVersion?: number }
 
-export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommitted }: { adventureId: string; api: AdventureApi; expectedVersion?: number | null; onTurnCommitted?: () => void }) {
+export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommitted, onCurrentSceneChanged }: { adventureId: string; api: AdventureApi; expectedVersion?: number | null; onTurnCommitted?: () => void; onCurrentSceneChanged?: (scene: string) => void }) {
   const [messages, setMessages] = useState<ChatMessageEntry[]>([])
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
@@ -34,6 +34,9 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
     void api.readConversation(adventureId).then(response => {
       if (cancelled) return
       projectionVersion.current = Math.max(knownVersion, response.version)
+      if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
+      setRollRequest(response.pendingRoll ?? null)
+      setRollValue('')
       setMessages(current => reconcileHydratedMessages(
         response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content })),
         response.version,
@@ -50,7 +53,7 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       setNotice('대화 기록을 불러오지 못했습니다.')
     })
     return () => { cancelled = true }
-  }, [adventureId, api])
+  }, [adventureId, api, onCurrentSceneChanged])
 
   // Opening narration is an ordinary GM message. Do not split it into a
   // separate "opening scene" card, which duplicated the conversation and
@@ -73,6 +76,9 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       if (event.type === 'GM_TURN_COMMITTED' && api.readConversation) {
         void api.readConversation(adventureId).then(response => {
           projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version, event.version)
+          if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
+          setRollRequest(response.pendingRoll ?? null)
+          setRollValue('')
           setMessages(current => reconcileHydratedMessages(
             response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content })),
             response.version,
@@ -90,10 +96,20 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       setConversationHydrated(false)
       void api.readConversation?.(adventureId).then(response => {
         projectionVersion.current = response.version
+        if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
+        setRollRequest(response.pendingRoll ?? null)
+        setRollValue('')
+        setMessages(current => reconcileHydratedMessages(
+          response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content })),
+          response.version,
+          current,
+          localTurn.current,
+          true,
+        ))
         setConversationHydrated(true)
       }).catch(() => undefined)
     })
-  }, [adventureId, api, eventSubscriptionReady])
+  }, [adventureId, api, eventSubscriptionReady, onCurrentSceneChanged])
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -138,10 +154,12 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       }
       if (response.rollRequest) {
         setRollRequest(response.rollRequest)
+        if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
         setProjectionStatus('idle')
         return
       }
       const responseEntries = responseMessages(response.narration, (response as AdventureMessageResponse & { judgment?: string }).judgment ?? '')
+      if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
       localTurn.current = { action, response: responseEntries, expectedVersion: localTurn.current?.expectedVersion ?? projectionVersion.current, committedVersion: response.version }
       projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)
       committedVersion.current = Math.max(committedVersion.current, response.version)
@@ -176,6 +194,7 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
     try {
       const response = await api.submitPlayerRoll(adventureId, rollRequest.pendingTurnId, result, rollRequest.expectedVersion)
       setRollRequest(null); setRollValue('')
+      if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
       const responseEntries = responseMessages(response.narration, '')
       setMessages(current => [...current, ...responseEntries])
       projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)

@@ -21,7 +21,7 @@ export class AdventureRequestError extends Error {
 export type AdventureSessionEvent = { version: number; type: string; payload: string }
 
 export type AdventureConversationEntry = { sequence: number; speaker: string; content: string }
-export type AdventureConversationResponse = { adventureId: string; version: number; entries: AdventureConversationEntry[] }
+export type AdventureConversationResponse = { adventureId: string; version: number; currentScene?: string; entries: AdventureConversationEntry[]; pendingRoll?: PlayerRollRequest | null }
 
 export interface AdventureMessageResponse {
   narration: string
