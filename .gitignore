@@ -1,6 +1,5 @@
 # Repository-local Harness installation
 /.codex/*
-!/.codex/harness.yaml
 !/.codex/agents/
 !/.codex/agents/**
 !/.codex/skills/
