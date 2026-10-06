@@ -124,28 +124,24 @@ public final class CombatAutoProgressionWorker {
             CombatActionCommand base = Objects.requireNonNull(item.command(), "AI work item command is missing");
             UUID actorId = "AI_TURN".equals(base.action()) ? encounter.currentParticipantId() : base.characterSheetId().value();
             AiTurnPlan plan;
-            if ("AI_TURN".equals(base.action())) {
-                AiCombatTurnContext context = AiTacticalInstructionPolicy.contextFor(encounter, actorId,
-                        item.tacticalInstruction().instruction(), item.tacticalInstruction().constraints());
-                if (runtimeTurnService != null) {
-                    var runtimeInputs = runtimeTurnService.combatTurnRuntimeInputs(base.adventureId(), actorId);
-                    EnemyCharacterSheet enemySheet = context.actor().enemyKind() == null ? null
-                            : runtimeTurnService.enemyCharacterSheetForCombat(base.adventureId(), context.actor().enemyKind())
-                                    .orElseThrow(() -> new com.dndmaster.adventure.application.runtime.AbsentEnemyRuleEvidenceException(
-                                            "ENEMY_SHEET_RULE_EVIDENCE_UNAVAILABLE"));
-                    var situation = runtimeInputs.situation();
-                    String situationText = "장소: " + situation.location() + "\n문제: " + situation.problem()
-                            + "\n위협: " + situation.threat() + "\n목표: " + situation.goal();
-                    context = new AiCombatTurnContext(encounter, context.actor(), context.tacticalInstruction(),
-                            situationText, runtimeInputs.characterSheetJson(), enemySheet,
-                            runtimeInputs.ownerPlayerId(), runtimeInputs.providerSelection());
-                }
+            if (item.decisionPlan() != null) {
+                plan = item.decisionPlan();
+                actorId = plan.actorId();
+                AiCombatTurnContext context = contextForStoredProposal(encounter, actorId, item, base);
+                validateDecisionEvidence(plan, context);
+                command = base;
+            } else if ("AI_TURN".equals(base.action())) {
+                AiCombatTurnContext context = buildDecisionContext(encounter, actorId, item, base, true);
                 plan = Objects.requireNonNull(decisions.planTurn(context), "AI turn plan must not be null");
+                AiCombatTurnContext initialContext = context;
+                context = contextWithFallbackEvidence(context, plan, base);
+                if (context != initialContext) plan = Objects.requireNonNull(decisions.planTurn(context),
+                        "AI combat proposal with Rulebook evidence must not be null");
                 if (!actorId.equals(plan.actorId())) throw new CombatCommandRejectedException(
                         "ACTION_NOT_ALLOWED", java.util.List.of("AI_PLAN_ACTOR_MISMATCH"));
                 validateDecisionEvidence(plan, context);
                 command = commandForPlan(base, plan, actorId, encounter);
-                item = item.withCommand(command);
+                item = item.withDecisionPlan(plan).withCommand(command);
                 workItems.save(item);
             } else if ("END_TURN".equals(base.action())) {
                 plan = null; // The cited end-turn proposal was already validated and saved before its first application attempt.
@@ -245,6 +241,79 @@ public final class CombatAutoProgressionWorker {
                 plan.damageAmount(), false, base.narrativePosition(), base.movementDistance(), base.mapVersion());
     }
 
+    private AiCombatTurnContext contextForStoredProposal(CombatEncounter encounter, UUID actorId,
+            CombatWorkItem item, CombatActionCommand base) {
+        CombatParticipant actor = encounter.participants().stream().filter(value -> value.participantId().equals(actorId))
+                .findFirst().orElseThrow(() -> new IllegalStateException("saved AI actor is no longer in this encounter"));
+        AiCombatTurnContext context = buildDecisionContext(encounter, actor, item, base);
+        return item.decisionPlan() == null ? context : contextWithFallbackEvidence(context, item.decisionPlan(), base);
+    }
+
+    private AiCombatTurnContext contextWithFallbackEvidence(AiCombatTurnContext context, AiTurnPlan plan,
+            CombatActionCommand base) {
+        if (runtimeTurnService == null || context.actor().enemyKind() != null || context.ruleEvidence().size() > 0
+                || (!plan.citationKeys().isEmpty()
+                && plan.citationKeys().stream().allMatch(sheetCitationKeys(context.characterSheetJson())::contains))) return context;
+        var evidence = runtimeTurnService.combatRuleEvidenceForTurn(base.adventureId(), context.actor().participantId(),
+                plan.endTurn() ? "combat action assessment" : plan.intent().action());
+        if (evidence.isEmpty()) throw new com.dndmaster.adventure.application.runtime.AbsentEnemyRuleEvidenceException(
+                "COMBAT_RULE_EVIDENCE_UNAVAILABLE");
+        return new AiCombatTurnContext(context.encounter(), context.actor(), context.tacticalInstruction(),
+                context.currentSituation(), context.characterSheetJson(), context.enemyCharacterSheet(),
+                context.ownerPlayerId(), context.providerSelection(), evidence);
+    }
+
+    private static java.util.Set<String> sheetCitationKeys(String sheetJson) {
+        if (sheetJson == null || sheetJson.isBlank()) return java.util.Set.of();
+        try {
+            var root = new com.fasterxml.jackson.databind.ObjectMapper().readTree(sheetJson);
+            var keys = new java.util.LinkedHashSet<String>();
+            collectSheetCitationKeys(root, keys);
+            return java.util.Set.copyOf(keys);
+        } catch (java.io.IOException malformedSheet) {
+            return java.util.Set.of();
+        }
+    }
+
+    private static void collectSheetCitationKeys(com.fasterxml.jackson.databind.JsonNode node, java.util.Set<String> keys) {
+        if (node == null) return;
+        if (node.isObject()) node.fields().forEachRemaining(field -> {
+            String name = field.getKey();
+            if ("citationKey".equals(name) && field.getValue().isTextual()) keys.add(field.getValue().asText());
+            else if ("citationKeys".equals(name) && field.getValue().isArray())
+                field.getValue().forEach(value -> { if (value.isTextual()) keys.add(value.asText()); });
+            else collectSheetCitationKeys(field.getValue(), keys);
+        });
+        else if (node.isArray()) node.forEach(child -> collectSheetCitationKeys(child, keys));
+    }
+
+    private AiCombatTurnContext buildDecisionContext(CombatEncounter encounter, UUID actorId,
+            CombatWorkItem item, CombatActionCommand base, boolean requireCurrentActor) {
+        AiCombatTurnContext context = requireCurrentActor
+                ? AiTacticalInstructionPolicy.contextFor(encounter, actorId,
+                        item.tacticalInstruction().instruction(), item.tacticalInstruction().constraints())
+                : contextForStoredProposal(encounter, actorId, item, base);
+        return buildDecisionContext(encounter, context.actor(), item, base);
+    }
+
+    private AiCombatTurnContext buildDecisionContext(CombatEncounter encounter, CombatParticipant actor,
+            CombatWorkItem item, CombatActionCommand base) {
+        if (runtimeTurnService == null) {
+            return new AiCombatTurnContext(encounter, actor, item.tacticalInstruction());
+        }
+        var runtimeInputs = runtimeTurnService.combatTurnRuntimeInputs(base.adventureId(), actor.participantId());
+        EnemyCharacterSheet enemySheet = actor.enemyKind() == null ? null
+                : runtimeTurnService.enemyCharacterSheetForCombat(base.adventureId(), actor.enemyKind())
+                        .orElseThrow(() -> new com.dndmaster.adventure.application.runtime.AbsentEnemyRuleEvidenceException(
+                                "ENEMY_SHEET_RULE_EVIDENCE_UNAVAILABLE"));
+        var situation = runtimeInputs.situation();
+        String situationText = "장소: " + situation.location() + "\n문제: " + situation.problem()
+                + "\n위협: " + situation.threat() + "\n목표: " + situation.goal();
+        return new AiCombatTurnContext(encounter, actor, item.tacticalInstruction(), situationText,
+                runtimeInputs.characterSheetJson(), enemySheet, runtimeInputs.ownerPlayerId(), runtimeInputs.providerSelection(),
+                runtimeInputs.ruleEvidence());
+    }
+
     private static AiTurnPlan planForPersistedCommand(CombatActionCommand command) {
         return new AiTurnPlan(command.characterSheetId().value(),
                 new com.dndmaster.adventure.domain.combat.CombatActionIntent(command.characterSheetId().value(),
@@ -273,7 +342,8 @@ public final class CombatAutoProgressionWorker {
             available.add(sheet.statBlock().source().citationKey());
             sheet.abilities().forEach(ability -> available.addAll(ability.citationKeys()));
             sheet.actions().forEach(action -> available.addAll(action.citationKeys()));
-            if (!available.containsAll(plan.citationKeys())) throw new IllegalArgumentException("AI combat proposal cites an unknown enemy rule");
+            if (!available.containsAll(plan.citationKeys())) throw new com.dndmaster.adventure.application.runtime.AbsentEnemyRuleEvidenceException(
+                    "AI_COMBAT_CITATION_OUTSIDE_ENEMY_SHEET_SCOPE");
             if (plan.endTurn()) {
                 var allActionRules = sheet.actions().stream().flatMap(action -> action.citationKeys().stream()).collect(java.util.stream.Collectors.toSet());
                 if (allActionRules.isEmpty() || !new java.util.HashSet<>(plan.citationKeys()).containsAll(allActionRules)) {
@@ -289,9 +359,30 @@ public final class CombatAutoProgressionWorker {
             }
         } else {
             if (plan.endTurn()) throw new IllegalArgumentException("AI companion may not end its turn without an action");
-            String sheet = context.characterSheetJson();
-            if (sheet == null || plan.citationKeys().stream().anyMatch(key -> !sheet.contains(key))) {
-                throw new IllegalArgumentException("AI companion proposal cites a rule outside its character sheet");
+            var available = context.ruleEvidence().stream().map(
+                    com.dndmaster.adventure.application.runtime.RuntimeEvidence::referenceKey)
+                    .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+            available.addAll(sheetCitationKeys(context.characterSheetJson()));
+            if (context.ruleEvidence().size() > 0 && plan.citationKeys().stream().anyMatch(key -> !available.contains(key))) {
+                throw new com.dndmaster.adventure.application.runtime.AbsentEnemyRuleEvidenceException(
+                        "AI_COMBAT_CITATION_NOT_VERIFIABLE_IN_PINNED_RULEBOOK");
+            }
+            if (plan.citationKeys().stream().anyMatch(key -> !available.contains(key))) {
+                throw new IllegalArgumentException("AI companion proposal cites a rule outside the pinned Rulebook evidence");
+            }
+        }
+        if (!plan.endTurn()) {
+            String action = plan.intent().action().trim().toUpperCase(java.util.Locale.ROOT);
+            boolean sourceBackedEnemyAction = context.enemyCharacterSheet() != null
+                    && context.enemyCharacterSheet().actions().stream()
+                    .anyMatch(candidate -> candidate.name().equalsIgnoreCase(plan.intent().action()));
+            if (!sourceBackedEnemyAction && !java.util.Set.of("ATTACK", "CAST_SPELL", "DODGE", "DISENGAGE", "DASH", "HELP", "HIDE", "READY", "SEARCH", "USE_OBJECT", "MOVE")
+                    .contains(action)) {
+                throw new IllegalArgumentException("AI combat action is outside the Runtime action allowlist");
+            }
+            if (!plan.intent().cost().action() || plan.intent().cost().bonusAction()
+                    || plan.intent().cost().reaction() || plan.intent().cost().movement() != 0) {
+                throw new IllegalArgumentException("AI combat action uses an unsupported state-change contract");
             }
         }
         if (!plan.endTurn() && (context.actor().enemyKind() != null

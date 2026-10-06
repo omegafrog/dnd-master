@@ -636,7 +636,33 @@ public class RuntimeTurnApplicationService {
                 : providerBindingRepository.current(adventure.sessionId().value())
                         .map(ProviderBinding::selection).orElse(null);
         return new CombatTurnRuntimeInputs(adventure.currentSituation(), sheet,
-                adventure.ownerPlayerId().value(), selection);
+                adventure.ownerPlayerId().value(), selection, List.of());
+    }
+
+    /** Searches pinned Rulebook material only after the first combat proposal needs a missing rule. */
+    public List<RuntimeEvidence> combatRuleEvidenceForTurn(AdventureId adventureId, UUID actorId, String action) {
+        Adventure adventure = adventureRepository.findById(adventureId)
+                .orElseThrow(() -> new IllegalStateException("combat adventure is unavailable"));
+        if (adventure.party().stream().noneMatch(member -> member.characterSheetId().value().equals(actorId))) {
+            throw new IllegalArgumentException("Rulebook fallback is only available for a party actor");
+        }
+        RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(adventure.id())
+                .orElseThrow(() -> new IllegalStateException("combat runtime binding is unavailable"));
+        ScenarioPackage scenarioPackage = adventure.lockedScenarioPackageId() == null ? null
+                : scenarioPackageRepository.findById(adventure.lockedScenarioPackageId()).orElse(null);
+        if (scenarioPackage == null) throw new IllegalStateException("combat scenario package is unavailable");
+        List<UUID> pinnedDocuments = knowledgeDocumentIds(adventure, scenarioPackage);
+        List<UUID> rulebookDocuments = documentIdsOfType(scenarioPackage, "RULEBOOK", pinnedDocuments);
+        if (rulebookDocuments.isEmpty()) return List.of();
+        Map<UUID, Long> extractionVersions = scenarioPackage.documents().stream()
+                .filter(document -> rulebookDocuments.contains(document.knowledgeDocumentId().value()))
+                .collect(java.util.stream.Collectors.toMap(document -> document.knowledgeDocumentId().value(),
+                        com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection::extractionVersion, (a, b) -> a));
+        String query = "combat rule needed for " + action + "; current situation: " + adventure.currentSituation();
+        RuntimeEvidenceSearchRequest request = new RuntimeEvidenceSearchRequest(adventure.id(), adventure.ownerPlayerId(),
+                adventure.sessionId(), binding.scenarioPackageId(), rulebookDocuments, binding.activeSourceContext(),
+                query, RuntimeEvidenceType.RULEBOOK, 8, extractionVersions, "combat", "COMBAT_ACTION");
+        return bestEffortScopedSearch(request);
     }
 
     /** Loads the source-scoped reusable sheet for an encounter participant from the pinned adventure materials. */
@@ -654,7 +680,16 @@ public class RuntimeTurnApplicationService {
     }
 
     public record CombatTurnRuntimeInputs(com.dndmaster.adventure.domain.runtime.CurrentSituation situation,
-            String characterSheetJson, UUID ownerPlayerId, GmProviderSelection providerSelection) { }
+            String characterSheetJson, UUID ownerPlayerId, GmProviderSelection providerSelection,
+            List<RuntimeEvidence> ruleEvidence) {
+        public CombatTurnRuntimeInputs(com.dndmaster.adventure.domain.runtime.CurrentSituation situation,
+                String characterSheetJson, UUID ownerPlayerId, GmProviderSelection providerSelection) {
+            this(situation, characterSheetJson, ownerPlayerId, providerSelection, List.of());
+        }
+        public CombatTurnRuntimeInputs {
+            ruleEvidence = List.copyOf(ruleEvidence == null ? List.of() : ruleEvidence);
+        }
+    }
 
     /**
      * Reads the same locked Adventure Runtime material as a normal turn and asks

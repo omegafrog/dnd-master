@@ -99,9 +99,10 @@ public final class HttpTypedCombatDecisionPort implements AiCombatDecisionPort {
         data.put("currentSituation", context.currentSituation());
         data.put("characterSheet", context.characterSheetJson());
         data.put("enemyCharacterSheet", context.enemyCharacterSheet());
+        data.put("rulebookEvidence", context.ruleEvidence());
         data.put("tacticalInstruction", context.tacticalInstruction());
         return "ROLE=COMBAT_TURN_DECISION\n" +
-                "Choose one legal action that benefits this actor in the current situation. Use only supplied character sheet and enemy action rules. Never invent rule values. " +
+                "Choose one legal action that benefits this actor in the current situation. Use supplied character sheet and enemy action rules first; use the supplied pinned Rulebook excerpts only when needed rules are absent from that material. Never invent rule values. " +
                 "Return one JSON object: {kind:ACTION|END_TURN,actorId,action,targetId,citationKeys,endTurnAssessment}. " +
                 "For END_TURN, explain why no favorable legal action is available and cite every relevant reviewed rule. " +
                 "For ACTION, cite the supplied rule keys supporting the action. Do not include narration or hidden values.\nCONTEXT="

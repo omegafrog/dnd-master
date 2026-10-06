@@ -7,6 +7,7 @@ import com.dndmaster.adventure.application.combat.AiTacticalInstructionContext;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatWorkItem;
+import com.dndmaster.adventure.application.combat.AiTurnPlan;
 import com.dndmaster.adventure.application.combat.EnemyCharacterSheetIdentity;
 import com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest;
 import com.dndmaster.adventure.application.runtime.CombatEnemyProposal;
@@ -43,18 +44,24 @@ class PostgresCombatWorkItemRepositoryTest {
         UUID encounterId = UUID.randomUUID();
         UUID operationId = UUID.randomUUID();
         UUID requestId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
         try (Connection connection = dataSource.getConnection(); var statement = connection.prepareStatement(
                 "INSERT INTO combat_encounter(encounter_id) VALUES (?)")) {
             statement.setObject(1, encounterId);
             statement.executeUpdate();
         }
         var command = new CombatActionCommand(operationId, new AdventureId(UUID.randomUUID()), UUID.randomUUID(),
-                new RuleSetId(UUID.randomUUID()), new CharacterSheetId(UUID.randomUUID()), null, CombatActorRole.AI,
-                "AI_TURN", null, null, UUID.randomUUID(), 1, null, null, null, null, false);
+                new RuleSetId(UUID.randomUUID()), new CharacterSheetId(actorId), null, CombatActorRole.AI,
+                "AI_TURN", null, null, actorId, 1, null, null, null, null, false);
+        AiTurnPlan decisionPlan = new AiTurnPlan(actorId,
+                new com.dndmaster.adventure.domain.combat.CombatActionIntent(actorId, "attack",
+                        com.dndmaster.adventure.domain.combat.TurnResourceCost.actionOnly()),
+                null, null, null, null, false, null, List.of("rule-ref"), null);
         var repository = new PostgresCombatWorkItemRepository(dataSource, new ObjectMapper());
         repository.enqueue(new CombatWorkItem(UUID.randomUUID(), encounterId, operationId, 1,
                 CombatWorkItem.WorkType.AI_TURN, Instant.parse("2026-01-01T00:00:00Z"), 0,
-                new AiTacticalInstructionContext("Protect the healer", List.of("stay near the party")), command, 0, requestId));
+                new AiTacticalInstructionContext("Protect the healer", List.of("stay near the party")), command, 0, requestId)
+                .withDecisionPlan(decisionPlan));
 
         var claimed = repository.claim("worker-1", java.time.Duration.ofSeconds(30), Instant.parse("2026-01-01T00:00:01Z")).orElseThrow();
         assertEquals(CombatWorkItem.Status.CLAIMED, claimed.status());
@@ -65,8 +72,11 @@ class PostgresCombatWorkItemRepositoryTest {
         var failed = repository.findByOperationId(operationId).orElseThrow();
         assertEquals(CombatWorkItem.Status.FAILED, failed.status());
         assertEquals(operationId, failed.operationId());
+        assertEquals(decisionPlan, failed.decisionPlan());
         repository.save(failed.manualRetry(Instant.parse("2026-01-01T00:00:02Z")));
-        assertEquals(CombatWorkItem.Status.PENDING, repository.findByOperationId(operationId).orElseThrow().status());
+        var retried = repository.findByOperationId(operationId).orElseThrow();
+        assertEquals(CombatWorkItem.Status.PENDING, retried.status());
+        assertEquals(decisionPlan, retried.decisionPlan());
     }
 
     @Test
@@ -104,7 +114,7 @@ class PostgresCombatWorkItemRepositoryTest {
             statement.execute("DROP TABLE IF EXISTS combat_work_item");
             statement.execute("DROP TABLE IF EXISTS combat_encounter");
             statement.execute("CREATE TABLE combat_encounter (encounter_id UUID PRIMARY KEY)");
-            statement.execute("CREATE TABLE combat_work_item (work_item_id UUID PRIMARY KEY, encounter_id UUID NOT NULL REFERENCES combat_encounter(encounter_id), operation_id UUID, ai_request_id UUID, expected_encounter_version BIGINT NOT NULL, work_type TEXT NOT NULL, due_at TIMESTAMPTZ NOT NULL, attempt_count INT NOT NULL, status TEXT NOT NULL, lease_token UUID, worker_id TEXT, lease_until TIMESTAMPTZ, failure TEXT, tactical_instruction TEXT NOT NULL, tactical_constraints JSONB NOT NULL, command_json JSONB, completed_steps INT NOT NULL, enemy_sheet_preparation_request JSONB)");
+            statement.execute("CREATE TABLE combat_work_item (work_item_id UUID PRIMARY KEY, encounter_id UUID NOT NULL REFERENCES combat_encounter(encounter_id), operation_id UUID, ai_request_id UUID, expected_encounter_version BIGINT NOT NULL, work_type TEXT NOT NULL, due_at TIMESTAMPTZ NOT NULL, attempt_count INT NOT NULL, status TEXT NOT NULL, lease_token UUID, worker_id TEXT, lease_until TIMESTAMPTZ, failure TEXT, tactical_instruction TEXT NOT NULL, tactical_constraints JSONB NOT NULL, command_json JSONB, completed_steps INT NOT NULL, enemy_sheet_preparation_request JSONB, decision_plan JSONB)");
         }
     }
 

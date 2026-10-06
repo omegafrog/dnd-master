@@ -4,6 +4,7 @@ import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatWorkItem;
 import com.dndmaster.adventure.application.combat.CombatWorkItemRepository;
 import com.dndmaster.adventure.application.combat.AiTacticalInstructionContext;
+import com.dndmaster.adventure.application.combat.AiTurnPlan;
 import com.dndmaster.adventure.application.combat.EnemySheetPreparationRequest;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,7 +21,7 @@ import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 public final class PostgresCombatWorkItemRepository implements CombatWorkItemRepository {
-    private static final String COLUMNS = "work_item_id, encounter_id, operation_id, ai_request_id, expected_encounter_version, work_type, due_at, attempt_count, status, lease_token, lease_until, failure, tactical_instruction, tactical_constraints::text, command_json::text, completed_steps, enemy_sheet_preparation_request::text";
+    private static final String COLUMNS = "work_item_id, encounter_id, operation_id, ai_request_id, expected_encounter_version, work_type, due_at, attempt_count, status, lease_token, lease_until, failure, tactical_instruction, tactical_constraints::text, command_json::text, completed_steps, enemy_sheet_preparation_request::text, decision_plan::text";
     private final DataSource dataSource;
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
@@ -67,14 +68,15 @@ public final class PostgresCombatWorkItemRepository implements CombatWorkItemRep
     @Override public void save(CombatWorkItem item) {
         try {
             jdbc.update("INSERT INTO combat_work_item(" + COLUMNS.replace("::text", "")
-                    + ", worker_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?::jsonb, NULL)"
-                    + " ON CONFLICT(work_item_id) DO UPDATE SET operation_id = EXCLUDED.operation_id, ai_request_id = EXCLUDED.ai_request_id, expected_encounter_version = EXCLUDED.expected_encounter_version, work_type = EXCLUDED.work_type, due_at = EXCLUDED.due_at, attempt_count = EXCLUDED.attempt_count, status = EXCLUDED.status, lease_token = EXCLUDED.lease_token, lease_until = EXCLUDED.lease_until, failure = EXCLUDED.failure, tactical_instruction = EXCLUDED.tactical_instruction, tactical_constraints = EXCLUDED.tactical_constraints, command_json = EXCLUDED.command_json, completed_steps = EXCLUDED.completed_steps, enemy_sheet_preparation_request = EXCLUDED.enemy_sheet_preparation_request",
+                    + ", worker_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?::jsonb, ?::jsonb, NULL)"
+                    + " ON CONFLICT(work_item_id) DO UPDATE SET operation_id = EXCLUDED.operation_id, ai_request_id = EXCLUDED.ai_request_id, expected_encounter_version = EXCLUDED.expected_encounter_version, work_type = EXCLUDED.work_type, due_at = EXCLUDED.due_at, attempt_count = EXCLUDED.attempt_count, status = EXCLUDED.status, lease_token = EXCLUDED.lease_token, lease_until = EXCLUDED.lease_until, failure = EXCLUDED.failure, tactical_instruction = EXCLUDED.tactical_instruction, tactical_constraints = EXCLUDED.tactical_constraints, command_json = EXCLUDED.command_json, completed_steps = EXCLUDED.completed_steps, enemy_sheet_preparation_request = EXCLUDED.enemy_sheet_preparation_request, decision_plan = EXCLUDED.decision_plan",
                     item.workItemId(), item.encounterId(), item.operationId(), item.aiRequestId(), item.expectedEncounterVersion(), item.workType().name(),
                     OffsetDateTime.ofInstant(item.dueAt(), ZoneOffset.UTC), item.attemptCount(), item.status().name(), item.leaseToken(),
                     item.leaseUntil() == null ? null : OffsetDateTime.ofInstant(item.leaseUntil(), ZoneOffset.UTC), item.failure(),
                     item.tacticalInstruction().instruction(), objectMapper.writeValueAsString(item.tacticalInstruction().constraints()),
                     item.command() == null ? null : objectMapper.writeValueAsString(item.command()), item.completedSteps(),
-                    item.enemySheetPreparationRequest() == null ? null : objectMapper.writeValueAsString(item.enemySheetPreparationRequest()));
+                    item.enemySheetPreparationRequest() == null ? null : objectMapper.writeValueAsString(item.enemySheetPreparationRequest()),
+                    item.decisionPlan() == null ? null : objectMapper.writeValueAsString(item.decisionPlan()));
         } catch (Exception exception) {
             throw new CombatWorkItemPersistenceException("could not save combat work item", exception);
         }
@@ -104,19 +106,21 @@ public final class PostgresCombatWorkItemRepository implements CombatWorkItemRep
             String preparationJson = rs.getString("enemy_sheet_preparation_request");
             EnemySheetPreparationRequest preparation = preparationJson == null ? null
                     : objectMapper.readValue(preparationJson, EnemySheetPreparationRequest.class);
-            return restore(rs, constraints, command, preparation);
+            String planJson = rs.getString("decision_plan");
+            AiTurnPlan decisionPlan = planJson == null ? null : objectMapper.readValue(planJson, AiTurnPlan.class);
+            return restore(rs, constraints, command, preparation, decisionPlan);
         } catch (Exception exception) {
             throw new SQLException("invalid persisted combat work item", exception);
         }
     }
 
     private static CombatWorkItem restore(ResultSet rs, List<String> constraints, CombatActionCommand command,
-                                          EnemySheetPreparationRequest preparation) throws SQLException {
-        return new RestoredWorkItem(rs, constraints, command, preparation).value();
+                                          EnemySheetPreparationRequest preparation, AiTurnPlan decisionPlan) throws SQLException {
+        return new RestoredWorkItem(rs, constraints, command, preparation, decisionPlan).value();
     }
 
     private record RestoredWorkItem(ResultSet rs, List<String> constraints, CombatActionCommand command,
-                                    EnemySheetPreparationRequest preparation) {
+                                    EnemySheetPreparationRequest preparation, AiTurnPlan decisionPlan) {
         CombatWorkItem value() {
             try {
                 Object leaseUntil = rs.getObject("lease_until");
@@ -127,7 +131,7 @@ public final class PostgresCombatWorkItemRepository implements CombatWorkItemRep
                         CombatWorkItem.Status.valueOf(rs.getString("status")), rs.getObject("lease_token", UUID.class),
                         leaseUntil == null ? null : ((OffsetDateTime) leaseUntil).toInstant(), rs.getString("failure"),
                         new AiTacticalInstructionContext(rs.getString("tactical_instruction"), constraints), command,
-                        rs.getInt("completed_steps"), rs.getObject("ai_request_id", UUID.class), preparation);
+                        rs.getInt("completed_steps"), rs.getObject("ai_request_id", UUID.class), preparation, decisionPlan);
             } catch (SQLException exception) { throw new IllegalStateException(exception); }
         }
     }
