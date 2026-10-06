@@ -74,6 +74,8 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
                     result.usage() == null ? AiExecutionUsage.unknown() : result.usage());
             return failure(switch (result.failureType()) {
                 case "NO_CONNECTION" -> AiExecutionFailure.Reason.CONNECTION_UNAVAILABLE;
+                case "CONNECTION_REQUIRED" -> AiExecutionFailure.Reason.CONNECTION_REQUIRED;
+                case "REAUTH_REQUIRED" -> AiExecutionFailure.Reason.REAUTH_REQUIRED;
                 case "CONNECTION_LOST" -> AiExecutionFailure.Reason.CONNECTION_LOST;
                 case "TIMEOUT" -> AiExecutionFailure.Reason.TIMEOUT;
                 default -> AiExecutionFailure.Reason.DELIVERY_FAILED;

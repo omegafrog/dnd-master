@@ -10,10 +10,12 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.nio.file.Files;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -24,30 +26,41 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Local Codex app-server JSON-RPC client. One app-server process is shared per local configuration. */
-public final class CodexAppServerClient implements AutoCloseable {
+public final class CodexAppServerClient implements AutoCloseable, CodexAccountClient {
     private static final ConcurrentHashMap<String, CodexAppServerClient> SHARED = new ConcurrentHashMap<>();
     private static final Logger LOGGER = LoggerFactory.getLogger(CodexAppServerClient.class);
     private static final Executor CANCEL_EXECUTOR = command -> Thread.startVirtualThread(command);
 
     public static CodexAppServerClient shared(String executable, Path workDirectory, Duration timeout, ObjectMapper mapper) {
-        String key = executable + "|" + workDirectory.toAbsolutePath().normalize();
-        return SHARED.computeIfAbsent(key, ignored -> new CodexAppServerClient(executable, workDirectory, timeout, mapper));
+        return shared(executable, workDirectory, timeout, mapper, List.of());
+    }
+
+    public static CodexAppServerClient shared(String executable, Path workDirectory, Duration timeout,
+            ObjectMapper mapper, List<String> startupConfigOverrides) {
+        List<String> overrides = startupConfigOverrides == null ? List.of() : List.copyOf(startupConfigOverrides);
+        String key = executable + "|" + workDirectory.toAbsolutePath().normalize() + "|" + overrides;
+        return SHARED.computeIfAbsent(key, ignored -> new CodexAppServerClient(
+                executable, workDirectory, timeout, mapper, overrides));
     }
 
     private final String executable;
     private final Path workDirectory;
     private final Duration timeout;
     private final ObjectMapper mapper;
+    private final List<String> startupConfigOverrides;
     private Process process;
     private BufferedWriter input;
     private BufferedReader output;
     private long requestId;
+    private LoginWaitResult loginWaitResult = LoginWaitResult.PENDING;
 
-    private CodexAppServerClient(String executable, Path workDirectory, Duration timeout, ObjectMapper mapper) {
+    private CodexAppServerClient(String executable, Path workDirectory, Duration timeout, ObjectMapper mapper,
+            List<String> startupConfigOverrides) {
         this.executable = require(executable, "Codex executable");
         this.workDirectory = workDirectory.toAbsolutePath().normalize();
         this.timeout = timeout;
         this.mapper = mapper;
+        this.startupConfigOverrides = List.copyOf(startupConfigOverrides);
         if (timeout.isZero() || timeout.isNegative()) throw new IllegalArgumentException("Codex timeout must be positive");
     }
 
@@ -107,7 +120,7 @@ public final class CodexAppServerClient implements AutoCloseable {
             putModel(turnParams, requestedModel);
             turnParams.put("approvalPolicy", "never");
             turnParams.putObject("sandboxPolicy").put("type", "readOnly");
-            if (outputSchema != null) turnParams.set("outputSchema", outputSchema);
+            if (outputSchema != null && !outputSchema.isNull()) turnParams.set("outputSchema", outputSchema);
             String turnId = request("turn/start", turnParams, deadlineNanos).path("turn").path("id").asText("");
 
             StringBuilder response = new StringBuilder();
@@ -145,12 +158,12 @@ public final class CodexAppServerClient implements AutoCloseable {
                     turnCompletedReceived = true;
                     JsonNode turnError = params.path("turn").path("error");
                     if (!turnError.isMissingNode() && !turnError.isNull()) {
-                        throw new CodexTurnFailedException(threadId, method, "Codex turn failed: " + compact(turnError));
+                        throw turnFailure(threadId, method, turnError);
                     }
                     break;
                 }
                 if ("turn/failed".equals(method) || "turn/aborted".equals(method)) {
-                    throw new CodexTurnFailedException(threadId, method, "Codex turn terminated: " + compact(params));
+                    throw turnFailure(threadId, method, params.path("error"));
                 }
                 if (message.has("error")) throw rpcError(message);
             }
@@ -256,7 +269,7 @@ public final class CodexAppServerClient implements AutoCloseable {
                     && !account.path("type").asText("").isBlank();
         } catch (IOException exception) {
             closeProcess();
-            throw new IllegalStateException("Codex app-server account check failed", exception);
+            throw new IllegalStateException("Codex app-server account check failed");
         } catch (ProviderTimeoutException exception) {
             closeProcess();
             throw exception;
@@ -270,13 +283,14 @@ public final class CodexAppServerClient implements AutoCloseable {
         try {
             long deadlineNanos = System.nanoTime() + timeout.toNanos();
             ensureStarted(deadlineNanos);
+            loginWaitResult = LoginWaitResult.PENDING;
             ObjectNode params = mapper.createObjectNode().put("type", "chatgpt");
             String authUrl = request("account/login/start", params, deadlineNanos).path("authUrl").asText("");
             if (authUrl.isBlank()) throw new IllegalStateException("Codex app-server did not return an OAuth URL");
             return authUrl;
         } catch (IOException exception) {
             closeProcess();
-            throw new IllegalStateException("Codex OAuth could not be started", exception);
+            throw new IllegalStateException("Codex OAuth could not be started");
         } catch (ProviderTimeoutException exception) {
             closeProcess();
             throw exception;
@@ -286,12 +300,55 @@ public final class CodexAppServerClient implements AutoCloseable {
         }
     }
 
+    @Override
+    public synchronized LoginWaitResult awaitAuthentication(Duration waitTimeout, Duration pollInterval) {
+        long deadline = System.nanoTime() + waitTimeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            if (loginWaitResult == LoginWaitResult.CANCELLED || loginWaitResult == LoginWaitResult.FAILED) {
+                return loginWaitResult;
+            }
+            try {
+                if (isAuthenticated()) return LoginWaitResult.AUTHENTICATED;
+            } catch (RuntimeException failure) {
+                return LoginWaitResult.FAILED;
+            }
+            if (loginWaitResult != LoginWaitResult.PENDING) return loginWaitResult;
+            try {
+                long sleepMillis = Math.max(1, Math.min(pollInterval.toMillis(),
+                        TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())));
+                Thread.sleep(sleepMillis);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                return LoginWaitResult.CANCELLED;
+            }
+        }
+        return loginWaitResult == LoginWaitResult.PENDING ? LoginWaitResult.TIMED_OUT : loginWaitResult;
+    }
+
+    /** Checks the configured executable without starting Codex or an app-server process. */
+    public boolean isAvailable() {
+        Path configured = Path.of(executable);
+        if (configured.getNameCount() > 1 || configured.isAbsolute()) {
+            return Files.isRegularFile(configured) && Files.isExecutable(configured);
+        }
+        String path = System.getenv().getOrDefault("PATH", "");
+        for (String directory : path.split(java.io.File.pathSeparator)) {
+            if (directory.isBlank()) continue;
+            Path candidate = Path.of(directory).resolve(configured);
+            if (Files.isRegularFile(candidate) && Files.isExecutable(candidate)) return true;
+        }
+        return false;
+    }
+
     private void ensureStarted(long deadlineNanos) throws IOException, InterruptedException {
         if (process != null && process.isAlive()) return;
+        if (!isAvailable()) throw new IllegalStateException("Codex CLI is unavailable; install Codex and retry");
         closeProcess();
-        process = new ProcessBuilder(List.of(executable, "app-server", "--stdio"))
+        List<String> command = new ArrayList<>(List.of(executable, "app-server", "--stdio"));
+        for (String override : startupConfigOverrides) command.addAll(List.of("-c", override));
+        process = new ProcessBuilder(command)
                 .directory(workDirectory.toFile())
-                .redirectError(ProcessBuilder.Redirect.INHERIT)
+                .redirectError(ProcessBuilder.Redirect.DISCARD)
                 .start();
         input = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
         output = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
@@ -313,11 +370,21 @@ public final class CodexAppServerClient implements AutoCloseable {
         send(request);
         while (true) {
             JsonNode message = readMessageUntil(deadlineNanos);
+            observeLoginEvent(message);
             if (message.path("id").asLong(Long.MIN_VALUE) == id) {
                 if (message.has("error")) throw rpcError(message);
                 return message.path("result");
             }
             handleServerRequest(message);
+        }
+    }
+
+    private void observeLoginEvent(JsonNode message) {
+        switch (message.path("method").asText("")) {
+            case "account/login/completed", "account/updated" -> loginWaitResult = LoginWaitResult.AUTHENTICATED;
+            case "account/login/cancelled", "account/login/canceled" -> loginWaitResult = LoginWaitResult.CANCELLED;
+            case "account/login/failed" -> loginWaitResult = LoginWaitResult.FAILED;
+            default -> { }
         }
     }
 
@@ -375,7 +442,23 @@ public final class CodexAppServerClient implements AutoCloseable {
     }
 
     private static IllegalStateException rpcError(JsonNode message) {
-        return new IllegalStateException("Codex app-server error: " + message.path("error").path("message").asText("unknown error"));
+        if (isAuthenticationRejection(message.path("error"))) return new CodexAuthenticationRejectedException();
+        return new IllegalStateException("Codex app-server request failed");
+    }
+
+    private static RuntimeException turnFailure(String turnId, String method, JsonNode error) {
+        if (isAuthenticationRejection(error)) return new CodexAuthenticationRejectedException();
+        return new CodexTurnFailedException(turnId, method, "Codex app-server execution failed");
+    }
+
+    private static boolean isAuthenticationRejection(JsonNode error) {
+        String codexErrorInfo = error.path("codexErrorInfo").asText("").toLowerCase(java.util.Locale.ROOT);
+        String code = error.path("code").asText("").toLowerCase(java.util.Locale.ROOT);
+        String message = error.path("message").asText("").toLowerCase(java.util.Locale.ROOT);
+        return codexErrorInfo.contains("unauthorized") || codexErrorInfo.contains("authentication")
+                || code.contains("unauthorized") || code.contains("authentication")
+                || message.contains("login required") || message.contains("not authenticated")
+                || message.contains("authentication required") || message.contains("credentials expired");
     }
 
     private void closeProcess() {

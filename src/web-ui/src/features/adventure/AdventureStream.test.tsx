@@ -194,13 +194,12 @@ it('announces failure when message send fails', async () => {
   expect(onTurnCommitted).not.toHaveBeenCalled()
 })
 
-it('retries one provider gateway failure without duplicating the player action', async () => {
+it('does not automatically resend a player action after a 502 response', async () => {
   let attempts = 0
   const api: AdventureApi = {
     async sendMessage() {
       attempts += 1
-      if (attempts === 1) throw new AdventureRequestError('provider failed', 502)
-      return { narration: '재시도 응답', judgment: '', currentScene: '', version: 1 }
+      throw new AdventureRequestError('provider failed', 502, 'Codex 계정을 다시 인증해야 합니다. (REAUTH_REQUIRED)')
     },
   }
   const user = userEvent.setup()
@@ -208,12 +207,12 @@ it('retries one provider gateway failure without duplicating the player action',
   await user.type(screen.getByLabelText('무엇을 하시겠어요?'), '문을 연다')
   await user.click(screen.getByRole('button', { name: '행동 보내기' }))
 
-  await waitFor(() => expect(screen.getByText('재시도 응답')).toBeInTheDocument())
-  expect(attempts).toBe(2)
-  expect(screen.getAllByText('문을 연다')).toHaveLength(1)
+  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('REAUTH_REQUIRED'))
+  expect(attempts).toBe(1)
+  expect(screen.queryByText('문을 연다')).not.toBeInTheDocument()
 })
 
-it('surfaces the server validation reason after the retry also fails', async () => {
+it('surfaces the server validation reason without retrying', async () => {
   let attempts = 0
   const api: AdventureApi = {
     async sendMessage() {
@@ -227,7 +226,7 @@ it('surfaces the server validation reason after the retry also fails', async () 
   await user.click(screen.getByRole('button', { name: '행동 보내기' }))
 
   await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('STORYBOOK_CITATION_REQUIRED'))
-  expect(attempts).toBe(2)
+  expect(attempts).toBe(1)
 })
 
 it('removes an optimistic player action when the final request fails', async () => {

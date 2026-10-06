@@ -1,6 +1,9 @@
 package com.dndmaster.userpcagent;
 
+import com.dndmaster.aigamemaster.localcodex.CodexConnectionService;
 import com.dndmaster.aigamemaster.localcodex.CodexWebSocketAgent;
+import com.dndmaster.aigamemaster.localcodex.FileInstallationLinkStore;
+import com.dndmaster.aigamemaster.localcodex.InstallationGuardedAiExecutionPort;
 import com.dndmaster.aigamemaster.localcodex.LocalCodexAiExecutionPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -8,6 +11,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.slf4j.Logger;
@@ -23,12 +27,14 @@ public final class UserPcAgentApplication {
         Settings settings = Settings.fromEnvironment();
         ObjectMapper objectMapper = new ObjectMapper();
         LocalCodexAiExecutionPort codex = new LocalCodexAiExecutionPort(
-                settings.codexExecutable(),
-                settings.codexWorkDirectory(),
-                settings.codexTimeout(),
-                objectMapper);
+                settings.codexExecutable(), settings.codexWorkDirectory(), settings.codexTimeout(), objectMapper);
+        var loginExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        CodexConnectionService connectionService = new CodexConnectionService(codex.appServerClient(),
+                FileInstallationLinkStore.forCurrentUser(), loginExecutor,
+                Duration.ofMinutes(15), Duration.ofSeconds(2));
+        var guardedCodex = new InstallationGuardedAiExecutionPort(codex, connectionService);
 
-        try (codex) {
+        try (codex; loginExecutor) {
             AtomicBoolean stopping = new AtomicBoolean();
             AtomicBoolean initialConnectionEstablished = new AtomicBoolean();
             AtomicReference<CodexWebSocketAgent> activeAgent = new AtomicReference<>();
@@ -45,11 +51,9 @@ public final class UserPcAgentApplication {
                                     ? UUID.randomUUID().toString()
                                     : settings.connectionId();
                             CodexWebSocketAgent agent = new CodexWebSocketAgent(
-                                    settings.relayWebSocketUrl(),
-                                    settings.accessToken(),
-                                    connectionId,
-                                    codex,
-                                    objectMapper);
+                                    settings.relayWebSocketUrl(), settings.accessToken(), connectionId,
+                                    guardedCodex, objectMapper, java.util.concurrent.ForkJoinPool.commonPool(),
+                                    connectionService);
                             activeAgent.set(agent);
                             return new AgentConnectionSupervisor.Session() {
                                 @Override
@@ -58,9 +62,7 @@ public final class UserPcAgentApplication {
                                     initialConnectionEstablished.set(true);
                                     System.out.println("사용자 PC 에이전트 WebSocket 연결됨: " + settings.relayWebSocketUrl());
                                     agent.completion().toCompletableFuture().join();
-                                    if (!stopping.get()) {
-                                        throw new IllegalStateException("WebSocket relay 연결이 종료됨");
-                                    }
+                                    if (!stopping.get()) throw new IllegalStateException("WebSocket relay 연결이 종료됨");
                                 }
 
                                 @Override
@@ -112,9 +114,7 @@ public final class UserPcAgentApplication {
 
         private static String required(String name) {
             String value = System.getenv(name);
-            if (value == null || value.isBlank()) {
-                throw new IllegalStateException(name + " 환경 변수가 필요함");
-            }
+            if (value == null || value.isBlank()) throw new IllegalStateException(name + " 환경 변수가 필요함");
             return value.trim();
         }
 

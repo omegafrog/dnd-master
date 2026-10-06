@@ -1,0 +1,61 @@
+@startuml
+title Codex 설치 연결 상태 전이 (ARCH-COAUTH-02)
+hide empty description
+
+[*] --> CLI_UNAVAILABLE : app-server 실행 파일 없음
+[*] --> DISCONNECTED : 현재 설치 연결 비활성화
+[*] --> NOT_CONNECTED : 설치 연결 flag 없음
+
+state CLI_UNAVAILABLE
+state DISCONNECTED
+state NOT_CONNECTED
+state AUTH_REQUIRED
+state AUTHENTICATING
+state CONNECTED
+state REAUTH_REQUIRED
+
+CLI_UNAVAILABLE --> NOT_CONNECTED : 실행 파일 설치 확인
+NOT_CONNECTED --> CONNECTED : account/read에서 기존 계정 확인 / CONNECT
+NOT_CONNECTED --> AUTH_REQUIRED : account/read에서 로그인 없음 / CONNECT
+DISCONNECTED --> DISCONNECTED : 상태 조회 / 자동 연결 금지
+
+AUTH_REQUIRED --> AUTHENTICATING : CONNECT / account/login/start
+NOT_CONNECTED --> AUTHENTICATING : REAUTHENTICATE / account/login/start
+CONNECTED --> AUTHENTICATING : REAUTHENTICATE / account/login/start
+CONNECTED --> AUTHENTICATING : SWITCH_ACCOUNT / account/login/start
+DISCONNECTED --> AUTHENTICATING : SWITCH_ACCOUNT / account/login/start
+REAUTH_REQUIRED --> AUTHENTICATING : REAUTHENTICATE / account/login/start
+REAUTH_REQUIRED --> AUTHENTICATING : SWITCH_ACCOUNT / account/login/start
+
+AUTHENTICATING --> AUTHENTICATING : authUrl을 로컬 사용자에게 표시
+AUTHENTICATING --> CONNECTED : account/login/completed 또는 account/updated / account/read 확인 / 설치 활성화
+AUTHENTICATING --> NOT_CONNECTED : 취소 또는 실패 / 미연결 유지
+AUTHENTICATING --> REAUTH_REQUIRED : 재인증 취소 또는 실패
+
+CONNECTED --> REAUTH_REQUIRED : app-server AI 실행 인증 거부 / 현재 요청 차단
+REAUTH_REQUIRED --> AUTHENTICATING : 사용자가 수동 재인증 시작
+
+CONNECTED --> DISCONNECTED : 현재 설치 연결 해제 / enabled=false
+REAUTH_REQUIRED --> DISCONNECTED : 현재 설치 연결 해제 / enabled=false
+NOT_CONNECTED --> DISCONNECTED : 현재 설치 연결 해제 / enabled=false
+AUTH_REQUIRED --> DISCONNECTED : 현재 설치 연결 해제 / enabled=false
+
+note right of DISCONNECTED
+  현재 설치의 연결 활성화 설정만 해제한다.
+  Codex app-server의 공용 로그인을 유지하며
+  로그아웃 명령이나 account/logout을 호출하지 않는다.
+end note
+
+note right of AUTHENTICATING
+  사용자 PC에서 Codex app-server의 account/login/start를 사용한다.
+  일반 연결은 account/read에서 로그인이 없을 때 로그인한다.
+  계정 전환은 기존 로그인 여부와 관계없이 새 ChatGPT 로그인을 시작한다.
+  자격 증명과 토큰은 사용자 PC에 남고 서버·relay로 보내지 않는다.
+end note
+
+note bottom of CONNECTED
+  계정 상태는 app-server account/read로 확인한다.
+  Codex app-server가 로그인 및 AI 실행을 함께 담당하며
+  기존 streaming/thread 동작을 유지한다.
+end note
+@enduml

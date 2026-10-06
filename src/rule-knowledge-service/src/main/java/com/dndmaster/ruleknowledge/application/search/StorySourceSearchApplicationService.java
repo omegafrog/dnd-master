@@ -43,22 +43,22 @@ public final class StorySourceSearchApplicationService {
 
         List<StorySourceEvidence> active = searchPort.search(query, embedding, true);
         if (query.activeLocators().isEmpty()) {
-            return StorySourceEvidenceReranker.rerankForOpening(query, searchPort.search(query, embedding, false))
+            return OpeningSceneEvidenceReranker.rerankForOpeningScene(query, searchPort.search(query, embedding, false))
                     .stream()
                     .limit(query.limit())
                     .toList();
         }
         if (active.size() >= query.limit()) {
-            return StorySourceEvidenceReranker.rerankForOpening(query, active)
+            return OpeningSceneEvidenceReranker.rerankForOpeningScene(query, active)
                     .stream()
                     .limit(query.limit())
                     .toList();
         }
         List<StorySourceEvidence> fallback = searchPort.search(query, embedding, false);
         var merged = new LinkedHashMap<String, StorySourceEvidence>();
-        StorySourceEvidenceReranker.rerankForOpening(query, active)
+        OpeningSceneEvidenceReranker.rerankForOpeningScene(query, active)
                 .forEach(result -> merged.put(evidenceKey(result), result));
-        StorySourceEvidenceReranker.rerankForOpening(query, fallback)
+        OpeningSceneEvidenceReranker.rerankForOpeningScene(query, fallback)
                 .forEach(result -> merged.putIfAbsent(evidenceKey(result), result));
         return merged.values().stream().limit(query.limit()).toList();
     }

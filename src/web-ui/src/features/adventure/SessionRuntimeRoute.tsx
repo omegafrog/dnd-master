@@ -35,7 +35,7 @@ export function SessionRuntimeRoute({ sessionId, sessionApi, adventureApi, playA
     void sessionApi.read(sessionId).then(setSession).catch(() => undefined)
   }, [refreshCombat, session?.adventureId, sessionApi, sessionId])
   const completedAdventureId = session?.status === 'COMPLETED' ? session.adventureId : null
-  const combatEventCursor = combatSnapshot?.eventCursor ?? null
+  const combatEventCursor = combatSnapshot?.eventCursor
 
   useEffect(() => {
     let active = true
@@ -83,7 +83,7 @@ export function SessionRuntimeRoute({ sessionId, sessionApi, adventureApi, playA
   }, [refreshCombat, session?.adventureId])
 
   useEffect(() => {
-    if (!session?.adventureId || combatEventCursor === null || !combatApi.subscribeEvents) return
+    if (!session?.adventureId || combatEventCursor === undefined || !combatApi.subscribeEvents) return
     const adventureId = session.adventureId
     return combatApi.subscribeEvents(adventureId, combatEventCursor, () => refreshCombat(adventureId), () => undefined)
   }, [combatApi, combatEventCursor, refreshCombat, session?.adventureId])

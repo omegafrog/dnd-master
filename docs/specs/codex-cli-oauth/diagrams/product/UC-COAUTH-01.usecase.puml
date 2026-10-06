@@ -1,0 +1,34 @@
+@startuml
+' UC-COAUTH-01 최초 Codex CLI 계정 연결
+left to right direction
+skinparam shadowing false
+
+actor "사용자" as user
+rectangle "이 클라이언트 설치" {
+  usecase "Codex CLI 설치 여부 확인" as check
+  usecase "설치 안내 표시" as guide
+  usecase "기존 로그인 토큰 재사용" as reuse
+  usecase "Codex CLI 계정 OAuth 인증" as authorize
+  usecase "인증 연결 저장" as save
+  usecase "설정 재시도" as retry
+}
+
+user --> check
+check --> guide : 설치되지 않음
+check --> reuse : 이미 로그인됨
+check --> authorize : 설치되어 있으나 로그인되지 않음
+reuse --> save
+authorize --> save : 인증 성공
+authorize --> retry : 취소 또는 실패
+guide --> retry : 설치 후 다시 실행
+save --> user : 이후 실행에서 재사용
+
+note bottom of guide
+  자동 설치하지 않고 설정을 중단한다.
+end note
+
+note bottom of retry
+  연결이 저장되지 않아 설정은 미완료 상태이며,
+  사용자는 나중에 다시 시도할 수 있다.
+end note
+@enduml

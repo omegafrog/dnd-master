@@ -158,6 +158,88 @@ public final class LocalConnectionManager implements LocalConnectionExecutor, Lo
             ignored -> Mono.just(RelayExecutionResult.failure(request.requestId(), RelayFailureType.REMOTE_FAILURE)));
   }
 
+  @Override
+  public Mono<AgentConnectionControlResult> control(ConnectionControlRequest request) {
+    var connection = connections.get(request.soloPlayerId());
+    if (connection == null)
+      return Mono.just(AgentConnectionControlResult.failure(request.requestId(), "UNAVAILABLE", "사용자 PC 연결을 사용할 수 없습니다."));
+    if (!request.connectionId().isBlank() && !request.connectionId().equals(connection.connectionId()))
+      return Mono.just(AgentConnectionControlResult.failure(request.requestId(), "UNAVAILABLE", "현재 설치 연결이 변경되었습니다."));
+    Duration remaining = request.deadlineEpochMillis() == 0 ? executionTimeout
+        : Duration.ofMillis(request.deadlineEpochMillis() - System.currentTimeMillis());
+    if (remaining.isZero() || remaining.isNegative())
+      return Mono.just(AgentConnectionControlResult.failure(request.requestId(), "TIMEOUT", "연결 상태 확인 시간이 초과되었습니다."));
+    Duration wait = remaining.compareTo(executionTimeout) < 0 ? remaining : executionTimeout;
+    return leases.isCurrent(connection.lease()).timeout(wait).flatMap(current -> {
+      if (!current) return Mono.just(AgentConnectionControlResult.failure(request.requestId(), "UNAVAILABLE", "사용자 PC 연결을 사용할 수 없습니다."));
+      var pending = completions.open(request.requestId(), wait);
+      if (!pending.accepted()) return Mono.just(AgentConnectionControlResult.failure(request.requestId(), "FAILED", "중복 연결 요청입니다."));
+      var connectionLost = Sinks.<Throwable>one();
+      var activeRequest = new ActiveRequest(request.soloPlayerId(), connection.connectionId(), connectionLost, null);
+      var lifecycleLock = lifecycleLock(request.soloPlayerId());
+      synchronized (lifecycleLock) {
+        if (connections.get(request.soloPlayerId()) != connection) {
+          connectionLost.tryEmitError(new ConnectionLostException());
+          completions.fail(request.requestId(), new ConnectionLostException());
+        } else activeRequests.put(request.requestId(), activeRequest);
+      }
+      var message = new AgentConnectionControlMessage(request.requestId(), request.action(),
+          request.operationId(), request.operationType());
+      Mono<Void> delivery = connections.get(request.soloPlayerId()) == connection
+          ? Mono.defer(() -> connection.transport().sendConnectionControl(message))
+              .doOnError(failure -> completions.fail(request.requestId(), failure))
+          : Mono.empty();
+      Mono<RelayExecutionResult> operation = Mono.zip(delivery.thenReturn(true), pending.result(),
+          (ignored, response) -> response).timeout(wait);
+      Mono<RelayExecutionResult> disconnected = connectionLost.asMono().flatMap(failure -> Mono.error(failure));
+      return Mono.firstWithSignal(operation, disconnected)
+          .map(response -> {
+            if (jsonBytes(response) > maxPayloadBytes) throw new PayloadTooLargeException();
+            return response;
+          })
+          .map(this::decodeConnectionControlResult)
+          .map(result -> {
+            if (!request.requestId().equals(result.requestId()))
+              throw new IllegalStateException("connection result correlation did not match");
+            return result;
+          })
+          .onErrorResume(PayloadTooLargeException.class, ignored -> Mono.just(
+              AgentConnectionControlResult.failure(request.requestId(), "FAILED", "연결 응답 크기가 제한을 초과했습니다.")))
+          .onErrorResume(ConnectionLostException.class, ignored -> Mono.just(
+              AgentConnectionControlResult.failure(request.requestId(), "UNAVAILABLE", "사용자 PC 연결이 끊겼습니다.")))
+          .onErrorResume(TimeoutException.class, ignored -> Mono.just(
+              AgentConnectionControlResult.failure(request.requestId(), "TIMEOUT", "연결 상태 확인 시간이 초과되었습니다.")))
+          .onErrorResume(ignored -> Mono.just(
+              AgentConnectionControlResult.failure(request.requestId(), "FAILED", "연결 요청을 완료하지 못했습니다.")))
+          .doFinally(ignored -> {
+            activeRequests.remove(request.requestId());
+            completions.cancel(request.requestId());
+            completions.close(request.requestId());
+          });
+    }).onErrorResume(TimeoutException.class, ignored -> Mono.just(
+        AgentConnectionControlResult.failure(request.requestId(), "TIMEOUT", "연결 상태 확인 시간이 초과되었습니다.")))
+        .onErrorResume(ignored -> Mono.just(
+            AgentConnectionControlResult.failure(request.requestId(), "FAILED", "연결 요청을 완료하지 못했습니다.")));
+  }
+
+  public boolean complete(AgentConnectionControlResult result) {
+    try {
+      String content = objectMapper.writeValueAsString(result);
+      return completions.complete(RelayExecutionResult.success(result.requestId(), content));
+    } catch (Exception failure) {
+      return completions.fail(result.requestId(), new IllegalStateException("connection result could not be encoded"));
+    }
+  }
+
+  private AgentConnectionControlResult decodeConnectionControlResult(RelayExecutionResult response) {
+    if (!response.success()) throw new IllegalStateException("agent connection control failed");
+    try {
+      return objectMapper.readValue(response.content(), AgentConnectionControlResult.class);
+    } catch (Exception failure) {
+      throw new IllegalStateException("agent connection result could not be decoded");
+    }
+  }
+
   public boolean complete(String requestId, String finalContent) {
     return completions.complete(requestId, finalContent);
   }

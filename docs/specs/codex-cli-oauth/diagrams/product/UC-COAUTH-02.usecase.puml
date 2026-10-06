@@ -1,0 +1,46 @@
+@startuml
+' UC-COAUTH-02 연결 복구 및 계정 변경
+left to right direction
+skinparam shadowing false
+
+actor "사용자" as user
+actor "Codex CLI" as cli
+rectangle "이 클라이언트 설치" {
+  usecase "저장된 연결로 AI 요청" as request
+  usecase "재인증 안내 표시" as reauthGuide
+  usecase "Codex CLI 계정 OAuth 재인증" as reauthorize
+  usecase "요청 다시 시도" as retry
+  usecase "이 클라이언트의 연결 해제" as disconnect
+  usecase "다른 계정으로 전환 선택" as switchAccount
+  usecase "기존 로그인과 무관하게 codex login 실행" as login
+  usecase "Codex CLI의 공유 계정 변경" as save
+}
+
+user --> request
+request --> cli
+request --> reauthGuide : 토큰이 무효하거나 만료됨
+reauthGuide --> reauthorize
+reauthorize --> retry : 인증 성공
+user --> disconnect
+user --> switchAccount
+disconnect --> request : 이후 요청에 기존 연결 사용 안 함
+switchAccount --> login
+login --> save : 인증 성공
+save --> request : 바뀐 계정으로 이후 요청
+
+note bottom of request
+  토큰이 무효하거나 만료된 요청은 차단한다.
+  재인증한 뒤 사용자가 다시 시도한다.
+end note
+
+note bottom of disconnect
+  이 클라이언트 설치의 연결만 해제한다.
+  codex logout은 실행하지 않으며,
+  Codex CLI 로그인은 유지된다.
+end note
+
+note bottom of save
+  Codex CLI 계정은 같은 PC의 다른 CLI 사용에도
+  공유되므로 계정 변경의 영향을 받는다.
+end note
+@enduml

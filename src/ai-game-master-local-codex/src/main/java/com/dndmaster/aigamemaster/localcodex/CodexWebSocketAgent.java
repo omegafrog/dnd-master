@@ -38,6 +38,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     private final AiExecutionPort executionPort;
     private final ObjectMapper objectMapper;
     private final Executor executionExecutor;
+    private final CodexConnectionService connectionService;
     private final AtomicReference<WebSocket> socket = new AtomicReference<>();
     private final AtomicReference<CompletableFuture<Void>> executionTail =
             new AtomicReference<>(CompletableFuture.completedFuture(null));
@@ -77,6 +78,17 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             AiExecutionPort executionPort,
             ObjectMapper objectMapper,
             Executor executionExecutor) {
+        this(relayEndpoint, accessToken, connectionId, executionPort, objectMapper, executionExecutor, null);
+    }
+
+    public CodexWebSocketAgent(
+            URI relayEndpoint,
+            String accessToken,
+            String connectionId,
+            AiExecutionPort executionPort,
+            ObjectMapper objectMapper,
+            Executor executionExecutor,
+            CodexConnectionService connectionService) {
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
         this.relayEndpoint = requireWebSocketUri(relayEndpoint);
         this.accessToken = required(accessToken, "access token");
@@ -84,8 +96,11 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         this.executionPort = Objects.requireNonNull(executionPort, "execution port must not be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
         this.executionExecutor = Objects.requireNonNull(executionExecutor, "execution executor must not be null");
+        this.connectionService = connectionService;
         if (executionPort instanceof LocalCodexAiExecutionPort localPort) {
             localPort.setRagSearchHandler(this::requestRagSearch);
+        } else if (executionPort instanceof InstallationGuardedAiExecutionPort guardedPort) {
+            guardedPort.setRagSearchHandler(this::requestRagSearch);
         }
     }
 
@@ -127,13 +142,48 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     }
 
     private CompletableFuture<Void> executeAndReply(String message) {
-        return CompletableFuture.supplyAsync(() -> parseRequest(message), executionExecutor)
-                .thenApply(this::execute)
+        return CompletableFuture.supplyAsync(() -> parseMessage(message), executionExecutor)
+                .thenApply(this::dispatch)
                 .thenCompose(this::sendResponse)
                 .exceptionally(failure -> {
-                    LOGGER.warn("user-PC agent request failed: {}", safeMessage(failure));
+                    LOGGER.warn("user-PC agent request failed");
                     return null;
                 });
+    }
+
+    private Object parseMessage(String message) {
+        try {
+            JsonNode root = objectMapper.readTree(message);
+            if ("CONNECTION_CONTROL".equals(root.path("messageType").asText())) {
+                return objectMapper.treeToValue(root, AgentConnectionControlCommand.class);
+            }
+            return objectMapper.treeToValue(root, AgentExecutionRequest.class);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalArgumentException("relay request could not be decoded");
+        }
+    }
+
+    private Object dispatch(Object message) {
+        if (message instanceof AgentConnectionControlCommand command) return control(command);
+        return execute((AgentExecutionRequest) message);
+    }
+
+    private AgentConnectionControlResponse control(AgentConnectionControlCommand command) {
+        if (connectionService == null) {
+            return new AgentConnectionControlResponse("CONNECTION_CONTROL_RESULT", command.requestId(),
+                    "UNAVAILABLE", false, command.operationId(), null, false, null,
+                    "현재 설치의 연결 기능을 사용할 수 없습니다.");
+        }
+        return switch (command.action()) {
+            case "STATUS" -> AgentConnectionControlResponse.from(command.requestId(), connectionService.getStatus());
+            case "START" -> AgentConnectionControlResponse.from(command.requestId(), connectionService.start(
+                    command.operationId(), ConnectionOperationType.valueOf(command.operationType())));
+            case "POLL" -> AgentConnectionControlResponse.from(command.requestId(), connectionService.getOperation(command.operationId()));
+            case "DISCONNECT" -> AgentConnectionControlResponse.from(command.requestId(), connectionService.disconnect());
+            default -> new AgentConnectionControlResponse("CONNECTION_CONTROL_RESULT", command.requestId(),
+                    "FAILED", true, command.operationId(), null, false, null,
+                    "지원하지 않는 연결 요청입니다.");
+        };
     }
 
     private AgentExecutionRequest parseRequest(String message) {
@@ -144,7 +194,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         }
     }
 
-    private AgentExecutionResponse execute(AgentExecutionRequest request) {
+    AgentExecutionResponse execute(AgentExecutionRequest request) {
         AiExecutionResult result = executionPort.execute(new AiExecutionRequest(
                 request.soloPlayerId(),
                 request.requestId(),
@@ -160,10 +210,18 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         }
         AiExecutionFailure failure = (AiExecutionFailure) result;
         LOGGER.warn("Codex execution failed requestId={} reason={}", request.requestId(), failure.reason());
-        return new AgentExecutionResponse(request.requestId(), "", "REMOTE_FAILURE", null);
+        String failureType = switch (failure.reason()) {
+            case CONNECTION_UNAVAILABLE -> "NO_CONNECTION";
+            case CONNECTION_REQUIRED -> "CONNECTION_REQUIRED";
+            case REAUTH_REQUIRED -> "REAUTH_REQUIRED";
+            case CONNECTION_LOST -> "CONNECTION_LOST";
+            case TIMEOUT -> "TIMEOUT";
+            default -> "REMOTE_FAILURE";
+        };
+        return new AgentExecutionResponse(request.requestId(), "", failureType, null);
     }
 
-    private CompletableFuture<Void> sendResponse(AgentExecutionResponse response) {
+    private CompletableFuture<Void> sendResponse(Object response) {
         WebSocket current = socket.get();
         if (current == null) {
             return failedFuture(new IllegalStateException("WebSocket agent is not connected"));
@@ -229,10 +287,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     }
 
     private static String safeMessage(Throwable failure) {
-        Throwable cause = failure;
-        while (cause.getCause() != null) cause = cause.getCause();
-        String message = cause.getMessage();
-        return message == null || message.isBlank() ? cause.getClass().getSimpleName() : message;
+        return "local operation failed";
     }
 
     private static <T> CompletableFuture<T> failedFuture(Throwable failure) {
@@ -304,7 +359,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record AgentExecutionRequest(
+    record AgentExecutionRequest(
             UUID soloPlayerId,
             String requestId,
             String operationId,
@@ -317,11 +372,11 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             long deadlineEpochMillis,
             String connectionId,
             JsonNode ragSearchContext) {
-        private AgentExecutionRequest {
+        AgentExecutionRequest {
             imageInputs = imageInputs == null ? List.of() : List.copyOf(imageInputs);
         }
     }
 
-    private record AgentExecutionResponse(String requestId, String content, String failureType,
+    record AgentExecutionResponse(String requestId, String content, String failureType,
             com.dndmaster.aigamemaster.application.ai.AiExecutionUsage usage) {}
 }

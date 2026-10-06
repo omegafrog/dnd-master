@@ -1,0 +1,30 @@
+@startuml
+' UC-COAUTH-01 최초 Codex CLI 계정 연결
+skinparam shadowing false
+start
+
+:클라이언트 최초 실행;
+:Codex CLI 설치 여부 확인;
+
+if (Codex CLI가 설치되어 있는가?) then (예)
+  if (이미 계정 로그인 상태인가?) then (예)
+    :기존 로그인 토큰 재사용;
+  else (아니오)
+    :클라이언트 안에서 OAuth 인증 시작;
+    if (인증이 성공했는가?) then (예)
+    else (아니오: 취소 또는 실패)
+      :설정 미완료로 종료;
+      :나중에 다시 시도 가능;
+      stop
+    endif
+  endif
+  :이 클라이언트 설치에 연결 저장;
+  :이후 실행에서 저장된 연결 재사용;
+  stop
+else (아니오)
+  :Codex CLI 설치 안내 표시;
+  :자동 설치하지 않고 설정 중단;
+  :설치 후 다시 시도 가능;
+  stop
+endif
+@enduml

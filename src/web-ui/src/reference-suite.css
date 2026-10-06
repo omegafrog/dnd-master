@@ -1,0 +1,236 @@
+/* Shared visual language adapted from the supplied Solo Player interface reference. */
+:root {
+  --color-bg: #f1ede3;
+  --color-surface: #faf7ef;
+  --color-surface-soft: #eee8dc;
+  --color-text: #27221e;
+  --color-muted: #655e56;
+  --color-primary: #742f36;
+  --color-primary-hover: #64282f;
+  --color-primary-soft: #f1e7e3;
+  --color-border: #cec5b7;
+  --color-border-strong: #aaa092;
+  --color-accent: #742f36;
+  --color-ink: #27221e;
+  --color-ink-soft: #413a34;
+  --color-danger: #8e3335;
+  --color-danger-hover: #74282b;
+  --color-success: #39714d;
+}
+
+html { background: var(--color-bg); }
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Noto Sans KR Variable', 'Noto Sans KR', 'Malgun Gothic', system-ui, sans-serif;
+}
+
+/* The narrow navigation rail mirrors the shared navigation in the reference. */
+.app-shell:not(.auth-shell) {
+  display: grid;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  align-items: start;
+}
+.app-header {
+  position: sticky;
+  z-index: 40;
+  top: 0;
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  width: 13rem;
+  height: 100dvh;
+  min-height: 100dvh;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1.25rem;
+  padding: .85rem .7rem;
+  border: 0;
+  border-right: 1px solid var(--color-border);
+  background: #f8f5ee;
+  box-shadow: none;
+}
+.app-shell:not(.auth-shell) .app-header {
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  min-height: 100dvh;
+  padding: .85rem .7rem;
+  border-right: 1px solid var(--color-border);
+  border-bottom: 0;
+}
+.app-header::after { display: none; }
+.app-brand { flex: 0 0 auto; min-width: 0; gap: .55rem; padding: .15rem .35rem .85rem; border-bottom: 1px solid var(--color-border); }
+.app-brand img { width: 2.15rem; height: 2.15rem; filter: none; }
+.app-brand strong { color: var(--color-primary); font: 700 1rem/1.2 'Noto Sans KR Variable', sans-serif; }
+.app-brand small { color: var(--color-muted); font-size: .52rem; letter-spacing: .08em; }
+.app-header nav { display: flex; flex: 1; flex-direction: column; align-items: stretch; gap: .22rem; }
+.app-header nav > a {
+  display: flex;
+  min-height: 2.55rem;
+  align-items: center;
+  gap: .7rem;
+  padding: .45rem .65rem;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--color-muted);
+  font-size: .82rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+.app-header nav > a:hover,
+.app-header nav > a.active { border-color: #e1d8ca; background: #eee8dc; color: var(--color-primary); }
+.app-header nav > a:focus-visible,
+.app-header .account-menu summary:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.app-header .account-menu { display: block; margin-top: auto; padding-top: .7rem; border-top: 1px solid var(--color-border); }
+.app-header .account-menu summary { min-height: 2.6rem; padding: .35rem .45rem; }
+.app-header .account-avatar { width: 1.8rem; height: 1.8rem; border-radius: 3px; background: var(--color-primary); color: var(--color-surface); box-shadow: none; }
+.app-header .account-name { color: var(--color-text); }
+.account-menu-panel { z-index: 50; }
+.account-menu-panel a, .account-menu-panel button { display: flex; align-items: center; gap: .5rem; }
+.app-content {
+  grid-column: 2;
+  grid-row: 1;
+  width: min(100%, 76rem);
+  max-width: 76rem;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 2rem clamp(1.25rem, 3vw, 2.75rem) 3rem;
+}
+.app-shell:not(.auth-shell) .app-content {
+  width: min(100%, 76rem);
+  max-width: 76rem;
+  margin: 0 auto;
+  padding: 2rem clamp(1.25rem, 3vw, 2.75rem) 3rem;
+}
+.creator-main { grid-column: 2; grid-row: 1; width: 100% !important; min-width: 0; max-width: none !important; margin: 0 !important; padding: 1.5rem clamp(1rem, 2vw, 2rem) 3rem !important; }
+.auth-shell > .auth-header { position: static; width: auto; min-height: auto; flex-direction: row; border: 0; background: var(--color-primary); color: white; }
+.app-notices { min-height: 1.25rem; margin-bottom: .5rem; }
+.app-content:not(.creator-main) > section,
+.app-content:not(.creator-main) .setup-panel,
+.app-content:not(.creator-main) .ui-card,
+.app-content:not(.creator-main) .adventure-tool,
+.app-content:not(.creator-main) .adventure-stream {
+  border-color: var(--color-border);
+  border-radius: 5px;
+  background: var(--color-surface);
+  box-shadow: none;
+}
+.app-content:not(.creator-main) > section { padding: clamp(1rem, 2vw, 1.45rem); }
+.app-content:not(.creator-main) section h2,
+.app-content:not(.creator-main) section h3,
+.app-content:not(.creator-main) .ui-card h2,
+.app-content:not(.creator-main) .ui-card h3 { color: var(--color-text); font-family: 'Noto Sans KR Variable', 'Noto Sans KR', sans-serif; }
+.app-content:not(.creator-main) button:focus-visible,
+.app-content:not(.creator-main) a:focus-visible,
+.app-content:not(.creator-main) input:focus-visible,
+.app-content:not(.creator-main) select:focus-visible,
+.app-content:not(.creator-main) textarea:focus-visible,
+.app-content:not(.creator-main) summary:focus-visible { outline-color: var(--color-primary); }
+.page-heading { border-bottom-color: var(--color-border); }
+.page-heading h1, .page-heading h2 { color: var(--color-text); font-family: 'Noto Sans KR Variable', 'Noto Sans KR', sans-serif; font-size: clamp(1.45rem, 2.5vw, 1.9rem); }
+.eyebrow { color: var(--color-primary); letter-spacing: .08em; }
+.text-link { color: var(--color-primary); }
+.app-content:not(.creator-main) .ui-button,
+.app-content:not(.creator-main) button { border-radius: 4px; }
+.app-content:not(.creator-main) .ui-button-default,
+.app-content:not(.creator-main) .ui-button:not(.ui-button-outline):not(.ui-button-ghost):not(.ui-button-destructive) { border-color: var(--color-primary); background: var(--color-primary); }
+
+/* Saved adventures are the real record list; use compact gallery cards without invented cover art. */
+.saved-adventure-page { padding-top: .4rem !important; }
+.saved-adventure-page .page-heading { margin-bottom: 1.2rem; }
+.adventure-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .7rem;
+  border: 0;
+}
+.adventure-list > li.adventure-list-row {
+  min-width: 0;
+  min-height: 10.5rem;
+  grid-template-columns: 2.2rem minmax(0, 1fr);
+  align-content: start;
+  align-items: start;
+  gap: .5rem .65rem;
+  padding: .9rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+}
+.adventure-row-mark { display: grid; width: 2.15rem; height: 2.15rem; place-items: center; border: 1px solid var(--color-border); border-radius: 3px; color: var(--color-primary); }
+.adventure-row-main { min-width: 0; padding-top: .1rem; }
+.adventure-row-main strong { display: block; overflow-wrap: anywhere; color: var(--color-text); font: 700 .95rem/1.4 'Noto Sans KR Variable', sans-serif; }
+.adventure-row-main small { display: block; margin-top: .3rem; color: var(--color-muted); font-size: .68rem; }
+.adventure-row-status { grid-column: 2; color: var(--color-muted); font-size: .72rem; }
+.adventure-row-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .35rem; align-self: end; margin-top: .4rem; }
+.adventure-row-actions > * { flex: 1 1 auto; }
+.adventure-list .adventure-row-actions > .ui-button,
+.adventure-list .adventure-row-actions > a.ui-button { justify-content: center; height: 2rem; min-height: 2rem; padding: .35rem .5rem; font-size: .73rem; }
+.workspace-empty { border-color: var(--color-border); border-radius: 4px; background: var(--color-surface); box-shadow: none; }
+
+/* Setup, review, character, and session panels share the same paper surface and rule lines. */
+.app-page-setup > .setup-page { color: var(--color-text); }
+.setup-wizard { color: var(--color-text); }
+.setup-wizard .ui-button-default, .setup-wizard button:not([type='button']) { background: var(--color-primary); border-color: var(--color-primary); }
+.app-page-adventure-workspace > .workspace-page,
+.app-page-adventure-workspace > .workspace-state { color: var(--color-text); }
+.app-page-adventure-workspace .workspace-header-copy h1 { color: var(--color-text); font-family: 'Noto Sans KR Variable', 'Noto Sans KR', sans-serif; font-size: clamp(1.7rem, 3.5vw, 2.5rem); }
+.app-page-adventure-workspace .workspace-tabs > .ui-tabs-list { gap: 1rem; }
+.app-page-adventure-workspace .ui-tabs-trigger-active { color: var(--color-primary) !important; border-bottom-color: var(--color-primary) !important; }
+.character-sheet-page, .party-page, .character-settings-review-page { color: var(--color-text); }
+.character-sheet-page .page-heading h1, .character-sheet-page h2, .character-sheet-page h3 { color: var(--color-text); }
+.character-sheet-page .ui-card, .party-page .ui-card { border-color: var(--color-border); border-radius: 4px; background: var(--color-surface); box-shadow: none; }
+.character-sheet-page .ability-value, .character-sheet-page .sheet-metric { border-color: var(--color-border); }
+.character-sheet-page .ability-value strong, .character-sheet-page .sheet-metric b { color: var(--color-primary); }
+.session-runtime { --runtime-paper: var(--color-surface); --runtime-rule: var(--color-border); }
+
+@media (max-width: 900px) {
+  .adventure-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .app-shell:not(.auth-shell) { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto; align-content: start; }
+  .app-shell:not(.auth-shell) .app-header { height: auto; min-height: auto; }
+  .app-header {
+    grid-column: 1;
+    grid-row: 1;
+    position: sticky;
+    inset: auto;
+    width: 100%;
+    min-height: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: .45rem;
+    padding: .45rem .65rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .app-brand { flex: 0 0 auto; padding: 0 .4rem 0 0; border: 0; }
+  .app-brand img { width: 1.85rem; height: 1.85rem; }
+  .app-brand small { display: none; }
+  .app-header nav { min-width: 0; flex-direction: row; align-items: center; gap: .15rem; overflow-x: auto; }
+  .app-header nav > a { min-width: 2.65rem; min-height: 2.5rem; justify-content: center; gap: .3rem; padding: .35rem .45rem; font-size: .7rem; }
+  .app-header nav > a svg { width: 16px; height: 16px; }
+  .app-header .account-menu { flex: 0 0 auto; margin: 0 0 0 auto; padding: 0; border: 0; }
+  .app-header .account-menu summary { min-height: 2.35rem; padding: .15rem; }
+  .app-header .account-name { display: none; }
+  .app-shell:not(.auth-shell) .app-content { width: 100%; max-width: 76rem; margin: 0 auto; padding: 1.15rem 1rem 2.5rem; }
+  .app-content { grid-column: 1; grid-row: 2; }
+  .creator-main { grid-column: 1; grid-row: 2; width: 100% !important; margin: 0 auto !important; padding: 1rem !important; }
+}
+
+@media (max-width: 560px) {
+  .app-header { gap: .2rem; }
+  .app-brand { gap: .3rem; }
+  .app-brand img { width: 1.65rem; height: 1.65rem; }
+  .app-brand strong { font-size: .8rem; }
+  .app-header nav > a { min-width: 2.3rem; padding-inline: .3rem; }
+  .app-header nav > a span { display: none; }
+  .app-shell:not(.auth-shell) .app-content { padding-inline: .75rem; }
+  .page-heading { align-items: flex-start; flex-direction: column; gap: .65rem; }
+  .page-heading-actions { flex-wrap: wrap; }
+  .adventure-list { grid-template-columns: minmax(0, 1fr); }
+  .adventure-list > li.adventure-list-row { min-height: 8.5rem; }
+  .session-runtime-header { grid-template-columns: minmax(0, 1fr) auto !important; }
+  .session-runtime-header-actions { gap: .35rem; }
+}

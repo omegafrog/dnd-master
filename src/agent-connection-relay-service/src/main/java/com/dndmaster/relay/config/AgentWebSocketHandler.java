@@ -83,6 +83,18 @@ public class AgentWebSocketHandler implements WebSocketHandler {
   private Mono<Void> receiveMessage(String text, UUID soloPlayerId, String connectionId,
       WebSocketConnectionTransport transport) {
     return Mono.fromCallable(() -> objectMapper.readTree(text)).flatMap(node -> {
+      if ("CONNECTION_CONTROL_RESULT".equals(node.path("messageType").asText())) {
+        try {
+          var control = objectMapper.treeToValue(node,
+              com.dndmaster.relay.application.AgentConnectionControlResult.class);
+          completionRegistry.complete(RelayExecutionResult.success(control.requestId(),
+              objectMapper.writeValueAsString(control)));
+        } catch (Exception failure) {
+          completionRegistry.fail(node.path("requestId").asText(),
+              new IllegalStateException("connection result could not be decoded", failure));
+        }
+        return Mono.empty();
+      }
       if ("mcp_tool_call".equals(node.path("type").asText())) {
         String requestId = node.path("requestId").asText("");
         String callId = node.path("callId").asText("");
@@ -107,7 +119,14 @@ public class AgentWebSocketHandler implements WebSocketHandler {
         if (result.success()) completionRegistry.complete(result);
         else completionRegistry.fail(result.requestId(), new IllegalStateException(result.failureType().name()));
         return Mono.empty();
-      } catch (Exception failure) { return Mono.error(failure); }
+      } catch (Exception failure) {
+        String requestId = node.path("requestId").asText("");
+        if (!requestId.isBlank()) {
+          completionRegistry.fail(requestId, new IllegalStateException("agent execution result could not be decoded", failure));
+          return Mono.empty();
+        }
+        return Mono.error(failure);
+      }
     });
   }
 

@@ -18,15 +18,23 @@ import { CombatMapView } from '../features/combat-map/CombatMapView'
 import { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
 import { AdventureSessionPanel } from '../features/adventure-session/AdventureSessionPanel'
 import { AiEndpointSettings } from '../features/profile/AiEndpointSettings'
+import { CodexConnectionApi, type CodexConnectionState } from '../features/profile/CodexConnectionApi'
 import { CombatScreen } from '../features/combat/CombatScreen'
 import { HttpCombatApi, type CombatFinalSummary, type CombatSnapshot } from '../features/combat/CombatApi'
 import { parseRoute, type Route } from './route'
+import { BookOpenText, FileUp, Home, Map, Settings, Swords, UserRound } from 'lucide-react'
 
 export function AppShell() {
   const auth = useAuth()
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash))
   const [selectedBundleId, setSelectedBundleId] = useState(() => window.localStorage.getItem('dnd-selected-bundle-id') ?? '')
   const [mapRefreshToken, setMapRefreshToken] = useState(0)
+  const [connectionGate, setConnectionGate] = useState<{ token: string; status: CodexConnectionState } | null>(null)
+  const sessionToken = auth.session?.accessToken
+  const connectionReady = connectionGate?.token === auth.session?.accessToken && connectionGate?.status.status === 'CONNECTED'
+  const onConnectionChange = useCallback((status: CodexConnectionState) => {
+    if (sessionToken) setConnectionGate(current => mergeConnectionStatus(current, sessionToken, status))
+  }, [sessionToken])
   const sessionApi = useMemo(() => new AdventureSessionApi(auth.session?.accessToken ?? ''), [auth.session?.accessToken])
   const setupApi = useMemo(() => new HttpSetupApi(() => auth.session?.accessToken ?? ''), [auth.session?.accessToken])
   const rawSetupApi = useMemo(() => new HttpSetupApi(() => auth.session?.accessToken ?? ''), [auth.session?.accessToken])
@@ -41,6 +49,18 @@ export function AppShell() {
     if (auth.session && route.page === 'login') window.location.hash = '#/adventures'
   }, [auth.session, route.page])
   useEffect(() => {
+    const session = auth.session
+    if (!session) { setConnectionGate(null); return }
+    let active = true
+    const api = new CodexConnectionApi(session)
+    const refresh = () => void api.status()
+      .then(status => { if (active) setConnectionGate(current => mergeConnectionStatus(current, session.accessToken, status)) })
+      .catch(() => { if (active) setConnectionGate(current => mergeConnectionStatus(current, session.accessToken, { status: 'UNAVAILABLE', cliAvailable: false })) })
+    refresh()
+    const timer = connectionReady ? undefined : window.setInterval(refresh, 1500)
+    return () => { active = false; if (timer !== undefined) window.clearInterval(timer) }
+  }, [auth.session, connectionReady])
+  useEffect(() => {
     if (!auth.session || route.page !== 'adventures') return
     const currentPath = window.location.hash.split('?')[0]
     if (currentPath === '#/setup') window.location.hash = '#/adventures'
@@ -51,7 +71,7 @@ export function AppShell() {
     return () => window.removeEventListener('dnd-selected-bundle-change', refreshSelectedBundle)
   }, [])
   useEffect(() => {
-    if (!auth.session) return
+    if (!auth.session || !connectionReady) return
     const sessionId = route.page === 'character-blueprint' || route.page === 'character-create' || route.page === 'session' || route.page === 'party' || route.page === 'session-runtime'
       ? route.sessionId
       : null
@@ -71,9 +91,9 @@ export function AppShell() {
       })
       .catch(() => undefined)
     return () => { active = false }
-  }, [auth.session, rawSetupApi, route, sessionApi])
+  }, [auth.session, connectionReady, rawSetupApi, route, sessionApi])
   useEffect(() => {
-    if (!auth.session || route.page !== 'adventures' || selectedBundleId || !rawSetupApi.listScenarioBundles) return
+    if (!auth.session || !connectionReady || route.page !== 'adventures' || selectedBundleId || !rawSetupApi.listScenarioBundles) return
     let active = true
     void rawSetupApi.listScenarioBundles()
       .then(bundles => {
@@ -85,7 +105,7 @@ export function AppShell() {
       })
       .catch(() => undefined)
     return () => { active = false }
-  }, [auth.session, rawSetupApi, route.page, selectedBundleId])
+  }, [auth.session, connectionReady, rawSetupApi, route.page, selectedBundleId])
 
   const token = auth.session?.accessToken ?? ''
   const playerId = auth.session?.playerId ?? ''
@@ -96,7 +116,7 @@ export function AppShell() {
   const [combatFinalSummary, setCombatFinalSummary] = useState<CombatFinalSummary | null>(null)
   const [adventureVersion, setAdventureVersion] = useState<number | null>(null)
   const refreshCombat = useCallback(() => {
-    if (!auth.session || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) return
+    if (!auth.session || !connectionReady || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) return
     const summaryRequest = combatApi.readFinalSummary
       ? combatApi.readFinalSummary(route.adventureId)
       : Promise.resolve(null)
@@ -104,17 +124,17 @@ export function AppShell() {
       setCombatSnapshot(snapshot)
       setCombatFinalSummary(snapshot ? null : summary)
     }).catch(() => undefined)
-  }, [auth.session, combatApi, route])
+  }, [auth.session, combatApi, connectionReady, route])
   useEffect(() => {
-    if (!auth.session || route.page !== 'adventure') return
+    if (!auth.session || !connectionReady || route.page !== 'adventure') return
     let active = true
     void adventureApi.readConversation(route.adventureId).then(response => {
       if (active) setAdventureVersion(response.version)
     }).catch(() => { if (active) setAdventureVersion(null) })
     return () => { active = false }
-  }, [auth.session, adventureApi, route])
+  }, [auth.session, adventureApi, connectionReady, route])
   useEffect(() => {
-    if (!auth.session || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) {
+    if (!auth.session || !connectionReady || (route.page !== 'adventure' && route.page !== 'adventure-workspace')) {
       setCombatSnapshot(null)
       setCombatFinalSummary(null)
       return
@@ -134,9 +154,9 @@ export function AppShell() {
         if (active) { setCombatSnapshot(null); setCombatFinalSummary(null) }
       })
     return () => { active = false }
-  }, [auth.session, combatApi, route])
+  }, [auth.session, combatApi, connectionReady, route])
   useEffect(() => {
-    if (!auth.session || route.page !== 'adventure' || !combatApi.subscribeEvents || combatSnapshot?.eventCursor == null) return
+    if (!auth.session || !connectionReady || route.page !== 'adventure' || !combatApi.subscribeEvents || combatSnapshot?.eventCursor == null) return
     const adventureId = route.adventureId
     let active = true
     const cursor = combatSnapshot?.eventCursor ?? -1
@@ -157,7 +177,7 @@ export function AppShell() {
       void combatApi.readSnapshot(adventureId).then(snapshot => { if (active) setCombatSnapshot(snapshot) }).catch(() => undefined)
     }, () => undefined)
     return () => { active = false; close() }
-  }, [auth.session, combatApi, route, combatSnapshot?.eventCursor])
+  }, [auth.session, combatApi, connectionReady, route, combatSnapshot?.eventCursor])
 
   if (!auth.session) {
     return <div className="app-shell auth-shell">
@@ -173,6 +193,25 @@ export function AppShell() {
     </div>
   }
 
+  const activeConnection = connectionGate?.token === auth.session.accessToken ? connectionGate.status : null
+  if (!connectionReady) {
+    return <div className="app-shell auth-shell codex-connection-gate">
+      <header className="app-header auth-header"><Brand /></header>
+      <main id="main" className="auth-main">
+        <div className="auth-intro">
+          <p className="eyebrow">CODEX ACCOUNT CONNECTION</p>
+          <h1>Codex 계정을 연결해 주세요</h1>
+          <p>Codex 계정 연결을 완료하면 모험과 AI 기능을 사용할 수 있습니다. 연결이 취소되거나 실패해도 다시 시도할 수 있습니다.</p>
+        </div>
+        <div className="auth-panel">
+          {!activeConnection && <p role="status" aria-live="polite">Codex 연결 상태를 확인하고 있습니다.</p>}
+          <AiEndpointSettings session={auth.session} connectionOnly connectionHint={activeConnection}
+            onConnectionChange={onConnectionChange} />
+        </div>
+      </main>
+    </div>
+  }
+
   const playApi = new HttpAdventurePlayApi(getToken)
   if (route.page === 'session-runtime') {
     return <div className="game-shell">
@@ -184,13 +223,25 @@ export function AppShell() {
 
   const creatorRoute = route.page === 'character-blueprint' || route.page === 'character-create'
   const initials = auth.session.playerName.slice(0, 1).toUpperCase()
-  const adventureNavActive = route.page === 'adventures' || route.page === 'adventure' || route.page === 'adventure-workspace' || route.page === 'setup'
+  const currentAdventureId = route.page === 'adventure-workspace' || route.page === 'adventure' ? route.adventureId : null
+  const currentSessionId = 'sessionId' in route ? route.sessionId : null
+  const materialsHref = currentAdventureId ? `#/adventures/${encodeURIComponent(currentAdventureId)}?tab=materials` : '#/setup?mode=create'
+  const scenarioHref = currentAdventureId ? `#/adventures/${encodeURIComponent(currentAdventureId)}?tab=review` : '#/adventures'
+  const characterHref = currentSessionId ? `#/sessions/${encodeURIComponent(currentSessionId)}/party` : currentAdventureId ? `#/adventures/${encodeURIComponent(currentAdventureId)}?tab=characters` : '#/adventures'
+  const sessionHref = currentSessionId ? `#/sessions/${encodeURIComponent(currentSessionId)}?mode=play` : currentAdventureId ? `#/adventures/${encodeURIComponent(currentAdventureId)}?tab=sessions` : '#/adventures'
   return <div className="app-shell">
-    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={adventureNavActive ? 'active' : undefined} aria-current={adventureNavActive ? 'page' : undefined} href="#/adventures">모험</a><details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 설정</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
+    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴">
+      <a aria-label="모험" className={route.page === 'adventures' ? 'active' : undefined} aria-current={route.page === 'adventures' ? 'page' : undefined} href="#/adventures"><Home size={17} aria-hidden="true" /><span>모험</span></a>
+      <a aria-label="자료" className={route.page === 'setup' || route.page === 'bundle' || (route.page === 'adventure-workspace' && route.tab === 'materials') ? 'active' : undefined} href={materialsHref}><FileUp size={17} aria-hidden="true" /><span>자료</span></a>
+      <a aria-label="시나리오" className={route.page === 'adventure-workspace' && route.tab === 'review' ? 'active' : undefined} href={scenarioHref}><Map size={17} aria-hidden="true" /><span>시나리오</span></a>
+      <a aria-label="캐릭터" className={route.page === 'character' || route.page === 'character-create' || route.page === 'character-blueprint' || (route.page === 'adventure-workspace' && route.tab === 'characters') ? 'active' : undefined} href={characterHref}><UserRound size={17} aria-hidden="true" /><span>캐릭터</span></a>
+      <a aria-label="세션" className={route.page === 'session' || route.page === 'party' || (route.page === 'adventure-workspace' && route.tab === 'sessions') ? 'active' : undefined} href={sessionHref}><Swords size={17} aria-hidden="true" /><span>세션</span></a>
+      <details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile"><Settings size={15} aria-hidden="true" />내 설정</a><button type="button" onClick={() => void auth.logout()}><BookOpenText size={15} aria-hidden="true" />로그아웃</button></div></details>
+    </nav></header>
     <main id="main" className={creatorRoute ? 'creator-main' : `app-content app-page-${route.page}`}>
       <div className="app-notices"><p role="status" aria-live="polite">{auth.message}</p></div>
       {route.page === 'login' && <section className="welcome-card"><p className="eyebrow">ADVENTURE AWAITS</p><h2>모험 준비가 완료되었습니다</h2><a className="text-link" href="#/setup">자료 설정으로 이동</a></section>}
-      {route.page === 'profile' && <ProfilePage session={auth.session} />}
+      {route.page === 'profile' && <ProfilePage session={auth.session} onConnectionChange={onConnectionChange} />}
       {route.page === 'backoffice' && <BackofficePage session={auth.session} />}
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
@@ -218,6 +269,24 @@ function Brand() {
   return <a className="app-brand" href="#/adventures" aria-label="D&D Master 홈"><img src="/assets/characters/compass.png" alt="" aria-hidden="true" /><span><strong>D&amp;D Master</strong><small>Solo Adventure Studio</small></span></a>
 }
 
-function ProfilePage({ session }: { session: NonNullable<ReturnType<typeof useAuth>['session']> }) {
-  return <section aria-labelledby="profile-title" className="profile-page"><div className="page-heading"><div><p className="eyebrow">PLAYER SETTINGS</p><h1 id="profile-title">내 설정</h1></div></div><section className="setup-panel"><h2>내 정보</h2><dl><dt>이름</dt><dd>{session.playerName}</dd><dt>플레이어 ID</dt><dd>{session.playerId}</dd><dt>인증 만료</dt><dd>{new Date(session.expiresAt).toLocaleString('ko-KR')}</dd></dl></section><AiEndpointSettings session={session} /></section>
+function mergeConnectionStatus(
+  current: { token: string; status: CodexConnectionState } | null,
+  token: string,
+  status: CodexConnectionState,
+) {
+  const sameSession = current !== null && current.token === token
+  const unlinked = status.status === 'DISCONNECTED' || status.status === 'AUTH_REQUIRED'
+  const hasUnresolvedSwitch = sameSession && current.status.status === 'AUTHENTICATING'
+    && Boolean(current.status.operationId)
+  const hasTerminalSwitch = sameSession
+    && (current.status.status === 'CANCELLED' || current.status.status === 'FAILED')
+  if (unlinked && (hasUnresolvedSwitch || hasTerminalSwitch)) return current
+  return { token, status }
+}
+
+function ProfilePage({ session, onConnectionChange }: {
+  session: NonNullable<ReturnType<typeof useAuth>['session']>
+  onConnectionChange: (status: CodexConnectionState) => void
+}) {
+  return <section aria-labelledby="profile-title" className="profile-page"><div className="page-heading"><div><p className="eyebrow">PLAYER SETTINGS</p><h1 id="profile-title">내 설정</h1></div></div><section className="setup-panel"><h2>내 정보</h2><dl><dt>이름</dt><dd>{session.playerName}</dd><dt>플레이어 ID</dt><dd>{session.playerId}</dd><dt>인증 만료</dt><dd>{new Date(session.expiresAt).toLocaleString('ko-KR')}</dd></dl></section><AiEndpointSettings session={session} onConnectionChange={onConnectionChange} /></section>
 }
