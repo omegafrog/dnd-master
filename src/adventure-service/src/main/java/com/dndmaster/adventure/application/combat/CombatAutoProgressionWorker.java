@@ -372,6 +372,9 @@ public final class CombatAutoProgressionWorker {
             }
         }
         if (!plan.endTurn()) {
+            if (plan.damageAmount() != null || plan.attackModifier() != null || plan.targetArmorClass() != null) {
+                throw new IllegalArgumentException("AI proposal may not supply Runtime-resolved combat values");
+            }
             String action = plan.intent().action().trim().toUpperCase(java.util.Locale.ROOT);
             boolean sourceBackedEnemyAction = context.enemyCharacterSheet() != null
                     && context.enemyCharacterSheet().actions().stream()

@@ -662,7 +662,14 @@ public class RuntimeTurnApplicationService {
         RuntimeEvidenceSearchRequest request = new RuntimeEvidenceSearchRequest(adventure.id(), adventure.ownerPlayerId(),
                 adventure.sessionId(), binding.scenarioPackageId(), rulebookDocuments, binding.activeSourceContext(),
                 query, RuntimeEvidenceType.RULEBOOK, 8, extractionVersions, "combat", "COMBAT_ACTION");
-        return bestEffortScopedSearch(request);
+        return scopedSearch(request).stream()
+                .filter(evidence -> evidence.evidenceType() == RuntimeEvidenceType.RULEBOOK)
+                .filter(evidence -> {
+                    Long pinnedVersion = extractionVersions.get(evidence.knowledgeDocumentId().value());
+                    return pinnedVersion == null || pinnedVersion == evidence.extractionVersion();
+                })
+                .limit(request.limit())
+                .toList();
     }
 
     /** Loads the source-scoped reusable sheet for an encounter participant from the pinned adventure materials. */
