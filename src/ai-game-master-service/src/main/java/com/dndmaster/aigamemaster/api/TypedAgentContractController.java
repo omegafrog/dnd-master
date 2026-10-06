@@ -196,6 +196,48 @@ public final class TypedAgentContractController {
                 requested, resolution, request.ragSearchContext()).response();
     }
 
+    @PostMapping("/internal/gm/combat-turn-decision")
+    CombatTurnDecisionResponse combatTurnDecision(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody CombatTurnDecisionRequest request) {
+        requestGuard.internal(token);
+        require(request);
+        RequestedGmProviderSelection requested = new RequestedGmProviderSelection(
+                request.endpointId(), request.provider(), request.model(), request.reasoning());
+        GmProviderSelectionResolver.EndpointResolution resolution = selectionResolver.apply(requested);
+        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
+        if (!effective.endpointId().equals(request.effectiveEndpointId())
+                || !effective.endpointVersion().toString().equals(request.effectiveEndpointVersion())
+                || !effective.provider().equals(request.effectiveProvider())
+                || !effective.model().equals(request.effectiveModel())) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE, "selected GM endpoint changed before execution");
+        }
+        return adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
+                this::parseCombatTurnDecision, requested, resolution, null).response();
+    }
+
+    private CombatTurnDecisionResponse parseCombatTurnDecision(String json) {
+        JsonNode root = readObject(json);
+        String kind = required(root, "kind").toUpperCase(java.util.Locale.ROOT);
+        if (!kind.equals("ACTION") && !kind.equals("END_TURN")) throw new IllegalArgumentException("combat decision kind is invalid");
+        java.util.UUID actorId;
+        try { actorId = java.util.UUID.fromString(required(root, "actorId")); }
+        catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("combat actorId must be a UUID", invalid); }
+        String action = kind.equals("ACTION") ? required(root, "action") : null;
+        java.util.UUID targetId = null;
+        if (root.hasNonNull("targetId") && !root.path("targetId").asText().isBlank()) {
+            try { targetId = java.util.UUID.fromString(root.path("targetId").asText()); }
+            catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("combat targetId must be a UUID", invalid); }
+        }
+        List<String> citations = citationKeys(root.path("citationKeys"), "combat decision");
+        String assessment = kind.equals("END_TURN") ? required(root, "endTurnAssessment") : null;
+        if (kind.equals("END_TURN") && citations.isEmpty()) {
+            throw new IllegalArgumentException("ending a combat turn requires source citations");
+        }
+        return new CombatTurnDecisionResponse(actorId, kind, action, targetId, citations, assessment);
+    }
+
     @PostMapping("/internal/gm/narration-safety")
     NarrationSafetyResponse narrationSafety(
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
@@ -567,6 +609,28 @@ public final class TypedAgentContractController {
     public record RuntimeEndpointRequest(java.util.UUID endpointId, String provider, String model, String reasoning) { }
     public record RuntimeEndpointResponse(java.util.UUID endpointId, String endpointVersion,
                                           String provider, String model, String reasoning) { }
+
+    public record CombatTurnDecisionRequest(java.util.UUID soloPlayerId, String operationKey,
+            java.util.UUID endpointId, String provider, String model, String reasoning,
+            java.util.UUID effectiveEndpointId, String effectiveEndpointVersion,
+            String effectiveProvider, String effectiveModel, String prompt) {
+        public CombatTurnDecisionRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
+            operationKey = required(operationKey, "operationKey");
+            provider = required(provider, "provider"); model = required(model, "model");
+            reasoning = required(reasoning, "reasoning");
+            effectiveEndpointId = Objects.requireNonNull(effectiveEndpointId, "effectiveEndpointId is required");
+            effectiveEndpointVersion = required(effectiveEndpointVersion, "effectiveEndpointVersion");
+            effectiveProvider = required(effectiveProvider, "effectiveProvider");
+            effectiveModel = required(effectiveModel, "effectiveModel");
+            prompt = required(prompt, "prompt");
+        }
+    }
+
+    public record CombatTurnDecisionResponse(java.util.UUID actorId, String kind, String action,
+            java.util.UUID targetId, List<String> citationKeys, String endTurnAssessment) {
+        public CombatTurnDecisionResponse { citationKeys = List.copyOf(citationKeys); }
+    }
 
     public record RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
                                      java.util.UUID endpointId, String provider, String model, String reasoning,

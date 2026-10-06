@@ -122,7 +122,9 @@ public final class CombatWorkItem {
     }
 
     public CombatWorkItem claimed(UUID token, Instant until) {
-        return copy(Status.CLAIMED, token, until, failure, attemptCount + 1, command, completedSteps, operationId);
+        return copy(Status.CLAIMED, token, until, failure,
+                attemptCount == Integer.MAX_VALUE ? Integer.MAX_VALUE : attemptCount + 1,
+                command, completedSteps, operationId);
     }
 
     public CombatWorkItem withCommand(CombatActionCommand value) {

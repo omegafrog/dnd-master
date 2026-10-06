@@ -1,7 +1,6 @@
 package com.dndmaster.adventure.combat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,6 +36,18 @@ import org.junit.jupiter.api.Test;
 import static org.mockito.Mockito.mock;
 
 class CombatAutoProgressionWorkerTest {
+    @Test
+    void unconfigured_combat_decision_port_does_not_silently_end_a_turn() {
+        AiCombatDecisionPort port = context -> null;
+        UUID actorId = UUID.randomUUID();
+        CombatEncounter encounter = CombatStartPolicy.startFromCommittedGmTurn(true, UUID.randomUUID(), List.of(
+                new CombatParticipant(actorId, "Goblin", CombatParticipant.Controller.AI, 20, null)));
+        var context = com.dndmaster.adventure.application.combat.AiTacticalInstructionPolicy.contextFor(
+                encounter, actorId, "No tactical instruction", List.of());
+        org.junit.jupiter.api.Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> port.planTurn(context));
+    }
+
     @Test
     void enemy_preparation_work_activates_only_after_profile_is_present_and_initializes_combat_state() {
         UUID adventureId = UUID.randomUUID();
@@ -110,7 +121,7 @@ class CombatAutoProgressionWorkerTest {
     }
 
     @Test
-    void releases_the_initial_request_after_the_first_ai_follow_up_failure_without_automatic_retry() {
+    void retries_ai_turn_decision_failures_and_keeps_the_turn_request_open() {
         UUID adventureId = UUID.randomUUID();
         UUID actorId = UUID.randomUUID();
         UUID operationId = UUID.randomUUID();
@@ -129,25 +140,36 @@ class CombatAutoProgressionWorkerTest {
                 encounter.version(), CombatWorkItem.WorkType.AI_TURN, Instant.parse("2026-01-01T00:00:00Z"), 0,
                 new com.dndmaster.adventure.application.combat.AiTacticalInstructionContext("Protect the healer"), command,
                 0, requestId));
+        AtomicInteger proposals = new AtomicInteger();
+        AiCombatDecisionPort failingDecision = new AiCombatDecisionPort() {
+            @Override public com.dndmaster.adventure.domain.combat.FreeFormActionPlan interpretFreeForm(
+                    com.dndmaster.adventure.application.combat.FreeFormCombatContext ignored) {
+                throw new UnsupportedOperationException();
+            }
+            @Override public AiTurnPlan planTurn(com.dndmaster.adventure.application.combat.AiCombatTurnContext context) {
+                proposals.incrementAndGet();
+                throw new CombatTransientFailureException("AI unavailable");
+            }
+        };
         AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
-        when(sessions.releaseAiRequest(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId),
-                new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(ownerId), requestId)).thenReturn(true);
-        var worker = new CombatAutoProgressionWorker("worker-1", workItems, encounters, decisions(actorId),
-                (ignoredCommand, ignoredPlan) -> { throw new CombatTransientFailureException("AI unavailable"); },
+        var worker = new CombatAutoProgressionWorker("worker-1", workItems, encounters, failingDecision,
+                (ignoredCommand, ignoredPlan) -> { throw new AssertionError("failed proposal must not execute"); },
                 ignoredCommand -> { throw new AssertionError("turn must not be skipped"); }, 10, null,
                 new AdventureAiRequestApplicationService(sessions));
 
         Instant first = Instant.parse("2026-01-01T00:00:00Z");
         worker.processOnce(first);
 
-        verify(sessions).releaseAiRequest(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId),
-                new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(ownerId), requestId);
-        assertEquals(CombatWorkItem.Status.FAILED, workItems.findByOperationId(operationId).orElseThrow().status());
-        assertEquals(1, workItems.findByOperationId(operationId).orElseThrow().attemptCount());
+        CombatWorkItem retry = workItems.findByOperationId(operationId).orElseThrow();
+        assertEquals(CombatWorkItem.Status.PENDING, retry.status());
+        assertEquals(1, retry.attemptCount());
+        assertEquals(first.plusSeconds(2), retry.dueAt());
+        assertEquals(1, proposals.get());
+        org.mockito.Mockito.verifyNoInteractions(sessions);
     }
 
     @Test
-    void surfaces_ai_follow_up_failure_without_automatic_retry_or_advancing_encounter() {
+    void retries_action_application_failures_without_advancing_encounter() {
         UUID adventureId = UUID.randomUUID();
         UUID actorId = UUID.randomUUID();
         UUID operationId = UUID.randomUUID();
@@ -157,13 +179,24 @@ class CombatAutoProgressionWorkerTest {
         var workItems = new InMemoryCombatWorkItemRepository();
         var command = new CombatActionCommand(operationId, new AdventureId(adventureId), UUID.randomUUID(),
                 new RuleSetId(UUID.randomUUID()), new CharacterSheetId(actorId), null,
-                com.dndmaster.adventure.application.combat.CombatActorRole.AI, "attack", null,
+                com.dndmaster.adventure.application.combat.CombatActorRole.AI, "AI_TURN", null,
                 null, actorId, encounter.version(), null, null, null, null, false);
         workItems.enqueue(new CombatWorkItem(UUID.randomUUID(), encounter.encounterId(), operationId,
                 encounter.version(), CombatWorkItem.WorkType.AI_TURN, Instant.parse("2026-01-01T00:00:00Z"), 0,
                 new com.dndmaster.adventure.application.combat.AiTacticalInstructionContext("Protect the healer"), command));
         AtomicInteger calls = new AtomicInteger();
-        AiCombatDecisionPort decisions = decisions(actorId);
+        AtomicInteger proposalCalls = new AtomicInteger();
+        AiCombatDecisionPort delegate = decisions(actorId);
+        AiCombatDecisionPort decisions = new AiCombatDecisionPort() {
+            @Override public com.dndmaster.adventure.domain.combat.FreeFormActionPlan interpretFreeForm(
+                    com.dndmaster.adventure.application.combat.FreeFormCombatContext context) {
+                return delegate.interpretFreeForm(context);
+            }
+            @Override public AiTurnPlan planTurn(com.dndmaster.adventure.application.combat.AiCombatTurnContext context) {
+                proposalCalls.incrementAndGet();
+                return delegate.planTurn(context);
+            }
+        };
 
         var worker = new CombatAutoProgressionWorker("worker-1", workItems, encounters, decisions,
                 (ignoredCommand, ignoredPlan) -> {
@@ -175,12 +208,18 @@ class CombatAutoProgressionWorkerTest {
         Instant first = Instant.parse("2026-01-01T00:00:00Z");
         worker.processOnce(first);
 
-        CombatWorkItem failed = workItems.findByOperationId(operationId).orElseThrow();
-        assertEquals(CombatWorkItem.Status.FAILED, failed.status());
-        assertEquals(1, failed.attemptCount());
+        CombatWorkItem retry = workItems.findByOperationId(operationId).orElseThrow();
+        assertEquals(CombatWorkItem.Status.PENDING, retry.status());
+        assertEquals(1, retry.attemptCount());
         assertEquals(1, calls.get());
+        assertEquals("attack", retry.command().action());
         assertEquals(encounter.version(), encounters.value.version());
-        assertSame(command, failed.command());
+
+        worker.processOnce(first.plusSeconds(2));
+        assertEquals(2, calls.get());
+        assertEquals(1, proposalCalls.get());
+        assertEquals(CombatWorkItem.Status.PENDING, workItems.findByOperationId(operationId).orElseThrow().status());
+        assertEquals(encounter.version(), encounters.value.version());
     }
 
     private static AiCombatDecisionPort decisions(UUID actorId) {

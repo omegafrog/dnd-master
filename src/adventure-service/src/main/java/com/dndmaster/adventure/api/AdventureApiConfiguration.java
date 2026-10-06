@@ -1352,12 +1352,19 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    com.dndmaster.adventure.application.combat.AiCombatDecisionPort aiCombatDecisionPort() {
-        return new com.dndmaster.adventure.application.combat.AiCombatDecisionPortAdapter(context ->
+    com.dndmaster.adventure.application.combat.AiCombatDecisionPort aiCombatDecisionPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        var legacy = new com.dndmaster.adventure.application.combat.AiCombatDecisionPortAdapter(context ->
                 com.dndmaster.adventure.domain.combat.FreeFormActionPlan.narrativeOnly(
                         context.declaration().actorId(),
                         com.dndmaster.adventure.domain.combat.TurnResourceCost.actionOnly(),
                         "자유 행동을 확인했습니다.", context.declaration().text()));
+        return new com.dndmaster.adventure.infrastructure.integration.HttpTypedCombatDecisionPort(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds),
+                objectMapper, internalToken, legacy);
     }
 
     @Bean

@@ -8,6 +8,6 @@ public interface AiCombatDecisionPort {
     FreeFormActionPlan interpretFreeForm(FreeFormCombatContext context);
 
     default AiTurnPlan planTurn(AiCombatTurnContext context) {
-        return AiTurnPlan.endTurn(context.actor().participantId());
+        throw new UnsupportedOperationException("AI combat turn decisions are not configured");
     }
 }

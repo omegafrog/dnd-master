@@ -122,16 +122,39 @@ public final class CombatAutoProgressionWorker {
         CombatActionCommand command = null;
         try {
             CombatActionCommand base = Objects.requireNonNull(item.command(), "AI work item command is missing");
-            UUID actorId = encounter.currentParticipantId();
-            AiCombatTurnContext context = AiTacticalInstructionPolicy.contextFor(encounter, actorId,
-                    item.tacticalInstruction().instruction(), item.tacticalInstruction().constraints());
-            AiTurnPlan plan = Objects.requireNonNull(decisions.planTurn(context), "AI turn plan must not be null");
-            if (!actorId.equals(plan.actorId())) throw new CombatCommandRejectedException(
-                    "ACTION_NOT_ALLOWED", java.util.List.of("AI_PLAN_ACTOR_MISMATCH"));
-            command = commandForPlan(base, plan, actorId, encounter.version());
-            item = item.withCommand(command);
-            workItems.save(item);
-            if (plan.endTurn()) turnEndExecutor.execute(command);
+            UUID actorId = "AI_TURN".equals(base.action()) ? encounter.currentParticipantId() : base.characterSheetId().value();
+            AiTurnPlan plan;
+            if ("AI_TURN".equals(base.action())) {
+                AiCombatTurnContext context = AiTacticalInstructionPolicy.contextFor(encounter, actorId,
+                        item.tacticalInstruction().instruction(), item.tacticalInstruction().constraints());
+                if (runtimeTurnService != null) {
+                    var runtimeInputs = runtimeTurnService.combatTurnRuntimeInputs(base.adventureId(), actorId);
+                    EnemyCharacterSheet enemySheet = context.actor().enemyKind() == null ? null
+                            : runtimeTurnService.enemyCharacterSheetForCombat(base.adventureId(), context.actor().enemyKind())
+                                    .orElseThrow(() -> new com.dndmaster.adventure.application.runtime.AbsentEnemyRuleEvidenceException(
+                                            "ENEMY_SHEET_RULE_EVIDENCE_UNAVAILABLE"));
+                    var situation = runtimeInputs.situation();
+                    String situationText = "장소: " + situation.location() + "\n문제: " + situation.problem()
+                            + "\n위협: " + situation.threat() + "\n목표: " + situation.goal();
+                    context = new AiCombatTurnContext(encounter, context.actor(), context.tacticalInstruction(),
+                            situationText, runtimeInputs.characterSheetJson(), enemySheet,
+                            runtimeInputs.ownerPlayerId(), runtimeInputs.providerSelection());
+                }
+                plan = Objects.requireNonNull(decisions.planTurn(context), "AI turn plan must not be null");
+                if (!actorId.equals(plan.actorId())) throw new CombatCommandRejectedException(
+                        "ACTION_NOT_ALLOWED", java.util.List.of("AI_PLAN_ACTOR_MISMATCH"));
+                validateDecisionEvidence(plan, context);
+                command = commandForPlan(base, plan, actorId, encounter);
+                item = item.withCommand(command);
+                workItems.save(item);
+            } else if ("END_TURN".equals(base.action())) {
+                plan = null; // The cited end-turn proposal was already validated and saved before its first application attempt.
+                command = base;
+            } else {
+                plan = planForPersistedCommand(base);
+                command = base;
+            }
+            if ("END_TURN".equals(command.action())) turnEndExecutor.execute(command);
             else actionExecutor.execute(command, plan);
             CombatWorkItem completed = item.completed(item.leaseToken());
             workItems.save(completed);
@@ -148,11 +171,19 @@ public final class CombatAutoProgressionWorker {
             } else {
                 releaseInitialRequest(completed, "AI_FOLLOW_UP_COMPLETE");
             }
+        } catch (com.dndmaster.adventure.application.runtime.AbsentEnemyRuleEvidenceException failure) {
+            CombatWorkItem blocked = item.failed(item.leaseToken(), "COMBAT_RULE_EVIDENCE_ABSENT");
+            workItems.save(blocked);
+            devLog("dev_combat_ai_follow_up_blocked requestId={} operationId={} encounterId={} failureClass={}",
+                    item.aiRequestId(), item.operationId(), item.encounterId(), failure.getClass().getName());
+            releaseInitialRequest(blocked, "COMBAT_RULE_EVIDENCE_ABSENT");
         } catch (RuntimeException failure) {
-            workItems.save(item.failed(item.leaseToken(), failureReason(failure)));
-            LOGGER.error("combat_ai_follow_up_failed requestId={} operationId={} encounterId={} exceptionClass={}",
-                    item.aiRequestId(), item.operationId(), item.encounterId(), failure.getClass().getName(), failure);
-            releaseInitialRequest(item, "AI_FOLLOW_UP_FAILED");
+            int delaySeconds = Math.min(60, 1 << Math.min(item.attemptCount(), 6));
+            CombatWorkItem retry = item.retry(item.leaseToken(), now.plusSeconds(delaySeconds), failureReason(failure));
+            workItems.save(retry);
+            devLog("dev_combat_ai_follow_up_retry requestId={} operationId={} encounterId={} attempt={} delaySeconds={} exceptionClass={}",
+                    item.aiRequestId(), item.operationId(), item.encounterId(), item.attemptCount(), delaySeconds,
+                    failure.getClass().getName());
         }
         return true;
     }
@@ -195,18 +226,88 @@ public final class CombatAutoProgressionWorker {
     private static CombatEncounter throwIllegalState(String reason) { throw new IllegalStateException(reason); }
 
     private static CombatActionCommand commandForPlan(CombatActionCommand base, AiTurnPlan plan,
-                                                       UUID actorId, long expectedVersion) {
+                                                       UUID actorId, CombatEncounter encounter) {
         if (!"AI_TURN".equals(base.action())) return base;
         var intent = plan.intent();
+        Integer targetArmorClass = plan.targetArmorClass();
+        if (targetArmorClass == null && plan.targetId() != null) targetArmorClass = encounter.participants().stream()
+                .filter(participant -> participant.participantId().equals(plan.targetId()))
+                .map(CombatParticipant::statBlock).filter(Objects::nonNull)
+                .map(com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock::armorClass).findFirst().orElse(null);
+        Integer attackModifier = plan.attackModifier();
+        if (attackModifier == null && encounter.currentParticipant().statBlock() != null) {
+            attackModifier = encounter.currentParticipant().statBlock().attackModifier();
+        }
         return new CombatActionCommand(base.operationId(), base.adventureId(), base.sessionId(), base.ruleSetId(),
                 new CharacterSheetId(actorId), base.combatMapId(), CombatActorRole.AI,
-                plan.endTurn() ? "END_TURN" : intent.action(), base.movementPath(), base.ownerPlayerId(), actorId, expectedVersion,
-                plan.targetArmorClass(), plan.attackModifier(), plan.targetId() == null ? null : new CharacterSheetId(plan.targetId()),
+                plan.endTurn() ? "END_TURN" : intent.action(), base.movementPath(), base.ownerPlayerId(), actorId, encounter.version(),
+                targetArmorClass, attackModifier, plan.targetId() == null ? null : new CharacterSheetId(plan.targetId()),
                 plan.damageAmount(), false, base.narrativePosition(), base.movementDistance(), base.mapVersion());
+    }
+
+    private static AiTurnPlan planForPersistedCommand(CombatActionCommand command) {
+        return new AiTurnPlan(command.characterSheetId().value(),
+                new com.dndmaster.adventure.domain.combat.CombatActionIntent(command.characterSheetId().value(),
+                        command.action(), com.dndmaster.adventure.domain.combat.TurnResourceCost.actionOnly()),
+                command.targetArmorClass(), command.attackModifier(),
+                command.targetCharacterSheetId() == null ? null : command.targetCharacterSheetId().value(),
+                command.damageAmount(), false, null);
     }
 
     private static String failureReason(Throwable failure) {
         return failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
+    }
+
+    private static void devLog(String pattern, Object... arguments) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info(pattern, arguments);
+        }
+    }
+
+    private static void validateDecisionEvidence(AiTurnPlan plan, AiCombatTurnContext context) {
+        if (context.currentSituation() == null) return; // Compatibility for directly constructed legacy test/adaptor contexts.
+        if (plan.citationKeys().isEmpty()) throw new IllegalArgumentException("AI combat proposal has no rule citations");
+        if (context.actor().enemyKind() != null) {
+            EnemyCharacterSheet sheet = Objects.requireNonNull(context.enemyCharacterSheet(), "enemy character sheet is unavailable");
+            var available = new java.util.LinkedHashSet<String>();
+            available.add(sheet.statBlock().source().citationKey());
+            sheet.abilities().forEach(ability -> available.addAll(ability.citationKeys()));
+            sheet.actions().forEach(action -> available.addAll(action.citationKeys()));
+            if (!available.containsAll(plan.citationKeys())) throw new IllegalArgumentException("AI combat proposal cites an unknown enemy rule");
+            if (plan.endTurn()) {
+                var allActionRules = sheet.actions().stream().flatMap(action -> action.citationKeys().stream()).collect(java.util.stream.Collectors.toSet());
+                if (allActionRules.isEmpty() || !new java.util.HashSet<>(plan.citationKeys()).containsAll(allActionRules)) {
+                    throw new IllegalArgumentException("enemy end-turn assessment did not review all available action rules");
+                }
+            } else {
+                var selectedAction = sheet.actions().stream()
+                        .filter(action -> action.name().equalsIgnoreCase(plan.intent().action())).findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("enemy action is not present on its source-backed character sheet"));
+                if (!new java.util.HashSet<>(plan.citationKeys()).containsAll(selectedAction.citationKeys())) {
+                    throw new IllegalArgumentException("enemy action proposal omitted its source citations");
+                }
+            }
+        } else {
+            if (plan.endTurn()) throw new IllegalArgumentException("AI companion may not end its turn without an action");
+            String sheet = context.characterSheetJson();
+            if (sheet == null || plan.citationKeys().stream().anyMatch(key -> !sheet.contains(key))) {
+                throw new IllegalArgumentException("AI companion proposal cites a rule outside its character sheet");
+            }
+        }
+        if (!plan.endTurn() && (context.actor().enemyKind() != null
+                || plan.intent().action().toLowerCase(java.util.Locale.ROOT).matches(".*(attack|strike|spell).*"))
+                && plan.targetId() == null) {
+            throw new IllegalArgumentException("targeted AI combat action has no target");
+        }
+        if (plan.targetId() != null) {
+            CombatParticipant target = context.encounter().participants().stream()
+                    .filter(participant -> participant.participantId().equals(plan.targetId())).findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("AI combat proposal target is not in this encounter"));
+            if (target.isDefeated()) throw new IllegalArgumentException("AI combat proposal targets a defeated participant");
+            boolean actorIsEnemy = context.actor().enemyKind() != null;
+            boolean targetIsEnemy = target.enemyKind() != null;
+            if (actorIsEnemy == targetIsEnemy) throw new IllegalArgumentException("AI combat proposal target is not opposing");
+        }
     }
 
     private void releaseInitialRequest(CombatWorkItem item, String outcome) {

@@ -52,6 +52,37 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void combat_turn_contract_returns_structured_source_cited_action() {
+        var controller = new TypedAgentContractController(selectedAdapter((operation, prompt, requested) ->
+                "{\"kind\":\"ACTION\",\"actorId\":\"00000000-0000-0000-0000-000000000323\","
+                        + "\"action\":\"Scimitar\",\"targetId\":\"00000000-0000-0000-0000-000000000324\","
+                        + "\"citationKeys\":[\"goblin-scimitar\"]}"), new ObjectMapper(),
+                new ApiRequestGuard("service-secret"), requested -> resolution("actual-model", requested));
+        var request = new TypedAgentContractController.CombatTurnDecisionRequest(SOLO_PLAYER_ID, "combat-op",
+                SELECTED_ENDPOINT_ID, "openai", "actual-model", "high", SELECTED_ENDPOINT_ID,
+                Instant.EPOCH.toString(), "openai", "actual-model", "ROLE=COMBAT_TURN_DECISION");
+
+        var result = controller.combatTurnDecision("service-secret", request);
+
+        org.junit.jupiter.api.Assertions.assertEquals("ACTION", result.kind());
+        org.junit.jupiter.api.Assertions.assertEquals("Scimitar", result.action());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of("goblin-scimitar"), result.citationKeys());
+    }
+
+    @Test
+    void combat_turn_end_requires_a_favorable_action_assessment_and_rule_citations() {
+        var controller = new TypedAgentContractController(selectedAdapter((operation, prompt, requested) ->
+                "{\"kind\":\"END_TURN\",\"actorId\":\"00000000-0000-0000-0000-000000000323\","
+                        + "\"endTurnAssessment\":\"no favorable legal action\",\"citationKeys\":[]}"), new ObjectMapper(),
+                new ApiRequestGuard("service-secret"), requested -> resolution("actual-model", requested));
+        var request = new TypedAgentContractController.CombatTurnDecisionRequest(SOLO_PLAYER_ID, "combat-op",
+                SELECTED_ENDPOINT_ID, "openai", "actual-model", "high", SELECTED_ENDPOINT_ID,
+                Instant.EPOCH.toString(), "openai", "actual-model", "ROLE=COMBAT_TURN_DECISION");
+
+        assertThrows(IllegalArgumentException.class, () -> controller.combatTurnDecision("service-secret", request));
+    }
+
+    @Test
     void every_typed_agent_endpoint_requires_the_internal_service_token() {
         TypedAgentContractController controller = new TypedAgentContractController(
                 emptyAdapter(), new ObjectMapper(), new ApiRequestGuard("service-secret"));

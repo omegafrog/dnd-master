@@ -625,6 +625,37 @@ public class RuntimeTurnApplicationService {
         return characterSheetReadPort.read(characterSheetId);
     }
 
+    /** Reads the latest Runtime situation and, for a party actor, that actor's sheet for a saved combat turn. */
+    public CombatTurnRuntimeInputs combatTurnRuntimeInputs(AdventureId adventureId, UUID actorId) {
+        Adventure adventure = adventureRepository.findById(adventureId)
+                .orElseThrow(() -> new IllegalStateException("combat adventure is unavailable"));
+        if (adventure.currentSituation() == null) throw new IllegalStateException("combat current situation is unavailable");
+        boolean partyActor = adventure.party().stream().anyMatch(member -> member.characterSheetId().value().equals(actorId));
+        String sheet = partyActor ? currentCharacterSheet(actorId) : null;
+        GmProviderSelection selection = providerBindingRepository == null ? null
+                : providerBindingRepository.current(adventure.sessionId().value())
+                        .map(ProviderBinding::selection).orElse(null);
+        return new CombatTurnRuntimeInputs(adventure.currentSituation(), sheet,
+                adventure.ownerPlayerId().value(), selection);
+    }
+
+    /** Loads the source-scoped reusable sheet for an encounter participant from the pinned adventure materials. */
+    public java.util.Optional<com.dndmaster.adventure.application.combat.EnemyCharacterSheet> enemyCharacterSheetForCombat(
+            AdventureId adventureId, String enemyKind) {
+        if (enemyCharacterSheetRepository == null) throw new IllegalStateException("enemy character sheet repository is unavailable");
+        Adventure adventure = adventureRepository.findById(adventureId)
+                .orElseThrow(() -> new IllegalStateException("combat adventure is unavailable"));
+        RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(adventureId)
+                .orElseThrow(() -> new IllegalStateException("combat runtime binding is unavailable"));
+        ScenarioPackage scenarioPackage = adventure.lockedScenarioPackageId() == null ? null
+                : scenarioPackageRepository.findById(adventure.lockedScenarioPackageId()).orElse(null);
+        if (scenarioPackage == null) throw new IllegalStateException("combat scenario package is unavailable");
+        return enemyCharacterSheetRepository.find(enemySheetIdentity(adventure, binding, scenarioPackage, enemyKind));
+    }
+
+    public record CombatTurnRuntimeInputs(com.dndmaster.adventure.domain.runtime.CurrentSituation situation,
+            String characterSheetJson, UUID ownerPlayerId, GmProviderSelection providerSelection) { }
+
     /**
      * Reads the same locked Adventure Runtime material as a normal turn and asks
      * the GM for prose after combat has already been committed. This path never

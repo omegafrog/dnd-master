@@ -4,16 +4,30 @@ import com.dndmaster.adventure.domain.combat.CombatActionIntent;
 import com.dndmaster.adventure.domain.combat.TurnResourceCost;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.List;
 
 /** Provider-neutral AI proposal consumed by the normal combat action pipeline. */
 public record AiTurnPlan(UUID actorId, CombatActionIntent intent, Integer targetArmorClass,
                          Integer attackModifier, UUID targetId, Integer damageAmount,
-                         boolean endTurn, String narration) {
+                         boolean endTurn, String narration, List<String> citationKeys,
+                         String endTurnAssessment) {
+    public AiTurnPlan(UUID actorId, CombatActionIntent intent, Integer targetArmorClass,
+                      Integer attackModifier, UUID targetId, Integer damageAmount,
+                      boolean endTurn, String narration) {
+        this(actorId, intent, targetArmorClass, attackModifier, targetId, damageAmount, endTurn,
+                narration, List.of(), null);
+    }
+
     public AiTurnPlan {
         Objects.requireNonNull(actorId, "AI actor must not be null");
         if (endTurn && intent != null) throw new IllegalArgumentException("end-turn plan cannot also contain an action");
         if (!endTurn && intent == null) throw new IllegalArgumentException("action plan must contain an intent");
         if (damageAmount != null && damageAmount < 1) throw new IllegalArgumentException("damage must be positive");
+        citationKeys = List.copyOf(citationKeys == null ? List.of() : citationKeys);
+        endTurnAssessment = endTurnAssessment == null ? null : endTurnAssessment.trim();
+        if (endTurn && (endTurnAssessment == null || endTurnAssessment.isBlank() || citationKeys.isEmpty())) {
+            throw new IllegalArgumentException("ending an AI turn requires a favorable-action assessment and citations");
+        }
     }
 
     public AiTurnPlan(UUID actorId, CombatActionIntent intent) {
@@ -33,6 +47,10 @@ public record AiTurnPlan(UUID actorId, CombatActionIntent intent, Integer target
     }
 
     public static AiTurnPlan endTurn(UUID actorId) {
-        return new AiTurnPlan(actorId, null, null, null, null, null, true, null);
+        throw new IllegalArgumentException("ending an AI turn requires a favorable-action assessment and citations");
+    }
+
+    public static AiTurnPlan endTurn(UUID actorId, String assessment, List<String> citationKeys) {
+        return new AiTurnPlan(actorId, null, null, null, null, null, true, null, citationKeys, assessment);
     }
 }
