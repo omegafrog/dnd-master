@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | Document Knowledge | Knowledge Document 원본, Extraction Version, Source Span, Asset, 검색 인덱스 | 업로드 파일, 추출 요청, 검색 질의 | 불변 원문 추출본, STORYBOOK/RULEBOOK Evidence | `rule-knowledge-service` |
 | Scenario Preparation | Scenario Source Bundle, Resolution Unit, Override, Scenario Package Version | 문서·추출 버전 참조, AI 추출 후보 | 검증된 Scenario Package | `adventure-service` 내부 경계 |
-| Adventure Runtime | Runtime Binding, 프리플라이트, Active Source Context, Runtime Turn·Command 조정, CombatEncounter lifecycle·Initiative·Round·Combat Turn·Reaction 조정 | 플레이어 행동, Package Version, Evidence, 전투 행동 | 확정 세션 이벤트, 플레이어 응답, 전투 상태·Combat Log projection | `adventure-service` 내부 경계; Combat은 별도 Bounded Context/service가 아닌 내부 capability |
+| Adventure Runtime | Runtime Binding, 프리플라이트, Active Source Context, Runtime Turn·Command 조정, 모험별 출처 범위의 적 캐릭터 시트 준비·재사용, CombatEncounter lifecycle·Initiative·Round·Combat Turn·Reaction 조정 | 플레이어 행동, Package Version, Evidence, 전투 행동 | 확정 세션 이벤트, 플레이어 응답, 검증된 적 캐릭터 시트·전투 상태·Combat Log projection | `adventure-service` 내부 경계; Combat과 적 시트는 별도 Bounded Context/service가 아닌 내부 capability |
 | AI Game Master | Resolution 후보, 시작 위치 후보, Runtime Plan, narration, 안전 검사 제안 | 제한된 근거와 버전된 스키마 | 저장 권한 없는 AI 후보·제안 | `ai-game-master-service` |
 | Dice Roll | 주사위 실행과 결과 정본 | 멱등 Roll Command | 불변 Roll Result | `dice-roll-service` |
 | Character Management | 캐릭터 HP, 인벤토리, 효과, 자원 | 버전 조건부 Character Command | 캐릭터 상태 | `character-management-service` |
@@ -24,6 +24,7 @@
 - Adventure Runtime은 Scenario Preparation의 게시된 Package Version만 사용한다.
 - Adventure Runtime과 Scenario Preparation은 Document Knowledge의 통합 근거 후보 검색 계약을 사용한다. 각 작업의 상황별 근거 충분성 정책이 STORYBOOK, RULEBOOK 또는 두 유형을 검색 대상으로 선택하며, Document Knowledge는 선택된 범위 안에서 Dense·BM25 후보를 RRF 방식으로 통합한다.
 - Adventure Runtime과 Scenario Preparation은 AI Game Master를 관련도 재정렬과 근거 충분성 판단의 제안 Provider로 사용한다. AI 결과의 후보 식별자, 범위, 형식은 Adventure 서비스가 검증하고, 상황별 최종 결과도 Adventure 서비스가 확정한다.
+- Adventure Runtime은 적 캐릭터 시트 후보의 출처와 완전성을 검증해 모험별 고정 지식 자료 범위 안에서 저장·재사용한다. AI Game Master는 적 전투 수치, 행동, 규칙 판정 근거를 포함한 후보를 만들고 Document Knowledge는 선택된 자료에서 출처 증거를 제공한다.
 - Adventure Runtime은 AI Game Master의 제안을 검증되지 않은 상태 변경으로 취급한다.
 - Adventure Runtime은 모험별 대화 원문, 확정 턴에서 유래한 대화 요약, 현재 상황에 관련된 확정 사실별 장기 기록을 소유한다. AI Game Master는 압축된 대화와 장기 기록의 변경 후보만 생성하며, Adventure Runtime이 확정 근거·공개 여부·버전을 검증한 뒤 저장한다. 캐릭터 시트와 Current Situation의 정본은 기존 소유자가 유지한다.
 - Adventure Runtime은 Dice Roll, Character Management, Combat Map의 상태를 복제하지 않고 Runtime Command Saga로 조정한다.

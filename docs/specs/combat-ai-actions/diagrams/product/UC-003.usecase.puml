@@ -1,0 +1,34 @@
+@startuml
+title UC-003 적 턴 행동과 유리한 행동 선택
+left to right direction
+
+actor "AI 적" as Enemy
+actor "플레이어" as Player
+actor "AI Game Master 및 전투 진행 시스템" as GM
+rectangle "적 턴 행동 결정" {
+  usecase "적 캐릭터 시트와\n현재 시츄에이션 확인" as U3_Context
+  usecase "목표·생존·전술 위치를\n개선하는 행동 평가" as U3_Evaluate
+  usecase "유리한 행동 결정 및\n규칙에 따라 수행" as U3_Act
+  usecase "유리한 행동이 없을 때\n턴 종료" as U3_End
+  usecase "결정 실패 시 전투 중단·대기\n및 자동 재시도" as U3_Retry
+  usecase "관찰 가능한 결과 표시" as U3_Result
+}
+
+Enemy --> U3_Context
+Enemy --> U3_Evaluate
+Enemy --> U3_Act
+Enemy --> U3_End
+U3_Context --> U3_Evaluate
+U3_Evaluate --> U3_Act : 개선 행동이 있음
+U3_Evaluate --> U3_End : 개선 행동이 없음
+U3_Act --> U3_Result
+U3_End --> U3_Result
+U3_Retry --> GM
+GM --> U3_Retry : 자동 재시도
+U3_Result --> Player : 확정된 결과만
+
+note bottom of U3_Evaluate
+유스케이스 ID: UC-003
+적의 내부 능력치와 판정 근거는 플레이어에게 공개하지 않는다.
+end note
+@enduml

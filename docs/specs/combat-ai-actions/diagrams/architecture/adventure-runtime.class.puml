@@ -1,0 +1,175 @@
+@startuml
+' ADVENTURE_RUNTIME_CLASS — UC-001~UC-003, BR-001~BR-009
+' 기존 코드는 실선 표기, settled 설계 추가 요소는 점선 테두리로 표시한다.
+hide empty members
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+title Adventure Runtime — 전투 준비와 AI 행동 구조
+
+package "Adventure Runtime / adventure-service" {
+  class CombatEncounter <<existing>> {
+    +UUID encounterId
+    +UUID adventureId
+    +Status status
+    +long version
+    +List<CombatParticipant> participants
+  }
+  class CombatParticipant <<existing>> {
+    +UUID participantId
+    +Controller controller
+    +Integer currentHitPoints
+    +TurnResources resources
+  }
+  class CombatWorkItem <<existing>> {
+    -UUID workItemId
+    -UUID encounterId
+    -long expectedEncounterVersion
+    -WorkType workType
+    -Instant dueAt
+    -int attemptCount
+    -Status status
+    -UUID leaseToken
+    -Instant leaseUntil
+  }
+  class CombatAutoProgressionWorker <<existing>> {
+    +processOnce(Instant now): boolean
+  }
+  class CombatActionApplicationService <<existing>> {
+    +submitFreeForm(FreeFormCombatCommand command): CombatActionResponse
+  }
+
+  class EnemyCharacterSheet <<target>> {
+    +EnemySheetIdentity identity
+    +CombatStatistics combatStatistics
+    +List<GroundedCombatAction> actions
+    +List<GroundedAbility> abilities
+    +List<RuleCitation> citations
+  }
+  class EnemySheetIdentity <<target>> {
+    +UUID adventureId
+    +String materialScopeFingerprint
+    +long materialVersion
+    +String enemyKindKey
+  }
+  interface EnemyCharacterSheetRepository <<target>> {
+    +findByIdentity(EnemySheetIdentity identity): Optional<EnemyCharacterSheet>
+    +saveIfAbsent(EnemyCharacterSheet sheet): EnemyCharacterSheet
+  }
+  class EnemyCharacterSheetPreparationApplicationService <<target>> {
+    +prepare(EnemySheetIdentity identity): EnemyCharacterSheet
+    -validateCandidate(EnemyCharacterSheetCandidate candidate): void
+  }
+  class EnemyCharacterSheetCandidate <<target>> {
+    +EnemySheetIdentity identity
+    +CombatStatistics combatStatistics
+    +List<GroundedCombatAction> actions
+    +List<GroundedAbility> abilities
+    +List<RuleCitation> citations
+  }
+  interface EnemyCharacterSheetCandidatePort <<target>> {
+    +generate(EnemySheetIdentity identity): EnemyCharacterSheetCandidate
+  }
+  interface RuleEvidenceReadPort <<target>> {
+    +verifyCitations(EnemySheetIdentity identity, List<RuleCitation> citations): CitationVerification
+  }
+
+  class AiCombatTurnContext <<target>> {
+    +CombatEncounter encounter
+    +CombatParticipant actor
+    +EnemyCharacterSheet enemyProfile
+    +CharacterSheet companionSheet
+    +CurrentSituation situation
+    +List<TargetFact> targets
+    +List<SpatialFact> spatialFacts
+    +List<RuleCitation> evidence
+  }
+  class AiCombatDecisionProposal <<target>> {
+    +ActorId actorId
+    +CombatAction action
+    +TargetId targetId
+    +List<RuleCitation> citations
+    +boolean endTurn
+  }
+  interface AiCombatDecisionPort <<target>> {
+    +planTurn(AiCombatTurnContext context): AiCombatDecisionProposal
+  }
+  class CombatProposalValidator <<target>> {
+    +validate(AiCombatDecisionProposal proposal, AiCombatTurnContext context): ValidatedCombatDecision
+  }
+  class CombatActionStateChangeContract <<target>> {
+    +validate(ValidatedCombatDecision decision, CombatEncounter encounter): void
+  }
+  class PlayerCombatProjection <<existing>> {
+    +project(CombatEncounter encounter): PlayerCombatSnapshot
+  }
+
+  CombatEncounter "1" *-- "1..*" CombatParticipant : 전투별 상태 소유
+  CombatEncounter "1" o-- "0..*" CombatWorkItem : durable 작업
+  CombatAutoProgressionWorker --> CombatWorkItem : claim / retry
+  CombatAutoProgressionWorker --> CombatEncounter : 최신 버전 확인
+  CombatAutoProgressionWorker --> AiCombatDecisionPort : 턴 결정 요청
+  CombatAutoProgressionWorker --> CombatActionApplicationService : 검증된 행동 실행
+  CombatActionApplicationService --> CombatEncounter : 기존 실행·저장 경계
+
+  EnemyCharacterSheet "1" *-- "1" EnemySheetIdentity : 재사용 식별자
+  EnemyCharacterSheetPreparationApplicationService --> EnemyCharacterSheetRepository : 조회 / 멱등 저장
+  EnemyCharacterSheetPreparationApplicationService --> EnemyCharacterSheetCandidatePort : 후보 생성
+  EnemyCharacterSheetPreparationApplicationService --> RuleEvidenceReadPort : 인용·자료 범위 검증
+  EnemyCharacterSheetCandidatePort ..> EnemyCharacterSheetCandidate : 신뢰 전 후보
+  EnemyCharacterSheetPreparationApplicationService ..> EnemyCharacterSheet : 검증 뒤 저장
+
+  AiCombatDecisionPort ..> AiCombatTurnContext : 입력
+  AiCombatDecisionPort ..> AiCombatDecisionProposal : 후보 반환
+  CombatProposalValidator --> AiCombatDecisionProposal : 범위·근거·현재 상태 확인
+  CombatProposalValidator --> CombatActionStateChangeContract : 허용 변경 검증
+  CombatProposalValidator ..> CombatActionApplicationService : 통과 후 명령화
+  AiCombatTurnContext --> CombatEncounter : 현재 상황 / 버전
+  AiCombatTurnContext --> CombatParticipant : 행위자 동적 상태
+  AiCombatTurnContext --> EnemyCharacterSheet : 적 프로필
+  EnemyCharacterSheetRepository ..> PlayerCombatProjection : 숨은 자료 전달 금지
+  PlayerCombatProjection --> CombatEncounter : 확정된 관찰 결과만 투영
+}
+
+package "AI Game Master" {
+  class AiGameMasterProvider <<existing boundary>>
+}
+package "Document Knowledge" {
+  class DocumentKnowledgeProvider <<existing boundary>>
+}
+EnemyCharacterSheetCandidatePort <|.. AiGameMasterProvider : 후보 응답
+RuleEvidenceReadPort <|.. DocumentKnowledgeProvider : 출처 확인
+AiCombatDecisionPort <|.. AiGameMasterProvider : 행동 제안
+
+note right of EnemyCharacterSheet
+  고정된 모험·자료 범위·적 종류로 재사용한다.
+  전투 중 HP·상태·자원은 포함하지 않는다.
+  각 행동·능력의 규칙 근거와 인용을 보존한다.
+end note
+note bottom of CombatParticipant
+  전투별 HP·상태·자원은 여기에서 새로 만든다.
+  프로필 데이터와 전투 중 상태는 분리된다.
+end note
+note right of EnemyCharacterSheetPreparationApplicationService
+  AI 출력은 신뢰되지 않는 후보이다.
+  스키마·완전성·모험 범위 내 인용을 확인한다.
+  필수 근거 부재·검증 불가만 종료 차단이다.
+end note
+note right of CombatProposalValidator
+  인용 범위·완전성·현재 버전·행위자·대상과
+  허용된 행동·상태 변경 계약을 확인한다.
+  직접 상태 변경과 임의 스크립트는 허용하지 않는다.
+  적의 endTurn은 유리한 합법 행동이 없을 때만 허용한다.
+end note
+note bottom of CombatAutoProgressionWorker
+  준비와 AI 턴 결정은 무제한 재시도하며
+  지연을 늘리고 상한에서 포화시킨다.
+  실행 성공 또는 검증된 적 턴 종료 뒤에만 다음 차례로 간다.
+end note
+note bottom of PlayerCombatProjection
+  숨은 프로필·수치·인용·원시 오류를 제외한다.
+  관찰 가능한 확정 결과와 일반 근거 실패 차단만 보인다.
+end note
+
+@enduml

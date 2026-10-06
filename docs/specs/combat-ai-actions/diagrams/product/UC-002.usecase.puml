@@ -1,0 +1,34 @@
+@startuml
+title UC-002 전투 시작 전 적 캐릭터 시트 확보 및 오류 대기
+left to right direction
+
+actor "AI Game Master 및 전투 진행 시스템" as GM
+actor "플레이어" as Player
+rectangle "전투 시작 전 적 캐릭터 시트 준비" {
+  usecase "참가 적의 적 캐릭터 시트\n확보" as U2_Sheets
+  usecase "같은 종류의 적 시트\n재사용" as U2_Reuse
+  usecase "제공자·통신 오류 시\n대기 간격을 늘려 자동 재시도" as U2_Retry
+  usecase "룰 근거 누락 또는 검증 불가 시\n전투 차단" as U2_Block
+  usecase "시트 확보 완료 후\n전투 진행 허용" as U2_Ready
+  usecase "환경별 실패 정보 표시" as U2_Notice
+  usecase "전투 참가자 상태\n다음 전투에서 초기화" as U2_Reset
+}
+
+GM --> U2_Sheets
+U2_Sheets --> U2_Reuse : 같은 종류인 경우
+U2_Sheets --> U2_Retry : 제공자·검색 통신 오류
+U2_Sheets --> U2_Block : 근거 누락 또는 검증 불가
+U2_Sheets --> U2_Ready : 참가 적 모두 확보
+U2_Retry --> U2_Sheets : 간격을 늘려 자동 재시도
+U2_Block --> U2_Notice
+U2_Notice --> Player : 근거 부족 시 일반 차단 상태만
+U2_Ready --> U2_Reset
+
+note bottom of U2_Sheets
+유스케이스 ID: UC-002
+개발 로그에는 룰북 출처와 실패 세부 내용을 기록한다.
+적 캐릭터 시트는 능력치, 룰북상 전투 행동 전체,
+행동별 판정 근거와 출처를 포함하며 여러 시츄에이션에서 재사용한다.
+전투 중 변하는 HP·상태·자원은 시트에 넣지 않는다.
+end note
+@enduml
