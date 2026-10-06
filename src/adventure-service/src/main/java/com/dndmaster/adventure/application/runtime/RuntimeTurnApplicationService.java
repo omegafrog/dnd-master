@@ -553,7 +553,14 @@ public class RuntimeTurnApplicationService {
         RuntimeTurn turn = runtimeTurnRepository.findByCommandId(commandId)
                 .orElseThrow(() -> new IllegalStateException("runtime turn not found"));
         if (turn.resolvedArtifact() == null || turn.lifecycle() == RuntimeTurnLifecycle.PRESENTED) {
-            return new RuntimeTurnResult(turn, turn.context(), turn.conversation(), turn.version());
+            RuntimeTurnResult result = new RuntimeTurnResult(turn, turn.context(), turn.conversation(), turn.version());
+            if (turn.lifecycle() == RuntimeTurnLifecycle.PRESENTED && turn.plan().combatStartRequested()) {
+                Adventure adventure = adventureRepository.findById(turn.adventureId())
+                        .orElseThrow(() -> new IllegalStateException("adventure not found"));
+                return new RuntimeTurnResult(turn, result.context(), result.conversation(), result.version(),
+                        result.visibleTurn(), result.movementResult(), preparationRequest(adventure, turn));
+            }
+            return result;
         }
         NarrativeState state = narrativeStateService == null ? NarrativeState.empty()
                 : narrativeStateService.load(turn.sessionId());
@@ -614,7 +621,8 @@ public class RuntimeTurnApplicationService {
         }
         runtimeTurnRepository.save(presented);
         if (narrativeStateService != null) narrativeStateService.commit(turn.sessionId(), visibleTurn.stateDelta());
-        return new RuntimeTurnResult(presented, progressed.currentContext(), progressed.conversation(), progressed.version(), visibleTurn);
+        return new RuntimeTurnResult(presented, progressed.currentContext(), progressed.conversation(), progressed.version(),
+                visibleTurn, null, preparationRequest(progressed, presented));
     }
 
     /** Canonical Scenario Model runtime turn path. */
