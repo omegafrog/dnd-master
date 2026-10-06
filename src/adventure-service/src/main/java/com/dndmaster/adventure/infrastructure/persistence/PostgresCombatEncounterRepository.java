@@ -8,13 +8,23 @@ import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 public final class PostgresCombatEncounterRepository implements CombatEncounterRepository {
     private final JdbcTemplate jdbc;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate writes;
+    private final TransactionTemplate reads;
     public PostgresCombatEncounterRepository(javax.sql.DataSource dataSource) { this(dataSource, new ObjectMapper()); }
     public PostgresCombatEncounterRepository(javax.sql.DataSource dataSource, ObjectMapper objectMapper) {
         this.jdbc = new JdbcTemplate(dataSource); this.objectMapper = objectMapper;
+        var transactionManager = new DataSourceTransactionManager(dataSource);
+        this.writes = new TransactionTemplate(transactionManager);
+        this.reads = new TransactionTemplate(transactionManager);
+        this.reads.setReadOnly(true);
+        this.reads.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
     }
     @Override public Optional<CombatEncounter> findActive(UUID adventureId) {
         return load("adventure_id = ? AND status IN ('PREPARING','ACTIVE','REACTION_PENDING')", adventureId);
@@ -31,6 +41,10 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
     }
 
     private Optional<CombatEncounter> load(String predicate, UUID id) {
+        return reads.execute(status -> loadSnapshot(predicate, id));
+    }
+
+    private Optional<CombatEncounter> loadSnapshot(String predicate, UUID id) {
         var encounters = jdbc.query("SELECT encounter_id, adventure_id, status, round, current_participant_id, version, event_cursor FROM combat_encounter WHERE " + predicate, (rs, n) ->
                 new EncounterRow(UUID.fromString(rs.getString(1)), UUID.fromString(rs.getString(2)),
                         CombatEncounter.Status.valueOf(rs.getString(3)), rs.getInt(4), UUID.fromString(rs.getString(5)),
@@ -48,6 +62,10 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
                 encounter.currentParticipantId(), participants, encounter.version(), encounter.eventCursor(), positions, pending));
     }
     @Override public CombatEncounter save(CombatEncounter encounter) {
+        return writes.execute(status -> insertEncounter(encounter));
+    }
+
+    private CombatEncounter insertEncounter(CombatEncounter encounter) {
         jdbc.update("INSERT INTO combat_encounter(encounter_id, adventure_id, status, round, current_participant_id, version, event_cursor, pending_reaction_id, pending_reaction_trigger, pending_reaction_actor_id, pending_reaction_operation_id, pending_reaction_resume_step, pending_reaction_options) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)",
                 encounter.encounterId(), encounter.adventureId(), encounter.status().name(), encounter.round(), encounter.currentParticipantId(), encounter.version(), encounter.eventCursor(),
                 pendingId(encounter), pendingTrigger(encounter), pendingActor(encounter), pendingOperation(encounter), pendingResumeStep(encounter), pendingOptions(encounter));
@@ -61,6 +79,10 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
     }
 
     @Override public CombatEncounter save(CombatEncounter encounter, long expectedVersion) {
+        return writes.execute(status -> updateEncounter(encounter, expectedVersion));
+    }
+
+    private CombatEncounter updateEncounter(CombatEncounter encounter, long expectedVersion) {
         int updated = jdbc.update("UPDATE combat_encounter SET status = ?, round = ?, current_participant_id = ?, version = ?, event_cursor = ?, pending_reaction_id = ?, pending_reaction_trigger = ?, pending_reaction_actor_id = ?, pending_reaction_operation_id = ?, pending_reaction_resume_step = ?, pending_reaction_options = ?::jsonb WHERE encounter_id = ? AND version = ?",
                 encounter.status().name(), encounter.round(), encounter.currentParticipantId(), encounter.version(), encounter.eventCursor(),
                 pendingId(encounter), pendingTrigger(encounter), pendingActor(encounter), pendingOperation(encounter), pendingResumeStep(encounter), pendingOptions(encounter),
