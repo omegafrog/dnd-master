@@ -12,8 +12,8 @@ class BasicRulebookSpellOwnersTest(unittest.TestCase):
     def test_only_source_reviewed_entries_have_explicit_plan_owners(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         reviewed = manifest["reviewedEntries"]
-        self.assertEqual(60, len(reviewed))
-        self.assertEqual(60, len({entry["nodeId"] for entry in reviewed}))
+        self.assertEqual(80, len(reviewed))
+        self.assertEqual(80, len({entry["nodeId"] for entry in reviewed}))
         self.assertTrue(all(entry["ownerPlanNumbers"] and entry["rationaleKo"].strip() for entry in reviewed))
         by_node = {entry["nodeId"]: entry for entry in reviewed}
         for node_id, expected in {
@@ -25,6 +25,10 @@ class BasicRulebookSpellOwnersTest(unittest.TestCase):
             "node-2867": [369, 370, 371, 372],
             "node-2913": [368, 369, 370, 371],
             "node-2958": [368, 369, 370, 371],
+            "node-2990": [368, 369, 370, 371, 372],
+            "node-3077": [369, 370, 371, 372],
+            "node-3088": [368, 369, 370],
+            "node-3136": [368, 369, 370, 371, 372],
         }.items():
             self.assertEqual(expected, by_node[node_id]["ownerPlanNumbers"], node_id)
 
