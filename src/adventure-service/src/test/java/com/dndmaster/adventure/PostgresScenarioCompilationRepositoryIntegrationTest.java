@@ -12,6 +12,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.scenario.ScenarioModelElement;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
@@ -127,6 +128,20 @@ class PostgresScenarioCompilationRepositoryIntegrationTest {
             statement.setObject(1, requested.id());
             try (var rows = statement.executeQuery()) { rows.next(); assertEquals(1, rows.getInt(1)); }
         }
+    }
+
+    @Test
+    void persists_and_reloads_the_complete_spell_inventory_with_its_sources_and_owners() {
+        var packageVersion = ScenarioPackage.publish(bundleId, 1, "spell-inventory-fingerprint",
+                List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()));
+        var packages = new PostgresScenarioPackageRepository(dataSource);
+        var spells = BasicRulebookSpellInventory.load();
+        packages.save(packageVersion);
+        packages.saveSpellDefinitions(packageVersion.packageId(), spells);
+
+        var reloaded = packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions();
+        assertEquals(304, reloaded.size());
+        assertEquals(spells, reloaded);
     }
 
     private static ScenarioModelElement element(String type, String value) {

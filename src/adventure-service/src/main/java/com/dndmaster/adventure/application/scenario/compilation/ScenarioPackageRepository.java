@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.scenario.compilation;
 
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
+import com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilation;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic;
 import java.util.Optional;
@@ -24,4 +25,6 @@ public interface ScenarioPackageRepository {
     default void saveBlueprint(UUID packageId, CharacterCreationBlueprint blueprint) {
         throw new UnsupportedOperationException("blueprint updates are not supported by this repository");
     }
+
+    default void saveSpellDefinitions(UUID packageId, List<StructuredSpellDefinition> definitions) {}
 }

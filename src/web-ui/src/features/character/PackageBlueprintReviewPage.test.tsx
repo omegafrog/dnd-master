@@ -79,6 +79,40 @@ function renderReview(
 }
 
 describe('PackageBlueprintReviewPage', () => {
+  it('shows the official spell inventory, source and unsupported review state', async () => {
+    renderReview(async () => ({
+      ...preparation(),
+      spellDefinitions: [{
+        id: 'spell-1989-acid-splash',
+        name: 'Acid Splash',
+        sourceUrl: 'https://www.dndbeyond.com/spells/1989-acid-splash',
+        sourceVersion: 'DND_5E_BASIC_RULES_2014',
+        extractionVersion: 1,
+        level: 'Cantrip',
+        castingTime: '1 Action',
+        rangeArea: '60 ft.',
+        components: 'V, S',
+        duration: 'Instantaneous',
+        school: 'Conjuration',
+        attackSave: 'DEX Save',
+        damageEffect: 'Acid',
+        ownerPlanNumbers: [368, 369],
+        ownerEvidence: '#368: 기본 효과와 비용; #369: 여러 대상 또는 공간 지정',
+        executable: false,
+        reviewStatus: 'PENDING',
+      }],
+    }))
+
+    const inventory = await screen.findByRole('region', { name: '기본 룰북 주문 목록' })
+    await userEvent.setup().click(within(inventory).getByText('1개 주문과 출처 보기'))
+    expect(within(inventory).getByRole('link', { name: /Acid Splash/ })).toHaveAttribute(
+      'href', 'https://www.dndbeyond.com/spells/1989-acid-splash',
+    )
+    expect(within(inventory).getByRole('listitem')).toHaveTextContent('1 Action')
+    expect(within(inventory).getByRole('listitem')).toHaveTextContent('60 ft.')
+    expect(within(inventory).getByRole('listitem')).toHaveTextContent('실행 미지원 · 검토 대기')
+  })
+
   it('shows a loading state while the review is being requested', () => {
     renderReview(() => new Promise(() => undefined))
 

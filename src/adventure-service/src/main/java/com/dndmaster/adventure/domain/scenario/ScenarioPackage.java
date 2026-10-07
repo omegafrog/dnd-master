@@ -18,6 +18,7 @@ public final class ScenarioPackage {
     private final List<MapDefinition> mapDefinitions;
     private final List<StoryMapBinding> storyMapBindings;
     private final ScenarioModel scenarioModel;
+    private final List<StructuredSpellDefinition> spellDefinitions;
 
     private ScenarioPackage(
             UUID packageId,
@@ -31,6 +32,23 @@ public final class ScenarioPackage {
             CharacterCreationBlueprint characterCreationBlueprint,
             List<MapDefinition> mapDefinitions, List<StoryMapBinding> storyMapBindings,
             ScenarioModel scenarioModel) {
+        this(packageId, bundleId, bundleRevision, inputFingerprint, documents, units, report, characterLimit,
+                characterCreationBlueprint, mapDefinitions, storyMapBindings, scenarioModel, List.of());
+    }
+
+    private ScenarioPackage(
+            UUID packageId,
+            ScenarioBundleId bundleId,
+            long bundleRevision,
+            String inputFingerprint,
+            List<ScenarioBundleDocumentSelection> documents,
+            List<ScenarioResolutionUnit> units,
+            ScenarioCompilationReport report,
+            CharacterLimit characterLimit,
+            CharacterCreationBlueprint characterCreationBlueprint,
+            List<MapDefinition> mapDefinitions, List<StoryMapBinding> storyMapBindings,
+            ScenarioModel scenarioModel,
+            List<StructuredSpellDefinition> spellDefinitions) {
         this.packageId = Objects.requireNonNull(packageId, "package id must not be null");
         this.bundleId = Objects.requireNonNull(bundleId, "bundle id must not be null");
         this.inputFingerprint = Objects.requireNonNull(inputFingerprint, "input fingerprint must not be null");
@@ -46,6 +64,7 @@ public final class ScenarioPackage {
         this.mapDefinitions = List.copyOf(Objects.requireNonNull(mapDefinitions, "map definitions must not be null"));
         this.storyMapBindings = List.copyOf(Objects.requireNonNull(storyMapBindings, "story map bindings must not be null"));
         this.scenarioModel = scenarioModel;
+        this.spellDefinitions = List.copyOf(Objects.requireNonNull(spellDefinitions, "spell definitions must not be null"));
     }
 
     public static ScenarioPackage publish(
@@ -133,6 +152,15 @@ public final class ScenarioPackage {
                 characterLimit, blueprint, mapDefinitions, storyMapBindings, scenarioModel);
     }
 
+    public static ScenarioPackage rehydrateWithSpellDefinitions(UUID packageId, ScenarioBundleId bundleId, long bundleRevision,
+            String inputFingerprint, List<ScenarioBundleDocumentSelection> documents, List<ScenarioResolutionUnit> units,
+            ScenarioCompilationReport report, CharacterLimit characterLimit, CharacterCreationBlueprint blueprint,
+            List<MapDefinition> mapDefinitions, List<StoryMapBinding> storyMapBindings, ScenarioModel scenarioModel,
+            List<StructuredSpellDefinition> spellDefinitions) {
+        return new ScenarioPackage(packageId, bundleId, bundleRevision, inputFingerprint, documents, units, report,
+                characterLimit, blueprint, mapDefinitions, storyMapBindings, scenarioModel, spellDefinitions);
+    }
+
     public List<ScenarioResolutionUnit> runtimeCandidates() {
         return units.stream().filter(unit -> unit.status() != ResolutionStatus.INVALID).toList();
     }
@@ -149,6 +177,12 @@ public final class ScenarioPackage {
     public List<MapDefinition> mapDefinitions() { return mapDefinitions; }
     public List<StoryMapBinding> storyMapBindings() { return storyMapBindings; }
     public ScenarioModel scenarioModel() { return scenarioModel; }
+    public List<StructuredSpellDefinition> spellDefinitions() { return spellDefinitions; }
+
+    public ScenarioPackage withSpellDefinitions(List<StructuredSpellDefinition> definitions) {
+        return new ScenarioPackage(packageId, bundleId, bundleRevision, inputFingerprint, documents, units, report,
+                characterLimit, characterCreationBlueprint, mapDefinitions, storyMapBindings, scenarioModel, definitions);
+    }
 
     /**
      * Resolves the first safe map for the initial runtime stage. Explicit stage bindings
@@ -172,7 +206,7 @@ public final class ScenarioPackage {
     public ScenarioPackage withScenarioModel(ScenarioModel model) {
         return new ScenarioPackage(packageId, bundleId, bundleRevision, inputFingerprint, documents, units, report,
                 characterLimit, characterCreationBlueprint, mapDefinitions, storyMapBindings,
-                Objects.requireNonNull(model, "scenario model must not be null"));
+                Objects.requireNonNull(model, "scenario model must not be null"), spellDefinitions);
     }
 
     public boolean isReady() {

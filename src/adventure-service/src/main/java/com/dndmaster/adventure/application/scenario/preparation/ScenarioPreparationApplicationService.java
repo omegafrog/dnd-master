@@ -11,6 +11,7 @@ import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleNotFoundException;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
@@ -92,6 +93,11 @@ public final class ScenarioPreparationApplicationService {
         ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(ownerPlayerId);
+        if (scenarioPackage.spellDefinitions().isEmpty()) {
+            var spellDefinitions = BasicRulebookSpellInventory.load();
+            packageRepository.saveSpellDefinitions(scenarioPackageId, spellDefinitions);
+            scenarioPackage = scenarioPackage.withSpellDefinitions(spellDefinitions);
+        }
         ScenarioSourceBundleRevision currentRevision = bundle.currentRevision();
 
         List<String> blockers = new ArrayList<>();
@@ -138,7 +144,8 @@ public final class ScenarioPreparationApplicationService {
                 blockers.isEmpty() ? PlayPreparationStatus.READY : PlayPreparationStatus.BLOCKED,
                 blockers,
                 blueprint,
-                CharacterLimitView.from(scenarioPackage.characterLimit()));
+                CharacterLimitView.from(scenarioPackage.characterLimit()),
+                scenarioPackage.spellDefinitions());
     }
 
     public RuntimeOptionsView runtimeOptions(OwnerPlayerId ownerPlayerId) {

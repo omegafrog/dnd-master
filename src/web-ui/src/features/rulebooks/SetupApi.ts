@@ -249,6 +249,27 @@ export type PlayPreparationView = {
   blockers: string[]
   characterCreationBlueprint: CharacterCreationBlueprintView
   characterLimit: CharacterLimitView
+  spellDefinitions?: StructuredSpellDefinitionView[]
+}
+
+export type StructuredSpellDefinitionView = {
+  id: string
+  name: string
+  sourceUrl: string
+  sourceVersion: string
+  extractionVersion: number
+  level: string
+  castingTime: string
+  rangeArea: string
+  components: string
+  duration: string
+  school: string
+  attackSave: string
+  damageEffect: string
+  ownerPlanNumbers: number[]
+  ownerEvidence: string
+  executable: boolean
+  reviewStatus: 'PENDING'
 }
 
 export type CreatedCharacterSheetView = {

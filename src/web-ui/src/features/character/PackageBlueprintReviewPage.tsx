@@ -183,6 +183,9 @@ export function PackageBlueprintReviewPage({
     }
   }
 
+  const spellDefinitions = preparation.spellDefinitions ?? []
+  const allBaseSpellsExecutable = spellDefinitions.length === 304 && spellDefinitions.every(spell => spell.executable)
+
   return (
     <section className="character-settings-review-page" aria-labelledby="package-blueprint-review-heading">
       <header className="character-review-header">
@@ -198,6 +201,25 @@ export function PackageBlueprintReviewPage({
           {preparation.blockers.map(blocker => <li key={blocker}>{blocker}</li>)}
         </ul>
       )}
+      <section className="character-review-preparation" aria-label="기본 룰북 주문 목록">
+        <h2>기본 룰북 주문 목록</h2>
+        <p>2014 기본 룰북 원문과 구조를 확인한 주문입니다. 실행하지 못하거나 담당 기제가 준비되지 않은 주문은 전체 지원으로 계산하지 않습니다.</p>
+        <p>{spellDefinitions.length}개 확인 · {allBaseSpellsExecutable ? '전체 실행 지원 완료' : '전체 실행 지원 미확인'}</p>
+        <details>
+          <summary>{spellDefinitions.length}개 주문과 출처 보기</summary>
+          <ol>
+            {spellDefinitions.map(spell => (
+              <li key={spell.id}>
+                <a href={spell.sourceUrl} target="_blank" rel="noreferrer">{spell.name}</a>
+                <span> · {spell.level} · {spell.castingTime} · {spell.rangeArea} · {spell.duration}</span>
+                <span> · 실행 담당 계획: {spell.ownerPlanNumbers.map(number => `#${number}`).join(', ')}</span>
+                <span> · 담당 근거: {spell.ownerEvidence}</span>
+                <span> · {spell.executable ? '실행 확인됨' : '실행 미지원'} · {spell.reviewStatus === 'PENDING' ? '검토 대기' : '검토 완료'}</span>
+              </li>
+            ))}
+          </ol>
+        </details>
+      </section>
       {setupApi.generateBlueprintDraft && catalogRulebooks.length > 0 && (
         <section className="character-review-preparation" aria-label="룰북 기본 내용 준비">
           <h2>룰북 기본 내용 준비</h2>

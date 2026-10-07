@@ -21,6 +21,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.MapDefinition;
 import com.dndmaster.adventure.domain.scenario.StoryMapBinding;
 import com.dndmaster.adventure.domain.scenario.ScenarioModel;
+import com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -76,12 +77,13 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     private Optional<ScenarioPackage> find(String column, Object value) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json, scenario_model_json FROM scenario_package WHERE " + column + " = ?")) {
+                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json, scenario_model_json, spell_definitions_json FROM scenario_package WHERE " + column + " = ?")) {
             statement.setObject(1, value);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
                 UUID packageId = row.getObject("package_id", UUID.class);
-                return Optional.of(ScenarioPackage.rehydrateWithScenarioModel(
+                String spellDefinitionsJson = row.getString("spell_definitions_json");
+                return Optional.of(ScenarioPackage.rehydrateWithSpellDefinitions(
                         packageId,
                         new ScenarioBundleId(row.getObject("bundle_id", UUID.class)),
                         row.getLong("bundle_revision"),
@@ -97,7 +99,9 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                         readCharacterLimit(row), readBlueprint(row.getString("character_creation_blueprint_json")),
                         readJson(row.getString("map_definitions_json"), new com.fasterxml.jackson.core.type.TypeReference<List<MapDefinition>>() {}),
                         readJson(row.getString("story_map_bindings_json"), new com.fasterxml.jackson.core.type.TypeReference<List<StoryMapBinding>>() {}),
-                        readScenarioModel(row.getString("scenario_model_json"))));
+                        readScenarioModel(row.getString("scenario_model_json")),
+                        spellDefinitionsJson == null ? List.of() : readJson(spellDefinitionsJson,
+                                new com.fasterxml.jackson.core.type.TypeReference<List<StructuredSpellDefinition>>() {})));
             }
         } catch (SQLException exception) {
             throw new ScenarioPackagePersistenceException("could not load scenario package", exception);
@@ -186,9 +190,22 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
         }
     }
 
+    @Override
+    public void saveSpellDefinitions(UUID packageId, List<StructuredSpellDefinition> definitions) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement update = connection.prepareStatement(
+                        "UPDATE scenario_package SET spell_definitions_json = ?::jsonb WHERE package_id = ? AND spell_definitions_json IS NULL")) {
+            update.setString(1, writeJson(definitions));
+            update.setObject(2, packageId);
+            update.executeUpdate();
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not update scenario package spell definitions", exception);
+        }
+    }
+
     private static void insertHeader(Connection connection, ScenarioPackage packageVersion) throws SQLException {
         try (PreparedStatement insert = connection.prepareStatement(
-                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json, scenario_model_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)")) {
+                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json, scenario_model_json, spell_definitions_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)")) {
             insert.setObject(1, packageVersion.packageId());
             insert.setObject(2, packageVersion.bundleId().value());
             insert.setLong(3, packageVersion.bundleRevision());
@@ -208,6 +225,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
             insert.setString(14, writeJson(packageVersion.mapDefinitions()));
             insert.setString(15, writeJson(packageVersion.storyMapBindings()));
             insert.setString(16, writeJson(packageVersion.scenarioModel()));
+            insert.setString(17, packageVersion.spellDefinitions().isEmpty() ? null : writeJson(packageVersion.spellDefinitions()));
             insert.executeUpdate();
         }
     }
