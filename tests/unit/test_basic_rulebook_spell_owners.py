@@ -12,8 +12,8 @@ class BasicRulebookSpellOwnersTest(unittest.TestCase):
     def test_only_source_reviewed_entries_have_explicit_plan_owners(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         reviewed = manifest["reviewedEntries"]
-        self.assertEqual(20, len(reviewed))
-        self.assertEqual(20, len({entry["nodeId"] for entry in reviewed}))
+        self.assertEqual(40, len(reviewed))
+        self.assertEqual(40, len({entry["nodeId"] for entry in reviewed}))
         self.assertTrue(all(entry["ownerPlanNumbers"] and entry["rationaleKo"].strip() for entry in reviewed))
 
         with RESOURCE.open(encoding="utf-8", newline="") as source:
