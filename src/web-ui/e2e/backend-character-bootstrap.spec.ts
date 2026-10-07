@@ -93,8 +93,11 @@ async function uploadDocuments(request: APIRequestContext) {
     edition: string
     rulebookId: string | null
     status: string
+    revisionNumber: number
   }>
-  const rulebook = catalog.find(item => item.edition === 'DND_5E_2014' && item.status === 'READY' && item.rulebookId)
+  const rulebook = catalog
+    .filter(item => item.edition === 'DND_5E_2014' && item.status === 'READY' && item.rulebookId)
+    .sort((left, right) => right.revisionNumber - left.revisionNumber)[0]
   expect(rulebook, 'published DND_5E_2014 catalog rulebook is required').toBeTruthy()
 
   const inputs = [
@@ -384,6 +387,19 @@ test('fresh database bootstraps scenario package, preserves spell sources, and c
   }
   const reloadedPreparation = await getPreparation(request, packageId)
   expect(reloadedPreparation.spellDefinitions).toEqual(spellPreparation.spellDefinitions)
+  const packageResponse = await request.get(`${backend}/api/v1/adventures/scenario-packages/${packageId}`, { headers: authHeaders })
+  expect(packageResponse.ok(), await packageResponse.text()).toBeTruthy()
+  expect((await packageResponse.json() as { packageId: string }).packageId).toBe(packageId)
+  await test.info().attach('spell-inventory-persistence.json', {
+    body: Buffer.from(JSON.stringify({
+      packageId,
+      rulebookId: rulebookDocumentId,
+      expectedSourceSha256: '7a0c5d8bf52d15092f156d78418aa3d43307e271f810d2f06bf2f0258e9288a3',
+      expectedSpellCount: 126,
+      extractionVersion: spellPreparation.spellDefinitions[0]?.extractionVersion,
+    }, null, 2)),
+    contentType: 'application/json',
+  })
 
   await page.goto('/#/login')
   await page.getByLabel('이메일').fill(email!)
