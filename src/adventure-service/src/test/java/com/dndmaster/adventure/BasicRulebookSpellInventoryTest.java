@@ -34,8 +34,8 @@ class BasicRulebookSpellInventoryTest {
             assertThat(spell.executable()).isFalse();
             assertThat(spell.reviewStatus().name()).isEqualTo("PENDING");
         });
-        assertThat(spells.subList(0, 40)).allSatisfy(spell -> assertThat(spell.ownerPlanNumbers()).isNotEmpty());
-        assertThat(spells.subList(40, 126)).allSatisfy(spell -> {
+        assertThat(spells.subList(0, 60)).allSatisfy(spell -> assertThat(spell.ownerPlanNumbers()).isNotEmpty());
+        assertThat(spells.subList(60, 126)).allSatisfy(spell -> {
             assertThat(spell.ownerPlanNumbers()).isEmpty();
             assertThat(spell.ownerEvidence()).startsWith("미검토:");
         });
