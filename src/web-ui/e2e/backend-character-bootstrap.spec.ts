@@ -244,7 +244,18 @@ async function getPreparation(request: APIRequestContext, packageId: string) {
   return response.json() as Promise<{
     status: string
     characterCreationBlueprint: { available: boolean; revision?: number; status?: string }
-  }> 
+    scenarioPackageId: string
+    spellDefinitions: Array<{
+      id: string
+      name: string
+      sourceDocumentId: string
+      sourceLocator: string
+      extractionVersion: number
+      ownerPlanNumbers: number[]
+      executable: boolean
+      reviewStatus: string
+    }>
+  }>
 }
 
 async function waitForPreparationReady(request: APIRequestContext, packageId: string) {
@@ -332,7 +343,7 @@ function mimeType(path: string) {
   return 'text/plain'
 }
 
-test('fresh database bootstraps scenario package and completes character creation', async ({ request }) => {
+test('fresh database bootstraps scenario package, preserves spell sources, and completes character creation', async ({ request, page }) => {
   test.skip(!hasEnvironment(),
     'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD and BACKEND_E2E_STORYBOOKS_JSON')
   test.setTimeout(0)
@@ -345,6 +356,38 @@ test('fresh database bootstraps scenario package and completes character creatio
   const bundle = await createBundle(request, uploaded.documents)
   const packageId = await compilePackage(request, bundle.bundleId, uploaded.primaryStorybookId)
   const preparation = await prepareBlueprint(request, packageId)
+
+  const rulebookDocumentId = uploaded.documents.find(document => document.role === 'RULEBOOK')!.knowledgeDocumentId
+  const spellPreparation = await getPreparation(request, packageId)
+  expect(spellPreparation.scenarioPackageId).toBe(packageId)
+  expect(spellPreparation.spellDefinitions).toHaveLength(126)
+  expect(new Set(spellPreparation.spellDefinitions.map(spell => spell.id)).size).toBe(126)
+  expect(spellPreparation.spellDefinitions).toEqual(expect.arrayContaining([
+    expect.objectContaining({ sourceDocumentId: rulebookDocumentId }),
+  ]))
+  for (const spell of spellPreparation.spellDefinitions) {
+    expect(spell.sourceDocumentId).toBe(rulebookDocumentId)
+    expect(spell.sourceLocator).toMatch(/^page=\d+;node=.+$/)
+    expect(spell.extractionVersion).toBeGreaterThan(0)
+    expect(spell.ownerPlanNumbers.length).toBeGreaterThan(0)
+    expect(spell.executable).toBe(false)
+    expect(spell.reviewStatus).toBe('PENDING')
+  }
+
+  await page.goto('/#/login')
+  await page.getByLabel('이메일').fill(email!)
+  await page.getByLabel('비밀번호').fill(password!)
+  await page.getByRole('button', { name: '로그인', exact: true }).click()
+  await page.goto(`/#/scenario-packages/${packageId}/character-blueprint`)
+  await expect(page.getByRole('heading', { name: '캐릭터 생성 설정 검토' })).toBeVisible()
+  const spellList = page.getByRole('region', { name: '기본 룰북 주문 목록' })
+  await spellList.getByText('126개 주문과 출처 보기', { exact: true }).click()
+  const spellRows = spellList.locator('ol > li')
+  await expect(spellRows).toHaveCount(126)
+  const firstSpell = spellPreparation.spellDefinitions[0]
+  await expect(spellRows.first()).toContainText(firstSpell.name)
+  await expect(spellRows.first()).toContainText(`원문 문서 ${rulebookDocumentId}, 위치 ${firstSpell.sourceLocator}, 추출 ${firstSpell.extractionVersion}`)
+
   const session = await createSession(request, packageId, preparation.characterCreationBlueprint.revision ?? 0)
 
   const evaluationResponse = await request.post(`${backend}/internal/v1/adventure-sessions/${session.sessionId}/character-builds/evaluate`, {
