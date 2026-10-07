@@ -30,10 +30,14 @@ class BasicRulebookSpellInventoryTest {
             assertThat(spell.school()).isNotBlank();
             assertThat(spell.attackSave()).isNotBlank();
             assertThat(spell.damageEffect()).isNotBlank();
-            assertThat(spell.ownerPlanNumbers()).contains(368);
             assertThat(spell.ownerPlanNumbers()).allMatch(plan -> plan >= 368 && plan <= 372);
             assertThat(spell.executable()).isFalse();
             assertThat(spell.reviewStatus().name()).isEqualTo("PENDING");
+        });
+        assertThat(spells.subList(0, 20)).allSatisfy(spell -> assertThat(spell.ownerPlanNumbers()).isNotEmpty());
+        assertThat(spells.subList(20, 126)).allSatisfy(spell -> {
+            assertThat(spell.ownerPlanNumbers()).isEmpty();
+            assertThat(spell.ownerEvidence()).startsWith("미검토:");
         });
     }
 }

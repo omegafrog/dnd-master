@@ -38,8 +38,8 @@ public record StructuredSpellDefinition(
         attackSave = required(attackSave, "spell attack or save");
         damageEffect = required(damageEffect, "spell effect");
         ownerPlanNumbers = List.copyOf(Objects.requireNonNull(ownerPlanNumbers, "spell owners must not be null"));
-        if (ownerPlanNumbers.isEmpty() || ownerPlanNumbers.stream().anyMatch(number -> number < 368 || number > 372)) {
-            throw new IllegalArgumentException("spell must map to an approved execution plan");
+        if (ownerPlanNumbers.stream().anyMatch(number -> number < 368 || number > 372)) {
+            throw new IllegalArgumentException("spell owner must be an approved execution plan");
         }
         ownerEvidence = required(ownerEvidence, "spell owner evidence");
         reviewStatus = Objects.requireNonNull(reviewStatus, "spell review status must not be null");

@@ -33,7 +33,7 @@ public final class BasicRulebookSpellInventory {
                 spells.add(new StructuredSpellDefinition(
                         fields[0], fields[1], sourceDocumentId.value(), fields[2], SOURCE_VERSION, extractionVersion,
                         fields[3], fields[4], fields[5], fields[6], fields[7], fields[8], fields[9], fields[10],
-                        java.util.Arrays.stream(fields[11].split(",")).map(Integer::parseInt).toList(), fields[12],
+                        fields[11].isBlank() ? List.of() : java.util.Arrays.stream(fields[11].split(",")).map(Integer::parseInt).toList(), fields[12],
                         false, StructuredSpellDefinition.ReviewStatus.PENDING));
             }
             if (!headerRead) throw new IllegalStateException("official spell inventory is empty");

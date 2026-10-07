@@ -12,6 +12,7 @@ PDF_SHA256 = "7a0c5d8bf52d15092f156d78418aa3d43307e271f810d2f06bf2f0258e9288a3"
 NODES_SHA256 = "02b47f9b07f27ddf4d95542f0aa50ad200b0999c670e3dea8e098c4579c44991"
 EXPECTED_COUNT = 126
 OUTPUT = Path(__file__).parents[1] / "src/main/resources/com/dndmaster/adventure/domain/scenario/basic-rulebook-2018-spells.tsv"
+OWNERS = OUTPUT.with_name("basic-rulebook-2018-spell-owners.json")
 FIELD_NAMES = ("Casting Time", "Range", "Components", "Duration")
 
 
@@ -49,9 +50,8 @@ def spell_fields(node: dict) -> dict[str, str]:
     return found
 
 
-def row_for(node: dict) -> str:
+def row_for(node: dict, owner_mapping: dict[str, dict]) -> str:
     children = node.get("children", [])
-    content = " ".join([node["text"]] + [child.get("text", "") for child in children])
     metadata = spell_fields(node)
     first = children[0].get("text", "") if children else ""
     first_match = re.search(r"(?:(\d+(?:st|nd|rd|th)-level)\s+)?(Abjuration|Conjuration|Divination|Enchantment|Evocation|Illusion|Necromancy|Transmutation)(?:\s+cantrip)?", first, re.I)
@@ -63,17 +63,9 @@ def row_for(node: dict) -> str:
     values["Duration"] = values["Duration"].replace("Concentration, up to ", "집중, 최대 ")
     values["Casting Time"] = values["Casting Time"].replace("1 action", "행동 1회").replace("1 bonus action", "추가 행동 1회").replace("1 reaction", "반응 1회")
     values["Range"] = values["Range"].replace(" feet", " 피트").replace(" foot", " 피트")
-    traits = [368]
-    lowered = content.lower()
-    if re.search(r"\b(each creature|one or more creatures|two creatures|within .* (cone|sphere|cube|line|cylinder)|radius|cone|sphere|cube|cylinder|line)\b", lowered):
-        traits.append(369)
-    if "ritual" in lowered or "concentration" in lowered or "at higher levels" in lowered or values["Casting Time"] not in ("행동 1회", "원문 확인 필요"):
-        traits.append(370)
-    if re.search(r"\b(summon|summons|animate dead|create undead|dominate|command the creature|control the creature)\b", lowered):
-        traits.append(371)
-    if re.search(r"\b(create|destroy|teleport|detect|locate|identify|speak with|read the thoughts|shapechange|open or close)\b", lowered):
-        traits.append(372)
-    evidence = "; ".join(f"#{plan}: PDF p.{node['page']} {node['id']}" for plan in traits)
+    owner = owner_mapping.get(node["id"])
+    traits = owner["ownerPlanNumbers"] if owner else []
+    evidence = owner["rationaleKo"] if owner else "미검토: 이 주문의 담당 계획과 판단 근거를 아직 확인하지 않음"
     slug = re.sub(r"[^a-z0-9]+", "-", node["text"].lower()).strip("-")
     locator = f"page={node['page']};node={node['id']}"
     row = [f"spell-{node['id']}-{slug}", node["text"], locator, level, values["Casting Time"],
@@ -108,9 +100,25 @@ def main() -> int:
     if len({node["id"] for node in spells}) != EXPECTED_COUNT:
         print("spell heading node IDs are not unique", file=sys.stderr)
         return 1
+    owner_manifest = json.loads(OWNERS.read_text(encoding="utf-8"))
+    reviewed = owner_manifest.get("reviewedEntries", [])
+    if (owner_manifest.get("sourceSha256") != PDF_SHA256
+            or owner_manifest.get("inventoryCount") != EXPECTED_COUNT
+            or owner_manifest.get("reviewedCount") != len(reviewed)
+            or [entry.get("nodeId") for entry in reviewed] != [node["id"] for node in spells[:len(reviewed)]]):
+        print("owner manifest does not match the reviewed prefix of the approved inventory", file=sys.stderr)
+        return 1
+    owner_mapping = {}
+    for entry in reviewed:
+        plans = entry.get("ownerPlanNumbers", [])
+        if (not plans or any(plan not in (368, 369, 370, 371, 372) for plan in plans)
+                or not entry.get("rationaleKo", "").strip()):
+            print(f"invalid reviewed owner mapping for {entry.get('nodeId')}", file=sys.stderr)
+            return 1
+        owner_mapping[entry["nodeId"]] = entry
     lines = ["# source=DnD_BasicRules_2018.pdf; sha256=" + PDF_SHA256 + "; node-sha256=" + NODES_SHA256,
              "id\tname\tsourceLocator\tlevel\tcastingTime\trangeArea\tcomponents\tduration\tschool\tattackSave\tdamageEffect\townerPlans\townerEvidence"]
-    lines.extend(row_for(node) for node in spells)
+    lines.extend(row_for(node, owner_mapping) for node in spells)
     generated = "\n".join(lines) + "\n"
     if args.write:
         OUTPUT.write_text(generated, encoding="utf-8")
