@@ -412,6 +412,23 @@ class ScenarioPreparationApplicationServiceTest {
     }
 
     @Test
+    void seedsPdfInventoryWithTheSelectedDocumentAndExtractionVersion() {
+        TestFixture fixture = bundle(withRulebookPackage(), bundleWithRulebook());
+        assertEquals("DnD_BasicRules_2018.pdf", fixture.scenarioPackage().documents().get(1).originalFilename());
+        assertTrue(fixture.scenarioPackage().documents().stream().anyMatch(document ->
+                "DND_BasicRules_2018.pdf".equalsIgnoreCase(document.originalFilename())
+                        && "RULEBOOK".equalsIgnoreCase(document.documentType())
+                        && "INDEXED".equals(document.status().name())));
+
+        var preparation = service(fixture).read(fixture.packageId(), owner());
+
+        assertEquals(126, preparation.spellDefinitions().size());
+        assertTrue(preparation.spellDefinitions().stream().allMatch(spell ->
+                spell.sourceDocumentId().equals(rulebookDocumentId()) && spell.extractionVersion() == 1
+                        && spell.sourceLocator().matches("page=\\d+;node=node-\\d+")));
+    }
+
+    @Test
     void exposesBlueprintAndRuntimeDefaultsWhenRulebookAndResolutionExist() {
         TestFixture fixture = bundle(withRulebookPackage(), bundleWithRulebook());
         ScenarioPreparationApplicationService service = service(fixture);
@@ -694,7 +711,7 @@ class ScenarioPreparationApplicationServiceTest {
                                 new KnowledgeDocumentId(rulebookDocumentId()),
                                 ScenarioBundleDocumentRole.REFERENCE,
                                 KnowledgeDocumentStatus.INDEXED,
-                                "rules.pdf",
+                                "DnD_BasicRules_2018.pdf",
                                 "RULEBOOK",
                                 1)),
                 List.of(validUnit()),
@@ -717,7 +734,7 @@ class ScenarioPreparationApplicationServiceTest {
                                 new KnowledgeDocumentId(rulebookDocumentId()),
                                 ScenarioBundleDocumentRole.REFERENCE,
                                 KnowledgeDocumentStatus.INDEXED,
-                                "rules.pdf",
+                                "DnD_BasicRules_2018.pdf",
                                 "RULEBOOK",
                                 1))));
     }
@@ -730,7 +747,7 @@ class ScenarioPreparationApplicationServiceTest {
                         new KnowledgeDocumentId(rulebookDocumentId()),
                         ScenarioBundleDocumentRole.REFERENCE,
                         KnowledgeDocumentStatus.INDEXED,
-                        "rules.pdf",
+                        "DnD_BasicRules_2018.pdf",
                         "RULEBOOK",
                         1))));
     }

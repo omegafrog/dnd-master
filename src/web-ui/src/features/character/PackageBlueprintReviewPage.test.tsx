@@ -85,9 +85,10 @@ describe('PackageBlueprintReviewPage', () => {
       spellDefinitions: [{
         id: 'spell-1989-acid-splash',
         name: 'Acid Splash',
-        sourceUrl: 'https://www.dndbeyond.com/spells/1989-acid-splash',
-        sourceVersion: 'DND_5E_BASIC_RULES_2014',
-        extractionVersion: 1,
+        sourceDocumentId: '7b56c41d-f2d1-46b0-9f7a-87845bb5a879',
+        sourceLocator: 'page=87;node=node-2478',
+        sourceVersion: 'sha256:7a0c5d8bf52d15092f156d78418aa3d43307e271f810d2f06bf2f0258e9288a3',
+        extractionVersion: 7,
         level: 'Cantrip',
         castingTime: '1 Action',
         rangeArea: '60 ft.',
@@ -105,8 +106,8 @@ describe('PackageBlueprintReviewPage', () => {
 
     const inventory = await screen.findByRole('region', { name: '기본 룰북 주문 목록' })
     await userEvent.setup().click(within(inventory).getByText('1개 주문과 출처 보기'))
-    expect(within(inventory).getByRole('link', { name: /Acid Splash/ })).toHaveAttribute(
-      'href', 'https://www.dndbeyond.com/spells/1989-acid-splash',
+    expect(within(inventory).getByRole('listitem')).toHaveTextContent(
+      /원문 문서 7b56c41d-f2d1-46b0-9f7a-87845bb5a879, 위치 page=87;node=node-2478, 추출 7/,
     )
     expect(within(inventory).getByRole('listitem')).toHaveTextContent('1 Action')
     expect(within(inventory).getByRole('listitem')).toHaveTextContent('60 ft.')

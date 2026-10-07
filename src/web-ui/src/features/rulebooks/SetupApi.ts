@@ -255,7 +255,8 @@ export type PlayPreparationView = {
 export type StructuredSpellDefinitionView = {
   id: string
   name: string
-  sourceUrl: string
+  sourceDocumentId: string
+  sourceLocator: string
   sourceVersion: string
   extractionVersion: number
   level: string

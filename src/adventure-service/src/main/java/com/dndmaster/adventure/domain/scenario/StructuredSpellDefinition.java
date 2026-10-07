@@ -6,7 +6,8 @@ import java.util.Objects;
 public record StructuredSpellDefinition(
         String id,
         String name,
-        String sourceUrl,
+        java.util.UUID sourceDocumentId,
+        String sourceLocator,
         String sourceVersion,
         long extractionVersion,
         String level,
@@ -24,7 +25,8 @@ public record StructuredSpellDefinition(
     public StructuredSpellDefinition {
         id = required(id, "spell id");
         name = required(name, "spell name");
-        sourceUrl = required(sourceUrl, "spell source URL");
+        sourceDocumentId = Objects.requireNonNull(sourceDocumentId, "spell source document id must not be null");
+        sourceLocator = required(sourceLocator, "spell source locator");
         sourceVersion = required(sourceVersion, "spell source version");
         if (extractionVersion <= 0) throw new IllegalArgumentException("spell extraction version must be positive");
         level = required(level, "spell level");

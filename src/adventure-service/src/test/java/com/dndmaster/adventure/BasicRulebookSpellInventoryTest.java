@@ -2,21 +2,26 @@ package com.dndmaster.adventure;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class BasicRulebookSpellInventoryTest {
     @Test
     void includes_every_official_spell_with_source_owner_and_no_false_support_claim() {
-        var spells = BasicRulebookSpellInventory.load();
+        var sourceDocumentId = new KnowledgeDocumentId(UUID.fromString("7b56c41d-f2d1-46b0-9f7a-87845bb5a879"));
+        var spells = BasicRulebookSpellInventory.load(sourceDocumentId, 7);
 
-        assertThat(spells).hasSize(304);
+        assertThat(spells).hasSize(126);
         assertThat(spells).extracting(spell -> spell.id()).doesNotHaveDuplicates();
+        assertThat(spells).extracting(spell -> spell.sourceLocator()).doesNotHaveDuplicates();
         assertThat(spells).allSatisfy(spell -> {
             assertThat(spell.name()).isNotBlank();
-            assertThat(spell.sourceUrl()).startsWith("https://www.dndbeyond.com/spells/");
+            assertThat(spell.sourceDocumentId()).isEqualTo(sourceDocumentId.value());
+            assertThat(spell.sourceLocator()).matches("page=\\d+;node=node-\\d+");
             assertThat(spell.sourceVersion()).isEqualTo(BasicRulebookSpellInventory.SOURCE_VERSION);
-            assertThat(spell.extractionVersion()).isEqualTo(BasicRulebookSpellInventory.EXTRACTION_VERSION);
+            assertThat(spell.extractionVersion()).isEqualTo(7);
             assertThat(spell.level()).isNotBlank();
             assertThat(spell.castingTime()).isNotBlank();
             assertThat(spell.rangeArea()).isNotBlank();

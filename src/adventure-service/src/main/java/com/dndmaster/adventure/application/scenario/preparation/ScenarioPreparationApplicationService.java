@@ -21,6 +21,7 @@ import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
 import com.dndmaster.adventure.domain.scenario.CharacterInputNode;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisionConflictException;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintPublicationBlockedException;
+import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
 import com.dndmaster.adventure.domain.scenario.ProposalDecisionState;
 import com.dndmaster.adventure.domain.scenario.StorybookProposalDecision;
@@ -94,8 +95,15 @@ public final class ScenarioPreparationApplicationService {
         ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(ownerPlayerId);
-        if (bundle.rulebookEdition() == RulebookEdition.DND_5E_2014 && scenarioPackage.spellDefinitions().isEmpty()) {
-            var spellDefinitions = BasicRulebookSpellInventory.load();
+        List<ScenarioBundleDocumentSelection> basicRulesSources = scenarioPackage.documents().stream()
+                .filter(document -> "DnD_BasicRules_2018.pdf".equalsIgnoreCase(document.originalFilename()))
+                .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
+                .filter(document -> document.status() == KnowledgeDocumentStatus.INDEXED)
+                .toList();
+        if (bundle.rulebookEdition() == RulebookEdition.DND_5E_2014
+                && scenarioPackage.spellDefinitions().isEmpty() && basicRulesSources.size() == 1) {
+            var source = basicRulesSources.getFirst();
+            var spellDefinitions = BasicRulebookSpellInventory.load(source.knowledgeDocumentId(), source.extractionVersion());
             packageRepository.saveSpellDefinitions(scenarioPackageId, spellDefinitions);
             scenarioPackage = scenarioPackage.withSpellDefinitions(spellDefinitions);
         }

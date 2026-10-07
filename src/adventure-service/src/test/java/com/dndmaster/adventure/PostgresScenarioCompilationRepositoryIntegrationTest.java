@@ -135,12 +135,14 @@ class PostgresScenarioCompilationRepositoryIntegrationTest {
         var packageVersion = ScenarioPackage.publish(bundleId, 1, "spell-inventory-fingerprint",
                 List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()));
         var packages = new PostgresScenarioPackageRepository(dataSource);
-        var spells = BasicRulebookSpellInventory.load();
+        var spells = BasicRulebookSpellInventory.load(
+                new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(
+                        UUID.fromString("55555555-5555-5555-5555-555555555555")), 7);
         packages.save(packageVersion);
         packages.saveSpellDefinitions(packageVersion.packageId(), spells);
 
         var reloaded = packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions();
-        assertEquals(304, reloaded.size());
+        assertEquals(126, reloaded.size());
         assertEquals(spells, reloaded);
     }
 
