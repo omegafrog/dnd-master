@@ -1,0 +1,40 @@
+@startuml
+title UC-001 규칙 자료를 검토·수정하고 승인한다
+left to right direction
+actor "플레이어" as Player
+rectangle "모험 준비" {
+  usecase "2014 기본 규칙 전체 주문과 행동 및 선택 자료를 구조화한다" as Prepare
+  usecase "구조·출처 참조·실행 가능성을 확인한다" as Validate
+  usecase "근거와 함께 의미·수치·조건을 검토한다" as Review
+  usecase "정의를 직접 수정하고 승인한다" as Approve
+  usecase "승인 편집본을 현재 모험에 적용한다" as AdventureCopy
+  usecase "지원 여부와 경고를 확인한다" as Warnings
+  usecase "필수 캐릭터·시나리오 입력을 확인한다" as Essentials
+  usecase "모험을 시작하고 버전을 고정한다" as Start
+}
+Player --> Prepare
+Player --> Review
+Player --> Start
+Prepare .> Validate : <<include>>
+Validate .> Review : <<include>>
+Review .> Approve : <<include>>
+Approve .> AdventureCopy : <<include>>
+Approve .> Warnings : <<include>>
+Start .> Essentials : <<include>>
+AdventureCopy .> Start : <<include>>
+note right of Review
+  자동 확인은 구조·출처 참조·지원 가능한 실행 요소에 한정한다.
+  모든 의미 조건이나 충돌을 결정론적으로 검사하지 않는다.
+  사용자는 모험 시작 전에 근거와 함께 검토·수정·승인한다.
+  원문 출처와 변경 이력을 보존한다.
+  승인 편집본은 현재 모험에만 적용하며, 공개된 기본 정의와
+  다른 모험의 규칙 자료는 변경하지 않는다.
+  선택 자료에서 실행할 수 없는 항목은 비활성화하고 이유를 알린다.
+  필수가 아닌 항목의 경고는 사용자 확인 뒤 시작을 허용한다.
+  비활성 필수 항목이 있으면 모험 시작을 막는다.
+  2014 기본 규칙 전체 주문의 지원 가능성을 검증한다.
+end note
+note bottom of Start
+  검증과 사용자 판단을 마친 뒤 기존 버전 고정 규칙을 적용한다.
+end note
+@enduml

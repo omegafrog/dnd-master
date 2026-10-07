@@ -1,0 +1,37 @@
+@startuml
+title UC-002 지도에서 이동·행동·주문을 미리 보고 실행한다
+left to right direction
+actor "플레이어" as Player
+rectangle "전투 지도 행동" {
+  usecase "지도를 확대·축소하고 전장의 안개를 확인한다" as Inspect
+  usecase "이동·행동·주문을 선택한다" as Select
+  usecase "경로·대상·효과 중심점을 가리켜 미리 본다" as Preview
+  usecase "선택을 확정한다" as Confirm
+  usecase "대상별 배분을 지정하고 발동을 확정한다" as Allocate
+  usecase "규칙에 따라 검증하고 실행한다" as Execute
+  usecase "중단 뒤 실제 비용과 위치를 보존한다" as Interrupt
+}
+Player --> Inspect
+Player --> Select
+Player --> Confirm
+Player --> Allocate
+Select .> Preview : <<include>>
+Confirm .> Execute : <<include>>
+Allocate .> Execute : <<include>>
+Execute .> Interrupt : <<extend>>
+note right of Preview
+  가리키기는 미리 보기이며 상태를 바꾸지 않는다.
+  비행 위치나 효과 원점의 높이가 필요할 때만
+  평면 지도에 숫자 고도를 표시한다.
+  주문 규칙이 요구하는 원뿔·직선 범위만 방향을 받는다.
+  점 중심 범위는 가리킨 중심점으로 미리 본다.
+  대상 지정 주문에는 방향을 요구하지 않는다.
+  아군이 범위에 있으면 경고하되 확인을 요구하지 않는다.
+end note
+note bottom of Execute
+  확정 시점의 지도 상태가 바뀌었으면 오래된 선택을
+  비용 없이 거부한다. 중단되면 실제 소모량과 위치를 보존한다.
+  무효 대상도 비용 없이 거부한다.
+  전장의 안개는 숨겨진 정보를 드러내지 않는다.
+end note
+@enduml

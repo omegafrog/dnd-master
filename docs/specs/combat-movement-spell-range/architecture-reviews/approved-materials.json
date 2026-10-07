@@ -1,0 +1,41 @@
+{
+  "materials": [
+    {
+      "id": "MAT-001",
+      "source_ids": [
+        "ADR-013"
+      ],
+      "claim_ids": [
+        "LOCAL-ADR-CLAIM-001"
+      ],
+      "presented_content": "ADR-013: 규칙 정의는 원문 근거와 버전을 보존하고, 서버가 허용된 연산으로 상태 변경을 확정하며, AI가 만든 임의 스크립트는 실행하지 않습니다. 이번에 정한 사용자 수정·최종 검수 요구가 우선합니다.",
+      "context": "이 티켓의 설계 검토에 사용할 기존 설계 기록 요약. 사용자 요구가 우선하며 구현 완료 증거나 새 원칙 승인으로 취급하지 않는다.",
+      "provenance": "docs/adr/ADR-013-declarative-game-system-rules.md#Decision"
+    },
+    {
+      "id": "MAT-002",
+      "source_ids": [
+        "ADR-018-staged-combat-map-movement-resolution"
+      ],
+      "claim_ids": [
+        "LOCAL-ADR-CLAIM-002"
+      ],
+      "presented_content": "ADR-018: 지도 위치·공간 요소·시야는 지도 서비스가 관리하고, 모험 진행이 판정과 굴림을 조정합니다. 이동의 설계 기록이며, 주문의 추가 상호작용이 이미 구현됐다는 근거는 아닙니다.",
+      "context": "이 티켓의 설계 검토에 사용할 기존 설계 기록 요약. 사용자 요구가 우선하며 구현 완료 증거나 새 원칙 승인으로 취급하지 않는다.",
+      "provenance": "docs/adr/ADR-018-staged-combat-map-movement-resolution.md#결정"
+    }
+  ],
+  "local_claims": [
+    {
+      "id": "LOCAL-ADR-CLAIM-001",
+      "source_id": "ADR-013",
+      "content": "ADR-013: 규칙 정의는 원문 근거와 버전을 보존하고, 서버가 허용된 연산으로 상태 변경을 확정하며, AI가 만든 임의 스크립트는 실행하지 않습니다. 이번에 정한 사용자 수정·최종 검수 요구가 우선합니다."
+    },
+    {
+      "id": "LOCAL-ADR-CLAIM-002",
+      "source_id": "ADR-018-staged-combat-map-movement-resolution",
+      "content": "ADR-018: 지도 위치·공간 요소·시야는 지도 서비스가 관리하고, 모험 진행이 판정과 굴림을 조정합니다. 이동의 설계 기록이며, 주문의 추가 상호작용이 이미 구현됐다는 근거는 아닙니다."
+    }
+  ],
+  "registry_publication": false
+}

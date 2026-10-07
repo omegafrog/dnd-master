@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "MAT-001-use-approval",
+  "material_id": "MAT-001",
+  "source_ids": [
+    "ADR-013"
+  ],
+  "claim_ids": [
+    "LOCAL-ADR-CLAIM-001"
+  ],
+  "presented_content": "ADR-013: 규칙 정의는 원문 근거와 버전을 보존하고, 서버가 허용된 연산으로 상태 변경을 확정하며, AI가 만든 임의 스크립트는 실행하지 않습니다. 이번에 정한 사용자 수정·최종 검수 요구가 우선합니다.",
+  "context": "이 티켓의 설계 검토에 사용할 기존 설계 기록 요약. 사용자 요구가 우선하며 구현 완료 증거나 새 원칙 승인으로 취급하지 않는다.",
+  "provenance": "docs/adr/ADR-013-declarative-game-system-rules.md#Decision",
+  "result": "approved",
+  "decided_by_role": "user",
+  "decided_by": "user",
+  "decided_at": "2026-10-07T12:47:43.608Z",
+  "subject_hash": "d7da93fe3a8e6a2b300394a29e5c56e4fd501c76001e795e59587341def57687"
+}

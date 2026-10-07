@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "id": "MAT-003-use-approval",
+  "material_id": "MAT-003",
+  "source_ids": [
+    "SOURCE-GM-TOOL-REGISTRY",
+    "SOURCE-GM-HTTP-PORT",
+    "SOURCE-LOCAL-MCP"
+  ],
+  "claim_ids": [
+    "LOCAL-GM-CAPABILITY-CONNECTION"
+  ],
+  "presented_content": "현재 코드에서 확인한 연결 상태입니다.\n1. 기존 GM 도구 등록부는 도구 이름과 입력 형식을 제공하고, 서버 실행 통로가 권한과 입력을 확인합니다.\n2. 현재 HTTP 기반 GM 연결은 전달받은 도구 목록을 모델 호출에 사용하지 않고, 실행할 도구 호출 목록도 비워 반환합니다. 따라서 등록부만으로는 GM이 가능한 동작을 알 수 없습니다.\n3. 현재 로컬 MCP는 룰북 검색만 제공하며, 게임 상태를 바꾸는 동작은 제공하지 않습니다.",
+  "context": "GM에 엔진 지원 동작을 전달하는 기존 연결 재사용과 별도 MCP 연결의 필요성을 검토한다. 현재 구현 사실이며 새 설계의 승인 또는 적용 가능한 프로젝트 원칙 승인으로 취급하지 않는다.",
+  "provenance": "현재 세션 코드 읽기: OfficialGmToolRegistry.java 8–19; GmToolGatewayService.java 31–63; HttpTypedRuntimeGmAgentPort.java 120–144; McpStdioServer.java 12,35–55; LocalCodexAiExecutionPort.java 111–123",
+  "result": "approved",
+  "decided_by_role": "user",
+  "decided_by": "user",
+  "decided_at": "2026-10-07T12:56:28.484Z",
+  "subject_hash": "23d094237dade66df293397f022c4c00791c9917eee58dd398edaeadcb457b8a"
+}

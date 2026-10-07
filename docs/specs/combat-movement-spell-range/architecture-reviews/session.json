@@ -1,0 +1,295 @@
+{
+  "source_workspace": "/home/jiwoo/workspace/dnd-master",
+  "session_worktree": "/home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range",
+  "session_branch": "spec/combat-movement-spell-range",
+  "review_session": {
+    "mode": "Learning",
+    "history": [
+      {
+        "actor_role": "user",
+        "actor": "user",
+        "type": "mode_selected",
+        "mode": "Learning",
+        "at": "2026-10-07T12:30:01.119Z",
+        "request": "learning 모드 켜"
+      },
+      {
+        "actor_role": "user",
+        "actor": "user",
+        "type": "design_proposed",
+        "statement": "주문의 특성은 서버 코드 수정하고, 수치는 규칙 정보로 추가",
+        "at": "2026-10-07T12:31:46.301Z"
+      },
+      {
+        "actor_role": "user",
+        "actor": "user",
+        "type": "design_boundary_confirmed",
+        "statement": "ㅇㅇ. 그리고 특성 자체도 전략 패턴이나 객체 조합으로 추가할 수 있도록 해야 함",
+        "at": "2026-10-07T12:32:58.776Z"
+      },
+      {
+        "actor_role": "user",
+        "actor": "user",
+        "type": "preparation_review_clarified",
+        "statement": "ㄴㄴ. 유저 최종 검증이니까 일단 보여주는게 맞아. 코드로 결정적으로 조건 자체를 다 로직화해서 검증하는게 아니라 유저가 검증하도록 할거야",
+        "at": "2026-10-07T12:36:03.213Z"
+      },
+      {
+        "actor_role": "user",
+        "actor": "user",
+        "type": "design_direction_selected",
+        "statement": "그냥 객체화하는게 맞는 것 같아. 대신에 주문의 효과는 GM이 추가로 판단해서 처리할 수 있으면 좋겠어. 뭐 함정에 물을 생성해서 무력화시킨다거나 할 수 있잖아. 이런건 GM이 판단해서 굴림 요청을 한다거나",
+        "at": "2026-10-07T12:40:47.208Z"
+      },
+      {
+        "actor_role": "user",
+        "actor": "user",
+        "type": "additional_effect_failure_confirmed",
+        "statement": "ㅇㅇ. 그런 경우 아예 GM이 유저에게 서술하지 않고 넘어가는것도 방법이야",
+        "at": "2026-10-07T12:42:32.191Z"
+      },
+      {
+        "actor_role": "user",
+        "actor": "user",
+        "type": "silent_outcome_confirmed",
+        "statement": "ㅇㅇ",
+        "confirmed_question": "서술 생략은 플레이어가 관찰할 추가 변화가 없는 경우에 적용하며 물 생성은 보여주되 함정 내부 변화나 무력화 판정 실패는 알리지 않고 넘어가는 방식",
+        "at": "2026-10-07T12:43:15.069Z"
+      },
+      {
+        "type": "material_use_approved",
+        "actor_role": "user",
+        "actor": "user",
+        "statement": "ㅇㅇ 해",
+        "at": "2026-10-07T12:47:43.616Z",
+        "material_ids": [
+          "MAT-001",
+          "MAT-002"
+        ]
+      },
+      {
+        "type": "objection_answer",
+        "actor_role": "user",
+        "actor": "user",
+        "objection_id": "OBJ-003",
+        "statement": "그럼 오류로 보고 재시도해야됨",
+        "at": "2026-10-07T12:50:19.094Z"
+      },
+      {
+        "type": "alternative_design_proposed",
+        "actor_role": "user",
+        "actor": "user",
+        "statement": "그럼 애초에 GM이 \"엔진으로 가능한 일\"을 알게 하면 되잖아. MCP를 준다거나",
+        "at": "2026-10-07T12:51:35.058Z"
+      },
+      {
+        "type": "engine_capability_boundary_confirmed",
+        "actor_role": "user",
+        "actor": "user",
+        "statement": "ㅇㅇ",
+        "confirmed_question": "GM은 목록에 없는 동작을 호출하지 않고 지원되는 도구로 다른 처리 방법을 찾으며 호출 오류에는 입력이나 도구 선택을 수정해 재시도한다.",
+        "at": "2026-10-07T12:54:11.471Z"
+      },
+      {
+        "type": "material_use_approved",
+        "actor_role": "user",
+        "actor": "user",
+        "statement": "ㅇㅇ",
+        "at": "2026-10-07T12:56:28.489Z",
+        "material_ids": [
+          "MAT-003"
+        ]
+      },
+      {
+        "type": "transport_decision_confirmed",
+        "actor_role": "user",
+        "actor": "user",
+        "statement": "기존 GM 연결 보강. 굳이 새로 추가할 필요 없음",
+        "at": "2026-10-07T12:58:36.329Z"
+      },
+      {
+        "type": "edited_definition_scope_confirmed",
+        "actor_role": "user",
+        "actor": "user",
+        "statement": "해당 모험에만 적용. 모험 시작전에 유저의 판단이 들어가 검증을 돌리니까",
+        "at": "2026-10-07T13:01:44.110Z"
+      },
+      {
+        "actor_role": "user",
+        "actor": "user",
+        "type": "architecture_interview_completed",
+        "statement": "ㄴㄴ",
+        "confirmed_question": "Architecture Spec 작성 전에 누락하거나 변경할 내용이 있는가",
+        "result": "추가 변경 없음; 합의한 설계로 명세 작성"
+      }
+    ],
+    "pending_decision": null,
+    "design_proposal": {
+      "statement": "공통 주문 특성은 서버에 구현하고, 주문별 특성 조합과 수치는 규칙 정보에 저장한다. 새로운 특성이 필요할 때만 서버 코드를 수정한다.",
+      "status": "accepted_boundary",
+      "answer": "ㅇㅇ. 그리고 특성 자체도 전략 패턴이나 객체 조합으로 추가할 수 있도록 해야 함",
+      "rationale": "룰북에 새로운 주문이 추가되거나 수치가 수정되어도 코드를 변경하지 않기 위해서",
+      "extension_proposal": "특성 자체도 전략 패턴이나 객체 조합으로 추가할 수 있도록 해야 함",
+      "extension_status": "proposed"
+    },
+    "preparation_review": {
+      "status": "accepted",
+      "answer": "ㄴㄴ. 유저 최종 검증이니까 일단 보여주는게 맞아. 코드로 결정적으로 조건 자체를 다 로직화해서 검증하는게 아니라 유저가 검증하도록 할거야",
+      "rule_semantics_reviewer": "user",
+      "presentation": "추출한 주문·행동 정의와 원문 근거를 사용자에게 제시한다",
+      "excluded": "모든 규칙 조건의 의미·충돌을 코드로 완전히 판정하는 준비 단계 검증",
+      "editing": "사용자가 추출된 주문·행동 정의를 수정할 수 있어야 한다",
+      "edit_scope": {
+        "status": "accepted",
+        "scope": "해당 모험에만 적용",
+        "answer": "해당 모험에만 적용. 모험 시작전에 유저의 판단이 들어가 검증을 돌리니까",
+        "rationale": "모험 시작 전에 사용자 판단을 포함한 검수 절차를 수행하기 때문"
+      }
+    },
+    "effect_handling": {
+      "status": "selected_direction",
+      "answer": "그냥 객체화하는게 맞는 것 같아. 대신에 주문의 효과는 GM이 추가로 판단해서 처리할 수 있으면 좋겠어. 뭐 함정에 물을 생성해서 무력화시킨다거나 할 수 있잖아. 이런건 GM이 판단해서 굴림 요청을 한다거나",
+      "basic_rules": "서버의 주문 특성을 객체로 구현하고 주문별 조합·수치를 저장한 정의로 실행한다",
+      "additional_interactions": "GM이 주문과 환경의 추가 상호작용을 해석하고 필요하면 굴림을 요청한다",
+      "example": "함정에 물을 생성해서 무력화시키는 시도",
+      "failure_relation": {
+        "status": "accepted",
+        "rule": "추가 상호작용 판정에 실패해도 이미 시전한 주문의 기본 효과와 소비한 자원을 유지한다",
+        "answer": "ㅇㅇ. 그런 경우 아예 GM이 유저에게 서술하지 않고 넘어가는것도 방법이야"
+      },
+      "silent_outcome": {
+        "status": "accepted",
+        "answer": "ㅇㅇ",
+        "rule": "플레이어가 관찰할 추가 변화가 없으면 추가 상호작용 결과 서술은 생략할 수 있다. 기본 주문 효과와 자원 변화는 정상적으로 표시한다. 내부 판정 실패나 비공개 함정 정보는 공개하지 않는다."
+      }
+    },
+    "approved_material_ids": [
+      "MAT-001",
+      "MAT-002",
+      "MAT-003"
+    ],
+    "active_objection": {
+      "id": "OBJ-004",
+      "status": "resolved",
+      "statement": "현재 도구 등록부와 실행 통로를 재사용하여 기존 GM 연결을 보강할지, 별도 MCP 연결을 추가할지의 선택과 연결 수정·운영 부담 판단",
+      "provenance": "사용자가 자료 사용 승인한 MAT-003과 MCP 예시 제안",
+      "material_ids": [
+        "MAT-003"
+      ],
+      "unavailable_refs": {
+        "principle_ids": "승인된 프로젝트 원칙이 등록되지 않음",
+        "evidence_ids": "승인된 실행 증거가 등록되지 않음"
+      },
+      "answer": "기존 GM 연결 보강. 굳이 새로 추가할 필요 없음",
+      "rationale": "사용자는 기존 연결 보강을 선택하고 새 연결을 추가할 필요가 없다고 설명했다."
+    },
+    "engine_capabilities": {
+      "status": "accepted",
+      "statement": "GM에게 엔진으로 가능한 일과 호출 형식을 사전에 제공한다",
+      "transport_example": "MCP",
+      "explicit_mcp_requirement": false,
+      "rule": "GM에게 지원 동작 목록·입력 형식·제한 조건을 제공한다. 목록에 없는 동작은 호출하지 않으며, 지원되는 도구로 처리 방법을 찾는다. 호출 오류는 GM에게 전달하여 입력이나 도구 선택을 수정해 재시도한다.",
+      "rationale": "사용자가 제시한 이유: 애초에 GM이 엔진으로 가능한 일을 알게 하면 된다.",
+      "transport": "기존 GM 모델 호출과 서버 도구 실행 연결을 보강",
+      "transport_rationale": "굳이 새로 추가할 필요 없음"
+    },
+    "design_review": {
+      "status": "ACCEPTED",
+      "scope": "사용자 설계 인터뷰와 승인된 자료에 대한 Learning 검토. 정식 Decision v1 승인이나 Architecture Spec 완료 판정이 아님",
+      "reviewer": "learning_review",
+      "material_ids": [
+        "MAT-001",
+        "MAT-002",
+        "MAT-003"
+      ],
+      "checklist": {
+        "requirements": true,
+        "targets": true,
+        "alternatives": true,
+        "tradeoffs": true,
+        "evidence": true,
+        "boundary": true,
+        "answered_objections": true
+      },
+      "unavailable_refs": {
+        "principle_ids": "프로젝트 등록소에 승인된 원칙이 없으며 이 티켓에는 Decision v1 옵트인 표시가 없음",
+        "evidence_ids": "프로젝트 등록소의 승인된 실행 증거 없음. 승인된 설계 자료를 사용한 인터뷰 검토로 한정"
+      },
+      "decision_layer_opt_in": false
+    }
+  },
+  "stage_evaluation": {
+    "stage_id": "review-architecture-decisions",
+    "action": "dispatch",
+    "condition": {
+      "condition_id": "learning_mode",
+      "applies": true,
+      "mode": "Learning"
+    }
+  },
+  "principle_lookup": {
+    "authoritative": [],
+    "informational": [],
+    "next_step": "research_or_approval_then_hold",
+    "semantic_sufficiency": "insufficient",
+    "registry_write_performed": false
+  },
+  "session_base_branch": "main",
+  "session_base_sha": "da06646ceb5690c1b82b1c402749692ab4c47998",
+  "artifact_verification": {
+    "scope": "명세 문서와 다이어그램 검토; 애플리케이션 구현·테스트 없음",
+    "product_svg_links": 6,
+    "architecture_svg_links": 2,
+    "source_svg_xml_and_containment": "pass",
+    "requirements_and_contract_consistency": "pass",
+    "gates": [
+      {
+        "status": "pass",
+        "rule_id": "system_targets_complete",
+        "reason": "System Targets are structurally complete.",
+        "evidence_path": "docs/specs/combat-movement-spell-range/system-targets.yaml",
+        "violations": []
+      },
+      {
+        "status": "pass",
+        "rule_id": "decision_evidence_complete",
+        "reason": "Legacy ticket has no decision-layer opt-in marker.",
+        "evidence_path": "docs/specs/combat-movement-spell-range/system-targets.yaml",
+        "violations": []
+      },
+      {
+        "status": "pass",
+        "rule_id": "decision_review_complete",
+        "reason": "Legacy ticket has no decision-layer opt-in marker.",
+        "evidence_path": "docs/specs/combat-movement-spell-range/system-targets.yaml",
+        "violations": []
+      }
+    ]
+  },
+  "handoff_gate": {
+    "schema_version": 1,
+    "hook": "before_handoff",
+    "rule_id": "lifecycle.before_handoff",
+    "status": "pass",
+    "reason": "all_checks_passed",
+    "evidence_path": "docs/specs/combat-movement-spell-range/architecture-reviews/session.json",
+    "checks": [
+      {
+        "rule_id": "checkpoint_completeness",
+        "status": "pass",
+        "reason": "checkpoint_passed",
+        "evidence_path": "docs/specs/combat-movement-spell-range/architecture-reviews/session.json",
+        "violations": []
+      },
+      {
+        "rule_id": "evidence_flush",
+        "status": "pass",
+        "reason": "evidence_flushed",
+        "evidence_path": "docs/specs/combat-movement-spell-range/architecture-reviews/session.json",
+        "violations": []
+      }
+    ],
+    "violations": []
+  },
+  "handoff_runtime_note": "설치된 문서 도구의 내부 plans-index-gate 경로를 실행 시 실제 .codex/scripts 경로로 연결해 평가함. 저장소 코드 수정 없음."
+}

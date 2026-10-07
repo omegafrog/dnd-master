@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "MAT-002-use-approval",
+  "material_id": "MAT-002",
+  "source_ids": [
+    "ADR-018-staged-combat-map-movement-resolution"
+  ],
+  "claim_ids": [
+    "LOCAL-ADR-CLAIM-002"
+  ],
+  "presented_content": "ADR-018: 지도 위치·공간 요소·시야는 지도 서비스가 관리하고, 모험 진행이 판정과 굴림을 조정합니다. 이동의 설계 기록이며, 주문의 추가 상호작용이 이미 구현됐다는 근거는 아닙니다.",
+  "context": "이 티켓의 설계 검토에 사용할 기존 설계 기록 요약. 사용자 요구가 우선하며 구현 완료 증거나 새 원칙 승인으로 취급하지 않는다.",
+  "provenance": "docs/adr/ADR-018-staged-combat-map-movement-resolution.md#결정",
+  "result": "approved",
+  "decided_by_role": "user",
+  "decided_by": "user",
+  "decided_at": "2026-10-07T12:47:43.612Z",
+  "subject_hash": "3ca294b4e64120de8bfbe4a8ac851bc70a712132f1bf611b8b920b457d0ef308"
+}

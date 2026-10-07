@@ -1,0 +1,8 @@
+{
+  "status": "superseded_by_exact_approved_presentation",
+  "approved_snapshot": "approved-materials.json",
+  "material_ids": [
+    "MAT-001",
+    "MAT-002"
+  ]
+}
