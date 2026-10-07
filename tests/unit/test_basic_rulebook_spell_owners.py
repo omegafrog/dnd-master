@@ -12,8 +12,8 @@ class BasicRulebookSpellOwnersTest(unittest.TestCase):
     def test_only_source_reviewed_entries_have_explicit_plan_owners(self):
         manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
         reviewed = manifest["reviewedEntries"]
-        self.assertEqual(100, len(reviewed))
-        self.assertEqual(100, len({entry["nodeId"] for entry in reviewed}))
+        self.assertEqual(126, len(reviewed))
+        self.assertEqual(126, len({entry["nodeId"] for entry in reviewed}))
         self.assertTrue(all(entry["ownerPlanNumbers"] and entry["rationaleKo"].strip() for entry in reviewed))
         by_node = {entry["nodeId"]: entry for entry in reviewed}
         for node_id, expected in {
@@ -35,6 +35,32 @@ class BasicRulebookSpellOwnersTest(unittest.TestCase):
             "node-3222": [368, 370],
             "node-3244": [369, 370, 372],
             "node-3327": [368, 370, 372],
+            "node-3338": [368, 370],
+            "node-3350": [368, 370],
+            "node-3362": [368, 369, 370],
+            "node-3375": [368, 370],
+            "node-3389": [368, 370],
+            "node-3398": [368, 370],
+            "node-3410": [369, 370, 372],
+            "node-3421": [369, 370, 372],
+            "node-3435": [368, 369, 370],
+            "node-3446": [368],
+            "node-3450": [368, 370, 372],
+            "node-3457": [368, 370, 372],
+            "node-3462": [368, 369, 370],
+            "node-3479": [368, 370],
+            "node-3487": [368, 370, 371, 372],
+            "node-3497": [368, 369, 370, 372],
+            "node-3506": [368, 369, 370, 372],
+            "node-3524": [369, 370, 372],
+            "node-3535": [368, 369, 370],
+            "node-3541": [370],
+            "node-3546": [368, 370, 372],
+            "node-3557": [368, 370, 372],
+            "node-3564": [368, 369, 370, 372],
+            "node-3575": [368, 369, 370, 372],
+            "node-3586": [368, 370],
+            "node-3594": [368, 369, 370, 371, 372],
         }.items():
             self.assertEqual(expected, by_node[node_id]["ownerPlanNumbers"], node_id)
 
