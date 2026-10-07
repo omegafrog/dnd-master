@@ -56,6 +56,38 @@ describe('AdventureWorkspace 세션 연결', () => {
     expect(window.location.hash).toBe('#/sessions/session-new/party')
   })
 
+  it('API 인스턴스 메서드의 this를 보존해 새 세션의 플레이 준비 상태를 조회한다', async () => {
+    const created = { ...makeSession(), sessionId: 'session-bound-method', status: 'DRAFT', adventureId: null }
+    const create = vi.fn().mockResolvedValue(created)
+    const sessionApi = {
+      listByScenarioPackage: vi.fn().mockResolvedValue([]),
+      create,
+      read: vi.fn().mockResolvedValue(created),
+    } as unknown as Pick<AdventureSessionApi, 'create' | 'listByScenarioPackage' | 'read'>
+    const setupApi = {
+      ...makeSetupApi(),
+      authHeaders: vi.fn(() => ({ Authorization: 'Bearer test-token' })),
+      getPlayPreparation: function (this: { authHeaders: () => Record<string, string> }) {
+        this.authHeaders()
+        return Promise.resolve({
+          scenarioPackageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, status: 'READY', blockers: [],
+          characterCreationBlueprint: { status: 'PUBLISHED', revision: 4 },
+          characterLimit: { maximumCharacters: 4, source: null, sourceQuote: '' },
+        })
+      },
+    } as unknown as SetupApi
+
+    render(<AdventureWorkspace adventureId="adventure-1" activeTab="sessions" playApi={makePlayApi()} setupApi={setupApi} sessionApi={sessionApi} playerId="player-1" />)
+    await screen.findByRole('heading', { name: '이 모험의 세션' })
+    await userEvent.click(screen.getByRole('button', { name: /세션 시작/ }))
+    await userEvent.click(screen.getByRole('button', { name: '새 세션 만들기' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith({
+      scenarioPackageId: 'package-1', blueprintId: 'package-1', blueprintRevision: 4, partySize: 4,
+    }))
+    expect(window.location.hash).toBe('#/sessions/session-bound-method/party')
+  })
+
   it('자료 역할을 변경하고 모험 자료 묶음에 저장한다', async () => {
     const bundle = makeBundle()
     const reviseScenarioBundle = vi.fn().mockResolvedValue({

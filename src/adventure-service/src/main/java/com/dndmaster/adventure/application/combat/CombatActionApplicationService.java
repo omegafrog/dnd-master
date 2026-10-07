@@ -362,6 +362,13 @@ public final class CombatActionApplicationService {
     public CombatActionResponse submitAi(CombatActionCommand command, AiTurnPlan plan) {
         Objects.requireNonNull(command, "AI combat command must not be null");
         Objects.requireNonNull(plan, "AI turn plan must not be null");
+        CombatEncounter encounter = activeEncounter(command);
+        if (encounter.currentParticipant().statBlock() == null) {
+            CharacterCombatStatus status = characterPort.combatStatus(command);
+            if (status != null && (status.currentHitPoints() == 0 || status.dead())) {
+                return endTurnAi(command);
+            }
+        }
         if (!command.characterSheetId().value().equals(plan.actorId())) {
             throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("AI_PLAN_ACTOR_MISMATCH"));
         }
@@ -409,8 +416,14 @@ public final class CombatActionApplicationService {
         }
 
         try {
-            characterPort.requireUsableCharacter(command);
-            CombatActionCommand resolvedCommand = resolvePlayerAttack(command, encounter);
+            // Source-backed enemies have no player character sheet in Character Management.
+            // Their hit points and readiness are owned by this encounter's prepared enemy sheet.
+            if (!aiActor || encounter.currentParticipant().enemyKind() == null) {
+                characterPort.requireUsableCharacter(command);
+            }
+            CombatActionCommand resolvedCommand = aiActor
+                    ? resolveAiAttack(command, encounter)
+                    : resolvePlayerAttack(command, encounter);
             int diceTotal;
             if (operation.diceTotal() != null && operation.steps().stream().anyMatch(step -> step.name().equals("dice") && step.status() == CombatActionStep.Status.DONE)) {
                 diceTotal = operation.diceTotal();
@@ -477,6 +490,47 @@ public final class CombatActionApplicationService {
                 command.ownerPlayerId(), command.tokenId(), command.expectedVersion(), armorClass, modifier,
                 command.targetCharacterSheetId(), damage, command.endCombat(), command.narrativePosition(),
                 command.movementDistance(), command.mapVersion());
+    }
+
+    private CombatActionCommand resolveAiAttack(CombatActionCommand command, CombatEncounter encounter) {
+        if (command.targetCharacterSheetId() == null) return command;
+        var actor = encounter.participants().stream()
+                .filter(participant -> participant.participantId().equals(command.characterSheetId().value()))
+                .findFirst().orElse(encounter.currentParticipant());
+        Integer armorClass = command.targetArmorClass();
+        if (armorClass == null) {
+            armorClass = encounter.participants().stream()
+                    .filter(participant -> participant.participantId().equals(command.targetCharacterSheetId().value()))
+                    .map(com.dndmaster.adventure.domain.combat.CombatParticipant::statBlock)
+                    .filter(Objects::nonNull)
+                    .map(com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock::armorClass)
+                    .findFirst().orElse(null);
+        }
+        if (armorClass == null) armorClass = characterPort.armorClass(command, command.targetCharacterSheetId());
+
+        Integer attackModifier = command.attackModifier();
+        if (attackModifier == null && actor.statBlock() != null) attackModifier = actor.statBlock().attackModifier();
+        if (attackModifier == null) attackModifier = characterPort.attackModifier(command);
+
+        Integer damage = command.damageAmount();
+        if (damage == null && actor.statBlock() != null) damage = averageDamage(actor.statBlock().damageDice());
+        if (damage == null && actor.enemyKind() == null) damage = characterPort.damageAmount(command);
+        return new CombatActionCommand(command.operationId(), command.adventureId(), command.sessionId(),
+                command.ruleSetId(), command.characterSheetId(), command.combatMapId(), command.role(),
+                command.action(), command.movementPath(), command.ownerPlayerId(), command.tokenId(),
+                command.expectedVersion(), armorClass, attackModifier, command.targetCharacterSheetId(),
+                damage, command.endCombat(), command.narrativePosition(), command.movementDistance(), command.mapVersion());
+    }
+
+    private static Integer averageDamage(String damageDice) {
+        if (damageDice == null || damageDice.isBlank()) return null;
+        var matcher = java.util.regex.Pattern.compile("(?i)(\\d+)\\s*d\\s*(\\d+)([+-]\\d+)?")
+                .matcher(damageDice.replace(" ", ""));
+        if (!matcher.matches()) return null;
+        int diceCount = Integer.parseInt(matcher.group(1));
+        int dieSides = Integer.parseInt(matcher.group(2));
+        int modifier = matcher.group(3) == null ? 0 : Integer.parseInt(matcher.group(3));
+        return Math.max(1, (diceCount * (dieSides + 1)) / 2 + modifier);
     }
 
     private static boolean isEnemyTarget(CombatActionCommand command, CombatEncounter encounter) {
@@ -622,19 +676,61 @@ public final class CombatActionApplicationService {
                     controller == com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER
                             ? "NOT_PLAYER_TURN" : "NOT_AI_TURN"));
         }
-        CombatEncounter ended = encounter.endCurrentTurn(command.expectedVersion());
-        encounterRepository.save(ended, encounter.version());
+        CharacterCombatStatus characterStatus = encounter.currentParticipant().statBlock() == null
+                ? characterPort.combatStatus(command) : null;
+        boolean deathSaveRequired = characterStatus != null && characterStatus.currentHitPoints() == 0
+                && !characterStatus.stable() && !characterStatus.dead();
         CombatActionOperation operation = existing == null
                 ? new CombatActionOperation(command.operationId(), command.fingerprint(), encounter.encounterId(),
                 command.characterSheetId().value(), new TurnResourceCost(0, false, false, false), List.of(
-                new CombatActionStep("turn-end", command.operationId() + ":turn-end", CombatActionStep.Status.DONE)))
+                new CombatActionStep("death-save", command.operationId() + ":death-save", CombatActionStep.Status.PENDING),
+                new CombatActionStep("turn-end", command.operationId() + ":turn-end", CombatActionStep.Status.PENDING)))
                 : existing;
+        operationRepository.save(operation);
+        Integer deathSaveRoll = null;
+        if (deathSaveRequired) {
+            if (stepDone(operation, "death-save")) {
+                deathSaveRoll = operation.diceTotal();
+            } else {
+                deathSaveRoll = dicePort.roll(command);
+                operation.recordDiceTotal(deathSaveRoll);
+                operationRepository.save(operation);
+                characterPort.applyDeathSavingThrow(command, deathSaveRoll);
+                operation.completeStep("death-save");
+                operationRepository.save(operation);
+            }
+            characterStatus = characterPort.combatStatus(command);
+            if (deathSaveRoll == 20) {
+                CombatEncounter recorded = encounter.recordCurrentTurnEvent(command.expectedVersion());
+                encounterRepository.save(recorded, encounter.version());
+                eventRepository.append(new CombatEvent(recorded.encounterId(), recorded.eventCursor(),
+                        "DEATH_SAVING_THROW", "{\"participantId\":\"" + command.characterSheetId().value()
+                        + "\",\"roll\":20,\"result\":\"REGRAINS_HIT_POINT\"}"));
+                CombatActionResponse response = new CombatActionResponse(recorded.encounterId(), command.operationId(),
+                        recorded.version(), "DEATH_SAVE_REVIVED", deathSaveRoll, "natural 20; regained 1 hit point", List.of());
+                operation.committed(response);
+                operationRepository.save(operation);
+                return response;
+            }
+        }
+        String condition = characterStatus == null ? null : characterStatus.dead() ? "dead"
+                : characterStatus.stable() ? "stable" : deathSaveRequired ? "unconscious" : null;
+        CombatEncounter ended = encounter.endCurrentTurn(command.expectedVersion(), condition);
+        encounterRepository.save(ended, encounter.version());
+        String status = deathSaveRoll == null ? "TURN_ENDED"
+                : deathSaveRoll >= 10 ? "DEATH_SAVE_SUCCESS" : "DEATH_SAVE_FAILURE";
+        String result = deathSaveRoll == null ? "\"participantId\":\"" + command.characterSheetId().value() + "\""
+                : "\"participantId\":\"" + command.characterSheetId().value() + "\",\"roll\":" + deathSaveRoll
+                        + ",\"successes\":" + (characterStatus == null ? 0 : characterStatus.deathSavingThrowSuccesses())
+                        + ",\"failures\":" + (characterStatus == null ? 0 : characterStatus.deathSavingThrowFailures())
+                        + ",\"stable\":" + (characterStatus != null && characterStatus.stable())
+                        + ",\"dead\":" + (characterStatus != null && characterStatus.dead());
         CombatActionResponse response = new CombatActionResponse(encounter.encounterId(), command.operationId(),
-                ended.version(), "TURN_ENDED", null, null, List.of());
+                ended.version(), status, deathSaveRoll, deathSaveRoll == null ? null : "death saving throw " + deathSaveRoll, List.of());
+        operation.completeStep("turn-end");
         operation.committed(response);
         operationRepository.save(operation);
-        eventRepository.append(new CombatEvent(ended.encounterId(), ended.eventCursor(), "TURN_ENDED",
-                "{\"participantId\":\"" + command.characterSheetId().value() + "\"}"));
+        eventRepository.append(new CombatEvent(ended.encounterId(), ended.eventCursor(), "TURN_ENDED", "{" + result + "}"));
         return response;
     }
 
@@ -651,7 +747,9 @@ public final class CombatActionApplicationService {
             try {
                 String generated = narrationPort.narrate(CombatNarrationRequest.postResolution(command,
                         response.encounterVersion(), ConfirmedCombatState.from(committedEncounter), response.diceTotal(),
-                        response.judgment(), playerInput));
+                        response.judgment(), playerInput, participantName(committedEncounter,
+                                command.characterSheetId().value()), participantName(committedEncounter,
+                                command.targetCharacterSheetId() == null ? null : command.targetCharacterSheetId().value())));
                 if (generated != null && !generated.isBlank()) narration = generated;
             } catch (CombatNarrationPersistenceException exception) {
                 throw exception;
@@ -672,6 +770,14 @@ public final class CombatActionApplicationService {
             return new CombatActionResponse(response.encounterId(), response.operationId(), response.encounterVersion(),
                     response.status(), response.diceTotal(), response.judgment(), response.violations(), null);
         }
+    }
+
+    private static String participantName(CombatEncounter encounter, java.util.UUID participantId) {
+        if (participantId == null) return null;
+        return encounter.participants().stream()
+                .filter(participant -> participant.participantId().equals(participantId))
+                .map(com.dndmaster.adventure.domain.combat.CombatParticipant::displayName)
+                .findFirst().orElse(null);
     }
 
     private static String defeatedTargetNarration(CombatActionCommand command, CombatEncounter encounter) {

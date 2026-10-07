@@ -78,7 +78,7 @@ class ScenarioPreparationControllerTest {
                 .andExpect(jsonPath("$.status").value("READY"))
                 .andExpect(jsonPath("$.characterCreationBlueprint.available").value(true))
                 .andExpect(jsonPath("$.characterCreationBlueprint.rulebookDocumentCount").value(1))
-                .andExpect(jsonPath("$.characterLimit.maximumCharacters").value(1));
+                .andExpect(jsonPath("$.characterLimit.maximumCharacters").value(6));
         verify(service).read(eq(packageId), ownerCaptor.capture());
         org.junit.jupiter.api.Assertions.assertEquals(ownerId, ownerCaptor.getValue().value());
 

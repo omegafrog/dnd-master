@@ -3,6 +3,10 @@ package com.dndmaster.adventure.application.combat;
 public interface CharacterCombatPort {
     void requireUsableCharacter(CombatActionCommand command);
 
+    default CharacterCombatStatus combatStatus(CombatActionCommand command) { return null; }
+
+    default void applyDeathSavingThrow(CombatActionCommand command, int roll) {}
+
     default com.dndmaster.adventure.domain.combat.CombatSpellcastingProfile spellcastingProfile(CombatActionCommand command) {
         return com.dndmaster.adventure.domain.combat.CombatSpellcastingProfile.empty();
     }
@@ -18,6 +22,10 @@ public interface CharacterCombatPort {
 
     /** Returns the character sheet's basic melee attack bonus for the selected attack action. */
     default Integer attackModifier(CombatActionCommand command) { return null; }
+
+    /** Returns a target character sheet's armor class for an AI attack. */
+    default Integer armorClass(CombatActionCommand command,
+            com.dndmaster.adventure.domain.adventure.CharacterSheetId targetCharacterSheetId) { return null; }
 
     /** Returns the average damage of the character sheet's first listed attack. */
     default Integer damageAmount(CombatActionCommand command) { return null; }

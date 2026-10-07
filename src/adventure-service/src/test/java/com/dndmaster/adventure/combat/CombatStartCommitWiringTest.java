@@ -101,6 +101,31 @@ class CombatStartCommitWiringTest {
         assertTrue(workItems.claim("worker", Duration.ofSeconds(10), Instant.now()).isEmpty());
     }
 
+    @Test
+    void enemy_preparation_carries_the_session_ai_request_id_through_to_follow_up_work() {
+        UUID adventureId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        var repository = new RecordingCombatRepository();
+        var adventure = Adventure.create(new AdventureId(adventureId), new SessionId(UUID.randomUUID()),
+                new OwnerPlayerId(playerId), new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(playerId), new AdventureContext("전투", "위협", "대치", null));
+        var workItems = new InMemoryCombatWorkItemRepository();
+        var service = new CombatLifecycleApplicationService(repository, null, new AdventureStore(adventure), null, null,
+                null, workItems, new CombatWorkItemScheduler(workItems, 20));
+        var turn = committedTurn();
+        var proposal = new com.dndmaster.adventure.application.runtime.CombatEnemyProposal("scene", "goblin", "Goblin", 1);
+        var request = new EnemySheetPreparationRequest(turn.turnId(), adventureId,
+                List.of(new EnemySheetPreparationRequest.Enemy(new EnemyCharacterSheetIdentity(adventureId,
+                        UUID.randomUUID(), 1, UUID.randomUUID(), List.of(UUID.randomUUID()), "goblin"), proposal)));
+        var participants = List.of(new CombatParticipant(UUID.randomUUID(), "Goblin", CombatParticipant.Controller.AI,
+                20, "enemy", com.dndmaster.adventure.domain.combat.TurnResources.initial(), null, null, "goblin"));
+
+        service.startPreparingFromCommittedGmTurn(adventureId, turn, participants, request);
+
+        var preparation = workItems.claim("worker", Duration.ofSeconds(10), Instant.now()).orElseThrow();
+        assertEquals(turn.commandId(), preparation.aiRequestId());
+    }
+
     private static GmTurn committedTurn() {
         return GmTurn.start(UUID.randomUUID(), UUID.randomUUID(), 0, new GmInput.TextInput("전투 시작")).process().commit("provider");
     }

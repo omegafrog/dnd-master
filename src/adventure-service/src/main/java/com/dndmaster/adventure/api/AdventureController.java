@@ -859,7 +859,10 @@ public class AdventureController {
         var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
-        return combatMapViewPort.preparationView(adventureId, owner).map(view -> CombatMapResponse.from(adventureId, adventure.version(), view)).orElseThrow();
+        return com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "combat_map_preparation_view", "adventureId=" + adventureId,
+                () -> combatMapViewPort.preparationView(adventureId, owner)
+                        .map(view -> CombatMapResponse.from(adventureId, adventure.version(), view)).orElseThrow());
     }
 
     @PutMapping("/api/v1/adventures/{adventureId}/combat-map/calibration")
@@ -868,8 +871,12 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId())) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         }
-        combatMapViewPort.calibrate(request.mapId(), playerResolver.playerId(), request.expectedVersion(), request.width(), request.height(),
-                request.cellSize(), request.originX(), request.originY(), request.imageWidth(), request.imageHeight(), request.playerX(), request.playerY());
+        com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "combat_map_calibration_save", "adventureId=" + adventureId + " mapId=" + request.mapId()
+                        + " expectedVersion=" + request.expectedVersion(),
+                () -> combatMapViewPort.calibrate(request.mapId(), playerResolver.playerId(), request.expectedVersion(),
+                        request.width(), request.height(), request.cellSize(), request.originX(), request.originY(),
+                        request.imageWidth(), request.imageHeight(), request.playerX(), request.playerY()));
         return new CombatMapCalibrationResponse(request.mapId(), request.width(), request.height());
     }
 
@@ -882,9 +889,16 @@ public class AdventureController {
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> obstacles = request.obstacles() == null ? List.of() : request.obstacles().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Position(p.x(), p.y())).toList();
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Door> doors = request.doors() == null ? List.of() : request.doors().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Door(p.x(), p.y(), false)).toList();
         List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary> boundaries = request.boundaries() == null ? List.of() : request.boundaries().stream().map(p -> new com.dndmaster.adventure.application.combat.CombatMapViewPort.Boundary(p.x(), p.y(), p.orientation(), p.kind(), p.open())).toList();
-        combatMapViewPort.updateLayout(mapId, owner, request.expectedVersion(), request.commandId(), obstacles, doors, boundaries,
-                request.crop(), request.alignmentVersion(), request.imageRevision(), request.playerStart() == null ? null
-                        : new com.dndmaster.adventure.application.combat.CombatMapViewPort.Position(request.playerStart().x(), request.playerStart().y()));
+        String context = "adventureId=" + adventureId + " mapId=" + mapId + " commandId=" + request.commandId()
+                + " expectedVersion=" + request.expectedVersion() + " boundaryCount=" + boundaries.size()
+                + " hasCrop=" + (request.crop() != null) + " alignmentVersion=" + request.alignmentVersion();
+        com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "combat_map_layout_save", context,
+                () -> combatMapViewPort.updateLayout(mapId, owner, request.expectedVersion(), request.commandId(),
+                        obstacles, doors, boundaries, request.crop(), request.alignmentVersion(), request.imageRevision(),
+                        request.playerStart() == null ? null
+                                : new com.dndmaster.adventure.application.combat.CombatMapViewPort.Position(
+                                        request.playerStart().x(), request.playerStart().y())));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/detect-boundaries")
@@ -892,8 +906,16 @@ public class AdventureController {
         Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
-        UUID mapId = combatMapViewPort.preparationView(adventureId, owner).orElseThrow().mapId();
-        return combatMapViewPort.detectMapBoundaries(mapId, owner);
+        String context = "adventureId=" + adventureId;
+        return com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "combat_map_boundary_detection", context, () -> {
+                    UUID mapId = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                            LOGGER, "combat_map_boundary_detection_map_lookup", context,
+                            () -> combatMapViewPort.preparationView(adventureId, owner).orElseThrow().mapId());
+                    return com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                            LOGGER, "combat_map_boundary_detection_model_call", context + " mapId=" + mapId,
+                            () -> combatMapViewPort.detectMapBoundaries(mapId, owner));
+                });
     }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map/alignment")
@@ -902,7 +924,9 @@ public class AdventureController {
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         UUID mapId = editingMap(adventureId, owner).mapId();
-        return CombatMapAlignmentResponse.from(combatMapViewPort.alignment(mapId, owner));
+        return com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "combat_map_alignment_read", "adventureId=" + adventureId + " mapId=" + mapId,
+                () -> CombatMapAlignmentResponse.from(combatMapViewPort.alignment(mapId, owner)));
     }
 
     @GetMapping(value = "/api/v1/adventures/{adventureId}/combat-map/alignment/image/{imageViewId}", produces = "image/png")
@@ -911,9 +935,14 @@ public class AdventureController {
         UUID owner = playerResolver.playerId();
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         UUID mapId = editingMap(adventureId, owner).mapId();
+        byte[] image = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "combat_map_alignment_image_read", "adventureId=" + adventureId + " mapId=" + mapId,
+                () -> combatMapViewPort.alignmentImage(mapId, owner, imageViewId));
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_flow operation=combat_map_alignment_image_size mapId={} bytes={}", mapId, image.length);
+        }
         return ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
-                .cacheControl(org.springframework.http.CacheControl.noStore())
-                .body(combatMapViewPort.alignmentImage(mapId, owner, imageViewId));
+                .cacheControl(org.springframework.http.CacheControl.noStore()).body(image);
     }
 
     @GetMapping(value = "/api/v1/adventures/{adventureId}/combat-map/preparation-image", produces = "image/png")
@@ -923,9 +952,14 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         var editingMap = editingMap(adventureId, owner);
         var source = sourceForPreparationImage(adventure);
-        byte[] image = source.map(value -> combatMapViewPort.preparationImage(editingMap.mapId(), owner,
-                        value.documentId(), value.locator()))
-                .orElseGet(() -> combatMapViewPort.preparationImage(editingMap.mapId(), owner));
+        byte[] image = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "combat_map_preparation_image_read", "adventureId=" + adventureId + " mapId=" + editingMap.mapId(),
+                () -> source.map(value -> combatMapViewPort.preparationImage(editingMap.mapId(), owner,
+                                value.documentId(), value.locator()))
+                        .orElseGet(() -> combatMapViewPort.preparationImage(editingMap.mapId(), owner)));
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_flow operation=combat_map_preparation_image_size mapId={} bytes={}", editingMap.mapId(), image.length);
+        }
         return ResponseEntity.ok().contentType(org.springframework.http.MediaType.IMAGE_PNG)
                 .cacheControl(org.springframework.http.CacheControl.noStore()).body(image);
     }
@@ -938,8 +972,13 @@ public class AdventureController {
         UUID activeMap = editingMap(adventureId, owner).mapId();
         if (!activeMap.equals(request.mapId())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND);
         try {
-            return CombatMapAlignmentResponse.from(combatMapViewPort.applyAlignment(activeMap, owner,
-                    new com.dndmaster.adventure.application.combat.CombatMapViewPort.AlignmentRequest(request.commandId(), request.expectedVersion(), request.imageRevision(), request.originX(), request.originY(), request.cellSize())));
+            return com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                    LOGGER, "combat_map_alignment_save", "adventureId=" + adventureId + " mapId=" + activeMap
+                            + " commandId=" + request.commandId() + " expectedVersion=" + request.expectedVersion(),
+                    () -> CombatMapAlignmentResponse.from(combatMapViewPort.applyAlignment(activeMap, owner,
+                            new com.dndmaster.adventure.application.combat.CombatMapViewPort.AlignmentRequest(
+                                    request.commandId(), request.expectedVersion(), request.imageRevision(),
+                                    request.originX(), request.originY(), request.cellSize()))));
         } catch (IllegalStateException exception) {
             if ("map grid alignment conflict".equals(exception.getMessage())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, exception.getMessage(), exception);
             throw exception;

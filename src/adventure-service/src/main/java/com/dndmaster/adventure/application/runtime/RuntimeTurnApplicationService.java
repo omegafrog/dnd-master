@@ -790,6 +790,7 @@ public class RuntimeTurnApplicationService {
 
     private static String confirmedCombatResult(CombatNarrationRequest request) {
         return "확정 전투 결과: 행동 주체=" + request.confirmedActor()
+                + "; 지정 대상=" + (request.targetDisplayName() == null ? "없음" : request.targetDisplayName())
                 + "; 전투 참여자 식별자=" + request.command().characterSheetId().value()
                 + "; 행동=" + request.command().action()
                 + "; 전투 버전=" + request.encounterVersion()
@@ -798,7 +799,10 @@ public class RuntimeTurnApplicationService {
     }
 
     private static String combatNarrationAction(CombatNarrationRequest request) {
-        return "확정된 전투 행동을 플레이어에게 서술합니다. "
+        return "확정된 전투 행동을 플레이어에게 서술합니다. 행동 주체와 지정 대상을 바꾸지 마세요. "
+                + "행동 주체=" + request.confirmedActor()
+                + "; 지정 대상=" + (request.targetDisplayName() == null ? "없음" : request.targetDisplayName())
+                + "; "
                 + (request.hasPlayerInput() ? "플레이어 입력=" + request.playerInput() : "전투 참여자 행동=" + request.command().action())
                 + "; 적의 현재 상태(정확한 HP 숫자 없이 서술)="
                 + request.combatState().enemies().stream().map(enemy -> "식별자=" + enemy.participantId() + " " + enemy.displayName()
@@ -849,11 +853,16 @@ public class RuntimeTurnApplicationService {
 
     static String enemySheetCandidateInstruction(List<CombatEnemyProposal> enemies, List<String> missingKinds) {
         var requested = enemies.stream().filter(enemy -> missingKinds.contains(enemy.enemyKey().toLowerCase(java.util.Locale.ROOT)))
-                .map(enemy -> enemy.enemyKey() + " / " + enemy.name()).toList();
-        return "전투 진입 전 적 캐릭터 시트 후보를 작성한다. 요청된 적 종류마다 STR, DEX, CON, INT, WIS, CHA 수치와 룰북에 명시된 모든 전투 행동·기술을 빠짐없이 반환한다. 각 능력치와 각 행동에는 제공된 근거키 중 해당 규칙을 뒷받침하는 인용을 넣는다. "
-                + "기존 Runtime 응답 계약 필드도 모두 채운다: judgment에는 '적 시트 자료를 준비했습니다'처럼 비어 있지 않은 값을 쓰고, narration에는 자연스러운 한국어 한 문장을 쓴다. "
-                + "판정제안은 필요=false, combatStart=false, mapEntryRequested=false로 둔다. 이 작업 자체로 전투를 시작하거나 현재 장면·상황을 바꾸지 않는다. "
-                + "다른 적 종류를 추가하지 않는다. 요청: " + String.join(", ", requested);
+                .map(enemy -> "mode=" + enemy.mode() + ", scenarioId=" + enemy.scenarioId() + ", enemyKey="
+                        + enemy.enemyKey() + ", name=" + enemy.name() + ", count=" + enemy.count()).toList();
+        return "전투 진입 전 적 캐릭터 시트 후보를 작성한다. 이 작업은 후보 준비이며 전투 시작 제안이 아니다. combatStart=false, mapEntryRequested=false를 반환한다. "
+                + "일반 지침의 'combatStart=false이면 combatEnemies=[]' 규칙은 이 후보 준비 작업에는 적용하지 않는다. "
+                + "combatStart=false여도 combatEnemies 배열에 요청된 적 종류마다 후보를 정확히 하나씩 반환한다. 각 항목의 mode, scenarioId, enemyKey, name, count는 해당 요청 값을 그대로 사용한다. "
+                + "각 combatEnemies 항목에는 abilities 배열에 STR, DEX, CON, INT, WIS, CHA를 각각 하나씩 넣고, actions 배열에는 룰북 근거에서 확인한 모든 전투 행동·기술을 넣는다. "
+                + "능력치 항목은 ability, score, citationKeys를 포함하고, 행동 항목은 name, description, citationKeys를 포함한다. 각 citationKeys에는 제공된 근거키 중 해당 규칙을 뒷받침하는 인용을 넣는다. "
+                + "기존 Runtime 응답 계약의 필수 필드를 모두 채운다. scene과 judgment는 비어 있지 않은 문자열, narration은 자연스러운 한국어 한 문장, situation은 필수 필드를 모두 갖춘 객체로 반환한다. "
+                + "judgment에는 '적 시트 자료를 준비했습니다'처럼 비어 있지 않은 값을 쓴다. 판정제안은 필요=false로 둔다. 이 작업 자체로 현재 장면·상황을 바꾸지 않는다. "
+                + "요청된 적 종류만 반환한다. 요청: " + String.join("; ", requested);
     }
 
     private static List<CombatEnemyProposal> attachEnemySheetCandidates(List<CombatEnemyProposal> grounded,

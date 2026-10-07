@@ -151,13 +151,36 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                 .timeout(timeout).header("Content-Type", "application/json")
                 .header("X-Internal-Token", internalToken)
                 .POST(HttpRequest.BodyPublishers.ofString(selectionBody)).build();
-        HttpResponse<String> selected = client.send(selectionRequest, HttpResponse.BodyHandlers.ofString());
+        String callContext = "turnId=" + context.turnId() + " operationKey=" + context.operationKey();
+        long endpointStarted = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics
+                .begin(LOGGER, "runtime_endpoint_selection", callContext);
+        HttpResponse<String> selected;
+        try {
+            selected = client.send(selectionRequest, HttpResponse.BodyHandlers.ofString());
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(
+                    LOGGER, "runtime_endpoint_selection", callContext + " status=" + selected.statusCode(), endpointStarted);
+        } catch (Exception failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(
+                    LOGGER, "runtime_endpoint_selection", callContext, endpointStarted, failure);
+            throw failure;
+        }
         if (selected.statusCode() / 100 != 2) {
             throw new RuntimeGmInputLimitException("selected GM model is unavailable for input composition");
         }
         RuntimeEndpointResponse endpoint = mapper.readValue(selected.body(), RuntimeEndpointResponse.class);
         int contextLimit = contextLimits.require(endpoint.provider(), endpoint.model());
-        String prompt = context.composePrompt(contextLimit);
+        long promptStarted = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics
+                .begin(LOGGER, "runtime_prompt_composition", callContext + " provider=" + endpoint.provider() + " model=" + endpoint.model());
+        String prompt;
+        try {
+            prompt = context.composePrompt(contextLimit);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(
+                    LOGGER, "runtime_prompt_composition", callContext + " contextLimit=" + contextLimit, promptStarted);
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(
+                    LOGGER, "runtime_prompt_composition", callContext, promptStarted, failure);
+            throw failure;
+        }
         String body = mapper.writeValueAsString(new RuntimeRequest(context.ownerPlayerId().value(), context.operationKey(), context.action(),
                 selection.endpointId(), selection.provider(), selection.model(), selection.reasoning(),
                 endpoint.endpointId(), endpoint.endpointVersion(), endpoint.provider(), endpoint.model(), prompt,
@@ -168,7 +191,18 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                 .header("X-Internal-Token", internalToken)
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        long runtimeStarted = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics
+                .begin(LOGGER, "runtime_agent_request", callContext + " provider=" + endpoint.provider() + " model=" + endpoint.model());
+        HttpResponse<String> response;
+        try {
+            response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(
+                    LOGGER, "runtime_agent_request", callContext + " status=" + response.statusCode(), runtimeStarted);
+        } catch (Exception failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(
+                    LOGGER, "runtime_agent_request", callContext, runtimeStarted, failure);
+            throw failure;
+        }
         if (response.statusCode() == 503) {
             throw new RuntimeGmInputLimitException("selected GM endpoint changed or input limit is unavailable");
         }

@@ -71,6 +71,8 @@ class HttpTypedCombatDecisionPortTest {
             assertEquals(List.of("goblin-scimitar"), plan.citationKeys());
             assertTrue(requestBody.get().contains("Protect the village"));
             assertTrue(requestBody.get().contains("goblin-scimitar"));
+            assertTrue(requestBody.get().contains("citationKeys is REQUIRED for both ACTION and END_TURN"));
+            assertTrue(requestBody.get().contains("MUST be a non-empty JSON array of exact citation keys"));
         } finally {
             server.stop(0);
         }

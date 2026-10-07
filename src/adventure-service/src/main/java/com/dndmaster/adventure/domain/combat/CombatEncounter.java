@@ -104,23 +104,37 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
     }
 
     public CombatEncounter endCurrentTurn(long expectedVersion) {
+        return endCurrentTurn(expectedVersion, null);
+    }
+
+    public CombatEncounter endCurrentTurn(long expectedVersion, String currentActorCondition) {
         requireVersion(expectedVersion);
         if (pendingReaction != null) throw new IllegalStateException("REACTION_PENDING");
+        List<CombatParticipant> currentParticipants = currentActorCondition == null ? participants
+                : participants.stream().map(p -> p.participantId().equals(currentParticipantId)
+                        ? p.withPublicCondition(currentActorCondition) : p).toList();
         int currentIndex = participants.indexOf(currentParticipant());
         int nextIndex = currentIndex;
         do {
             nextIndex = (nextIndex + 1) % participants.size();
-            if (nextIndex == currentIndex && participants.get(nextIndex).isDefeated()) {
+            if (nextIndex == currentIndex && currentParticipants.get(nextIndex).isDefeated()) {
                 throw new IllegalStateException("NO_ACTIVE_COMBAT_PARTICIPANTS");
             }
-        } while (participants.get(nextIndex).isDefeated());
+        } while (currentParticipants.get(nextIndex).isDefeated());
         int nextRound = nextIndex <= currentIndex ? round + 1 : round;
-        UUID nextParticipantId = participants.get(nextIndex).participantId();
-        List<CombatParticipant> resetParticipants = participants.stream()
+        UUID nextParticipantId = currentParticipants.get(nextIndex).participantId();
+        List<CombatParticipant> resetParticipants = currentParticipants.stream()
                 .map(p -> p.participantId().equals(nextParticipantId) ? p.withResources(TurnResources.initial()) : p)
                 .toList();
         return new CombatEncounter(encounterId, adventureId, status, nextRound, nextParticipantId,
                 resetParticipants, version + 1, eventCursor + 1, narrativePositions, null);
+    }
+
+    public CombatEncounter recordCurrentTurnEvent(long expectedVersion) {
+        requireVersion(expectedVersion);
+        if (pendingReaction != null) throw new IllegalStateException("REACTION_PENDING");
+        return new CombatEncounter(encounterId, adventureId, status, round, currentParticipantId,
+                participants, version + 1, eventCursor + 1, narrativePositions, null);
     }
 
     public CombatEncounter requestReaction(ReactionInterrupt reaction, long expectedVersion) {

@@ -109,6 +109,50 @@ class PostgresCombatWorkItemRepositoryTest {
         assertEquals(request, retried.enemySheetPreparationRequest());
     }
 
+    @Test
+    void reads_legacy_timestamp_columns_when_restoring_claimed_work() throws Exception {
+        DataSource dataSource = new SimpleDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        createSchema(dataSource);
+        UUID encounterId = UUID.randomUUID();
+        try (Connection connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE combat_work_item ALTER COLUMN due_at TYPE TIMESTAMP WITHOUT TIME ZONE USING due_at AT TIME ZONE 'UTC'");
+            statement.execute("ALTER TABLE combat_work_item ALTER COLUMN lease_until TYPE TIMESTAMP WITHOUT TIME ZONE USING lease_until AT TIME ZONE 'UTC'");
+        }
+        try (Connection connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "INSERT INTO combat_encounter(encounter_id) VALUES (?)")) {
+            statement.setObject(1, encounterId);
+            statement.executeUpdate();
+        }
+        UUID actorId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID workItemId = UUID.randomUUID();
+        var command = new CombatActionCommand(operationId, new AdventureId(UUID.randomUUID()), UUID.randomUUID(),
+                new RuleSetId(UUID.randomUUID()), new CharacterSheetId(actorId), null, CombatActorRole.AI,
+                "AI_TURN", null, null, actorId, 1, null, null, null, null, false);
+        var repository = new PostgresCombatWorkItemRepository(dataSource, new ObjectMapper());
+        Instant now = Instant.parse("2026-01-01T00:00:01Z");
+        try (Connection connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "INSERT INTO combat_work_item(work_item_id, encounter_id, operation_id, expected_encounter_version, work_type, due_at, attempt_count, status, tactical_instruction, tactical_constraints, command_json, completed_steps) " +
+                        "VALUES (?, ?, ?, 1, 'AI_TURN', TIMESTAMP '2026-01-01 00:00:00', 0, 'PENDING', 'Protect the healer', '[]'::jsonb, ?::jsonb, 0)")) {
+            statement.setObject(1, workItemId);
+            statement.setObject(2, encounterId);
+            statement.setObject(3, operationId);
+            statement.setString(4, new ObjectMapper().writeValueAsString(command));
+            statement.executeUpdate();
+        }
+
+        var claimed = repository.claim("worker-legacy", java.time.Duration.ofSeconds(30), now).orElseThrow();
+        try (Connection connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("UPDATE combat_work_item SET lease_until = TIMESTAMP '2026-01-01 00:00:31' WHERE operation_id = '" + operationId + "'");
+        }
+        var restored = repository.findByOperationId(operationId).orElseThrow();
+
+        assertEquals(CombatWorkItem.Status.CLAIMED, restored.status());
+        assertEquals(now.minusSeconds(1), restored.dueAt());
+        assertEquals(now.plusSeconds(30), restored.leaseUntil());
+        assertEquals(claimed.leaseToken(), restored.leaseToken());
+    }
+
     private static void createSchema(DataSource dataSource) throws Exception {
         try (Connection connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.execute("DROP TABLE IF EXISTS combat_work_item");

@@ -9,6 +9,7 @@ import com.dndmaster.adventure.application.combat.AiTurnPlan;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatActionResponse;
 import com.dndmaster.adventure.application.combat.CombatAutoProgressionWorker;
+import com.dndmaster.adventure.application.combat.CombatCommandRejectedException;
 import com.dndmaster.adventure.application.combat.CombatTransientFailureException;
 import com.dndmaster.adventure.application.combat.CombatWorkItem;
 import com.dndmaster.adventure.application.combat.EnemyCharacterSheet;
@@ -46,6 +47,51 @@ class CombatAutoProgressionWorkerTest {
                 encounter, actorId, "No tactical instruction", List.of());
         org.junit.jupiter.api.Assertions.assertThrows(UnsupportedOperationException.class,
                 () -> port.planTurn(context));
+    }
+
+    @Test
+    void allows_companion_to_end_turn_after_spending_its_action() {
+        UUID adventureId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        CombatEncounter encounter = CombatStartPolicy.startFromCommittedGmTurn(true, adventureId, List.of(
+                new CombatParticipant(actorId, "Lin", CombatParticipant.Controller.AI, 12, null,
+                        new com.dndmaster.adventure.domain.combat.TurnResources(30, false, true, true))));
+        var encounters = new EncounterStore(encounter);
+        var workItems = new InMemoryCombatWorkItemRepository();
+        var command = new CombatActionCommand(operationId, new AdventureId(adventureId), UUID.randomUUID(),
+                new RuleSetId(UUID.randomUUID()), new CharacterSheetId(actorId), null,
+                com.dndmaster.adventure.application.combat.CombatActorRole.AI, "AI_TURN", null,
+                UUID.randomUUID(), actorId, encounter.version(), null, null, null, null, false);
+        workItems.enqueue(new CombatWorkItem(UUID.randomUUID(), encounter.encounterId(), operationId,
+                encounter.version(), CombatWorkItem.WorkType.AI_TURN, Instant.parse("2026-01-01T00:00:00Z"), 0,
+                new com.dndmaster.adventure.application.combat.AiTacticalInstructionContext("Protect the healer"), command));
+        AtomicInteger turnEnds = new AtomicInteger();
+        AiCombatDecisionPort decision = new AiCombatDecisionPort() {
+            @Override public com.dndmaster.adventure.domain.combat.FreeFormActionPlan interpretFreeForm(
+                    com.dndmaster.adventure.application.combat.FreeFormCombatContext ignored) {
+                throw new UnsupportedOperationException();
+            }
+            @Override public AiTurnPlan planTurn(com.dndmaster.adventure.application.combat.AiCombatTurnContext ignored) {
+                return new AiTurnPlan(actorId,
+                        new com.dndmaster.adventure.domain.combat.CombatActionIntent(actorId, "ATTACK", TurnResourceCost.actionOnly()),
+                        null, null, null, null, false, null, List.of("rulebook-page-123"), null);
+            }
+        };
+        var worker = new CombatAutoProgressionWorker("worker", workItems, encounters, decision,
+                (ignoredCommand, ignoredPlan) -> { throw new AssertionError("spent companion should end its turn"); },
+                turnEndCommand -> {
+                    assertEquals("END_TURN", turnEndCommand.action());
+                    turnEnds.incrementAndGet();
+                    return new com.dndmaster.adventure.application.combat.CombatActionResponse(
+                            encounter.encounterId(), operationId, encounter.version() + 1,
+                            "TURN_ENDED", null, null, List.of());
+                }, 10);
+
+        worker.processOnce(Instant.parse("2026-01-01T00:00:00Z"));
+
+        assertEquals(1, turnEnds.get());
+        assertEquals(CombatWorkItem.Status.COMPLETED, workItems.findByOperationId(operationId).orElseThrow().status());
     }
 
     @Test
@@ -220,6 +266,45 @@ class CombatAutoProgressionWorkerTest {
         assertEquals(1, proposalCalls.get());
         assertEquals(CombatWorkItem.Status.PENDING, workItems.findByOperationId(operationId).orElseThrow().status());
         assertEquals(encounter.version(), encounters.value.version());
+    }
+
+    @Test
+    void marks_rejected_ai_action_failed_and_releases_request_instead_of_retrying_forever() {
+        UUID adventureId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID operationId = UUID.randomUUID();
+        UUID requestId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        CombatEncounter encounter = CombatStartPolicy.startFromCommittedGmTurn(true, adventureId, List.of(
+                new CombatParticipant(actorId, "Goblin", CombatParticipant.Controller.AI, 20, null)));
+        var encounters = new EncounterStore(encounter);
+        var workItems = new InMemoryCombatWorkItemRepository();
+        var command = new CombatActionCommand(operationId, new AdventureId(adventureId), sessionId,
+                new RuleSetId(UUID.randomUUID()), new CharacterSheetId(actorId), null,
+                com.dndmaster.adventure.application.combat.CombatActorRole.AI, "AI_TURN", null,
+                ownerId, actorId, encounter.version(), null, null, null, null, false);
+        workItems.enqueue(new CombatWorkItem(UUID.randomUUID(), encounter.encounterId(), operationId,
+                encounter.version(), CombatWorkItem.WorkType.AI_TURN, Instant.parse("2026-01-01T00:00:00Z"), 0,
+                new com.dndmaster.adventure.application.combat.AiTacticalInstructionContext("Protect the healer"), command,
+                0, requestId));
+        AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
+        when(sessions.releaseAiRequest(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId),
+                new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(ownerId), requestId)).thenReturn(true);
+        var worker = new CombatAutoProgressionWorker("worker-1", workItems, encounters, decisions(actorId),
+                (ignoredCommand, ignoredPlan) -> {
+                    throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("ACTION_ALREADY_SPENT"));
+                }, ignoredCommand -> { throw new AssertionError("rejected action must not end the turn"); }, 10,
+                null, new AdventureAiRequestApplicationService(sessions));
+
+        worker.processOnce(Instant.parse("2026-01-01T00:00:00Z"));
+
+        CombatWorkItem failed = workItems.findByOperationId(operationId).orElseThrow();
+        assertEquals(CombatWorkItem.Status.FAILED, failed.status());
+        assertEquals("ACTION_NOT_ALLOWED", failed.failure());
+        assertEquals(1, failed.attemptCount());
+        verify(sessions).releaseAiRequest(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId),
+                new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(ownerId), requestId);
     }
 
     private static AiCombatDecisionPort decisions(UUID actorId) {

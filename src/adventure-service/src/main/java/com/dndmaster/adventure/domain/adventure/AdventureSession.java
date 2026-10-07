@@ -204,7 +204,6 @@ public final class AdventureSession {
     }
     public void validateStart() {
         if (runtimeConfiguration == null) throw new IllegalStateException("adventure session runtime configuration is required");
-        if (party.size() != characterLimit) throw new IllegalStateException("adventure session requires the configured party capacity");
         if (directPartySize() < 1) throw new IllegalStateException("adventure session requires the solo player's character");
     }
     private void requireDraft() { if (status != Status.DRAFT) throw new IllegalStateException("started adventure session party is frozen"); }

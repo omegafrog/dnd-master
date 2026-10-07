@@ -111,8 +111,7 @@ export function AdventureWorkspace({ adventureId, activeTab, playApi, setupApi, 
     setCreatingSession(true)
     setMessage('')
     try {
-      const getPlayPreparation = setupApi.getPlayPreparation
-      const preparation = await getPlayPreparation(scenarioPackageId)
+      const preparation = await setupApi.getPlayPreparation(scenarioPackageId)
       const blueprint = preparation.characterCreationBlueprint
       if (blueprint.status !== 'PUBLISHED' || blueprint.revision == null) {
         throw new Error('캐릭터 생성 설정을 먼저 검토하고 게시해 주세요.')

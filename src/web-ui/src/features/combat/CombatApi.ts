@@ -15,6 +15,7 @@ export type CombatSnapshot = {
   initiative: CombatParticipant[]
   resources: { movement: number; actionAvailable: boolean; bonusActionAvailable: boolean; reactionAvailable: boolean }
   spellcasting?: { availableSpells: Array<{ name: string; level: number }>; availableSlots: Record<string, number> } | null
+  deathSavingThrow?: { currentHitPoints: number; successes: number; failures: number; stable: boolean; dead: boolean } | null
   version: number
   eventCursor: number
   narrativePositions?: Array<{ subjectId: string; targetId: string; rangeBand: string; cover: string }>

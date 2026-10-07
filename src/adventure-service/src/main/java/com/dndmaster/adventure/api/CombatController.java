@@ -222,6 +222,7 @@ public final class CombatController {
                     entry.participantId(), name, entry.controller(), entry.initiative(), entry.publicCondition());
         }).toList();
         var spellcasting = snapshot.spellcasting();
+        com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot.DeathSavingThrow deathSavingThrow = null;
         if (snapshot.currentParticipantId() != null && snapshot.initiative().stream()
                 .anyMatch(entry -> entry.participantId().equals(snapshot.currentParticipantId())
                         && entry.controller() == com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER)) {
@@ -232,13 +233,26 @@ public final class CombatController {
                         CombatActorRole.PLAYER, "READ_SPELLS", null, currentAdventure.ownerPlayerId().value(),
                         snapshot.currentParticipantId(), snapshot.version(), null, null, null, null, false);
                 spellcasting = characterCombatPort.spellcastingProfile(command);
+                var status = characterCombatPort.combatStatus(command);
+                if (status != null) {
+                    deathSavingThrow = new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot.DeathSavingThrow(
+                            status.currentHitPoints(), status.deathSavingThrowSuccesses(), status.deathSavingThrowFailures(),
+                            status.stable(), status.dead());
+                    String condition = status.dead() ? "dead" : status.stable() ? "stable"
+                            : status.currentHitPoints() == 0 ? "unconscious" : null;
+                    var updatedCondition = condition;
+                    entries = entries.stream().map(entry -> entry.participantId().equals(snapshot.currentParticipantId())
+                            ? new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot.PlayerParticipant(
+                                    entry.participantId(), entry.displayName(), entry.controller(), entry.initiative(), updatedCondition)
+                            : entry).toList();
+                }
             } catch (RuntimeException ignored) {
                 spellcasting = com.dndmaster.adventure.domain.combat.CombatSpellcastingProfile.empty();
             }
         }
         return new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot(snapshot.encounterId(), snapshot.adventureId(),
                 snapshot.status(), snapshot.round(), snapshot.currentParticipantId(), entries, snapshot.resources(),
-                snapshot.version(), snapshot.eventCursor(), snapshot.narrativePositions(), snapshot.pendingReaction(), snapshot.processingFailure(), spellcasting);
+                snapshot.version(), snapshot.eventCursor(), snapshot.narrativePositions(), snapshot.pendingReaction(), snapshot.processingFailure(), spellcasting, deathSavingThrow);
     }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat/final-summary")

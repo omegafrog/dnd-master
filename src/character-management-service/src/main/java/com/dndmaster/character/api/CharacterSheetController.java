@@ -171,7 +171,7 @@ public class CharacterSheetController {
         requestGuard.internal(internalToken);
         return CharacterSheetResponse.from(characterSheetService.applyRuntimeMutation(
                 new CharacterSheetId(sheetId), new SessionId(sessionId), ownerPlayerId,
-                new com.dndmaster.character.application.RuntimeCharacterMutation(request.hitPointDelta(), request.currencyDelta(), request.addItems(), request.removeItems(), request.consumeSpellSlotLevel()), commandId, expectedVersion));
+                new com.dndmaster.character.application.RuntimeCharacterMutation(request.hitPointDelta(), request.currencyDelta(), request.addItems(), request.removeItems(), request.consumeSpellSlotLevel(), request.deathSavingThrowRoll()), commandId, expectedVersion));
     }
 
     @GetMapping("/internal/v1/character-sheets")
@@ -292,9 +292,13 @@ public class CharacterSheetController {
         }
     }
     public record RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems,
-            List<String> removeItems, int consumeSpellSlotLevel) {
+            List<String> removeItems, int consumeSpellSlotLevel, Integer deathSavingThrowRoll) {
         public RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems, List<String> removeItems) {
-            this(hitPointDelta, currencyDelta, addItems, removeItems, 0);
+            this(hitPointDelta, currencyDelta, addItems, removeItems, 0, null);
+        }
+        public RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems,
+                List<String> removeItems, int consumeSpellSlotLevel) {
+            this(hitPointDelta, currencyDelta, addItems, removeItems, consumeSpellSlotLevel, null);
         }
         public RuntimeCharacterMutationRequest {
             if (addItems == null) addItems = List.of();

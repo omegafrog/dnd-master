@@ -63,6 +63,45 @@ public final class CrossContextHttpCombatGateway
     }
 
     @Override
+    public CharacterCombatStatus combatStatus(CombatActionCommand command) {
+        CharacterSheetView character = readCharacterSheet(command);
+        try {
+            JsonNode state = objectMapper.readTree(character.characterState());
+            return new CharacterCombatStatus(state.path("currentHitPoints").asInt(0),
+                    state.path("deathSavingThrowSuccesses").asInt(0),
+                    state.path("deathSavingThrowFailures").asInt(0),
+                    state.path("stable").asBoolean(false), state.path("dead").asBoolean(false));
+        } catch (IOException exception) {
+            throw new CrossContextCallException("character combat state could not be read", exception);
+        }
+    }
+
+    @Override
+    public void applyDeathSavingThrow(CombatActionCommand command, int roll) {
+        CharacterSheetView current = readCharacterSheet(command);
+        RuntimeMutationRequest request = new RuntimeMutationRequest(0, 0, List.of(), List.of(), 0, roll);
+        try {
+            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/character-sheets/"
+                            + command.characterSheetId().value() + "/runtime-mutations"))
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken).header("X-Session-ID", command.sessionId().toString())
+                    .header("X-Owner-Player-ID", Objects.requireNonNull(command.ownerPlayerId()).toString())
+                    .header("Idempotency-Key", command.operationId().toString())
+                    .header("If-Match-Version", Long.toString(current.version()))
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request))).build();
+            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("death saving throw update failed with status " + response.statusCode());
+            }
+        } catch (IOException exception) {
+            throw new CrossContextCallException("death saving throw serialization failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("death saving throw update interrupted", exception);
+        }
+    }
+
+    @Override
     public int initiativeModifier(java.util.UUID characterSheetId, java.util.UUID ownerPlayerId,
             java.util.UUID sessionId) {
         try {
@@ -160,6 +199,20 @@ public final class CrossContextHttpCombatGateway
                     ? modifiers.path("strength").asInt()
                     : Math.floorDiv(derived.path("abilityScores").path("strength").asInt(10) - 10, 2);
             return strength + 2 + Math.max(0, (character.level() - 1) / 4);
+        } catch (IOException exception) {
+            return null;
+        }
+    }
+
+    @Override
+    public Integer armorClass(CombatActionCommand command,
+            com.dndmaster.adventure.domain.adventure.CharacterSheetId targetCharacterSheetId) {
+        if (targetCharacterSheetId == null) return null;
+        CharacterSheetView target = readCharacterSheet(command, targetCharacterSheetId);
+        try {
+            JsonNode derived = objectMapper.readTree(target.derivedStatistics());
+            JsonNode armorClass = derived.path("armorClass");
+            return armorClass.isInt() ? armorClass.asInt() : null;
         } catch (IOException exception) {
             return null;
         }
@@ -710,9 +763,13 @@ public final class CrossContextHttpCombatGateway
             String startingAbilities, String derivedStatistics, String characterBuild, String characterState,
             java.util.Map<String, String> blueprintValues) {}
     private record RuntimeMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems,
-            List<String> removeItems, int consumeSpellSlotLevel) {
+            List<String> removeItems, int consumeSpellSlotLevel, Integer deathSavingThrowRoll) {
         private RuntimeMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems, List<String> removeItems) {
-            this(hitPointDelta, currencyDelta, addItems, removeItems, 0);
+            this(hitPointDelta, currencyDelta, addItems, removeItems, 0, null);
+        }
+        private RuntimeMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems,
+                List<String> removeItems, int consumeSpellSlotLevel) {
+            this(hitPointDelta, currencyDelta, addItems, removeItems, consumeSpellSlotLevel, null);
         }
     }
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)

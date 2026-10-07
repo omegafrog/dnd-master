@@ -153,11 +153,20 @@ public final class CharacterSheetApplicationService {
 
     private static String runtimeFingerprint(RuntimeCharacterMutation mutation) { return "RUNTIME|" + mutation; }
 
+    private static void resetDeathSavingThrows(ObjectNode state) {
+        state.put("deathSavingThrowSuccesses", 0);
+        state.put("deathSavingThrowFailures", 0);
+        state.put("stable", false);
+    }
+
     private static CharacterSheetData mutateData(CharacterSheetData current, RuntimeCharacterMutation mutation) {
         try {
             ObjectNode state = object(current.characterState(), "characterState");
             ObjectNode build = object(current.characterBuild(), "characterBuild");
             if (mutation.hitPointDelta() != 0) {
+                if (state.path("dead").asBoolean(false) && mutation.hitPointDelta() > 0) {
+                    throw new IllegalArgumentException("dead characters require revival before healing");
+                }
                 Integer hitPointMaximum = mutation.hitPointDelta() > 0
                         ? derivedInteger(current.derivedStatistics(), "hitPointMaximum")
                         : null;
@@ -166,8 +175,25 @@ public final class CharacterSheetApplicationService {
                         : hitPointMaximum != null
                                 ? hitPointMaximum
                                 : derivedInteger(current.derivedStatistics(), "hitPointMaximum");
-                state.put("currentHitPoints", nonNegative(state, "currentHitPoints", mutation.hitPointDelta(),
+                state.put("currentHitPoints", hitPointsAfterMutation(state, mutation.hitPointDelta(),
                         hitPointBaseline, hitPointMaximum));
+                if (mutation.hitPointDelta() > 0) resetDeathSavingThrows(state);
+            }
+            if (mutation.deathSavingThrowRoll() != null) {
+                if (state.path("currentHitPoints").asInt(-1) != 0) {
+                    throw new IllegalArgumentException("death saving throw requires zero hit points");
+                }
+                if (state.path("dead").asBoolean(false) || state.path("stable").asBoolean(false)) {
+                    throw new IllegalArgumentException("stable or dead characters cannot make death saving throws");
+                }
+                var result = DeathSavingThrowRules.resolve(mutation.deathSavingThrowRoll(),
+                        state.path("deathSavingThrowSuccesses").asInt(0),
+                        state.path("deathSavingThrowFailures").asInt(0));
+                state.put("deathSavingThrowSuccesses", result.successes());
+                state.put("deathSavingThrowFailures", result.failures());
+                state.put("stable", result.stable());
+                state.put("dead", result.dead());
+                if (result.regainedHitPoint()) state.put("currentHitPoints", 1);
             }
             if (mutation.currencyDelta() != 0) {
                 state.put("currency", nonNegative(state, "currency", mutation.currencyDelta(), 0));
@@ -220,6 +246,20 @@ public final class CharacterSheetApplicationService {
     private static int nonNegative(ObjectNode state, String field, int delta, Integer fallback) {
         return nonNegative(state, field, delta, fallback, null);
     }
+
+    private static int hitPointsAfterMutation(ObjectNode state, int delta, Integer fallback, Integer maximum) {
+        JsonNode value = state.get("currentHitPoints");
+        if (value == null) {
+            if (fallback == null) throw new IllegalArgumentException("currentHitPoints is required");
+            value = JSON.getNodeFactory().numberNode(fallback);
+        }
+        if (!value.isIntegralNumber()) throw new IllegalArgumentException("currentHitPoints must be an integer");
+        long next = Math.max(0L, value.longValue() + (long) delta);
+        if (next > Integer.MAX_VALUE) throw new IllegalArgumentException("currentHitPoints is out of range");
+        if (maximum != null && next > maximum) next = maximum;
+        return (int) next;
+    }
+
     private static int nonNegative(ObjectNode state, String field, int delta, Integer fallback, Integer maximum) {
         JsonNode value = state.get(field);
         if (value == null) {

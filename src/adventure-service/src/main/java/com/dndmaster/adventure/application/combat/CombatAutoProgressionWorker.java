@@ -128,8 +128,9 @@ public final class CombatAutoProgressionWorker {
                 plan = item.decisionPlan();
                 actorId = plan.actorId();
                 AiCombatTurnContext context = contextForStoredProposal(encounter, actorId, item, base);
+                plan = endTurnWhenNoActionIsAvailable(plan, context);
                 validateDecisionEvidence(plan, context);
-                command = base;
+                command = commandForPlan(base, plan, actorId, encounter);
             } else if ("AI_TURN".equals(base.action())) {
                 AiCombatTurnContext context = buildDecisionContext(encounter, actorId, item, base, true);
                 plan = Objects.requireNonNull(decisions.planTurn(context), "AI turn plan must not be null");
@@ -137,8 +138,12 @@ public final class CombatAutoProgressionWorker {
                 context = contextWithFallbackEvidence(context, plan, base);
                 if (context != initialContext) plan = Objects.requireNonNull(decisions.planTurn(context),
                         "AI combat proposal with Rulebook evidence must not be null");
+                plan = endTurnWhenNoActionIsAvailable(plan, context);
                 if (!actorId.equals(plan.actorId())) throw new CombatCommandRejectedException(
                         "ACTION_NOT_ALLOWED", java.util.List.of("AI_PLAN_ACTOR_MISMATCH"));
+                if (!plan.endTurn()) devLog("dev_combat_ai_action_proposed encounterId={} actorId={} actorType={} actionLabel={}",
+                        encounter.encounterId(), actorId, context.actor().enemyKind() == null ? "COMPANION" : "ENEMY",
+                        safeActionLabel(plan.intent().action()));
                 validateDecisionEvidence(plan, context);
                 command = commandForPlan(base, plan, actorId, encounter);
                 item = item.withDecisionPlan(plan).withCommand(command);
@@ -173,6 +178,12 @@ public final class CombatAutoProgressionWorker {
             devLog("dev_combat_ai_follow_up_blocked requestId={} operationId={} encounterId={} failureClass={}",
                     item.aiRequestId(), item.operationId(), item.encounterId(), failure.getClass().getName());
             releaseInitialRequest(blocked, "COMBAT_RULE_EVIDENCE_ABSENT");
+        } catch (CombatCommandRejectedException failure) {
+            CombatWorkItem failed = item.failed(item.leaseToken(), failure.code());
+            workItems.save(failed);
+            devLog("dev_combat_ai_follow_up_failed requestId={} operationId={} encounterId={} failureCode={} violations={}",
+                    item.aiRequestId(), item.operationId(), item.encounterId(), failure.code(), failure.violations());
+            releaseInitialRequest(failed, failure.code());
         } catch (RuntimeException failure) {
             int delaySeconds = Math.min(60, 1 << Math.min(item.attemptCount(), 6));
             CombatWorkItem retry = item.retry(item.leaseToken(), now.plusSeconds(delaySeconds), failureReason(failure));
@@ -327,6 +338,26 @@ public final class CombatAutoProgressionWorker {
         return failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
     }
 
+    private static String safeActionLabel(String action) {
+        if (action == null) return "<missing>";
+        String safe = action.toUpperCase(java.util.Locale.ROOT).replaceAll("[^\\p{L}\\p{N}_ -]", "?").trim();
+        return safe.length() <= 40 ? safe : safe.substring(0, 40);
+    }
+
+    private static AiTurnPlan endTurnWhenNoActionIsAvailable(AiTurnPlan plan, AiCombatTurnContext context) {
+        if (plan.endTurn() || context.actor().resources().actionAvailable()) return plan;
+        var citations = new java.util.LinkedHashSet<String>();
+        if (context.enemyCharacterSheet() != null) {
+            context.enemyCharacterSheet().actions().forEach(action -> citations.addAll(action.citationKeys()));
+        } else {
+            context.ruleEvidence().forEach(evidence -> citations.add(evidence.referenceKey()));
+            citations.addAll(sheetCitationKeys(context.characterSheetJson()));
+        }
+        citations.addAll(plan.citationKeys());
+        if (citations.isEmpty()) return plan;
+        return AiTurnPlan.endTurn(plan.actorId(), "사용 가능한 행동 자원이 없어 차례를 종료합니다.", java.util.List.copyOf(citations));
+    }
+
     private static void devLog(String pattern, Object... arguments) {
         if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
             LOGGER.info(pattern, arguments);
@@ -358,7 +389,6 @@ public final class CombatAutoProgressionWorker {
                 }
             }
         } else {
-            if (plan.endTurn()) throw new IllegalArgumentException("AI companion may not end its turn without an action");
             var available = context.ruleEvidence().stream().map(
                     com.dndmaster.adventure.application.runtime.RuntimeEvidence::referenceKey)
                     .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));

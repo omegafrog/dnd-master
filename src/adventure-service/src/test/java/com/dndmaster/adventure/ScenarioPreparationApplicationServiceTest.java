@@ -414,7 +414,7 @@ class ScenarioPreparationApplicationServiceTest {
         assertEquals(0, blueprint.rulebookDocumentCount());
         assertEquals(1, blueprint.storybookDocumentCount());
         assertTrue(blueprint.diagnostics().isEmpty());
-        assertEquals(1, preparation.characterLimit().maximumCharacters());
+        assertEquals(6, preparation.characterLimit().maximumCharacters());
 
         assertEquals("ollama", options.defaultEngineId());
         assertEquals(List.of("search", "move"), options.defaultToolIds());

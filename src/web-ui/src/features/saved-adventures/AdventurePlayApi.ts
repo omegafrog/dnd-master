@@ -1,3 +1,5 @@
+import { diagnosticFetch } from '../../shared/developmentDiagnostics'
+
 export type CharacterSheet = {
   characterSheetId: string
   name: string
@@ -191,7 +193,7 @@ export interface AdventurePlayApi {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, init)
+  const response = await diagnosticFetch(path, init)
   if (response.status === 409 || response.status === 422) {
     const problem = await response.clone().json().catch(() => null) as { error?: string; message?: string } | null
     if (problem?.error === 'ADVENTURE_START_BLOCKED' && problem.message === 'combat map alignment save failed') {
@@ -314,7 +316,7 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
       headers: this.authHeaders(),
     })
     if (!alignment.imageViewId) return null
-    const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map/alignment/image/${encodeURIComponent(alignment.imageViewId)}`, {
+    const response = await diagnosticFetch(`/api/v1/adventures/${adventureId}/combat-map/alignment/image/${encodeURIComponent(alignment.imageViewId)}`, {
       headers: this.authHeaders(), cache: 'no-store',
     })
     if (!response.ok) throw new Error(`공개된 지도 이미지를 불러오지 못했습니다. (${response.status})`)
@@ -322,7 +324,7 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   }
 
   async getCombatMapPreparationImage(adventureId: string): Promise<string | null> {
-    const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map/preparation-image`, { headers: this.authHeaders(), cache: 'no-store' })
+    const response = await diagnosticFetch(`/api/v1/adventures/${adventureId}/combat-map/preparation-image`, { headers: this.authHeaders(), cache: 'no-store' })
     if (!response.ok) throw new Error('맵 준비 이미지를 불러오지 못했습니다.')
     return URL.createObjectURL(await response.blob())
   }

@@ -8,10 +8,10 @@ public record CharacterLimitView(int maximumCharacters, UUID sourceDocumentId, L
     public static CharacterLimitView from(CharacterLimit limit) {
         return limit.source().map(source -> new CharacterLimitView(limit.maximumCharacters(),
                 source.knowledgeDocumentId().value(), source.extractionVersion(), source.locator(), limit.sourceQuote()))
-                .orElseGet(CharacterLimitView::defaultLimit);
+                .orElseGet(() -> new CharacterLimitView(limit.maximumCharacters(), null, null, null, ""));
     }
 
     public static CharacterLimitView defaultLimit() {
-        return new CharacterLimitView(1, null, null, null, "");
+        return new CharacterLimitView(6, null, null, null, "");
     }
 }

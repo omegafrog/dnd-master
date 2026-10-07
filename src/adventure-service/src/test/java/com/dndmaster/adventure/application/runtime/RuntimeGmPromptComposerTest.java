@@ -23,6 +23,9 @@ class RuntimeGmPromptComposerTest {
         assertTrue(instruction.contains("combatStart=false"));
         assertTrue(instruction.contains("mapEntryRequested=false"));
         assertTrue(instruction.contains("판정제안"));
+        assertTrue(instruction.contains("combatStart=false여도 combatEnemies 배열에 요청된 적 종류마다 후보를 정확히 하나씩 반환한다"));
+        assertTrue(instruction.contains("abilities 배열에 STR, DEX, CON, INT, WIS, CHA를 각각 하나씩 넣고"));
+        assertTrue(instruction.contains("actions 배열에는 룰북 근거에서 확인한 모든 전투 행동·기술을 넣는다"));
     }
 
     @Test

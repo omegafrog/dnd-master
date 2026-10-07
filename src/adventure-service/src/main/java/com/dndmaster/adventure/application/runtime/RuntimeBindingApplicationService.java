@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 public final class RuntimeBindingApplicationService {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(RuntimeBindingApplicationService.class);
     private final AdventureRepository adventureRepository;
     private final ScenarioBundleRepository bundleRepository;
     private final ScenarioPackageRepository scenarioPackageRepository;
@@ -125,6 +126,12 @@ public final class RuntimeBindingApplicationService {
 
     /** Used only by session start recovery. Existing binding is the durable idempotency result. */
     public RuntimeBinding bindForSession(BindRuntimeBindingCommand command) {
+        String context = "adventureId=" + command.adventureId().value();
+        return com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "runtime_binding_session", context, () -> bindForSessionInternal(command));
+    }
+
+    private RuntimeBinding bindForSessionInternal(BindRuntimeBindingCommand command) {
         Adventure adventure = loadAdventure(command.adventureId(), command.ownerPlayerId());
         RuntimeBinding existing = bindingRepository.findCurrentByAdventureId(command.adventureId()).orElse(null);
         if (existing != null) return existing;
@@ -188,19 +195,25 @@ public final class RuntimeBindingApplicationService {
             String engineId,
             List<String> toolIds,
             Long previousBindingVersion) {
+        String context = "adventureId=" + adventure.id().value() + " sessionId=" + adventure.sessionId().value();
         boolean commonOpeningFlow = openingSceneEvidenceAcquirer != null;
         OpeningSceneEvidenceAcquirer.Result openingResult = commonOpeningFlow
-                ? openingSceneEvidenceAcquirer.acquire(ownerPlayerId, adventure.sessionId().value(), scenarioPackage)
+                ? com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                        LOGGER, "runtime_binding_opening_evidence", context,
+                        () -> openingSceneEvidenceAcquirer.acquire(ownerPlayerId, adventure.sessionId().value(), scenarioPackage))
                 : null;
-        List<InitialSourceContextCandidate> candidates = commonOpeningFlow
-                ? openingCandidates(scenarioPackage, openingResult)
-                : buildCandidates(ownerPlayerId, scenarioPackage);
+        List<InitialSourceContextCandidate> candidates = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "runtime_binding_source_candidates", context,
+                () -> commonOpeningFlow ? openingCandidates(scenarioPackage, openingResult)
+                        : buildCandidates(ownerPlayerId, scenarioPackage));
         InitialSourceContextProposalPort.InitialSourceContextProposalResult proposal = commonOpeningFlow
                 ? new InitialSourceContextProposalPort.InitialSourceContextProposalResult(
                         openingResult.rulebookOnlyGenerationAllowed() ? "RULEBOOK_ONLY_GENERATION_ALLOWED"
                                 : openingResult.sufficient() ? "CLEAR" : "BLOCKED",
                         candidates)
-                : proposalPort.propose(scenarioPackage, candidates);
+                : com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                        LOGGER, "runtime_binding_source_context_proposal", context,
+                        () -> proposalPort.propose(scenarioPackage, candidates));
         PlayabilityReport report = buildReport(
                 scenarioPackage.report().status().name(), scenarioPackage.report().warnings(), candidates, proposal,
                 rulebookIds, engineId, toolIds, commonOpeningFlow,
@@ -213,11 +226,13 @@ public final class RuntimeBindingApplicationService {
             throw new IllegalStateException("published character blueprint with definition provenance is required");
         }
         long expectedDefinitionVersion = blueprint == null ? 0 : blueprint.provenance().gameSystemDefinitionVersion();
-        long definitionVersion = rulebookIds.stream()
-                .map(rulebookId -> gameSystemDefinitionPort.findByRulebook(rulebookId, expectedDefinitionVersion))
-                .flatMap(java.util.Optional::stream)
-                .mapToLong(GameSystemDefinitionPort.Definition::version)
-                .findFirst().orElse(0L);
+        long definitionVersion = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "runtime_binding_game_system_definition", context + " rulebookCount=" + rulebookIds.size(),
+                () -> rulebookIds.stream()
+                        .map(rulebookId -> gameSystemDefinitionPort.findByRulebook(rulebookId, expectedDefinitionVersion))
+                        .flatMap(java.util.Optional::stream)
+                        .mapToLong(GameSystemDefinitionPort.Definition::version)
+                        .findFirst().orElse(0L));
         long blueprintVersion = blueprint == null
                 ? 0L : scenarioPackage.characterCreationBlueprint().revision();
         if (requirePublishedReferences && (definitionVersion < 1 || blueprintVersion < 1)) {
@@ -227,7 +242,9 @@ public final class RuntimeBindingApplicationService {
                 ? RuntimeBinding.create(adventure.id(), ownerPlayerId, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), rulebookIds, adventure.party(), engineId, toolIds, definitionVersion, blueprintVersion, report, selected)
                 : RuntimeBinding.rehydrate(adventure.id(), ownerPlayerId, previousBindingVersion + 1, scenarioPackage.packageId(),
                 scenarioPackage.bundleRevision(), rulebookIds, adventure.party(), engineId, toolIds, definitionVersion, blueprintVersion, report, selected);
-        bindingRepository.save(binding);
+        com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "runtime_binding_persist", context,
+                () -> bindingRepository.save(binding));
         return binding;
     }
 

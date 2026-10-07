@@ -50,10 +50,12 @@ class CombatNarrationRequestTest {
                 CombatActorRole.AI, "attack", null, UUID.randomUUID(), UUID.randomUUID(), 6L,
                 15, 4, new CharacterSheetId(UUID.randomUUID()), 6, false);
 
-        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command, 7L, state(7L), 18, "명중", null);
+        CombatNarrationRequest request = CombatNarrationRequest.postResolution(command, 7L, state(7L), 18, "명중",
+                null, "린", "거대한 쥐 2");
 
         assertFalse(request.hasPlayerInput());
-        assertEquals("AI가 조종하는 전투 참여자", request.confirmedActor());
+        assertEquals("AI가 조종하는 전투 참여자 린", request.confirmedActor());
+        assertEquals("거대한 쥐 2", request.targetDisplayName());
     }
 
     @Test

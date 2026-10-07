@@ -49,6 +49,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
 
   if (!session) return <p role="status">{message || '세션 불러오는 중...'}</p>
   const partyFull = session.party.length === session.characterLimit
+  const hasDirectCharacter = session.party.some(member => member.controlMode === 'DIRECT')
   const orderedParty = [...session.party].sort((left, right) => Number(right.controlMode === 'DIRECT') - Number(left.controlMode === 'DIRECT'))
   const partyCharacter = (sheetId: string) => characters.find(character => character.characterSheetId === sheetId)
   const availableCharacters = characters.filter(character => !session.party.some(member => member.characterSheetId === character.characterSheetId))
@@ -63,7 +64,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
       .catch(error => setMessage(error instanceof Error ? error.message : 'AI 동료를 채택하지 못했습니다.'))
   }
   const startRuntime = () => {
-    if (runtimeStarting || !partyFull || !session.runtimeConfiguration) return
+    if (runtimeStarting || !hasDirectCharacter || !session.runtimeConfiguration) return
     setRuntimeStarting(true)
     setMessage('시나리오 런타임과 맵을 준비하는 중입니다. 잠시만 기다려 주세요.')
     const adventureId = globalThis.crypto.randomUUID()
@@ -86,14 +87,14 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
     <ol className="party-progress" aria-label="모험 준비 상태">
       <li className="is-complete"><span>01</span><strong>시나리오</strong><small>준비됨</small></li>
       <li className={session.party.some(member => member.controlMode === 'DIRECT') ? 'is-complete' : 'is-current'}><span>02</span><strong>내 플레이 캐릭터</strong><small>{session.party.some(member => member.controlMode === 'DIRECT') ? '선택됨' : '필수'}</small></li>
-      <li className={partyFull ? 'is-complete' : 'is-current'}><span>03</span><strong>파티 조립</strong><small>{session.party.length}/{session.characterLimit}명</small></li>
-      <li className={partyFull && session.runtimeConfiguration ? 'is-current' : undefined}><span>04</span><strong>시나리오 런타임</strong><small>{partyFull && session.runtimeConfiguration ? '시작 가능' : '대기 중'}</small></li>
+      <li className={hasDirectCharacter ? 'is-complete' : 'is-current'}><span>03</span><strong>파티 조립</strong><small>{session.party.length}/{session.characterLimit}명</small></li>
+      <li className={hasDirectCharacter && session.runtimeConfiguration ? 'is-current' : undefined}><span>04</span><strong>시나리오 런타임</strong><small>{hasDirectCharacter && session.runtimeConfiguration ? '시작 가능' : '대기 중'}</small></li>
     </ol>
 
     <div className="party-workspace">
       <section className="party-board" aria-labelledby="party-board-heading">
         <div className="party-section-heading"><div><p className="eyebrow">YOUR TABLE</p><h2 id="party-board-heading">파티 조립 현황</h2></div><span>{session.characterLimit - session.party.length}자리 남음</span></div>
-        <p className="party-capacity-note">이 모험은 총 {session.characterLimit}명으로 진행합니다. 첫 번째 캐릭터는 반드시 사용자가 직접 조작해야 합니다.</p>
+        <p className="party-capacity-note">최대 {session.characterLimit}명까지 참가할 수 있습니다. 시작하려면 사용자가 직접 조작할 캐릭터가 한 명 이상 필요합니다.</p>
         <ul className="party-slot-grid">
           {Array.from({ length: session.characterLimit }, (_, index) => {
             const member = orderedParty[index]
@@ -115,7 +116,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
       </aside>}
     </div>
 
-    {session.status === 'DRAFT' && <div className="session-start-actions"><button type="button" onClick={startRuntime} disabled={runtimeStarting || !partyFull || !session.runtimeConfiguration} aria-busy={runtimeStarting}>{runtimeStarting ? '시나리오 런타임 준비 중…' : '시나리오 런타임 시작'}</button>{runtimeStarting && <p>맵을 준비하는 동안 잠시만 기다려 주세요. 같은 요청을 다시 보내지 않습니다.</p>}{!runtimeStarting && partyFull && session.runtimeConfiguration && <p>시작 전에 맵 초안을 먼저 검수합니다.</p>}{!runtimeStarting && !partyFull && <p>파티 정원 {session.characterLimit}명에 맞춰야 시작할 수 있습니다.</p>}{!runtimeStarting && partyFull && !session.runtimeConfiguration && <p>런타임 설정이 없어 시나리오를 시작할 수 없습니다.</p>}</div>}
+    {session.status === 'DRAFT' && <div className="session-start-actions"><button type="button" onClick={startRuntime} disabled={runtimeStarting || !hasDirectCharacter || !session.runtimeConfiguration} aria-busy={runtimeStarting}>{runtimeStarting ? '시나리오 런타임 준비 중…' : '시나리오 런타임 시작'}</button>{runtimeStarting && <p>맵을 준비하는 동안 잠시만 기다려 주세요. 같은 요청을 다시 보내지 않습니다.</p>}{!runtimeStarting && hasDirectCharacter && session.runtimeConfiguration && <p>시작 전에 맵 초안을 먼저 검수합니다.</p>}{!runtimeStarting && !hasDirectCharacter && <p>직접 조작할 캐릭터를 한 명 이상 추가해야 시작할 수 있습니다.</p>}{!runtimeStarting && hasDirectCharacter && !session.runtimeConfiguration && <p>런타임 설정이 없어 시나리오를 시작할 수 없습니다.</p>}</div>}
 
     {preparingAdventureId && playApi && <section className="session-map-preparation" aria-label="모험 시작 전 맵 준비"><div className="page-heading"><div><p className="eyebrow">MAP PREPARATION</p><h2>모험 시작 전 맵 준비</h2><p>여백을 먼저 자르고, 격자를 맞춘 뒤 AI 벽과 문 초안을 생성해 확인하고 모험을 시작하세요.</p></div></div><CombatMapView adventureId={preparingAdventureId} api={playApi} preparationMode onPreparationComplete={async () => { if (session.status !== 'STARTING') throw new Error('모험 시작 상태가 바뀌었습니다. 세션을 새로고침한 뒤 다시 시도하세요.'); const started = await api.start(sessionId, session.version, preparingAdventureId); if (started.status !== 'STARTED') throw new Error('모험 시작이 아직 완료되지 않았습니다. 잠시 후 다시 시도하세요.'); setSession(started); window.location.hash = `#/sessions/${sessionId}?mode=play` }} /></section>}
 

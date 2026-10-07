@@ -50,6 +50,11 @@ public record CombatParticipant(UUID participantId, String displayName, Controll
                 statBlock, currentHitPoints, enemyKind);
     }
 
+    public CombatParticipant withPublicCondition(String updated) {
+        return new CombatParticipant(participantId, displayName, controller, initiative, updated, resources,
+                statBlock, currentHitPoints, enemyKind);
+    }
+
     public CombatParticipant withCurrentHitPoints(int updated) {
         if (statBlock == null) throw new IllegalStateException("participant has no enemy combat numbers");
         return new CombatParticipant(participantId, displayName, controller, initiative, publicCondition, resources,
@@ -63,6 +68,7 @@ public record CombatParticipant(UUID participantId, String displayName, Controll
     }
 
     public boolean isDefeated() {
-        return statBlock != null && currentHitPoints != null && currentHitPoints == 0;
+        return (statBlock != null && currentHitPoints != null && currentHitPoints == 0)
+                || (controller == Controller.PLAYER && "dead".equalsIgnoreCase(publicCondition));
     }
 }

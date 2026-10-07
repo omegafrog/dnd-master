@@ -106,9 +106,16 @@ public final class CombatWorkItem {
     public static CombatWorkItem enemySheetPreparation(UUID workItemId, UUID encounterId, long expectedVersion,
                                                         Instant dueAt, EnemySheetPreparationRequest request,
                                                         CombatActionCommand firstAiTurnTemplate) {
+        return enemySheetPreparation(workItemId, encounterId, expectedVersion, dueAt, request,
+                firstAiTurnTemplate, request.sourceTurnId());
+    }
+
+    public static CombatWorkItem enemySheetPreparation(UUID workItemId, UUID encounterId, long expectedVersion,
+                                                        Instant dueAt, EnemySheetPreparationRequest request,
+                                                        CombatActionCommand firstAiTurnTemplate, UUID aiRequestId) {
         return new CombatWorkItem(workItemId, encounterId, null, expectedVersion, WorkType.ENEMY_SHEET_PREPARATION,
                 dueAt, 0, Status.PENDING, null, null, null, AiTacticalInstructionContext.none(), firstAiTurnTemplate,
-                0, request.sourceTurnId(), request, null);
+                0, aiRequestId, request, null);
     }
 
     private CombatWorkItem(UUID workItemId, UUID encounterId, UUID operationId, long expectedEncounterVersion,

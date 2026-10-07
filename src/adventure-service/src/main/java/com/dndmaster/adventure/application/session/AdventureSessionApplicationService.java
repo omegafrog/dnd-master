@@ -27,6 +27,7 @@ import java.util.UUID;
 import org.springframework.transaction.annotation.Transactional;
 
 public class AdventureSessionApplicationService {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(AdventureSessionApplicationService.class);
     private final AdventureSessionRepository repository;
     private final ScenarioPackageRepository packageRepository;
     private final AdventureRepository adventureRepository;
@@ -133,6 +134,17 @@ public class AdventureSessionApplicationService {
      * map draft; a later idempotent call completes the runtime start.
      */
     public AdventureSession start(SessionId id, OwnerPlayerId owner, long expectedVersion, java.util.UUID requestId, AdventureId adventureId, boolean prepareMapOnly) {
+        String context = "sessionId=" + id.value() + " adventureId=" + adventureId.value()
+                + " requestId=" + requestId + " prepareMapOnly=" + prepareMapOnly;
+        return com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "session_start_service", context,
+                () -> startInternal(id, owner, expectedVersion, requestId, adventureId, prepareMapOnly));
+    }
+
+    private AdventureSession startInternal(SessionId id, OwnerPlayerId owner, long expectedVersion,
+            java.util.UUID requestId, AdventureId adventureId, boolean prepareMapOnly) {
+        String context = "sessionId=" + id.value() + " adventureId=" + adventureId.value()
+                + " requestId=" + requestId + " prepareMapOnly=" + prepareMapOnly;
         AdventureSession session = authorize(load(id), owner);
         if (session.status() == AdventureSession.Status.DELETED) {
             throw new IllegalStateException("deleted adventure session cannot be started");
@@ -152,6 +164,8 @@ public class AdventureSessionApplicationService {
             requestId = session.startRequestId();
         }
         boolean resumingStart = session.status() == AdventureSession.Status.STARTING;
+        AdventureId requestedAdventureId = adventureId;
+        java.util.UUID effectiveRequestId = requestId;
         if (!resumingStart) requireVersion(session, expectedVersion);
         var scenarioPackage = packageRepository.findById(session.scenarioPackageId()).orElseThrow(() -> new IllegalStateException("scenario package not found"));
         if (scenarioPackage.scenarioModel() == null || !scenarioPackage.isReady()) {
@@ -163,10 +177,17 @@ public class AdventureSessionApplicationService {
         session.validateStart();
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
-        if (!prepareMapOnly && !combatMapPreparationPort.mapLayoutConfirmed(adventureId, owner.value())) {
-            throw new IllegalStateException("맵 초안을 먼저 저장해야 모험을 시작할 수 있습니다.");
+        if (!prepareMapOnly) {
+            boolean mapLayoutConfirmed = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                    LOGGER, "session_start_layout_confirmation_check", context,
+                    () -> combatMapPreparationPort.mapLayoutConfirmed(requestedAdventureId, owner.value()));
+            if (!mapLayoutConfirmed) {
+                throw new IllegalStateException("맵 초안을 먼저 저장해야 모험을 시작할 수 있습니다.");
+            }
         }
-        var preparedStage = stagePreparation.prepare(scenarioPackage.packageId());
+        var preparedStage = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "session_start_stage_artifacts", context,
+                () -> stagePreparation.prepare(scenarioPackage.packageId()));
         // A retried browser request can generate a new adventure id after a
         // previous attempt already persisted the adventure. Reuse the
         // session-owned row so the unique session constraint remains intact.
@@ -176,14 +197,19 @@ public class AdventureSessionApplicationService {
         AdventureId effectiveAdventureId = persistedAdventure == null ? adventureId : persistedAdventure.id();
         boolean newlyStarting = session.beginStart(effectiveAdventureId, requestId);
         if (newlyStarting) {
-            repository.save(session, expectedVersion);
-            startCoordinator.prepare(session.id(), requestId, effectiveAdventureId.value(), session.scenarioPackageId());
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                    LOGGER, "session_start_persist_starting", context + " newlyStarting=true", () -> {
+                        repository.save(session, expectedVersion);
+                        startCoordinator.prepare(session.id(), effectiveRequestId, effectiveAdventureId.value(), session.scenarioPackageId());
+                    });
         }
         Adventure adventure = persistedAdventure;
         if (adventure == null) {
             adventure = Adventure.beginScenarioRuntime(effectiveAdventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(),
                     session.scenarioPackageId(), scenarioPackage.bundleRevision(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null));
-            adventureRepository.save(adventure);
+            Adventure newAdventure = adventure;
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                    LOGGER, "session_start_persist_adventure", context, () -> adventureRepository.save(newAdventure));
         }
         if (adventure.currentSituation() == null) {
             adventure.initializeScenarioRuntime(owner,
@@ -195,29 +221,46 @@ public class AdventureSessionApplicationService {
                     List.of(), new AdventureContext(preparedStage.openingSituation().situationId(), null, null, null),
                     preparedStage.currentStage() == null ? null
                             : com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.start(preparedStage.currentStage()));
-            adventureRepository.save(adventure);
+            Adventure initializedAdventure = adventure;
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                    LOGGER, "session_start_initialize_adventure", context,
+                    () -> adventureRepository.save(initializedAdventure));
         }
-        initializeSessionKnowledgeSetIfMissing(session, scenarioPackage);
+        com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "session_start_knowledge_set", context,
+                () -> initializeSessionKnowledgeSetIfMissing(session, scenarioPackage));
         Adventure activeAdventure = adventure;
         var initialMapDefinition = scenarioPackage.initialMapDefinition(configuration.initialScene());
         initialMapDefinition.ifPresent(mapDefinition -> {
-            var context = activationContext(activeAdventure, session);
+            var mapActivationContext = activationContext(activeAdventure, session);
             // Starting the adventure only prepares the editable draft. The
             // player's location is resolved from the committed map-bearing
             // situation, never from the opening scene.
-            combatMapPreparationPort.prepareDraft(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, context);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                    LOGGER, "session_start_prepare_map_draft", "sessionId=" + id.value() + " adventureId=" + effectiveAdventureId.value(),
+                    () -> combatMapPreparationPort.prepareDraft(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, mapActivationContext));
         });
         if (prepareMapOnly) return session;
-        runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(effectiveAdventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
+        com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "session_start_runtime_binding", context,
+                () -> runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
+                        effectiveAdventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(),
+                        configuration.engineId(), configuration.toolIds())));
         RuntimeTurnResult openingResult = runtimeTurnService == null
                 ? null
-                : runtimeTurnService.openSessionTurn(effectiveAdventureId, owner, requestId);
+                : com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                        LOGGER, "session_start_opening_gm_turn", context + " adventureId=" + effectiveAdventureId.value(),
+                        () -> runtimeTurnService.openSessionTurn(effectiveAdventureId, owner, effectiveRequestId));
         if (initialMapDefinition.isPresent() && openingResult != null
                 && (openingResult.turn().plan().mapEntryRequested()
                 || openingResult.turn().plan().combatStartRequested())) {
-            Adventure committedAdventure = adventureRepository.findById(effectiveAdventureId).orElse(adventure);
-            combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
-                    1, activationContext(committedAdventure, session, openingResult));
+            Adventure fallbackAdventure = adventure;
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                    LOGGER, "session_start_activate_map", context + " adventureId=" + effectiveAdventureId.value(), () -> {
+                        Adventure committedAdventure = adventureRepository.findById(effectiveAdventureId).orElse(fallbackAdventure);
+                        combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
+                                1, activationContext(committedAdventure, session, openingResult));
+                    });
         }
         if (openingResult != null && openingResult.turn().plan().combatStartRequested()) {
             if (combatLifecycleService == null) {
@@ -233,14 +276,20 @@ public class AdventureSessionApplicationService {
                     .requireCommittedCombatSituation(committedAdventure.currentSituation(), enemies);
             var participants = com.dndmaster.adventure.application.combat.CombatStartParticipantFactory
                     .fromPartyAndGmProposal(effectiveAdventureId.value(), session.party(), enemies);
-            var encounter = combatLifecycleService.startFromCommittedGmTurn(effectiveAdventureId.value(), true,
-                    participants);
-            if (encounter != null) combatLifecycleService.scheduleFirstAiTurn(encounter, requestId);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                    LOGGER, "session_start_opening_combat", context + " enemyCount=" + enemies.size(), () -> {
+                        var encounter = combatLifecycleService.startFromCommittedGmTurn(effectiveAdventureId.value(), true,
+                                participants);
+                        if (encounter != null) combatLifecycleService.scheduleFirstAiTurn(encounter, effectiveRequestId);
+                    });
         }
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();
-            repository.save(session, session.version() - 1);
-            startCoordinator.commit(session.id(), requestId);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                    LOGGER, "session_start_commit", context + " adventureId=" + effectiveAdventureId.value(), () -> {
+                        repository.save(session, session.version() - 1);
+                        startCoordinator.commit(session.id(), effectiveRequestId);
+                    });
         }
         return session;
     }

@@ -1,3 +1,5 @@
+import { diagnosticFetch } from '../../shared/developmentDiagnostics'
+
 export type SessionControlMode = 'DIRECT' | 'AGENT'
 export type AdventureSessionStatus = 'DRAFT' | 'STARTING' | 'STARTED' | 'COMPLETED' | 'DELETED'
 
@@ -74,7 +76,7 @@ export class AdventureSessionApi {
 
   private headers(extra: HeadersInit = {}): HeadersInit { return { Authorization: `Bearer ${this.token}`, ...extra } }
   private async request<T>(url: string, init: RequestInit = {}): Promise<T> {
-    const response = await fetch(url, { ...init, headers: this.headers(init.headers) })
+    const response = await diagnosticFetch(url, { ...init, headers: this.headers(init.headers) })
     if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`)
     return response.json() as Promise<T>
   }

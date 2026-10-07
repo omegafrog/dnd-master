@@ -17,24 +17,24 @@ class EvidenceModelServiceTest {
             new EvidenceCandidate("evidence-2", "STORYBOOK", "p. 8", "A scenario excerpt"));
 
     @Test
-    void reranker_leaves_the_single_stage_retry_to_adventure_orchestration() {
-        var model = new ScriptedModel("{\"orderedCandidateIds\":[\"unknown\"]}",
-                "{\"orderedCandidateIds\":[\"c2\",\"c1\"]}");
+    void reranker_drops_unknown_ids_and_keeps_valid_model_order() {
+        var model = new ScriptedModel("{\"orderedCandidateIds\":[\"unknown\",\"c2\"]}");
         var service = new EvidenceRerankerService(model, new ObjectMapper());
 
-        assertThrows(EvidenceModelOutputException.class,
-                () -> service.rerank(new EvidenceRerankRequest("where is the door", "current scene", CANDIDATES)));
+        var response = service.rerank(new EvidenceRerankRequest("where is the door", "current scene", CANDIDATES));
+
+        assertEquals(List.of("evidence-2"), response.orderedCandidateIds());
         assertEquals(1, model.calls);
     }
 
     @Test
-    void reranker_makes_one_model_call_for_each_orchestration_attempt() {
-        var model = new ScriptedModel("{\"orderedCandidateIds\":[\"unknown\"]}",
-                "{\"orderedCandidateIds\":[\"unknown\"]}");
+    void reranker_falls_back_to_search_order_when_no_returned_id_is_known() {
+        var model = new ScriptedModel("{\"orderedCandidateIds\":[\"unknown\"]}");
         var service = new EvidenceRerankerService(model, new ObjectMapper());
 
-        assertThrows(EvidenceModelOutputException.class,
-                () -> service.rerank(new EvidenceRerankRequest("where is the door", "current scene", CANDIDATES)));
+        var response = service.rerank(new EvidenceRerankRequest("where is the door", "current scene", CANDIDATES));
+
+        assertEquals(List.of("evidence-1", "evidence-2"), response.orderedCandidateIds());
         assertEquals(1, model.calls);
     }
 

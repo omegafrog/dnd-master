@@ -214,7 +214,16 @@ public final class TypedAgentContractController {
                     HttpStatus.SERVICE_UNAVAILABLE, "selected GM endpoint changed before execution");
         }
         return adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
-                this::parseCombatTurnDecision, requested, resolution, null).response();
+                json -> {
+                    try {
+                        return parseCombatTurnDecision(json);
+                    } catch (IllegalArgumentException invalid) {
+                        // The message comes only from our fixed contract validators; never log model output.
+                        log.warn("gm_combat_turn_response_rejected operationKey={} reason={}",
+                                request.operationKey(), invalid.getMessage());
+                        throw invalid;
+                    }
+                }, requested, resolution, null).response();
     }
 
     private CombatTurnDecisionResponse parseCombatTurnDecision(String json) {

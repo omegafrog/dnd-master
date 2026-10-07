@@ -116,12 +116,12 @@ public final class CombatLifecycleApplicationService {
         Adventure adventure = adventureRepository.findById(new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId))
                 .orElseThrow(() -> new IllegalStateException("adventure disappeared after combat preparation"));
         java.util.function.Supplier<CombatEncounter> persist = () -> persistPreparingEncounter(adventureId,
-                participants, request, adventure);
+                participants, request, adventure, gmTurn.commandId());
         return preparationTransactions == null ? persist.get() : preparationTransactions.execute(status -> persist.get());
     }
 
     private CombatEncounter persistPreparingEncounter(UUID adventureId, List<CombatParticipant> participants,
-            EnemySheetPreparationRequest request, Adventure adventure) {
+            EnemySheetPreparationRequest request, Adventure adventure, UUID aiRequestId) {
         CombatEncounter existing = repository.findActive(adventureId).orElse(null);
         if (existing != null && existing.status() != CombatEncounter.Status.PREPARING) {
             throw new com.dndmaster.adventure.domain.combat.ActiveCombatEncounterException(
@@ -144,7 +144,7 @@ public final class CombatLifecycleApplicationService {
         UUID workId = UUID.nameUUIDFromBytes((adventureId + "|enemy-sheet-preparation|" + request.sourceTurnId())
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         workItemRepository.enqueue(CombatWorkItem.enemySheetPreparation(workId, saved.encounterId(), saved.version(),
-                java.time.Instant.now(), request, template));
+                java.time.Instant.now(), request, template, aiRequestId));
         return saved;
     }
 

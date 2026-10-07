@@ -143,9 +143,11 @@ class CombatNarrationPromptContractTest {
         ConfirmedCombatState combatState = new ConfirmedCombatState(3, List.of(
                 new ConfirmedCombatState.Enemy(UUID.randomUUID(), "고블린", 4, 7, false),
                 new ConfirmedCombatState.Enemy(UUID.randomUUID(), "거대 쥐", 0, 5, true)));
-        service.narrateConfirmedCombat(CombatNarrationRequest.postResolution(command, 3, combatState, 17, "명중", "검을 휘두른다."));
+        service.narrateConfirmedCombat(CombatNarrationRequest.postResolution(command, 3, combatState, 17, "명중",
+                "검을 휘두른다.", "새연", "고블린"));
 
         assertThat(prompt.get()).contains("확정된 전투 행동", "주사위 결과=17", "판정=명중");
+        assertThat(prompt.get()).contains("행동 주체=플레이어 전투 참여자 새연", "지정 대상=고블린", "행동 주체와 지정 대상을 바꾸지 마세요");
         assertThat(prompt.get()).contains("고블린", "피해를 입었고 전투 중", "거대 쥐", "쓰러짐");
         assertThat(prompt.get()).doesNotContain("현재 HP=", "4/7", "0/5");
         assertThat(prompt.get()).contains("PLAYER: 검을 휘두른다.");

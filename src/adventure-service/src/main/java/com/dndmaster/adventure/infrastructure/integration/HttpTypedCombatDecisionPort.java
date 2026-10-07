@@ -103,7 +103,11 @@ public final class HttpTypedCombatDecisionPort implements AiCombatDecisionPort {
         data.put("tacticalInstruction", context.tacticalInstruction());
         return "ROLE=COMBAT_TURN_DECISION\n" +
                 "Choose one legal action that benefits this actor in the current situation. Use supplied character sheet and enemy action rules first; use the supplied pinned Rulebook excerpts only when needed rules are absent from that material. Never invent rule values. " +
-                "Return one JSON object: {kind:ACTION|END_TURN,actorId,action,targetId,citationKeys,endTurnAssessment}. " +
+                "Return one JSON object with every field: kind, actorId, action, targetId, citationKeys, endTurnAssessment. " +
+                "citationKeys is REQUIRED for both ACTION and END_TURN and MUST be a non-empty JSON array of exact citation keys copied from the supplied character sheet, enemy character sheet, or rulebookEvidence. Never omit this field, return an empty array, cite a title in prose, or invent a key. " +
+                "For ACTION, include the exact source key or keys that support the chosen action. For END_TURN, cite every reviewed action rule in the same array. " +
+                "For a companion, action must be exactly one Runtime command name: ATTACK, CAST_SPELL, DODGE, DISENGAGE, DASH, HELP, HIDE, READY, SEARCH, USE_OBJECT, or MOVE. " +
+                "For an enemy, action must exactly match an action name on enemyCharacterSheet.actions. Do not return a descriptive phrase or a spell/action name in place of the Runtime command name. " +
                 "For END_TURN, explain why no favorable legal action is available and cite every relevant reviewed rule. " +
                 "For ACTION, cite the supplied rule keys supporting the action. Do not include narration or hidden values.\nCONTEXT="
                 + mapper.writeValueAsString(data);

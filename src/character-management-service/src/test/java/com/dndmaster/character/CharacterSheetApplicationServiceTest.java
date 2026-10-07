@@ -15,6 +15,64 @@ import org.junit.jupiter.api.Test;
 
 class CharacterSheetApplicationServiceTest {
     @Test
+    void stores_death_save_progress_stabilizes_and_restores_hit_point_on_natural_twenty() throws Exception {
+        InMemoryRepository repository = new InMemoryRepository();
+        UUID owner = UUID.randomUUID();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(repository,
+                id -> SheetEdition.DND_5E_2014, id -> SessionCharacterPolicy.started("DND_5E_2014"));
+        AdventureId adventureId = adventure();
+        CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("Aria", 1, false, "Elf", "파이터", "군인", "STR=15",
+                        "{\"hitPointMaximum\":12}", "{\"ownedEquipment\":[]}",
+                        "{\"currentHitPoints\":0,\"deathSavingThrowSuccesses\":2,\"equippedItems\":{}}"), 0, null, null);
+        repository.save(sheet);
+
+        CharacterSheet stable = service.applyRuntimeMutation(sheet.id(), new SessionId(adventureId.value()), owner,
+                new RuntimeCharacterMutation(0, 0, List.of(), List.of(), 0, 10), UUID.randomUUID(), 0);
+        var stableState = new com.fasterxml.jackson.databind.ObjectMapper().readTree(stable.data().characterState());
+        assertEquals(true, stableState.path("stable").asBoolean());
+        assertEquals(0, stableState.path("deathSavingThrowSuccesses").asInt());
+        CharacterSheet recovered = service.applyRuntimeMutation(sheet.id(), new SessionId(adventureId.value()), owner,
+                new RuntimeCharacterMutation(1, 0, List.of(), List.of()), UUID.randomUUID(), 1);
+        var recoveredState = new com.fasterxml.jackson.databind.ObjectMapper().readTree(recovered.data().characterState());
+        assertEquals(1, recoveredState.path("currentHitPoints").asInt());
+        assertEquals(false, recoveredState.path("stable").asBoolean());
+
+        CharacterSheet revival = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("Borin", 1, false, "Elf", "파이터", "군인", "STR=15",
+                        "{\"hitPointMaximum\":12}", "{\"ownedEquipment\":[]}", "{\"currentHitPoints\":0,\"equippedItems\":{}}"), 0, null, null);
+        repository.save(revival);
+        CharacterSheet healed = service.applyRuntimeMutation(revival.id(), new SessionId(adventureId.value()), owner,
+                new RuntimeCharacterMutation(0, 0, List.of(), List.of(), 0, 20), UUID.randomUUID(), 0);
+        var healedState = new com.fasterxml.jackson.databind.ObjectMapper().readTree(healed.data().characterState());
+        assertEquals(1, healedState.path("currentHitPoints").asInt());
+        assertEquals(false, healedState.path("stable").asBoolean());
+    }
+
+    @Test
+    void marks_dead_after_third_death_save_failure() throws Exception {
+        InMemoryRepository repository = new InMemoryRepository();
+        UUID owner = UUID.randomUUID();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(repository,
+                id -> SheetEdition.DND_5E_2014, id -> SessionCharacterPolicy.started("DND_5E_2014"));
+        AdventureId adventureId = adventure();
+        CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("Aria", 1, false, "Elf", "파이터", "군인", "STR=15",
+                        "{\"hitPointMaximum\":12}", "{\"ownedEquipment\":[]}",
+                        "{\"currentHitPoints\":0,\"deathSavingThrowFailures\":2,\"equippedItems\":{}}"), 0, null, null);
+        repository.save(sheet);
+
+        CharacterSheet dead = service.applyRuntimeMutation(sheet.id(), new SessionId(adventureId.value()), owner,
+                new RuntimeCharacterMutation(0, 0, List.of(), List.of(), 0, 9), UUID.randomUUID(), 0);
+        var deadState = new com.fasterxml.jackson.databind.ObjectMapper().readTree(dead.data().characterState());
+        assertEquals(true, deadState.path("dead").asBoolean());
+        assertEquals(3, deadState.path("deathSavingThrowFailures").asInt());
+    }
+
+    @Test
     void applies_runtime_hp_and_inventory_mutation_after_session_started() throws Exception {
         InMemoryRepository repository = new InMemoryRepository();
         UUID owner = UUID.randomUUID();
@@ -50,17 +108,19 @@ class CharacterSheetApplicationServiceTest {
     }
 
     @Test
-    void rejects_runtime_mutation_when_hp_would_be_negative() {
+    void clamps_runtime_damage_at_zero_hit_points() throws Exception {
         InMemoryRepository repository = new InMemoryRepository();
         UUID owner = UUID.randomUUID();
         CharacterSheetApplicationService service = new CharacterSheetApplicationService(repository, id -> SheetEdition.DND_5E_2014,
                 id -> SessionCharacterPolicy.started("DND_5E_2014"));
         AdventureId adventureId = adventure();
         CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
-                new CharacterSheetData2014("Aria", 1, false, "Elf", "파이터", "군인", "STR=15", "{}", "{\"ownedEquipment\":[]}", "{\"currentHitPoints\":1}"));
+                new CharacterSheetData2014("Aria", 1, false, "Elf", "파이터", "군인", "STR=15", "{}", "{\"ownedEquipment\":[]}", "{\"currentHitPoints\":1,\"equippedItems\":{}}"));
         repository.save(sheet);
-        assertThrows(IllegalArgumentException.class, () -> service.applyRuntimeMutation(sheet.id(), new SessionId(sheet.adventureId().value()), owner,
-                new RuntimeCharacterMutation(-2, 0, List.of(), List.of()), UUID.randomUUID(), 0));
+        CharacterSheet result = service.applyRuntimeMutation(sheet.id(), new SessionId(sheet.adventureId().value()), owner,
+                new RuntimeCharacterMutation(-4, 0, List.of(), List.of()), UUID.randomUUID(), 0);
+        assertEquals(0, new com.fasterxml.jackson.databind.ObjectMapper().readTree(result.data().characterState())
+                .get("currentHitPoints").intValue());
     }
 
     @Test
@@ -125,7 +185,7 @@ class CharacterSheetApplicationServiceTest {
     }
 
     @Test
-    void rejects_missing_runtime_hp_when_delta_would_exceed_derived_baseline() {
+    void clamps_damage_from_derived_hp_baseline_at_zero_when_runtime_hp_is_missing() throws Exception {
         InMemoryRepository repository = new InMemoryRepository();
         UUID owner = UUID.randomUUID();
         CharacterSheetApplicationService service = new CharacterSheetApplicationService(repository, id -> SheetEdition.DND_5E_2014,
@@ -136,8 +196,10 @@ class CharacterSheetApplicationServiceTest {
                         "{\"hitPointMaximum\":12}", "{\"ownedEquipment\":[]}", "{\"equippedItems\":{}}"));
         repository.save(sheet);
 
-        assertThrows(IllegalArgumentException.class, () -> service.applyRuntimeMutation(sheet.id(), new SessionId(adventureId.value()), owner,
-                new RuntimeCharacterMutation(-13, 0, List.of(), List.of()), UUID.randomUUID(), 0));
+        CharacterSheet result = service.applyRuntimeMutation(sheet.id(), new SessionId(adventureId.value()), owner,
+                new RuntimeCharacterMutation(-13, 0, List.of(), List.of()), UUID.randomUUID(), 0);
+        assertEquals(0, new com.fasterxml.jackson.databind.ObjectMapper().readTree(result.data().characterState())
+                .get("currentHitPoints").intValue());
     }
     @Test
     void rejects_initial_attribute_change_when_session_policy_freezes_it() {

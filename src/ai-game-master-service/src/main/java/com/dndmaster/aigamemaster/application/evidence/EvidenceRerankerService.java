@@ -21,8 +21,11 @@ public final class EvidenceRerankerService {
         Set<String> modelIds = Set.copyOf(promptCandidates.evidenceIdByModelId().keySet());
         EvidenceRerankResponse response = stage.execute(request.soloPlayerId(), "evidence-rerank", rerankInstruction(request, promptCandidates),
                 raw -> parse(raw, modelIds));
-        return new EvidenceRerankResponse(response.orderedCandidateIds().stream()
-                .map(promptCandidates::evidenceId).filter(java.util.Objects::nonNull).toList());
+        List<String> ordered = response.orderedCandidateIds().stream()
+                .map(promptCandidates::evidenceId).filter(java.util.Objects::nonNull).toList();
+        if (ordered.isEmpty()) ordered = request.candidates().stream().limit(30)
+                .map(EvidenceCandidate::evidenceId).toList();
+        return new EvidenceRerankResponse(ordered);
     }
 
     private EvidenceRerankResponse parse(String raw, Set<String> candidateIds) {
@@ -48,9 +51,7 @@ public final class EvidenceRerankerService {
             if (ids.size() != new HashSet<>(ids).size()) throw invalid(
                     EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
                     "ordered candidate IDs contain duplicates; idCount=" + ids.size());
-            long unknownIdCount = ids.stream().filter(id -> !candidateIds.contains(id)).count();
-            if (unknownIdCount > 0) throw invalid(EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
-                    "ordered candidate IDs include IDs outside the supplied candidates; unknownIdCount=" + unknownIdCount);
+            ids.removeIf(id -> !candidateIds.contains(id));
             return new EvidenceRerankResponse(ids);
         } catch (EvidenceModelOutputException exception) {
             throw exception;

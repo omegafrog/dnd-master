@@ -5,9 +5,9 @@ import { AdventureSessionPanel } from './AdventureSessionPanel'
 import type { AdventureSessionApi, AdventureSessionView } from './AdventureSessionApi'
 
 describe('AdventureSessionPanel lifecycle', () => {
-  it('requires the storybook-defined party capacity before starting', async () => {
+  it('allows a direct character to start before the party reaches its maximum size', async () => {
     const api = {
-      read: vi.fn().mockResolvedValue({ sessionId: 's', characterLimit: 2, version: 3, status: 'DRAFT', adventureId: null, runtimeConfiguration: null, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT' }] }),
+      read: vi.fn().mockResolvedValue({ sessionId: 's', characterLimit: 6, version: 3, status: 'DRAFT', adventureId: null, runtimeConfiguration: { engineId: 'ollama' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT' }] }),
       listOwnedCharacters: vi.fn().mockResolvedValue([]),
       copyOwnedCharacter: vi.fn(),
       addMember: vi.fn(), removeMember: vi.fn(), start: vi.fn(),
@@ -15,8 +15,21 @@ describe('AdventureSessionPanel lifecycle', () => {
     }
     render(<AdventureSessionPanel api={api} ownerPlayerId="p" sessionId="s" />)
     const start = await screen.findByRole('button', { name: '시나리오 런타임 시작' })
+    expect((start as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByText('최대 6명까지 참가할 수 있습니다. 시작하려면 사용자가 직접 조작할 캐릭터가 한 명 이상 필요합니다.')).toBeTruthy()
+  })
+
+  it('still requires one directly controlled character before starting', async () => {
+    const api = {
+      read: vi.fn().mockResolvedValue({ sessionId: 's', characterLimit: 6, version: 3, status: 'DRAFT', adventureId: null, runtimeConfiguration: { engineId: 'ollama' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'AGENT' }] }),
+      listOwnedCharacters: vi.fn().mockResolvedValue([]),
+      copyOwnedCharacter: vi.fn(), addMember: vi.fn(), removeMember: vi.fn(), start: vi.fn(),
+      complete: vi.fn(), delete: vi.fn(),
+    }
+    render(<AdventureSessionPanel api={api} ownerPlayerId="p" sessionId="s" />)
+    const start = await screen.findByRole('button', { name: '시나리오 런타임 시작' })
     expect((start as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText('파티 정원 2명에 맞춰야 시작할 수 있습니다.')).toBeTruthy()
+    expect(screen.getByText('직접 조작할 캐릭터를 한 명 이상 추가해야 시작할 수 있습니다.')).toBeTruthy()
   })
 
   it('does not let the player complete a session manually', async () => {

@@ -14,8 +14,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Calendar;
 import java.util.List;
 import java.util.Optional;
+import java.util.TimeZone;
 import java.util.UUID;
 import javax.sql.DataSource;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -123,16 +125,25 @@ public final class PostgresCombatWorkItemRepository implements CombatWorkItemRep
                                     EnemySheetPreparationRequest preparation, AiTurnPlan decisionPlan) {
         CombatWorkItem value() {
             try {
-                Object leaseUntil = rs.getObject("lease_until");
+                Instant leaseUntil = instant(rs, "lease_until");
                 return CombatWorkItem.restore(rs.getObject("work_item_id", UUID.class), rs.getObject("encounter_id", UUID.class),
                         rs.getObject("operation_id", UUID.class), rs.getLong("expected_encounter_version"),
                         CombatWorkItem.WorkType.valueOf(rs.getString("work_type")),
-                        rs.getObject("due_at", OffsetDateTime.class).toInstant(), rs.getInt("attempt_count"),
+                        instant(rs, "due_at"), rs.getInt("attempt_count"),
                         CombatWorkItem.Status.valueOf(rs.getString("status")), rs.getObject("lease_token", UUID.class),
-                        leaseUntil == null ? null : ((OffsetDateTime) leaseUntil).toInstant(), rs.getString("failure"),
+                        leaseUntil, rs.getString("failure"),
                         new AiTacticalInstructionContext(rs.getString("tactical_instruction"), constraints), command,
                         rs.getInt("completed_steps"), rs.getObject("ai_request_id", UUID.class), preparation, decisionPlan);
             } catch (SQLException exception) { throw new IllegalStateException(exception); }
         }
+
+        private static Instant instant(ResultSet rs, String column) throws SQLException {
+            java.sql.Timestamp value = rs.getTimestamp(column, utcCalendar());
+            return value == null ? null : value.toInstant();
+        }
+    }
+
+    private static Calendar utcCalendar() {
+        return Calendar.getInstance(TimeZone.getTimeZone(ZoneOffset.UTC));
     }
 }
