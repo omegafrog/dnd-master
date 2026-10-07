@@ -15,6 +15,7 @@ import com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
+import com.dndmaster.adventure.domain.scenario.RulebookEdition;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
 import com.dndmaster.adventure.domain.scenario.CharacterInputNode;
@@ -93,7 +94,7 @@ public final class ScenarioPreparationApplicationService {
         ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(ownerPlayerId);
-        if (scenarioPackage.spellDefinitions().isEmpty()) {
+        if (bundle.rulebookEdition() == RulebookEdition.DND_5E_2014 && scenarioPackage.spellDefinitions().isEmpty()) {
             var spellDefinitions = BasicRulebookSpellInventory.load();
             packageRepository.saveSpellDefinitions(scenarioPackageId, spellDefinitions);
             scenarioPackage = scenarioPackage.withSpellDefinitions(spellDefinitions);

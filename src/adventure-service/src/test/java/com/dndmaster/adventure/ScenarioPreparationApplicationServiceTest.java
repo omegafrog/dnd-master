@@ -400,6 +400,18 @@ class ScenarioPreparationApplicationServiceTest {
     }
 
     @Test
+    void doesNotSeed2014SpellsForOtherRulebookEditions() {
+        var scenarioPackage = withRulebookPackage();
+        var bundle = ScenarioSourceBundle.create(scenarioPackage.bundleId(), owner(), "2024 adventure",
+                com.dndmaster.adventure.domain.scenario.RulebookEdition.DND_5E_2024,
+                new ScenarioSourceBundleRevision(4, bundleWithRulebook().currentRevision().documents()));
+
+        var preparation = service(bundle(scenarioPackage, bundle)).read(scenarioPackage.packageId(), owner());
+
+        assertTrue(preparation.spellDefinitions().isEmpty());
+    }
+
+    @Test
     void exposesBlueprintAndRuntimeDefaultsWhenRulebookAndResolutionExist() {
         TestFixture fixture = bundle(withRulebookPackage(), bundleWithRulebook());
         ScenarioPreparationApplicationService service = service(fixture);
