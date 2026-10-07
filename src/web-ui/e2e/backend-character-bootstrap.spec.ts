@@ -1,5 +1,6 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { basename } from 'node:path'
+import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 
 const storybookRoles = new Set([
@@ -348,6 +349,14 @@ test('fresh database bootstraps scenario package, preserves spell sources, and c
     'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD and BACKEND_E2E_STORYBOOKS_JSON')
   test.setTimeout(0)
 
+  const approvedPdf = '/home/jiwoo/workspace/dnd-master/docs/assets/DnD_BasicRules_2018.pdf'
+  const approvedNodes = '/home/jiwoo/workspace/dnd-master/docs/assets/DnD_BasicRules_2018.nodes.json'
+  expect(catalogPdf).toBe(approvedPdf)
+  expect(createHash('sha256').update(await readFile(catalogPdf)).digest('hex'))
+    .toBe('7a0c5d8bf52d15092f156d78418aa3d43307e271f810d2f06bf2f0258e9288a3')
+  expect(createHash('sha256').update(await readFile(approvedNodes)).digest('hex'))
+    .toBe('02b47f9b07f27ddf4d95542f0aa50ad200b0999c670e3dea8e098c4579c44991')
+
   await login(request)
   const uploaded = await uploadDocuments(request)
   await waitForDocuments(request, uploaded.documents
@@ -373,6 +382,8 @@ test('fresh database bootstraps scenario package, preserves spell sources, and c
     expect(spell.executable).toBe(false)
     expect(spell.reviewStatus).toBe('PENDING')
   }
+  const reloadedPreparation = await getPreparation(request, packageId)
+  expect(reloadedPreparation.spellDefinitions).toEqual(spellPreparation.spellDefinitions)
 
   await page.goto('/#/login')
   await page.getByLabel('이메일').fill(email!)
@@ -384,9 +395,11 @@ test('fresh database bootstraps scenario package, preserves spell sources, and c
   await spellList.getByText('126개 주문과 출처 보기', { exact: true }).click()
   const spellRows = spellList.locator('ol > li')
   await expect(spellRows).toHaveCount(126)
-  const firstSpell = spellPreparation.spellDefinitions[0]
-  await expect(spellRows.first()).toContainText(firstSpell.name)
-  await expect(spellRows.first()).toContainText(`원문 문서 ${rulebookDocumentId}, 위치 ${firstSpell.sourceLocator}, 추출 ${firstSpell.extractionVersion}`)
+  const renderedSpellRows = await spellRows.allTextContents()
+  for (const [index, spell] of reloadedPreparation.spellDefinitions.entries()) {
+    expect(renderedSpellRows[index]).toContain(spell.name)
+    expect(renderedSpellRows[index]).toContain(`원문 문서 ${rulebookDocumentId}, 위치 ${spell.sourceLocator}, 추출 ${spell.extractionVersion}`)
+  }
 
   const session = await createSession(request, packageId, preparation.characterCreationBlueprint.revision ?? 0)
 
