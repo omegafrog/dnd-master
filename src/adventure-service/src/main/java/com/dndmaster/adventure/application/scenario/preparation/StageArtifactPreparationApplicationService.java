@@ -167,7 +167,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
             }
         }
         long intermediateCandidates = situations.values().stream()
-                .filter(situation -> !situation.opening())
+                .filter(situation -> !situation.opening() && !situation.required())
                 .count();
         if (situations.values().stream().noneMatch(SituationDefinition::required)) {
             throw new IllegalStateException("initial situation set must include a required situation");

@@ -165,6 +165,12 @@ class StageArtifactPreparationApplicationServiceTest {
             situations.add(new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
                     List.of(), List.of(), List.of(), List.of(), true, true, List.of(),
                     SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence)));
+            situations.add(new SituationDefinition("required-beat-a", List.of(StageIntent.REVELATION), List.of("truth"),
+                    List.of(), List.of(), List.of(), List.of(), false, true, List.of(),
+                    SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence)));
+            situations.add(new SituationDefinition("required-beat-b", List.of(StageIntent.REVELATION), List.of("truth"),
+                    List.of(), List.of(), List.of(), List.of(), false, true, List.of(),
+                    SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence)));
             for (int index = 0; index < candidateCount; index++) {
                 situations.add(new SituationDefinition("candidate-" + index, List.of(StageIntent.REVELATION), List.of("truth"),
                         List.of(), List.of(), List.of(), List.of(), false, false, List.of(),
@@ -178,7 +184,7 @@ class StageArtifactPreparationApplicationServiceTest {
                 assertEquals(0, repository.findBackbone(adventureId, packageId, 1).stream().count());
             } else {
                 var result = service.prepare(adventureId, sessionId, packageId);
-                assertEquals(candidateCount + 1, result.currentStage().situations().size());
+                assertEquals(candidateCount + 3, result.currentStage().situations().size());
             }
         }
     }
