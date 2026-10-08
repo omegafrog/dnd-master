@@ -24,8 +24,7 @@ it('keeps the 3×3 alignment draft local until explicit apply', async () => {
   const user = userEvent.setup()
   render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={cancel} />)
 
-  expect(screen.getByText('3×3 격자 맞추기', { selector: 'strong' })).toBeInTheDocument()
-  expect(screen.getByText(/격자 교차점 하나를 누른 채/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '전체 격자' })).toHaveAttribute('aria-pressed', 'true')
   expect(screen.queryByRole('button', { name: /확대경/ })).not.toBeInTheDocument()
   const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
   vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
@@ -39,6 +38,128 @@ it('keeps the 3×3 alignment draft local until explicit apply', async () => {
   await user.click(screen.getByRole('button', { name: '취소' }))
   expect(cancel).toHaveBeenCalledOnce()
   expect(apply).not.toHaveBeenCalled()
+})
+
+it('measures from two clicks and keeps the chosen origin while setting size', async () => {
+  const apply = vi.fn().mockResolvedValue(undefined)
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={() => {}} />)
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 90, clientY: 80 }))
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 90, clientY: 80 }))
+  expect(screen.getByRole('button', { name: '적용' })).toBeDisabled()
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 150, clientY: 140 }))
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 150, clientY: 140 }))
+  await userEvent.setup().click(screen.getByRole('button', { name: '적용' }))
+
+  expect(apply.mock.calls[0][0].originX).toBeCloseTo(.2)
+  expect(apply.mock.calls[0][0].originY).toBeCloseTo(.4)
+  expect(apply.mock.calls[0][0].cellSize).toBeCloseTo(.1)
+})
+
+it('limits the displayed measured size to four decimals without rounding the saved value', async () => {
+  const apply = vi.fn().mockResolvedValue(undefined)
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={() => {}} />)
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
+  const image = screen.getByAltText('공개된 지도 이미지')
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+  Object.defineProperty(image, 'naturalWidth', { value: 300 })
+  Object.defineProperty(image, 'naturalHeight', { value: 200 })
+  fireEvent.load(image)
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 10, clientY: 10 }))
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 10, clientY: 10 }))
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 40, clientY: 41 }))
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 40, clientY: 41 }))
+  const size = screen.getByRole('textbox', { name: '한 칸 크기 (원본 이미지 픽셀)' })
+  expect(size).toHaveValue('10.1667')
+  await userEvent.setup().click(screen.getByRole('button', { name: '적용' }))
+  expect(apply.mock.calls[0][0].cellSize).toBeCloseTo(10.1666666667, 8)
+})
+
+it('cancels a pending first point with Escape and restores the draft', async () => {
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={vi.fn()} onCancel={() => {}} />)
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 90, clientY: 80 }))
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 90, clientY: 80 }))
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(screen.getByRole('button', { name: '적용' })).toBeEnabled()
+})
+
+it('restores the pre-measurement draft when the pointer is cancelled', () => {
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={vi.fn()} onCancel={() => {}} />)
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 90, clientY: 80 }))
+  fireEvent(canvas, new MouseEvent('pointercancel', { bubbles: true }))
+  expect(screen.getByRole('button', { name: '적용' })).toBeEnabled()
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+})
+
+it('does not begin a measurement outside the saved crop', () => {
+  render(<MapGridAlignmentEditor image="/public.png" crop={{ x: 100, y: 50, width: 300, height: 200 }} initial={initial} onApply={vi.fn()} onCancel={() => {}} />)
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
+  const image = screen.getByAltText('공개된 지도 이미지')
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+  Object.defineProperty(image, 'naturalWidth', { value: 1000 })
+  Object.defineProperty(image, 'naturalHeight', { value: 500 })
+  fireEvent.load(image)
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: -10, clientY: 20 }))
+  expect(screen.getByRole('alert')).toHaveTextContent('잘린 지도 영역 안쪽')
+  expect(screen.queryByRole('status')).not.toBeInTheDocument()
+})
+
+it('adjusts the origin without changing scale and resets to the supplied alignment', async () => {
+  const apply = vi.fn().mockResolvedValue(undefined)
+  const user = userEvent.setup()
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={() => {}} />)
+  await user.click(screen.getByRole('button', { name: '원점 오른쪽으로 이동' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  expect(apply.mock.calls[0][0]).toMatchObject({ originX: initial.originX + 1, originY: initial.originY, cellSize: initial.cellSize })
+  await user.click(screen.getByRole('button', { name: '초기값으로' }))
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  expect(apply.mock.calls[1][0]).toMatchObject(initial)
+})
+
+it('does not save an invalid numeric cell size', async () => {
+  const apply = vi.fn()
+  const user = userEvent.setup()
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={() => {}} />)
+  await user.clear(screen.getByRole('textbox', { name: '한 칸 크기 (원본 이미지 픽셀)' }))
+  expect(screen.getByRole('button', { name: '적용' })).toBeDisabled()
+  expect(apply).not.toHaveBeenCalled()
+})
+
+it('keeps typed decimal formatting while updating the draft size', () => {
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={vi.fn()} onCancel={() => {}} />)
+  const input = screen.getByRole('textbox', { name: '한 칸 크기 (원본 이미지 픽셀)' })
+  fireEvent.change(input, { target: { value: '31.50' } })
+  expect(input).toHaveValue('31.50')
+})
+
+it('moves the anchor handle while preserving cell size even when both handles are close', async () => {
+  const apply = vi.fn().mockResolvedValue(undefined)
+  render(<MapGridAlignmentEditor image="/public.png" initial={{ ...initial, originX: 10, originY: 10, cellSize: 2 }} onApply={apply} onCancel={() => {}} />)
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
+  const image = screen.getByAltText('공개된 지도 이미지')
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+  Object.defineProperty(image, 'naturalWidth', { value: 300 })
+  Object.defineProperty(image, 'naturalHeight', { value: 200 })
+  fireEvent.load(image)
+
+  const handle = screen.getByRole('button', { name: '기준점 이동' })
+  fireEvent(handle, new MouseEvent('pointerdown', { bubbles: true, clientX: 12, clientY: 10 }))
+  fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 15, clientY: 14 }))
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 15, clientY: 14 }))
+  await userEvent.setup().click(screen.getByRole('button', { name: '적용' }))
+  expect(apply.mock.calls[0][0]).toMatchObject({ originX: 13, originY: 14, cellSize: 2 })
 })
 
 it('derives the grid origin and cell size from the dragged 3×3 area', async () => {
