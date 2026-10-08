@@ -60,7 +60,7 @@ function summarizeBeats(entries: AdventureConversationEntry[]): AdventureCreditB
 
 function summarizeChoice(value: string) {
   const choice = value.trim()
-  if (/^attack$/i.test(choice)) return '거대 쥐를 향해 공격했습니다.'
+  if (/^attack$/i.test(choice)) return '공격했습니다.'
   return choice
 }
 

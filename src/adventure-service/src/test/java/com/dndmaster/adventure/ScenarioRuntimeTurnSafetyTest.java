@@ -48,6 +48,7 @@ class ScenarioRuntimeTurnSafetyTest {
         assertTrue(RuntimeTurnLifecycle.NARRATING.canTransitionTo(RuntimeTurnLifecycle.SAFETY_CHECKING));
         assertTrue(RuntimeTurnLifecycle.SAFETY_CHECKING.canTransitionTo(RuntimeTurnLifecycle.NARRATING));
         assertTrue(RuntimeTurnLifecycle.SAFETY_CHECKING.canTransitionTo(RuntimeTurnLifecycle.READY_TO_COMMIT));
+        assertTrue(RuntimeTurnLifecycle.SAFETY_CHECKING.canTransitionTo(RuntimeTurnLifecycle.DISCARDED));
         assertTrue(RuntimeTurnLifecycle.READY_TO_COMMIT.canTransitionTo(RuntimeTurnLifecycle.COMMITTING));
         assertTrue(RuntimeTurnLifecycle.COMMITTING.canTransitionTo(RuntimeTurnLifecycle.COMMITTED));
         assertFalse(RuntimeTurnLifecycle.RESOLUTION_FIXED.canTransitionTo(RuntimeTurnLifecycle.COMMITTED));
@@ -197,5 +198,31 @@ class ScenarioRuntimeTurnSafetyTest {
         assertEquals("safe narration", ready.narration());
         assertEquals(2, writes.get());
         assertNotNull(ready.completionProposal());
+    }
+
+    @Test
+    void exhausted_narration_safety_attempts_discard_the_turn() {
+        AdventureContext context = new AdventureContext("gate", "guard", "", "waiting");
+        RuntimeTurn requested = new RuntimeTurn(UUID.randomUUID(), UUID.randomUUID(), AdventureId.generate(), UUID.randomUUID(),
+                UUID.randomUUID(), 1, "Open the door", new EvidencePack(List.of(), List.of(), List.of()),
+                new RuntimePlan("gate", "guard", "rolled 17", "draft", null, List.of(), List.of()), null,
+                context, List.of(), 0, List.of(), List.of(), false, true,
+                com.dndmaster.adventure.application.runtime.RuntimeTurnOrigin.PLAYER, true);
+        RuntimeTurnResolution fixed = new RuntimeTurnResolution("success", 17, List.of("success"));
+        PendingRuntimeState pending = new PendingRuntimeState(new GameStateDelta(Map.of("door", "open")),
+                DisclosureState.empty(), CurrentSituation.initial("gate"), List.of());
+        java.util.concurrent.atomic.AtomicInteger checks = new java.util.concurrent.atomic.AtomicInteger();
+        RuntimeTurnSafetyOrchestrator orchestrator = new RuntimeTurnSafetyOrchestrator(request -> {
+            checks.incrementAndGet();
+            return new NarrationSafetyAssessment(false, "hidden fact");
+        });
+
+        RuntimeTurn discarded = orchestrator.resolveAndNarrate(requested, fixed, pending,
+                CompletionProposal.continueAdventure(), () -> "unsafe narration");
+
+        assertEquals(RuntimeTurnLifecycle.DISCARDED, discarded.lifecycle());
+        assertEquals(3, checks.get());
+        assertEquals(fixed, discarded.fixedResolution());
+        assertEquals(pending, discarded.pendingState());
     }
 }

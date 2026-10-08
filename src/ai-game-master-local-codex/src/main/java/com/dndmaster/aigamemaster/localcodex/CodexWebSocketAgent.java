@@ -142,14 +142,61 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     }
 
     private CompletableFuture<Void> executeAndReply(String message) {
+        var stage = new AtomicReference<>("decode");
         return CompletableFuture.supplyAsync(() -> parseMessage(message), executionExecutor)
-                .thenApply(this::dispatch)
-                .thenCompose(this::sendResponse)
+                .thenApply(decoded -> {
+                    stage.set("dispatch");
+                    return dispatch(decoded);
+                })
+                .thenCompose(response -> {
+                    stage.set("send_response");
+                    return sendResponse(response);
+                })
                 .exceptionally(failure -> {
-                    LOGGER.warn("user-PC agent request failed");
+                    Throwable cause = unwrap(failure);
+                    RequestContext context = requestContext(message);
+                    LOGGER.warn("user-PC agent request failed requestId={} operationId={} stage={} causes={}",
+                            context.requestId(), context.operationId(), stage.get(), causeSummary(cause));
                     return null;
                 });
     }
+
+    private RequestContext requestContext(String message) {
+        try {
+            JsonNode root = objectMapper.readTree(message);
+            return new RequestContext(root.path("requestId").asText("unknown"),
+                    root.path("operationId").asText("unknown"));
+        } catch (JsonProcessingException ignored) {
+            return new RequestContext("unknown", "unknown");
+        }
+    }
+
+    private static Throwable unwrap(Throwable failure) {
+        Throwable cause = failure;
+        while ((cause instanceof java.util.concurrent.CompletionException
+                || cause instanceof java.util.concurrent.ExecutionException) && cause.getCause() != null) {
+            cause = cause.getCause();
+        }
+        return cause;
+    }
+
+    private static String causeSummary(Throwable failure) {
+        StringBuilder result = new StringBuilder();
+        Throwable cause = failure;
+        for (int depth = 0; cause != null && depth < 5; depth++, cause = cause.getCause()) {
+            if (result.length() > 0) result.append(" <- ");
+            result.append(cause.getClass().getSimpleName());
+            if (cause.getMessage() != null && !cause.getMessage().isBlank()) {
+                String message = cause.getMessage()
+                        .replaceAll("(?i)(authorization|token|secret|password|api[_-]?key)\\s*[:=]\\s*[^\\s,;]+", "$1=[redacted]")
+                        .replaceAll("[\\r\\n\\t]+", " ");
+                result.append(": ").append(message, 0, Math.min(message.length(), 240));
+            }
+        }
+        return result.toString();
+    }
+
+    private record RequestContext(String requestId, String operationId) {}
 
     private Object parseMessage(String message) {
         try {
@@ -159,7 +206,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             }
             return objectMapper.treeToValue(root, AgentExecutionRequest.class);
         } catch (JsonProcessingException exception) {
-            throw new IllegalArgumentException("relay request could not be decoded");
+            throw new IllegalArgumentException("relay request could not be decoded", exception);
         }
     }
 

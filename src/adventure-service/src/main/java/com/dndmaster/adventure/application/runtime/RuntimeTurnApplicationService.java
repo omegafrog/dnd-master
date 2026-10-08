@@ -279,11 +279,13 @@ public class RuntimeTurnApplicationService {
 
     private static List<ConversationEntry> committedConversation(RuntimeTurn turn) {
         List<ConversationEntry> conversation = new ArrayList<>(turn.conversation());
-        if (!turn.gmOnly()) conversation.add(new ConversationEntry(conversation.size(), "PLAYER", turn.action()));
-        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", turn.narration()));
-        if (!turn.gmOnly() && turn.plan().judgment() != null && !turn.plan().judgment().isBlank()) {
-            conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", turn.plan().judgment()));
+        boolean stagedCheckAction = turn.resolvedArtifact() != null
+                && turn.resolvedArtifact().outcomes().stream().anyMatch(outcome -> outcome.startsWith("PLAYER_ROLL="))
+                && hasStagedPlayerAction(conversation, turn.action());
+        if (!turn.gmOnly() && !stagedCheckAction) {
+            conversation.add(new ConversationEntry(conversation.size(), "PLAYER", turn.action()));
         }
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", turn.narration()));
         return List.copyOf(conversation);
     }
 
@@ -587,9 +589,6 @@ public class RuntimeTurnApplicationService {
         List<ConversationEntry> conversation = new ArrayList<>(turn.conversation());
         if (!turn.gmOnly()) conversation.add(new ConversationEntry(conversation.size(), "PLAYER", turn.action()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", prose.prose()));
-        if (!turn.gmOnly() && presentedPlan.judgment() != null && !presentedPlan.judgment().isBlank()) {
-            conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", presentedPlan.judgment()));
-        }
         RuntimeTurn presented = new RuntimeTurn(turn.turnId(), turn.commandId(), turn.adventureId(), turn.sessionId(),
                 turn.scenarioPackageId(), turn.bindingVersion(), turn.action(), turn.evidencePack(), presentedPlan,
                 turn.activeSourceContext(), new AdventureContext(presentedPlan.scene(), presentedPlan.npcState(), turn.action(), presentedPlan.judgment()),
@@ -1114,12 +1113,22 @@ public class RuntimeTurnApplicationService {
             if (!command.externalCommands().isEmpty() || !planningResult.runtimeCommands().isEmpty()) {
                 throw new IllegalStateException("PLAYER_CHECK_CANNOT_BE_COMBINED_WITH_UNCOMMITTED_RUNTIME_COMMANDS");
             }
-            RuntimeTurn parked = requested.pendingPlayerRoll(pending, proposal.completionProposal());
+            PlayerVisibleTurn preCheckInput = new PlayerVisibleTurn(plan.narration(), plan.scene(), List.of(),
+                    deltaFor(narrativeState, command, plan), narrativeContext);
+            EvidencePack preCheckEvidencePack = evidencePack;
+            String preCheckNarration = stage(command.turnId(), "player_check_pre_narration", () -> {
+                String prose = writerPort.write(preCheckInput).prose();
+                NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
+                        prose, preCheckEvidencePack, adventure.currentContext(), command.action()));
+                if (!safety.approved()) throw new IllegalStateException("narration safety rejected: " + safety.reason());
+                return prose;
+            });
+            RuntimeTurn parked = requested.pendingPlayerRoll(pending, proposal.completionProposal(), preCheckNarration);
             runtimeTurnRepository.save(parked);
             PlayerRollRequest rollRequest = new PlayerRollRequest(command.turnId(),
                     plan.checkProposal().abilityOrSkill(), plan.checkProposal().diceExpression(),
                     plan.checkProposal().reason(), adventure.version());
-            PlayerVisibleTurn waiting = new PlayerVisibleTurn(parked.narration(), plan.scene(), List.of(), null,
+            PlayerVisibleTurn waiting = new PlayerVisibleTurn(preCheckNarration, plan.scene(), List.of(), null,
                     narrativeContext, rollRequest);
             return new RuntimeTurnResult(parked, adventure.currentContext(), adventure.conversation(), adventure.version(), waiting);
         }
@@ -1139,9 +1148,6 @@ public class RuntimeTurnApplicationService {
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
         if (!command.gmOnly()) conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", ready.narration()));
-        if (!command.gmOnly() && plan.judgment() != null && !plan.judgment().isBlank()) {
-            conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
-        }
         RuntimeTurnCommitOrchestrator.Result commitResult;
         if (commitOrchestrator == null) {
             RuntimeTurn committing = ready.beginCommit();
@@ -1263,6 +1269,14 @@ public class RuntimeTurnApplicationService {
         events.add(new RecentEvent(turnId.toString(), state.version(), plan.judgment()));
         return new StateDelta(state.version(), java.util.Set.of(), java.util.Set.of(),
                 List.of(), List.of(), state.relationships(), state.activeThreads(), events);
+    }
+
+    private static boolean hasStagedPlayerAction(List<ConversationEntry> conversation, String action) {
+        if (conversation.size() < 2) return false;
+        ConversationEntry player = conversation.get(conversation.size() - 2);
+        ConversationEntry narration = conversation.get(conversation.size() - 1);
+        return "PLAYER".equals(player.speaker()) && action.equals(player.content())
+                && "AI_GAME_MASTER".equals(narration.speaker());
     }
 
     private static RuntimeTurnOrigin origin(SubmitRuntimeTurnCommand command) {

@@ -155,6 +155,7 @@ export type CharacterLimitView = {
   maximumCharacters: number
   source: { documentId: string; extractionVersion: number; locator: string } | null
   sourceQuote: string
+  exactPartySize?: boolean
 }
 
 export type PlayPreparationStatus = 'READY' | 'BLOCKED'

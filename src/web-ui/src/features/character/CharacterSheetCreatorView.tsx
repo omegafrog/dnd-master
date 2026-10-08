@@ -12,6 +12,8 @@ import {
   STANDARD_ARRAY,
 } from "./Dnd5eCharacterCatalog";
 import { subclassesFor } from "./Dnd5eSubclassCatalog";
+import { classCreationRule } from "./Dnd5eCharacterDerivedRules";
+import { firstProficientArmor } from "./Dnd5eArmorEquipmentRules";
 import { Card, CardContent } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Textarea } from "../../components/ui/textarea";
@@ -996,18 +998,24 @@ export function CharacterSheetCreatorView({
   const derivedHp = startingHitPoints > 0
     ? `${startingHitPoints}/${startingHitPoints}`
     : "—";
+  const armorNames = ["가죽 갑옷", "스터디드 레더", "하이드", "체인 셔츠", "스케일 메일", "브레스트플레이트", "하프 플레이트", "링 메일", "체인 메일", "스플린트", "플레이트"];
+  const equippedArmor = firstProficientArmor(
+    armorNames.filter(name => equipmentItems.some(item => item[0] === name)),
+    effectiveClass,
+    classCreationRule(effectiveClass)?.armorProficiencies ?? [],
+  );
   const derivedAc = hasScore(effectiveScores[1])
     ? (() => {
         const dexterityModifier = modifierValue(effectiveScores[1]);
-        const armor = equipmentItems.some((item) => item[0] === "체인 메일")
+        const armorClass = equippedArmor === "체인 메일"
           ? 16
-          : equipmentItems.some((item) => item[0] === "스케일 메일")
+          : equippedArmor === "스케일 메일"
             ? 14 + Math.min(2, dexterityModifier)
-            : equipmentItems.some((item) => item[0] === "가죽 갑옷")
+            : equippedArmor === "가죽 갑옷"
               ? 11 + dexterityModifier
               : 10 + dexterityModifier;
         return String(
-          armor + (equipmentItems.some((item) => item[0] === "방패") ? 2 : 0),
+          armorClass + (equipmentItems.some((item) => item[0] === "방패") ? 2 : 0),
         );
       })()
     : "—";
@@ -1122,8 +1130,6 @@ export function CharacterSheetCreatorView({
         Array.from(new Set([...selected, ...options])).slice(0, minimum);
       const cantrips = fillSelections(selectedCantrips, selectedClass?.cantrips ?? [], cantripMinimum);
       const learnedOrPreparedSpells = fillSelections(selectedSpells, selectedClass?.firstLevelSpells ?? [], spellMinimum);
-      const armorNames = ["가죽 갑옷", "스터디드 레더", "하이드", "체인 셔츠", "스케일 메일", "브레스트플레이트", "하프 플레이트", "링 메일", "체인 메일", "스플린트", "플레이트"];
-      const equippedArmor = equipmentItems.map(item => item[0]).find(item => armorNames.includes(item)) ?? "";
       const equippedShield = equipmentItems.some(item => item[0] === "방패");
       const ownedWeaponIds = equipmentItems
         .map(([name]) => weaponIdByName[name])

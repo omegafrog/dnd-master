@@ -7,8 +7,6 @@ components:
       in: header
       name: X-Internal-Token
 paths:
-  /internal/v1/gm/scenes:
-    post: { operationId: generateScene, security: [{ internalServiceToken: [] }], responses: { '200': { description: scenario-bound scene }, '401': { description: invalid internal service token } } }
   /internal/v1/gm/judgments:
     post: { operationId: adjudicate, security: [{ internalServiceToken: [] }], responses: { '200': { description: rule-set judgment }, '401': { description: invalid internal service token } } }
   /internal/v1/gm/rule-answers:

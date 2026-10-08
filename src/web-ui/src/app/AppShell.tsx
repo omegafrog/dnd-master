@@ -243,7 +243,7 @@ export function AppShell() {
       {route.page === 'login' && <section className="welcome-card"><p className="eyebrow">ADVENTURE AWAITS</p><h2>모험 준비가 완료되었습니다</h2><a className="text-link" href="#/setup">자료 설정으로 이동</a></section>}
       {route.page === 'profile' && <ProfilePage session={auth.session} onConnectionChange={onConnectionChange} />}
       {route.page === 'backoffice' && <BackofficePage session={auth.session} />}
-      {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
+      {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} resumeBundleId={route.resumeBundleId} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
       {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} sessionApi={sessionApi} playerId={playerId} forceList onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}?tab=materials` }} />}
       {route.page === 'adventure-workspace' && <AdventureWorkspace adventureId={route.adventureId} activeTab={route.tab} playApi={playApi} setupApi={setupApi} sessionApi={sessionApi} playerId={playerId} />}

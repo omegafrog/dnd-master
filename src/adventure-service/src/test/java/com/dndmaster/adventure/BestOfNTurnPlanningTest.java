@@ -264,7 +264,7 @@ class BestOfNTurnPlanningTest {
         var prompts = new java.util.ArrayList<String>();
         GmAgentPort agent = context -> {
             calls[0]++;
-            prompts.add(context.composePrompt(32_000));
+            prompts.add(context.composePrompt(48_000));
             String scene = calls[0] < 3 ? "다른 장소" : "현재 장소";
             return new GmPlanResult(new RuntimePlan(scene, "주변 인물", "계속 살핀다", "주변에서 소리가 난다",
                     null, List.of(), List.of(), "p", "m", "r"), "p", "m", "r", List.of());

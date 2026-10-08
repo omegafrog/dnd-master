@@ -8,7 +8,7 @@ type Drag =
 type PanDrag = { startX: number; startY: number; initialX: number; initialY: number }
 export type AlignmentCrop = { x: number; y: number; width: number; height: number }
 
-export function MapGridAlignmentEditor({ image, initial, crop, gridWidth = 20, gridHeight = 20, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { mapId: string; version: number; imageRevision: string }; crop?: AlignmentCrop; gridWidth?: number; gridHeight?: number; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
+export function MapGridAlignmentEditor({ image, initial, crop, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { mapId: string; version: number; imageRevision: string }; crop?: AlignmentCrop; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
   const [draft, setDraft] = useState<MapGridAlignmentDraft>(initial)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -58,12 +58,7 @@ export function MapGridAlignmentEditor({ image, initial, crop, gridWidth = 20, g
       setError('잘린 지도 영역 안쪽에서 시작점을 찍으세요.')
       return
     }
-    const maxCellSize = maxCellThatFits(anchor, { width: displayCrop.x + displayCrop.width, height: displayCrop.y + displayCrop.height }, gridWidth, gridHeight)
-    if (maxCellSize <= 0) {
-      setError('전체 격자가 들어갈 수 있는 지도 안쪽에서 시작점을 찍으세요.')
-      return
-    }
-    const startingDraft = { ...draft, originX: anchor.x, originY: anchor.y, cellSize: Math.min(draft.cellSize, maxCellSize) }
+    const startingDraft = { ...draft, originX: anchor.x, originY: anchor.y }
     drag.current = { anchor, draft: { ...draft } }
     setSizing(true)
     setMagnifier(anchor)
@@ -81,8 +76,7 @@ export function MapGridAlignmentEditor({ image, initial, crop, gridWidth = 20, g
     setMagnifier(next)
     try {
       const refined = refineCellSize(current.draft, { x: 0, y: 0 }, current.anchor, { x: 3, y: 3 }, next)
-      const maxCellSize = maxCellThatFits(current.anchor, { width: displayCrop.x + displayCrop.width, height: displayCrop.y + displayCrop.height }, gridWidth, gridHeight)
-      changeDraft({ ...refined, cellSize: Math.min(refined.cellSize, maxCellSize) })
+      changeDraft(refined)
     } catch {
       changeDraft({ ...current.draft, originX: current.anchor.x, originY: current.anchor.y })
     }
@@ -156,9 +150,4 @@ function clampPan(value: { x: number; y: number }, imageSize: { width: number; h
   const limitX = Math.max(0, (imageSize.width * scale * zoom - width) / 2)
   const limitY = Math.max(0, (imageSize.height * scale * zoom - height) / 2)
   return { x: Math.min(limitX, Math.max(-limitX, value.x)), y: Math.min(limitY, Math.max(-limitY, value.y)) }
-}
-
-function maxCellThatFits(anchor: ImagePoint, imageSize: { width: number; height: number }, gridWidth: number, gridHeight: number) {
-  if (imageSize.width <= 1 || imageSize.height <= 1) return Number.POSITIVE_INFINITY
-  return Math.min((imageSize.width - anchor.x) / Math.max(1, gridWidth), (imageSize.height - anchor.y) / Math.max(1, gridHeight))
 }

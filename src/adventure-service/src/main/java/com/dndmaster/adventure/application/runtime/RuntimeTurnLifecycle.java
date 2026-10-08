@@ -32,7 +32,7 @@ public enum RuntimeTurnLifecycle {
             case RESOLVING -> next == RESOLVED_UNCOMMITTED || next == RESOLUTION_FIXED || next == PENDING_ROLL;
             case RESOLUTION_FIXED -> next == NARRATING || next == DISCARDED;
             case NARRATING -> next == SAFETY_CHECKING || next == PRESENTATION_FAILED_RETRYABLE || next == DISCARDED;
-            case SAFETY_CHECKING -> next == NARRATING || next == READY_TO_COMMIT;
+            case SAFETY_CHECKING -> next == NARRATING || next == READY_TO_COMMIT || next == DISCARDED;
             case READY_TO_COMMIT -> next == COMMITTING;
             case COMMITTING -> next == COMMITTED || next == COMMIT_REPAIR_REQUIRED;
             case COMMITTED, DISCARDED, COMMIT_REPAIR_REQUIRED -> false;

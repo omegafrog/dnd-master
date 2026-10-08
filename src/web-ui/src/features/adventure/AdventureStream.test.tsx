@@ -5,7 +5,7 @@ import { expect, it, vi } from 'vitest'
 import { AdventureStream } from './AdventureStream'
 import { AdventureRequestError, type AdventureApi } from './AdventureApi'
 
-it('renders sent conversation and acknowledges delivery', async () => {
+it('renders the GM narration without exposing its internal judgment', async () => {
   const sent: string[] = []
   const api: AdventureApi = {
     async sendMessage(_id, message) {
@@ -28,9 +28,9 @@ it('renders sent conversation and acknowledges delivery', async () => {
   expect(await screen.findByText('Open it')).toBeInTheDocument()
   expect(await screen.findByText('근거를 바탕으로 응답한다.')).toBeInTheDocument()
   const entries = screen.getByRole('list', { name: '대화 기록' }).querySelectorAll('li')
-  expect(entries).toHaveLength(3)
+  expect(entries).toHaveLength(2)
   expect(entries[1]).toHaveTextContent('근거를 바탕으로 응답한다.')
-  expect(entries[2]).toHaveTextContent('판정 완료')
+  expect(screen.queryByText('판정 완료')).not.toBeInTheDocument()
 })
 
 it('does not append a blank judgment as a duplicate GM message', async () => {
@@ -47,6 +47,26 @@ it('does not append a blank judgment as a duplicate GM message', async () => {
   const entries = screen.getByRole('list', { name: '대화 기록' }).querySelectorAll('li')
   expect(entries).toHaveLength(2)
   expect(screen.getByText('GM 응답')).toBeInTheDocument()
+})
+
+it('shows the scene narration before asking for a player roll', async () => {
+  const api: AdventureApi = {
+    async readConversation() { return { adventureId: 'a1', version: 1, entries: [] } },
+    async sendMessage() {
+      return {
+        narration: '해치를 열자 차가운 공기와 발톱 소리가 어둠 속에서 밀려옵니다.',
+        currentScene: 'beer-cellar', version: 1,
+        rollRequest: { pendingTurnId: 'pending-turn', label: '지각', diceExpression: '1d20', prompt: '숨은 움직임을 알아차릴 수 있을까요?', expectedVersion: 1 },
+      }
+    },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} />)
+  await user.type(await screen.findByRole('textbox', { name: '무엇을 하시겠어요?' }), '해치를 열고 들어간다')
+  await user.click(screen.getByRole('button', { name: '행동 보내기' }))
+
+  expect(await screen.findByText('해치를 열자 차가운 공기와 발톱 소리가 어둠 속에서 밀려옵니다.')).toBeInTheDocument()
+  expect(screen.getByRole('form', { name: '주사위 굴림 요청' })).toBeInTheDocument()
 })
 
 it('renders GM choices as a separate ordered list', async () => {

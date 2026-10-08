@@ -38,7 +38,7 @@ class RuntimeCheckProposalTest {
         RuntimeCheckProposal proposal = new RuntimeCheckProposal(true, "소리의 방향을 확인해야 합니다.", "지각",
                 characterId, RuntimeCheckProposal.RollMethod.PLAYER, "1d20", 2, 12, List.of(evidenceKey),
                 "왼쪽 문 뒤에서 움직임을 알아챕니다.", "움직임의 방향을 특정하지 못합니다.");
-        RuntimePlan plan = new RuntimePlan("복도", "", "지각 판정", "굴림 결과를 기다립니다.", null,
+        RuntimePlan plan = new RuntimePlan("복도", "", "지각 판정", "해치를 열자 차가운 공기와 희미한 발톱 소리가 어둠 속에서 밀려옵니다.", null,
                 List.of(), List.of()).withCheckProposal(proposal);
         UUID turnId = UUID.randomUUID();
         UUID sessionId = UUID.randomUUID();
@@ -51,13 +51,17 @@ class RuntimeCheckProposalTest {
         PendingRuntimeState pendingState = new PendingRuntimeState(GameStateDelta.empty(), DisclosureState.empty(),
                 CurrentSituation.initial("복도의 소리를 확인한다"), List.of());
 
-        RuntimeTurn pending = requested.pendingPlayerRoll(pendingState, CompletionProposal.continueAdventure());
+        String preCheckNarration = "해치를 열자 차가운 공기와 희미한 발톱 소리가 어둠 속에서 밀려옵니다.";
+        RuntimeTurn pending = requested.pendingPlayerRoll(pendingState, CompletionProposal.continueAdventure(), preCheckNarration);
 
         assertEquals(RuntimeTurnLifecycle.PENDING_ROLL, pending.lifecycle());
         assertEquals(3, pending.version());
         assertFalse(pending.committed());
         assertEquals(proposal, pending.plan().checkProposal());
         assertEquals("소리를 확인한다", pending.action());
+        assertEquals(preCheckNarration, pending.plan().narration());
+        assertEquals(preCheckNarration, pending.narration());
+        assertEquals(2, pending.conversation().size());
 
         RuntimeTurn resolved = pending.resolvePlayerRoll(10, 12, true);
 

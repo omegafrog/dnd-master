@@ -13,7 +13,7 @@ class InternalServiceTokenFilterTest {
     void rejectsMissingAndWrongTokensForEveryInternalPath() throws Exception {
         var filter = new InternalServiceTokenFilter("service-secret");
         for (String token : new String[] {null, "wrong"}) {
-            var request = new MockHttpServletRequest("POST", "/internal/v1/gm/scenes");
+            var request = new MockHttpServletRequest("POST", "/internal/v1/gm/judgments");
             if (token != null) request.addHeader("X-Internal-Token", token);
             var response = new MockHttpServletResponse();
             filter.doFilter(request, response, new MockFilterChain());

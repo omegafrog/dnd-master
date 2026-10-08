@@ -397,8 +397,11 @@ describe('PackageBlueprintReviewPage', () => {
   it('offers character creation for an already-published blueprint', async () => {
     const create = vi.fn().mockResolvedValue({ sessionId: 'session-created-1' })
     const onSessionCreated = vi.fn()
-    renderReview(async () => preparation({ status: 'PUBLISHED' }), { create }, onSessionCreated)
+    const published = preparation({ status: 'PUBLISHED' })
+    published.characterLimit = { maximumCharacters: 6, source: null, sourceQuote: '' }
+    renderReview(async () => published, { create }, onSessionCreated)
 
+    await userEvent.setup().selectOptions(await screen.findByLabelText('파티 인원'), '3')
     const button = await screen.findByRole('button', { name: '캐릭터 생성 시작' })
     await userEvent.click(button)
 
@@ -406,8 +409,28 @@ describe('PackageBlueprintReviewPage', () => {
       scenarioPackageId: 'package-1',
       blueprintId: 'package-1',
       blueprintRevision: 8,
+      partySize: 3,
     }))
     await waitFor(() => expect(onSessionCreated).toHaveBeenCalledWith('session-created-1'))
+  })
+
+  it('uses the source-mandated party size without offering a conflicting choice', async () => {
+    const create = vi.fn().mockResolvedValue({ sessionId: 'session-created-2' })
+    const published = preparation({ status: 'PUBLISHED' })
+    published.characterLimit = { maximumCharacters: 3, source: null, sourceQuote: '정확히 3명', exactPartySize: true }
+    renderReview(async () => published, { create })
+
+    const partySize = await screen.findByLabelText('파티 인원')
+    expect(partySize).toBeDisabled()
+    expect(partySize).toHaveValue('3')
+    await userEvent.setup().click(await screen.findByRole('button', { name: '캐릭터 생성 시작' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith({
+      scenarioPackageId: 'package-1',
+      blueprintId: 'package-1',
+      blueprintRevision: 8,
+      partySize: 3,
+    }))
   })
 
   it('blocks confirmation until the base schema and every proposal are valid', async () => {

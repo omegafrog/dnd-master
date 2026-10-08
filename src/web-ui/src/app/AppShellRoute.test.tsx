@@ -5,6 +5,7 @@ describe('AppShell preparation routes', () => {
   it('keeps the old setup address on the adventure list', () => {
     expect(parseRoute('#/setup')).toEqual({ page: 'adventures' })
     expect(parseRoute('#/setup?mode=create')).toEqual({ page: 'setup' })
+    expect(parseRoute('#/setup?mode=resume&bundleId=bundle-1')).toEqual({ page: 'setup', resumeBundleId: 'bundle-1' })
   })
 
   it('routes session party preparation to dedicated party page', () => {

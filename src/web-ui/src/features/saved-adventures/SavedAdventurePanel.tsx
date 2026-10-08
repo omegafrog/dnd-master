@@ -25,7 +25,7 @@ export function SavedAdventurePanel({
 }: {
   playApi: AdventurePlayApi
   setupApi: SetupApi
-  sessionApi?: Pick<AdventureSessionApi, 'listByScenarioPackage' | 'delete'>
+  sessionApi?: Partial<Pick<AdventureSessionApi, 'listByScenarioPackage' | 'delete' | 'read'>>
   playerId: string
   onResumed?: (adventureId: string) => void
   forceList?: boolean
@@ -83,10 +83,21 @@ export function SavedAdventurePanel({
     }
   }
 
-  function openAdventure(item: SavedAdventure) {
-    window.location.hash = item.sessionId
-      ? `#/sessions/${encodeURIComponent(item.sessionId)}/party`
-      : `#/adventures/${encodeURIComponent(item.id)}?tab=materials`
+  async function openAdventure(item: SavedAdventure) {
+    if (!item.sessionId) {
+      window.location.hash = `#/adventures/${encodeURIComponent(item.id)}?tab=materials`
+      return
+    }
+    try {
+      const session = await sessionApi?.read?.(item.sessionId)
+      window.location.hash = session?.status === 'STARTED' && session.adventureId
+        ? `#/sessions/${encodeURIComponent(item.sessionId)}?mode=play`
+        : session?.status === 'COMPLETED' || session?.status === 'DELETED'
+          ? `#/sessions/${encodeURIComponent(item.sessionId)}`
+          : `#/sessions/${encodeURIComponent(item.sessionId)}/party`
+    } catch {
+      setMessage('세션 상태를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.')
+    }
   }
 
   async function removeIncomplete(item: IncompleteAdventure) {
@@ -94,12 +105,14 @@ export function SavedAdventurePanel({
     setDeletingBundleId(item.bundleId)
     setMessage('연결된 세션과 모험 자료를 삭제하는 중입니다.')
     try {
-      if (sessionApi && setupApi.listScenarioPackages) {
+      const listSessions = sessionApi?.listByScenarioPackage?.bind(sessionApi)
+      const deleteSession = sessionApi?.delete?.bind(sessionApi)
+      if (listSessions && deleteSession && setupApi.listScenarioPackages) {
         const packages = await setupApi.listScenarioPackages(item.bundleId)
-        const sessionResults = await Promise.all(packages.map(item => sessionApi.listByScenarioPackage(item.packageId)))
+        const sessionResults = await Promise.all(packages.map(item => listSessions(item.packageId)))
         const sessions = [...new Map(sessionResults.flat().map(session => [session.sessionId, session])).values()]
           .filter(session => session.status !== 'COMPLETED' && session.status !== 'DELETED')
-        const outcomes = await Promise.allSettled(sessions.map(session => sessionApi.delete(session.sessionId, session.version)))
+        const outcomes = await Promise.allSettled(sessions.map(session => deleteSession(session.sessionId, session.version)))
         const failedCount = outcomes.filter(outcome => outcome.status === 'rejected').length
         if (failedCount > 0) throw new Error(`연결된 세션 ${failedCount}개를 삭제하지 못했습니다.`)
       }
@@ -139,7 +152,7 @@ export function SavedAdventurePanel({
             <span className="adventure-row-main"><strong>{item.title}</strong><small><span className="file-status file-status-processing">준비 중</span> · 자료 v{item.revision}</small></span>
             <span className="adventure-row-status">준비 중인 모험</span>
             <span className="adventure-row-actions">
-              <a className="ui-button ui-button-outline" href={`#/bundles/${encodeURIComponent(item.bundleId)}`}>준비 이어하기<ChevronRight size={14} aria-hidden="true" /></a>
+              <a className="ui-button ui-button-outline" href={`#/setup?mode=resume&bundleId=${encodeURIComponent(item.bundleId)}`}>준비 이어하기<ChevronRight size={14} aria-hidden="true" /></a>
               {setupApi.deleteScenarioBundle && <Button type="button" variant="ghost" className="adventure-delete-action" aria-label={`${item.title} 삭제`} disabled={deletingBundleId !== null} onClick={() => void removeIncomplete(item)}><Trash2 size={14} aria-hidden="true" />{deletingBundleId === item.bundleId ? '삭제 중…' : '삭제'}</Button>}
             </span>
           </li>
@@ -150,9 +163,11 @@ export function SavedAdventurePanel({
             <span className="adventure-row-main"><strong>{item.title}</strong><small><span className={`file-status file-status-${item.resumable ? 'ready' : 'processing'}`}>{item.resumable ? '진행 중' : '완료됨'}</span>{item.updatedAt ? ` · ${formatDate(item.updatedAt)}` : ''}</small></span>
             <span className="adventure-row-status">{item.statusLabel}</span>
             <span className="adventure-row-actions">
-              {item.resumable && <Button onClick={() => item.sessionId ? openAdventure(item) : void resume(item.id)}><Play size={14} aria-hidden="true" />재개</Button>}
+              {item.resumable && <Button onClick={() => item.sessionId ? void openAdventure(item) : void resume(item.id)}><Play size={14} aria-hidden="true" />재개</Button>}
               <Button variant="ghost" className="adventure-delete-action" aria-label={`${item.title} 삭제`} onClick={() => void remove(item)}><Trash2 size={14} aria-hidden="true" />삭제</Button>
-              <a className="ui-button ui-button-outline" href={item.sessionId ? `#/sessions/${encodeURIComponent(item.sessionId)}/party` : `#/adventures/${encodeURIComponent(item.id)}?tab=materials`}>열기<ChevronRight size={14} aria-hidden="true" /></a>
+              {item.sessionId
+                ? <Button variant="outline" onClick={() => void openAdventure(item)}>열기<ChevronRight size={14} aria-hidden="true" /></Button>
+                : <a className="ui-button ui-button-outline" href={`#/adventures/${encodeURIComponent(item.id)}?tab=materials`}>열기<ChevronRight size={14} aria-hidden="true" /></a>}
             </span>
           </li>
         ))}

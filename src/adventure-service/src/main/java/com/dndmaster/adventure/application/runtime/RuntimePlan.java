@@ -184,8 +184,8 @@ public record RuntimePlan(
                 mapEntryRequested, proposal);
     }
 
-    public RuntimePlan forPendingCheck() {
-        return new RuntimePlan(scene, npcState, "판정 결과 대기", "굴림 결과를 제출해 주세요.", proposedActiveSourceContext,
+    public RuntimePlan forPendingCheck(String preCheckNarration) {
+        return new RuntimePlan(scene, npcState, "판정 결과 대기", preCheckNarration, proposedActiveSourceContext,
                 citedEvidence, warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId,
                 requestedSelection, effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies,
                 combatStartRequested, mapEntryRequested, checkProposal);

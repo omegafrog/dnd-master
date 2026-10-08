@@ -15,6 +15,17 @@ import org.junit.jupiter.api.Test;
 
 class RuntimeGmPromptComposerTest {
     @Test
+    void does_not_force_every_narration_to_offer_choices_or_end_with_a_question() {
+        String prompt = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(),
+                1, new AdventureContext("양조장", "", "해치를 연다", ""), null,
+                "해치를 연다", new EvidencePack(List.of(), List.of(), List.of()), List.of()).composePrompt(272_000);
+
+        assertTrue(prompt.contains("Do not force a menu of choices or a closing question"));
+        assertTrue(!prompt.contains("end with a Korean question inviting the player's action"));
+        assertTrue(!prompt.contains("identify a few observable things the party can respond to"));
+    }
+
+    @Test
     void enemy_sheet_preparation_prompt_supplies_required_runtime_judgment_without_starting_combat_again() {
         String instruction = RuntimeTurnApplicationService.enemySheetCandidateInstruction(
                 List.of(new CombatEnemyProposal("encounter-rats", "giant-rat", "거대 쥐", 1)), List.of("giant-rat"));
@@ -48,6 +59,28 @@ class RuntimeGmPromptComposerTest {
         assertTrue(prompt.contains(rulebookKey));
         assertTrue(prompt.contains("citedEvidence"));
         assertTrue(prompt.contains("RULEBOOK and STORYBOOK are both rules sources"));
+        assertTrue(prompt.contains("include the NPC's spoken words as direct Korean dialogue when natural"));
+        assertTrue(prompt.contains("Quotation marks are allowed"));
+        assertTrue(prompt.contains("행동 선택지를 매번 나열하거나 응답 끝에 질문을 붙이지 마세요"));
+        assertTrue(prompt.contains("플레이어가 다음 행동을 정하는 데 꼭 필요할 때만 짧게 물어보세요"));
+        assertTrue(prompt.contains("When 판정제안 requires a PLAYER roll, narration is the scene lead-in shown before the roll"));
+    }
+
+    @Test
+    void defines_small_player_facing_situations_and_transitions_separately_from_adventure_completion() {
+        String prompt = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(),
+                1, new AdventureContext("양조장", "", "", ""), null, "SESSION_OPENING",
+                new EvidencePack(List.of(), List.of(), List.of()), List.of()).composePrompt(272_000);
+
+        assertTrue(prompt.contains("모험 전체의 목표와 완료 조건은 LOCKED_SCENARIO_MODEL의 objectives와 resolutionCriteria에 두고"));
+        assertTrue(prompt.contains("SESSION_OPENING에서는 RUNTIME_CONTEXT의 currentSituation이 모험 전체의 objectives나 resolutionCriteria를 담은 시작용 값이어도"));
+        assertTrue(prompt.contains("일행이 이번 상황에서 이룰 수 있는 가까운 결과 하나"));
+        assertTrue(prompt.contains("LOCKED_SCENARIO_MODEL의 시작 장면과 인물에 근거한 작은 오프닝 상황"));
+        assertTrue(prompt.contains("NPC가 플레이어 캐릭터에게 직접 제안하게 서술하고"));
+        assertTrue(prompt.contains("플레이어의 수락·거절·감정·의도는 대신 결정하지 마세요"));
+        assertTrue(!prompt.contains("Glowkindle"));
+        assertTrue(prompt.contains("일행이 실제로 다른 장소로 이동해 새 과제가 시작되면 TRANSITION을 사용"));
+        assertTrue(prompt.contains("작은 상황 하나를 해결했다고 모험을 완료하지 마세요"));
     }
 
     @Test

@@ -13,6 +13,20 @@ class NarrationSafetyPolicyTest {
     private final DefaultNarrationSafetyPolicy policy = new DefaultNarrationSafetyPolicy();
 
     @Test
+    void allows_quoted_npc_dialogue_when_it_does_not_reveal_hidden_facts() {
+        assertThat(policy.assess(new NarrationSafetyRequest(
+                "Glowkindle은 고개를 젓습니다. “쥐약은 맥주를 망칠 수 있다네.”",
+                new EvidencePack(List.of(), List.of(), List.of()),
+                new AdventureContext("brewery", null, null, null), "propose rat poison", List.of())).approved())
+                .isTrue();
+        assertThat(policy.assess(new NarrationSafetyRequest(
+                "Glowkindle said, \"The poison might spoil the beer.\"",
+                new EvidencePack(List.of(), List.of(), List.of()),
+                new AdventureContext("brewery", null, null, null), "propose rat poison", List.of())).approved())
+                .isTrue();
+    }
+
+    @Test
     void rejects_an_individual_unrevealed_fact_but_allows_a_revealed_fact() {
         NarrationSafetyRequest request = new NarrationSafetyRequest(
                 "The caretaker is secretly the missing heir.", new EvidencePack(List.of(), List.of(), List.of()),

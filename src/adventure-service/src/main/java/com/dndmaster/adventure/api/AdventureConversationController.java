@@ -29,15 +29,22 @@ public final class AdventureConversationController {
     ConversationView read(@PathVariable UUID adventureId) {
         var adventure = adventures.findById(new AdventureId(adventureId)).orElseThrow(() -> new IllegalArgumentException("adventure not found"));
         if (!adventure.ownerPlayerId().equals(new OwnerPlayerId(playerResolver.playerId()))) throw new SecurityException("adventure access denied");
-        PlayerRollRequest pendingRoll = runtimeTurns.findAllByAdventureId(adventure.id()).stream()
+        var turns = runtimeTurns.findAllByAdventureId(adventure.id());
+        var pendingTurn = turns.stream()
                 .filter(turn -> turn.lifecycle() == RuntimeTurnLifecycle.PENDING_ROLL)
                 .findFirst()
-                .map(turn -> new PlayerRollRequest(turn.turnId(), turn.plan().checkProposal().abilityOrSkill(),
-                        turn.plan().checkProposal().diceExpression(), turn.plan().checkProposal().reason(),
-                        turn.expectedVersion() == null ? adventure.version() : turn.expectedVersion()))
                 .orElse(null);
+        PlayerRollRequest pendingRoll = pendingTurn == null ? null
+                : new PlayerRollRequest(pendingTurn.turnId(), pendingTurn.plan().checkProposal().abilityOrSkill(),
+                        pendingTurn.plan().checkProposal().diceExpression(), pendingTurn.plan().checkProposal().reason(),
+                        pendingTurn.expectedVersion() == null ? adventure.version() : pendingTurn.expectedVersion());
+        var conversation = pendingTurn == null ? adventure.conversation() : pendingTurn.conversation();
+        var internalJudgments = turns.stream().map(turn -> turn.plan().judgment())
+                .collect(java.util.stream.Collectors.toSet());
         return new ConversationView(adventure.id().value(), adventure.version(), adventure.currentContext().currentScene(),
-                adventure.conversation().stream().map(EntryView::from).toList(), pendingRoll);
+                conversation.stream()
+                        .filter(entry -> !"AI_GAME_MASTER".equals(entry.speaker()) || !internalJudgments.contains(entry.content()))
+                        .map(EntryView::from).toList(), pendingRoll);
     }
 
     public record ConversationView(UUID adventureId, long version, String currentScene, List<EntryView> entries,

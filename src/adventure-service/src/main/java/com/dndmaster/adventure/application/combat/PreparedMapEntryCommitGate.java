@@ -21,7 +21,11 @@ public final class PreparedMapEntryCommitGate implements RuntimeTurnCommitGate {
 
     @Override
     public void beforeCommit(Adventure adventure, RuntimeTurn turn) {
-        if ((!turn.plan().mapEntryRequested() && !turn.plan().combatStartRequested())
+        String destinationScene = adventure.currentContext().currentScene();
+        boolean sceneChanged = turn != null && !blank(destinationScene).isBlank()
+                && !destinationScene.equalsIgnoreCase(blank(turn.context().currentScene()));
+        boolean enteredMap = turn != null && (turn.plan().mapEntryRequested() || turn.plan().combatStartRequested());
+        if ((!enteredMap && !sceneChanged)
                 || !mapView.hasPreparedMap(adventure.id().value(), adventure.ownerPlayerId().value())) return;
         var situation = adventure.currentSituation();
         UUID playerTokenId = adventure.party().stream().findFirst()
@@ -42,9 +46,9 @@ public final class PreparedMapEntryCommitGate implements RuntimeTurnCommitGate {
                     .distinct()
                     .forEach(value -> evidence.append("\nSTORYBOOK_EVIDENCE=").append(value));
         }
+        String location = sceneChanged && !enteredMap ? destinationScene : situation.location();
         var context = new CombatMapPreparationPort.ActivationContext(playerTokenId, situation.situationId(),
-                situation.revision(), adventure.turnIndex(), adventure.currentContext().currentScene(),
-                situation.location(), null, null, evidence.toString());
+                situation.revision(), adventure.turnIndex(), destinationScene, location, null, null, evidence.toString());
         mapPreparation.activatePrepared(adventure.id(), adventure.ownerPlayerId().value(), adventure.ruleSetId(), 1, context);
     }
 

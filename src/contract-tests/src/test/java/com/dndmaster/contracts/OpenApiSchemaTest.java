@@ -48,7 +48,7 @@ class OpenApiSchemaTest {
                 "/internal/v1/combat-maps/{mapId}/spatial/interact",
                 "/internal/v1/combat-maps/{mapId}/spatial/combat-turn-start",
                 "/internal/v1/combat-maps/{mapId}/spatial/advance-durations");
-        assertPaths("ai-game-master", "/internal/v1/gm/scenes", "/internal/v1/gm/judgments",
+        assertPaths("ai-game-master", "/internal/v1/gm/judgments",
                 "/internal/v1/gm/rule-answers", "/internal/v1/gm/maps", "/internal/v1/gm/intent-classifications");
     }
 

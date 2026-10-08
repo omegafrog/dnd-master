@@ -39,6 +39,7 @@ export function PackageBlueprintReviewPage({
   onSessionCreated: (sessionId: string) => void
 }) {
   const [preparation, setPreparation] = useState<PlayPreparationView | null>(null)
+  const [partySize, setPartySize] = useState(4)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [reloadToken, setReloadToken] = useState(0)
   const [catalogRulebooks, setCatalogRulebooks] = useState<CatalogRulebook[]>([])
@@ -50,6 +51,11 @@ export function PackageBlueprintReviewPage({
   const [confirming, setConfirming] = useState(false)
   const [confirmationResult, setConfirmationResult] = useState<BlueprintPublicationView | null>(null)
   const [retrySession, setRetrySession] = useState(false)
+  const selectedPartySize = preparation
+    ? preparation.characterLimit.exactPartySize
+      ? preparation.characterLimit.maximumCharacters
+      : Math.min(partySize, preparation.characterLimit.maximumCharacters)
+    : 1
 
   useEffect(() => {
     let active = true
@@ -156,6 +162,7 @@ export function PackageBlueprintReviewPage({
         scenarioPackageId: packageId,
         blueprintId: packageId,
         blueprintRevision: blueprint.revision,
+        partySize: selectedPartySize,
       })
       onSessionCreated(session.sessionId)
     } catch (error) {
@@ -283,6 +290,22 @@ export function PackageBlueprintReviewPage({
             <section className="character-review-next-action" aria-label="캐릭터 생성">
               <h2>캐릭터 생성으로 이동</h2>
               <p>게시된 설정을 사용해 캐릭터 생성을 시작할 수 있습니다.</p>
+              <label>
+                파티 인원
+                <select
+                  aria-label="파티 인원"
+                  value={selectedPartySize}
+                  disabled={preparation.characterLimit.exactPartySize}
+                  onChange={event => setPartySize(Number(event.currentTarget.value))}
+                >
+                  {Array.from({ length: preparation.characterLimit.maximumCharacters }, (_, index) => index + 1).map(size => (
+                    <option key={size} value={size}>{size}명</option>
+                  ))}
+                </select>
+              </label>
+              <p>{preparation.characterLimit.exactPartySize
+                ? `룰북의 인원 조건에 따라 ${preparation.characterLimit.maximumCharacters}명으로 고정됩니다.`
+                : `룰북이 고정 인원을 요구하지 않아 1~${preparation.characterLimit.maximumCharacters}명 중 선택할 수 있습니다.`}</p>
               <button type="button" onClick={() => void createSession()} disabled={creatingSession}>
                 {creatingSession ? '캐릭터 생성 준비 중…' : '캐릭터 생성 시작'}
               </button>

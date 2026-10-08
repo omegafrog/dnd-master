@@ -62,11 +62,13 @@ export function RulebookSetup({
   playerId,
   asMain = true,
   sessionApi,
+  resumeBundleId,
 }: {
   api: SetupApi
   playerId: string
   asMain?: boolean
   sessionApi?: Pick<AdventureSessionApi, 'create' | 'listByScenarioPackage'>
+  resumeBundleId?: string
 }) {
   const [view, setView] = useState<SetupView>('intro')
   const [adventureName, setAdventureName] = useState('')
@@ -99,6 +101,24 @@ export function RulebookSetup({
   }, [api, playerId])
 
   useEffect(() => { void refreshDocuments() }, [refreshDocuments])
+
+  useEffect(() => {
+    if (!resumeBundleId) return
+    let active = true
+    setMessage('중단한 모험 준비를 불러오는 중입니다.')
+    void api.getScenarioBundle(resumeBundleId).then(bundle => {
+      if (!active) return
+      setAdventureName(bundle.name ?? '이름 없는 모험')
+      setPreparationBundle(bundle)
+      setMessage('')
+      setView('preparing')
+      window.localStorage.setItem('dnd-selected-bundle-id', bundle.bundleId)
+      window.dispatchEvent(new Event('dnd-selected-bundle-change'))
+    }).catch(error => {
+      if (active) setMessage(error instanceof Error ? error.message : '중단한 모험 준비를 불러오지 못했습니다.')
+    })
+    return () => { active = false }
+  }, [api, resumeBundleId])
 
   useEffect(() => {
     const hasPending = documents.some(document => materialStatus(document).kind === 'processing')

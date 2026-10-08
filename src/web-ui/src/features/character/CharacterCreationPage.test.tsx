@@ -278,6 +278,24 @@ describe("CharacterCreationPage", () => {
     expect(build.expertise).toEqual(["곡예", "운동"]);
   });
 
+  it("keeps unproficient carried armor unequipped on a wizard draft", async () => {
+    window.localStorage.setItem("dnd-character-draft:session-1", JSON.stringify({
+      name: "아리아", race: "인간", characterClass: "위저드", background: "학자",
+      scores: [15, 14, 13, 12, 10, 8], equipmentBundle: "wizard-start",
+      equipmentItems: [["학자의 꾸러미", "장비 묶음", "—"], ["가죽 갑옷", "경갑", "5 kg"]],
+    }));
+    const user = userEvent.setup();
+    const { createCharacterSheet } = renderPage();
+    await user.click(await screen.findByRole("button", { name: "캐릭터 저장하기 →" }));
+
+    const build = JSON.parse(createCharacterSheet.mock.calls[0][0].characterBuild) as {
+      ownedEquipment: string[];
+      equippedItems: { armor: string };
+    };
+    expect(build.ownedEquipment).toContain("가죽 갑옷");
+    expect(build.equippedItems.armor).toBe("");
+  });
+
   it("uses the complete 2014 fighter starting equipment instead of generic preview armor", async () => {
     const user = userEvent.setup();
     const { createCharacterSheet } = renderPage();

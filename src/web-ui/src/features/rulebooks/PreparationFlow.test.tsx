@@ -2,10 +2,16 @@ import '@testing-library/jest-dom/vitest'
 import { StrictMode } from 'react'
 import { render, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import { PreparationFlow } from './PreparationFlow'
+import { advancePreparationProgress, PreparationFlow } from './PreparationFlow'
 import type { ScenarioBundleView, SetupApi } from './SetupApi'
 
 describe('PreparationFlow', () => {
+  it('advances smoothly without claiming completion while the server is still working', () => {
+    expect(advancePreparationProgress(70)).toBeGreaterThan(70)
+    expect(advancePreparationProgress(87.99)).toBeLessThanOrEqual(88)
+    expect(advancePreparationProgress(88)).toBe(88)
+  })
+
   it('sends the main scenario document once in React strict mode', async () => {
     const startScenarioCompilation = vi.fn(async () => ({
       compilationId: 'compilation-1', bundleId: 'bundle-1', bundleRevision: 1,

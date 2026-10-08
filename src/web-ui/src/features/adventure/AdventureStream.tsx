@@ -145,10 +145,13 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       if (response.rollRequest) {
         setRollRequest(response.rollRequest)
         if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
+        const responseEntries = responseMessages(response.narration)
+        localTurn.current = { action, response: responseEntries, expectedVersion: currentVersion }
+        if (responseEntries.length > 0) setMessages(current => [...current, ...responseEntries])
         setProjectionStatus('idle')
         return
       }
-      const responseEntries = responseMessages(response.narration, (response as AdventureMessageResponse & { judgment?: string }).judgment ?? '')
+      const responseEntries = responseMessages(response.narration)
       if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
       localTurn.current = { action, response: responseEntries, expectedVersion: localTurn.current?.expectedVersion ?? projectionVersion.current, committedVersion: response.version }
       projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)
@@ -185,7 +188,7 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       const response = await api.submitPlayerRoll(adventureId, rollRequest.pendingTurnId, result, rollRequest.expectedVersion)
       setRollRequest(null); setRollValue('')
       if (response.currentScene) onCurrentSceneChanged?.(response.currentScene)
-      const responseEntries = responseMessages(response.narration, '')
+      const responseEntries = responseMessages(response.narration)
       setMessages(current => [...current, ...responseEntries])
       projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)
       committedVersion.current = Math.max(committedVersion.current, response.version)
@@ -264,11 +267,8 @@ function sameEntry(left: ChatMessageEntry | undefined, right: ChatMessageEntry |
   return left?.speaker === right?.speaker && left?.text === right?.text
 }
 
-function responseMessages(narration: string, judgment: string) {
-  const messages = [{ speaker: 'AI 게임 마스터', text: narration }]
-  const visibleJudgment = judgment.trim()
-  if (visibleJudgment) messages.push({ speaker: 'AI 게임 마스터', text: visibleJudgment })
-  return messages
+function responseMessages(narration: string) {
+  return [{ speaker: 'AI 게임 마스터', text: narration }]
 }
 
 function playerNarration(text: string) {

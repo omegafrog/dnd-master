@@ -1,5 +1,5 @@
 export type Route =
-  | { page: 'setup' }
+  | { page: 'setup'; resumeBundleId?: string }
   | { page: 'bundle'; bundleId: string }
   | { page: 'adventures' }
   | { page: 'adventure'; adventureId: string }
@@ -22,6 +22,7 @@ export function parseRoute(hash: string): Route {
   const params = new URLSearchParams(query)
   // 자료 구성은 새 모험을 만들 때만 명시적으로 연다.
   // 기존 기본 진입 주소(#/setup)는 모험 목록으로 호환시킨다.
+  if (segments[0] === 'setup' && params.get('mode') === 'resume' && params.get('bundleId')) return { page: 'setup', resumeBundleId: params.get('bundleId')! }
   if (segments[0] === 'setup' && params.get('mode') === 'create') return { page: 'setup' }
   if (segments[0] === 'setup') return { page: 'adventures' }
   if (segments[0] === 'bundles' && segments[1]) return { page: 'bundle', bundleId: segments[1] }

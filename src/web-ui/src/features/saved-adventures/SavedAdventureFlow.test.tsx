@@ -25,7 +25,7 @@ it('keeps an interrupted scenario bundle in the adventure list', async () => {
   render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" forceList />)
 
   expect(await screen.findByText('중단한 모험')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: /준비 이어하기/ })).toHaveAttribute('href', '#/bundles/bundle-1')
+  expect(screen.getByRole('link', { name: /준비 이어하기/ })).toHaveAttribute('href', '#/setup?mode=resume&bundleId=bundle-1')
 })
 
 it('cleans connected sessions before deleting an interrupted scenario bundle', async () => {
@@ -36,11 +36,13 @@ it('cleans connected sessions before deleting an interrupted scenario bundle', a
     listScenarioPackages: vi.fn().mockResolvedValue([{ packageId: 'package-1' }]),
     deleteScenarioBundle,
   } as unknown as SetupApi
-  const deleteSession = vi.fn().mockResolvedValue({ sessionId: 'session-1', status: 'DELETED', version: 6 })
-  const sessionApi = {
-    listByScenarioPackage: vi.fn().mockResolvedValue([{ sessionId: 'session-1', status: 'STARTING', version: 5 }]),
-    delete: deleteSession,
-  } as unknown as Pick<AdventureSessionApi, 'listByScenarioPackage' | 'delete'>
+  class SessionApiStub {
+    listSessions = vi.fn().mockResolvedValue([{ sessionId: 'session-1', status: 'STARTING', version: 5 }])
+    deleteSession = vi.fn().mockResolvedValue({ sessionId: 'session-1', status: 'DELETED', version: 6 })
+    listByScenarioPackage(packageId: string) { return this.listSessions(packageId) }
+    delete(sessionId: string, version: number) { return this.deleteSession(sessionId, version) }
+  }
+  const sessionApi = new SessionApiStub()
   const playApi = { async listSaved() { return [] } } as unknown as AdventurePlayApi
   const user = userEvent.setup()
 
@@ -49,7 +51,8 @@ it('cleans connected sessions before deleting an interrupted scenario bundle', a
   await screen.findByText('중단한 모험')
   await user.click(screen.getByRole('button', { name: '중단한 모험 삭제' }))
 
-  await waitFor(() => expect(deleteSession).toHaveBeenCalledWith('session-1', 5))
+  await waitFor(() => expect(sessionApi.deleteSession).toHaveBeenCalledWith('session-1', 5))
+  expect(sessionApi.listSessions).toHaveBeenCalledWith('package-1')
   await waitFor(() => expect(deleteScenarioBundle).toHaveBeenCalledWith('bundle-1'))
   expect(screen.queryByText('중단한 모험')).not.toBeInTheDocument()
 })
@@ -66,19 +69,24 @@ it('keeps an interrupted bundle visible beside saved adventures', async () => {
   render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" forceList />)
 
   expect(await screen.findByText('중단한 두 번째 모험')).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: /준비 이어하기/ })).toHaveAttribute('href', '#/bundles/bundle-2')
+  expect(screen.getByRole('link', { name: /준비 이어하기/ })).toHaveAttribute('href', '#/setup?mode=resume&bundleId=bundle-2')
   expect(screen.getAllByRole('listitem')).toHaveLength(2)
 })
 
-it('opens an interrupted runtime through its session page', async () => {
+it('resumes an active runtime directly in its play screen', async () => {
   const api = {
     async listSaved() { return [{ id: 'adventure-1', title: '맵 준비 중', statusLabel: '진행 중인 모험' as const, resumable: true, updatedAt: '', version: 1, sessionId: 'session-1' }] },
   } as unknown as AdventurePlayApi
+  const sessionApi = {
+    async read() { return { sessionId: 'session-1', status: 'STARTED', adventureId: 'adventure-1' } },
+  } as unknown as Pick<AdventureSessionApi, 'read'>
   const setupApi = { listKnowledgeDocuments: async () => [] } as unknown as SetupApi
-  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" forceList />)
+  const user = userEvent.setup()
+  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} sessionApi={sessionApi} playerId="p1" forceList />)
 
   await screen.findByText('맵 준비 중')
-  expect(screen.getByRole('link', { name: /열기/ })).toHaveAttribute('href', '#/sessions/session-1/party')
+  await user.click(screen.getByRole('button', { name: '재개' }))
+  expect(window.location.hash).toBe('#/sessions/session-1?mode=play')
 })
 
 it('routes an empty adventure entry directly to creation', async () => {

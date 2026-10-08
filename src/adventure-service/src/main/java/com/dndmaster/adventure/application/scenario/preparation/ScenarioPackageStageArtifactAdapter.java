@@ -40,8 +40,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     @Override
     public StageBackbone generate(StageBackboneGenerationPort.Request request) {
         ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
-        String coreProblem = coreProblem(scenarioPackage);
-        String funnel = funnelMeaning(scenarioPackage);
+        String coreProblem = openingProblem(scenarioPackage);
+        String funnel = openingGoal(scenarioPackage);
         return new StageBackbone(request.scenarioPackageId(), 1,
                 List.of(new StageBackboneEntry(FIRST_STAGE_ID, 1, "opening", coreProblem, funnel, request.evidence())),
                 request.evidence());
@@ -50,14 +50,15 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     @Override
     public DetailedStage generate(StageDetailedGenerationPort.Request request) {
         ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
-        String coreProblem = coreProblem(scenarioPackage);
+        String coreProblem = openingProblem(scenarioPackage);
         String revelationId = scenarioPackage.scenarioModel().revelations().stream()
                 .findFirst().map(ScenarioModelElement::elementId).orElse("first-stage-purpose");
         List<ScenarioSourceReference> evidence = request.evidence();
         return new DetailedStage(request.scenarioPackageId(), request.backboneRevision(), request.stageId(), 1,
                 coreProblem, List.of(new RevelationDefinition(revelationId, true, evidence)),
-                new ThreatDefinition(coreProblem, evidence), new PressureDefinition("pressure", coreProblem, evidence),
-                new FunnelDefinition("funnel", funnelMeaning(scenarioPackage), List.of(revelationId), List.of(), evidence),
+                new ThreatDefinition(openingThreat(scenarioPackage), evidence),
+                new PressureDefinition("pressure", openingGoal(scenarioPackage), evidence),
+                new FunnelDefinition("funnel", openingGoal(scenarioPackage), List.of(revelationId), List.of(), evidence),
                 List.of(new SituationDefinition("opening-situation", List.of(StageIntent.REVELATION), List.of(revelationId),
                         List.of(), List.of(), List.of(), List.of(), true, evidence)), List.of(), evidence);
     }
@@ -66,18 +67,34 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         return packages.findById(scenarioPackageId).orElseThrow(() -> new IllegalStateException("scenario package not found"));
     }
 
-    private static String coreProblem(ScenarioPackage scenarioPackage) {
+    private static String openingProblem(ScenarioPackage scenarioPackage) {
         return text(scenarioPackage.scenarioModel().objectives(), scenarioPackage.scenarioModel().startingSituation());
     }
 
-    private static String funnelMeaning(ScenarioPackage scenarioPackage) {
-        return text(scenarioPackage.scenarioModel().resolutionCriteria(), coreProblem(scenarioPackage));
+    private static String openingThreat(ScenarioPackage scenarioPackage) {
+        var objectives = scenarioPackage.scenarioModel().objectives();
+        var objectiveRefs = objectives.isEmpty() ? List.<ScenarioSourceReference>of() : objectives.get(0).sourceRefs();
+        return scenarioPackage.scenarioModel().combatScenarios().stream()
+                .sorted(java.util.Comparator.comparing((com.dndmaster.adventure.domain.scenario.CombatScenarioDefinition encounter) ->
+                        encounter.sourceRefs().stream().noneMatch(objectiveRefs::contains)))
+                .findFirst()
+                .map(encounter -> "시작 장면과 연결된 위협: " + encounter.displayName() + " (" + encounter.location() + ")")
+                .orElse("시작 장면의 문제와 관련된 위협은 아직 확인되지 않았다");
+    }
+
+    private static String openingGoal(ScenarioPackage scenarioPackage) {
+        boolean hasQuestGiver = scenarioPackage.scenarioModel().actors().stream().anyMatch(actor ->
+                actor.type().equalsIgnoreCase("quest-giver")
+                        || String.valueOf(actor.attributes().getOrDefault("role", "")).equalsIgnoreCase("quest-giver"));
+        return hasQuestGiver
+                ? "플레이어에게 당면한 의뢰가 제시되고, 수락 여부와 다음 행동은 플레이어가 정한다"
+                : "플레이어는 현재 장면의 문제와 위협을 파악하고, 다음 행동을 직접 정한다";
     }
 
     private static String text(List<ScenarioModelElement> elements, String fallback) {
         return elements.stream().findFirst().map(element -> String.valueOf(element.attributes().getOrDefault("value",
                 element.attributes().getOrDefault("description", element.elementId())))).filter(value -> !value.isBlank())
-                .orElse(fallback == null || fallback.isBlank() ? "모험을 계속 진행한다" : fallback);
+                .orElse(fallback == null || fallback.isBlank() ? "모험의 시작 장면에서 해결할 문제가 아직 드러나지 않았다" : fallback);
     }
 
     private static Stream<ScenarioModelElement> elements(ScenarioPackage scenarioPackage) {

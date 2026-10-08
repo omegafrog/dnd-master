@@ -62,8 +62,7 @@ class RuntimeTurnCommitOrchestratorTest {
         verify(adventure).commitRuntimeTurn(any(OwnerPlayerId.class), eq(ready.version()), eq(ready.pendingState()),
                 eq(ready.context()), eq(List.of(
                         new com.dndmaster.adventure.domain.adventure.ConversationEntry(0, "PLAYER", ready.action()),
-                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(1, "AI_GAME_MASTER", ready.narration()),
-                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(2, "AI_GAME_MASTER", ready.plan().judgment()))),
+                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(1, "AI_GAME_MASTER", ready.narration()))),
                 eq(ready.completionProposal()));
         verify(adventureRepository, never()).save(adventure);
     }
@@ -93,10 +92,9 @@ class RuntimeTurnCommitOrchestratorTest {
         verify(adventure).preserveProgress(eq(owner), eq(committed.version() + 1),
                 eq(new com.dndmaster.adventure.domain.adventure.AdventureContext(
                         committed.plan().scene(), committed.plan().npcState(), committed.action(), committed.plan().judgment())),
-                org.mockito.ArgumentMatchers.argThat(entries -> entries.size() == committed.conversation().size() + 3
-                        && entries.get(entries.size() - 3).content().equals(committed.action())
-                        && entries.get(entries.size() - 2).content().equals(committed.narration())
-                        && entries.get(entries.size() - 1).content().equals(committed.plan().judgment())));
+                org.mockito.ArgumentMatchers.argThat(entries -> entries.size() == committed.conversation().size() + 2
+                        && entries.get(entries.size() - 2).content().equals(committed.action())
+                        && entries.get(entries.size() - 1).content().equals(committed.narration())));
         verify(adventureRepository).save(adventure);
     }
 
@@ -505,8 +503,7 @@ class RuntimeTurnCommitOrchestratorTest {
         verify(adventure).commitRuntimeTurn(any(OwnerPlayerId.class), eq(ready.version()), eq(ready.pendingState()),
                 eq(ready.context()), eq(List.of(
                         new com.dndmaster.adventure.domain.adventure.ConversationEntry(0, "PLAYER", ready.action()),
-                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(1, "AI_GAME_MASTER", ready.narration()),
-                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(2, "AI_GAME_MASTER", ready.plan().judgment()))),
+                        new com.dndmaster.adventure.domain.adventure.ConversationEntry(1, "AI_GAME_MASTER", ready.narration()))),
                 eq(ready.completionProposal()));
         verify(adventureRepository).save(adventure);
     }

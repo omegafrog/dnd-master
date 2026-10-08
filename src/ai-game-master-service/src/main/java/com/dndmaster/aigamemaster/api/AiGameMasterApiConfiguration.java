@@ -10,7 +10,6 @@ import com.dndmaster.aigamemaster.application.intent.IntentClassificationOutput;
 import com.dndmaster.aigamemaster.application.evidence.EvidenceRerankerService;
 import com.dndmaster.aigamemaster.application.evidence.EvidenceSufficiencyJudgeService;
 import com.dndmaster.aigamemaster.application.rule.*;
-import com.dndmaster.aigamemaster.application.scene.*;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
@@ -56,59 +55,6 @@ public class AiGameMasterApiConfiguration {
         }
         return registry;
     }
-
-    @Bean
-    SceneModelPort sceneModelPort(GmCompletionAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper mapper) {
-        return prompt -> {
-            String grounded = adapter.complete(prompt.soloPlayerId(), "scene-" + UUID.randomUUID(), prompt.value(),
-                    text -> groundedScene(mapper, text, evidenceCount(prompt.value())));
-            ScenarioAlignment alignment = grounded.lines().anyMatch(line -> line.startsWith("[RUNTIME_FACT]"))
-                    ? ScenarioAlignment.RUNTIME_INTERACTION : ScenarioAlignment.WITHIN_SELECTED_SCENARIO;
-            return new SceneOutput(prompt.scenarioId(), prompt.ruleSetId(), alignment, grounded, List.of());
-        };
-    }
-
-    private static String groundedScene(com.fasterxml.jackson.databind.ObjectMapper mapper, String text, int evidenceCount) {
-        try {
-            var root = mapper.readTree(text);
-            var facts = root.path("facts");
-            var choices = root.path("choices");
-            if (!facts.isArray() || facts.size() != 2) throw new IllegalArgumentException("exactly two facts required");
-            if (!choices.isArray() || choices.size() != 3) throw new IllegalArgumentException("exactly three choices required");
-            var numbers = new java.util.HashSet<Integer>();
-            for (var item : choices) {
-                if (!item.has("number") || !item.path("number").canConvertToInt()) {
-                    throw new IllegalArgumentException("choice number is required");
-                }
-                int number = item.path("number").intValue();
-                if (number < 1 || number > 3 || !numbers.add(number)) {
-                    throw new IllegalArgumentException("choice numbers must be unique integers from one to three");
-                }
-            }
-            var lines = new java.util.ArrayList<String>();
-            for (var item : facts) lines.add(groundedSceneLine(item, evidenceCount, false));
-            for (var item : choices) lines.add(groundedSceneLine(item, evidenceCount, true));
-            if (lines.size() != 5) throw new IllegalArgumentException("five grounded lines required");
-            return String.join("\n", lines);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("invalid grounded scene JSON", e);
-        }
-    }
-
-    private static String groundedSceneLine(com.fasterxml.jackson.databind.JsonNode item, int evidenceCount, boolean choice) {
-        String grounding = item.path("grounding").asText("CANONICAL").trim().toUpperCase(java.util.Locale.ROOT);
-        String text = item.path("text").asText("").trim();
-        if (text.isBlank()) throw new IllegalArgumentException("grounded scene text is required");
-        if ("RUNTIME".equals(grounding) || "NPC".equals(grounding)) {
-            String marker = choice ? "[RUNTIME] " : "[RUNTIME_FACT] ";
-            return marker + (choice ? item.path("number").asInt() + ". " : "") + text;
-        }
-        if (!"CANONICAL".equals(grounding)) throw new IllegalArgumentException("invalid scene grounding");
-        return "[E" + evidence(item, evidenceCount) + "] "
-                + (choice ? item.path("number").asInt() + ". " : "") + text;
-    }
-    private static int evidence(com.fasterxml.jackson.databind.JsonNode item,int count){String value=item.path("evidence").asText().replaceAll("\\D","");if(value.isBlank()&&count==1)return 1;int number=value.isBlank()?0:Integer.parseInt(value);if(number<1||number>count)throw new IllegalArgumentException("invalid evidence");return number;}
-    private static int evidenceCount(String prompt){java.util.regex.Matcher m=java.util.regex.Pattern.compile("\\[E(\\d+)]").matcher(prompt);int count=0;while(m.find())count=Math.max(count,Integer.parseInt(m.group(1)));return count;}
 
     @Bean
     RuleAnswerModelPort ruleAnswerModelPort(GmCompletionAdapter adapter) {
@@ -601,17 +547,6 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    ScenarioPromptFactory scenarioPromptFactory() {
-        return new ScenarioPromptFactory();
-    }
-
-    @Bean
-    ScenarioBoundSceneService scenarioBoundSceneService(
-            ScenarioPromptFactory prompts, SceneModelPort model) {
-        return new ScenarioBoundSceneService(prompts, model);
-    }
-
-    @Bean
     GroundedRuleAnswerService groundedRuleAnswerService(RuleAnswerModelPort model) {
         return new GroundedRuleAnswerService(model);
     }
@@ -646,7 +581,6 @@ public class AiGameMasterApiConfiguration {
 
     @Bean
     AiGameMasterController aiGameMasterController(
-            ScenarioBoundSceneService sceneService,
             AdjudicationModelPort adjudicationPort,
             GroundedRuleAnswerService ruleAnswerService,
             MapModelPort mapPort,
@@ -654,7 +588,7 @@ public class AiGameMasterApiConfiguration {
             MapEntryPlacementModelPort mapEntryPlacementPort,
             SpatialFeaturePlacementModelPort spatialFeaturePlacementPort,
             MovementPlacementModelPort movementPlacementPort) {
-        return new AiGameMasterController(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort,
+        return new AiGameMasterController(adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort,
                 mapEntryPlacementPort, spatialFeaturePlacementPort, movementPlacementPort);
     }
 

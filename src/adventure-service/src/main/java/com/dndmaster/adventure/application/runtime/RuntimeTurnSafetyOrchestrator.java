@@ -2,11 +2,14 @@ package com.dndmaster.adventure.application.runtime;
 
 import java.util.Objects;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.dndmaster.adventure.domain.runtime.CompletionProposal;
 import com.dndmaster.adventure.domain.runtime.PendingRuntimeState;
 
 /** Runs fixed resolution, narration, and safety without ever re-running resolution on retry. */
 public final class RuntimeTurnSafetyOrchestrator {
+    private static final Logger LOGGER = LoggerFactory.getLogger(RuntimeTurnSafetyOrchestrator.class);
     private final NarrationSafetyPort safetyPort;
     private final int maxNarrationAttempts;
 
@@ -31,6 +34,8 @@ public final class RuntimeTurnSafetyOrchestrator {
             turn = turn.beginSafetyCheck();
             NarrationSafetyAssessment safety = safetyPort.assess(new NarrationSafetyRequest(
                     narration, turn.evidencePack(), turn.context(), turn.action()));
+            LOGGER.info("dev_narration_safety turnId={} attempt={} outcome={} reason={}", turn.turnId(),
+                    attempt + 1, safety.approved() ? "approved" : "rejected", safety.reason());
             if (safety.approved()) return turn.readyToCommit(narration);
             if (attempt + 1 == maxNarrationAttempts) return turn.discard();
             turn = turn.retryNarration();

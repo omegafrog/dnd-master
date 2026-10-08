@@ -29,6 +29,11 @@ export function armorCategory(armor: string): ArmorCategory | null {
   return armorCategories[armor] ?? null
 }
 
+export function firstProficientArmor(items: string[], characterClass: string, proficiencies: string[]): string {
+  return items.find(item => armorCategory(item) !== null
+    && validateArmorEquipment(characterClass, item, proficiencies).length === 0) ?? ''
+}
+
 export function validateArmorEquipment(characterClass: string, armor: string, armorProficiencies: string[]): ArmorEquipmentIssue[] {
   if (!armor) return []
   const issues: ArmorEquipmentIssue[] = []

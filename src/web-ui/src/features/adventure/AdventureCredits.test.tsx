@@ -25,7 +25,7 @@ describe('AdventureCredits', () => {
     expect(screen.getByText('폐허 아래 저장고 입구에 도착했습니다.')).toBeInTheDocument()
     expect(screen.getByText('횃불 아래에서 거대 쥐가 모습을 드러냅니다.')).toBeInTheDocument()
     expect(screen.getByText('횃불을 켜고 계단을 내려간다.')).toBeInTheDocument()
-    expect(screen.getByText('거대 쥐를 향해 공격했습니다.')).toBeInTheDocument()
+    expect(screen.getByText('공격했습니다.')).toBeInTheDocument()
     expect(screen.getByText('저장고를 정리한 뒤 글로우킨에게 안전하다고 보고했습니다.')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '모험의 출연진' })).toBeInTheDocument()
     expect(screen.getByText('검증용 용사')).toBeInTheDocument()

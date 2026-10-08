@@ -60,6 +60,26 @@ it('derives the grid origin and cell size from the dragged 3×3 area', async () 
   expect(saved.cellSize).toBeCloseTo(.1)
 })
 
+it('does not cap the 3×3 calibration size to the full map dimensions', async () => {
+  const apply = vi.fn().mockResolvedValue(undefined)
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={() => {}} />)
+
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
+  const image = screen.getByAltText('공개된 지도 이미지')
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+  Object.defineProperty(image, 'naturalWidth', { value: 300 })
+  Object.defineProperty(image, 'naturalHeight', { value: 200 })
+  fireEvent.load(image)
+
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 40, clientY: 40 }))
+  fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 160, clientY: 160 }))
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 160, clientY: 160 }))
+  await userEvent.setup().click(screen.getByRole('button', { name: '적용' }))
+
+  expect(apply.mock.calls[0][0].cellSize).toBeCloseTo(40)
+})
+
 it('exposes retry after a save error', async () => {
   const apply = vi.fn().mockRejectedValueOnce(new Error('network')).mockResolvedValueOnce(undefined)
   const user = userEvent.setup()

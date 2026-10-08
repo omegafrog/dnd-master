@@ -201,7 +201,7 @@ public record RuntimeTurn(
         return withLifecycle(RuntimeTurnLifecycle.RESOLVING);
     }
 
-    public RuntimeTurn pendingPlayerRoll(PendingRuntimeState pending, CompletionProposal completion) {
+    public RuntimeTurn pendingPlayerRoll(PendingRuntimeState pending, CompletionProposal completion, String preCheckNarration) {
         requireLifecycle(RuntimeTurnLifecycle.REQUESTED);
         if (!plan.checkProposal().required()
                 || plan.checkProposal().rollMethod() != RuntimeCheckProposal.RollMethod.PLAYER) {
@@ -209,13 +209,17 @@ public record RuntimeTurn(
         }
         RuntimeTurnLifecycle planning = lifecycle.transitionTo(RuntimeTurnLifecycle.PLANNING);
         planning.transitionTo(RuntimeTurnLifecycle.PENDING_ROLL);
+        RuntimePlan pendingPlan = plan.forPendingCheck(preCheckNarration);
+        List<ConversationEntry> pendingConversation = new java.util.ArrayList<>(conversation);
+        if (!gmOnly) pendingConversation.add(new ConversationEntry(pendingConversation.size(), "PLAYER", action));
+        pendingConversation.add(new ConversationEntry(pendingConversation.size(), "AI_GAME_MASTER", preCheckNarration));
         return new RuntimeTurn(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action,
-                evidencePack, plan.forPendingCheck(), activeSourceContext, context, conversation, version, citations,
+                evidencePack, pendingPlan, activeSourceContext, context, pendingConversation, version, citations,
                 warnings, false, playerOrigin, origin, advancesState, turnCharacterSheetId, turnIndex, expectedVersion,
                 gmOnly, agentOrigin, RuntimeTurnLifecycle.PENDING_ROLL,
-                ResolvedTurnPlan.pending(TurnPlan.from(plan.forPendingCheck()), List.of()), null,
+                ResolvedTurnPlan.pending(TurnPlan.from(pendingPlan), List.of()), null,
                 Objects.requireNonNull(pending, "pending state must not be null"),
-                Objects.requireNonNull(completion, "completion proposal must not be null"), "굴림 결과를 제출해 주세요.");
+                Objects.requireNonNull(completion, "completion proposal must not be null"), preCheckNarration);
     }
 
     public RuntimeTurn resolvePlayerRoll(int d20, int total, boolean success) {

@@ -117,6 +117,17 @@ async function enterMaterials(user: ReturnType<typeof userEvent.setup>, name = '
 describe('new adventure setup', () => {
   afterEach(() => vi.unstubAllGlobals())
 
+  it('resumes an interrupted bundle in the current preparation screen', async () => {
+    stubCatalog()
+    const api = new FakeSetupApi({ includeFailed: false })
+    const getBundle = vi.spyOn(api, 'getScenarioBundle').mockResolvedValue({ ...bundle('bundle-resume', 4, []), name: '중단한 모험' })
+    render(<RulebookSetup api={api} playerId="p1" resumeBundleId="bundle-resume" />)
+
+    expect(await screen.findByRole('heading', { name: '모험을 준비하고 있습니다' })).toBeInTheDocument()
+    expect(screen.getByText(/중단한 모험의 자료를 정리하고/)).toBeInTheDocument()
+    expect(getBundle).toHaveBeenCalledWith('bundle-resume')
+  })
+
   it('starts with the onboarding screen and moves through basic information', async () => {
     stubCatalog()
     const user = userEvent.setup()

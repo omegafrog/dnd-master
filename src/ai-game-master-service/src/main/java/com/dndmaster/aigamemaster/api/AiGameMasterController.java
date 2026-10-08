@@ -7,9 +7,6 @@ import com.dndmaster.aigamemaster.application.ports.SpatialFeaturePlacementModel
 import com.dndmaster.aigamemaster.application.ports.MovementPlacementModelPort;
 import com.dndmaster.aigamemaster.application.intent.IntentClassificationModelPort;
 import com.dndmaster.aigamemaster.application.rule.*;
-import com.dndmaster.aigamemaster.application.scene.NpcOutput;
-import com.dndmaster.aigamemaster.application.scene.ScenarioBoundSceneService;
-import com.dndmaster.aigamemaster.application.scene.ScenarioRequest;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -21,7 +18,6 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping
 public class AiGameMasterController {
-    private final ScenarioBoundSceneService sceneService;
     private final AdjudicationModelPort adjudicationPort;
     private final GroundedRuleAnswerService ruleAnswerService;
     private final MapModelPort mapPort;
@@ -31,7 +27,6 @@ public class AiGameMasterController {
     private final IntentClassificationModelPort intentClassificationPort;
 
     public AiGameMasterController(
-            ScenarioBoundSceneService sceneService,
             AdjudicationModelPort adjudicationPort,
             GroundedRuleAnswerService ruleAnswerService,
             MapModelPort mapPort,
@@ -39,7 +34,6 @@ public class AiGameMasterController {
             MapEntryPlacementModelPort mapEntryPlacementPort,
             SpatialFeaturePlacementModelPort spatialFeaturePlacementPort,
             MovementPlacementModelPort movementPlacementPort) {
-        this.sceneService = sceneService;
         this.adjudicationPort = adjudicationPort;
         this.ruleAnswerService = ruleAnswerService;
         this.mapPort = mapPort;
@@ -47,27 +41,6 @@ public class AiGameMasterController {
         this.mapEntryPlacementPort = mapEntryPlacementPort;
         this.spatialFeaturePlacementPort = spatialFeaturePlacementPort;
         this.movementPlacementPort = movementPlacementPort;
-    }
-
-    public AiGameMasterController(ScenarioBoundSceneService sceneService,
-            AdjudicationModelPort adjudicationPort, GroundedRuleAnswerService ruleAnswerService,
-            MapModelPort mapPort, IntentClassificationModelPort intentClassificationPort) {
-        this(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort, null, null, null);
-    }
-
-    @PostMapping("/internal/v1/gm/scenes")
-    SceneResponse generateScene(@RequestBody SceneRequest request) {
-        List<SourceEvidence> evidence = request.evidence().stream()
-                .map(e -> new SourceEvidence(e.rulebookId(), e.locator(), e.excerpt(), e.citationKey()))
-                .toList();
-        ScenarioRequest scenarioRequest = new ScenarioRequest(
-                request.soloPlayerId(), request.scenarioId(), request.selectedScenario(),
-                request.currentContext(), request.ruleSetId(), evidence,
-                request.playerAction(), request.recentActions(), request.runtimeFacts());
-        var output = sceneService.generate(scenarioRequest);
-        return new SceneResponse(
-                output.scenarioId(), output.ruleSetId(),
-                output.scene(), output.npcs(), output.alignment().name());
     }
 
     @PostMapping("/internal/v1/gm/judgments")
@@ -165,32 +138,6 @@ public class AiGameMasterController {
                 "약초와 치유 주문에 익숙한 동료입니다. 모험 중 부상자를 돕고 주변의 단서를 살핍니다.");
     }
 
-    public record SceneRequest(
-            UUID soloPlayerId, UUID scenarioId, String selectedScenario, String currentContext,
-            UUID ruleSetId, List<EvidenceRef> evidence, String playerAction,
-            List<String> recentActions, List<String> runtimeFacts) {
-        public SceneRequest(UUID soloPlayerId, UUID scenarioId, String selectedScenario, String currentContext,
-                UUID ruleSetId, List<EvidenceRef> evidence) {
-            this(soloPlayerId, scenarioId, selectedScenario, currentContext, ruleSetId, evidence, "", List.of(), List.of());
-        }
-
-        public SceneRequest(UUID soloPlayerId, UUID scenarioId, String selectedScenario, String currentContext,
-                UUID ruleSetId, List<EvidenceRef> evidence, String playerAction,
-                List<String> recentActions) {
-            this(soloPlayerId, scenarioId, selectedScenario, currentContext, ruleSetId, evidence, playerAction, recentActions, List.of());
-        }
-    }
-
-    public record EvidenceRef(UUID rulebookId, String locator, String excerpt, String citationKey) {
-        public EvidenceRef(UUID rulebookId, String locator, String excerpt) {
-            this(rulebookId, locator, excerpt, null);
-        }
-    }
-
-    public record SceneResponse(
-            UUID scenarioId, UUID ruleSetId,
-            String scene, List<NpcOutput> npcs, String alignment) {}
-
     public record SpatialFeaturePlacementRequest(
             @com.fasterxml.jackson.annotation.JsonProperty("story" + "PlanReference") String scenarioPackageVersion, int attempt,
             List<String> previousFailureReasons, int gridWidth, int gridHeight, List<String> obstacles,
@@ -205,6 +152,12 @@ public class AiGameMasterController {
     public record JudgmentRequest(UUID soloPlayerId, String action, String context, String ruleSetId) {}
 
     public record JudgmentResponse(String outcome, String ruleBasis) {}
+
+    public record EvidenceRef(UUID rulebookId, String locator, String excerpt, String citationKey) {
+        public EvidenceRef(UUID rulebookId, String locator, String excerpt) {
+            this(rulebookId, locator, excerpt, null);
+        }
+    }
 
     public record RuleAnswerHttpRequest(
             UUID soloPlayerId, UUID ruleSetId, String situation, String evidenceStatus,
