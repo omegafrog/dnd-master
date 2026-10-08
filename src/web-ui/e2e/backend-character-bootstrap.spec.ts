@@ -254,6 +254,7 @@ async function getPreparation(request: APIRequestContext, packageId: string) {
       name: string
       sourceDocumentId: string
       sourceLocator: string
+      sourceVersion: string
       extractionVersion: number
       ownerPlanNumbers: number[]
       executable: boolean
@@ -380,6 +381,7 @@ test('fresh database bootstraps scenario package, preserves spell sources, and c
   for (const spell of spellPreparation.spellDefinitions) {
     expect(spell.sourceDocumentId).toBe(rulebookDocumentId)
     expect(spell.sourceLocator).toMatch(/^page=\d+;node=.+$/)
+    expect(spell.sourceVersion).toBe('sha256:7a0c5d8bf52d15092f156d78418aa3d43307e271f810d2f06bf2f0258e9288a3')
     expect(spell.extractionVersion).toBeGreaterThan(0)
     expect(spell.ownerPlanNumbers.length).toBeGreaterThan(0)
     expect(spell.executable).toBe(false)
@@ -414,7 +416,10 @@ test('fresh database bootstraps scenario package, preserves spell sources, and c
   const renderedSpellRows = await spellRows.allTextContents()
   for (const [index, spell] of reloadedPreparation.spellDefinitions.entries()) {
     expect(renderedSpellRows[index]).toContain(spell.name)
-    expect(renderedSpellRows[index]).toContain(`원문 문서 ${rulebookDocumentId}, 위치 ${spell.sourceLocator}, 추출 ${spell.extractionVersion}`)
+    expect(renderedSpellRows[index]).toContain(`원문 문서 ${rulebookDocumentId}`)
+    expect(renderedSpellRows[index]).toContain(`위치 ${spell.sourceLocator}`)
+    expect(renderedSpellRows[index]).toContain(`원문 버전 ${spell.sourceVersion}`)
+    expect(renderedSpellRows[index]).toContain(`추출 ${spell.extractionVersion}`)
   }
 
   const session = await createSession(request, packageId, preparation.characterCreationBlueprint.revision ?? 0)
