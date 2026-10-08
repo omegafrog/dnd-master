@@ -119,16 +119,25 @@ public final class ScenarioPreparationApplicationService {
         } else {
             var source = basicRulesSources.getFirst();
             boolean sourceMatches = hasApprovedBasicRulebookSource(ownerPlayerId, source);
+            var canonicalDefinitions = BasicRulebookSpellInventory.load(source.knowledgeDocumentId(), source.extractionVersion());
+            var canonicalIds = canonicalDefinitions.stream().map(StructuredSpellDefinition::id).collect(java.util.stream.Collectors.toSet());
+            var existingById = new LinkedHashMap<String, StructuredSpellDefinition>();
+            boolean uniqueKnownIds = spellDefinitions.stream().allMatch(spell ->
+                    canonicalIds.contains(spell.id()) && existingById.putIfAbsent(spell.id(), spell) == null);
             boolean definitionsMatch = spellDefinitions.isEmpty() || spellDefinitions.stream().allMatch(spell ->
                     spell.sourceDocumentId().equals(source.knowledgeDocumentId().value())
                             && spell.sourceVersion().equals(BasicRulebookSpellInventory.SOURCE_VERSION)
                             && spell.extractionVersion() == source.extractionVersion());
-            if (sourceMatches && definitionsMatch && spellDefinitions.isEmpty()) {
-                var loadedDefinitions = BasicRulebookSpellInventory.load(source.knowledgeDocumentId(), source.extractionVersion());
-                packageRepository.saveSpellDefinitions(scenarioPackageId, loadedDefinitions);
-                scenarioPackage = scenarioPackage.withSpellDefinitions(loadedDefinitions);
-                spellDefinitions = scenarioPackage.spellDefinitions();
-            } else if (!sourceMatches || !definitionsMatch) {
+            if (sourceMatches && definitionsMatch && uniqueKnownIds) {
+                var completeDefinitions = canonicalDefinitions.stream()
+                        .map(spell -> existingById.getOrDefault(spell.id(), spell))
+                        .toList();
+                if (!completeDefinitions.equals(spellDefinitions)) {
+                    packageRepository.saveSpellDefinitions(scenarioPackageId, completeDefinitions);
+                    scenarioPackage = scenarioPackage.withSpellDefinitions(completeDefinitions);
+                }
+                spellDefinitions = completeDefinitions;
+            } else {
                 spellDefinitions = List.of();
             }
         }

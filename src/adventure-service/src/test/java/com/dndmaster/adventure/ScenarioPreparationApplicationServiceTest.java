@@ -35,6 +35,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -429,6 +430,25 @@ class ScenarioPreparationApplicationServiceTest {
         assertTrue(preparation.spellDefinitions().stream().allMatch(spell ->
                 spell.sourceDocumentId().equals(rulebookDocumentId()) && spell.extractionVersion() == 1
                         && spell.sourceLocator().matches("page=\\d+;node=node-\\d+")));
+    }
+
+    @Test
+    void replacesMatchingSourcePartialInventoryWithTheCompletePdfInventory() {
+        var original = BasicRulebookSpellInventory.load(new KnowledgeDocumentId(rulebookDocumentId()), 1).getFirst();
+        var userEdited = new StructuredSpellDefinition(original.id(), original.name(), original.sourceDocumentId(),
+                original.sourceLocator(), original.sourceVersion(), original.extractionVersion(), original.level(),
+                original.castingTime(), original.rangeArea(), original.components(), original.duration(), original.school(),
+                "사용자가 수정한 판정", "사용자가 수정한 효과", original.ownerPlanNumbers(), original.ownerEvidence(),
+                original.executable(), original.reviewStatus());
+        var partialDefinitions = List.of(userEdited);
+        TestFixture fixture = bundle(withRulebookPackage().withSpellDefinitions(partialDefinitions), bundleWithRulebook());
+
+        var preparation = service(fixture, BasicRulebookSpellInventory.SOURCE_VERSION.substring("sha256:".length()))
+                .read(fixture.packageId(), owner());
+
+        assertEquals(126, preparation.spellDefinitions().size());
+        assertEquals(126, preparation.spellDefinitions().stream().map(spell -> spell.id()).distinct().count());
+        assertEquals(userEdited, preparation.spellDefinitions().getFirst());
     }
 
     @Test
