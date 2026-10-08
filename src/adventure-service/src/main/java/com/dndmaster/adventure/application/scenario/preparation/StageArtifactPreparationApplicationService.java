@@ -166,6 +166,15 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                 }
             }
         }
+        long intermediateCandidates = situations.values().stream()
+                .filter(situation -> !situation.opening())
+                .count();
+        if (situations.values().stream().noneMatch(SituationDefinition::required)) {
+            throw new IllegalStateException("initial situation set must include a required situation");
+        }
+        if (intermediateCandidates < 2) {
+            throw new IllegalStateException("initial situation set must include multiple intermediate candidates");
+        }
         for (SituationDefinition situation : situations.values()) {
             if (!situations.keySet().containsAll(situation.prerequisiteSituationIds())) {
                 throw new IllegalStateException("situation prerequisite does not exist in the initial set");

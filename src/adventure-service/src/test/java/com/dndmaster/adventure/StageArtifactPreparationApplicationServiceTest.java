@@ -145,8 +145,9 @@ class StageArtifactPreparationApplicationServiceTest {
                 new PressureDefinition("The situation develops", List.of()),
                 new FunnelDefinition("Choose what to investigate", List.of(), List.of()),
                 List.of(new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
-                        List.of(), List.of(), List.of(), List.of(), true, false, List.of(),
-                        SituationProvenance.GM_SUPPLEMENTED, null, List.of())), List.of(), List.of());
+                        List.of(), List.of(), List.of(), List.of(), true, true, List.of(),
+                        SituationProvenance.GM_SUPPLEMENTED, null, List.of()),
+                        supplementalCandidate("candidate-a"), supplementalCandidate("candidate-b")), List.of(), List.of());
         var service = new StageArtifactPreparationApplicationService(new StageArtifactRepository.InMemory(),
                 request -> List.of(evidence), request -> backbone, request -> stage);
 
@@ -154,6 +155,47 @@ class StageArtifactPreparationApplicationServiceTest {
 
         assertEquals(SituationProvenance.GM_SUPPLEMENTED, result.openingSituation().provenance());
         assertEquals(List.of(), result.openingSituation().sourceRefs());
+    }
+
+    @Test
+    void requires_multiple_intermediate_candidates_without_a_fixed_maximum() {
+        for (int candidateCount = 0; candidateCount <= 3; candidateCount++) {
+            var repository = new StageArtifactRepository.InMemory();
+            var situations = new java.util.ArrayList<SituationDefinition>();
+            situations.add(new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
+                    List.of(), List.of(), List.of(), List.of(), true, true, List.of(),
+                    SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence)));
+            for (int index = 0; index < candidateCount; index++) {
+                situations.add(new SituationDefinition("candidate-" + index, List.of(StageIntent.REVELATION), List.of("truth"),
+                        List.of(), List.of(), List.of(), List.of(), false, false, List.of(),
+                        SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence)));
+            }
+            var service = new StageArtifactPreparationApplicationService(repository,
+                    request -> List.of(evidence), request -> singleStageBackbone(), request -> detailedWithSituations(situations));
+
+            if (candidateCount < 2) {
+                assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
+                assertEquals(0, repository.findBackbone(adventureId, packageId, 1).stream().count());
+            } else {
+                var result = service.prepare(adventureId, sessionId, packageId);
+                assertEquals(candidateCount + 1, result.currentStage().situations().size());
+            }
+        }
+    }
+
+    @Test
+    void rejects_initial_set_without_a_required_situation() {
+        var repository = new StageArtifactRepository.InMemory();
+        var stage = detailedWithSituations(List.of(
+                new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
+                        List.of(), List.of(), List.of(), List.of(), true, false, List.of(),
+                        SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence)),
+                extractedCandidate("candidate-a"), extractedCandidate("candidate-b")));
+        var service = new StageArtifactPreparationApplicationService(repository,
+                request -> List.of(evidence), request -> singleStageBackbone(), request -> stage);
+
+        assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
+        assertEquals(0, repository.findBackbone(adventureId, packageId, 1).stream().count());
     }
 
     @Test
@@ -227,7 +269,8 @@ class StageArtifactPreparationApplicationServiceTest {
                 new PressureDefinition("The search grows dangerous", List.of()),
                 new FunnelDefinition("The heir is located", List.of("truth"), List.of()),
                 List.of(new SituationDefinition("opening-situation", List.of(StageIntent.REVELATION), List.of("truth"),
-                        List.of(), List.of(), List.of(), List.of(), true, List.of())), List.of(), List.of());
+                        List.of(), List.of(), List.of(), List.of(), true, List.of()),
+                        supplementalCandidate("candidate-a"), supplementalCandidate("candidate-b")), List.of(), List.of());
         StorybookEvidenceLookupPort lookup = new StorybookEvidenceLookupPort() {
             @Override public List<ScenarioSourceReference> lookup(UUID id) { return List.of(); }
             @Override public boolean isScenarioBacked(UUID id) { return false; }
@@ -318,8 +361,21 @@ class StageArtifactPreparationApplicationServiceTest {
                 new PressureDefinition("The search grows dangerous", List.of(evidence)),
                 new FunnelDefinition("The heir is located", List.of("truth"), List.of(evidence)),
                 List.of(new SituationDefinition(openingId, List.of(StageIntent.REVELATION),
-                        List.of("truth"), List.of(), List.of(), List.of(), List.of(), true, openingEvidence)),
+                        List.of("truth"), List.of(), List.of(), List.of(), List.of(), true, openingEvidence),
+                        extractedCandidate("candidate-a"), extractedCandidate("candidate-b")),
                 List.of(), List.of(evidence));
+    }
+
+    private SituationDefinition extractedCandidate(String id) {
+        return new SituationDefinition(id, List.of(StageIntent.REVELATION), List.of("truth"),
+                List.of(), List.of(), List.of(), List.of(), false, false, List.of(),
+                SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence));
+    }
+
+    private SituationDefinition supplementalCandidate(String id) {
+        return new SituationDefinition(id, List.of(StageIntent.REVELATION), List.of("truth"),
+                List.of(), List.of(), List.of(), List.of(), false, false, List.of(),
+                SituationProvenance.GM_SUPPLEMENTED, null, List.of());
     }
 
     private DetailedStage detailedWithSituations(List<SituationDefinition> situations) {

@@ -156,7 +156,11 @@ class ScenarioRuntimeAdventureStartTest {
                 new PressureDefinition("The search grows dangerous", List.of(evidence)),
                 new FunnelDefinition("The key is found", List.of("truth"), List.of(evidence)),
                 List.of(new SituationDefinition("opening-situation", List.of(StageIntent.REVELATION), List.of("truth"),
-                        List.of(), List.of(), List.of(), List.of(), true, List.of(evidence))), List.of(), List.of(evidence));
+                        List.of(), List.of(), List.of(), List.of(), true, List.of(evidence)),
+                        new SituationDefinition("candidate-a", List.of(StageIntent.REVELATION), List.of("truth"),
+                                List.of(), List.of(), List.of(), List.of(), false, List.of(evidence)),
+                        new SituationDefinition("candidate-b", List.of(StageIntent.REVELATION), List.of("truth"),
+                                List.of(), List.of(), List.of(), List.of(), false, List.of(evidence))), List.of(), List.of(evidence));
         return new StageArtifactPreparationApplicationService(new StageArtifactRepository.InMemory(),
                 request -> List.of(evidence), request -> backbone, request -> stage);
     }

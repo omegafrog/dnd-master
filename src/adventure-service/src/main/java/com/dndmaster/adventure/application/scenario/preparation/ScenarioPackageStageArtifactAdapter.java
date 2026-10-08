@@ -9,6 +9,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioModelElement;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.SituationDefinition;
+import com.dndmaster.adventure.domain.scenario.SituationProvenance;
 import com.dndmaster.adventure.domain.scenario.StageBackbone;
 import com.dndmaster.adventure.domain.scenario.StageBackboneEntry;
 import com.dndmaster.adventure.domain.scenario.StageIntent;
@@ -105,7 +106,16 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 new PressureDefinition("pressure", openingGoal(scenarioPackage), evidence),
                 new FunnelDefinition("funnel", openingGoal(scenarioPackage), List.of(revelationId), List.of(), evidence),
                 List.of(new SituationDefinition("opening-situation", List.of(StageIntent.REVELATION), List.of(revelationId),
-                        List.of(), List.of(), List.of(), List.of(), true, evidence)), List.of(), evidence);
+                        List.of(), List.of(), List.of(), List.of(), true, evidence),
+                        fallbackCandidate("candidate-a", revelationId, evidence),
+                        fallbackCandidate("candidate-b", revelationId, evidence)), List.of(), evidence);
+    }
+
+    private SituationDefinition fallbackCandidate(String id, String revelationId, List<ScenarioSourceReference> evidence) {
+        return new SituationDefinition(id, List.of(StageIntent.REVELATION), List.of(revelationId),
+                List.of(), List.of(), List.of(), List.of(), false, false, List.of(),
+                evidence.isEmpty() ? SituationProvenance.GM_SUPPLEMENTED : SituationProvenance.SOURCE_EXTRACTED,
+                null, evidence);
     }
 
     private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt) {
