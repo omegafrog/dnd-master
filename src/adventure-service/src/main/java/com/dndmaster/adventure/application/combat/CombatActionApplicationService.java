@@ -573,10 +573,17 @@ public final class CombatActionApplicationService {
                         CombatActionStep.Status.PENDING)))
                 : existing;
         operationRepository.save(operation);
+        int committedDistance = distance;
         try {
             if (command.combatMapId() != null && !stepDone(operation, "map")) {
-                requireCommittedMovement(movementCoordinator.resolve(
-                        new CombatMapMoveCommand(command, distance, expectedMapVersion(command))));
+                CombatMapMoveResult movement = movementCoordinator.resolve(
+                        new CombatMapMoveCommand(command, distance, expectedMapVersion(command)));
+                requireCommittedMovement(movement);
+                if (movement.status() == CombatMapMovementStatus.INTERRUPTED) {
+                    committedDistance = traversedMovementDistance(movement);
+                    reservation = encounter.reserveAction(command.characterSheetId().value(),
+                            TurnResourceCost.movementOnly(committedDistance), command.expectedVersion());
+                }
                 operation.completeStep("map");
                 operationRepository.save(operation);
             } else if (command.combatMapId() == null) {
@@ -587,7 +594,7 @@ public final class CombatActionApplicationService {
                     command.narrativePosition());
             encounterRepository.save(committed, encounter.version());
             String judgment = command.narrativePosition() == null
-                    ? "moved " + distance + "ft" : command.narrativePosition().rangeBand()
+                    ? "moved " + committedDistance + "ft" : command.narrativePosition().rangeBand()
                     + " range, " + command.narrativePosition().cover() + " cover";
             CombatActionResponse response = new CombatActionResponse(committed.encounterId(), command.operationId(),
                     committed.version(), "MOVE_COMMITTED", null, judgment, List.of());
@@ -595,7 +602,7 @@ public final class CombatActionApplicationService {
             operationRepository.save(operation);
             eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(),
                     "MOVEMENT_RESOLVED", "{\"operationId\":\"" + command.operationId()
-                    + "\",\"distance\":" + distance + "}"));
+                    + "\",\"distance\":" + committedDistance + "}"));
             response = narrateAfterCommit(command, response, command.action(), committed);
             operation.committed(response);
             operationRepository.save(operation);
@@ -619,6 +626,10 @@ public final class CombatActionApplicationService {
         }
         if (command.movementDistance() != null) return command.movementDistance();
         throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("MOVEMENT_DISTANCE_REQUIRED"));
+    }
+
+    private static int traversedMovementDistance(CombatMapMoveResult result) {
+        return Math.multiplyExact(Math.max(0, result.traversedPath().size() - 1), CombatMovementPolicy.GRID_DISTANCE_UNIT);
     }
 
     private static long expectedMapVersion(CombatActionCommand command) {

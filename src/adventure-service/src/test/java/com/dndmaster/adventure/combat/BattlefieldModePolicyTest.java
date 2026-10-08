@@ -65,6 +65,28 @@ class BattlefieldModePolicyTest {
     }
 
     @Test
+    void interrupted_mapped_movement_consumes_only_the_reached_path() {
+        UUID adventureId = UUID.randomUUID();
+        UUID heroId = UUID.randomUUID();
+        EncounterStore encounters = encounters(adventureId, heroId);
+        CountingMapPort map = new CountingMapPort();
+        map.result = new CombatMapMoveResult(1, UUID.randomUUID(), CombatMapMovementStatus.INTERRUPTED,
+                List.of(new CombatMapPreviewPosition(0, 0), new CombatMapPreviewPosition(1, 0),
+                        new CombatMapPreviewPosition(2, 0)),
+                List.of(new CombatMapPreviewPosition(0, 0), new CombatMapPreviewPosition(1, 0)),
+                new CombatMapPreviewPosition(1, 0), List.of(), "TRAP");
+        CombatActionApplicationService service = service(encounters, new OperationStore(), map);
+        CombatActionCommand command = new CombatActionCommand(UUID.randomUUID(), new AdventureId(adventureId),
+                UUID.randomUUID(), new RuleSetId(UUID.randomUUID()), new CharacterSheetId(heroId), UUID.randomUUID(),
+                CombatActorRole.PLAYER, "MOVE", "0,0;1,0;2,0", UUID.randomUUID(), UUID.randomUUID(), 1,
+                null, null, null, null, false);
+
+        service.submit(command);
+
+        assertEquals(25, encounters.value.currentParticipant().resources().movement());
+    }
+
+    @Test
     void mapped_movement_forwards_map_version_separately_from_encounter_version() {
         UUID adventureId = UUID.randomUUID();
         UUID heroId = UUID.randomUUID();
@@ -162,6 +184,7 @@ class BattlefieldModePolicyTest {
         int calls;
         boolean reject;
         CombatMapMovementStatus status = CombatMapMovementStatus.COMMITTED;
+        CombatMapMoveResult result;
         CombatMapMoveCommand received;
         @Override public void validateAndMove(CombatActionCommand command) {
             calls++;
@@ -171,6 +194,7 @@ class BattlefieldModePolicyTest {
             received = command;
             calls++;
             if (reject) throw new IllegalStateException("destination blocked");
+            if (result != null) return result;
             return new CombatMapMoveResult(command.expectedVersion() + 1, UUID.randomUUID(), status,
                     List.of(), null, List.of(), null);
         }
