@@ -4,6 +4,7 @@ from io import StringIO
 from unittest.mock import patch
 import json
 import hashlib
+import pytest
 
 from preprocessing_agent.pipeline.extraction_service import ExtractionApplicationService
 from preprocessing_agent.ports.extraction import RenderedPage
@@ -85,19 +86,64 @@ def test_fresh_review_replaces_stale_recovered_confirmation_before_promotion(tmp
         "admin_id": "admin-2", "candidate_version": "candidate-1", "selections": selection}
 
 
+def test_failed_fresh_review_invalidates_validated_page_and_recovered_result(tmp_path):
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"pdf")
+    output = tmp_path / "artifacts"
+    native = _NativeColumns()
+    service = ExtractionApplicationService(native, _Render(), None)
+    first = service.preprocess({"request_id": "initial", "source_path": str(source),
+        "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
+        "output_dir": str(output), "version_id": "candidate-1"})
+    profile = first["pages"][0]["layout_review"]["profiles"][0]
+    candidate = next(index for index, value in enumerate(profile["candidates"])
+                     if value["column_count"] == 2)
+    first_retry = service.retry_pages("candidate-1", output, [1], request_id="retry-1",
+        layout_selections={1: {profile["region_id"]: candidate}}, confirmed_by="admin-1")
+    assert first_retry["status"] == "READY"
+
+    native.extract = lambda _source: [{"page_number": 1, "geometry": {"width": 100, "height": 100},
+        "blocks": [], "capability_error": "SOURCE_RECHECK_FAILED"}]
+    failed = service.retry_pages("candidate-1", output, [1], request_id="retry-2",
+        layout_selections={1: {profile["region_id"]: candidate}}, confirmed_by="admin-2")
+
+    assert failed["status"] == "NEEDS_REVIEW"
+    assert failed["pages"][0]["status"] == "NEEDS_REVIEW"
+    assert failed["pages"][0]["attempt_history"][-1]["status"] == "NEEDS_REVIEW"
+    assert failed["pages"][0].get("layout_confirmation") is None
+    snapshot = json.loads((output / "versions" / "candidate-1" / "retry-state.json").read_text())
+    assert "1" not in snapshot["recovered_pages"]
+
+
+def test_retry_rejects_candidate_index_outside_recomputed_profile(tmp_path):
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"pdf")
+    output = tmp_path / "artifacts"
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    first = service.preprocess({"request_id": "initial", "source_path": str(source),
+        "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
+        "output_dir": str(output), "version_id": "candidate-1"})
+    profile = first["pages"][0]["layout_review"]["profiles"][0]
+
+    with pytest.raises(ValueError, match="INVALID_LAYOUT_CANDIDATE"):
+        service.retry_pages("candidate-1", output, [1], request_id="retry-invalid-index",
+            layout_selections={1: {profile["region_id"]: len(profile["candidates"])}}, confirmed_by="admin-1")
+    assert not (output / "versions" / "candidate-1" / "retry-state.json").exists()
+
+
 def test_pdf_confirmed_column_choice_preserves_other_hard_errors():
     page = {
         "page_number": 1,
         "geometry": {"width": 100, "height": 100},
         "blocks": [{"block_id": "a", "bbox": [5, 5, 40, 20], "text": "hello"}],
-        "layout": {"profiles": [{"confidence": 0.79, "selected": {"column_count": 2}}],
+        "layout": {"profiles": [{"confidence": 0.769, "selected": {"column_count": 2}}],
                    "ordered_block_ids": ["a"]},
     }
     validator = LayoutValidationService()
     assert not validator.validate(page, {"page_number": 1, "sha256": "abc"}).valid
     accepted = validator.validate(page, {"page_number": 1, "sha256": "abc"}, confirmed_columns=True)
     assert accepted.valid
-    assert accepted.confidence.columns == 0.79
+    assert accepted.confidence.columns == 0.769
     broken = {**page, "blocks": [{"block_id": "a", "bbox": [5, 5, 120, 20], "text": "hello"}]}
     assert not validator.validate(broken, {"page_number": 1, "sha256": "abc"}, confirmed_columns=True).valid
 

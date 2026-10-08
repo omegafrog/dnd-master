@@ -746,8 +746,10 @@ class ExtractionApplicationService:
                 item = dict(page)
                 if item["page_number"] in wanted:
                     selected_regions = layout_selections.get(item["page_number"], {})
-                    if item.get("status") == "VALIDATED":
-                        persisted_page = persisted_recovered.get(str(item["page_number"]), {})
+                    page_key = str(item["page_number"])
+                    was_validated = item.get("status") == "VALIDATED"
+                    if was_validated:
+                        persisted_page = persisted_recovered.get(page_key, {})
                         if not isinstance(persisted_page, Mapping):
                             persisted_page = {}
                         confirmation = persisted_page.get("layout_confirmation")
@@ -762,6 +764,10 @@ class ExtractionApplicationService:
                             continue
                         if not persisted_page:
                             raise ValueError("VALIDATED_PAGE_IMMUTABLE")
+                    if selected_regions:
+                        recovered_pages.pop(page_key, None)
+                        item["status"] = "NEEDS_REVIEW"
+                        item.pop("layout_confirmation", None)
                     attempt = self.retry_policy.request(item)
                     history = list(item.get("attempt_history", [])); history.append(attempt.as_dict())
                     item["attempts"] = attempt.attempt_number; item["attempt_history"] = history
@@ -786,11 +792,20 @@ class ExtractionApplicationService:
                             item["findings"] = [str(raw["capability_error"])]
                         if valid:
                             page_geometry = PageGeometry(float(geometry["width"]), float(geometry["height"]))
+                            if selected_regions:
+                                candidate_plan = ReadingOrderPlanner().plan(boxes, page_geometry)
+                                current_profiles = {profile.region_id: profile for profile in candidate_plan.profiles}
+                                if set(selected_regions) != set(current_profiles) or any(
+                                    type(candidate) is not int or candidate < 0
+                                    or candidate >= len(current_profiles[region].candidates)
+                                    for region, candidate in selected_regions.items()
+                                ):
+                                    raise ValueError("INVALID_LAYOUT_CANDIDATE")
                             layout_plan = ReadingOrderPlanner().plan(boxes, page_geometry,
                                                                      selected_regions)
                             if confirmed_by and selected_regions:
                                 previous = item.get("layout_review") or {}
-                                old_layout = persisted_page.get("layout", {}) if item.get("status") == "VALIDATED" else {}
+                                old_layout = persisted_page.get("layout", {}) if was_validated else {}
                                 prior_profiles = {profile["region_id"]: profile for profile in
                                     previous.get("profiles", old_layout.get("profiles", ()))}
                                 new_profiles = {profile.region_id: to_dict(profile) for profile in layout_plan.profiles}
@@ -829,6 +844,10 @@ class ExtractionApplicationService:
                         if str(exc) == "INVALID_LAYOUT_CANDIDATE":
                             raise
                         item["findings"] = [str(exc) or "RETRY_EXTRACTION_FAILED"]
+                    if item["status"] != "VALIDATED":
+                        item["status"] = "NEEDS_REVIEW"
+                        item["attempt_history"][-1] = {**item["attempt_history"][-1],
+                            "status": "NEEDS_REVIEW", "findings": item.get("findings", [])}
                     item["diagnostics"]["finding_regions"] = item.get("finding_regions", item["diagnostics"].get("regions", []))
                     item["diagnostics"]["overlay"] = f"diagnostics/{version_id}/page-{item['page_number']}-attempt-{attempt.attempt_number}.json"
                 updated.append(item)
