@@ -671,7 +671,8 @@ class ExtractionApplicationService:
                 status_lock.close()
 
     def retry_pages(self, version_id: str, artifact_root: str | Path, pages: list[int], *, request_id: str = "retry",
-                    layout_selections: dict[int, dict[str, int]] | None = None) -> Mapping[str, Any]:
+                    layout_selections: dict[int, dict[str, int]] | None = None,
+                    confirmed_by: str | None = None) -> Mapping[str, Any]:
         """Re-extract, render and validate only selected review pages.
 
         The version remains quarantined until every page is validated.  A
@@ -689,6 +690,8 @@ class ExtractionApplicationService:
             layout_selections = layout_selections or {}
             by_number = {int(p["page_number"]): p for p in current["pages"]}
             if not wanted or any(p not in by_number for p in wanted):
+                raise ValueError("INVALID_PAGE_SELECTION")
+            if set(layout_selections) - set(wanted) or (confirmed_by and not layout_selections):
                 raise ValueError("INVALID_PAGE_SELECTION")
             index_path = root / "retry-index.json"
             try:
@@ -751,16 +754,33 @@ class ExtractionApplicationService:
                             item["findings"] = [str(raw["capability_error"])]
                         if valid:
                             page_geometry = PageGeometry(float(geometry["width"]), float(geometry["height"]))
+                            selected_regions = layout_selections.get(item["page_number"], {})
                             layout_plan = ReadingOrderPlanner().plan(boxes, page_geometry,
-                                                                     layout_selections.get(item["page_number"], {}))
+                                                                     selected_regions)
+                            if confirmed_by and selected_regions:
+                                previous = item.get("layout_review") or {}
+                                prior_profiles = {profile["region_id"]: profile for profile in previous.get("profiles", ())}
+                                new_profiles = {profile.region_id: to_dict(profile) for profile in layout_plan.profiles}
+                                if set(selected_regions) != set(new_profiles) or any(
+                                    region not in prior_profiles or
+                                    prior_profiles[region].get("candidates") != new_profiles[region].get("candidates")
+                                    for region in selected_regions
+                                ):
+                                    raise ValueError("INVALID_LAYOUT_CANDIDATE")
+                                item["layout_confirmation"] = {"admin_id": confirmed_by,
+                                    "candidate_version": version_id, "selections": selected_regions}
                             if layout_plan.ambiguous:
                                 valid = False
                             raw = {**raw, "layout": to_dict(layout_plan)}
                             raw["heading_associations"] = to_dict(HeadingAssociator().associate(boxes, layout_plan))
                             raw["tables"] = to_dict(TableStructureDetector().detect(boxes))
                             render = self._render_evidence(source_path, item["page_number"], page_geometry)
-                            validation = self.layout_validator.validate(raw, render)
+                            validation = self.layout_validator.validate(raw, render,
+                                confirmed_columns=bool(confirmed_by and selected_regions))
                             valid = validation.valid
+                            if not valid:
+                                item["findings"] = [finding.code for finding in validation.findings
+                                    if finding.severity == "error"]
                             if valid:
                                 recovered_pages[str(item["page_number"])] = raw
                         if valid:
@@ -771,6 +791,8 @@ class ExtractionApplicationService:
                             if isinstance(raw, Mapping):
                                 item["layout_review"] = _layout_review_payload(raw)
                     except Exception as exc:
+                        if str(exc) == "INVALID_LAYOUT_CANDIDATE":
+                            raise
                         item["findings"] = [str(exc) or "RETRY_EXTRACTION_FAILED"]
                     item["diagnostics"]["finding_regions"] = item.get("finding_regions", item["diagnostics"].get("regions", []))
                     item["diagnostics"]["overlay"] = f"diagnostics/{version_id}/page-{item['page_number']}-attempt-{attempt.attempt_number}.json"

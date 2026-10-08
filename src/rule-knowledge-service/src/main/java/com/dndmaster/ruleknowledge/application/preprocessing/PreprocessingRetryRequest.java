@@ -9,7 +9,8 @@ public record PreprocessingRetryRequest(
         String versionId,
         Path artifactRoot,
         List<Integer> pages,
-        Map<Integer, Map<String, Integer>> layoutSelections) {
+        Map<Integer, Map<String, Integer>> layoutSelections,
+        String confirmedBy) {
 
     public PreprocessingRetryRequest {
         if (requestId == null || requestId.isBlank()) {
@@ -29,6 +30,11 @@ public record PreprocessingRetryRequest(
     }
 
     public PreprocessingRetryRequest(String requestId, String versionId, Path artifactRoot, List<Integer> pages) {
-        this(requestId, versionId, artifactRoot, pages, Map.of());
+        this(requestId, versionId, artifactRoot, pages, Map.of(), null);
+    }
+
+    public PreprocessingRetryRequest(String requestId, String versionId, Path artifactRoot, List<Integer> pages,
+            Map<Integer, Map<String, Integer>> layoutSelections) {
+        this(requestId, versionId, artifactRoot, pages, layoutSelections, null);
     }
 }

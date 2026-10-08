@@ -85,7 +85,8 @@ class LayoutValidationService:
         self.policy = policy or LayoutValidationPolicy()
         self.secondary = secondary
 
-    def validate(self, page: Mapping[str, Any], render_evidence: Mapping[str, Any] | None = None) -> LayoutValidationResult:
+    def validate(self, page: Mapping[str, Any], render_evidence: Mapping[str, Any] | None = None,
+                 *, confirmed_columns: bool = False) -> LayoutValidationResult:
         evidence = dict(render_evidence or page.get("render_evidence", {}))
         findings: list[ValidationFinding] = []
         blocks = tuple(page.get("blocks", ()))
@@ -155,11 +156,15 @@ class LayoutValidationService:
                     findings.append(ValidationFinding("SECONDARY_VALIDATION_FAILED", "secondary layout validation failed"))
         confidence = ConfidenceVector(**axes)
         findings.extend(ValidationFinding(f"LOW_CONFIDENCE_{axis.upper()}", f"{axis} confidence is below policy")
-                        for axis in self.policy.critical_axes if confidence.as_dict()[axis] < self.policy.thresholds.get(axis, .8))
+                        for axis in self.policy.critical_axes if confidence.as_dict()[axis] < self.policy.thresholds.get(axis, .8)
+                        and not (axis == "columns" and confirmed_columns))
         for axis in self.policy.critical_axes:
             threshold = self.policy.thresholds.get(axis, .8)
             value = confidence.as_dict()[axis]
             if threshold <= value < min(1.0, threshold + .05):
                 findings.append(ValidationFinding(f"NEAR_THRESHOLD_{axis.upper()}", f"{axis} confidence is near policy threshold", severity="warning", action="review"))
-        valid = not any(item.severity == "error" for item in findings) and all(confidence.as_dict()[axis] >= self.policy.thresholds.get(axis, .8) for axis in self.policy.critical_axes)
+        valid = not any(item.severity == "error" for item in findings) and all(
+            confidence.as_dict()[axis] >= self.policy.thresholds.get(axis, .8)
+            or (axis == "columns" and confirmed_columns)
+            for axis in self.policy.critical_axes)
         return LayoutValidationResult(valid, high_risk, confidence, tuple(findings), evidence, secondary_validated)

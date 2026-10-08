@@ -93,6 +93,7 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
         payload.put("artifact_root", request.artifactRoot().toAbsolutePath().normalize().toString());
         payload.put("pages", request.pages());
         payload.put("layout_selections", request.layoutSelections());
+        if (request.confirmedBy() != null) payload.put("confirmed_by", request.confirmedBy());
         return invoke(payload,
                 "retry_pages", request.requestId(), null, null, request.versionId());
     }
@@ -266,10 +267,18 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
                 findings.add(item.asText());
             });
             pages.add(new PreprocessingPageState(number, page.path("status").asText(""), attempts, findings,
-                    parseLayoutReview(page.path("layout_review"))));
+                    parseLayoutReview(page.path("layout_review")), parseLayoutConfirmation(page.path("layout_confirmation"))));
             expectedNumber++;
         }
         return List.copyOf(pages);
+    }
+
+    private PreprocessingPageState.LayoutConfirmation parseLayoutConfirmation(JsonNode node) {
+        if (!node.isObject()) return null;
+        java.util.Map<String, Integer> selections = new java.util.HashMap<>();
+        node.path("selections").fields().forEachRemaining(item -> selections.put(item.getKey(), item.getValue().asInt()));
+        return new PreprocessingPageState.LayoutConfirmation(node.path("admin_id").asText(""),
+                node.path("candidate_version").asText(""), selections);
     }
 
     private PreprocessingPageState.LayoutReview parseLayoutReview(JsonNode node) {

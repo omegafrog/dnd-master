@@ -10,7 +10,8 @@ public record PreprocessingPageState(
         String status,
         int attempts,
         List<String> findings,
-        LayoutReview layoutReview) {
+        LayoutReview layoutReview,
+        LayoutConfirmation layoutConfirmation) {
     private static final Pattern ABSOLUTE_PATH = Pattern.compile(
             "(?i)(?:^|[\\s(\\[=:])(?:/|\\\\\\\\|[A-Za-z]:[\\\\/])");
 
@@ -31,7 +32,18 @@ public record PreprocessingPageState(
     }
 
     public PreprocessingPageState(int pageNumber, String status, int attempts, List<String> findings) {
-        this(pageNumber, status, attempts, findings, null);
+        this(pageNumber, status, attempts, findings, null, null);
+    }
+
+    public PreprocessingPageState(int pageNumber, String status, int attempts, List<String> findings,
+            LayoutReview layoutReview) {
+        this(pageNumber, status, attempts, findings, layoutReview, null);
+    }
+
+    public record LayoutConfirmation(String adminId, String candidateVersion, java.util.Map<String, Integer> selections) {
+        public LayoutConfirmation {
+            selections = selections == null ? java.util.Map.of() : java.util.Map.copyOf(selections);
+        }
     }
 
     public record LayoutReview(List<LayoutRegionReview> regions, List<LayoutBlockReview> blocks) {

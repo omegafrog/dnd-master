@@ -42,6 +42,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.Map;
 
 public final class RulebookPipelineApplicationService implements RulebookUploadProcessor {
@@ -224,6 +225,12 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
 
     public RulebookProcessingResult retryPages(RulebookId rulebookId, String requestId, List<Integer> pages,
                                                Map<Integer, Map<String, Integer>> layoutSelections) {
+        return retryPages(rulebookId, requestId, pages, layoutSelections, null, null);
+    }
+
+    public RulebookProcessingResult retryPages(RulebookId rulebookId, String requestId, List<Integer> pages,
+                                               Map<Integer, Map<String, Integer>> layoutSelections,
+                                               String candidateVersion, UUID confirmedBy) {
         Objects.requireNonNull(rulebookId, "rulebook id must not be null");
         if (requestId == null || requestId.isBlank()) throw new IllegalArgumentException("retry request id must not be blank");
         if (pages == null || pages.isEmpty() || pages.stream().anyMatch(page -> page == null || page < 1)) {
@@ -239,11 +246,40 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 || registration.candidateExtractionVersion() == null) {
             throw new IllegalStateException("only review candidate can retry pages");
         }
+        if (candidateVersion != null && !candidateVersion.equals(registration.candidateExtractionVersion())) {
+            throw new IllegalStateException("review candidate version changed");
+        }
         List<Integer> selected = pages.stream().distinct().sorted().toList();
         List<Integer> retryable = registration.preprocessingPages().stream()
                 .filter(page -> "NEEDS_REVIEW".equals(page.status()) && page.attempts() < 3)
                 .map(PreprocessingPageState::pageNumber).toList();
         if (!retryable.containsAll(selected)) throw new IllegalStateException("selected pages are not retryable");
+        if (layoutSelections == null) layoutSelections = Map.of();
+        if (!selected.containsAll(layoutSelections.keySet()) || (!layoutSelections.isEmpty() && confirmedBy == null && candidateVersion != null)) {
+            throw new IllegalArgumentException("invalid confirmed page selection");
+        }
+        for (var entry : layoutSelections.entrySet()) {
+            PreprocessingPageState page = registration.preprocessingPages().stream()
+                    .filter(item -> item.pageNumber() == entry.getKey()).findFirst().orElseThrow();
+            if (page.layoutReview() == null || entry.getValue() == null || entry.getValue().isEmpty()
+                    || (confirmedBy != null && !page.layoutReview().regions().stream()
+                            .map(PreprocessingPageState.LayoutRegionReview::regionId)
+                            .collect(java.util.stream.Collectors.toSet()).equals(entry.getValue().keySet()))) {
+                throw new IllegalArgumentException("invalid layout region selection");
+            }
+            for (var selection : entry.getValue().entrySet()) {
+                if (selection.getValue() == null || page.layoutReview().regions().stream()
+                        .filter(region -> region.regionId().equals(selection.getKey()))
+                        .noneMatch(region -> region.candidates().stream()
+                                .anyMatch(candidate -> candidate.candidateIndex() == selection.getValue()))) {
+                    throw new IllegalArgumentException("invalid layout candidate selection");
+                }
+            }
+        }
+        if (confirmedBy != null && !Files.isDirectory(preprocessingRoot(rulebookId).resolve("generations")
+                .resolve(registration.candidateExtractionVersion()))) {
+            throw new IllegalStateException("review candidate artifacts are unavailable");
+        }
         if (preprocessingProcessPort == null) throw new IllegalStateException("preprocessing retry is not configured");
         var claim = retryLeaseRepository.claim(rulebookId, requestId, registration.candidateExtractionVersion(), selected, Duration.ofMinutes(10));
         if (claim.completed()) return new RulebookProcessingResult(rulebookId, ProcessingStatus.INDEXED, List.of());
@@ -260,9 +296,9 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 throw new PreprocessingProcessException("PREPROCESSING_ARTIFACT_UNAVAILABLE", exception);
             }
             Path artifactRoot = preprocessingRoot(rulebookId);
-            Path candidateVersion = artifactRoot.resolve("generations")
+            Path candidateDirectory = artifactRoot.resolve("generations")
                     .resolve(registration.candidateExtractionVersion());
-            boolean rebuildMissingCandidate = !Files.isDirectory(candidateVersion);
+            boolean rebuildMissingCandidate = !Files.isDirectory(candidateDirectory);
             PreprocessingRunResult result;
             if (rebuildMissingCandidate) {
                 // A previous process may have persisted the review metadata
@@ -275,7 +311,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 validatePreprocessingResult(registration, result);
             } else {
                 result = preprocessingProcessPort.retryPages(new PreprocessingRetryRequest(
-                        requestId, registration.candidateExtractionVersion(), artifactRoot, selected, layoutSelections));
+                        requestId, registration.candidateExtractionVersion(), artifactRoot, selected, layoutSelections,
+                        confirmedBy == null ? null : confirmedBy.toString()));
                 validateRetryResult(registration, requestId, selected, result);
             }
             StoredRulebookRegistration latest = registrationRepository.findById(rulebookId).orElseThrow();

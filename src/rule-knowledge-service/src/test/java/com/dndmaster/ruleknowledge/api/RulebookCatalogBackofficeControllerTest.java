@@ -7,6 +7,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.Mockito.verify;
+import static org.mockito.ArgumentMatchers.eq;
 
 import com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
@@ -14,6 +16,8 @@ import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
 import com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
+import com.dndmaster.ruleknowledge.application.registration.RulebookFileStorage;
+import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus;
 import com.dndmaster.ruleknowledge.domain.catalog.RulebookEdition;
@@ -30,6 +34,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.http.MediaType;
 
 class RulebookCatalogBackofficeControllerTest {
     private static final UUID ADMIN = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -98,6 +103,75 @@ class RulebookCatalogBackofficeControllerTest {
                 .andExpect(jsonPath("$[0].published").value(false));
     }
 
+    @Test
+    void catalog_review_is_scoped_to_authenticated_admin_and_registered_catalog_document() throws Exception {
+        UUID id = UUID.randomUUID();
+        UUID privateId = UUID.randomUUID();
+        UUID revisionId = UUID.randomUUID();
+        CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
+        when(catalog.findAll()).thenReturn(List.of(new CatalogRulebookRevision(revisionId,
+                RulebookEdition.DND_5E_2014, "D&D 5e", id, 1,
+                CatalogRevisionStatus.QUEUED, false, null, Instant.now(), Instant.now())));
+        RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
+        when(registrations.findById(new RulebookId(id))).thenReturn(Optional.of(registration(id, ProcessingStatus.NEEDS_REVIEW)));
+        when(registrations.findById(new RulebookId(privateId))).thenReturn(Optional.of(registration(privateId, ProcessingStatus.NEEDS_REVIEW)));
+        PlayerSessionLookupPort sessions = mock(PlayerSessionLookupPort.class);
+        when(sessions.resolvePlayerId("admin-session")).thenReturn(Optional.of(ADMIN));
+        when(sessions.resolvePlayerId("player-session")).thenReturn(Optional.of(NON_ADMIN));
+        MockMvc mvc = controller(catalog, registrations, mock(GameSystemDefinitionRepository.class), sessions);
+
+        mvc.perform(get("/api/v1/backoffice/rulebook-catalog/{id}/review", revisionId))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/backoffice/rulebook-catalog/{id}/review", revisionId)
+                .header("Authorization", "Bearer player-session")).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/backoffice/rulebook-catalog/{id}/review", revisionId)
+                .header("Authorization", "Bearer admin-session"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.rulebookId").value(id.toString()));
+        mvc.perform(get("/api/v1/backoffice/rulebook-catalog/{id}/review", UUID.randomUUID())
+                .header("Authorization", "Bearer admin-session")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void retry_requires_current_candidate_and_source_confirmation_and_never_uses_private_document() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        UUID revisionId = UUID.randomUUID();
+        CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
+        when(catalog.findAll()).thenReturn(List.of(new CatalogRulebookRevision(revisionId,
+                RulebookEdition.DND_5E_2014, "D&D 5e", documentId, 1,
+                CatalogRevisionStatus.QUEUED, false, null, Instant.now(), Instant.now())));
+        RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
+        when(registrations.findById(new RulebookId(documentId))).thenReturn(Optional.of(reviewRegistration(documentId, CATALOG_OWNER)));
+        PlayerSessionLookupPort sessions = mock(PlayerSessionLookupPort.class);
+        when(sessions.resolvePlayerId("admin-session")).thenReturn(Optional.of(ADMIN));
+        when(sessions.resolvePlayerId("player-session")).thenReturn(Optional.of(NON_ADMIN));
+        RulebookPipelineApplicationService pipeline = mock(RulebookPipelineApplicationService.class);
+        RulebookFileStorage files = mock(RulebookFileStorage.class);
+        when(files.read(new StoredRulebookFile("storage"))).thenReturn("pdf".getBytes());
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new RulebookCatalogBackofficeController(catalog,
+                pipeline, registrations, mock(GameSystemDefinitionRepository.class), sessions, files, ADMIN.toString())).build();
+        String path = "/api/v1/backoffice/rulebook-catalog/" + revisionId;
+        mvc.perform(get(path + "/source").header("Authorization", "Bearer player-session"))
+                .andExpect(status().isForbidden());
+        mvc.perform(get(path + "/source").header("Authorization", "Bearer admin-session"))
+                .andExpect(status().isOk());
+        mvc.perform(post(path + "/retry-pages").header("Authorization", "Bearer admin-session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"requestId\":\"r\",\"candidateExtractionVersion\":\"old\",\"pages\":[1]}"))
+                .andExpect(status().isConflict());
+        mvc.perform(post(path + "/retry-pages").header("Authorization", "Bearer admin-session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"requestId\":\"r\",\"candidateExtractionVersion\":\"ev-current\",\"pages\":[1],\"layoutSelections\":{\"1\":{\"r1\":0}}}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post(path + "/retry-pages").header("Authorization", "Bearer admin-session")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"requestId\":\"r\",\"candidateExtractionVersion\":\"ev-current\",\"pages\":[1],\"layoutSelections\":{\"1\":{\"r1\":0}},\"confirmedAgainstSource\":true}"))
+                .andExpect(status().isOk());
+        verify(pipeline).retryPages(eq(new RulebookId(documentId)), eq("r"), eq(List.of(1)), any(), eq("ev-current"), eq(ADMIN));
+        when(registrations.findById(new RulebookId(documentId))).thenReturn(Optional.of(reviewRegistration(documentId, NON_ADMIN)));
+        mvc.perform(get(path + "/review").header("Authorization", "Bearer admin-session"))
+                .andExpect(status().isNotFound());
+    }
+
     private static MockMvc controller(CatalogRulebookRepository catalog,
             RulebookRegistrationRepository registrations, GameSystemDefinitionRepository definitions,
             PlayerSessionLookupPort sessions) {
@@ -111,5 +185,14 @@ class RulebookCatalogBackofficeControllerTest {
         return new StoredRulebookRegistration(new RulebookId(id), new OwnerPlayerId(CATALOG_OWNER), "op", "hash",
                 RulebookFormat.PDF, 1, "storage", status, ExtractionStatus.SUCCESS, "content", List.of(), null,
                 1, now, now, DocumentType.RULEBOOK, "rules.pdf");
+    }
+
+    private static StoredRulebookRegistration reviewRegistration(UUID id, UUID owner) {
+        Instant now = Instant.now();
+        return new StoredRulebookRegistration(new RulebookId(id), new OwnerPlayerId(owner), "op", "hash",
+                RulebookFormat.PDF, 3, "storage", ProcessingStatus.NEEDS_REVIEW, ExtractionStatus.SUCCESS,
+                "content", List.of(), "PREPROCESSING_NEEDS_REVIEW", 1, now, now, DocumentType.RULEBOOK,
+                "rules.pdf", "content", List.of(), List.of(), List.of(), "op", "ev-current", "policy", "manifest",
+                List.of());
     }
 }

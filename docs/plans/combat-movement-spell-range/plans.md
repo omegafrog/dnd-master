@@ -19,6 +19,8 @@ D&D 5판(2014) 기본 룰북 전체 주문과 이동·행동을 모험별로 검
 
 - [제품 명세](../../specs/combat-movement-spell-range/product-spec.md)
 - [아키텍처 명세](../../specs/combat-movement-spell-range/architecture-spec.md)
+- [공용 룰북 전처리 검토 보충 제품 계약](../../specs/combat-movement-spell-range/source-review-product-spec.md)
+- [공용 룰북 전처리 검토 보충 구조 계약](../../specs/combat-movement-spell-range/source-review-architecture-spec.md)
 - [시스템 목표](../../specs/combat-movement-spell-range/system-targets.yaml)
 
 - [UC-001.usecase.svg](../../specs/combat-movement-spell-range/diagrams/product/UC-001.usecase.svg)
@@ -34,7 +36,8 @@ D&D 5판(2014) 기본 룰북 전체 주문과 이동·행동을 모험별로 검
 
 | 순서 | 계획 | 구현할 내용 | 먼저 완료할 티켓 |
 |---|---|---|---|
-| 1 | [#363](https://github.com/omegafrog/dnd-master/issues/363) · `combat-01` | 기본 룰북 주문 전수 목록과 출처·실행 기제 확인 | 없음 |
+| 선행 | [#376](https://github.com/omegafrog/dnd-master/issues/376) | 공용 룰북 전처리 페이지의 관리자 검토·재시도 복구 | 없음 |
+| 1 | [#363](https://github.com/omegafrog/dnd-master/issues/363) · `combat-01` | 기본 룰북 주문 전수 목록과 출처·실행 기제 확인 | [#376](https://github.com/omegafrog/dnd-master/issues/376) |
 | 2 | [#364](https://github.com/omegafrog/dnd-master/issues/364) · `combat-02` | 현재 모험의 정의 검토·수정·승인과 시작 잠금 | [#363](https://github.com/omegafrog/dnd-master/issues/363) |
 | 3 | [#365](https://github.com/omegafrog/dnd-master/issues/365) · `combat-03` | 전투 턴 이동량과 실제 경로 이동 | 없음 |
 | 4 | [#366](https://github.com/omegafrog/dnd-master/issues/366) · `combat-04` | 비행 높이·지도 확대·숨겨진 벽 공개 경계 | [#365](https://github.com/omegafrog/dnd-master/issues/365) |
