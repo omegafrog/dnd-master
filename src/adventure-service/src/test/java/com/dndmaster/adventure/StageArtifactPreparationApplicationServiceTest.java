@@ -225,6 +225,7 @@ class StageArtifactPreparationApplicationServiceTest {
 
     @Test
     void rejects_missing_reviewed_situation_and_explicit_prerequisite_before_atomic_publication() {
+        var extraSource = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:2:span:1");
         var required = List.of(
                 new RequiredSituation("opening", "The bell disappears", List.of(), List.of(evidence)),
                 new RequiredSituation("tower", "The bell is found", List.of("opening"), List.of(evidence)));
@@ -240,10 +241,15 @@ class StageArtifactPreparationApplicationServiceTest {
                         new SituationDefinition("tower", List.of(StageIntent.REVELATION), List.of("truth"),
                                 List.of(), List.of(), List.of(), List.of(), false, true, List.of("opening"),
                                 SituationProvenance.GM_SUPPLEMENTED, null, List.of()),
+                        extractedCandidate("candidate-a"), extractedCandidate("candidate-b")),
+                List.of(extractedRequired("opening", List.of()),
+                        new SituationDefinition("tower", List.of(StageIntent.REVELATION), List.of("truth"),
+                                List.of(), List.of(), List.of(), List.of(), false, true, List.of("opening"),
+                                SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence, extraSource)),
                         extractedCandidate("candidate-a"), extractedCandidate("candidate-b")))) {
             var repository = new StageArtifactRepository.InMemory();
             var service = new StageArtifactPreparationApplicationService(repository,
-                    ignored -> List.of(evidence), ignored -> backbone, ignored -> detailedWithSituations(situations));
+                    ignored -> List.of(evidence, extraSource), ignored -> backbone, ignored -> detailedWithSituations(situations));
             assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
             assertEquals(0, repository.findBackbone(adventureId, packageId, 1).stream().count());
         }

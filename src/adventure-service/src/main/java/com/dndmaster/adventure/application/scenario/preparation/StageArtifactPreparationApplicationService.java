@@ -193,7 +193,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         for (RequiredSituation item : required) {
             SituationDefinition actual = situations.get(item.situationId());
             if (actual == null || !actual.required() || actual.provenance() != SituationProvenance.SOURCE_EXTRACTED
-                    || !actual.sourceRefs().containsAll(item.sourceRefs())
+                    || !java.util.Set.copyOf(actual.sourceRefs()).equals(java.util.Set.copyOf(item.sourceRefs()))
                     || !actual.prerequisiteSituationIds().equals(item.prerequisiteSituationIds())) {
                 throw new IllegalStateException("initial situation set does not preserve a reviewed required situation");
             }

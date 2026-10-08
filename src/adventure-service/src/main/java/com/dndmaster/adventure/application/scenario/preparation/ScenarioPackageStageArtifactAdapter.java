@@ -216,33 +216,18 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 }
             }
         }
-        for (int index = 0; index < chunks.size(); index++) {
-            Set<ScenarioSourceReference> reviewedRefs = chunks.get(index).stream()
-                    .map(StorySourcePreviewPort.Passage::sourceRef).collect(java.util.stream.Collectors.toSet());
-            JsonNode reviewed = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
-                    "required-review:" + index, "Independently compare the COMPLETE PROPOSED REQUIRED LIST against these "
-                            + "ORIGINAL STORY PASSAGES. Add any omitted story-essential situation or explicit prerequisite, "
-                            + "remove unsupported claims and relations, and keep stable ids for retained situations. "
-                            + "Return {reviewed:true,requiredSituations:[the complete corrected list]}. "
-                            + "Every sourceRefs value must cite a real original passage locator.\nORIGINAL_STORY_PASSAGES="
-                            + json(chunks.get(index)) + "\nPROPOSED_REQUIRED_SITUATIONS=" + json(proposed.values()));
-            if (!reviewed.path("reviewed").asBoolean(false)) throw new IllegalStateException("original story review did not complete");
-            List<RequiredSituation> corrected = requiredSituations(reviewed);
-            for (RequiredSituation earlier : proposed.values()) {
-                if (earlier.sourceRefs().stream().noneMatch(reviewedRefs::contains)
-                        && corrected.stream().noneMatch(item -> item.situationId().equals(earlier.situationId()))) {
-                    throw new IllegalStateException("review removed a situation without examining its original passage");
-                }
-            }
-            proposed.clear();
-            for (RequiredSituation item : corrected) {
-                if (proposed.putIfAbsent(item.situationId(), item) != null) {
-                    throw new IllegalStateException("original story review returned duplicate required situation ids");
-                }
-            }
-        }
-        validateRequiredSituations(List.copyOf(proposed.values()), passages);
-        return List.copyOf(proposed.values());
+        JsonNode reviewed = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
+                "required-review:full", "Independently compare the COMPLETE PROPOSED REQUIRED LIST against ALL "
+                        + "ORIGINAL STORY PASSAGES, including relationships across distant passages. Add any omitted "
+                        + "story-essential situation or explicit prerequisite, remove unsupported claims and relations, "
+                        + "and keep stable ids for retained situations. Return {reviewed:true,requiredSituations:[the "
+                        + "complete corrected list]}. Every sourceRefs value must cite a real original passage locator."
+                        + "\nORIGINAL_STORY_PASSAGES=" + json(passages)
+                        + "\nPROPOSED_REQUIRED_SITUATIONS=" + json(proposed.values()));
+        if (!reviewed.path("reviewed").asBoolean(false)) throw new IllegalStateException("original story review did not complete");
+        List<RequiredSituation> required = requiredSituations(reviewed);
+        validateRequiredSituations(required, passages);
+        return required;
     }
 
     private List<RequiredSituation> requiredSituations(JsonNode response) {

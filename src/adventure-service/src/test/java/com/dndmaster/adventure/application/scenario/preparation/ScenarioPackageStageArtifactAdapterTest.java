@@ -73,7 +73,7 @@ class ScenarioPackageStageArtifactAdapterTest {
                     "sourceRefs", List.of(first))), "sourceRefs", List.of(first)));
         };
         StorySourcePreviewPort source = ignored -> List.of(new StorySourcePreviewPort.Passage(first,
-                "The keeper meets the party."), new StorySourcePreviewPort.Passage(second,
+                "The keeper meets the party." + "x".repeat(12000)), new StorySourcePreviewPort.Passage(second,
                 "After meeting the keeper, recover the bell."));
         var adapter = new ScenarioPackageStageArtifactAdapter(packages, gm, bindings, sessions, mapper, source);
 
@@ -81,10 +81,12 @@ class ScenarioPackageStageArtifactAdapterTest {
                 scenarioPackage.packageId(), List.of(first, second)));
 
         assertEquals(List.of(a, b), result.requiredSituations());
-        assertEquals(3, calls.size());
-        assertTrue(calls.get(1).prompt().contains("After meeting the keeper, recover the bell."));
-        assertTrue(calls.get(1).prompt().contains("PROPOSED_REQUIRED_SITUATIONS"));
-        assertTrue(calls.get(2).prompt().contains("REVIEWED_REQUIRED_SITUATIONS"));
+        assertEquals(4, calls.size());
+        assertTrue(calls.get(2).operationKey().contains("required-review:full"));
+        assertTrue(calls.get(2).prompt().contains("The keeper meets the party."));
+        assertTrue(calls.get(2).prompt().contains("After meeting the keeper, recover the bell."));
+        assertTrue(calls.get(2).prompt().contains("PROPOSED_REQUIRED_SITUATIONS"));
+        assertTrue(calls.get(3).prompt().contains("REVIEWED_REQUIRED_SITUATIONS"));
 
         InitialSituationGmPort failedReview = request -> request.operationKey().contains("required-review")
                 ? mapper.valueToTree(Map.of("reviewed", false, "requiredSituations", List.of(a)))
