@@ -123,9 +123,14 @@ def test_unselected_review_state_survives_final_page_promotion(tmp_path):
     page = promoted["pages"][0]
     assert page["status"] == before["status"] == "VALIDATED"
     assert page["attempts"] == before["attempts"] == 2
-    assert page["attempt_history"] == before["attempt_history"]
-    assert page["layout_confirmation"] == before["layout_confirmation"]
-    assert promoted["pages"][1]["status"] == "VALIDATED"
+    java_page_state_fields = ("page_number", "status", "attempts", "findings", "layout_review",
+                              "layout_confirmation", "attempt_history")
+    assert {key: page.get(key) for key in java_page_state_fields} == {
+        key: before.get(key) for key in java_page_state_fields}
+    selected_page = promoted["pages"][1]
+    assert selected_page["status"] == "VALIDATED"
+    assert selected_page["attempts"] == 2
+    assert selected_page["layout_confirmation"]["admin_id"] == "admin-2"
 
 
 def test_failed_fresh_review_invalidates_validated_page_and_recovered_result(tmp_path):

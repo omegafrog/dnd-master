@@ -432,6 +432,7 @@ class ExtractionApplicationService:
                     "attempts": raw.get("_retry_attempts", 1),
                     "attempt_history": raw.get("_retry_attempt_history", [{"attempt": 1,
                         "status": PageStatus.VALIDATED.value, "findings": []}]),
+                    "layout_review": raw.get("layout_review"),
                     "layout_confirmation": raw.get("layout_confirmation"),
                     "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
             except (KeyError, TypeError, ValueError) as exc:
@@ -480,7 +481,7 @@ class ExtractionApplicationService:
                 (temp_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
             version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "page_count": version.page_count, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
-            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": item.get("attempts", 1), "findings": item.get("findings", []), "layout_review": _layout_review_payload(item) if item["status"] == "NEEDS_REVIEW" else None, "layout_confirmation": item.get("layout_confirmation"), "attempt_history": item.get("attempt_history", [{"attempt": 1, "status": item["status"], "findings": item.get("findings", [])}])} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
+            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": item.get("attempts", 1), "findings": item.get("findings", []), "layout_review": item.get("layout_review") or (_layout_review_payload(item) if item["status"] == "NEEDS_REVIEW" else None), "layout_confirmation": item.get("layout_confirmation"), "attempt_history": item.get("attempt_history", [{"attempt": 1, "status": item["status"], "findings": item.get("findings", [])}])} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
             (temp_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             version_dir = versions / version_id
             if version_dir.exists():
@@ -930,6 +931,8 @@ class ExtractionApplicationService:
                         recovered_page["layout_confirmation"] = confirmation
                     else:
                         recovered_page.pop("layout_confirmation", None)
+                    if isinstance(page_state.get("layout_review"), Mapping):
+                        recovered_page["layout_review"] = page_state["layout_review"]
                     recovered_page["_retry_attempts"] = page_state.get("attempts", 1)
                     recovered_page["_retry_attempt_history"] = page_state.get("attempt_history", [])
                     promoted_recovered[key] = recovered_page
