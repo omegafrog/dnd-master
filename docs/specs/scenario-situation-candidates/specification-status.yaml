@@ -48,5 +48,17 @@ verification:
   performed: 명세의 요구사항 추적·13개 구현 설계 항목·YAML 파싱·승인 자료 원문과 해시·검토 이의 해소·다이어그램 SVG·턴 확정 경로·Markdown 링크·변경 공백 검사를 수행했다.
   not_performed: 애플리케이션 코드 변경·빌드·단위 테스트·종단 간 실행 테스트
 implementation:
-  started: false
-  reason: 제품과 구현 설계 명세를 만드는 요청이며 구현 작업은 아직 시작하지 않는다.
+  started: true
+  reason: 원문 필수 상황 검토 및 게시 전 검증의 구현은 926f0a5f에 기록되었다. 이 기록은 구현 완료나 검증 통과를 뜻하지 않는다.
+amendment_source_situation_verification:
+  authorization: 사용자가 추출 목록을 원문과 직접 대조해 누락된 필수 상황·선행 관계를 보완하고, 검토한 전체 목록으로 생성 결과를 검증하는 확장을 승인했다.
+  changed_documents:
+    - product-spec.md
+    - architecture-spec.md
+    - architecture-contracts.yaml
+    - architecture-proposal.yaml
+  prior_review_history: 위 기존 ACCEPTED·diagram_review·gate 및 verification 기록은 당시 범위의 이력으로 보존하며 이 개정의 검토·구현·빌드·종단 간 실행 완료를 뜻하지 않는다.
+  current_amendment: 문서 반영됨; e6a63518의 다이어그램 렌더와 XML 검증은 완료했으나 이번 개정의 다이어그램 내용 검토와 상위 검토는 완료로 표시하지 않는다.
+  diagram_artifact_validation: e6a63518의 PlantUML 렌더와 SVG XML 파싱 완료; 이는 개정 설계 검토, 구현 검증 또는 E2E 통과를 뜻하지 않는다.
+  implementation_verification: 미확인; 원문 전체 누락 복구·생성 결과 검증·실패 처리 런타임 결과를 통과로 기록하지 않는다.
+  end_to_end: 기존 #378 E2E 차단 상태 유지; 별도 기본 룰북 자료 상태가 해결되지 않은 것으로 기록한다.
