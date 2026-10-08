@@ -276,8 +276,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 }
             }
         }
-        if (confirmedBy != null && !Files.isDirectory(preprocessingRoot(rulebookId).resolve("generations")
-                .resolve(registration.candidateExtractionVersion()))) {
+        if (confirmedBy != null && !Files.isDirectory(preprocessingCandidateRoot(rulebookId,
+                registration.candidateExtractionVersion()))) {
             throw new IllegalStateException("review candidate artifacts are unavailable");
         }
         if (preprocessingProcessPort == null) throw new IllegalStateException("preprocessing retry is not configured");
@@ -296,8 +296,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 throw new PreprocessingProcessException("PREPROCESSING_ARTIFACT_UNAVAILABLE", exception);
             }
             Path artifactRoot = preprocessingRoot(rulebookId);
-            Path candidateDirectory = artifactRoot.resolve("generations")
-                    .resolve(registration.candidateExtractionVersion());
+            Path candidateDirectory = preprocessingCandidateRoot(rulebookId, registration.candidateExtractionVersion());
             boolean rebuildMissingCandidate = !Files.isDirectory(candidateDirectory);
             PreprocessingRunResult result;
             if (rebuildMissingCandidate) {
@@ -527,6 +526,10 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     private static Path preprocessingRoot(RulebookId rulebookId) {
         return preprocessingWorkingRoot(rulebookId).resolve("artifacts")
                 .toAbsolutePath().normalize();
+    }
+
+    private static Path preprocessingCandidateRoot(RulebookId rulebookId, String version) {
+        return preprocessingRoot(rulebookId).resolve("versions").resolve(version);
     }
 
     private static Path preprocessingWorkingRoot(RulebookId rulebookId) {

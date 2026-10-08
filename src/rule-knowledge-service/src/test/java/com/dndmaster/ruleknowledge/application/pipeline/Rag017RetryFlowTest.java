@@ -72,7 +72,7 @@ class Rag017RetryFlowTest {
         assertEquals(ProcessingStatus.NEEDS_REVIEW, pipeline.processPending().getFirst().status());
         RulebookId document = queued.rulebookId();
         Files.createDirectories(Path.of(System.getProperty("java.io.tmpdir"), "dnd-rag-preprocessing",
-                document.value().toString(), "artifacts", "generations", "candidate-1"));
+                document.value().toString(), "artifacts", "versions", "candidate-1"));
 
         assertEquals(ProcessingStatus.INDEXED, pipeline.retryPages(document, "retry-request-1", List.of(1)).status());
         assertEquals(ProcessingStatus.INDEXED, pipeline.retryPages(document, "retry-request-1", List.of(1)).status());

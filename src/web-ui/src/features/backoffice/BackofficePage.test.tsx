@@ -73,6 +73,7 @@ describe('BackofficePage catalog access', () => {
     const retry = screen.getByRole('button', { name: '선택한 페이지 재검증' })
     expect(retry).toBeDisabled()
     await user.click(screen.getByRole('button', { name: '원본 PDF 열기' }))
+    expect(await screen.findByRole('link', { name: '원본 PDF 내려받기' })).toHaveAttribute('href', 'blob:source')
     await user.selectOptions(screen.getByLabelText(/영역 r1의 읽기 순서 후보/), '0')
     await user.click(screen.getByRole('checkbox', { name: '원본 PDF와 선택한 후보를 대조했습니다.' }))
     await user.click(retry)
