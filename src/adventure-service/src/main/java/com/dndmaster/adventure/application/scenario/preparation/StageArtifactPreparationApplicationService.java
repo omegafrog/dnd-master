@@ -34,27 +34,38 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         Objects.requireNonNull(adventureId, "adventure id must not be null");
         Objects.requireNonNull(sessionId, "session id must not be null");
         Objects.requireNonNull(scenarioPackageId, "scenario package id must not be null");
-        List<ScenarioSourceReference> evidence = List.copyOf(evidenceLookup.lookup(scenarioPackageId));
-        boolean scenarioBacked = evidenceLookup.isScenarioBacked(scenarioPackageId);
-        java.util.Set<UUID> providedMapIds = evidenceLookup.providedMapIds(scenarioPackageId);
-        if (scenarioBacked && evidence.isEmpty()) throw new IllegalStateException("published Storybook evidence is required");
         StageBackbone persistedBackbone = artifacts.findBackbone(adventureId, scenarioPackageId, 1).orElse(null);
         if (persistedBackbone != null) {
             requirePackage(persistedBackbone.scenarioPackageId(), scenarioPackageId);
-            requireGrounding(persistedBackbone.sourceRefs(), evidence, scenarioBacked, "backbone");
-            persistedBackbone.stages().forEach(stage -> requireGrounding(stage.sourceRefs(), evidence, scenarioBacked,
-                    "stage " + stage.stageId()));
-            validateRequiredSourceRefs(persistedBackbone.requiredSituations(), evidence);
             List<DetailedStage> persistedStages = persistedBackbone.stages().stream().map(stage ->
                     artifacts.findDetailedStage(adventureId, scenarioPackageId, stage.stageId(), 1, 1)
                             .orElseThrow(() -> new IllegalStateException("initial situation set is incomplete"))).toList();
-            persistedStages.forEach(stage -> validateDetailedStage(stage, evidence, scenarioBacked, providedMapIds));
-            validateInitialSituationSet(persistedStages, providedMapIds, persistedBackbone.requiredSituations());
+            persistedStages.forEach(stage -> {
+                requirePackage(stage.scenarioPackageId(), scenarioPackageId);
+                if (!persistedBackbone.stages().stream().anyMatch(entry -> entry.stageId().equals(stage.stageId()))
+                        || stage.backboneRevision() != persistedBackbone.revision()) {
+                    throw new IllegalStateException("saved stage does not match saved backbone");
+                }
+                stage.situations().forEach(situation -> {
+                    if (situation.provenance() == SituationProvenance.SOURCE_EXTRACTED && situation.sourceRefs().isEmpty()
+                            || situation.provenance() == SituationProvenance.GM_SUPPLEMENTED && !situation.sourceRefs().isEmpty()) {
+                        throw new IllegalStateException("saved situation has invalid provenance");
+                    }
+                });
+            });
+            java.util.Set<UUID> savedMapIds = persistedStages.stream().flatMap(stage -> stage.situations().stream())
+                    .map(SituationDefinition::mapDefinitionId).filter(Objects::nonNull)
+                    .collect(java.util.stream.Collectors.toSet());
+            validateInitialSituationSet(persistedStages, savedMapIds, persistedBackbone.requiredSituations());
             DetailedStage firstStage = persistedStages.getFirst();
             SituationDefinition opening = firstStage.situations().stream().filter(SituationDefinition::opening).findFirst()
                     .orElseThrow(() -> new IllegalStateException("opening situation is required"));
             return new Result(persistedBackbone, persistedStages, firstStage, opening);
         }
+        List<ScenarioSourceReference> evidence = List.copyOf(evidenceLookup.lookup(scenarioPackageId));
+        boolean scenarioBacked = evidenceLookup.isScenarioBacked(scenarioPackageId);
+        java.util.Set<UUID> providedMapIds = evidenceLookup.providedMapIds(scenarioPackageId);
+        if (scenarioBacked && evidence.isEmpty()) throw new IllegalStateException("published Storybook evidence is required");
         StageBackbone generated = backboneGeneration.generate(new StageBackboneGenerationPort.Request(
                 adventureId, sessionId, scenarioPackageId, evidence));
         requirePackage(generated.scenarioPackageId(), scenarioPackageId);

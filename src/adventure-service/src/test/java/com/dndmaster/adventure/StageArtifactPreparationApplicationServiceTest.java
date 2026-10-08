@@ -326,6 +326,19 @@ class StageArtifactPreparationApplicationServiceTest {
     }
 
     @Test
+    void reuses_complete_saved_set_when_original_source_temporarily_cannot_be_read() {
+        var repository = new StageArtifactRepository.InMemory();
+        var backbone = backbone();
+        repository.saveInitialArtifacts(adventureId, backbone, List.of(detailed(true), secondDetailed()));
+        var unavailable = new StageArtifactPreparationApplicationService(repository,
+                ignored -> { throw new IllegalStateException("source preview unavailable"); },
+                ignored -> { throw new AssertionError("saved set must not regenerate"); },
+                ignored -> { throw new AssertionError("saved stage must not regenerate"); });
+
+        assertEquals(backbone, unavailable.prepare(adventureId, sessionId, packageId).backbone());
+    }
+
+    @Test
     void allows_rulebook_only_generation_without_storybook_evidence() {
         StageBackbone backbone = new StageBackbone(packageId, 1, List.of(
                 new StageBackboneEntry("stage-1", 1, "opening", "Find the heir", "Learn the truth", List.of())), List.of());
