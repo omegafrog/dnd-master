@@ -26,6 +26,7 @@ public final class FutureSuffixReplanningPolicy {
             result.add(new StageBackboneEntry(entry.stageId(), targetOrder + index, entry.role(), entry.coreProblem(),
                     entry.funnelSummary(), entry.sourceRefs()));
         }
-        return new StageBackbone(current.scenarioPackageId(), current.revision() + 1, result, current.sourceRefs());
+        return new StageBackbone(current.scenarioPackageId(), current.revision() + 1, result, current.sourceRefs(),
+                current.requiredSituations());
     }
 }

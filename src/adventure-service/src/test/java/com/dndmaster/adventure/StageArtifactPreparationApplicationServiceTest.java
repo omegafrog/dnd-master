@@ -12,6 +12,7 @@ import com.dndmaster.adventure.domain.scenario.DetailedStage;
 import com.dndmaster.adventure.domain.scenario.FunnelDefinition;
 import com.dndmaster.adventure.domain.scenario.PressureDefinition;
 import com.dndmaster.adventure.domain.scenario.RevelationDefinition;
+import com.dndmaster.adventure.domain.scenario.RequiredSituation;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.SituationDefinition;
 import com.dndmaster.adventure.domain.scenario.StageArtifactRepository;
@@ -223,6 +224,41 @@ class StageArtifactPreparationApplicationServiceTest {
     }
 
     @Test
+    void rejects_missing_reviewed_situation_and_explicit_prerequisite_before_atomic_publication() {
+        var required = List.of(
+                new RequiredSituation("opening", "The bell disappears", List.of(), List.of(evidence)),
+                new RequiredSituation("tower", "The bell is found", List.of("opening"), List.of(evidence)));
+        var backbone = new StageBackbone(packageId, 1, singleStageBackbone().stages(), List.of(evidence), required);
+        for (List<SituationDefinition> situations : List.of(
+                List.of(extractedRequired("opening", List.of()), extractedCandidate("candidate-a"),
+                        extractedCandidate("candidate-b")),
+                List.of(extractedRequired("opening", List.of()), extractedRequired("tower", List.of()),
+                        extractedCandidate("candidate-a"), extractedCandidate("candidate-b")),
+                List.of(extractedRequired("opening", List.of()), extractedRequired("tower", List.of("opening", "candidate-a")),
+                        extractedCandidate("candidate-a"), extractedCandidate("candidate-b")),
+                List.of(extractedRequired("opening", List.of()),
+                        new SituationDefinition("tower", List.of(StageIntent.REVELATION), List.of("truth"),
+                                List.of(), List.of(), List.of(), List.of(), false, true, List.of("opening"),
+                                SituationProvenance.GM_SUPPLEMENTED, null, List.of()),
+                        extractedCandidate("candidate-a"), extractedCandidate("candidate-b")))) {
+            var repository = new StageArtifactRepository.InMemory();
+            var service = new StageArtifactPreparationApplicationService(repository,
+                    ignored -> List.of(evidence), ignored -> backbone, ignored -> detailedWithSituations(situations));
+            assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
+            assertEquals(0, repository.findBackbone(adventureId, packageId, 1).stream().count());
+        }
+        var repository = new StageArtifactRepository.InMemory();
+        var complete = detailedWithSituations(List.of(extractedRequired("opening", List.of()),
+                extractedRequired("tower", List.of("opening")), extractedCandidate("candidate-a"),
+                extractedCandidate("candidate-b")));
+        var service = new StageArtifactPreparationApplicationService(repository,
+                ignored -> List.of(evidence), ignored -> backbone, ignored -> complete);
+        service.prepare(adventureId, sessionId, packageId);
+        assertEquals(required, repository.findBackbone(adventureId, packageId, 1).orElseThrow().requiredSituations());
+        assertEquals(complete, service.prepare(adventureId, sessionId, packageId).currentStage());
+    }
+
+    @Test
     void preserves_existing_artifacts_when_detailed_generation_fails() {
         var repository = new StageArtifactRepository.InMemory();
         var backbone = backbone();
@@ -393,6 +429,12 @@ class StageArtifactPreparationApplicationServiceTest {
     private SituationDefinition extractedCandidate(String id) {
         return new SituationDefinition(id, List.of(StageIntent.REVELATION), List.of("truth"),
                 List.of(), List.of(), List.of(), List.of(), false, false, List.of(),
+                SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence));
+    }
+
+    private SituationDefinition extractedRequired(String id, List<String> prerequisites) {
+        return new SituationDefinition(id, List.of(StageIntent.REVELATION), List.of("truth"),
+                List.of(), List.of(), List.of(), List.of(), id.equals("opening"), true, prerequisites,
                 SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence));
     }
 

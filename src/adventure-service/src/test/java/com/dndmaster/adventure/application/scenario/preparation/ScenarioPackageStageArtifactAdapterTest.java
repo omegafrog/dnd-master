@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.scenario.preparation;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -16,6 +17,9 @@ import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.scenario.ScenarioModelElement;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
+import com.dndmaster.adventure.domain.scenario.RequiredSituation;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -32,6 +36,64 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 class ScenarioPackageStageArtifactAdapterTest {
+    @Test
+    void reviews_an_omitted_required_situation_and_prerequisite_against_original_passages() {
+        ScenarioSourceReference first = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1");
+        ScenarioSourceReference second = new ScenarioSourceReference(first.knowledgeDocumentId(), 1, "page:2");
+        var document = new ScenarioBundleDocumentSelection(first.knowledgeDocumentId(),
+                ScenarioBundleDocumentRole.MAIN_SCENARIO, () -> "INDEXED", "story.txt", "STORYBOOK", 1);
+        var scenarioPackage = ScenarioPackage.publishWithScenarioModel(ScenarioBundleId.generate(), 1,
+                "fingerprint", List.of(document), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                CharacterLimit.defaultLimit(), null, List.of(), List.of(),
+                new ScenarioModel(1, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), "A"));
+        ScenarioPackageRepository packages = new ScenarioPackageRepository() {
+            @Override public Optional<ScenarioPackage> findByInputFingerprint(String ignored) { return Optional.empty(); }
+            @Override public Optional<ScenarioPackage> findById(UUID id) { return Optional.of(scenarioPackage); }
+            @Override public void save(ScenarioPackage ignored) {}
+        };
+        SessionId sessionId = SessionId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(sessionId)).thenReturn(Optional.of(AdventureSession.create(sessionId, owner,
+                scenarioPackage.packageId(), 1, 4)));
+        GmProviderBindingRepository bindings = mock(GmProviderBindingRepository.class);
+        when(bindings.current(sessionId.value())).thenReturn(Optional.of(new ProviderBinding(sessionId.value(),
+                new GmProviderSelection(UUID.randomUUID(), "openai", "story-model", "high"), 0)));
+        var mapper = new ObjectMapper();
+        var calls = new java.util.ArrayList<InitialSituationGmPort.Request>();
+        var a = new RequiredSituation("a", "Meet the keeper", List.of(), List.of(first));
+        var b = new RequiredSituation("b", "Recover the bell", List.of("a"), List.of(second));
+        InitialSituationGmPort gm = request -> {
+            calls.add(request);
+            if (request.operationKey().contains("required-extract")) return mapper.valueToTree(Map.of("requiredSituations", List.of(a)));
+            if (request.operationKey().contains("required-review")) return mapper.valueToTree(Map.of(
+                    "reviewed", true, "requiredSituations", List.of(a, b)));
+            return mapper.valueToTree(Map.of("stages", List.of(Map.of("stageId", "first-stage", "order", 1,
+                    "role", "opening", "coreProblem", "Find the bell", "funnelSummary", "Follow the story",
+                    "sourceRefs", List.of(first))), "sourceRefs", List.of(first)));
+        };
+        StorySourcePreviewPort source = ignored -> List.of(new StorySourcePreviewPort.Passage(first,
+                "The keeper meets the party."), new StorySourcePreviewPort.Passage(second,
+                "After meeting the keeper, recover the bell."));
+        var adapter = new ScenarioPackageStageArtifactAdapter(packages, gm, bindings, sessions, mapper, source);
+
+        var result = adapter.generate(new StageBackboneGenerationPort.Request(AdventureId.generate(), sessionId,
+                scenarioPackage.packageId(), List.of(first, second)));
+
+        assertEquals(List.of(a, b), result.requiredSituations());
+        assertEquals(3, calls.size());
+        assertTrue(calls.get(1).prompt().contains("After meeting the keeper, recover the bell."));
+        assertTrue(calls.get(1).prompt().contains("PROPOSED_REQUIRED_SITUATIONS"));
+        assertTrue(calls.get(2).prompt().contains("REVIEWED_REQUIRED_SITUATIONS"));
+
+        InitialSituationGmPort failedReview = request -> request.operationKey().contains("required-review")
+                ? mapper.valueToTree(Map.of("reviewed", false, "requiredSituations", List.of(a)))
+                : gm.generate(request);
+        var incomplete = new ScenarioPackageStageArtifactAdapter(packages, failedReview, bindings, sessions, mapper, source);
+        assertThrows(IllegalStateException.class, () -> incomplete.generate(new StageBackboneGenerationPort.Request(
+                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
+    }
+
     @Test
     void generatedBackboneUsesTheSessionProviderAndAcceptsStoryDependentStageCount() throws Exception {
         ScenarioSourceReference source = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1");

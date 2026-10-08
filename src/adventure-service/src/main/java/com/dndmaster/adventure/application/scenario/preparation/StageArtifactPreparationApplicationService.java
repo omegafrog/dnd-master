@@ -7,6 +7,7 @@ import com.dndmaster.adventure.domain.scenario.StageBackbone;
 import com.dndmaster.adventure.domain.scenario.StageBackboneEntry;
 import com.dndmaster.adventure.domain.scenario.SituationDefinition;
 import com.dndmaster.adventure.domain.scenario.SituationProvenance;
+import com.dndmaster.adventure.domain.scenario.RequiredSituation;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -43,11 +44,12 @@ public final class StageArtifactPreparationApplicationService implements StageAr
             requireGrounding(persistedBackbone.sourceRefs(), evidence, scenarioBacked, "backbone");
             persistedBackbone.stages().forEach(stage -> requireGrounding(stage.sourceRefs(), evidence, scenarioBacked,
                     "stage " + stage.stageId()));
+            validateRequiredSourceRefs(persistedBackbone.requiredSituations(), evidence);
             List<DetailedStage> persistedStages = persistedBackbone.stages().stream().map(stage ->
                     artifacts.findDetailedStage(adventureId, scenarioPackageId, stage.stageId(), 1, 1)
                             .orElseThrow(() -> new IllegalStateException("initial situation set is incomplete"))).toList();
             persistedStages.forEach(stage -> validateDetailedStage(stage, evidence, scenarioBacked, providedMapIds));
-            validateInitialSituationSet(persistedStages, providedMapIds);
+            validateInitialSituationSet(persistedStages, providedMapIds, persistedBackbone.requiredSituations());
             DetailedStage firstStage = persistedStages.getFirst();
             SituationDefinition opening = firstStage.situations().stream().filter(SituationDefinition::opening).findFirst()
                     .orElseThrow(() -> new IllegalStateException("opening situation is required"));
@@ -58,11 +60,13 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         requirePackage(generated.scenarioPackageId(), scenarioPackageId);
         requireGrounding(generated.sourceRefs(), evidence, scenarioBacked, "backbone");
         generated.stages().forEach(stage -> requireGrounding(stage.sourceRefs(), evidence, scenarioBacked, "stage " + stage.stageId()));
+        validateRequiredSourceRefs(generated.requiredSituations(), evidence);
         StageBackbone backbone = generated;
         var first = backbone.stages().getFirst();
         List<DetailedStage> effectiveStages = backbone.stages().stream().map(stage -> {
                 DetailedStage detailed = detailedGeneration.generate(new StageDetailedGenerationPort.Request(
-                        adventureId, sessionId, scenarioPackageId, stage.stageId(), backbone.revision(), evidence));
+                        adventureId, sessionId, scenarioPackageId, stage.stageId(), backbone.revision(), evidence,
+                        backbone.requiredSituations()));
                 requirePackage(detailed.scenarioPackageId(), scenarioPackageId);
                 if (!detailed.stageId().equals(stage.stageId()) || detailed.backboneRevision() != backbone.revision()) {
                     throw new IllegalStateException("detailed stage does not match backbone stage");
@@ -70,7 +74,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                 validateDetailedStage(detailed, evidence, scenarioBacked, providedMapIds);
                 return detailed;
             }).toList();
-        validateInitialSituationSet(effectiveStages, providedMapIds);
+        validateInitialSituationSet(effectiveStages, providedMapIds, backbone.requiredSituations());
         DetailedStage effectiveStage = effectiveStages.stream().filter(stage -> stage.stageId().equals(first.stageId()))
                 .findFirst().orElseThrow();
         SituationDefinition opening = effectiveStage.situations().stream().filter(SituationDefinition::opening).findFirst()
@@ -96,7 +100,8 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         boolean scenarioBacked = evidenceLookup.isScenarioBacked(scenarioPackageId);
         if (scenarioBacked && evidence.isEmpty()) throw new IllegalStateException("published Storybook evidence is required");
         DetailedStage generated = detailedGeneration.generate(new StageDetailedGenerationPort.Request(
-                adventureId, sessionId, scenarioPackageId, next.stageId(), backbone.revision(), evidence));
+                adventureId, sessionId, scenarioPackageId, next.stageId(), backbone.revision(), evidence,
+                backbone.requiredSituations()));
         requirePackage(generated.scenarioPackageId(), scenarioPackageId);
         if (!generated.stageId().equals(next.stageId()) || generated.backboneRevision() != backbone.revision()) {
             throw new IllegalStateException("detailed stage does not match next backbone stage");
@@ -154,7 +159,17 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         return situation.sourceRefs().isEmpty();
     }
 
-    private static void validateInitialSituationSet(List<DetailedStage> stages, java.util.Set<UUID> providedMapIds) {
+    private static void validateRequiredSourceRefs(List<RequiredSituation> required,
+            List<ScenarioSourceReference> evidence) {
+        for (RequiredSituation item : required) {
+            if (!evidence.containsAll(item.sourceRefs())) {
+                throw new IllegalStateException("reviewed required situation cites an unavailable original passage");
+            }
+        }
+    }
+
+    private static void validateInitialSituationSet(List<DetailedStage> stages, java.util.Set<UUID> providedMapIds,
+            List<RequiredSituation> required) {
         java.util.Map<String, SituationDefinition> situations = new java.util.LinkedHashMap<>();
         for (DetailedStage stage : stages) {
             for (SituationDefinition situation : stage.situations()) {
@@ -174,6 +189,21 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         }
         if (intermediateCandidates < 2) {
             throw new IllegalStateException("initial situation set must include multiple intermediate candidates");
+        }
+        for (RequiredSituation item : required) {
+            SituationDefinition actual = situations.get(item.situationId());
+            if (actual == null || !actual.required() || actual.provenance() != SituationProvenance.SOURCE_EXTRACTED
+                    || !actual.sourceRefs().containsAll(item.sourceRefs())
+                    || !actual.prerequisiteSituationIds().equals(item.prerequisiteSituationIds())) {
+                throw new IllegalStateException("initial situation set does not preserve a reviewed required situation");
+            }
+        }
+        for (SituationDefinition actual : situations.values()) {
+            if (actual.required() && actual.provenance() == SituationProvenance.SOURCE_EXTRACTED
+                    && required.stream().noneMatch(item -> item.situationId().equals(actual.situationId()))
+                    && !required.isEmpty()) {
+                throw new IllegalStateException("initial situation set has an unreviewed required situation");
+            }
         }
         for (SituationDefinition situation : situations.values()) {
             if (!situations.keySet().containsAll(situation.prerequisiteSituationIds())) {

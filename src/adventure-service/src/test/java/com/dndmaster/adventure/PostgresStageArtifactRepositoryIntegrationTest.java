@@ -16,6 +16,9 @@ import com.dndmaster.adventure.domain.scenario.DetailedStage;
 import com.dndmaster.adventure.domain.scenario.FunnelDefinition;
 import com.dndmaster.adventure.domain.scenario.PressureDefinition;
 import com.dndmaster.adventure.domain.scenario.RevelationDefinition;
+import com.dndmaster.adventure.domain.scenario.RequiredSituation;
+import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.SituationDefinition;
 import com.dndmaster.adventure.domain.scenario.StageArtifactRepository;
 import com.dndmaster.adventure.domain.scenario.StageBackbone;
@@ -85,7 +88,10 @@ class PostgresStageArtifactRepositoryIntegrationTest {
     void keeps_same_source_preparations_independent_and_rolls_back_a_partial_initial_set() {
         AdventureId first = reserveAdventure();
         AdventureId second = reserveAdventure();
-        StageBackbone firstBackbone = backbone("first adventure");
+        var source = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1");
+        StageBackbone firstBackbone = new StageBackbone(packageId, 1,
+                backbone("first adventure").stages(), List.of(),
+                List.of(new RequiredSituation("stage-1-situation", "Find the beginning", List.of(), List.of(source))));
         StageBackbone secondBackbone = backbone("second adventure");
 
         repository.saveInitialArtifacts(first, firstBackbone, stages("first adventure"));
@@ -95,6 +101,8 @@ class PostgresStageArtifactRepositoryIntegrationTest {
                 .stages().getFirst().coreProblem());
         assertEquals("second adventure", repository.findBackbone(second, packageId, 1).orElseThrow()
                 .stages().getFirst().coreProblem());
+        assertEquals(firstBackbone.requiredSituations(), repository.findBackbone(first, packageId, 1).orElseThrow().requiredSituations());
+        assertEquals(List.of(), repository.findBackbone(second, packageId, 1).orElseThrow().requiredSituations());
         assertEquals(1, repository.findDetailedStage(first, packageId, "stage-2", 1, 1).stream().count());
 
         AdventureId failed = reserveAdventure();

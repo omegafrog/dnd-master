@@ -246,9 +246,14 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort initialSituationGmPort,
             GmProviderBindingRepository providerBindings,
-            AdventureSessionRepository sessions, ObjectMapper objectMapper) {
+            AdventureSessionRepository sessions, ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String ruleKnowledgeBaseUrl,
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration storySourceTimeout,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        var storySource = new com.dndmaster.adventure.infrastructure.integration.HttpStorySourcePreviewPort(
+                HttpClient.newHttpClient(), URI.create(ruleKnowledgeBaseUrl), storySourceTimeout, objectMapper, internalToken);
         var adapter = new ScenarioPackageStageArtifactAdapter(packageRepository, initialSituationGmPort,
-                providerBindings, sessions, objectMapper);
+                providerBindings, sessions, objectMapper, storySource);
         return new StageArtifactPreparationApplicationService(artifacts, adapter, adapter, adapter);
     }
 
