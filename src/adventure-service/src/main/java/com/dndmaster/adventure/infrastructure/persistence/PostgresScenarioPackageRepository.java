@@ -194,9 +194,10 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     public void saveSpellDefinitions(UUID packageId, List<StructuredSpellDefinition> definitions) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement update = connection.prepareStatement(
-                        "UPDATE scenario_package SET spell_definitions_json = ?::jsonb WHERE package_id = ? AND spell_definitions_json IS NULL")) {
+                        "UPDATE scenario_package SET spell_definitions_json = ?::jsonb WHERE package_id = ? AND (spell_definitions_json IS NULL OR jsonb_array_length(spell_definitions_json) < ?)")) {
             update.setString(1, writeJson(definitions));
             update.setObject(2, packageId);
+            update.setInt(3, definitions.size());
             update.executeUpdate();
         } catch (SQLException exception) {
             throw new ScenarioPackagePersistenceException("could not update scenario package spell definitions", exception);

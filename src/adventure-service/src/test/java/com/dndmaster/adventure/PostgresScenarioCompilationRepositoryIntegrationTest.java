@@ -16,6 +16,7 @@ import com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
+import com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
 import java.util.List;
 import java.util.Map;
@@ -138,12 +139,22 @@ class PostgresScenarioCompilationRepositoryIntegrationTest {
         var spells = BasicRulebookSpellInventory.load(
                 new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(
                         UUID.fromString("55555555-5555-5555-5555-555555555555")), 7);
+        var first = spells.getFirst();
+        var edited = new StructuredSpellDefinition(first.id(), first.name(), first.sourceDocumentId(), first.sourceLocator(),
+                first.sourceVersion(), first.extractionVersion(), first.level(), first.castingTime(), first.rangeArea(),
+                first.components(), first.duration(), first.school(), "사용자 수정 판정", "사용자 수정 효과",
+                first.ownerPlanNumbers(), first.ownerEvidence(), first.executable(), first.reviewStatus());
         packages.save(packageVersion);
-        packages.saveSpellDefinitions(packageVersion.packageId(), spells);
+        packages.saveSpellDefinitions(packageVersion.packageId(), List.of(edited));
+        var repaired = new java.util.ArrayList<>(spells);
+        repaired.set(0, edited);
+        packages.saveSpellDefinitions(packageVersion.packageId(), repaired);
 
         var reloaded = packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions();
         assertEquals(126, reloaded.size());
-        assertEquals(spells, reloaded);
+        assertEquals(repaired, reloaded);
+        packages.saveSpellDefinitions(packageVersion.packageId(), spells);
+        assertEquals(repaired, packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions());
     }
 
     private static ScenarioModelElement element(String type, String value) {
