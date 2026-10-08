@@ -210,7 +210,7 @@ export function PackageBlueprintReviewPage({
             {spellDefinitions.map(spell => (
               <li key={spell.id}>
                 <span>{spell.name}</span>
-                <span> · 원문 문서 {spell.sourceDocumentId}, 위치 {spell.sourceLocator}, 추출 {spell.extractionVersion}</span>
+                <span> · 원문 문서 {spell.sourceDocumentId}, 위치 {spell.sourceLocator}, 원문 버전 {spell.sourceVersion}, 추출 {spell.extractionVersion}</span>
                 <span> · {spell.level} · {spell.castingTime} · {spell.rangeArea} · {spell.duration}</span>
                 <span> · 실행 담당 계획: {spell.ownerPlanNumbers.map(number => `#${number}`).join(', ')}</span>
                 <span> · 담당 근거: {spell.ownerEvidence}</span>

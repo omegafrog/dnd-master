@@ -18,5 +18,15 @@ public interface KnowledgeDocumentLookupPort {
             KnowledgeDocumentStatus status,
             String originalFilename,
             String documentType,
-            long extractionVersion) {}
+            long extractionVersion,
+            String contentHash) {
+        public KnowledgeDocumentRecord(
+                KnowledgeDocumentId knowledgeDocumentId,
+                KnowledgeDocumentStatus status,
+                String originalFilename,
+                String documentType,
+                long extractionVersion) {
+            this(knowledgeDocumentId, status, originalFilename, documentType, extractionVersion, "");
+        }
+    }
 }

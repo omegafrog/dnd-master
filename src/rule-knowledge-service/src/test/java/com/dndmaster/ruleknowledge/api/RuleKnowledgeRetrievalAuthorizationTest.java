@@ -148,7 +148,8 @@ class RuleKnowledgeRetrievalAuthorizationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ownerId").value(CATALOG_OWNER.toString()))
                 .andExpect(jsonPath("$.rulebooks.length()").value(1))
-                .andExpect(jsonPath("$.rulebooks[0].knowledgeDocumentId").value(published.toString()));
+                .andExpect(jsonPath("$.rulebooks[0].knowledgeDocumentId").value(published.toString()))
+                .andExpect(jsonPath("$.rulebooks[0].contentHash").value("hash-" + published));
     }
 
     @Test

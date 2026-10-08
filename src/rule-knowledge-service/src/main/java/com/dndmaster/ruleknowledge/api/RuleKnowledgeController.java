@@ -500,7 +500,7 @@ public class RuleKnowledgeController {
                 .map(r -> new RulebookSummary(
                         r.rulebookId().value(), r.knowledgeDocumentId().value(), r.processingStatus().name(),
                         r.format().name(), r.documentType(), r.originalFilename(), r.failureCode(),
-                        r.version(), warningsFor(r), progressFor(r), reviewQuestionsFor(r), r.preprocessingPages()))
+                        r.version(), warningsFor(r), progressFor(r), reviewQuestionsFor(r), r.preprocessingPages(), r.contentHash()))
                 .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
         return ResponseEntity.ok(new OwnedRulebooksResponse(ownerId, summaries));
     }
@@ -533,7 +533,7 @@ public class RuleKnowledgeController {
                                         registration.processingStatus().name(), registration.format().name(),
                                         registration.documentType(), registration.originalFilename(), registration.failureCode(),
                                         registration.version(), warningsFor(registration), progressFor(registration),
-                                        reviewQuestionsFor(registration), registration.preprocessingPages()))
+                                        reviewQuestionsFor(registration), registration.preprocessingPages(), registration.contentHash()))
                                 .orElse(null))
                         .filter(java.util.Objects::nonNull)
                         .toList();
@@ -1054,7 +1054,7 @@ public class RuleKnowledgeController {
             UUID rulebookId, UUID knowledgeDocumentId, String status, String format,
             DocumentType documentType, String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
             DocumentProgressView progress, List<PreprocessingReviewQuestion> reviewQuestions,
-            List<PreprocessingPageState> preprocessingPages) {}
+            List<PreprocessingPageState> preprocessingPages, String contentHash) {}
     public record PreprocessingReviewQuestion(int pageNumber, String question, List<ReviewChoice> choices) {}
     public record ReviewChoice(String id, String label) {}
     public record OwnedRulebooksResponse(UUID ownerId, List<RulebookSummary> rulebooks) {}

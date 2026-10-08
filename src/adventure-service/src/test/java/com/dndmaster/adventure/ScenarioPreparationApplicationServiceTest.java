@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
+import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentLookupPort;
 import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.CharacterCreationBlueprintView;
@@ -20,6 +21,7 @@ import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
 import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
+import com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
@@ -420,12 +422,24 @@ class ScenarioPreparationApplicationServiceTest {
                         && "RULEBOOK".equalsIgnoreCase(document.documentType())
                         && "INDEXED".equals(document.status().name())));
 
-        var preparation = service(fixture).read(fixture.packageId(), owner());
+        var preparation = service(fixture, BasicRulebookSpellInventory.SOURCE_VERSION.substring("sha256:".length()))
+                .read(fixture.packageId(), owner());
 
         assertEquals(126, preparation.spellDefinitions().size());
         assertTrue(preparation.spellDefinitions().stream().allMatch(spell ->
                 spell.sourceDocumentId().equals(rulebookDocumentId()) && spell.extractionVersion() == 1
                         && spell.sourceLocator().matches("page=\\d+;node=node-\\d+")));
+    }
+
+    @Test
+    void doesNotSeedPdfInventoryWhenSelectedDocumentHashDiffers() {
+        ScenarioPackage packageWithUnverifiedInventory = withRulebookPackage().withSpellDefinitions(
+                BasicRulebookSpellInventory.load(new KnowledgeDocumentId(rulebookDocumentId()), 1));
+        TestFixture fixture = bundle(packageWithUnverifiedInventory, bundleWithRulebook());
+
+        var preparation = service(fixture, "another-pdf").read(fixture.packageId(), owner());
+
+        assertTrue(preparation.spellDefinitions().isEmpty());
     }
 
     @Test
@@ -642,6 +656,23 @@ class ScenarioPreparationApplicationServiceTest {
     private static ScenarioPreparationApplicationService service(TestFixture fixture) {
         return new ScenarioPreparationApplicationService(
                 fixture.packages(), fixture.bundles(), fixture.runtimeOptions());
+    }
+
+    private static ScenarioPreparationApplicationService service(TestFixture fixture, String contentHash) {
+        KnowledgeDocumentLookupPort lookup = new KnowledgeDocumentLookupPort() {
+            @Override public List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> findOwnedDocuments(UUID ownerId) {
+                return List.of();
+            }
+
+            @Override public List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> findPublishedSharedCatalogDocuments() {
+                return List.of(new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                        new KnowledgeDocumentId(rulebookDocumentId()), KnowledgeDocumentStatus.INDEXED,
+                        "DnD_BasicRules_2018.pdf", "RULEBOOK", 1, contentHash));
+            }
+        };
+        return new ScenarioPreparationApplicationService(
+                fixture.packages(), fixture.bundles(), fixture.runtimeOptions(), request -> List.of(),
+                request -> List.of(), new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort(), lookup);
     }
 
     private static RuntimeOptionCatalogPort fixtureRuntimeOptions() {

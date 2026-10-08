@@ -62,7 +62,8 @@ public final class CrossContextHttpKnowledgeDocumentLookupGateway implements Kno
                             KnowledgeDocumentStatus.valueOf(summary.status()),
                             summary.originalFilename(),
                             summary.documentType(),
-                            summary.extractionVersion()))
+                            summary.extractionVersion(),
+                            summary.contentHash()))
                     .toList();
         } catch (IOException exception) {
             throw new KnowledgeDocumentLookupException("cross-context lookup failed", exception);
@@ -81,5 +82,6 @@ public final class CrossContextHttpKnowledgeDocumentLookupGateway implements Kno
             String status,
             String documentType,
             String originalFilename,
-            long extractionVersion) {}
+            long extractionVersion,
+            String contentHash) {}
 }

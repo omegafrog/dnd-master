@@ -542,10 +542,12 @@ public class AdventureApiConfiguration {
             RuntimeOptionCatalogPort runtimeOptionCatalogPort,
             com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearch,
             com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterTagExtraction,
-            GameSystemDefinitionPort gameSystemDefinitionPort) {
+            GameSystemDefinitionPort gameSystemDefinitionPort,
+            KnowledgeDocumentLookupPort knowledgeDocumentLookupPort) {
         return new ScenarioPreparationApplicationService(packageRepository, bundleRepository, runtimeOptionCatalogPort,
                 characterContextSearch, characterTagExtraction,
-                new com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler(), gameSystemDefinitionPort);
+                new com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler(),
+                gameSystemDefinitionPort, knowledgeDocumentLookupPort);
     }
 
     @Bean

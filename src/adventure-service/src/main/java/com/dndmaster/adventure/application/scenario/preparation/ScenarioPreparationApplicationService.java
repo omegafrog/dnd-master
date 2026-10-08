@@ -12,6 +12,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleNotFoundException;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory;
+import com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
@@ -22,6 +23,7 @@ import com.dndmaster.adventure.domain.scenario.CharacterInputNode;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisionConflictException;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintPublicationBlockedException;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
+import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentLookupPort;
 import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
 import com.dndmaster.adventure.domain.scenario.ProposalDecisionState;
 import com.dndmaster.adventure.domain.scenario.StorybookProposalDecision;
@@ -55,6 +57,7 @@ public final class ScenarioPreparationApplicationService {
     private final CharacterInputTagExtractionPort characterTagExtraction;
     private final CharacterCreationBlueprintCompiler blueprintCompiler;
     private final GameSystemDefinitionPort gameSystemDefinitionPort;
+    private final KnowledgeDocumentLookupPort knowledgeDocumentLookupPort;
 
     public ScenarioPreparationApplicationService(
             ScenarioPackageRepository packageRepository,
@@ -80,6 +83,15 @@ public final class ScenarioPreparationApplicationService {
             RuntimeOptionCatalogPort runtimeOptionCatalog, CharacterContextSearchPort characterContextSearch,
             CharacterInputTagExtractionPort characterTagExtraction, CharacterCreationBlueprintCompiler blueprintCompiler,
             GameSystemDefinitionPort gameSystemDefinitionPort) {
+        this(packageRepository, bundleRepository, runtimeOptionCatalog, characterContextSearch, characterTagExtraction,
+                blueprintCompiler, gameSystemDefinitionPort, emptyKnowledgeDocumentLookup());
+    }
+
+    public ScenarioPreparationApplicationService(
+            ScenarioPackageRepository packageRepository, ScenarioBundleRepository bundleRepository,
+            RuntimeOptionCatalogPort runtimeOptionCatalog, CharacterContextSearchPort characterContextSearch,
+            CharacterInputTagExtractionPort characterTagExtraction, CharacterCreationBlueprintCompiler blueprintCompiler,
+            GameSystemDefinitionPort gameSystemDefinitionPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort) {
         this.packageRepository = Objects.requireNonNull(packageRepository, "package repository must not be null");
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.runtimeOptionCatalog = Objects.requireNonNull(runtimeOptionCatalog, "runtime option catalog must not be null");
@@ -87,6 +99,7 @@ public final class ScenarioPreparationApplicationService {
         this.characterTagExtraction = Objects.requireNonNull(characterTagExtraction, "character tag extraction must not be null");
         this.blueprintCompiler = Objects.requireNonNull(blueprintCompiler, "blueprint compiler must not be null");
         this.gameSystemDefinitionPort = Objects.requireNonNull(gameSystemDefinitionPort, "game system definition port must not be null");
+        this.knowledgeDocumentLookupPort = Objects.requireNonNull(knowledgeDocumentLookupPort, "knowledge document lookup must not be null");
     }
 
     public PlayPreparationView read(UUID scenarioPackageId, OwnerPlayerId ownerPlayerId) {
@@ -100,12 +113,24 @@ public final class ScenarioPreparationApplicationService {
                 .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
                 .filter(document -> document.status() == KnowledgeDocumentStatus.INDEXED)
                 .toList();
-        if (bundle.rulebookEdition() == RulebookEdition.DND_5E_2014
-                && scenarioPackage.spellDefinitions().isEmpty() && basicRulesSources.size() == 1) {
+        List<StructuredSpellDefinition> spellDefinitions = scenarioPackage.spellDefinitions();
+        if (bundle.rulebookEdition() != RulebookEdition.DND_5E_2014 || basicRulesSources.size() != 1) {
+            spellDefinitions = List.of();
+        } else {
             var source = basicRulesSources.getFirst();
-            var spellDefinitions = BasicRulebookSpellInventory.load(source.knowledgeDocumentId(), source.extractionVersion());
-            packageRepository.saveSpellDefinitions(scenarioPackageId, spellDefinitions);
-            scenarioPackage = scenarioPackage.withSpellDefinitions(spellDefinitions);
+            boolean sourceMatches = hasApprovedBasicRulebookSource(ownerPlayerId, source);
+            boolean definitionsMatch = spellDefinitions.isEmpty() || spellDefinitions.stream().allMatch(spell ->
+                    spell.sourceDocumentId().equals(source.knowledgeDocumentId().value())
+                            && spell.sourceVersion().equals(BasicRulebookSpellInventory.SOURCE_VERSION)
+                            && spell.extractionVersion() == source.extractionVersion());
+            if (sourceMatches && definitionsMatch && spellDefinitions.isEmpty()) {
+                var loadedDefinitions = BasicRulebookSpellInventory.load(source.knowledgeDocumentId(), source.extractionVersion());
+                packageRepository.saveSpellDefinitions(scenarioPackageId, loadedDefinitions);
+                scenarioPackage = scenarioPackage.withSpellDefinitions(loadedDefinitions);
+                spellDefinitions = scenarioPackage.spellDefinitions();
+            } else if (!sourceMatches || !definitionsMatch) {
+                spellDefinitions = List.of();
+            }
         }
         ScenarioSourceBundleRevision currentRevision = bundle.currentRevision();
 
@@ -154,7 +179,23 @@ public final class ScenarioPreparationApplicationService {
                 blockers,
                 blueprint,
                 CharacterLimitView.from(scenarioPackage.characterLimit()),
-                scenarioPackage.spellDefinitions());
+                spellDefinitions);
+    }
+
+    private boolean hasApprovedBasicRulebookSource(OwnerPlayerId ownerPlayerId, ScenarioBundleDocumentSelection source) {
+        var documents = new ArrayList<>(knowledgeDocumentLookupPort.findOwnedDocuments(ownerPlayerId.value()));
+        documents.addAll(knowledgeDocumentLookupPort.findPublishedSharedCatalogDocuments());
+        String expectedContentHash = BasicRulebookSpellInventory.SOURCE_VERSION.substring("sha256:".length());
+        return documents.stream().anyMatch(document -> document.knowledgeDocumentId().equals(source.knowledgeDocumentId())
+                && document.status() == KnowledgeDocumentStatus.INDEXED
+                && document.originalFilename().equalsIgnoreCase("DnD_BasicRules_2018.pdf")
+                && "RULEBOOK".equalsIgnoreCase(document.documentType())
+                && document.extractionVersion() == source.extractionVersion()
+                && expectedContentHash.equals(document.contentHash()));
+    }
+
+    private static KnowledgeDocumentLookupPort emptyKnowledgeDocumentLookup() {
+        return ownerId -> List.of();
     }
 
     public RuntimeOptionsView runtimeOptions(OwnerPlayerId ownerPlayerId) {

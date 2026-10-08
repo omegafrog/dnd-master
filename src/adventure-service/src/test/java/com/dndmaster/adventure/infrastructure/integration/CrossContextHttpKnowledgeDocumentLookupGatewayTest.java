@@ -77,7 +77,7 @@ class CrossContextHttpKnowledgeDocumentLookupGatewayTest {
                         .withHeader("Content-Type", "application/json")
                         .withBody("""
                                 {"ownerId":"00000000-0000-0000-0000-000000000005","rulebooks":[
-                                  {"knowledgeDocumentId":"%s","status":"INDEXED","documentType":"RULEBOOK","originalFilename":"published.pdf","extractionVersion":3}
+                                  {"knowledgeDocumentId":"%s","status":"INDEXED","documentType":"RULEBOOK","originalFilename":"published.pdf","extractionVersion":3,"contentHash":"sha256:approved"}
                                 ]}
                                 """.formatted(publishedId))));
 
@@ -88,6 +88,7 @@ class CrossContextHttpKnowledgeDocumentLookupGatewayTest {
         assertEquals(new KnowledgeDocumentId(publishedId), documents.getFirst().knowledgeDocumentId());
         assertEquals(KnowledgeDocumentStatus.INDEXED, documents.getFirst().status());
         assertEquals(3, documents.getFirst().extractionVersion());
+        assertEquals("sha256:approved", documents.getFirst().contentHash());
     }
 
     @Test

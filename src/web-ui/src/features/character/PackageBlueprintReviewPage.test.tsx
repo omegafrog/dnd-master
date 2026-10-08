@@ -107,7 +107,7 @@ describe('PackageBlueprintReviewPage', () => {
     const inventory = await screen.findByRole('region', { name: '기본 룰북 주문 목록' })
     await userEvent.setup().click(within(inventory).getByText('1개 주문과 출처 보기'))
     expect(within(inventory).getByRole('listitem')).toHaveTextContent(
-      /원문 문서 7b56c41d-f2d1-46b0-9f7a-87845bb5a879, 위치 page=87;node=node-2478, 추출 7/,
+      /원문 문서 7b56c41d-f2d1-46b0-9f7a-87845bb5a879, 위치 page=87;node=node-2478, 원문 버전 sha256:7a0c5d8bf52d15092f156d78418aa3d43307e271f810d2f06bf2f0258e9288a3, 추출 7/,
     )
     expect(within(inventory).getByRole('listitem')).toHaveTextContent('1 Action')
     expect(within(inventory).getByRole('listitem')).toHaveTextContent('60 ft.')
