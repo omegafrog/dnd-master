@@ -41,8 +41,13 @@
    :저장된 같은 모험 자료 반환;
  else (아니오)
    :원문 조회 어댑터가 선택된 원문의 전체 위치 구간을 검증·반환;
-   :AI Game Master가 전체 원문에서 필수 상황·선행 관계 추출;
-   :AI Game Master가 추출 목록을 원문 전체와 직접 대조·보완;
+   :AI Game Master가 원문 구간별로 필수 상황·선행 관계 추출;
+   if (전체 원문과 제안 목록을 한 번에 전달 가능?) then (예)
+     :AI Game Master가 모든 원문 구간과 전체 추출 목록을 한 번에 직접 대조·보완;
+   else (아니오)
+     :검토 미완료·준비 실패;
+     stop
+   endif
    :준비 서비스가 검토 목록만 골격·상세 생성에 전달;
    :준비 서비스가 목록 전체 반영·출처·관계·지도 범위 검증;
    :골격과 전체 초기 단계 자료를 한 번에 저장;
@@ -93,7 +98,7 @@
 | External System | Trigger | Input | Output | Failure |
 |---|---|---|---|---|
 | 기존 Document Knowledge 원문 읽기 API | 초기 준비 | 선택된 STORYBOOK 문서의 source-preview 참조 | 문서 식별·유형·추출 버전·상태·경고 및 위치 있는 전체 원문 구간 | 조회·완전성·구간 누락 오류는 준비 실패; 추출 본문만으로 대체하지 않음 |
-| AI Game Master | 초기 원문 추출·직접 대조·상세 생성 또는 턴 상황 계획 | 전체 원문 구간, 검토된 필수 상황 목록, 현재 모험 상태 | 검토 목록 또는 상황 후보 제안 | 기존 제한·분류·재시도 정책 적용; 실패를 완성 결과로 취급하지 않음 |
+| AI Game Master | 초기 원문 추출·직접 대조·상세 생성 또는 턴 상황 계획 | 추출은 원문 구간별; 대조는 모든 원문 구간과 전체 추출 목록을 단일 요청으로 전달; 현재 모험 상태 | 검토 목록 또는 상황 후보 제안 | 입력 한도 초과·기존 분류 실패 시 준비 실패; 실패를 완성 결과로 취급하지 않음 |
 | PostgreSQL | 자료 조회·게시 또는 턴 확정 | 모험 키·버전 조건의 저장 명령 | 저장 결과 | 기존 충돌·확정 복구 절차 적용 |
 
 ### 2.7 Hotspots
@@ -102,7 +107,7 @@
 |---|---|---|
 | 같은 원문을 쓰는 모험의 초기 상황 공유 | 패키지 기준 공유 / 모험별 분리 | AdventureId 포함 키로 독립 생성·저장. 원문 패키지는 참조만 함 |
 | 시작 전 생성 또는 시작 후 지연 생성 | 전체 초기 자료 선준비 / 다음 단계에서 생성 | 시작 완료 전에 모든 초기 필수 상황과 중간 후보의 핵심 요소를 준비 |
-| GM 추출 결과를 그대로 신뢰하거나 원문 전체와 재대조 | 제안만 신뢰 / 전체 원문 직접 대조 | 원문 위치가 확인된 전체 구간으로 누락을 수정하고, 검토 목록만 후속 생성에 사용 |
+| GM 추출 결과를 그대로 신뢰하거나 원문 전체와 재대조 | 제안만 신뢰 / 전체 원문과 전체 제안의 단일 대조 | 추출은 구간별로 하되, 모든 위치 구간과 전체 제안 목록을 한 검토 요청에 함께 넣어 구간 간 관계까지 비교하고 검토 목록만 후속 생성에 사용; 입력 한도를 넘으면 실패 |
 | 단계 순서 의미 | 연속 진행 제약 / 자료 정리 순서 | StageBackbone.order는 준비 자료의 나열 순서. 상황 진행은 원문에 명시된 선행 관계만 제약 |
 | 상황 전환 확정 | 별도 저장 / 기존 턴 확정에 포함 | 현재 상황 종료·다음 활성화·후보 사용 및 신규 상황을 같은 턴 확정에 포함 |
 
@@ -297,7 +302,7 @@ Scenario Preparation은 기존 Document Knowledge의 패키지·추출 개정 �
 
 검토 목록 자료형은 `RequiredSituation(situationId, summary, prerequisiteSituationIds, sourceRefs)`이며 `StageBackbone.requiredSituations`로 해당 모험의 골격 JSON에 저장한다. 상세 단계 생성 요청에도 동일한 목록을 전달한다. 원문 조회 포트인 `StorySourcePreviewPort`(선택된 원문 전체의 위치별 구간을 제공하는 내부 경계)는 `Passage(sourceRef, text)`를 제공한다. 실제 HTTP 어댑터는 선택 문서의 식별자·유형·추출 버전·색인 상태·경고·위치 있는 전체 구간의 완전성을 확인한다.
 
-어댑터는 원문 전체를 구간별로 나누어 필수 상황을 추출한 뒤 각 구간을 같은 전체 제안 목록과 다시 대조한다. 누락된 항목·관계는 검토 단계에서 보완하고, 검토를 마친 목록만 골격 및 각 상세 단계 생성에 전달한다. 검토 목록의 각 필수 상황 ID에는 정확히 연결되는 최종 필수 `SituationDefinition`이 있어야 하며 해당 필수 상황의 `SOURCE_EXTRACTED` 출처·원문 위치·`prerequisiteSituationIds`가 목록 항목과 일치해야 한다. 중간 상황 후보와 GM 보완 상황은 이 대응 검사 대상이 아니며 기존 출처 구분 규칙을 따른다. 복원된 자료도 검증하며, 불일치 또는 원문 범위 실패에서는 게시하지 않는다.
+어댑터는 원문 전체를 구간별로 나누어 필수 상황을 추출한 뒤, 별도 검토 요청 하나에 모든 원문 구간과 전체 추출 제안 목록을 함께 넣어 대조한다. 이 한 번의 검토로 구간 경계에 걸친 상황 관계를 확인하며, 전체 내용을 함께 전달할 수 없을 만큼 모델 입력 한도를 넘으면 검토 미완료로 간주하고 준비에 실패한다. 누락된 항목·관계는 검토 단계에서 보완하고, 검토를 마친 목록만 골격 및 각 상세 단계 생성에 전달한다. 이 AI 의미 검토가 원문의 모든 의미를 완벽히 찾아낸다고 보장하지 않는다. 검토 목록의 각 필수 상황 ID에는 정확히 연결되는 최종 필수 `SituationDefinition`이 있어야 하며 해당 필수 상황의 `SOURCE_EXTRACTED` 출처 위치 집합은 목록의 sourceRefs와 정확히 같아야 하고 `prerequisiteSituationIds`도 일치해야 한다. 추가·누락 인용 위치는 허용하지 않는다. 중간 상황 후보와 GM 보완 상황은 이 대응 검사 대상이 아니며 기존 출처 구분 규칙을 따른다. 복원된 자료도 검증하며, 불일치 또는 원문 범위 실패에서는 게시하지 않는다.
 
 ```java
 StageArtifactPreparationApplicationService.Result prepare(
@@ -452,7 +457,7 @@ MAT-01에서 확인한 기존 구조는 시작 준비 경로, 상황 준비 포�
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/AdventureStartApplicationService.java` | 예약한 동일 식별자로 실제 시작 전 전체 준비 확인 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/StageArtifactPreparationPort.java` | 모험·세션 입력 및 전체 결과 계약 반영 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/StageArtifactPreparationApplicationService.java` | 재사용·생성·검증·게시 순서 구현 |
-| `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPackageStageArtifactAdapter.java` | 선택 원문의 모든 위치 구간 추출·대조·수정과 검토 목록 전달, 최종 자료 대조 |
+| `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPackageStageArtifactAdapter.java` | 선택 원문의 모든 위치 구간별 추출 후 한 요청에 전체 원문과 제안 목록을 넣어 대조·수정, 검토 목록 전달 및 최종 자료 대조 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/StorySourcePreviewPort.java` | 기존 원문 읽기 API를 통해 선택된 STORYBOOK 원문의 위치별 전체 구간 제공 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpStorySourcePreviewPort.java` | 문서 식별·유형·추출 버전·색인 상태·경고·구간 완전성 검증과 원문 반환 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/RequiredSituation.java` | 검토된 필수 상황의 ID·요약·선행 ID·원문 위치 참조 표현 |
@@ -475,7 +480,7 @@ MAT-01에서 확인한 기존 구조는 시작 준비 경로, 상황 준비 포�
 
 ### 6.1 Runtime Flow
 
-시작 ID 확보·예약 → 같은 모험 자료 조회 → 원문 전체 구간 조회·완전성 확인 → 전체 구간별 필수 상황 추출 → 제안 목록과 원문 전체 직접 대조·누락 보완 → 검토 목록 저장 포함 생성 → 모든 목록 항목·관계·출처 검증 → 골격·전체 단계 원자 게시 → 모험 시작. 각 플레이 턴은 후보·사용 상태 입력 → 계속/선택/생성 제안 → 검증 및 대기 저장 → 기존 굴림 게이트 → 기존 턴 확정으로 실행된다.
+시작 ID 확보·예약 → 같은 모험 자료 조회 → 원문 전체 구간 조회·완전성 확인 → 전체 구간별 필수 상황 추출 → 모든 원문 구간과 전체 제안 목록을 한 번에 대조·누락 및 구간 간 관계 보완 → (입력 한도 초과 시 준비 실패) → 검토 목록 저장 포함 생성 → 모든 목록 항목·관계·출처 검증 → 골격·전체 단계 원자 게시 → 모험 시작. 각 플레이 턴은 후보·사용 상태 입력 → 계속/선택/생성 제안 → 검증 및 대기 저장 → 기존 굴림 게이트 → 기존 턴 확정으로 실행된다.
 
 ### 6.2 Concurrent Access
 
@@ -499,19 +504,19 @@ MAT-01에서 확인한 기존 구조는 시작 준비 경로, 상황 준비 포�
 
 ### 6.7 Partial Failure
 
-원문 조회·완전성 확인·추출·직접 대조·검토·생성 중 어느 단계든 실패하면 검토 목록을 플레이 자료로 게시하지 않고 모험 시작을 완료하지 않는다. 부분 초기 자료는 완료로 게시하지 않는다. Provider·검증 오류에서는 시작을 완료하지 않는다. 굴림 대기나 턴 저장 실패에서는 제안과 기존 재개 절차를 보존하고 상황 사용·추가를 정본화하지 않는다. 제공 지도가 없을 때는 맵 없이 계속 진행한다.
+원문 조회·완전성 확인·구간별 추출·전체 원문과 전체 제안의 단일 요청 대조·검토·생성 중 어느 단계든 실패하면 검토 목록을 플레이 자료로 게시하지 않고 모험 시작을 완료하지 않는다. 전체 검토 요청이 모델 입력 한도를 넘으면 검토가 끝나지 않은 것으로 처리한다. 부분 초기 자료는 완료로 게시하지 않는다. Provider·검증 오류에서는 시작을 완료하지 않는다. 굴림 대기나 턴 저장 실패에서는 제안과 기존 재개 절차를 보존하고 상황 사용·추가를 정본화하지 않는다. 제공 지도가 없을 때는 맵 없이 계속 진행한다.
 
 ## 7. Error Handling and Recovery
 
 ### 7.1 Failure and Recovery Flow
 
-실패를 원문 조회·완전성·대조 실패, 정상적인 원문 근거 부족, 잘못된 생성 또는 검토 목록 불일치, Provider 장애, 저장 경쟁, 굴림 대기, 턴 확정 실패로 분류한다. 각각 준비 중단·GM 보완·기존 검증·제한된 AI 요청·저장 충돌·턴 재개 절차를 사용한다.
+실패를 원문 조회·완전성·대조 실패, 전체 검토 요청의 모델 입력 한도 초과, 정상적인 원문 근거 부족, 잘못된 생성 또는 검토 목록 불일치, Provider 장애, 저장 경쟁, 굴림 대기, 턴 확정 실패로 분류한다. 각각 준비 중단·GM 보완·기존 검증·제한된 AI 요청·저장 충돌·턴 재개 절차를 사용한다.
 
 ### 7.2 Error Classification
 
 | 종류 | 처리 |
 |---|---|
-| 원문 전체 조회·추출·대조 불가 또는 불완전한 구간 | 준비 실패로 처리하고 검토 목록·초기 자료 게시 및 모험 시작을 완료하지 않음 |
+| 원문 전체 조회·추출·대조 불가, 불완전한 구간 또는 전체 원문과 제안 목록을 함께 넣은 검토 요청의 모델 입력 한도 초과 | 준비 실패로 처리하고 검토 목록·초기 자료 게시 및 모험 시작을 완료하지 않음 |
 | 원문 근거 부족 | 위치가 완전히 확인된 원문 안의 세부 부족만 출처를 표시한 정상 GM 보완으로 진행 |
 | 검토 목록 또는 최종 상황 누락·불일치 | 검토된 필수 상황 ID·출처·선행 관계를 모두 반영하기 전 초기 자료 전체를 게시하지 않음 |
 | AI 형식 오류·허위 출처·외부 참조·선행 관계 위반 | 기존 검증 오류로 거부·복구 |
@@ -603,17 +608,17 @@ MAT-01에서 확인한 기존 구조는 시작 준비 경로, 상황 준비 포�
 
 ### 11.2 Program Verification
 
-두 실제 시작 진입점이 같은 예약 ID를 넘기는지, 기존 원문 API를 통한 선택 문서 전체 구간 조회가 문서 정체성·유형·추출 버전·색인 상태·경고·완전성을 검사하는지, 실제 빈 연결 경로가 모든 원문 구간을 추출·별도 대조하는지, 검토된 목록만 골격·상세 생성에 들어가는지, 준비 전체 결과가 기존 시작 입력을 보존하는지, 기존 `generate(Request request)` 경계와 `Adventure.commitRuntimeTurn` 시그니처가 유지되는지 검증한다.
+두 실제 시작 진입점이 같은 예약 ID를 넘기는지, 기존 원문 API를 통한 선택 문서 전체 구간 조회가 문서 정체성·유형·추출 버전·색인 상태·경고·완전성을 검사하는지, 추출은 구간별로 하고 별도 대조 요청은 모든 원문 구간과 전체 추출 목록을 한 번에 포함하는지, 그 결과 구간 간 관계를 보완하는지, 입력 한도 초과가 준비 실패가 되는지, 검토된 필수 상황 목록만 골격·상세 생성에 들어가는지, 검토 목록의 원문 위치 집합과 최종 필수 상황의 인용 위치 집합이 추가·누락 없이 정확히 같은지, 준비 전체 결과가 기존 시작 입력을 보존하는지, 기존 `generate(Request request)` 경계와 `Adventure.commitRuntimeTurn` 시그니처가 유지되는지 검증한다.
 
 테스트 범위에는 다음 기존 단위·통합 테스트 접점을 새 계약에 맞춰 갱신한다. 아래는 구현 시 검증 범위이며 실행 완료를 뜻하지 않는다: `StageArtifactPreparationApplicationServiceTest.java`, `ScenarioPackageStageArtifactAdapterTest.java`, `ScenarioRuntimeAdventureStartTest.java`, `AdventureSessionStageStartTest.java`, `StoryRuntimeStateTest.java`, `RuntimeTurnPostgresIntegrationTest.java`, `ScenarioRuntimeTurnSafetyTest.java`, `PreparedMapEntryCommitGateTest.java`.
 
 ### 11.3 Technical Contract Verification
 
-`StageBackbone.requiredSituations`의 모험 소유 JSON 저장·복원, 원문 위치 참조의 실제 위치 대응, 생성된 필수 상황 ID·필수 표시·`SOURCE_EXTRACTED`·선행 ID 전체 일치, 원문 조회 실패 거부, 검토 목록 누락·변조·목록 밖 관계 거부, 초기 검토 목록과 전체 단계 원자 저장을 검증한다. 기존 모험별 골격·상세 자료 저장 계약 및 맵 없음 시작도 저장소·통합 검사로 확인한다. 이 확장은 제3의 목록 테이블이나 전역 ScenarioModel·컴파일 변경을 추가하지 않는다.
+`StageBackbone.requiredSituations`의 모험 소유 JSON 저장·복원, 별도 검토 요청에 모든 원문 구간과 전체 추출 목록이 함께 전달되는지, 입력 한도 초과 시 준비 실패, 원문 위치 참조의 실제 위치 대응, 생성된 필수 상황 ID·필수 표시·`SOURCE_EXTRACTED` 인용 위치 집합의 정확한 동등성·선행 ID 전체 일치, 원문 조회 실패 거부, 검토 목록 누락·변조·목록 밖 관계 거부, 초기 검토 목록과 전체 단계 원자 저장을 검증한다. 기존 모험별 골격·상세 자료 저장 계약 및 맵 없음 시작도 저장소·통합 검사로 확인한다. 이 확장은 제3의 목록 테이블이나 전역 ScenarioModel·컴파일 변경을 추가하지 않는다.
 
 ### 11.4 Runtime Verification
 
-첫 원문 추출에서 B 또는 A→B 관계가 빠졌지만 직접 대조가 찾아 보완하는 경우, 최종 생성에 B 또는 A→B가 빠져 게시를 막는 경우, 원문 근거가 없는 추가 순서를 거부하는 경우, 원문 조회·추출·대조 기술 실패가 최초 자료 생성·시작을 막는 경우, 저장된 검토 목록이 같은 모험 재시도에서 복원되는 경우를 검증한다. 같은 모험 저장 경쟁, 독립된 두 모험, 시작 전 전체 준비, 원문 선행 관계 기반 선택, 준비 순서와 플레이 순서 구분, 후보 선택·신규 생성 후 기존 턴 단일 확정도 검증한다.
+구간별 첫 추출에서 빠진 B 또는 구간 경계를 넘는 A→B 관계를 모든 원문 구간과 전체 제안 목록을 한 요청에 함께 전달한 대조가 찾아 보완하는 경우, 최종 생성에 B·A→B가 빠져 게시를 막는 경우, 검토 목록의 sourceRefs에 없는 추가 인용 위치를 거부하는 경우, 전체 검토 입력이 모델 한도를 넘을 때 준비가 실패하는 경우, 원문 조회·추출·대조 기술 실패가 최초 자료 생성·시작을 막는 경우, 저장된 검토 목록이 같은 모험 재시도에서 복원되는 경우를 검증한다. 같은 모험 저장 경쟁, 독립된 두 모험, 시작 전 전체 준비, 원문 선행 관계 기반 선택, 준비 순서와 플레이 순서 구분, 후보 선택·신규 생성 후 기존 턴 단일 확정도 검증한다.
 
 ### 11.5 Recovery Verification
 
