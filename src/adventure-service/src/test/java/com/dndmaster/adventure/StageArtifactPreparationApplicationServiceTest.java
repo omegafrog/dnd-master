@@ -158,6 +158,24 @@ class StageArtifactPreparationApplicationServiceTest {
     }
 
     @Test
+    void rejects_gm_supplement_that_claims_a_source_reference() {
+        var repository = new StageArtifactRepository.InMemory();
+        var claimedSource = new SituationDefinition("candidate-a", List.of(StageIntent.REVELATION), List.of("truth"),
+                List.of(), List.of(), List.of(), List.of(), false, false, List.of(),
+                SituationProvenance.GM_SUPPLEMENTED, null, List.of(evidence));
+        var stage = detailedWithSituations(List.of(
+                new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
+                        List.of(), List.of(), List.of(), List.of(), true, true, List.of(),
+                        SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence)),
+                claimedSource, supplementalCandidate("candidate-b")));
+        var service = new StageArtifactPreparationApplicationService(repository,
+                request -> List.of(evidence), request -> singleStageBackbone(), request -> stage);
+
+        assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
+        assertEquals(0, repository.findBackbone(adventureId, packageId, 1).stream().count());
+    }
+
+    @Test
     void requires_multiple_intermediate_candidates_without_a_fixed_maximum() {
         for (int candidateCount = 0; candidateCount <= 3; candidateCount++) {
             var repository = new StageArtifactRepository.InMemory();

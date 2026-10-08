@@ -151,7 +151,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         if (situation.provenance() == SituationProvenance.SOURCE_EXTRACTED) {
             return !situation.sourceRefs().isEmpty() && grounded(situation.sourceRefs(), evidence, scenarioBacked);
         }
-        return grounded(situation.sourceRefs(), evidence, scenarioBacked);
+        return situation.sourceRefs().isEmpty();
     }
 
     private static void validateInitialSituationSet(List<DetailedStage> stages, java.util.Set<UUID> providedMapIds) {
