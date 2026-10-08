@@ -30,9 +30,10 @@ export function MapGridAlignmentEditor({ image, initial, crop, onApply, onCancel
   const displayCrop = crop && crop.width > 0 && crop.height > 0 ? crop : { x: 0, y: 0, width: imageSize.width, height: imageSize.height }
 
   const layout = () => {
-    const rect = canvas.current?.getBoundingClientRect()
-    const width = Math.max(1, rect?.width ?? displayCrop.width)
-    const height = Math.max(1, crop && crop.width > 0 && crop.height > 0 ? width * crop.height / crop.width : rect?.height ?? displayCrop.height)
+    const element = canvas.current
+    const rect = element?.getBoundingClientRect()
+    const width = Math.max(1, element?.clientWidth || rect?.width || displayCrop.width)
+    const height = Math.max(1, element?.clientHeight || (crop && crop.width > 0 && crop.height > 0 ? width * crop.height / crop.width : rect?.height || displayCrop.height))
     const scale = Math.min(width / displayCrop.width, height / displayCrop.height)
     return { scale, offsetX: (width - displayCrop.width * scale) / 2, offsetY: (height - displayCrop.height * scale) / 2 }
   }
@@ -40,8 +41,8 @@ export function MapGridAlignmentEditor({ image, initial, crop, onApply, onCancel
   function point(event: PointerEvent<HTMLElement>) {
     const rect = canvas.current?.getBoundingClientRect()
     const view = layout()
-    const screenX = event.clientX - (rect?.left ?? 0) - view.offsetX - pan.x
-    const screenY = event.clientY - (rect?.top ?? 0) - view.offsetY - pan.y
+    const screenX = event.clientX - (rect?.left ?? 0) - (canvas.current?.clientLeft ?? 0) - view.offsetX - pan.x
+    const screenY = event.clientY - (rect?.top ?? 0) - (canvas.current?.clientTop ?? 0) - view.offsetY - pan.y
     return { x: displayCrop.x + screenX / (view.scale * zoom), y: displayCrop.y + screenY / (view.scale * zoom) }
   }
   function beginPanning(event: PointerEvent<HTMLDivElement>) {
@@ -91,6 +92,13 @@ export function MapGridAlignmentEditor({ image, initial, crop, onApply, onCancel
   function finish(event: PointerEvent<HTMLDivElement>) {
     const current = drag.current
     try { event.currentTarget.releasePointerCapture(event.pointerId) } catch { /* cancelled pointer */ }
+    if (current?.moved) {
+      const at = point(event)
+      try {
+        if (current.kind === 'origin') changeDraft({ ...current.draft, originX: current.draft.originX + at.x - current.start.x, originY: current.draft.originY + at.y - current.start.y })
+        else changeDraft(refineCellSize(current.draft, { x: 0, y: 0 }, current.anchor, { x: 3, y: 3 }, at))
+      } catch { setError('세 칸 뒤의 교차점을 다시 선택하세요.') }
+    }
     if (current && !current.moved && current.kind === 'size') {
       const at = point(event)
       try {
@@ -206,7 +214,7 @@ export function MapGridAlignmentEditor({ image, initial, crop, onApply, onCancel
       <button type="button" className="map-grid-alignment-handle" aria-label="기준점 이동" style={{ left: origin.left, top: origin.top }} onKeyDown={event => { if (event.key.startsWith('Arrow')) { event.preventDefault(); nudge(event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0, event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0, event) } }} onPointerDown={event => { event.stopPropagation(); beginGridSizing(event, 'origin') }} />
       <button type="button" className="map-grid-alignment-handle map-grid-alignment-size-handle" aria-label="세 칸 뒤 기준점 이동" style={{ left: scaleEnd.left, top: scaleEnd.top }} onKeyDown={event => { if (event.key.startsWith('Arrow')) { event.preventDefault(); const distance = (event.shiftKey ? 10 : 1) / 3; const nextSize = draft.cellSize + (event.key === 'ArrowRight' || event.key === 'ArrowDown' ? distance : -distance); if (nextSize > 0) changeDraft({ ...draft, cellSize: nextSize }) } }} onPointerDown={event => { event.stopPropagation(); beginGridSizing(event, 'size') }} />
       {pending && <span className="map-grid-alignment-pending" role="status">두 번째 기준점을 선택하세요</span>}
-      {magnifier && magnifierAt && <div className="map-grid-magnifier" aria-label="확대경" style={{ left: Math.max(4, Math.min(magnifierAt.left + 18, (canvas.current?.clientWidth ?? 1) - magnifierSize - 4)), top: Math.max(4, Math.min(magnifierAt.top - magnifierSize - 12, (canvas.current?.clientHeight ?? 1) - magnifierSize - 4)) }}><img src={image} alt="" aria-hidden="true" style={{ width: imageSize.width * MAGNIFIER_SCALE, height: imageSize.height * MAGNIFIER_SCALE, transform: `translate(${50 - magnifier.x * MAGNIFIER_SCALE}px, ${50 - magnifier.y * MAGNIFIER_SCALE}px)` }} /></div>}
+      {magnifier && magnifierAt && <div className="map-grid-magnifier" aria-label="확대경" style={{ left: Math.max(4, Math.min(magnifierAt.left + 18, (canvas.current?.clientWidth ?? 1) - magnifierSize - 4)), top: Math.max(4, Math.min(magnifierAt.top - magnifierSize - 12, (canvas.current?.clientHeight ?? 1) - magnifierSize - 4)) }}><img src={image} alt="" aria-hidden="true" style={{ left: '50%', top: '50%', width: imageSize.width * MAGNIFIER_SCALE, height: imageSize.height * MAGNIFIER_SCALE, transform: `translate(${-magnifier.x * MAGNIFIER_SCALE}px, ${-magnifier.y * MAGNIFIER_SCALE}px)` }} /></div>}
     </div>
     {error && <p role="alert">{error}</p>}
     <div className="map-grid-alignment-actions"><Button type="button" disabled={saving || !validSize || !!pending} onClick={() => void apply()}>{saving ? '저장 중…' : error ? '다시 적용' : '적용'}</Button><Button type="button" disabled={saving} onClick={onCancel}>취소</Button></div>
@@ -215,8 +223,8 @@ export function MapGridAlignmentEditor({ image, initial, crop, onApply, onCancel
 
 function clampPan(value: { x: number; y: number }, imageSize: { width: number; height: number }, canvas: HTMLDivElement | null, zoom: number) {
   const rect = canvas?.getBoundingClientRect()
-  const width = Math.max(1, rect?.width ?? imageSize.width)
-  const height = Math.max(1, rect?.height ?? imageSize.height)
+  const width = Math.max(1, canvas?.clientWidth || rect?.width || imageSize.width)
+  const height = Math.max(1, canvas?.clientHeight || rect?.height || imageSize.height)
   const scale = Math.min(width / imageSize.width, height / imageSize.height)
   const limitX = Math.max(0, (imageSize.width * scale * zoom - width) / 2)
   const limitY = Math.max(0, (imageSize.height * scale * zoom - height) / 2)

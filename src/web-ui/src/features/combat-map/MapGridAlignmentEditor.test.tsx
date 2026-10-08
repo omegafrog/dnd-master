@@ -181,6 +181,23 @@ it('derives the grid origin and cell size from the dragged 3×3 area', async () 
   expect(saved.cellSize).toBeCloseTo(.1)
 })
 
+it('uses the release coordinate when it arrives after the last pointermove', async () => {
+  const apply = vi.fn().mockResolvedValue(undefined)
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={() => {}} />)
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
+  const image = screen.getByAltText('공개된 지도 이미지')
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 300, height: 200 } as DOMRect)
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+  Object.defineProperty(image, 'naturalWidth', { value: 300 })
+  Object.defineProperty(image, 'naturalHeight', { value: 200 })
+  fireEvent.load(image)
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 40, clientY: 40 }))
+  fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 80, clientY: 80 }))
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 100, clientY: 100 }))
+  await userEvent.setup().click(screen.getByRole('button', { name: '적용' }))
+  expect(apply.mock.calls[0][0].cellSize).toBeCloseTo(20)
+})
+
 it('does not cap the 3×3 calibration size to the full map dimensions', async () => {
   const apply = vi.fn().mockResolvedValue(undefined)
   render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={() => {}} />)
@@ -256,4 +273,43 @@ it('converts a grid drag through the zoomed image coordinates', async () => {
   expect(saved.originX).toBeCloseTo(120)
   expect(saved.originY).toBeCloseTo(80)
   expect(saved.cellSize).toBeCloseTo(13.3333)
+})
+
+it('keeps crop and zoomed pointer samples on their source image coordinates', async () => {
+  const apply = vi.fn().mockResolvedValue(undefined)
+  render(<MapGridAlignmentEditor image="/public.png" crop={{ x: 300, y: 100, width: 500, height: 400 }} initial={{ ...initial, originX: 600, originY: 500, cellSize: 36 }} onApply={apply} onCancel={() => {}} />)
+  const canvas = screen.getByAltText('공개된 지도 이미지').closest('.map-grid-alignment-canvas')!
+  const image = screen.getByAltText('공개된 지도 이미지')
+  vi.spyOn(canvas, 'getBoundingClientRect').mockReturnValue({ left: 100, top: 200, width: 672, height: 538 } as DOMRect)
+  Object.defineProperties(canvas, { clientLeft: { value: 1 }, clientTop: { value: 1 }, clientWidth: { value: 670 }, clientHeight: { value: 536 } })
+  Object.assign(canvas, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+  Object.defineProperty(image, 'naturalWidth', { value: 1403 })
+  Object.defineProperty(image, 'naturalHeight', { value: 992 })
+  fireEvent.load(image)
+  const user = userEvent.setup()
+  await user.click(screen.getByRole('button', { name: '확대' }))
+  await user.click(screen.getByRole('button', { name: '확대' }))
+  await user.click(screen.getByRole('button', { name: '지도 이동' }))
+  fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, clientX: 300, clientY: 400 }))
+  fireEvent(canvas, new MouseEvent('pointermove', { bubbles: true, clientX: 324, clientY: 384 }))
+  fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, clientX: 324, clientY: 384 }))
+  await user.click(screen.getByRole('button', { name: '격자 맞추기' }))
+
+  const sample = (x: number, y: number) => {
+    const at = { clientX: 100 + 1 + 24 + (x - 300) * 2.01, clientY: 200 + 1 - 16 + (y - 100) * 2.01 }
+    fireEvent(canvas, new MouseEvent('pointerdown', { bubbles: true, ...at }))
+    return () => fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true, ...at }))
+  }
+  const releaseFirst = sample(419.5, 216.5)
+  const magnifierImage = screen.getByLabelText('확대경').querySelector('img')!
+  const translation = magnifierImage.style.transform.match(/translate\((-?[\d.]+)px, (-?[\d.]+)px\)/)!
+  expect(magnifierImage).toHaveStyle({ left: '50%', top: '50%' })
+  expect(Number(translation[1])).toBeCloseTo(-1048.75, 4)
+  expect(Number(translation[2])).toBeCloseTo(-541.25, 4)
+  releaseFirst()
+  sample(527.5, 324.5)()
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  expect(apply.mock.calls[0][0].originX).toBeCloseTo(419.5, 3)
+  expect(apply.mock.calls[0][0].originY).toBeCloseTo(216.5, 3)
+  expect(apply.mock.calls[0][0].cellSize).toBeCloseTo(36, 3)
 })
