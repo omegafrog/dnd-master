@@ -130,7 +130,7 @@ public final class ScenarioPreparationApplicationService {
                             && spell.extractionVersion() == source.extractionVersion());
             if (sourceMatches && definitionsMatch && uniqueKnownIds) {
                 var completeDefinitions = canonicalDefinitions.stream()
-                        .map(spell -> existingById.getOrDefault(spell.id(), spell))
+                        .map(spell -> existingById.getOrDefault(spell.id(), spell).withSourceLocator(spell.sourceLocator()))
                         .toList();
                 if (!completeDefinitions.equals(spellDefinitions)) {
                     packageRepository.saveSpellDefinitions(scenarioPackageId, completeDefinitions);

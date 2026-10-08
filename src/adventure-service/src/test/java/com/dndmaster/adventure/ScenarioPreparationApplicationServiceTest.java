@@ -477,6 +477,24 @@ class ScenarioPreparationApplicationServiceTest {
     }
 
     @Test
+    void restoresCanonicalSourceLocatorForStoredSpellWhilePreservingUserEdits() {
+        var original = BasicRulebookSpellInventory.load(new KnowledgeDocumentId(rulebookDocumentId()), 1).getFirst();
+        var tampered = new StructuredSpellDefinition(original.id(), original.name(), original.sourceDocumentId(),
+                "page=999;node=untrusted", original.sourceVersion(), original.extractionVersion(), original.level(),
+                original.castingTime(), original.rangeArea(), original.components(), original.duration(), original.school(),
+                "사용자가 수정한 판정", original.damageEffect(), original.ownerPlanNumbers(), original.ownerEvidence(),
+                original.executable(), original.reviewStatus());
+        TestFixture fixture = bundle(withRulebookPackage().withSpellDefinitions(List.of(tampered)), bundleWithRulebook());
+
+        var preparation = service(fixture, BasicRulebookSpellInventory.SOURCE_VERSION.substring("sha256:".length()))
+                .read(fixture.packageId(), owner());
+
+        var repaired = preparation.spellDefinitions().getFirst();
+        assertEquals(original.sourceLocator(), repaired.sourceLocator());
+        assertEquals("사용자가 수정한 판정", repaired.attackSave());
+    }
+
+    @Test
     void doesNotSeedPdfInventoryWhenSelectedDocumentHashDiffers() {
         ScenarioPackage packageWithUnverifiedInventory = withRulebookPackage().withSpellDefinitions(
                 BasicRulebookSpellInventory.load(new KnowledgeDocumentId(rulebookDocumentId()), 1));

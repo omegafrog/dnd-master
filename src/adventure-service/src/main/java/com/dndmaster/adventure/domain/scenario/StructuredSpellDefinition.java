@@ -51,4 +51,11 @@ public record StructuredSpellDefinition(
     }
 
     public enum ReviewStatus { PENDING }
+
+    public StructuredSpellDefinition withSourceLocator(String locator) {
+        if (sourceLocator.equals(locator)) return this;
+        return new StructuredSpellDefinition(id, name, sourceDocumentId, locator, sourceVersion, extractionVersion,
+                level, castingTime, rangeArea, components, duration, school, attackSave, damageEffect,
+                ownerPlanNumbers, ownerEvidence, executable, reviewStatus);
+    }
 }
