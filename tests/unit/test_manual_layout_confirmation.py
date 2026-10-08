@@ -3,6 +3,52 @@ from preprocessing_agent.adapters import process_cli
 from io import StringIO
 from unittest.mock import patch
 import json
+import hashlib
+
+from preprocessing_agent.pipeline.extraction_service import ExtractionApplicationService
+from preprocessing_agent.ports.extraction import RenderedPage
+
+
+class _NativeColumns:
+    def extract(self, _source):
+        return [{"page_number": 1, "geometry": {"width": 100, "height": 100}, "blocks": [
+            {"block_id": "a", "text": "left one", "bbox": (10, 10, 35, 20)},
+            {"block_id": "b", "text": "left two", "bbox": (10, 30, 35, 40)},
+            {"block_id": "c", "text": "right one", "bbox": (60, 10, 85, 20)},
+        ]}]
+
+
+class _Render:
+    def available(self): return True
+    def render(self, _source, page_number, region=None): return RenderedPage(page_number, 100, 100, b"png")
+
+
+def test_confirmed_layout_and_attempt_history_survive_full_version_promotion(tmp_path):
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"pdf")
+    output = tmp_path / "artifacts"
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    first = service.preprocess({"request_id": "initial", "source_path": str(source),
+        "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
+        "output_dir": str(output), "version_id": "candidate-1"})
+    assert first["status"] == "NEEDS_REVIEW"
+    profile = first["pages"][0]["layout_review"]["profiles"][0]
+    candidate = next(index for index, value in enumerate(profile["candidates"])
+                     if value["column_count"] == 2)
+    assert profile["candidates"][candidate]["score"] < 0.8
+
+    promoted = service.retry_pages("candidate-1", output, [1], request_id="retry-1",
+        layout_selections={1: {profile["region_id"]: candidate}}, confirmed_by="admin-1")
+
+    assert promoted["status"] == "READY"
+    assert promoted["pages"][0]["status"] == "VALIDATED"
+    assert promoted["pages"][0]["attempts"] == 2
+    assert promoted["pages"][0]["attempt_history"][-1]["attempt"] == 2
+    assert promoted["pages"][0]["attempt_history"][-1]["status"] == "VALIDATED"
+    confirmation = promoted["pages"][0]["layout_confirmation"]
+    assert confirmation["admin_id"] == "admin-1"
+    assert confirmation["candidate_version"] == "candidate-1"
+    assert confirmation["selections"] == {profile["region_id"]: candidate}
 
 
 def test_pdf_confirmed_column_choice_preserves_other_hard_errors():

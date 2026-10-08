@@ -388,7 +388,21 @@ class ExtractionApplicationService:
                 declared_multi = raw.get("column_count", 1) != 1 or layout_name in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, [])
                 if declared_multi and not blocks:
                     raise ValueError("MULTI_COLUMN_UNSUPPORTED: MULTI_COLUMN_GEOMETRY_REQUIRED")
-                layout_plan = ReadingOrderPlanner().plan(blocks, geometry)
+                confirmation = raw.get("layout_confirmation") if isinstance(raw.get("layout_confirmation"), Mapping) else {}
+                confirmed_by = confirmation.get("admin_id")
+                confirmed_candidate = confirmation.get("candidate_version")
+                retry_candidate = request.get("retry_source_version_id")
+                confirmed_selections = confirmation.get("selections", {})
+                confirmed_columns = bool(
+                    isinstance(confirmed_by, str) and confirmed_by
+                    and isinstance(confirmed_candidate, str) and confirmed_candidate
+                    and confirmed_candidate == retry_candidate
+                    and isinstance(confirmed_selections, Mapping) and confirmed_selections
+                )
+                layout_plan = ReadingOrderPlanner().plan(
+                    blocks, geometry, dict(confirmed_selections) if confirmed_columns else None)
+                if confirmed_columns and any(profile.selected is None for profile in layout_plan.profiles):
+                    raise ValueError("INVALID_LAYOUT_CANDIDATE")
                 if layout_plan.ambiguous:
                     raise ValueError("AMBIGUOUS_COLUMN_HYPOTHESIS")
                 layout_evidence = to_dict(layout_plan)
@@ -405,7 +419,8 @@ class ExtractionApplicationService:
                 raw["tables"] = table_evidence
                 render_evidence = self._render_evidence(source, number, geometry)
                 raw["render_evidence"] = render_evidence
-                validation = self.layout_validator.validate(raw, render_evidence)
+                validation = self.layout_validator.validate(raw, render_evidence,
+                    confirmed_columns=confirmed_columns)
                 raw["layout_validation"] = validation.as_dict()
                 layout_validation = validation.as_dict()
                 if not validation.valid:
@@ -413,7 +428,12 @@ class ExtractionApplicationService:
                 version.record_page(PageExtraction.validated(number))
                 parser_pages.append(raw)
                 evidence = {"page_number": number, "page_classification": raw.get("page_classification", "text-native"), "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence, "heading_associations": heading_evidence, "tables": table_evidence, "render_evidence": render_evidence, "layout_validation": validation.as_dict()}
-                page_artifacts.append({**evidence, "status": PageStatus.VALIDATED.value, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
+                page_artifacts.append({**evidence, "status": PageStatus.VALIDATED.value,
+                    "attempts": raw.get("_retry_attempts", 1),
+                    "attempt_history": raw.get("_retry_attempt_history", [{"attempt": 1,
+                        "status": PageStatus.VALIDATED.value, "findings": []}]),
+                    "layout_confirmation": raw.get("layout_confirmation"),
+                    "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
             except (KeyError, TypeError, ValueError) as exc:
                 safe_number = number if "number" in locals() and 1 <= number <= version.page_count else position
                 finding = str(exc) or "INVALID_GEOMETRY"
@@ -460,7 +480,7 @@ class ExtractionApplicationService:
                 (temp_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
             version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "page_count": version.page_count, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
-            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": 1, "findings": item.get("findings", []), "layout_review": _layout_review_payload(item) if item["status"] == "NEEDS_REVIEW" else None, "attempt_history": [{"attempt": 1, "status": item["status"], "findings": item.get("findings", [])}]} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
+            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": item.get("attempts", 1), "findings": item.get("findings", []), "layout_review": _layout_review_payload(item) if item["status"] == "NEEDS_REVIEW" else None, "layout_confirmation": item.get("layout_confirmation"), "attempt_history": item.get("attempt_history", [{"attempt": 1, "status": item["status"], "findings": item.get("findings", [])}])} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
             (temp_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             version_dir = versions / version_id
             if version_dir.exists():
@@ -769,6 +789,7 @@ class ExtractionApplicationService:
                                     raise ValueError("INVALID_LAYOUT_CANDIDATE")
                                 item["layout_confirmation"] = {"admin_id": confirmed_by,
                                     "candidate_version": version_id, "selections": selected_regions}
+                                raw["layout_confirmation"] = item["layout_confirmation"]
                             if layout_plan.ambiguous:
                                 valid = False
                             raw = {**raw, "layout": to_dict(layout_plan)}
@@ -781,11 +802,12 @@ class ExtractionApplicationService:
                             if not valid:
                                 item["findings"] = [finding.code for finding in validation.findings
                                     if finding.severity == "error"]
-                            if valid:
-                                recovered_pages[str(item["page_number"])] = raw
                         if valid:
                             item["status"] = "VALIDATED"; item["findings"] = []
                             history[-1] = {**history[-1], "status": "VALIDATED", "findings": []}
+                            raw["_retry_attempts"] = item["attempts"]
+                            raw["_retry_attempt_history"] = history
+                            recovered_pages[str(item["page_number"])] = raw
                         else:
                             item["findings"] = item.get("findings") or ["RETRY_EXTRACTION_FAILED"]
                             if isinstance(raw, Mapping):
@@ -868,6 +890,7 @@ class ExtractionApplicationService:
                                     "source_sha256": manifest_source.get("sha256"),
                                     "policy_version": current.get("manifest", {}).get("policy", {}).get("version", "retry"),
                                     "output_dir": str(root), "version_id": promoted_id,
+                                    "retry_source_version_id": version_id,
                                     "recovered_pages": recovered_pages}
                 try:
                     promoted = self._preprocess_locked(promoted_request, root)

@@ -135,6 +135,13 @@ class ProcessCliPreprocessingAdapterTest {
         String hash = "a".repeat(64);
         Map<String, Object> fixture = fixture(work, hash, "candidate-1-retry", "retry-request", "retry_pages");
         fixture.put("retry_version_id", "candidate-1");
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> pages = (List<Map<String, Object>>) fixture.get("pages");
+        Map<String, Object> page = new LinkedHashMap<>(pages.getFirst());
+        page.put("attempts", 2);
+        page.put("layout_confirmation", Map.of("admin_id", "admin-1",
+                "candidate_version", "candidate-1", "selections", Map.of("region-1", 0)));
+        fixture.put("pages", List.of(page));
         Path script = writeScript(work.resolve("fake-python-retry"), new ObjectMapper().writeValueAsString(fixture));
         ProcessCliPreprocessingAdapter adapter = new ProcessCliPreprocessingAdapter(
                 script.toString(), work, Duration.ofMinutes(2), new ObjectMapper());
@@ -144,6 +151,9 @@ class ProcessCliPreprocessingAdapterTest {
 
         assertEquals("candidate-1-retry", result.versionId());
         assertEquals("READY", result.status());
+        assertEquals(2, result.pages().getFirst().attempts());
+        assertEquals("admin-1", result.pages().getFirst().layoutConfirmation().adminId());
+        assertEquals("candidate-1", result.pages().getFirst().layoutConfirmation().candidateVersion());
     }
 
     private static String sha256(Path path) throws Exception {
