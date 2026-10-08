@@ -50,6 +50,7 @@ class Rag017RetryFlowTest {
         InMemoryRegistrationRepository registrations = new InMemoryRegistrationRepository();
         InMemoryStorage storage = new InMemoryStorage();
         RecordingPreprocessingPort preprocessing = new RecordingPreprocessingPort();
+        preprocessing.returnNeedsReviewOnFirstRetry = true;
         RecordingPublicationRepository publicationRepository = new RecordingPublicationRepository();
         RagExtractionPublicationService publication = new RagExtractionPublicationService(publicationRepository,
                 (chunks, model, dimension) -> chunks.stream().map(chunk ->
@@ -74,15 +75,20 @@ class Rag017RetryFlowTest {
         Files.createDirectories(Path.of(System.getProperty("java.io.tmpdir"), "dnd-rag-preprocessing",
                 document.value().toString(), "artifacts", "versions", "candidate-1"));
 
-        assertEquals(ProcessingStatus.INDEXED, pipeline.retryPages(document, "retry-request-1", List.of(1)).status());
-        assertEquals(ProcessingStatus.INDEXED, pipeline.retryPages(document, "retry-request-1", List.of(1)).status());
-        assertEquals(1, preprocessing.retryCalls);
+        assertEquals(ProcessingStatus.NEEDS_REVIEW,
+                pipeline.retryPages(document, "retry-request-1", List.of(1)).status());
+        assertEquals(ProcessingStatus.INDEXED,
+                pipeline.retryPages(document, "retry-request-2", List.of(1)).status());
+        assertEquals(ProcessingStatus.INDEXED,
+                pipeline.retryPages(document, "retry-request-2", List.of(1)).status());
+        assertEquals(2, preprocessing.retryCalls);
         assertEquals(1, publicationRepository.publishCalls);
     }
 
     private static final class RecordingPreprocessingPort implements PreprocessingProcessPort {
         private int retryCalls;
         private String sourceHash;
+        private boolean returnNeedsReviewOnFirstRetry;
 
         @Override
         public PreprocessingRunResult preprocess(PreprocessingRunRequest request) {
@@ -99,12 +105,17 @@ class Rag017RetryFlowTest {
         @Override
         public PreprocessingRunResult retryPages(PreprocessingRetryRequest request) {
             retryCalls++;
+            if (returnNeedsReviewOnFirstRetry && retryCalls == 1) {
+                return result(request.requestId(), "candidate-1", "NEEDS_REVIEW", sourceHash, "rag-preprocessing-v1",
+                        new PreprocessingPageState(1, "NEEDS_REVIEW", 2, List.of("LAYOUT_VALIDATION_FAILED")),
+                        new PreprocessingArtifactManifest("b".repeat(64), Map.of()));
+            }
             try {
                 Files.createDirectories(request.artifactRoot());
                 Path chunks = request.artifactRoot().resolve("chunks.jsonl");
                 Files.writeString(chunks, "{\"chunk_id\":\"chunk-1\",\"source_text\":\"A rule\",\"embedding_text\":\"A rule\",\"source_spans\":[{\"page_number\":1}],\"section_path\":[\"Combat\"]}\n");
                 return result(request.requestId(), "candidate-1-retry", "READY", sourceHash, "rag-preprocessing-v1",
-                        new PreprocessingPageState(1, "VALIDATED", 2, List.of()),
+                        new PreprocessingPageState(1, "VALIDATED", returnNeedsReviewOnFirstRetry ? 3 : 2, List.of()),
                         new PreprocessingArtifactManifest("c".repeat(64), Map.of("chunks", sha256(chunks)), Map.of("chunks", chunks)));
             } catch (Exception exception) {
                 throw new IllegalStateException(exception);

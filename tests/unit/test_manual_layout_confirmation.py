@@ -51,6 +51,40 @@ def test_confirmed_layout_and_attempt_history_survive_full_version_promotion(tmp
     assert confirmation["selections"] == {profile["region_id"]: candidate}
 
 
+def test_fresh_review_replaces_stale_recovered_confirmation_before_promotion(tmp_path):
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"pdf")
+    output = tmp_path / "artifacts"
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    first = service.preprocess({"request_id": "initial", "source_path": str(source),
+        "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
+        "output_dir": str(output), "version_id": "candidate-1"})
+    profile = first["pages"][0]["layout_review"]["profiles"][0]
+    candidate = next(index for index, value in enumerate(profile["candidates"])
+                     if value["column_count"] == 2)
+    selection = {profile["region_id"]: candidate}
+
+    first_promotion = service.retry_pages("candidate-1", output, [1], request_id="retry-1",
+        layout_selections={1: selection}, confirmed_by="admin-1")
+    replay = service.retry_pages("candidate-1", output, [1], request_id="retry-1",
+        layout_selections={1: selection}, confirmed_by="admin-1")
+    assert replay["version_id"] == first_promotion["version_id"]
+    assert replay["pages"][0]["attempts"] == 2
+    snapshot_path = output / "versions" / "candidate-1" / "retry-state.json"
+    snapshot = json.loads(snapshot_path.read_text())
+    # Reproduce a validated read model paired with an older recovered payload.
+    snapshot["recovered_pages"]["1"]["layout_confirmation"] = None
+    snapshot_path.write_text(json.dumps(snapshot))
+
+    promoted = service.retry_pages("candidate-1", output, [1], request_id="retry-2",
+        layout_selections={1: selection}, confirmed_by="admin-2")
+
+    assert promoted["status"] == "READY"
+    assert promoted["pages"][0]["attempts"] == 3
+    assert promoted["pages"][0]["layout_confirmation"] == {
+        "admin_id": "admin-2", "candidate_version": "candidate-1", "selections": selection}
+
+
 def test_pdf_confirmed_column_choice_preserves_other_hard_errors():
     page = {
         "page_number": 1,

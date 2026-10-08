@@ -745,11 +745,23 @@ class ExtractionApplicationService:
             for page in (() if resume_promotion else current["pages"]):
                 item = dict(page)
                 if item["page_number"] in wanted:
+                    selected_regions = layout_selections.get(item["page_number"], {})
                     if item.get("status") == "VALIDATED":
-                        if str(item["page_number"]) in persisted_recovered:
+                        persisted_page = persisted_recovered.get(str(item["page_number"]), {})
+                        if not isinstance(persisted_page, Mapping):
+                            persisted_page = {}
+                        confirmation = persisted_page.get("layout_confirmation")
+                        confirmation = confirmation if isinstance(confirmation, Mapping) else {}
+                        same_confirmation = (
+                            confirmation.get("admin_id") == confirmed_by
+                            and confirmation.get("candidate_version") == version_id
+                            and confirmation.get("selections") == selected_regions
+                        )
+                        if persisted_page and (not selected_regions or same_confirmation):
                             updated.append(item)
                             continue
-                        raise ValueError("VALIDATED_PAGE_IMMUTABLE")
+                        if not persisted_page:
+                            raise ValueError("VALIDATED_PAGE_IMMUTABLE")
                     attempt = self.retry_policy.request(item)
                     history = list(item.get("attempt_history", [])); history.append(attempt.as_dict())
                     item["attempts"] = attempt.attempt_number; item["attempt_history"] = history
@@ -774,12 +786,13 @@ class ExtractionApplicationService:
                             item["findings"] = [str(raw["capability_error"])]
                         if valid:
                             page_geometry = PageGeometry(float(geometry["width"]), float(geometry["height"]))
-                            selected_regions = layout_selections.get(item["page_number"], {})
                             layout_plan = ReadingOrderPlanner().plan(boxes, page_geometry,
                                                                      selected_regions)
                             if confirmed_by and selected_regions:
                                 previous = item.get("layout_review") or {}
-                                prior_profiles = {profile["region_id"]: profile for profile in previous.get("profiles", ())}
+                                old_layout = persisted_page.get("layout", {}) if item.get("status") == "VALIDATED" else {}
+                                prior_profiles = {profile["region_id"]: profile for profile in
+                                    previous.get("profiles", old_layout.get("profiles", ()))}
                                 new_profiles = {profile.region_id: to_dict(profile) for profile in layout_plan.profiles}
                                 if set(selected_regions) != set(new_profiles) or any(
                                     region not in prior_profiles or
