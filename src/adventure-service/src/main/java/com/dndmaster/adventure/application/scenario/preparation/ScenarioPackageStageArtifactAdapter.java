@@ -38,6 +38,12 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     }
 
     @Override
+    public java.util.Set<UUID> providedMapIds(UUID scenarioPackageId) {
+        return loadPackage(scenarioPackageId).mapDefinitions().stream().map(com.dndmaster.adventure.domain.scenario.MapDefinition::id)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    @Override
     public StageBackbone generate(StageBackboneGenerationPort.Request request) {
         ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
         String coreProblem = openingProblem(scenarioPackage);

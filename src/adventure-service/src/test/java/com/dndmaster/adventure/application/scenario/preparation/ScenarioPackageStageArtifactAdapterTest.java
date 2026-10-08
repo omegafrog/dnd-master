@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.adventure.SessionId;
 import org.junit.jupiter.api.Test;
 
 class ScenarioPackageStageArtifactAdapterTest {
@@ -45,9 +47,12 @@ class ScenarioPackageStageArtifactAdapterTest {
         };
         ScenarioPackageStageArtifactAdapter adapter = new ScenarioPackageStageArtifactAdapter(repository);
 
-        var backbone = adapter.generate(new StageBackboneGenerationPort.Request(scenarioPackage.packageId(), List.of(source)));
+        var adventureId = AdventureId.generate();
+        var sessionId = SessionId.generate();
+        var backbone = adapter.generate(new StageBackboneGenerationPort.Request(adventureId, sessionId,
+                scenarioPackage.packageId(), List.of(source)));
         var stage = adapter.generate(new StageDetailedGenerationPort.Request(
-                scenarioPackage.packageId(), "first-stage", 1, List.of(source)));
+                adventureId, sessionId, scenarioPackage.packageId(), "first-stage", 1, List.of(source)));
 
         assertEquals("Clear the beer cellar of giant rats",
                 backbone.stages().get(0).coreProblem());

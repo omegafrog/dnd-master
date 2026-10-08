@@ -18,13 +18,18 @@ import com.dndmaster.adventure.domain.scenario.StageArtifactRepository;
 import com.dndmaster.adventure.domain.scenario.StageBackbone;
 import com.dndmaster.adventure.domain.scenario.StageBackboneEntry;
 import com.dndmaster.adventure.domain.scenario.StageIntent;
+import com.dndmaster.adventure.domain.scenario.SituationProvenance;
 import com.dndmaster.adventure.domain.scenario.ThreatDefinition;
 import java.util.List;
 import java.util.UUID;
+import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.adventure.SessionId;
 import org.junit.jupiter.api.Test;
 
 class StageArtifactPreparationApplicationServiceTest {
     private final UUID packageId = UUID.randomUUID();
+    private final AdventureId adventureId = AdventureId.generate();
+    private final SessionId sessionId = SessionId.generate();
     private final ScenarioSourceReference evidence = new ScenarioSourceReference(
             new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1:span:1");
 
@@ -32,12 +37,12 @@ class StageArtifactPreparationApplicationServiceTest {
     void creates_backbone_materializes_only_first_stage_and_requires_opening_situation() {
         var backbone = backbone();
         var first = detailed(true);
-        var later = detailed(false);
+        var later = secondDetailed();
         var service = new StageArtifactPreparationApplicationService(
                 new StageArtifactRepository.InMemory(), request -> List.of(evidence),
                 request -> backbone, request -> request.stageId().equals("stage-1") ? first : later);
 
-        var result = service.prepare(packageId);
+        var result = service.prepare(adventureId, sessionId, packageId);
 
         assertEquals(backbone, result.backbone());
         assertEquals(first, result.currentStage());
@@ -46,17 +51,63 @@ class StageArtifactPreparationApplicationServiceTest {
     }
 
     @Test
+    void prepares_and_persists_every_stage_before_returning() {
+        var repository = new StageArtifactRepository.InMemory();
+        var backbone = backbone();
+        var first = detailed(true);
+        var second = new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
+                List.of(new RevelationDefinition("truth-2", true, List.of(evidence))),
+                new ThreatDefinition("Hunters close in", List.of(evidence)),
+                new PressureDefinition("The search grows dangerous", List.of(evidence)),
+                new FunnelDefinition("The heir is located", List.of("truth-2"), List.of(evidence)),
+                List.of(new SituationDefinition("second-situation", List.of(StageIntent.REVELATION),
+                        List.of("truth-2"), List.of(), List.of(), List.of(), List.of(), false, List.of(evidence))),
+                List.of(), List.of(evidence));
+        var service = new StageArtifactPreparationApplicationService(repository,
+                request -> List.of(evidence), request -> backbone,
+                request -> request.stageId().equals("stage-1") ? first : second);
+
+        service.prepare(adventureId, sessionId, packageId);
+
+        assertEquals(second, repository.findDetailedStage(adventureId, packageId, "stage-2", 1, 1).orElseThrow());
+    }
+
+    @Test
+    void rejects_cyclic_prerequisites_before_publishing_any_initial_artifact() {
+        var repository = new StageArtifactRepository.InMemory();
+        var first = new DetailedStage(packageId, 1, "stage-1", 1, "Find the heir",
+                List.of(new RevelationDefinition("truth", true, List.of(evidence))),
+                new ThreatDefinition("Hunters close in", List.of(evidence)),
+                new PressureDefinition("The search grows dangerous", List.of(evidence)),
+                new FunnelDefinition("The heir is located", List.of("truth"), List.of(evidence)),
+                List.of(
+                        new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
+                                List.of(), List.of(), List.of(), List.of(), true, true, List.of("candidate"),
+                                SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence)),
+                        new SituationDefinition("candidate", List.of(StageIntent.REVELATION), List.of("truth"),
+                                List.of(), List.of(), List.of(), List.of(), false, false, List.of("opening"),
+                                SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence))),
+                List.of(), List.of(evidence));
+        var service = new StageArtifactPreparationApplicationService(repository,
+                request -> List.of(evidence), request -> backbone(),
+                request -> request.stageId().equals("stage-1") ? first : secondDetailed());
+
+        assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
+        assertEquals(0, repository.findBackbone(adventureId, packageId, 1).stream().count());
+    }
+
+    @Test
     void preserves_existing_artifacts_when_detailed_generation_fails() {
         var repository = new StageArtifactRepository.InMemory();
         var backbone = backbone();
-        repository.saveBackbone(backbone, 0);
+        repository.saveBackbone(adventureId, backbone, 0);
         var service = new StageArtifactPreparationApplicationService(repository,
                 request -> List.of(evidence), request -> backbone,
                 request -> { throw new IllegalStateException("generation failed"); });
 
-        assertThrows(IllegalStateException.class, () -> service.prepare(packageId));
-        assertEquals(backbone, repository.findBackbone(packageId, 1).orElseThrow());
-        assertEquals(0, repository.findDetailedStage(packageId, "stage-1", 1, 1).stream().count());
+        assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
+        assertEquals(backbone, repository.findBackbone(adventureId, packageId, 1).orElseThrow());
+        assertEquals(0, repository.findDetailedStage(adventureId, packageId, "stage-1", 1, 1).stream().count());
     }
 
     @Test
@@ -65,9 +116,12 @@ class StageArtifactPreparationApplicationServiceTest {
         var backbone = backbone();
         var service = new StageArtifactPreparationApplicationService(repository,
                 request -> List.of(evidence), request -> backbone,
-                request -> { throw new IllegalStateException("generation failed"); });
+                request -> {
+                    if (request.stageId().equals("stage-1")) return detailed(true);
+                    throw new IllegalStateException("generation failed");
+                });
 
-        assertThrows(IllegalStateException.class, () -> service.prepare(packageId));
+        assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
         assertEquals(0, repository.backboneCount);
     }
 
@@ -79,7 +133,7 @@ class StageArtifactPreparationApplicationServiceTest {
         var service = new StageArtifactPreparationApplicationService(new StageArtifactRepository.InMemory(),
                 request -> List.of(evidence), request -> foreignBackbone, request -> detailed(true));
 
-        assertThrows(IllegalStateException.class, () -> service.prepare(packageId));
+        assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
     }
 
     @Test
@@ -87,7 +141,7 @@ class StageArtifactPreparationApplicationServiceTest {
         var service = new StageArtifactPreparationApplicationService(new StageArtifactRepository.InMemory(),
                 request -> List.of(evidence), request -> backbone(), request -> detailedWithOpening("opening-situation", List.of()));
 
-        assertThrows(IllegalStateException.class, () -> service.prepare(packageId));
+        assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
     }
 
     @Test
@@ -95,12 +149,12 @@ class StageArtifactPreparationApplicationServiceTest {
         var repository = new StageArtifactRepository.InMemory();
         var backbone = backbone();
         var persisted = detailedWithOpening("persisted-opening", List.of(evidence));
-        repository.saveInitialArtifacts(backbone, persisted);
+        repository.saveInitialArtifacts(adventureId, backbone, List.of(persisted, secondDetailed()));
         var regenerated = detailedWithOpening("regenerated-opening", List.of(evidence));
         var service = new StageArtifactPreparationApplicationService(repository,
                 request -> List.of(evidence), request -> backbone, request -> regenerated);
 
-        assertEquals("persisted-opening", service.prepare(packageId).openingSituation().situationId());
+        assertEquals("persisted-opening", service.prepare(adventureId, sessionId, packageId).openingSituation().situationId());
     }
 
     @Test
@@ -121,14 +175,14 @@ class StageArtifactPreparationApplicationServiceTest {
         var service = new StageArtifactPreparationApplicationService(new StageArtifactRepository.InMemory(), lookup,
                 request -> backbone, request -> stage);
 
-        assertEquals("opening-situation", service.prepare(packageId).openingSituation().situationId());
+        assertEquals("opening-situation", service.prepare(adventureId, sessionId, packageId).openingSituation().situationId());
     }
 
     @Test
     void materializes_only_the_immediate_next_stage_and_validates_its_grounding() {
         var repository = new StageArtifactRepository.InMemory();
         var backbone = backbone();
-        repository.saveInitialArtifacts(backbone, detailed(true));
+        repository.saveInitialArtifacts(adventureId, backbone, List.of(detailed(true), secondDetailed()));
         DetailedStage next = new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
                 List.of(new RevelationDefinition("truth-2", true, List.of(evidence))),
                 new ThreatDefinition("The hunters arrive", List.of(evidence)),
@@ -139,15 +193,15 @@ class StageArtifactPreparationApplicationServiceTest {
         var service = new StageArtifactPreparationApplicationService(repository,
                 request -> List.of(evidence), request -> backbone, request -> next);
 
-        assertEquals(next, service.prepareNext(packageId, backbone, "stage-1"));
-        assertEquals(next, repository.findDetailedStage(packageId, "stage-2", 1, 1).orElseThrow());
+        assertEquals(secondDetailed(), service.prepareNext(adventureId, sessionId, packageId, backbone, "stage-1"));
+        assertEquals(secondDetailed(), repository.findDetailedStage(adventureId, packageId, "stage-2", 1, 1).orElseThrow());
     }
 
     @Test
     void does_not_persist_next_stage_when_grounding_validation_fails() {
         var repository = new StageArtifactRepository.InMemory();
         var backbone = backbone();
-        repository.saveInitialArtifacts(backbone, detailed(true));
+        repository.saveInitialArtifacts(adventureId, backbone, List.of(detailed(true), secondDetailed()));
         ScenarioSourceReference foreign = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 2, "page:9:span:9");
         DetailedStage invalid = new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
                 List.of(new RevelationDefinition("truth-2", true, List.of(foreign))),
@@ -159,20 +213,20 @@ class StageArtifactPreparationApplicationServiceTest {
         var service = new StageArtifactPreparationApplicationService(repository,
                 request -> List.of(evidence), request -> backbone, request -> invalid);
 
-        assertThrows(IllegalStateException.class, () -> service.prepareNext(packageId, backbone, "stage-1"));
-        assertEquals(0, repository.findDetailedStage(packageId, "stage-2", 1, 1).stream().count());
+        assertEquals(secondDetailed(), service.prepareNext(adventureId, sessionId, packageId, backbone, "stage-1"));
+        assertEquals(secondDetailed(), repository.findDetailedStage(adventureId, packageId, "stage-2", 1, 1).orElseThrow());
     }
 
     private static final class FailingInitialRepository implements StageArtifactRepository {
         private int backboneCount;
         private final StageArtifactRepository delegate = new StageArtifactRepository.InMemory();
-        @Override public void saveInitialArtifacts(StageBackbone backbone, DetailedStage stage) {
+        @Override public void saveInitialArtifacts(AdventureId adventureId, StageBackbone backbone, List<DetailedStage> stages) {
             throw new IllegalStateException("atomic write failed");
         }
-        @Override public java.util.Optional<StageBackbone> findBackbone(UUID id, long revision) { return delegate.findBackbone(id, revision); }
-        @Override public java.util.Optional<DetailedStage> findDetailedStage(UUID id, String stage, long backbone, long revision) { return delegate.findDetailedStage(id, stage, backbone, revision); }
-        @Override public void saveBackbone(StageBackbone backbone, long expectedRevision) { delegate.saveBackbone(backbone, expectedRevision); backboneCount++; }
-        @Override public void saveDetailedStage(DetailedStage stage, long expectedRevision) { delegate.saveDetailedStage(stage, expectedRevision); }
+        @Override public java.util.Optional<StageBackbone> findBackbone(AdventureId adventureId, UUID id, long revision) { return delegate.findBackbone(adventureId, id, revision); }
+        @Override public java.util.Optional<DetailedStage> findDetailedStage(AdventureId adventureId, UUID id, String stage, long backbone, long revision) { return delegate.findDetailedStage(adventureId, id, stage, backbone, revision); }
+        @Override public void saveBackbone(AdventureId adventureId, StageBackbone backbone, long expectedRevision) { delegate.saveBackbone(adventureId, backbone, expectedRevision); backboneCount++; }
+        @Override public void saveDetailedStage(AdventureId adventureId, DetailedStage stage, long expectedRevision) { delegate.saveDetailedStage(adventureId, stage, expectedRevision); }
     }
 
     private StageBackbone backbone() {
@@ -184,6 +238,17 @@ class StageArtifactPreparationApplicationServiceTest {
 
     private DetailedStage detailed(boolean opening) {
         return detailedWithOpening("opening-situation", opening ? List.of(evidence) : List.of(evidence));
+    }
+
+    private DetailedStage secondDetailed() {
+        return new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
+                List.of(new RevelationDefinition("truth-2", true, List.of(evidence))),
+                new ThreatDefinition("Hunters close in", List.of(evidence)),
+                new PressureDefinition("The search grows dangerous", List.of(evidence)),
+                new FunnelDefinition("The heir is located", List.of("truth-2"), List.of(evidence)),
+                List.of(new SituationDefinition("second-situation", List.of(StageIntent.REVELATION),
+                        List.of("truth-2"), List.of(), List.of(), List.of(), List.of(), false, List.of(evidence))),
+                List.of(), List.of(evidence));
     }
 
     private DetailedStage detailedWithOpening(String openingId, List<ScenarioSourceReference> openingEvidence) {

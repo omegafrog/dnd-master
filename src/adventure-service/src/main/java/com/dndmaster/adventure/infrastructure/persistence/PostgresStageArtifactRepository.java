@@ -11,6 +11,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.List;
+import com.dndmaster.adventure.domain.adventure.AdventureId;
 import java.util.UUID;
 import javax.sql.DataSource;
 
@@ -24,10 +26,10 @@ public final class PostgresStageArtifactRepository implements StageArtifactRepos
     }
 
     @Override
-    public Optional<StageBackbone> findBackbone(UUID packageId, long revision) {
+    public Optional<StageBackbone> findBackbone(AdventureId adventureId, UUID packageId, long revision) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
-                "SELECT artifact_json FROM story_stage_backbone WHERE scenario_package_id=? AND backbone_revision=?")) {
-            statement.setObject(1, packageId); statement.setLong(2, revision);
+                "SELECT artifact_json FROM adventure_stage_backbone WHERE adventure_id=? AND scenario_package_id=? AND backbone_revision=?")) {
+            statement.setObject(1, adventureId.value()); statement.setObject(2, packageId); statement.setLong(3, revision);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
                 return Optional.of(read(row.getString(1), StageBackbone.class));
@@ -38,11 +40,11 @@ public final class PostgresStageArtifactRepository implements StageArtifactRepos
     }
 
     @Override
-    public Optional<DetailedStage> findDetailedStage(UUID packageId, String stageId, long backboneRevision, long revision) {
+    public Optional<DetailedStage> findDetailedStage(AdventureId adventureId, UUID packageId, String stageId, long backboneRevision, long revision) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
-                "SELECT artifact_json FROM story_detailed_stage WHERE scenario_package_id=? AND stage_id=? AND backbone_revision=? AND detailed_stage_revision=?")) {
-            statement.setObject(1, packageId); statement.setString(2, stageId);
-            statement.setLong(3, backboneRevision); statement.setLong(4, revision);
+                "SELECT artifact_json FROM adventure_detailed_stage WHERE adventure_id=? AND scenario_package_id=? AND stage_id=? AND backbone_revision=? AND detailed_stage_revision=?")) {
+            statement.setObject(1, adventureId.value()); statement.setObject(2, packageId); statement.setString(3, stageId);
+            statement.setLong(4, backboneRevision); statement.setLong(5, revision);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
                 return Optional.of(read(row.getString(1), DetailedStage.class));
@@ -53,14 +55,14 @@ public final class PostgresStageArtifactRepository implements StageArtifactRepos
     }
 
     @Override
-    public void saveBackbone(StageBackbone backbone, long expectedRevision) {
+    public void saveBackbone(AdventureId adventureId, StageBackbone backbone, long expectedRevision) {
         if (backbone.revision() != expectedRevision + 1) throw new IllegalStateException("stage backbone revision is stale");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                ensureNextRevision(connection, "story_stage_backbone", "backbone_revision", "scenario_package_id", backbone.scenarioPackageId(), expectedRevision);
-                insert(connection, "INSERT INTO story_stage_backbone(scenario_package_id, backbone_revision, artifact_json) VALUES (?, ?, ?::jsonb)",
-                        backbone.scenarioPackageId(), backbone.revision(), write(backbone));
+                ensureNextRevision(connection, "adventure_stage_backbone", "backbone_revision", "adventure_id", adventureId.value(), expectedRevision);
+                insert(connection, "INSERT INTO adventure_stage_backbone(adventure_id, scenario_package_id, backbone_revision, artifact_json) VALUES (?, ?, ?, ?::jsonb)",
+                        adventureId.value(), backbone.scenarioPackageId(), backbone.revision(), write(backbone));
                 connection.commit();
             } catch (SQLException | RuntimeException exception) {
                 try { connection.rollback(); } catch (SQLException rollback) { exception.addSuppressed(rollback); }
@@ -72,14 +74,14 @@ public final class PostgresStageArtifactRepository implements StageArtifactRepos
     }
 
     @Override
-    public void saveDetailedStage(DetailedStage stage, long expectedRevision) {
+    public void saveDetailedStage(AdventureId adventureId, DetailedStage stage, long expectedRevision) {
         if (stage.revision() != expectedRevision + 1) throw new IllegalStateException("detailed stage revision is stale");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                ensureNextDetailedRevision(connection, stage, expectedRevision);
-                insert(connection, "INSERT INTO story_detailed_stage(scenario_package_id, backbone_revision, stage_id, detailed_stage_revision, artifact_json) VALUES (?, ?, ?, ?, ?::jsonb)",
-                        stage.scenarioPackageId(), stage.backboneRevision(), stage.stageId(), stage.revision(), write(stage));
+                ensureNextDetailedRevision(connection, adventureId, stage, expectedRevision);
+                insert(connection, "INSERT INTO adventure_detailed_stage(adventure_id, scenario_package_id, backbone_revision, stage_id, detailed_stage_revision, artifact_json) VALUES (?, ?, ?, ?, ?, ?::jsonb)",
+                        adventureId.value(), stage.scenarioPackageId(), stage.backboneRevision(), stage.stageId(), stage.revision(), write(stage));
                 connection.commit();
             } catch (SQLException | RuntimeException exception) {
                 try { connection.rollback(); } catch (SQLException rollback) { exception.addSuppressed(rollback); }
@@ -91,20 +93,25 @@ public final class PostgresStageArtifactRepository implements StageArtifactRepos
     }
 
     @Override
-    public void saveInitialArtifacts(StageBackbone backbone, DetailedStage stage) {
-        if (backbone.revision() != 1 || stage.revision() != 1 || !backbone.scenarioPackageId().equals(stage.scenarioPackageId())
-                || stage.backboneRevision() != backbone.revision()) {
-            throw new IllegalArgumentException("initial artifacts must reference the same revision");
+    public void saveInitialArtifacts(AdventureId adventureId, StageBackbone backbone, List<DetailedStage> stages) {
+        if (backbone.revision() != 1 || stages.size() != backbone.stages().size()
+                || stages.stream().anyMatch(stage -> stage.revision() != 1
+                        || !backbone.scenarioPackageId().equals(stage.scenarioPackageId())
+                        || stage.backboneRevision() != backbone.revision()
+                        || backbone.stages().stream().noneMatch(entry -> entry.stageId().equals(stage.stageId())))) {
+            throw new IllegalArgumentException("initial artifacts must contain every stage at revision one");
         }
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                ensureNextRevision(connection, "story_stage_backbone", "backbone_revision", "scenario_package_id", backbone.scenarioPackageId(), 0);
-                insert(connection, "INSERT INTO story_stage_backbone(scenario_package_id, backbone_revision, artifact_json) VALUES (?, ?, ?::jsonb)",
-                        backbone.scenarioPackageId(), backbone.revision(), write(backbone));
-                ensureNextDetailedRevision(connection, stage, 0);
-                insert(connection, "INSERT INTO story_detailed_stage(scenario_package_id, backbone_revision, stage_id, detailed_stage_revision, artifact_json) VALUES (?, ?, ?, ?, ?::jsonb)",
-                        stage.scenarioPackageId(), stage.backboneRevision(), stage.stageId(), stage.revision(), write(stage));
+                ensureNextRevision(connection, "adventure_stage_backbone", "backbone_revision", "adventure_id", adventureId.value(), 0);
+                insert(connection, "INSERT INTO adventure_stage_backbone(adventure_id, scenario_package_id, backbone_revision, artifact_json) VALUES (?, ?, ?, ?::jsonb)",
+                        adventureId.value(), backbone.scenarioPackageId(), backbone.revision(), write(backbone));
+                for (DetailedStage stage : stages) {
+                    ensureNextDetailedRevision(connection, adventureId, stage, 0);
+                    insert(connection, "INSERT INTO adventure_detailed_stage(adventure_id, scenario_package_id, backbone_revision, stage_id, detailed_stage_revision, artifact_json) VALUES (?, ?, ?, ?, ?, ?::jsonb)",
+                            adventureId.value(), stage.scenarioPackageId(), stage.backboneRevision(), stage.stageId(), stage.revision(), write(stage));
+                }
                 connection.commit();
             } catch (SQLException | RuntimeException exception) {
                 try { connection.rollback(); } catch (SQLException rollback) { exception.addSuppressed(rollback); }
@@ -119,9 +126,9 @@ public final class PostgresStageArtifactRepository implements StageArtifactRepos
         long current = currentRevision(c, table, column, idColumn, id);
         if (current != expected) throw new IllegalStateException("stage backbone revision is stale");
     }
-    private void ensureNextDetailedRevision(Connection c, DetailedStage stage, long expected) throws SQLException {
-        try (PreparedStatement s = c.prepareStatement("SELECT COALESCE(MAX(detailed_stage_revision), 0) FROM story_detailed_stage WHERE scenario_package_id=? AND stage_id=? AND backbone_revision=?")) {
-            s.setObject(1, stage.scenarioPackageId()); s.setString(2, stage.stageId()); s.setLong(3, stage.backboneRevision());
+    private void ensureNextDetailedRevision(Connection c, AdventureId adventureId, DetailedStage stage, long expected) throws SQLException {
+        try (PreparedStatement s = c.prepareStatement("SELECT COALESCE(MAX(detailed_stage_revision), 0) FROM adventure_detailed_stage WHERE adventure_id=? AND scenario_package_id=? AND stage_id=? AND backbone_revision=?")) {
+            s.setObject(1, adventureId.value()); s.setObject(2, stage.scenarioPackageId()); s.setString(3, stage.stageId()); s.setLong(4, stage.backboneRevision());
             try (ResultSet r = s.executeQuery()) { r.next(); if (r.getLong(1) != expected) throw new IllegalStateException("detailed stage revision is stale"); }
         }
     }

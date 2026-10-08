@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.adventure.RuntimeBinding;
+import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.scenario.DetailedStage;
 import com.dndmaster.adventure.domain.scenario.FunnelDefinition;
 import com.dndmaster.adventure.domain.scenario.RevelationDefinition;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.Test;
 
 class StageArtifactPolicyTest {
     private final UUID packageId = UUID.randomUUID();
+    private final AdventureId adventureId = AdventureId.generate();
     private final ScenarioSourceReference evidence = new ScenarioSourceReference(
             new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1:span:1");
 
@@ -48,10 +50,11 @@ class StageArtifactPolicyTest {
         assertEquals(1, backbone.revision());
 
         StageArtifactRepository repository = new StageArtifactRepository.InMemory();
-        repository.saveBackbone(backbone, 0);
-        assertThrows(IllegalStateException.class, () -> repository.saveBackbone(
+        repository.saveBackbone(adventureId, backbone, 0);
+        assertThrows(IllegalStateException.class, () -> repository.saveBackbone(adventureId,
                 new StageBackbone(packageId, 2, backbone.stages(), backbone.sourceRefs()), 0));
-        assertEquals(backbone, repository.findBackbone(packageId, 1).orElseThrow());
+        assertEquals(backbone, repository.findBackbone(adventureId, packageId, 1).orElseThrow());
+        assertEquals(java.util.Optional.empty(), repository.findBackbone(AdventureId.generate(), packageId, 1));
     }
 
     @Test

@@ -30,7 +30,6 @@ public final class AdventureStartApplicationService {
 
         Adventure adventure = adventures.findById(command.adventureId()).orElse(null);
         if (adventure != null && adventure.status() == com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE) return adventure;
-        var prepared = stagePreparation.prepare(scenarioPackage.packageId());
         if (adventure == null) {
             adventure = Adventure.beginScenarioRuntime(command.adventureId(), command.sessionId(), command.ownerPlayerId(),
                     command.scenarioId(), command.ruleSetId(), command.scenarioPackageId(), command.scenarioPackageRevision(),
@@ -45,6 +44,8 @@ public final class AdventureStartApplicationService {
                 throw new IllegalStateException("adventure cannot resume from " + adventure.status());
             }
         }
+
+        var prepared = stagePreparation.prepare(adventure.id(), command.sessionId(), scenarioPackage.packageId());
 
         if (adventure.currentSituation() == null) {
             adventure.initializeScenarioRuntime(command.ownerPlayerId(),

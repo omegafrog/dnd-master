@@ -6,6 +6,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
@@ -79,7 +81,7 @@ class AdventureSessionStageStartTest {
         var opening = mock(com.dndmaster.adventure.domain.scenario.SituationDefinition.class);
         when(opening.situationId()).thenReturn("opening");
         when(prepared.openingSituation()).thenReturn(opening);
-        when(preparation.prepare(packageId)).thenReturn(prepared);
+        when(preparation.prepare(any(), any(), eq(packageId))).thenReturn(prepared);
         var plan = mock(com.dndmaster.adventure.application.runtime.RuntimePlan.class);
         when(plan.combatStartRequested()).thenReturn(true);
         var statBlock = new com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock(12, 7, 3, "1d4+1",
@@ -141,7 +143,7 @@ class AdventureSessionStageStartTest {
         var opening = mock(com.dndmaster.adventure.domain.scenario.SituationDefinition.class);
         when(opening.situationId()).thenReturn("prepared-opening");
         when(prepared.openingSituation()).thenReturn(opening);
-        when(preparation.prepare(packageId)).thenReturn(prepared);
+        when(preparation.prepare(any(), any(), eq(packageId))).thenReturn(prepared);
         RuntimeTurnApplicationService openingRuntime = mock(RuntimeTurnApplicationService.class);
         UUID requestId = UUID.randomUUID();
 
@@ -194,7 +196,7 @@ class AdventureSessionStageStartTest {
         var opening = mock(com.dndmaster.adventure.domain.scenario.SituationDefinition.class);
         when(opening.situationId()).thenReturn("prepared-opening");
         when(prepared.openingSituation()).thenReturn(opening);
-        when(preparation.prepare(packageId)).thenReturn(prepared);
+        when(preparation.prepare(any(), any(), eq(packageId))).thenReturn(prepared);
         RuntimeTurnApplicationService openingRuntime = mock(RuntimeTurnApplicationService.class);
         UUID requestId = UUID.randomUUID();
         var openingResult = mock(com.dndmaster.adventure.application.runtime.RuntimeTurnResult.class);
@@ -231,7 +233,7 @@ class AdventureSessionStageStartTest {
     }
 
     @Test
-    void leaves_the_session_draft_when_stage_preparation_fails() {
+    void reserves_the_same_adventure_before_stage_preparation_fails() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         ScenarioPackage scenarioPackage = mock(ScenarioPackage.class);
         UUID packageId = UUID.randomUUID();
@@ -245,19 +247,26 @@ class AdventureSessionStageStartTest {
                 AdventureSession.Status.DRAFT, null, null, 0);
         AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
         when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        AdventureRepository adventures = mock(AdventureRepository.class);
+        AdventureSessionStartCoordinator coordinator = mock(AdventureSessionStartCoordinator.class);
         StageArtifactPreparationApplicationService preparation = mock(StageArtifactPreparationApplicationService.class);
-        when(preparation.prepare(packageId)).thenThrow(new IllegalStateException("published Storybook evidence is required"));
+        when(preparation.prepare(any(), any(), eq(packageId))).thenThrow(new IllegalStateException("published Storybook evidence is required"));
         AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions,
-                packageRepository(scenarioPackage), mock(AdventureRepository.class), mock(RuntimeBindingApplicationService.class),
-                mock(AdventureSessionStartCoordinator.class), mock(CharacterSheetOwnershipPort.class),
+                packageRepository(scenarioPackage), adventures, mock(RuntimeBindingApplicationService.class),
+                coordinator, mock(CharacterSheetOwnershipPort.class),
                 mock(SessionKnowledgeSetRepository.class), mock(AiCompanionGenerationPort.class),
                 mock(AiCompanionSheetCreationPort.class), (adventure, player, rules, map, stage) -> null, preparation);
 
+        UUID requestId = UUID.randomUUID();
+        AdventureId requestedAdventureId = AdventureId.generate();
         assertThrows(IllegalStateException.class,
-                () -> service.start(session.id(), owner, 0, UUID.randomUUID(), AdventureId.generate()));
+                () -> service.start(session.id(), owner, 0, requestId, requestedAdventureId));
 
-        assertEquals(AdventureSession.Status.DRAFT, session.status());
-        verify(sessions, never()).save(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong());
+        assertEquals(AdventureSession.Status.STARTING, session.status());
+        assertEquals(requestedAdventureId, session.startedAdventureId());
+        verify(sessions).save(session, 0);
+        verify(coordinator).prepare(session.id(), requestId, requestedAdventureId.value(), packageId);
+        verify(adventures).save(any(Adventure.class));
     }
 
     @Test
@@ -287,7 +296,7 @@ class AdventureSessionStageStartTest {
         var opening = mock(com.dndmaster.adventure.domain.scenario.SituationDefinition.class);
         when(opening.situationId()).thenReturn("prepared-opening");
         when(prepared.openingSituation()).thenReturn(opening);
-        when(preparation.prepare(packageId)).thenReturn(prepared);
+        when(preparation.prepare(any(), any(), eq(packageId))).thenReturn(prepared);
         AdventureSessionStartCoordinator coordinator = mock(AdventureSessionStartCoordinator.class);
 
         AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions,

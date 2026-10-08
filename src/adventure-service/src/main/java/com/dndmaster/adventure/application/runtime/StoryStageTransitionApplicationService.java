@@ -32,7 +32,8 @@ public final class StoryStageTransitionApplicationService {
         Adventure adventure = adventures.findById(Objects.requireNonNull(adventureId, "adventure id must not be null"))
                 .orElseThrow(() -> new IllegalStateException("adventure not found"));
         if (adventure.storyRuntimeState() == null) throw new IllegalStateException("story runtime state is not initialized");
-        DetailedStage next = preparation.prepareNext(current.scenarioPackageId(), backbone, current.stageId());
+        DetailedStage next = preparation.prepareNext(adventure.id(), adventure.sessionId(), current.scenarioPackageId(),
+                backbone, current.stageId());
         return runtime.transition(adventureId, owner, current, next, backbone);
     }
 }

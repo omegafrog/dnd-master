@@ -76,7 +76,7 @@ public final class StoryRuntimeApplicationService {
             return new StoryRuntimeReplanResult(decision, current, audited);
         }
         StageBackbone replanned = FutureSuffixReplanningPolicy.replaceFrom(current, proposal.targetStageId(), replacementSuffix);
-        artifacts.saveBackbone(replanned, current.revision());
+        artifacts.saveBackbone(adventureId, replanned, current.revision());
         adventure.commitStoryRuntimeState(Objects.requireNonNull(owner, "owner must not be null"), adventure.version(), audited);
         adventures.save(adventure);
         return new StoryRuntimeReplanResult(decision, replanned, audited);
