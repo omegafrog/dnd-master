@@ -6,12 +6,36 @@ class StageArtifactPreparationApplicationService {
   +StageArtifactPreparationApplicationService.Result prepare(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId)
 }
 
+interface StorybookEvidenceLookupPort {
+  +List<ScenarioSourceReference> lookup(UUID scenarioPackageId)
+  +boolean isScenarioBacked(UUID scenarioPackageId)
+  +Set<UUID> providedMapIds(UUID scenarioPackageId)
+}
+
 interface StageBackboneGenerationPort {
   +StageBackbone generate(Request request)
 }
 
 interface StageDetailedGenerationPort {
   +DetailedStage generate(Request request)
+}
+
+interface StorySourcePreviewPort {
+  +List<Passage> load(ScenarioBundleDocumentSelection document)
+}
+
+class "StorySourcePreviewPort.Passage" as Passage {
+  +ScenarioSourceReference sourceRef
+  +String text
+}
+
+class HttpStorySourcePreviewPort {
+  +List<Passage> load(ScenarioBundleDocumentSelection document)
+}
+
+class ScenarioPackageStageArtifactAdapter {
+  +StageBackbone generate(StageBackboneGenerationPort.Request request)
+  +DetailedStage generate(StageDetailedGenerationPort.Request request)
 }
 
 interface StageArtifactRepository {
@@ -21,11 +45,23 @@ interface StageArtifactRepository {
 }
 
 class PostgresStageArtifactRepository
+class RequiredSituation {
+  +RequiredSituation(String situationId, String summary, List<String> prerequisiteSituationIds, List<ScenarioSourceReference> sourceRefs)
+}
+class StageBackbone {
+  +StageBackbone(UUID scenarioPackageId, long revision, List<StageBackboneEntry> stages, List<ScenarioSourceReference> sourceRefs, List<RequiredSituation> requiredSituations)
+}
+class DetailedStage
+class SituationDefinition {
+  +SituationDefinition(String situationId, List<StageIntent> intents, List<String> revelationIds, List<String> pressureIds, List<String> funnelIds, List<String> funnelPredicateIds, List<String> importantConsequenceIds, boolean opening, boolean required, List<String> prerequisiteSituationIds, SituationProvenance provenance, java.util.UUID mapDefinitionId, List<ScenarioSourceReference> sourceRefs)
+}
+class "StageDetailedGenerationPort.Request" as DetailedRequest {
+  +Request(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId, String stageId, long backboneRevision, List<ScenarioSourceReference> evidence, List<RequiredSituation> requiredSituations)
+}
+class ScenarioBundleDocumentSelection
+class ScenarioSourceReference
 class AdventureId
 class SessionId
-class StageBackbone
-class DetailedStage
-class SituationDefinition
 class RuntimeTurnApplicationService
 class PendingRuntimeState
 class Adventure {
@@ -34,14 +70,27 @@ class Adventure {
 class StoryRuntimeState
 class CurrentSituation
 
-StageArtifactPreparationApplicationService --> StageBackboneGenerationPort : 골격 생성
-StageArtifactPreparationApplicationService --> StageDetailedGenerationPort : 상세 단계와 상황 준비
-StageArtifactPreparationApplicationService --> StageArtifactRepository : 모험별 자료 조회·전체 게시
+StageArtifactPreparationApplicationService --> StorybookEvidenceLookupPort : 선택 자료·근거 조회
+StageArtifactPreparationApplicationService --> StageBackboneGenerationPort : 골격 생성 요청
+StageArtifactPreparationApplicationService --> StageDetailedGenerationPort : 상세 생성 요청
+StageArtifactPreparationApplicationService --> StageArtifactRepository : 전체 검증 뒤 조회·원자 게시
 StageArtifactRepository <|.. PostgresStageArtifactRepository
+StageBackboneGenerationPort <|.. ScenarioPackageStageArtifactAdapter
+StageDetailedGenerationPort <|.. ScenarioPackageStageArtifactAdapter
+StageDetailedGenerationPort ..> DetailedRequest : 상세 생성 입력
+DetailedRequest *-- "0..*" RequiredSituation : 검토 목록 전달
+StorySourcePreviewPort <|.. HttpStorySourcePreviewPort
+ScenarioPackageStageArtifactAdapter --> StorySourcePreviewPort : 선택 원문의 전체 위치 구간 조회
+HttpStorySourcePreviewPort ..> ScenarioBundleDocumentSelection : 문서 식별·유형·개정 확인
+HttpStorySourcePreviewPort ..> Passage : 위치 참조와 원문 구간 반환
+Passage --> ScenarioSourceReference : sourceRef
+ScenarioPackageStageArtifactAdapter ..> RequiredSituation : 구간별 추출·별도 원문 검토
+StageBackbone *-- "0..*" RequiredSituation : 모험별 골격 JSON에 저장
 StageBackbone --> DetailedStage : 단계 식별자로 자료 연결
-DetailedStage --> SituationDefinition : 상황 목록 포함
+DetailedStage *-- "1..*" SituationDefinition : 상황 목록
+SituationDefinition ..> RequiredSituation : situationId·필수 표시·선행 관계 대응
 StageArtifactPreparationApplicationService ..> AdventureId : 모험 소유 범위
-StageArtifactPreparationApplicationService ..> SessionId : 세션 식별
+StageArtifactPreparationApplicationService ..> SessionId : 생성 세션 식별
 RuntimeTurnApplicationService --> PendingRuntimeState : 검증된 제안 보존
 RuntimeTurnApplicationService --> Adventure : 기존 턴 확정 호출
 PendingRuntimeState --> Adventure : 확정 대기 입력
@@ -49,9 +98,26 @@ Adventure *-- StoryRuntimeState : 모험별 상황 진행 내부 상태
 Adventure *-- CurrentSituation : 현재 상황
 StoryRuntimeState --> SituationDefinition : 플레이 중 추가 상황 보유
 
+note right of HttpStorySourcePreviewPort
+  선택한 STORYBOOK만 읽는다.
+  문서 식별자·유형·추출 버전·색인 상태·경고와
+  위치가 있는 구간의 전체 내용 범위를 확인한다.
+  조회 실패나 불완전한 원문은 준비 실패로 처리한다.
+end note
+
+note right of ScenarioPackageStageArtifactAdapter
+  required-extract:<chunk>는 구간별 필수 목록을 추출한다.
+  required-review:<chunk>는 목록 전체를 각 원문 구간과 직접 대조해
+  누락 상황과 관계를 보완하고 근거 없는 항목·관계를 제거한다.
+  검토가 끝난 목록을 골격에 기록하고 상세 생성 입력에 전달한다.
+end note
+
 note right of StageArtifactPreparationApplicationService
-  시작 전에 전체 초기 자료를 준비하고 검증한다.
-  초기 상황 정의는 게시 뒤 불변이다.
+  재사용·복원 자료에도 전체 검증을 적용한다.
+  모든 단계의 검토 목록 필수 ID·표시·SOURCE_EXTRACTED 출처·인용·선행 관계를 정확히 대조하고,
+  비-opening 비필수 후보 수와 제공 맵 참조를 확인한다.
+  실패하면 일부 결과를 게시하지 않고 전체 저장은 원자적이다.
+  기존 제한된 오류·재시도 처리를 따른다.
 end note
 
 note right of Adventure
@@ -59,19 +125,21 @@ note right of Adventure
   StoryRuntimeState는 독립 Aggregate가 아닌 Adventure 내부 상태다.
 end note
 
-note bottom of SituationDefinition
-  의미 확장: 필수 상황·중간 상황 후보,
-  원문에 명시된 선행 관계, 원문 추출 또는 보완 출처,
-  준비 상황의 핵심 요소, 제공된 맵 ID 또는 맵 없음.
-  준비 나열 순서는 상황의 선행 제약이 아니다.
+note bottom of RequiredSituation
+  필드 시그니처는 코드 원문을 보존한다.
+  모든 항목은 실제 원문 위치를 인용하고,
+  선행 관계는 원문이 명시한 경우에만 둔다.
 end note
 
-note bottom of StageArtifactRepository
-  초기 자료 저장은 독립적으로 상태를 확정하는 주체를 두지 않는다.
-  골격과 전체 DetailedStage 목록을 한 트랜잭션으로 게시한다.
-  신규 모험별 테이블 둘에 저장하고 기존 repository와
-  PostgreSQL 어댑터가 해당 테이블을 사용한다.
-  다른 모험과 준비 상황을 공유하지 않는다.
+note bottom of StageBackbone
+  requiredSituations는 기존 모험 소유 골격 JSON에 함께 저장한다.
+  공용 목록 테이블이나 전역 ScenarioModel 변경은 없다.
+end note
+
+note bottom of SituationDefinition
+  상황 ID는 검토 목록의 situationId와 대응한다.
+  원문 추출 근거와 생성 보완 내용의 출처를 구분한다.
+  mapDefinitionId는 제공된 맵 또는 null이다.
 end note
 
 note bottom of StoryRuntimeState
