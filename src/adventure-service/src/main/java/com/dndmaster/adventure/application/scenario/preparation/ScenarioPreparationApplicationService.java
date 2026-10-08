@@ -118,7 +118,7 @@ public final class ScenarioPreparationApplicationService {
             spellDefinitions = List.of();
         } else {
             var source = basicRulesSources.getFirst();
-            boolean sourceMatches = hasApprovedBasicRulebookSource(ownerPlayerId, source);
+            boolean sourceMatches = hasApprovedBasicRulebookSource(source);
             var canonicalDefinitions = BasicRulebookSpellInventory.load(source.knowledgeDocumentId(), source.extractionVersion());
             var canonicalIds = canonicalDefinitions.stream().map(StructuredSpellDefinition::id).collect(java.util.stream.Collectors.toSet());
             var existingById = new LinkedHashMap<String, StructuredSpellDefinition>();
@@ -191,9 +191,8 @@ public final class ScenarioPreparationApplicationService {
                 spellDefinitions);
     }
 
-    private boolean hasApprovedBasicRulebookSource(OwnerPlayerId ownerPlayerId, ScenarioBundleDocumentSelection source) {
-        var documents = new ArrayList<>(knowledgeDocumentLookupPort.findOwnedDocuments(ownerPlayerId.value()));
-        documents.addAll(knowledgeDocumentLookupPort.findPublishedSharedCatalogDocuments());
+    private boolean hasApprovedBasicRulebookSource(ScenarioBundleDocumentSelection source) {
+        var documents = knowledgeDocumentLookupPort.findPublishedSharedCatalogDocuments();
         String expectedContentHash = BasicRulebookSpellInventory.SOURCE_VERSION.substring("sha256:".length());
         return documents.stream().anyMatch(document -> document.knowledgeDocumentId().equals(source.knowledgeDocumentId())
                 && document.status() == KnowledgeDocumentStatus.INDEXED

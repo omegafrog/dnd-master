@@ -433,6 +433,31 @@ class ScenarioPreparationApplicationServiceTest {
     }
 
     @Test
+    void doesNotSeedPdfInventoryFromAnOwnedPrivateRulebook() {
+        var fixture = bundle(withRulebookPackage(), bundleWithRulebook());
+        var privateCopy = new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                new KnowledgeDocumentId(rulebookDocumentId()), KnowledgeDocumentStatus.INDEXED,
+                "DnD_BasicRules_2018.pdf", "RULEBOOK", 1,
+                BasicRulebookSpellInventory.SOURCE_VERSION.substring("sha256:".length()));
+        KnowledgeDocumentLookupPort lookup = new KnowledgeDocumentLookupPort() {
+            @Override public List<KnowledgeDocumentRecord> findOwnedDocuments(UUID ownerId) {
+                return List.of(privateCopy);
+            }
+
+            @Override public List<KnowledgeDocumentRecord> findPublishedSharedCatalogDocuments() {
+                return List.of();
+            }
+        };
+        var service = new ScenarioPreparationApplicationService(
+                fixture.packages(), fixture.bundles(), fixture.runtimeOptions(), request -> List.of(),
+                request -> List.of(), new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort(), lookup);
+
+        var preparation = service.read(fixture.packageId(), owner());
+
+        assertTrue(preparation.spellDefinitions().isEmpty());
+    }
+
+    @Test
     void replacesMatchingSourcePartialInventoryWithTheCompletePdfInventory() {
         var original = BasicRulebookSpellInventory.load(new KnowledgeDocumentId(rulebookDocumentId()), 1).getFirst();
         var userEdited = new StructuredSpellDefinition(original.id(), original.name(), original.sourceDocumentId(),
