@@ -1,0 +1,30 @@
+@startuml
+title UC-1 / UC-2 / UC-3 — 상황 후보 준비와 플레이 이어가기
+' 추적: UC-1, UC-2, UC-3; R-01–R-09
+left to right direction
+actor "혼자 플레이하는 사용자" as Player
+actor "AI Game Master" as GM
+rectangle "추가 룰북 모험" {
+  usecase "UC-1\n초기 필수 상황과\n중간 후보 준비" as UC1
+  usecase "UC-2\n후보 선택 및\n다음 상황 진행" as UC2
+  usecase "UC-3\n적합 후보가 없을 때\n새 상황 생성" as UC3
+}
+Player -- UC2
+GM -- UC1
+GM -- UC2
+GM -- UC3
+UC2 ..> UC3 : 후보가 없으면
+note bottom of UC1
+  원문에서 확인한 필수 상황과 명시된 선후 관계를 보존한다.
+  필수 상황 사이의 후보는 여러 개 준비하며 개수는 이야기 연결에 따른다.
+  원문 추출과 AI Game Master 보완의 근거를 구분하고,
+  적합한 제공 맵만 연결한다.
+  상황 세트는 모험마다 따로 준비·저장하며 다른 모험과 공유하지 않는다.
+end note
+note bottom of UC2
+  사용자 행동과 확정 사건을 반영한다.
+  확인된 핵심 요소를 바탕으로 한국어로 구체화하고,
+  기존 턴 진행 절차와 확정·공개·굴림 규칙을 따른다.
+  진행 결과는 해당 모험에만 속하며 다른 모험에 영향을 주지 않는다.
+end note
+@enduml

@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "id": "MAT-01-use-approval",
+  "material_id": "MAT-01",
+  "source_ids": [
+    "LOCAL-SRC-01",
+    "LOCAL-SRC-02",
+    "LOCAL-SRC-03"
+  ],
+  "claim_ids": [
+    "LOCAL-CLAIM-01",
+    "LOCAL-CLAIM-02",
+    "LOCAL-CLAIM-03"
+  ],
+  "presented_content": "1. 실제 시작 준비 경로는 모험 식별자를 이미 받지만 상황 준비 호출에는 시나리오 패키지 식별자만 전달한다. 시작 재시도는 세션에 저장된 모험 식별자를 복원한다.\n   위치: src/adventure-service/src/main/java/com/dndmaster/adventure/application/session/AdventureSessionApplicationService.java:144\n2. 상황 저장소의 현재 조회 계약은 시나리오 패키지와 개정으로 자료를 찾으며 모험 식별자를 포함하지 않는다. 사용자가 요구한 모험별 분리를 위해 조회·저장 소유 키를 바꿔야 하는 기존 계약이다.\n   위치: src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/StageArtifactRepository.java:8\n3. 현재 턴의 확정 대기 상태는 현재 상황을 담지만 상황 진행 상태는 담지 않는다. 턴 확정 메서드도 상황 진행 상태를 함께 반영하지 않는다. 둘을 함께 확정하겠다는 승인된 방향을 적용하려면 이 연결을 확장해야 한다.\n   위치: src/adventure-service/src/main/java/com/dndmaster/adventure/domain/runtime/PendingRuntimeState.java:8\n   위치: src/adventure-service/src/main/java/com/dndmaster/adventure/domain/adventure/Adventure.java:184\n한정: 위 내용은 현재 작업 트리의 코드를 읽어 확인한 구조이며 실행 검증 결과가 아니다. 이 자료 사용 승인은 설계 전체의 승인이나 프로젝트 설계 원칙의 승인이 아니다.\n",
+  "context": "모험별 상황 준비·저장 및 기존 턴의 함께 확정하는 설계 검토",
+  "provenance": "현재 작업 트리의 코드 조회. 위 식별자는 이 티켓의 제시 자료에만 속하며 프로젝트 지식 저장소의 승인된 근거를 뜻하지 않는다.",
+  "result": "approved",
+  "decided_by_role": "user",
+  "decided_by": "conversation-user",
+  "decided_at": "2026-10-08T11:29:59.554Z",
+  "subject_hash": "47c86ac46208abf7b0940ea526221de2ef52185307206147834b1ed7ac53336e"
+}

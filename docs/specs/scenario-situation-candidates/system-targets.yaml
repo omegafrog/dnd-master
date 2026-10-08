@@ -1,0 +1,45 @@
+schema_version: 1
+id: system-targets
+system_characteristics:
+  interaction: 추가 룰북을 선택한 모험 준비에서 필수 상황과 중간 후보를 만들고 플레이 중 기존 턴 진행 절차로 상황을 선택하거나 새로 만든다.
+  workload: 준비 시 생성 작업과 턴별 후보 판단이 추가된다. 후보 수는 이야기의 연결에 따라 GM이 정하며 호출 수와 소요 시간은 아직 측정하지 않았다.
+  state: 초기 필수 상황과 중간 후보부터 모험별로 독립 생성·저장하고 모험 사이에 공유하지 않는다. 준비된 핵심 요소와 원문 추출 또는 GM 보완의 구분을 보존한다. 현재 상황과 확정 사건은 기존 저장 상태를 사용하며 계획 전체를 플레이어에게 공개하지 않는다.
+  consistency: 원문에 명시된 필수 상황의 선후 관계와 확정 사건을 지키며 플레이어 굴림 대기 중에는 턴 해결과 다음 진행을 확정하지 않는다.
+  availability: 근거 부족은 스토리를 참고한 GM 보완으로 이어가고 적합한 후보가 없으면 새 상황을 생성한다. 적합한 제공 맵이 없으면 맵 없이 진행하며 실제 기술 실패는 기존 절차를 따른다.
+  growth: 후보 수는 고정하지 않는다. 문서 길이와 모험 길이에 따른 후보 저장량 및 생성 시간의 증가 규모는 미측정이다.
+initial:
+  - id: ST-01
+    metric: latency_p95_ms
+    status: unresolved
+    provenance: assumption
+    confidence: low
+    rationale: 상황 준비와 턴 생성의 응답 시간 측정값 및 사용자 수치 목표가 없다. 기존 시간 제한 유지 여부를 질문했으며 응답 전에는 새로운 수치 목표를 만들지 않는다.
+expected_growth:
+  - id: ST-02
+    metric: data_volume
+    status: unresolved
+    provenance: assumption
+    confidence: low
+    rationale: 후보 수가 이야기별로 달라 저장량 증가를 아직 정량화할 수 없다. 이번 범위에 근거 없는 저장량 또는 사용자 수 목표를 두지 않는다.
+architecture_boundary:
+  - id: ST-03
+    metric: rpo
+    status: resolved
+    condition: 필수 상황의 원문 선후 관계 및 확정 사건을 지키고 새 상황의 결과도 기존 턴 검증·굴림 대기·확정 절차를 통해서만 반영한다.
+    provenance: user_supplied
+    confidence: high
+    rationale: 사용자가 필수 상황의 선후 관계와 기존 턴 진행 절차를 승인했다.
+  - id: ST-04
+    metric: data_volume
+    status: resolved
+    condition: 제공된 맵만 상황에 연결하며 적합한 제공 맵이 없을 때 새 맵을 만들지 않고 맵 없이 진행한다.
+    provenance: user_supplied
+    confidence: high
+    rationale: 제공된 맵만 사용하라는 지시 및 맵 없이 진행하는 예외가 확정되었다.
+  - id: ST-05
+    metric: data_volume
+    status: resolved
+    condition: 새로 준비하는 모험은 같은 시나리오 자료를 쓰더라도 초기 필수 상황과 중간 후보를 모험별로 독립 생성·저장하며 한 모험의 후보 선택·생성·사용 상태가 다른 모험에 영향을 주지 않는다. 기존 자료는 이관하지 않으며 기존 모험 호환성 지원은 이번 범위에서 제외한다.
+    provenance: user_supplied
+    confidence: high
+    rationale: 사용자가 준비된 상황의 모험 간 공유를 금지했고 기존 모험은 그대로 두라고 적용 범위를 확정했다. 개발용이므로 호환성을 고려하지 말라는 후속 지시를 반영한다.

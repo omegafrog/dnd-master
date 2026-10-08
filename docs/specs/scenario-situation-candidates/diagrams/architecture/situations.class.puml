@@ -1,0 +1,82 @@
+@startuml
+title 상황 준비 구조 (UC-1, R-01..03, R-07, R-09, ST-05)
+skinparam classAttributeIconSize 0
+
+class StageArtifactPreparationApplicationService {
+  +StageArtifactPreparationApplicationService.Result prepare(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId)
+}
+
+interface StageBackboneGenerationPort {
+  +StageBackbone generate(Request request)
+}
+
+interface StageDetailedGenerationPort {
+  +DetailedStage generate(Request request)
+}
+
+interface StageArtifactRepository {
+  +Optional<StageBackbone> findBackbone(AdventureId adventureId, UUID scenarioPackageId, long revision)
+  +Optional<DetailedStage> findDetailedStage(AdventureId adventureId, UUID scenarioPackageId, String stageId, long backboneRevision, long revision)
+  +void saveInitialArtifacts(AdventureId adventureId, StageBackbone backbone, List<DetailedStage> detailedStages)
+}
+
+class PostgresStageArtifactRepository
+class AdventureId
+class SessionId
+class StageBackbone
+class DetailedStage
+class SituationDefinition
+class RuntimeTurnApplicationService
+class PendingRuntimeState
+class Adventure {
+  +void commitRuntimeTurn(OwnerPlayerId requestingOwner, long expectedVersion, PendingRuntimeState pending, AdventureContext playerContext, List<ConversationEntry> completeConversation, CompletionProposal completion)
+}
+class StoryRuntimeState
+class CurrentSituation
+
+StageArtifactPreparationApplicationService --> StageBackboneGenerationPort : 골격 생성
+StageArtifactPreparationApplicationService --> StageDetailedGenerationPort : 상세 단계와 상황 준비
+StageArtifactPreparationApplicationService --> StageArtifactRepository : 모험별 자료 조회·전체 게시
+StageArtifactRepository <|.. PostgresStageArtifactRepository
+StageBackbone --> DetailedStage : 단계 식별자로 자료 연결
+DetailedStage --> SituationDefinition : 상황 목록 포함
+StageArtifactPreparationApplicationService ..> AdventureId : 모험 소유 범위
+StageArtifactPreparationApplicationService ..> SessionId : 세션 식별
+RuntimeTurnApplicationService --> PendingRuntimeState : 검증된 제안 보존
+RuntimeTurnApplicationService --> Adventure : 기존 턴 확정 호출
+PendingRuntimeState --> Adventure : 확정 대기 입력
+Adventure *-- StoryRuntimeState : 모험별 상황 진행 내부 상태
+Adventure *-- CurrentSituation : 현재 상황
+StoryRuntimeState --> SituationDefinition : 플레이 중 추가 상황 보유
+
+note right of StageArtifactPreparationApplicationService
+  시작 전에 전체 초기 자료를 준비하고 검증한다.
+  초기 상황 정의는 게시 뒤 불변이다.
+end note
+
+note right of Adventure
+  Adventure가 상황 진행과 턴 결과를 함께 확정하는 주체다.
+  StoryRuntimeState는 독립 Aggregate가 아닌 Adventure 내부 상태다.
+end note
+
+note bottom of SituationDefinition
+  의미 확장: 필수 상황·중간 상황 후보,
+  원문에 명시된 선행 관계, 원문 추출 또는 보완 출처,
+  준비 상황의 핵심 요소, 제공된 맵 ID 또는 맵 없음.
+  준비 나열 순서는 상황의 선행 제약이 아니다.
+end note
+
+note bottom of StageArtifactRepository
+  초기 자료 저장은 독립적으로 상태를 확정하는 주체를 두지 않는다.
+  골격과 전체 DetailedStage 목록을 한 트랜잭션으로 게시한다.
+  신규 모험별 테이블 둘에 저장하고 기존 repository와
+  PostgreSQL 어댑터가 해당 테이블을 사용한다.
+  다른 모험과 준비 상황을 공유하지 않는다.
+end note
+
+note bottom of StoryRuntimeState
+  초기 정의를 수정하지 않는다.
+  선택·사용 상태와 플레이 중 추가한 상황은
+  해당 Adventure의 진행 상태에만 저장한다.
+end note
+@enduml

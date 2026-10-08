@@ -1,0 +1,52 @@
+schema_version: 1
+ticket_id: scenario-situation-candidates
+session:
+  source_workspace: /home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range
+  session_worktree: /home/jiwoo/workspace/dnd-master-spec-combat-movement-spell-range
+  session_base_branch: spec/combat-movement-spell-range
+  session_base_sha: a82186016762b962022042b75b29f33f0fc0a2fd
+  session_branch: spec/combat-movement-spell-range
+  workspace_exception: 사용자가 현재 작업 트리에서 진행하도록 명시 승인했으므로 별도 작업 트리를 만들지 않는다.
+  workspace_preflight: passed
+product:
+  interview: settled
+  completion_question: 이 내용에서 빠진 필수 동작이나 수정할 부분이 있나요?
+  user_answer: ㄴ
+  document: product-spec.md
+  coverage: 제품 명세의 12개 항목 확인표에 확정 근거 또는 해당 없음 이유를 기록했다.
+  diagram_review: passed
+  diagram_evidence: 제품 다이어그램 3종의 원본·SVG·명세 링크와 내용 일치를 확인했다. 고정 해시로 검증된 로컬 렌더러 실행이 모두 성공했다.
+system_targets:
+  document: system-targets.yaml
+  structural_gate: passed
+  numeric_targets: 응답 시간과 저장량 증가의 수치 근거가 없어 미확정으로 기록했다.
+architecture:
+  interview: settled
+  document: architecture-spec.md
+  accepted_direction: 기존 상황 준비·저장 구조를 확장하고 후보 선택·새 상황 생성·현재 상황 갱신을 기존 턴에서 함께 검증·확정한다.
+  accepted_direction_user_answer: ㅇ
+  isolation: 초기 필수 상황과 중간 후보부터 모험별로 독립 생성·저장하며 다른 모험과 공유하지 않는다.
+  isolation_user_answer: 준비된 상황은 같은 시나리오를 사용하는 여러 모험이 공유 -> 애초에 공유하면 안됨
+  proposal: architecture-proposal.yaml
+  material_use_approval: architecture-reviews/material-approvals/MAT-01-use-approval.yaml
+  review: architecture-reviews/review-notes.yaml
+  review_result: ACCEPTED
+  rollout_scope: 기존 자료는 이관하지 않고 새로 준비하는 모험부터 적용한다. 기존 모험의 호환성 유지 작업은 제외한다.
+  rollout_scope_user_answer: 기존건 놔둬
+  rollout_rationale_user_answer: 개발용이니까 그냥 호환성 생각하지 말고 하라고
+  coverage_contract: architecture-contracts.yaml
+  completion_authorization: 사용자가 개발용 범위의 진행을 지시했으므로 동일 호환성 확인이나 추가 형식 승인 질문을 반복하지 않는다. 사용자 지시를 인터뷰의 추가 확인 절차보다 우선한다.
+  pending_decision: 없음
+  remaining_coverage: 없음
+  diagram_review: passed
+  diagram_evidence: 구조도와 턴 확정 상태도의 원본·로컬 SVG 렌더·문서 링크·식별자 추적·내용 일치 검토가 완료되었다.
+  system_targets_gate: passed
+  decision_evidence_gate: passed
+  decision_review_gate: passed
+  gate_scope: 구조화된 결정 artifact에 대한 opt-in은 없으며 승인된 설계 원칙이나 영속 근거가 있다고 주장하지 않는다. 제안 검토 기록과 자료 사용 승인은 별도로 보존한다.
+verification:
+  performed: 명세의 요구사항 추적·13개 구현 설계 항목·YAML 파싱·승인 자료 원문과 해시·검토 이의 해소·다이어그램 SVG·턴 확정 경로·Markdown 링크·변경 공백 검사를 수행했다.
+  not_performed: 애플리케이션 코드 변경·빌드·단위 테스트·종단 간 실행 테스트
+implementation:
+  started: false
+  reason: 제품과 구현 설계 명세를 만드는 요청이며 구현 작업은 아직 시작하지 않는다.

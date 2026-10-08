@@ -1,0 +1,75 @@
+schema_version: 1
+scope: 사용자가 승인한 기존 구조 확장·모험별 분리·단일 턴 확정 방향의 세부 구현 계약
+authorization: 사용자가 개발용이므로 호환성을 고려하지 말고 진행하라고 지시했다. 기존 형식 지원과 이관은 제외하고 신규 경로를 완결한다.
+interfaces:
+  preparation: StageArtifactPreparationApplicationService.Result prepare(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId)
+  backbone_read: Optional<StageBackbone> findBackbone(AdventureId adventureId, UUID scenarioPackageId, long revision)
+  stage_read: Optional<DetailedStage> findDetailedStage(AdventureId adventureId, UUID scenarioPackageId, String stageId, long backboneRevision, long revision)
+  initial_save: void saveInitialArtifacts(AdventureId adventureId, StageBackbone backbone, List<DetailedStage> detailedStages)
+  preparation_result: 기존 Result에 준비된 전체 DetailedStage 목록을 포함하고 기존 currentStage와 openingSituation을 시작 입력으로 유지한다.
+  generation: 기존 StageBackboneGenerationPort와 StageDetailedGenerationPort의 Request에 모험·세션 식별자를 전달하고 세션에 선택된 GM 실행 설정을 사용한다. 기존 generate(Request request) 호출 경계를 유지한다.
+  runtime: 기존 계획 요청·응답과 확정 대기 상태를 확장한다. 기존 Adventure.commitRuntimeTurn 시그니처를 유지하고 확정 대기 상태에 담긴 모험별 상황 진행 상태를 함께 반영한다.
+  signature_meaning: AdventureId는 모험 식별자, SessionId는 세션 식별자, StageBackbone은 모험 진행 골격, DetailedStage는 준비된 단계의 핵심 요소와 상황 목록, SituationDefinition은 준비된 상황 정의, Result는 준비 결과다. 코드 식별자는 기존 선언과 동일한 의미로 사용한다.
+preparation_flow:
+  - 기존 시작 준비 요청에서 권한·세션 버전을 검사한 뒤 모험 식별자를 안정적으로 확보한다. 재개 요청이면 세션에 고정된 식별자를 복원한다. 동일 세션의 동시 요청은 같은 모험만 소유할 수 있게 버전 조건부 갱신을 사용한다.
+  - 재시작에도 같은 모험을 식별할 수 있도록 시작 준비의 식별자 예약을 먼저 저장한다. 원격 GM 생성 중에는 데이터베이스 트랜잭션을 열어 두지 않는다.
+  - 해당 모험의 완성된 초기 상황 세트가 이미 있으면 반환한다. 조회는 반드시 모험과 원본 패키지·개정 범위를 함께 검사한다.
+  - 추가 룰북 원문에서 필수 상황과 명시된 선후 관계를 추출하고 중간 상황 후보를 생성한다. 근거 부족 부분은 보완으로 구분한다. 전체 단계의 핵심 요소와 초기 후보를 시작 전에 준비한다.
+  - 단계 순서는 생성 자료를 정리하는 순서로 사용한다. 상황 선택의 선행 제약을 단계의 연속 순서로 대신하지 않는다. 실행 가능한 다음 상황은 원문에 명시된 상황 선행 관계로 판단한다.
+  - 모든 필수 자료의 식별자·참조·선행 관계·출처 구분·제공 맵 범위를 검증하고 골격과 전체 단계 자료를 하나의 저장 트랜잭션으로 게시한다. 동일 모험의 저장 경쟁에서는 이미 완성된 결과를 반환한다.
+  - 제공된 맵 연결 자료를 해당 모험의 준비에 전달하고 시작 장면을 선택한다. 상황 준비가 실패하면 모험을 시작 완료로 표시하지 않고 같은 모험의 준비 재시도를 허용한다.
+storage:
+  source: 추가 룰북 및 원문 위치는 기존 패키지·추출 개정 참조를 사용한다. 원문이나 맵 파일을 복제하는 기능을 추가하지 않는다.
+  initial: 기존 패키지 단위 테이블을 이관하지 않고 신규 모험별 준비 자료를 저장할 두 테이블을 새 마이그레이션으로 만든다. 기존 StageArtifactRepository와 PostgreSQL 어댑터는 신규 테이블을 사용한다. 골격 기본 키는 모험 식별자와 골격 개정이고 상세 자료 기본 키는 모험 식별자·골격 개정·단계 식별자·상세 개정이다. 상세 자료는 같은 모험의 골격에 복합 외래키로 연결한다. 패키지 식별자는 별도 원문 참조로 저장한다. 기존 자료를 신규 모험에 매핑하거나 이관하지 않는다.
+  reservation: 준비 자료 저장 전에 해당 모험이 존재하거나 세션이 그 모험을 예약한 상태인지 검증한다. 외래키를 만들면 예약 시점에 참조 행을 먼저 저장하는 실제 호출 순서와 맞춘다.
+  prepared_immutability: 게시된 초기 상황 정의는 모험별 준비 개정의 불변 자료다. 다른 모험의 자료를 동일 결과로 캐시하거나 공유하지 않는다.
+  generated: 플레이 중 생성한 상황과 선택·사용 상태는 그 모험의 StoryRuntimeState에 저장한다. 게시된 초기 정의를 수정하거나 공용 패키지에 덧붙이지 않는다.
+  stage_references: 상황 정의는 원래 단계와 핵심 요소의 참조를 유지하고 상황 진행 상태는 준비된 전체 상황의 사용 여부와 필수 상황의 진행을 추적한다. 다음 단계 선택과 전환도 원문 선행 관계를 검증하며 단순한 order + 1로 제한하지 않는다.
+  json: PostgresAdventureRepository와 PostgresRuntimeTurnRepository에서 신규 JSON을 저장·복원한다. 이전 JSON의 누락 필드를 메우는 호환성 생성자나 변환 어댑터를 추가하지 않는다.
+  protection: 기존 자료의 삭제와 기존 모험의 일괄 재생성은 하지 않는다. 새 형식의 저장·재시작·중복 처리 검증은 호환성 제외와 무관하게 필수다.
+situation_semantics:
+  required: 필수 상황인지 중간 후보인지 구분한다. 원문에 없는 필수 사건을 임의로 원문 추출이라고 표시하지 않는다.
+  prerequisites: 원문에 명시된 선행 상황만 식별자 목록으로 저장한다. 없는 식별자·자기 참조·순환 참조를 거부한다. 목록이 비어 있으면 임의 선후 제약을 추가하지 않는다.
+  ingredients: 기존 상황 의도와 정보·압박·다음 진행 조건·중요 결과 참조를 재사용한다. 필요한 핵심 요소만 채우고 상세 대본을 준비하지 않는다.
+  provenance: 원문 추출 항목은 원문 위치를 보존하고 GM 보완 항목은 보완임을 명시해 원문에서 확인된 내용과 구분한다. 허위 출처를 허용하지 않는다.
+  map: 제공 맵의 식별자 또는 맵 없음으로 표현한다. GM이 연결을 제안해도 해당 모험의 제공 맵 범위 안인지 검증한다.
+turn_flow:
+  - 현재 상황 계속 진행인지 전환이 필요한지 GM이 플레이 행동과 확정 사건으로 판단한다. 매 턴 새 상황을 강제로 생성하지 않는다.
+  - 전환 시 해당 모험의 준비 후보와 필수 상황의 선행 관계·사용 상태를 입력으로 전달한다. 적합한 후보를 선택하거나 후보가 없으면 새 중간 상황을 제안한다.
+  - 원문 필수 상황·선행 관계·확정 사건·모험 소유권·공개 범위와 제공 맵 참조를 검증한다. 새 상황은 기존 핵심 요소에 연결되고 기존 사실을 변경하지 않는 후보로만 허용한다.
+  - 이번 턴에서 기존 상황의 종료와 다음 상황의 활성화를 함께 표현한다. 서로 다른 두 턴으로 나누어 활성 상황이 없는 틈을 만들지 않는다.
+  - 검증된 선택과 생성 결과를 PendingRuntimeState에 보존한다. 플레이어 굴림은 기존 대기 절차로 처리하며 해당 턴이 확정되기 전에는 상황 사용과 새 상황 등록을 확정하지 않는다.
+  - 해당 모험 버전과 턴 식별자로 현재 상황·상황 진행 상태·신규 상황·게임 결과를 기존 턴의 한 번의 확정에 반영한다. 중복 제출은 기존 확정 결과를 반환하고 다른 모험의 진행 상태를 읽거나 수정하지 않는다.
+failure_contracts:
+  source_insufficient: 정상적인 GM 보완과 출처 구분으로 준비를 계속한다.
+  invalid_generation: 형식·존재하지 않는 참조·허위 출처·선행 관계 위반은 기존 검증 오류 처리로 복구한다. 자동 반복을 무제한 추가하지 않는다.
+  provider_failure: 기존 AI 요청의 제한·분류·재시도 정책을 사용한다. 호출 실패를 근거 부족이나 완성된 상황으로 바꾸지 않는다.
+  storage_conflict: 동일 모험의 완성 결과를 조회하거나 현재 버전 충돌을 반환한다. 다른 모험 자료로 대체하지 않는다.
+  pending_or_commit_failure: 확정 대기 제안을 보존하고 기존 턴 재개 절차를 사용한다. 실패한 턴의 선택·사용·추가 상황이 확정 상태로 나타나지 않게 한다.
+  map_absent: 적합한 제공 맵이 없으면 맵 없이 서술·판정으로 진행한다. 제공되지 않은 맵이나 연결 통로를 생성하지 않는다.
+scope:
+  existing_entrypoints: AdventureSessionApplicationService와 AdventureStartApplicationService 모두 모험 소유 키를 전달한다. 실제 UI가 호출하는 시작 전 준비 경로와 최종 시작 경로를 함께 변경한다.
+  existing_components: StageArtifactPreparationApplicationService, 기존 생성 포트와 실제 GM 어댑터 연결, StageArtifactRepository와 PostgreSQL 구현, 단계 전환 및 StoryRuntimeRules, RuntimeTurnApplicationService와 프롬프트·응답 변환, PendingRuntimeState, Adventure, 저장소, AdventureApiConfiguration을 변경한다.
+  frontend: 기존 준비 및 시작 응답 계약을 유지한다. 별도 시나리오 편집 화면·새 공개 엔드포인트·새 배포 서비스는 만들지 않는다. 제공 맵 없는 상황을 시작할 수 있어야 한다.
+  tests: 기존 생성자·요청·저장 호출을 사용하는 테스트 자료를 신규 계약으로 갱신하고 실제 Bean 연결의 복수 상황 생성, 두 모험 분리, 재시도, 준비 전체 저장, 원문 선행 관계, 선택과 생성, 굴림 대기, 제공 맵 없음, 신규 상태 재시작을 검증한다.
+  excluded: 기존 모험의 이관·호환성 어댑터·이전 형식 회귀 지원·지도 생성·계획 전체 공개·새 서비스·신규 편집 UI는 제외한다.
+coverage:
+  design_scope: 제품 UC-1부터 UC-3 및 R-01부터 R-09를 준비·선택·생성·단일 확정 계약에 대응한다.
+  domain_flow: 명령·후보·검증·준비 게시·상황 계속 또는 전환·턴 확정의 소유권과 조건을 위 흐름으로 정의했다.
+  boundaries: 사용자가 승인한 기존 준비와 모험 실행 책임 내부 확장이다. 별도 책임 영역·모듈·배포 경계를 승격하지 않는다.
+  ownership: 초기 자료는 모험별 준비 저장소, 플레이 변화는 해당 모험 상태, 원문과 맵 원본은 기존 소유자가 관리한다.
+  types: 기존 상황과 단계 정의에 제품의 필수 여부·선행 관계·출처 구분·제공 맵 참조만 추가한다.
+  state_and_repository: 안정적인 모험 식별자 예약·모험 소유 키·초기 전체 게시·전체 상황 사용 상태·신규 상황·단일 턴 확정을 정의했다.
+  program: 기존 포트의 구체 시그니처와 생성 입력·결과·실제 호출부 변경을 정의했다.
+  technical: 기존 서비스와 PostgreSQL을 사용한다. 내부 요청과 JSON만 변경하고 호환성 어댑터를 추가하지 않는다.
+  runtime: 모험별 버전과 턴 식별자, 준비 자료의 유일성, 생성 호출 밖의 짧은 저장 트랜잭션, 대기 후 단일 확정을 사용한다.
+  recovery: 근거 부족·AI 오류·참조 오류·저장 경쟁·굴림 대기·턴 확정 실패를 구분하고 기존 제한된 복구 절차를 사용한다.
+  security_and_observability: 모험 소유권·원문 범위·제공 맵·공개 여부·AI 제안을 검증한다. 기존 단계 진단만 확장하고 원문과 비공개 서술은 기록하지 않는다.
+  change_and_verification: 실제 준비·시작 두 경로와 신규 저장 계약·턴 저장·테스트 자료를 함께 변경하고 신규 기능과 신규 상태의 실패 복구를 검증한다.
+  tradeoffs: 모험별 독립 생성으로 생성량과 저장량이 늘어난다. 공유 최적화는 R-09에 반하므로 적용하지 않는다. 개발용이라는 사용자 지시로 기존 형식 유지 비용은 제외한다. 수치 목표는 미확정으로 남겨 근거 없이 만들지 않는다.
+completion:
+  authorization: 사용자 개발용이니까 그냥 호환성 생각하지 말고 하라고 지시에 따라 확정된 방향과 범위의 명세 작성을 진행한다. 동일 호환성 확인이나 추가 형식 승인 질문을 반복하지 않는다.
+  blocking_questions: []
+diagrams:
+  - diagrams/architecture/situations.class.svg
+  - diagrams/architecture/turn-commit.state.svg
