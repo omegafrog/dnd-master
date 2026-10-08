@@ -19,6 +19,12 @@ class _NativeColumns:
         ]}]
 
 
+class _NativeTwoPages(_NativeColumns):
+    def extract(self, source):
+        page = super().extract(source)[0]
+        return [{**page, "page_number": number} for number in (1, 2)]
+
+
 class _Render:
     def available(self): return True
     def render(self, _source, page_number, region=None): return RenderedPage(page_number, 100, 100, b"png")
@@ -84,6 +90,42 @@ def test_fresh_review_replaces_stale_recovered_confirmation_before_promotion(tmp
     assert promoted["pages"][0]["attempts"] == 3
     assert promoted["pages"][0]["layout_confirmation"] == {
         "admin_id": "admin-2", "candidate_version": "candidate-1", "selections": selection}
+
+
+def test_unselected_review_state_survives_final_page_promotion(tmp_path):
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"pdf")
+    output = tmp_path / "artifacts"
+    service = ExtractionApplicationService(_NativeTwoPages(), _Render(), None)
+    first = service.preprocess({"request_id": "initial", "source_path": str(source),
+        "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
+        "output_dir": str(output), "version_id": "candidate-1"})
+    profile = first["pages"][0]["layout_review"]["profiles"][0]
+    candidate = next(index for index, value in enumerate(profile["candidates"])
+                     if value["column_count"] == 2)
+    selection = {profile["region_id"]: candidate}
+    service.retry_pages("candidate-1", output, [1], request_id="retry-1",
+        layout_selections={1: selection}, confirmed_by="admin-1")
+
+    # Match the persisted state produced by the prior promotion path: the
+    # page read model has review metadata, while its recovery payload does not.
+    snapshot_path = output / "versions" / "candidate-1" / "retry-state.json"
+    snapshot = json.loads(snapshot_path.read_text())
+    snapshot["recovered_pages"]["1"].pop("layout_confirmation", None)
+    snapshot["recovered_pages"]["1"].pop("_retry_attempts", None)
+    snapshot["recovered_pages"]["1"].pop("_retry_attempt_history", None)
+    snapshot_path.write_text(json.dumps(snapshot))
+
+    before = service.get_status("candidate-1", output)["pages"][0]
+    promoted = service.retry_pages("candidate-1", output, [2], request_id="retry-2",
+        layout_selections={2: selection}, confirmed_by="admin-2")
+
+    page = promoted["pages"][0]
+    assert page["status"] == before["status"] == "VALIDATED"
+    assert page["attempts"] == before["attempts"] == 2
+    assert page["attempt_history"] == before["attempt_history"]
+    assert page["layout_confirmation"] == before["layout_confirmation"]
+    assert promoted["pages"][1]["status"] == "VALIDATED"
 
 
 def test_failed_fresh_review_invalidates_validated_page_and_recovered_result(tmp_path):

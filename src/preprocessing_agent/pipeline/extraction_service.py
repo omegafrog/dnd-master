@@ -918,12 +918,27 @@ class ExtractionApplicationService:
             if all(item.get("status") == "VALIDATED" for item in updated):
                 manifest_source = current.get("manifest", {}).get("source", {})
                 promoted_id = f"{version_id}-retry-{hashlib.sha256(idem.encode()).hexdigest()[:8]}"
+                promoted_pages = {int(item["page_number"]): item for item in updated}
+                promoted_recovered = dict(recovered_pages)
+                for key, recovered_page in promoted_recovered.items():
+                    page_state = promoted_pages.get(int(key))
+                    if page_state is None or page_state.get("status") != "VALIDATED" or not isinstance(recovered_page, Mapping):
+                        continue
+                    recovered_page = dict(recovered_page)
+                    confirmation = page_state.get("layout_confirmation")
+                    if isinstance(confirmation, Mapping):
+                        recovered_page["layout_confirmation"] = confirmation
+                    else:
+                        recovered_page.pop("layout_confirmation", None)
+                    recovered_page["_retry_attempts"] = page_state.get("attempts", 1)
+                    recovered_page["_retry_attempt_history"] = page_state.get("attempt_history", [])
+                    promoted_recovered[key] = recovered_page
                 promoted_request = {"request_id": f"{request_id}-publish", "source_path": manifest_source.get("path"),
                                     "source_sha256": manifest_source.get("sha256"),
                                     "policy_version": current.get("manifest", {}).get("policy", {}).get("version", "retry"),
                                     "output_dir": str(root), "version_id": promoted_id,
                                     "retry_source_version_id": version_id,
-                                    "recovered_pages": recovered_pages}
+                                    "recovered_pages": promoted_recovered}
                 try:
                     promoted = self._preprocess_locked(promoted_request, root)
                     if promoted.get("status") == "READY":
