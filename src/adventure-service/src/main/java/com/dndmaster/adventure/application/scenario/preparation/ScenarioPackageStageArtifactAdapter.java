@@ -16,15 +16,33 @@ import com.dndmaster.adventure.domain.scenario.ThreatDefinition;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
+import com.dndmaster.adventure.application.runtime.GmProviderBindingRepository;
+import com.dndmaster.adventure.application.session.AdventureSessionRepository;
+import com.dndmaster.adventure.domain.adventure.SessionId;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /** Adapts the published Scenario Package into the minimum first-stage artifact request. */
 public final class ScenarioPackageStageArtifactAdapter implements StorybookEvidenceLookupPort,
         StageBackboneGenerationPort, StageDetailedGenerationPort {
     private static final String FIRST_STAGE_ID = "first-stage";
     private final ScenarioPackageRepository packages;
+    private final InitialSituationGmPort gm;
+    private final GmProviderBindingRepository bindings;
+    private final AdventureSessionRepository sessions;
+    private final ObjectMapper mapper;
 
     public ScenarioPackageStageArtifactAdapter(ScenarioPackageRepository packages) {
+        this(packages, null, null, null, null);
+    }
+
+    public ScenarioPackageStageArtifactAdapter(ScenarioPackageRepository packages, InitialSituationGmPort gm,
+            GmProviderBindingRepository bindings, AdventureSessionRepository sessions, ObjectMapper mapper) {
         this.packages = java.util.Objects.requireNonNull(packages, "scenario package repository must not be null");
+        this.gm = gm;
+        this.bindings = bindings;
+        this.sessions = sessions;
+        this.mapper = mapper;
     }
 
     @Override
@@ -45,6 +63,15 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
 
     @Override
     public StageBackbone generate(StageBackboneGenerationPort.Request request) {
+        if (gm != null) {
+            ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
+            JsonNode generated = generate(request.sessionId(), request.adventureId().value(),
+                    request.scenarioPackageId(), "backbone", backbonePrompt(scenarioPackage, request.evidence()));
+            List<StageBackboneEntry> stages = mapper.convertValue(generated.path("stages"),
+                    mapper.getTypeFactory().constructCollectionType(List.class, StageBackboneEntry.class));
+            List<ScenarioSourceReference> refs = references(generated.path("sourceRefs"));
+            return new StageBackbone(request.scenarioPackageId(), 1, stages, refs);
+        }
         ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
         String coreProblem = openingProblem(scenarioPackage);
         String funnel = openingGoal(scenarioPackage);
@@ -55,6 +82,18 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
 
     @Override
     public DetailedStage generate(StageDetailedGenerationPort.Request request) {
+        if (gm != null) {
+            ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
+            JsonNode generated = generate(request.sessionId(), request.adventureId().value(),
+                    request.scenarioPackageId(), "stage:" + request.stageId(),
+                    detailedPrompt(scenarioPackage, request.stageId(), request.evidence()));
+            var content = generated.deepCopy();
+            ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("scenarioPackageId", request.scenarioPackageId().toString());
+            ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("backboneRevision", request.backboneRevision());
+            ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("stageId", request.stageId());
+            ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("revision", 1);
+            return mapper.convertValue(content, DetailedStage.class);
+        }
         ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
         String coreProblem = openingProblem(scenarioPackage);
         String revelationId = scenarioPackage.scenarioModel().revelations().stream()
@@ -67,6 +106,52 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 new FunnelDefinition("funnel", openingGoal(scenarioPackage), List.of(revelationId), List.of(), evidence),
                 List.of(new SituationDefinition("opening-situation", List.of(StageIntent.REVELATION), List.of(revelationId),
                         List.of(), List.of(), List.of(), List.of(), true, evidence)), List.of(), evidence);
+    }
+
+    private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt) {
+        var session = sessions.findById(sessionId).orElseThrow(() -> new IllegalStateException("adventure session not found"));
+        var binding = bindings.current(sessionId.value()).orElseThrow(() -> new IllegalStateException("GM provider selection not found"));
+        String prompt = "ROLE=INITIAL_SITUATION_PREPARATION\nTASK=" + task + "\n" + taskPrompt
+                + "\nOUTPUT_CONTRACT=Return exactly one JSON object matching the requested fields. No markdown.";
+        return gm.generate(new InitialSituationGmPort.Request(session.ownerPlayerId().value(), sessionId.value(),
+                binding.selection().endpointId(), binding.selection().provider(), binding.selection().model(),
+                binding.selection().reasoning(), "initial-situation:" + adventureId + ":" + packageId + ":" + task,
+                prompt));
+    }
+
+    private String backbonePrompt(ScenarioPackage scenarioPackage, List<ScenarioSourceReference> evidence) {
+        return "Create the adventure story backbone from this compiled story model and source evidence. "
+                + "Include every story-essential required situation and only prerequisites explicit in the source. "
+                + "Add as many intermediate candidate stages as the story needs; do not use a fixed count or impose unstated order. "
+                + "Each stage needs stageId, contiguous order, role, coreProblem, funnelSummary, and sourceRefs. "
+                + "Return stages and sourceRefs.\nSCENARIO_MODEL=" + json(scenarioPackage.scenarioModel())
+                + "\nSOURCE_QUOTES=" + sourceQuotes(scenarioPackage) + "\nALLOWED_SOURCE_REFS=" + json(evidence);
+    }
+
+    private String detailedPrompt(ScenarioPackage scenarioPackage, String stageId, List<ScenarioSourceReference> evidence) {
+        return "Prepare the situation definitions and supporting details for stage " + stageId + " from this compiled story model. "
+                + "Include required situations needed to preserve the source story and multiple intermediate candidates when supported by the story. "
+                + "Do not force a fixed candidate count, add unstated prerequisite relations, or make optional ingredients mandatory. "
+                + "For every situation include required, prerequisiteSituationIds, provenance (SOURCE_EXTRACTED or GM_SUPPLEMENTED), "
+                + "sourceRefs (exact allowed references for extracted claims; empty for GM supplements), and mapDefinitionId "
+                + "(one supplied map UUID or null). Return a complete DetailedStage JSON object except package/revision/stage identifiers. "
+                + "Use only these map IDs: " + json(scenarioPackage.mapDefinitions().stream().map(m -> m.id()).toList())
+                + "\nSCENARIO_MODEL=" + json(scenarioPackage.scenarioModel()) + "\nSOURCE_QUOTES=" + sourceQuotes(scenarioPackage)
+                + "\nALLOWED_SOURCE_REFS=" + json(evidence);
+    }
+
+    private List<ScenarioSourceReference> references(JsonNode node) {
+        return mapper.convertValue(node, mapper.getTypeFactory().constructCollectionType(List.class, ScenarioSourceReference.class));
+    }
+
+    private String json(Object value) {
+        try { return mapper.writeValueAsString(value); }
+        catch (Exception failure) { throw new IllegalStateException("initial situation prompt serialization failed", failure); }
+    }
+
+    private static List<String> sourceQuotes(ScenarioPackage scenarioPackage) {
+        return scenarioPackage.units().stream().filter(unit -> !unit.sourceQuote().isBlank())
+                .map(unit -> unit.sourceQuote() + " [" + unit.sourceRefs() + "]").distinct().toList();
     }
 
     private ScenarioPackage loadPackage(UUID scenarioPackageId) {

@@ -31,6 +31,31 @@ import org.junit.jupiter.api.Test;
 
 class HttpCombatMapPreparationGatewayTest {
     @Test
+    void allows_adventure_start_when_no_map_draft_exists() throws Exception {
+        AtomicReference<String> requestPath = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/adventures/", exchange -> {
+            requestPath.set(exchange.getRequestURI().getPath());
+            exchange.sendResponseHeaders(404, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            UUID adventureId = UUID.randomUUID();
+            UUID ownerId = UUID.randomUUID();
+            var gateway = new HttpCombatMapPreparationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(2), new ObjectMapper(), "secret");
+
+            assertTrue(gateway.mapLayoutConfirmed(new AdventureId(adventureId), ownerId));
+            assertEquals("/internal/v1/adventures/" + adventureId + "/combat-map/preparation-view",
+                    requestPath.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void detects_a_reviewed_draft_without_confusing_the_active_map_with_a_draft() throws Exception {
         AtomicReference<String> requestPath = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);

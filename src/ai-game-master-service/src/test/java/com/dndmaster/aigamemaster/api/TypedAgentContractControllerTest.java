@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.dndmaster.aigamemaster.infrastructure.ai.EffectiveGmProviderSelection;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionResult;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionResolver;
 import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection;
 import com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser;
 import com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException;
@@ -288,6 +289,44 @@ class TypedAgentContractControllerTest {
         controller.narrationSafety("service-secret", new TypedAgentContractController.NarrationSafetyRequest(SOLO_PLAYER_ID, "문이 열린다.", List.of()));
 
         org.junit.jupiter.api.Assertions.assertEquals(List.of(SOLO_PLAYER_ID, SOLO_PLAYER_ID, SOLO_PLAYER_ID), seen);
+    }
+
+    @Test
+    void initial_situation_generation_uses_the_selected_provider_and_internal_authentication() {
+        var seen = new AtomicReference<String>();
+        var endpointId = UUID.randomUUID();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new AssertionError("selected-provider completion must be used");
+            }
+            @Override public <T> GmCompletionResult<T> completeWithResolution(UUID owner, String operation,
+                    String prompt, StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+                    GmProviderSelectionResolver.EndpointResolution resolution, com.fasterxml.jackson.databind.JsonNode rag) {
+                org.junit.jupiter.api.Assertions.assertEquals(SOLO_PLAYER_ID, owner);
+                org.junit.jupiter.api.Assertions.assertEquals(endpointId, requested.endpointId());
+                org.junit.jupiter.api.Assertions.assertEquals("openai", requested.provider());
+                org.junit.jupiter.api.Assertions.assertEquals("story-model", requested.model());
+                org.junit.jupiter.api.Assertions.assertEquals("high", requested.reasoning());
+                seen.set(prompt);
+                return new GmCompletionResult<>(parser.parse("{\"stages\":[{\"stageId\":\"opening\"}]}"), resolution.effectiveSelection());
+            }
+        };
+        var selection = new GmProviderSelectionResolver.EndpointResolution(
+                new com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint(endpointId, "test",
+                        com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint.Provider.OPENAI_COMPATIBLE,
+                        java.net.URI.create("http://localhost"), "story-model", null, true, java.time.Instant.EPOCH),
+                new EffectiveGmProviderSelection(endpointId, java.time.Instant.EPOCH, "openai", "story-model", "high"));
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"),
+                request -> selection);
+        var request = new TypedAgentContractController.InitialSituationRequest(SOLO_PLAYER_ID, endpointId,
+                "openai", "story-model", "high", "initial-situation:adventure:backbone", "source grounded prompt");
+
+        var response = controller.initialSituation("service-secret", request);
+
+        org.junit.jupiter.api.Assertions.assertTrue(response.path("stages").isArray());
+        org.junit.jupiter.api.Assertions.assertTrue(seen.get().contains("source grounded prompt"));
+        assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.initialSituation("wrong-secret", request));
     }
 
     @Test

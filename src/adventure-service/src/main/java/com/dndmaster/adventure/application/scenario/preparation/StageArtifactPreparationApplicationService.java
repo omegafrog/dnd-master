@@ -75,7 +75,6 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                 .findFirst().orElseThrow();
         SituationDefinition opening = effectiveStage.situations().stream().filter(SituationDefinition::opening).findFirst()
                 .orElseThrow(() -> new IllegalStateException("opening situation is required"));
-        requireGrounding(opening.sourceRefs(), evidence, scenarioBacked, "opening situation");
         artifacts.saveInitialArtifacts(adventureId, backbone, effectiveStages);
         return new Result(backbone, effectiveStages, effectiveStage, opening);
     }
@@ -126,16 +125,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
     private static boolean grounded(List<ScenarioSourceReference> references, List<ScenarioSourceReference> evidence,
             boolean scenarioBacked) {
         if (!scenarioBacked) return references.isEmpty();
-        return !evidence.isEmpty() && !references.isEmpty() && evidence.containsAll(references);
-    }
-
-    private static boolean grounded(DetailedStage stage, List<ScenarioSourceReference> evidence, boolean scenarioBacked) {
-        return grounded(stage.sourceRefs(), evidence, scenarioBacked)
-                && stage.revelations().stream().allMatch(revelation -> grounded(revelation.sourceRefs(), evidence, scenarioBacked))
-                && grounded(stage.threat().sourceRefs(), evidence, scenarioBacked)
-                && grounded(stage.pressure().sourceRefs(), evidence, scenarioBacked)
-                && grounded(stage.funnel().sourceRefs(), evidence, scenarioBacked)
-                && stage.situations().stream().allMatch(situation -> groundedSituation(situation, evidence, scenarioBacked));
+        return references.isEmpty() || (!evidence.isEmpty() && evidence.containsAll(references));
     }
 
     private static void validateDetailedStage(DetailedStage stage, List<ScenarioSourceReference> evidence,
@@ -159,9 +149,9 @@ public final class StageArtifactPreparationApplicationService implements StageAr
     private static boolean groundedSituation(SituationDefinition situation, List<ScenarioSourceReference> evidence,
             boolean scenarioBacked) {
         if (situation.provenance() == SituationProvenance.SOURCE_EXTRACTED) {
-            return grounded(situation.sourceRefs(), evidence, scenarioBacked);
+            return !situation.sourceRefs().isEmpty() && grounded(situation.sourceRefs(), evidence, scenarioBacked);
         }
-        return !scenarioBacked || situation.sourceRefs().isEmpty() || evidence.containsAll(situation.sourceRefs());
+        return grounded(situation.sourceRefs(), evidence, scenarioBacked);
     }
 
     private static void validateInitialSituationSet(List<DetailedStage> stages, java.util.Set<UUID> providedMapIds) {

@@ -97,6 +97,66 @@ class StageArtifactPreparationApplicationServiceTest {
     }
 
     @Test
+    void keeps_required_and_supplemented_candidates_distinct_and_accepts_only_provided_maps() {
+        UUID providedMapId = UUID.randomUUID();
+        UUID outsideMapId = UUID.randomUUID();
+        var opening = new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
+                List.of(), List.of(), List.of(), List.of(), true, true, List.of(),
+                SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence));
+        var candidate = new SituationDefinition("candidate", List.of(StageIntent.REVELATION), List.of("truth"),
+                List.of(), List.of(), List.of(), List.of(), false, false, List.of("opening"),
+                SituationProvenance.GM_SUPPLEMENTED, providedMapId, List.of());
+        var maplessCandidate = new SituationDefinition("mapless-candidate", List.of(StageIntent.REVELATION), List.of("truth"),
+                List.of(), List.of(), List.of(), List.of(), false, false, List.of("opening"),
+                SituationProvenance.GM_SUPPLEMENTED, null, List.of());
+        var stage = detailedWithSituations(List.of(opening, candidate, maplessCandidate));
+        var lookup = lookupWithMap(providedMapId);
+        var repository = new StageArtifactRepository.InMemory();
+        var service = new StageArtifactPreparationApplicationService(repository, lookup,
+                request -> singleStageBackbone(), request -> stage);
+
+        var result = service.prepare(adventureId, sessionId, packageId);
+
+        assertEquals(3, result.currentStage().situations().size());
+        assertEquals(true, result.currentStage().situations().get(0).required());
+        assertEquals(SituationProvenance.SOURCE_EXTRACTED, result.currentStage().situations().get(0).provenance());
+        assertEquals(false, result.currentStage().situations().get(1).required());
+        assertEquals(SituationProvenance.GM_SUPPLEMENTED, result.currentStage().situations().get(1).provenance());
+        assertEquals(providedMapId, result.currentStage().situations().get(1).mapDefinitionId());
+        assertEquals(null, result.currentStage().situations().get(2).mapDefinitionId());
+
+        var invalidRepository = new StageArtifactRepository.InMemory();
+        var invalid = new StageArtifactPreparationApplicationService(invalidRepository, lookup,
+                request -> singleStageBackbone(), request -> detailedWithSituations(List.of(opening,
+                        new SituationDefinition("outside-map", List.of(StageIntent.REVELATION), List.of("truth"),
+                                List.of(), List.of(), List.of(), List.of(), false, false, List.of("opening"),
+                                SituationProvenance.GM_SUPPLEMENTED, outsideMapId, List.of()))));
+        assertThrows(IllegalStateException.class, () -> invalid.prepare(adventureId, sessionId, packageId));
+        assertEquals(0, invalidRepository.findBackbone(adventureId, packageId, 1).stream().count());
+    }
+
+    @Test
+    void continues_with_gm_supplement_when_story_evidence_does_not_ground_generated_details() {
+        var backbone = new StageBackbone(packageId, 1, List.of(
+                new StageBackboneEntry("stage-1", 1, "opening", "Begin the adventure", "Find a direction", List.of())), List.of());
+        var stage = new DetailedStage(packageId, 1, "stage-1", 1, "Begin the adventure",
+                List.of(new RevelationDefinition("truth", false, List.of())),
+                new ThreatDefinition("A local mystery", List.of()),
+                new PressureDefinition("The situation develops", List.of()),
+                new FunnelDefinition("Choose what to investigate", List.of(), List.of()),
+                List.of(new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
+                        List.of(), List.of(), List.of(), List.of(), true, false, List.of(),
+                        SituationProvenance.GM_SUPPLEMENTED, null, List.of())), List.of(), List.of());
+        var service = new StageArtifactPreparationApplicationService(new StageArtifactRepository.InMemory(),
+                request -> List.of(evidence), request -> backbone, request -> stage);
+
+        var result = service.prepare(adventureId, sessionId, packageId);
+
+        assertEquals(SituationProvenance.GM_SUPPLEMENTED, result.openingSituation().provenance());
+        assertEquals(List.of(), result.openingSituation().sourceRefs());
+    }
+
+    @Test
     void preserves_existing_artifacts_when_detailed_generation_fails() {
         var repository = new StageArtifactRepository.InMemory();
         var backbone = backbone();
@@ -260,5 +320,27 @@ class StageArtifactPreparationApplicationServiceTest {
                 List.of(new SituationDefinition(openingId, List.of(StageIntent.REVELATION),
                         List.of("truth"), List.of(), List.of(), List.of(), List.of(), true, openingEvidence)),
                 List.of(), List.of(evidence));
+    }
+
+    private DetailedStage detailedWithSituations(List<SituationDefinition> situations) {
+        return new DetailedStage(packageId, 1, "stage-1", 1, "Find the heir",
+                List.of(new RevelationDefinition("truth", true, List.of(evidence))),
+                new ThreatDefinition("Hunters close in", List.of(evidence)),
+                new PressureDefinition("The search grows dangerous", List.of(evidence)),
+                new FunnelDefinition("The heir is located", List.of("truth"), List.of(evidence)),
+                situations, List.of(), List.of(evidence));
+    }
+
+    private StageBackbone singleStageBackbone() {
+        return new StageBackbone(packageId, 1, List.of(
+                new StageBackboneEntry("stage-1", 1, "opening", "Find the heir", "Learn the truth", List.of(evidence))),
+                List.of(evidence));
+    }
+
+    private StorybookEvidenceLookupPort lookupWithMap(UUID mapId) {
+        return new StorybookEvidenceLookupPort() {
+            @Override public List<ScenarioSourceReference> lookup(UUID ignored) { return List.of(evidence); }
+            @Override public java.util.Set<UUID> providedMapIds(UUID ignored) { return java.util.Set.of(mapId); }
+        };
     }
 }

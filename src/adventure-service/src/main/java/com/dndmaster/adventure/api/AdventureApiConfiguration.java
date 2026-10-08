@@ -231,10 +231,24 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort initialSituationGmPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new com.dndmaster.adventure.infrastructure.integration.HttpInitialSituationGmPort(
+                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken);
+    }
+
+    @Bean
     StageArtifactPreparationApplicationService stageArtifactPreparationApplicationService(
             com.dndmaster.adventure.domain.scenario.StageArtifactRepository artifacts,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
-        var adapter = new ScenarioPackageStageArtifactAdapter(packageRepository);
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort initialSituationGmPort,
+            GmProviderBindingRepository providerBindings,
+            AdventureSessionRepository sessions, ObjectMapper objectMapper) {
+        var adapter = new ScenarioPackageStageArtifactAdapter(packageRepository, initialSituationGmPort,
+                providerBindings, sessions, objectMapper);
         return new StageArtifactPreparationApplicationService(artifacts, adapter, adapter, adapter);
     }
 

@@ -123,6 +123,27 @@ public final class TypedAgentContractController {
         }
     }
 
+    @PostMapping("/internal/gm/initial-situation")
+    JsonNode initialSituation(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody InitialSituationRequest request) {
+        requestGuard.internal(token);
+        require(request);
+        RequestedGmProviderSelection requested = new RequestedGmProviderSelection(
+                request.endpointId(), request.provider(), request.model(), request.reasoning());
+        var resolution = selectionResolver.apply(requested);
+        return adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
+                json -> {
+                    try {
+                        JsonNode result = mapper.readTree(json);
+                        if (result == null || !result.isObject()) throw new IllegalArgumentException("initial situation response must be a JSON object");
+                        return result;
+                    } catch (java.io.IOException invalid) {
+                        throw new IllegalArgumentException("initial situation response is invalid JSON", invalid);
+                    }
+                }, requested, resolution, null).response();
+    }
+
     static String safeScenarioCompilationFailureReason(IllegalArgumentException failure) {
         String message = failure.getMessage();
         if ("status is required".equals(message)
@@ -570,6 +591,18 @@ public final class TypedAgentContractController {
             soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             operationKey = required(operationKey, "operationKey");
             storybookContext = required(storybookContext, "storybookContext");
+        }
+    }
+
+    public record InitialSituationRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId,
+            String provider, String model, String reasoning, String operationKey, String prompt) {
+        public InitialSituationRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
+            provider = required(provider, "provider");
+            model = required(model, "model");
+            reasoning = required(reasoning, "reasoning");
+            operationKey = required(operationKey, "operationKey");
+            prompt = required(prompt, "prompt");
         }
     }
 
