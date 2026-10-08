@@ -68,6 +68,36 @@ class MapGridAlignmentServiceTest {
     }
 
     @Test
+    void acceptsPhaseEquivalentOriginWithoutChangingMapState() {
+        CombatMap existing = map();
+        CombatMap largeImageMap = new CombatMap(mapId, existing.adventureId(), existing.ruleSetId(),
+                new GridSpec(28, 19, 43, 5), existing.ownerPlayerId(), existing.tokens(), existing.obstacles(),
+                List.of(new MapLayer("MAP_IMAGE", MapImageTestFixture.dataUri(1_683, 1_190), LayerVisibility.PLAYER_VISIBLE)),
+                existing.version(), null);
+        InMemoryMapStore maps = new InMemoryMapStore(largeImageMap, owner);
+        MapGridAlignmentService service = new MapGridAlignmentService(maps, new InMemoryAlignmentStore());
+        String revision = service.find(mapId, owner).imageRevision();
+        double cellSize = 43.14355;
+        double sampleX = 500.5, sampleY = 211.5;
+
+        assertThrows(IllegalArgumentException.class, () -> service.apply(mapId, owner,
+                new MapGridAlignmentRequest(UUID.randomUUID(), 0, revision, sampleX, sampleY, cellSize)));
+
+        double canonicalX = sampleX - cellSize;
+        double canonicalY = sampleY - cellSize;
+        MapGridAlignment saved = service.apply(mapId, owner,
+                new MapGridAlignmentRequest(UUID.randomUUID(), 0, revision, canonicalX, canonicalY, cellSize));
+
+        assertEquals(canonicalX, saved.originX());
+        assertEquals(canonicalY, saved.originY());
+        assertEquals(1, saved.version());
+        assertSame(largeImageMap, maps.current);
+        assertEquals(new GridPosition(2, 3), maps.current.tokens().getFirst().position());
+        assertEquals(28, maps.current.grid().width());
+        assertEquals(19, maps.current.grid().height());
+    }
+
+    @Test
     void rejectsAlignmentWhenTheMapHasNoReadableImage() {
         CombatMap withoutImage = new CombatMap(mapId, new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
                 new GridSpec(10, 10, 50, 5), new PlayerId(owner.value()), List.of(), Set.of(), List.of(), 0, null);

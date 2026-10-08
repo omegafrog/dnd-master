@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
-import { refineCellSize, type ImagePoint, type MapGridAlignmentDraft } from './mapGridAlignmentGeometry'
+import { finiteGridOrigin, refineCellSize, type ImagePoint, type MapGridAlignmentDraft } from './mapGridAlignmentGeometry'
 
 export type AlignmentToSave = MapGridAlignmentDraft & { mapId: string; commandId: string; expectedVersion: number; imageRevision: string }
 const MAGNIFIER_SCALE = 2.5
@@ -10,7 +10,7 @@ type PendingMeasurement = { anchor: ImagePoint; previous: MapGridAlignmentDraft 
 type PanDrag = { startX: number; startY: number; initialX: number; initialY: number }
 export type AlignmentCrop = { x: number; y: number; width: number; height: number }
 
-export function MapGridAlignmentEditor({ image, initial, crop, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { mapId: string; version: number; imageRevision: string }; crop?: AlignmentCrop; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
+export function MapGridAlignmentEditor({ image, initial, crop, grid, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { mapId: string; version: number; imageRevision: string }; crop?: AlignmentCrop; grid?: { width: number; height: number }; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
   const [draft, setDraft] = useState<MapGridAlignmentDraft>(initial)
   const [sizeInput, setSizeInput] = useState(String(Number(initial.cellSize.toFixed(4))))
   const [zoom, setZoom] = useState(1)
@@ -28,6 +28,12 @@ export function MapGridAlignmentEditor({ image, initial, crop, onApply, onCancel
   const panDrag = useRef<PanDrag | null>(null)
   const pendingRef = useRef<PendingMeasurement | null>(null)
   const displayCrop = crop && crop.width > 0 && crop.height > 0 ? crop : { x: 0, y: 0, width: imageSize.width, height: imageSize.height }
+  const saveOrigin = grid
+    ? imageSize.width > 1 && imageSize.height > 1
+      ? finiteGridOrigin(draft, { x: initial.originX, y: initial.originY }, grid, imageSize)
+      : null
+    : { x: draft.originX, y: draft.originY }
+  const gridCannotFit = !!grid && imageSize.width > 1 && imageSize.height > 1 && !saveOrigin
 
   const layout = () => {
     const element = canvas.current
@@ -160,11 +166,12 @@ export function MapGridAlignmentEditor({ image, initial, crop, onApply, onCancel
     })
   }
   async function apply() {
+    if (!saveOrigin) { setError('현재 지도 크기와 격자 칸 수로는 전체 격자를 맞출 수 없습니다. 칸 크기를 줄이거나 기준점을 조정하세요.'); return }
     setSaving(true)
     setError('')
     try {
       commandId.current ??= globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
-      await onApply({ ...draft, mapId: initial.mapId, commandId: commandId.current, expectedVersion: initial.version, imageRevision: initial.imageRevision })
+      await onApply({ ...draft, originX: saveOrigin.x, originY: saveOrigin.y, mapId: initial.mapId, commandId: commandId.current, expectedVersion: initial.version, imageRevision: initial.imageRevision })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '격자 맞추기를 저장하지 못했습니다.')
     } finally { setSaving(false) }
@@ -216,8 +223,10 @@ export function MapGridAlignmentEditor({ image, initial, crop, onApply, onCancel
       {pending && <span className="map-grid-alignment-pending" role="status">두 번째 기준점을 선택하세요</span>}
       {magnifier && magnifierAt && <div className="map-grid-magnifier" aria-label="확대경" style={{ left: Math.max(4, Math.min(magnifierAt.left + 18, (canvas.current?.clientWidth ?? 1) - magnifierSize - 4)), top: Math.max(4, Math.min(magnifierAt.top - magnifierSize - 12, (canvas.current?.clientHeight ?? 1) - magnifierSize - 4)) }}><img src={image} alt="" aria-hidden="true" style={{ left: '50%', top: '50%', width: imageSize.width * MAGNIFIER_SCALE, height: imageSize.height * MAGNIFIER_SCALE, transform: `translate(${-magnifier.x * MAGNIFIER_SCALE}px, ${-magnifier.y * MAGNIFIER_SCALE}px)` }} /></div>}
     </div>
-    {error && <p role="alert">{error}</p>}
-    <div className="map-grid-alignment-actions"><Button type="button" disabled={saving || !validSize || !!pending} onClick={() => void apply()}>{saving ? '저장 중…' : error ? '다시 적용' : '적용'}</Button><Button type="button" disabled={saving} onClick={onCancel}>취소</Button></div>
+      {error && <p role="alert">{error}</p>}
+      {grid && (imageSize.width <= 1 || imageSize.height <= 1) && <p role="status">지도 크기를 확인하고 있습니다.</p>}
+      {gridCannotFit && <p role="alert">현재 지도 크기와 격자 칸 수로는 전체 격자를 맞출 수 없습니다. 칸 크기를 줄이거나 기준점을 조정하세요.</p>}
+    <div className="map-grid-alignment-actions"><Button type="button" disabled={saving || !validSize || !!pending || !saveOrigin} onClick={() => void apply()}>{saving ? '저장 중…' : error ? '다시 적용' : '적용'}</Button><Button type="button" disabled={saving} onClick={onCancel}>취소</Button></div>
   </section>
 }
 

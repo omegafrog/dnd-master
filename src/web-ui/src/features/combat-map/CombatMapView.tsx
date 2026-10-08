@@ -720,7 +720,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         <h3>2. 맵 격자 맞추기</h3>
         {!cropConfirmed ? <p>1단계에서 여백 자르기를 적용하면 격자를 맞출 수 있습니다.</p> : !showGridEditor ? <p role="status">지도 이미지와 격자 정보를 불러오는 중입니다.</p> : <>
           <button type="button" onClick={() => setGridEditor(true)}>격자 맞추기</button>
-          {gridEditor && <MapGridAlignmentEditor key={`${alignment.mapId}-${alignment.version}`} image={mapImage!} initial={alignment} crop={crop} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {
+          {gridEditor && <MapGridAlignmentEditor key={`${alignment.mapId}-${alignment.version}`} image={mapImage!} initial={alignment} crop={crop} grid={map.grid} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {
           try {
             const saved = await api.applyMapGridAlignment!(adventureId, value)
             setAlignment(saved); setGridConfirmed(true); setLayoutSaved(false); setGridEditor(false); setGridMessage('격자 정렬을 저장했습니다. 이제 AI 초안을 생성하세요.'); setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId)))

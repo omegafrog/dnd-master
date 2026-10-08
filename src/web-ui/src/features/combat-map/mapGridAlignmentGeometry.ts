@@ -2,6 +2,30 @@ export type ImagePoint = { x: number; y: number }
 export type MapGridAlignmentDraft = { originX: number; originY: number; cellSize: number }
 export type MapView = { zoom: number; panX: number; panY: number }
 
+/** Move an arbitrary sampled intersection to the nearest equivalent finite-grid origin. */
+export function finiteGridOrigin(draft: MapGridAlignmentDraft, initialOrigin: ImagePoint,
+  grid: { width: number; height: number }, image: { width: number; height: number }): ImagePoint | null {
+  const { cellSize } = draft
+  if (!Number.isFinite(cellSize) || cellSize <= 0 || grid.width < 1 || grid.height < 1
+      || image.width <= 0 || image.height <= 0) return null
+  const axis = (sample: number, initial: number, count: number, extent: number) => {
+    const span = count * cellSize
+    if (span > extent) return null
+    const minIndex = Math.ceil((sample + span - extent) / cellSize)
+    const maxIndex = Math.floor(sample / cellSize)
+    if (minIndex > maxIndex) return null
+    const nearest = Math.round((sample - initial) / cellSize)
+    const index = Math.max(minIndex, Math.min(maxIndex, nearest))
+    const maxOrigin = Math.max(0, extent - span)
+    const candidate = sample - index * cellSize
+    const origin = Math.max(0, Math.min(candidate, maxOrigin - Number.EPSILON * Math.max(1, extent) * 2))
+    return origin + span <= extent ? origin : null
+  }
+  const x = axis(draft.originX, initialOrigin.x, grid.width, image.width)
+  const y = axis(draft.originY, initialOrigin.y, grid.height, image.height)
+  return x === null || y === null ? null : { x, y }
+}
+
 export function screenPointFromImage(point: ImagePoint, view: MapView): ImagePoint {
   return { x: point.x * view.zoom + view.panX, y: point.y * view.zoom + view.panY }
 }
