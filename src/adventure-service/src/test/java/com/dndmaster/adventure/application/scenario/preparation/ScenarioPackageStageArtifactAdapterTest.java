@@ -91,6 +91,15 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertEquals(5, calls.size());
         assertEquals("object", calls.get(0).outputSchema().path("type").asText());
         assertEquals("array", calls.get(0).outputSchema().path("properties").path("requiredSituations").path("type").asText());
+        var extractionRefSchema = calls.get(0).outputSchema().path("properties").path("requiredSituations")
+                .path("items").path("properties").path("sourceRefs").path("items");
+        assertEquals(List.of(first.knowledgeDocumentId().value().toString()), mapper.convertValue(extractionRefSchema
+                .path("properties").path("knowledgeDocumentId").path("properties").path("value").path("enum"),
+                mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
+        assertEquals(List.of(1), mapper.convertValue(extractionRefSchema.path("properties").path("extractionVersion")
+                .path("enum"), mapper.getTypeFactory().constructCollectionType(List.class, Integer.class)));
+        assertEquals(1, extractionRefSchema.path("properties").path("locator").path("minLength").asInt());
+        assertFalse(extractionRefSchema.path("properties").path("locator").has("enum"));
         assertEquals("boolean", calls.get(2).outputSchema().path("properties").path("reviewed").path("type").asText());
         assertEquals("array", calls.get(3).outputSchema().path("properties").path("correctedSituations").path("type").asText());
         assertEquals("integer", calls.get(3).outputSchema().path("properties").path("correctedSituations")
@@ -248,11 +257,13 @@ class ScenarioPackageStageArtifactAdapterTest {
                                 generatedSituation("candidate", false, false, List.of("opening"), "GM_SUPPLEMENTED", List.of())),
                         "importantConsequenceIds", List.of(), "sourceRefs", refs));
             }
+            List<ScenarioSourceReference> allowed = request.prompt().contains("ALLOWED_SOURCE_REFS=[]")
+                    ? List.of() : List.of(source);
             var response = mapper.createObjectNode();
             response.set("stages", mapper.valueToTree(List.of(
-                    Map.of("stageId", "arrival", "order", 1, "role", "opening", "coreProblem", "The bell is missing", "funnelSummary", "Find clues", "sourceRefs", List.of(source)),
-                    Map.of("stageId", "tower", "order", 2, "role", "search", "coreProblem", "Search the tower", "funnelSummary", "Reach the bell", "sourceRefs", List.of(source)))));
-            response.set("sourceRefs", mapper.valueToTree(List.of(source)));
+                    Map.of("stageId", "arrival", "order", 1, "role", "opening", "coreProblem", "The bell is missing", "funnelSummary", "Find clues", "sourceRefs", allowed),
+                    Map.of("stageId", "tower", "order", 2, "role", "search", "coreProblem", "Search the tower", "funnelSummary", "Reach the bell", "sourceRefs", allowed))));
+            response.set("sourceRefs", mapper.valueToTree(allowed));
             return response;
         };
         var adapter = new ScenarioPackageStageArtifactAdapter(packages, gm, bindings, sessions, mapper);
@@ -281,6 +292,12 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertEquals(List.of("opening"), detailed.situations().get(1).prerequisiteSituationIds());
         assertTrue(calls.getLast().prompt().contains("supplied map UUID or null"));
         assertEquals("array", calls.getLast().outputSchema().path("properties").path("situations").path("type").asText());
+        var detailRefSchema = calls.getLast().outputSchema().path("properties").path("sourceRefs").path("items");
+        assertEquals(List.of(source.knowledgeDocumentId().value().toString()), mapper.convertValue(detailRefSchema
+                .path("properties").path("knowledgeDocumentId").path("properties").path("value").path("enum"),
+                mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
+        assertEquals(List.of(1), mapper.convertValue(detailRefSchema.path("properties").path("extractionVersion")
+                .path("enum"), mapper.getTypeFactory().constructCollectionType(List.class, Integer.class)));
         assertEquals(List.of("string", "null"), mapper.convertValue(calls.getLast().outputSchema()
                 .path("properties").path("situations").path("items").path("properties").path("mapDefinitionId").path("type"),
                 mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
@@ -306,6 +323,10 @@ class ScenarioPackageStageArtifactAdapterTest {
             branch.path("required").forEach(field -> required.add(field.asText()));
             assertEquals(declared, required);
         }
+
+        adapter.generate(new StageBackboneGenerationPort.Request(adventureId, sessionId,
+                scenarioPackage.packageId(), List.of()));
+        assertEquals(0, calls.getLast().outputSchema().path("properties").path("sourceRefs").path("maxItems").asInt());
     }
 
     @Test
