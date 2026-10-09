@@ -251,11 +251,11 @@ class ScenarioPackageStageArtifactAdapterTest {
                         "revelations", List.of(Map.of("revelationId", "truth", "required", true, "sourceRefs", refs)),
                         "threat", Map.of("core", "The bell's keeper is worried", "sourceRefs", refs),
                         "pressure", Map.of("pressureId", "pressure", "progressionMaterial", "Night is falling", "sourceRefs", refs),
-                        "funnel", Map.of("funnelId", "funnel", "meaning", "Find the bell", "requiredRevelationIds", List.of("truth"), "requiredPredicateIds", List.of("predicate-open"), "sourceRefs", refs),
+                        "funnel", Map.of("funnelId", "funnel", "meaning", "Find the bell", "requiredRevelationIndexes", List.of(0), "requiredPredicateIds", List.of("predicate-open"), "sourceRefs", refs),
                         "situations", List.of(
                                 generatedSituation("opening", true, true, List.of(), "SOURCE_EXTRACTED", refs),
                                 generatedSituation("candidate", false, false, List.of("opening"), "GM_SUPPLEMENTED", List.of())),
-                        "importantConsequenceIds", List.of(), "sourceRefs", refs));
+                        "importantConsequenceIds", List.of("consequence"), "sourceRefs", refs));
             }
             List<ScenarioSourceReference> allowed = request.prompt().contains("ALLOWED_SOURCE_REFS=[]")
                     ? List.of() : List.of(source);
@@ -292,7 +292,12 @@ class ScenarioPackageStageArtifactAdapterTest {
         var detailed = adapter.generate(new StageDetailedGenerationPort.Request(adventureId, sessionId,
                 scenarioPackage.packageId(), "arrival", 1, List.of(source)));
         assertEquals(2, detailed.situations().size());
+        assertEquals(List.of("truth"), detailed.situations().getFirst().revelationIds());
+        assertEquals(List.of("pressure"), detailed.situations().getFirst().pressureIds());
+        assertEquals(List.of("funnel"), detailed.situations().getFirst().funnelIds());
         assertEquals(List.of("predicate-open"), detailed.situations().getFirst().funnelPredicateIds());
+        assertEquals(List.of("consequence"), detailed.situations().getFirst().importantConsequenceIds());
+        assertEquals(List.of("truth"), detailed.funnel().requiredRevelationIds());
         assertTrue(detailed.situations().get(0).required());
         assertEquals(com.dndmaster.adventure.domain.scenario.SituationProvenance.SOURCE_EXTRACTED,
                 detailed.situations().get(0).provenance());
@@ -300,7 +305,7 @@ class ScenarioPackageStageArtifactAdapterTest {
                 detailed.situations().get(1).provenance());
         assertEquals(List.of("opening"), detailed.situations().get(1).prerequisiteSituationIds());
         assertTrue(calls.getLast().prompt().contains("supplied map UUID or null"));
-        assertTrue(calls.getLast().prompt().contains("never invent separate predicate IDs for situations"));
+        assertTrue(calls.getLast().prompt().contains("never invent separate target IDs"));
         assertEquals("array", calls.getLast().outputSchema().path("properties").path("situations").path("type").asText());
         var detailRefSchema = calls.getLast().outputSchema().path("properties").path("sourceRefs").path("items");
         assertEquals(List.of(source.knowledgeDocumentId().value().toString()), mapper.convertValue(detailRefSchema
@@ -324,14 +329,20 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertFalse(situationSchema.path("properties").has("funnelPredicateIds"));
         assertEquals("integer", situationSchema.path("properties").path("funnelPredicateIndexes").path("items")
                 .path("type").asText());
+        for (String target : List.of("revelationIndexes", "pressureIndexes", "funnelIndexes", "funnelPredicateIndexes",
+                "importantConsequenceIndexes")) {
+            assertEquals("integer", situationSchema.path("properties").path(target).path("items").path("type").asText());
+        }
+        assertEquals("integer", calls.getLast().outputSchema().path("properties").path("funnel").path("properties")
+                .path("requiredRevelationIndexes").path("items").path("type").asText());
         assertEquals(5, situationSchema.path("anyOf").size());
-        for (String target : List.of("revelationIds", "pressureIds", "funnelIds", "funnelPredicateIndexes", "importantConsequenceIds")) {
+        for (String target : List.of("revelationIndexes", "pressureIndexes", "funnelIndexes", "funnelPredicateIndexes",
+                "importantConsequenceIndexes")) {
             var branch = java.util.stream.StreamSupport.stream(situationSchema.path("anyOf").spliterator(), false)
                     .filter(candidate -> candidate.path("properties").path(target).has("minItems"))
                     .findFirst().orElseThrow();
             assertEquals(1, branch.path("properties").path(target).path("minItems").asInt());
-            assertEquals(target.equals("funnelPredicateIndexes") ? "integer" : "string",
-                    branch.path("properties").path(target).path("items").path("type").asText());
+            assertEquals("integer", branch.path("properties").path(target).path("items").path("type").asText());
             assertFalse(branch.path("additionalProperties").asBoolean(true));
             assertEquals(branch.path("properties").size(), branch.path("required").size());
             var declared = new java.util.HashSet<String>();
@@ -340,11 +351,18 @@ class ScenarioPackageStageArtifactAdapterTest {
             branch.path("required").forEach(field -> required.add(field.asText()));
             assertEquals(declared, required);
         }
-        var resolver = ScenarioPackageStageArtifactAdapter.class.getDeclaredMethod("resolveFunnelPredicateIndexes",
+        var resolver = ScenarioPackageStageArtifactAdapter.class.getDeclaredMethod("resolveSituationTargetIndexes",
                 com.fasterxml.jackson.databind.JsonNode.class);
         resolver.setAccessible(true);
-        var invalidIndexResponse = mapper.valueToTree(Map.of("funnel", Map.of("requiredPredicateIds", List.of("predicate-open")),
-                "situations", List.of(Map.of("funnelPredicateIndexes", List.of(1)))));
+        var invalidIndexResponse = mapper.valueToTree(Map.of(
+                "revelations", List.of(Map.of("revelationId", "truth")),
+                "pressure", Map.of("pressureId", "pressure"),
+                "funnel", Map.of("funnelId", "funnel", "requiredRevelationIndexes", List.of(0),
+                        "requiredPredicateIds", List.of("predicate-open")),
+                "importantConsequenceIds", List.of("consequence"),
+                "situations", List.of(Map.of("revelationIndexes", List.of(1), "pressureIndexes", List.of(),
+                        "funnelIndexes", List.of(), "funnelPredicateIndexes", List.of(),
+                        "importantConsequenceIndexes", List.of()))));
         assertThrows(java.lang.reflect.InvocationTargetException.class,
                 () -> resolver.invoke(null, invalidIndexResponse));
 
@@ -408,11 +426,11 @@ class ScenarioPackageStageArtifactAdapterTest {
         Map<String, Object> result = new java.util.HashMap<>();
         result.put("situationId", id);
         result.put("intents", List.of("REVELATION"));
-        result.put("revelationIds", List.of("truth"));
-        result.put("pressureIds", List.of());
-        result.put("funnelIds", List.of());
+        result.put("revelationIndexes", List.of(0));
+        result.put("pressureIndexes", id.equals("opening") ? List.of(0) : List.of());
+        result.put("funnelIndexes", id.equals("opening") ? List.of(0) : List.of());
         result.put("funnelPredicateIndexes", id.equals("opening") ? List.of(0) : List.of());
-        result.put("importantConsequenceIds", List.of());
+        result.put("importantConsequenceIndexes", id.equals("opening") ? List.of(0) : List.of());
         result.put("opening", opening);
         result.put("required", required);
         result.put("prerequisiteSituationIds", prerequisites);

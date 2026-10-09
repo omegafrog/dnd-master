@@ -109,7 +109,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations()),
                     request.evidence());
             var content = generated.deepCopy();
-            resolveFunnelPredicateIndexes(content);
+            resolveSituationTargetIndexes(content);
             ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("scenarioPackageId", request.scenarioPackageId().toString());
             ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("backboneRevision", request.backboneRevision());
             ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("stageId", request.stageId());
@@ -174,10 +174,11 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             Map<String, Object> situationProperties = Map.ofEntries(
                     Map.entry("situationId", stringSchema()),
                     Map.entry("intents", arraySchema(enumSchema("REVELATION", "PRESSURE", "FUNNEL_OPPORTUNITY", "IMPORTANT_CONSEQUENCE"), 1)),
-                    Map.entry("revelationIds", arraySchema(stringSchema())), Map.entry("pressureIds", arraySchema(stringSchema())),
-                    Map.entry("funnelIds", arraySchema(stringSchema())),
+                    Map.entry("revelationIndexes", arraySchema(indexSchema())),
+                    Map.entry("pressureIndexes", arraySchema(indexSchema())),
+                    Map.entry("funnelIndexes", arraySchema(indexSchema())),
                     Map.entry("funnelPredicateIndexes", arraySchema(Map.of("type", "integer", "minimum", 0))),
-                    Map.entry("importantConsequenceIds", arraySchema(stringSchema())), Map.entry("opening", booleanSchema()),
+                    Map.entry("importantConsequenceIndexes", arraySchema(indexSchema())), Map.entry("opening", booleanSchema()),
                     Map.entry("required", booleanSchema()), Map.entry("prerequisiteSituationIds", arraySchema(stringSchema())),
                     Map.entry("provenance", enumSchema("SOURCE_EXTRACTED", "GM_SUPPLEMENTED")),
                     Map.entry("mapDefinitionId", nullableStringSchema()), Map.entry("sourceRefs", sourceReferencesSchema(allowedRefs)));
@@ -189,7 +190,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     "pressure", objectSchema(Map.of("pressureId", stringSchema(), "progressionMaterial", stringSchema(),
                             "sourceRefs", sourceReferencesSchema(allowedRefs))),
                     "funnel", objectSchema(Map.of("funnelId", stringSchema(), "meaning", stringSchema(),
-                            "requiredRevelationIds", arraySchema(stringSchema()), "requiredPredicateIds", arraySchema(stringSchema()),
+                            "requiredRevelationIndexes", arraySchema(indexSchema()), "requiredPredicateIds", arraySchema(stringSchema()),
                             "sourceRefs", sourceReferencesSchema(allowedRefs))),
                     "situations", arraySchema(situation), "importantConsequenceIds", arraySchema(stringSchema()),
                     "sourceRefs", sourceReferencesSchema(allowedRefs));
@@ -228,8 +229,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     }
 
     private static Map<String, Object> situationSchema(Map<String, Object> properties) {
-        List<Map<String, Object>> targetAlternatives = List.of("revelationIds", "pressureIds", "funnelIds",
-                "funnelPredicateIndexes", "importantConsequenceIds").stream().map(target -> {
+        List<Map<String, Object>> targetAlternatives = List.of("revelationIndexes", "pressureIndexes", "funnelIndexes",
+                "funnelPredicateIndexes", "importantConsequenceIndexes").stream().map(target -> {
                     Map<String, Object> branchProperties = new LinkedHashMap<>(properties);
                     Map<String, Object> targetSchema = new LinkedHashMap<>();
                     ((Map<?, ?>) properties.get(target)).forEach((key, value) -> targetSchema.put((String) key, value));
@@ -255,6 +256,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         return Map.of("type", "array", "items", items, "minItems", minItems);
     }
 
+    private static Map<String, Object> indexSchema() { return Map.of("type", "integer", "minimum", 0); }
+
     private static Map<String, Object> stringSchema() { return Map.of("type", "string", "minLength", 1); }
     private static Map<String, Object> nullableStringSchema() { return Map.of("type", List.of("string", "null"), "minLength", 1); }
     private static Map<String, Object> booleanSchema() { return Map.of("type", "boolean"); }
@@ -277,8 +280,11 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 + "Include required situations needed to preserve the source story and multiple intermediate candidates when supported by the story. "
                 + "Do not force a fixed candidate count, add unstated prerequisite relations, or make optional ingredients mandatory. "
                 + "For every situation include required, prerequisiteSituationIds, provenance (SOURCE_EXTRACTED or GM_SUPPLEMENTED), "
-                + "and funnelPredicateIndexes as integer positions in this same response's funnel.requiredPredicateIds array; "
-                + "never invent separate predicate IDs for situations. "
+                + "and use integer index arrays for dynamic references: requiredRevelationIndexes and revelationIndexes index this response's "
+                + "revelations[].revelationId values; pressureIndexes indexes the single pressure.pressureId; funnelIndexes indexes the single "
+                + "funnel.funnelId; funnelPredicateIndexes indexes this response's funnel.requiredPredicateIds; and importantConsequenceIndexes "
+                + "indexes importantConsequenceIds. Use only in-range indexes and never invent separate target IDs. "
+                + "The funnel's requiredRevelationIndexes also indexes this response's revelations[].revelationId values. "
                 + "sourceRefs (exact allowed references for extracted claims; empty for GM supplements), and mapDefinitionId "
                 + "(one supplied map UUID or null). Return a complete DetailedStage JSON object except package/revision/stage identifiers. "
                 + "Use only these map IDs: " + json(scenarioPackage.mapDefinitions().stream().map(m -> m.id()).toList())
@@ -287,34 +293,66 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 + "\nALLOWED_SOURCE_REFS=" + json(evidence);
     }
 
-    private static void resolveFunnelPredicateIndexes(JsonNode detailed) {
-        JsonNode predicateIds = detailed.path("funnel").path("requiredPredicateIds");
+    private static void resolveSituationTargetIndexes(JsonNode detailed) {
+        List<String> revelationIds = textArray(detailed.path("revelations"), "revelationId");
+        JsonNode pressure = detailed.path("pressure");
+        JsonNode funnel = detailed.path("funnel");
+        List<String> pressureIds = List.of(requiredText(pressure.path("pressureId")));
+        List<String> funnelIds = List.of(requiredText(funnel.path("funnelId")));
+        List<String> predicateIds = textArray(funnel.path("requiredPredicateIds"));
+        List<String> consequenceIds = textArray(detailed.path("importantConsequenceIds"));
         JsonNode situations = detailed.path("situations");
-        if (!predicateIds.isArray() || !situations.isArray()) {
-            throw new IllegalStateException("detailed situation predicate indexes are invalid");
-        }
+        if (!situations.isArray()) throw new IllegalStateException("detailed situation target indexes are invalid");
+        var funnelObject = (com.fasterxml.jackson.databind.node.ObjectNode) funnel;
+        funnelObject.set("requiredRevelationIds", indexValues(funnel.path("requiredRevelationIndexes"), revelationIds));
+        funnelObject.remove("requiredRevelationIndexes");
         for (JsonNode situation : situations) {
-            JsonNode indexes = situation.path("funnelPredicateIndexes");
-            if (!situation.isObject() || !indexes.isArray()) {
-                throw new IllegalStateException("detailed situation predicate indexes are invalid");
-            }
-            var resolved = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode();
-            for (JsonNode index : indexes) {
-                if (!index.isIntegralNumber() || !index.canConvertToInt() || index.intValue() < 0
-                        || index.intValue() >= predicateIds.size()) {
-                    throw new IllegalStateException("detailed situation references an unknown funnel predicate index");
-                }
-                JsonNode predicateId = predicateIds.get(index.intValue());
-                if (!predicateId.isTextual() || predicateId.textValue().isBlank()) {
-                    throw new IllegalStateException("detailed situation predicate target is invalid");
-                }
-                resolved.add(predicateId.textValue());
-            }
+            if (!situation.isObject()) throw new IllegalStateException("detailed situation target indexes are invalid");
             var object = (com.fasterxml.jackson.databind.node.ObjectNode) situation;
-            object.set("funnelPredicateIds", resolved);
-            object.remove("funnelPredicateIndexes");
+            object.set("revelationIds", indexValues(situation.path("revelationIndexes"), revelationIds));
+            object.set("pressureIds", indexValues(situation.path("pressureIndexes"), pressureIds));
+            object.set("funnelIds", indexValues(situation.path("funnelIndexes"), funnelIds));
+            object.set("funnelPredicateIds", indexValues(situation.path("funnelPredicateIndexes"), predicateIds));
+            object.set("importantConsequenceIds", indexValues(situation.path("importantConsequenceIndexes"), consequenceIds));
+            object.remove(List.of("revelationIndexes", "pressureIndexes", "funnelIndexes", "funnelPredicateIndexes",
+                    "importantConsequenceIndexes"));
         }
     }
+
+    private static com.fasterxml.jackson.databind.node.ArrayNode indexValues(JsonNode indexes, List<String> canonicalIds) {
+        if (!indexes.isArray()) throw new IllegalStateException("detailed situation target indexes are invalid");
+        var resolved = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode();
+        for (JsonNode index : indexes) {
+            if (!index.isIntegralNumber() || !index.canConvertToInt() || index.intValue() < 0
+                    || index.intValue() >= canonicalIds.size()) {
+                throw new IllegalStateException("detailed situation references an unknown target index");
+            }
+            resolved.add(canonicalIds.get(index.intValue()));
+        }
+        return resolved;
+    }
+
+    private static List<String> textArray(JsonNode values) {
+        if (!values.isArray()) throw new IllegalStateException("detailed situation canonical targets are invalid");
+        List<String> result = new ArrayList<>();
+        for (JsonNode value : values) result.add(requiredText(value));
+        return List.copyOf(result);
+    }
+
+    private static List<String> textArray(JsonNode values, String field) {
+        if (!values.isArray()) throw new IllegalStateException("detailed situation canonical targets are invalid");
+        List<String> result = new ArrayList<>();
+        for (JsonNode value : values) result.add(requiredText(value.path(field)));
+        return List.copyOf(result);
+    }
+
+    private static String requiredText(JsonNode value) {
+        if (!value.isTextual() || value.textValue().isBlank()) {
+            throw new IllegalStateException("detailed situation canonical target is invalid");
+        }
+        return value.textValue();
+    }
+
 
     private List<StorySourcePreviewPort.Passage> sourcePassages(ScenarioPackage scenarioPackage) {
         if (storySource == null) return List.of();
