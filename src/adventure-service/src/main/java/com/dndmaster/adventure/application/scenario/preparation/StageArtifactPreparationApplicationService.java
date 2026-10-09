@@ -75,17 +75,22 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         validateRequiredSourceRefs(generated.requiredSituations(), evidence);
         StageBackbone backbone = generated;
         var first = backbone.stages().getFirst();
-        List<DetailedStage> effectiveStages = backbone.stages().stream().map(stage -> {
+        List<DetailedStage> effectiveStages = new java.util.ArrayList<>();
+        java.util.Set<String> assignedRequiredSituationIds = new java.util.LinkedHashSet<>();
+        for (StageBackboneEntry stage : backbone.stages()) {
                 DetailedStage detailed = detailedGeneration.generate(new StageDetailedGenerationPort.Request(
                         adventureId, sessionId, scenarioPackageId, stage.stageId(), backbone.revision(), evidence,
-                        backbone.requiredSituations(), stage.stageId().equals(first.stageId())));
+                        backbone.requiredSituations(), stage.stageId().equals(first.stageId()),
+                        List.copyOf(assignedRequiredSituationIds)));
                 requirePackage(detailed.scenarioPackageId(), scenarioPackageId);
                 if (!detailed.stageId().equals(stage.stageId()) || detailed.backboneRevision() != backbone.revision()) {
                     throw new IllegalStateException("detailed stage does not match backbone stage");
                 }
                 validateDetailedStage(detailed, evidence, scenarioBacked, providedMapIds);
-                return detailed;
-            }).toList();
+                effectiveStages.add(detailed);
+                detailed.situations().stream().filter(s -> s.required() && s.provenance() == com.dndmaster.adventure.domain.scenario.SituationProvenance.SOURCE_EXTRACTED)
+                        .map(SituationDefinition::situationId).forEach(assignedRequiredSituationIds::add);
+        }
         validateInitialSituationSet(effectiveStages, providedMapIds, backbone.stages(), backbone.requiredSituations());
         DetailedStage effectiveStage = effectiveStages.stream().filter(stage -> stage.stageId().equals(first.stageId()))
                 .findFirst().orElseThrow();

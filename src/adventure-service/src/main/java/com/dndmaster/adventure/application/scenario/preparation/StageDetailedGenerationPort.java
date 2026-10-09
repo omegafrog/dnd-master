@@ -14,15 +14,22 @@ public interface StageDetailedGenerationPort {
 
     record Request(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId, String stageId,
             long backboneRevision, List<ScenarioSourceReference> evidence, List<RequiredSituation> requiredSituations,
-            boolean openingSituationRequired) {
+            boolean openingSituationRequired, List<String> alreadyAssignedRequiredSituationIds) {
         public Request(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId, String stageId,
                 long backboneRevision, List<ScenarioSourceReference> evidence) {
-            this(adventureId, sessionId, scenarioPackageId, stageId, backboneRevision, evidence, List.of(), false);
+            this(adventureId, sessionId, scenarioPackageId, stageId, backboneRevision, evidence, List.of(), false, List.of());
         }
         public Request(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId, String stageId,
                 long backboneRevision, List<ScenarioSourceReference> evidence, List<RequiredSituation> requiredSituations) {
-            this(adventureId, sessionId, scenarioPackageId, stageId, backboneRevision, evidence, requiredSituations, false);
+            this(adventureId, sessionId, scenarioPackageId, stageId, backboneRevision, evidence, requiredSituations, false, List.of());
         }
-        public Request { evidence = List.copyOf(evidence); requiredSituations = List.copyOf(requiredSituations); }
+        public Request(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId, String stageId,
+                long backboneRevision, List<ScenarioSourceReference> evidence, List<RequiredSituation> requiredSituations,
+                boolean openingSituationRequired) {
+            this(adventureId, sessionId, scenarioPackageId, stageId, backboneRevision, evidence, requiredSituations,
+                    openingSituationRequired, List.of());
+        }
+        public Request { evidence = List.copyOf(evidence); requiredSituations = List.copyOf(requiredSituations);
+            alreadyAssignedRequiredSituationIds = List.copyOf(alreadyAssignedRequiredSituationIds); }
     }
 }

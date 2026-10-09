@@ -76,6 +76,45 @@ class StageArtifactPreparationApplicationServiceTest {
     }
 
     @Test
+    void passes_previously_assigned_required_ids_to_each_later_stage_without_changing_reviewed_list() {
+        var repository = new StageArtifactRepository.InMemory();
+        var required = List.of(
+                new RequiredSituation("opening", "The bell disappears", List.of(), List.of(evidence)),
+                new RequiredSituation("tower", "The bell is found", List.of("opening"), List.of(evidence)));
+        var backbone = new StageBackbone(packageId, 1, backbone().stages(), List.of(evidence), required);
+        var first = detailedWithSituations(List.of(extractedRequired("opening", List.of()),
+                extractedCandidate("candidate-a"), extractedCandidate("candidate-b")));
+        var second = new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
+                List.of(new RevelationDefinition("truth-2", true, List.of(evidence))),
+                new ThreatDefinition("Hunters close in", List.of(evidence)),
+                new PressureDefinition("The search grows dangerous", List.of(evidence)),
+                new FunnelDefinition("The heir is located", List.of("truth-2"), List.of(evidence)),
+                List.of(new SituationDefinition("tower", List.of(StageIntent.REVELATION), List.of("truth-2"),
+                                List.of(), List.of(), List.of(), List.of(), false, true, List.of("opening"),
+                                SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence)),
+                        new SituationDefinition("candidate-c", List.of(StageIntent.REVELATION), List.of("truth-2"),
+                                List.of(), List.of(), List.of(), List.of(), false, false, List.of(),
+                                SituationProvenance.GM_SUPPLEMENTED, null, List.of()),
+                        new SituationDefinition("candidate-d", List.of(StageIntent.REVELATION), List.of("truth-2"),
+                                List.of(), List.of(), List.of(), List.of(), false, false, List.of(),
+                                SituationProvenance.GM_SUPPLEMENTED, null, List.of())),
+                List.of(), List.of(evidence));
+        var requests = new java.util.ArrayList<StageDetailedGenerationPort.Request>();
+        var service = new StageArtifactPreparationApplicationService(repository,
+                request -> List.of(evidence), request -> backbone, request -> {
+                    requests.add(request);
+                    return request.stageId().equals("stage-1") ? first : second;
+                });
+
+        service.prepare(adventureId, sessionId, packageId);
+
+        assertEquals(List.of(), requests.get(0).alreadyAssignedRequiredSituationIds());
+        assertEquals(List.of("opening"), requests.get(1).alreadyAssignedRequiredSituationIds());
+        assertEquals(required, requests.get(0).requiredSituations());
+        assertEquals(required, requests.get(1).requiredSituations());
+    }
+
+    @Test
     void rejects_cyclic_prerequisites_before_publishing_any_initial_artifact() {
         var repository = new StageArtifactRepository.InMemory();
         var first = new DetailedStage(packageId, 1, "stage-1", 1, "Find the heir",

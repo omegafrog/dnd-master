@@ -108,7 +108,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
             JsonNode generated = generate(request.sessionId(), request.adventureId().value(),
                     request.scenarioPackageId(), "stage:" + request.stageId(),
-                    detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations())
+                    detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations(), request.alreadyAssignedRequiredSituationIds())
                             + (request.openingSituationRequired() ? " The openingSituationIndex must select one situation because this is the first stage." : ""),
                     request.evidence(), request.openingSituationRequired(), scenarioPackage.mapDefinitions().stream()
                             .map(com.dndmaster.adventure.domain.scenario.MapDefinition::id)
@@ -351,7 +351,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     }
 
     private String detailedPrompt(ScenarioPackage scenarioPackage, String stageId, List<ScenarioSourceReference> evidence,
-            List<RequiredSituation> required) {
+            List<RequiredSituation> required, List<String> alreadyAssigned) {
         return "Prepare the situation definitions and supporting details for stage " + stageId + " from this compiled story model. "
                 + "Include required situations needed to preserve the source story and multiple intermediate candidates when supported by the story. "
                 + "Do not force a fixed candidate count, add unstated prerequisite relations, or make optional ingredients mandatory. "
@@ -372,6 +372,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 + "Use only these map IDs: " + json(scenarioPackage.mapDefinitions().stream().map(m -> m.id()).toList())
                 + "\nUse these exact situationId values for every reviewed required situation and preserve each prerequisiteSituationIds list: "
                 + json(required) + "\nSCENARIO_MODEL=" + json(scenarioPackage.scenarioModel()) + "\nSOURCE_QUOTES=" + sourceQuotes(scenarioPackage)
+                + "\nALREADY_ASSIGNED_REQUIRED_SITUATION_IDS=" + json(alreadyAssigned)
+                + "\nDo not emit any already assigned required situation ID in this stage; emit each remaining required situation at most once."
                 + "\nNUMBERED_ALLOWED_SOURCE_REFS=" + numberedSourceRefs(evidence);
     }
 
