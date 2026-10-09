@@ -100,6 +100,52 @@ class StageArtifactPreparationApplicationServiceTest {
     }
 
     @Test
+    void rejects_reviewed_prerequisite_in_a_later_stage_before_publication() {
+        var repository = new StageArtifactRepository.InMemory();
+        var required = List.of(
+                new RequiredSituation("opening", "The bell disappears", List.of(), List.of(evidence)),
+                new RequiredSituation("dependent", "The bell is found", List.of("prerequisite"), List.of(evidence)),
+                new RequiredSituation("prerequisite", "The tower is opened", List.of(), List.of(evidence)));
+        var backbone = new StageBackbone(packageId, 1, backbone().stages(), List.of(evidence), required);
+        var first = detailedWithSituations(List.of(extractedRequired("opening", List.of()),
+                extractedRequired("dependent", List.of("prerequisite")), extractedCandidate("candidate-a"),
+                extractedCandidate("candidate-b")));
+        var later = new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
+                List.of(new RevelationDefinition("truth-2", true, List.of(evidence))),
+                new ThreatDefinition("Hunters close in", List.of(evidence)),
+                new PressureDefinition("The search grows dangerous", List.of(evidence)),
+                new FunnelDefinition("The heir is located", List.of("truth-2"), List.of(evidence)),
+                List.of(new SituationDefinition("prerequisite", List.of(StageIntent.REVELATION), List.of("truth-2"),
+                                List.of(), List.of(), List.of(), List.of(), false, true, List.of(),
+                                SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence)),
+                        new SituationDefinition("candidate-c", List.of(StageIntent.REVELATION), List.of("truth-2"),
+                                List.of(), List.of(), List.of(), List.of(), false, false, List.of(),
+                                SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence))),
+                List.of(), List.of(evidence));
+        var service = new StageArtifactPreparationApplicationService(repository, request -> List.of(evidence),
+                request -> backbone, request -> request.stageId().equals("stage-1") ? first : later);
+
+        assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
+        assertEquals(0, repository.findBackbone(adventureId, packageId, 1).stream().count());
+    }
+
+    @Test
+    void allows_reviewed_prerequisite_and_dependent_in_the_same_stage() {
+        var repository = new StageArtifactRepository.InMemory();
+        var required = List.of(
+                new RequiredSituation("opening", "The bell disappears", List.of(), List.of(evidence)),
+                new RequiredSituation("prerequisite", "The tower is opened", List.of("opening"), List.of(evidence)));
+        var backbone = new StageBackbone(packageId, 1, singleStageBackbone().stages(), List.of(evidence), required);
+        var stage = detailedWithSituations(List.of(extractedRequired("opening", List.of()),
+                extractedRequired("prerequisite", List.of("opening")), extractedCandidate("candidate-a"),
+                extractedCandidate("candidate-b")));
+        var service = new StageArtifactPreparationApplicationService(repository, request -> List.of(evidence),
+                request -> backbone, request -> stage);
+
+        assertEquals(stage, service.prepare(adventureId, sessionId, packageId).currentStage());
+    }
+
+    @Test
     void reports_only_safe_origin_fields_when_initial_situation_ids_still_collide() {
         var repository = new StageArtifactRepository.InMemory();
         var first = detailedWithSituations(List.of(

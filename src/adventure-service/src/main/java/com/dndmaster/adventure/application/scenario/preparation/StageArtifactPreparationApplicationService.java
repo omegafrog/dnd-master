@@ -56,7 +56,8 @@ public final class StageArtifactPreparationApplicationService implements StageAr
             java.util.Set<UUID> savedMapIds = persistedStages.stream().flatMap(stage -> stage.situations().stream())
                     .map(SituationDefinition::mapDefinitionId).filter(Objects::nonNull)
                     .collect(java.util.stream.Collectors.toSet());
-            validateInitialSituationSet(persistedStages, savedMapIds, persistedBackbone.requiredSituations());
+            validateInitialSituationSet(persistedStages, savedMapIds, persistedBackbone.stages(),
+                    persistedBackbone.requiredSituations());
             DetailedStage firstStage = persistedStages.getFirst();
             SituationDefinition opening = firstStage.situations().stream().filter(SituationDefinition::opening).findFirst()
                     .orElseThrow(() -> new IllegalStateException("opening situation is required"));
@@ -85,7 +86,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                 validateDetailedStage(detailed, evidence, scenarioBacked, providedMapIds);
                 return detailed;
             }).toList();
-        validateInitialSituationSet(effectiveStages, providedMapIds, backbone.requiredSituations());
+        validateInitialSituationSet(effectiveStages, providedMapIds, backbone.stages(), backbone.requiredSituations());
         DetailedStage effectiveStage = effectiveStages.stream().filter(stage -> stage.stageId().equals(first.stageId()))
                 .findFirst().orElseThrow();
         SituationDefinition opening = effectiveStage.situations().stream().filter(SituationDefinition::opening).findFirst()
@@ -180,9 +181,11 @@ public final class StageArtifactPreparationApplicationService implements StageAr
     }
 
     private static void validateInitialSituationSet(List<DetailedStage> stages, java.util.Set<UUID> providedMapIds,
-            List<RequiredSituation> required) {
+            List<StageBackboneEntry> backboneStages, List<RequiredSituation> required) {
         java.util.Map<String, SituationDefinition> situations = new java.util.LinkedHashMap<>();
         java.util.Map<String, String> situationStages = new java.util.HashMap<>();
+        java.util.Map<String, Integer> stageOrders = new java.util.HashMap<>();
+        backboneStages.forEach(stage -> stageOrders.put(stage.stageId(), stage.order()));
         for (DetailedStage stage : stages) {
             for (SituationDefinition situation : stage.situations()) {
                 SituationDefinition previous = situations.putIfAbsent(situation.situationId(), situation);
@@ -226,6 +229,18 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         for (SituationDefinition situation : situations.values()) {
             if (!situations.keySet().containsAll(situation.prerequisiteSituationIds())) {
                 throw new IllegalStateException("situation prerequisite does not exist in the initial set");
+            }
+        }
+        for (RequiredSituation item : required) {
+            Integer dependentOrder = stageOrders.get(situationStages.get(item.situationId()));
+            for (String prerequisiteId : item.prerequisiteSituationIds()) {
+                Integer prerequisiteOrder = stageOrders.get(situationStages.get(prerequisiteId));
+                if (dependentOrder == null || prerequisiteOrder == null) {
+                    throw new IllegalStateException("reviewed situation prerequisite has no initial stage");
+                }
+                if (prerequisiteOrder > dependentOrder) {
+                    throw new IllegalStateException("reviewed situation prerequisite must be in the same or an earlier stage");
+                }
             }
         }
         java.util.Set<String> visiting = new java.util.HashSet<>();
