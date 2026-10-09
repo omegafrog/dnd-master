@@ -284,6 +284,13 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertEquals(List.of("string", "null"), mapper.convertValue(calls.getLast().outputSchema()
                 .path("properties").path("situations").path("items").path("properties").path("mapDefinitionId").path("type"),
                 mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
+        assertEquals(1, calls.getLast().outputSchema().path("properties").path("situations").path("items")
+                .path("properties").path("intents").path("minItems").asInt());
+        assertEquals(1, calls.getLast().outputSchema().path("properties").path("coreProblem").path("minLength").asInt());
+        assertEquals(1, calls.getLast().outputSchema().path("properties").path("situations").path("items")
+                .path("properties").path("mapDefinitionId").path("minLength").asInt());
+        assertFalse(calls.getLast().outputSchema().path("properties").path("situations").path("items")
+                .path("properties").path("revelationIds").has("minItems"));
     }
 
     @Test

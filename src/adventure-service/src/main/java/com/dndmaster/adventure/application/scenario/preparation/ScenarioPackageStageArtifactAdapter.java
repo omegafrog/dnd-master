@@ -169,7 +169,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         } else if (task.startsWith("stage:")) {
             Map<String, Object> situation = objectSchema(Map.ofEntries(
                     Map.entry("situationId", stringSchema()),
-                    Map.entry("intents", arraySchema(enumSchema("REVELATION", "PRESSURE", "FUNNEL_OPPORTUNITY", "IMPORTANT_CONSEQUENCE"))),
+                    Map.entry("intents", arraySchema(enumSchema("REVELATION", "PRESSURE", "FUNNEL_OPPORTUNITY", "IMPORTANT_CONSEQUENCE"), 1)),
                     Map.entry("revelationIds", arraySchema(stringSchema())), Map.entry("pressureIds", arraySchema(stringSchema())),
                     Map.entry("funnelIds", arraySchema(stringSchema())), Map.entry("funnelPredicateIds", arraySchema(stringSchema())),
                     Map.entry("importantConsequenceIds", arraySchema(stringSchema())), Map.entry("opening", booleanSchema()),
@@ -217,8 +217,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         return Map.of("type", "array", "items", items, "minItems", minItems);
     }
 
-    private static Map<String, Object> stringSchema() { return Map.of("type", "string"); }
-    private static Map<String, Object> nullableStringSchema() { return Map.of("type", List.of("string", "null")); }
+    private static Map<String, Object> stringSchema() { return Map.of("type", "string", "minLength", 1); }
+    private static Map<String, Object> nullableStringSchema() { return Map.of("type", List.of("string", "null"), "minLength", 1); }
     private static Map<String, Object> booleanSchema() { return Map.of("type", "boolean"); }
     private static Map<String, Object> enumSchema(String... values) { return Map.of("type", "string", "enum", List.of(values)); }
 
