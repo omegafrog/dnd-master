@@ -134,6 +134,24 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertThrows(IllegalStateException.class, () -> mismatchedIdCorrection.generate(new StageBackboneGenerationPort.Request(
                 AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
 
+        InitialSituationGmPort nonTextIdCorrection = request -> request.operationKey().contains("required-review:repair")
+                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
+                        Map.of("situationId", 123, "sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of()),
+                        Map.of("sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
+                : gm.generate(request);
+        var nonTextId = new ScenarioPackageStageArtifactAdapter(packages, nonTextIdCorrection, bindings, sessions, mapper, source);
+        assertThrows(IllegalStateException.class, () -> nonTextId.generate(new StageBackboneGenerationPort.Request(
+                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
+
+        InitialSituationGmPort nonTextPrerequisite = request -> request.operationKey().contains("required-review:repair")
+                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
+                        Map.of("sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of(123)),
+                        Map.of("sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
+                : gm.generate(request);
+        var nonTextPrereq = new ScenarioPackageStageArtifactAdapter(packages, nonTextPrerequisite, bindings, sessions, mapper, source);
+        assertThrows(IllegalStateException.class, () -> nonTextPrereq.generate(new StageBackboneGenerationPort.Request(
+                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
+
         InitialSituationGmPort unknownSourceIndex = request -> request.operationKey().contains("required-review:repair")
                 ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
                         Map.of("sourceRefIndexes", List.of(99), "prerequisiteSituationIds", List.of()),
@@ -150,6 +168,30 @@ class ScenarioPackageStageArtifactAdapterTest {
                 : gm.generate(request);
         var unexpectedCorrection = new ScenarioPackageStageArtifactAdapter(packages, unexpectedField, bindings, sessions, mapper, source);
         assertThrows(IllegalStateException.class, () -> unexpectedCorrection.generate(new StageBackboneGenerationPort.Request(
+                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
+
+        InitialSituationGmPort nonBooleanReview = request -> request.operationKey().contains("required-review:repair")
+                ? mapper.valueToTree(Map.of("reviewed", "true", "correctedSituations", List.of()))
+                : gm.generate(request);
+        var nonBooleanReviewAdapter = new ScenarioPackageStageArtifactAdapter(packages, nonBooleanReview, bindings, sessions, mapper, source);
+        assertThrows(IllegalStateException.class, () -> nonBooleanReviewAdapter.generate(new StageBackboneGenerationPort.Request(
+                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
+
+        InitialSituationGmPort nonObjectCorrection = request -> request.operationKey().contains("required-review:repair")
+                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of("bad", Map.of(
+                        "sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
+                : gm.generate(request);
+        var nonObjectCorrectionAdapter = new ScenarioPackageStageArtifactAdapter(packages, nonObjectCorrection, bindings, sessions, mapper, source);
+        assertThrows(IllegalStateException.class, () -> nonObjectCorrectionAdapter.generate(new StageBackboneGenerationPort.Request(
+                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
+
+        InitialSituationGmPort blankPrerequisite = request -> request.operationKey().contains("required-review:repair")
+                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
+                        Map.of("sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of(" ")),
+                        Map.of("sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
+                : gm.generate(request);
+        var blankPrerequisiteAdapter = new ScenarioPackageStageArtifactAdapter(packages, blankPrerequisite, bindings, sessions, mapper, source);
+        assertThrows(IllegalStateException.class, () -> blankPrerequisiteAdapter.generate(new StageBackboneGenerationPort.Request(
                 AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
 
         InitialSituationGmPort failedReview = request -> request.operationKey().contains("required-review")

@@ -224,7 +224,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                         + "complete corrected list]}. Every sourceRefs value must cite a real original passage locator."
                         + "\nORIGINAL_STORY_PASSAGES=" + json(passages)
                         + "\nPROPOSED_REQUIRED_SITUATIONS=" + json(proposed.values()));
-        if (!reviewed.path("reviewed").asBoolean(false)) throw new IllegalStateException("original story review did not complete");
+        if (!reviewCompleted(reviewed)) throw new IllegalStateException("original story review did not complete");
         List<RequiredSituation> required = requiredSituations(reviewed);
         List<Map<String, Object>> invalid = invalidRequiredSituations(required, passages);
         if (!invalid.isEmpty()) {
@@ -241,7 +241,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                             + "\nNUMBERED_ALLOWED_SOURCE_REFS=" + json(java.util.stream.IntStream.range(0, allowedRefs.size())
                                     .mapToObj(index -> Map.of("index", index, "sourceRef", allowedRefs.get(index))).toList())
                             + "\nKNOWN_SITUATION_IDS=" + json(required.stream().map(RequiredSituation::situationId).distinct().toList()));
-            if (!corrected.path("reviewed").asBoolean(false)) {
+            if (!reviewCompleted(corrected)) {
                 throw new IllegalStateException("required situation correction did not complete");
             }
             List<RequiredSituation> correctedRequired = mergeCorrectedSituations(required,
@@ -253,11 +253,16 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     }
 
     private List<RequiredSituation> requiredSituations(JsonNode response) {
-        if (!response.path("requiredSituations").isArray()) {
+        if (!response.isObject() || !response.path("requiredSituations").isArray()) {
             throw new IllegalStateException("GM omitted required situation list");
         }
         return mapper.convertValue(response.path("requiredSituations"),
                 mapper.getTypeFactory().constructCollectionType(List.class, RequiredSituation.class));
+    }
+
+    private static boolean reviewCompleted(JsonNode response) {
+        return response.isObject() && response.path("reviewed").isBoolean()
+                && response.path("reviewed").booleanValue();
     }
 
     private static void validateRequiredSituations(List<RequiredSituation> required,
@@ -276,16 +281,22 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         Set<String> allowedFields = Set.of("sourceRefIndexes", "prerequisiteSituationIds", "situationId");
         for (int index = 0; index < invalid.size(); index++) {
             JsonNode item = corrected.get(index);
+            if (!item.isObject()) throw new IllegalStateException("required situation correction changed the reviewed list");
             RequiredSituation original = (RequiredSituation) invalid.get(index).get("requiredSituation");
+            JsonNode situationId = item.path("situationId");
+            JsonNode prerequisiteIds = item.path("prerequisiteSituationIds");
             var fields = item.fieldNames();
             while (fields.hasNext()) {
                 if (!allowedFields.contains(fields.next())) {
                     throw new IllegalStateException("required situation correction changed the reviewed list");
                 }
             }
-            if ((item.has("situationId") && !original.situationId().equals(item.path("situationId").asText()))
+            if ((item.has("situationId") && (!situationId.isTextual()
+                    || !original.situationId().equals(situationId.textValue())))
                     || !item.path("sourceRefIndexes").isArray()
-                    || !item.path("prerequisiteSituationIds").isArray()) {
+                    || !prerequisiteIds.isArray()
+                    || java.util.stream.StreamSupport.stream(prerequisiteIds.spliterator(), false)
+                            .anyMatch(id -> !id.isTextual() || id.textValue().isBlank())) {
                 throw new IllegalStateException("required situation correction changed the reviewed list");
             }
             List<ScenarioSourceReference> sourceRefs = new ArrayList<>();
@@ -296,8 +307,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 }
                 sourceRefs.add(allowedRefs.get(sourceRefIndex.intValue()));
             }
-            List<String> prerequisites = mapper.convertValue(item.path("prerequisiteSituationIds"),
-                    mapper.getTypeFactory().constructCollectionType(List.class, String.class));
+            List<String> prerequisites = new ArrayList<>();
+            prerequisiteIds.forEach(id -> prerequisites.add(id.textValue()));
             RequiredSituation correction = new RequiredSituation(original.situationId(), original.summary(),
                     prerequisites, sourceRefs);
             corrections.put(original.situationId(), correction);
