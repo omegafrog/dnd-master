@@ -323,7 +323,9 @@ class ScenarioPackageStageArtifactAdapterTest {
 
         var detailed = adapter.generate(new StageDetailedGenerationPort.Request(adventureId, sessionId,
                 scenarioPackage.packageId(), "arrival", 1, List.of(source),
-                List.of(new RequiredSituation("opening", "The village bell is missing", List.of(), List.of(source))), true));
+                List.of(new RequiredSituation("opening", "The village bell is missing", List.of(), List.of(source)),
+                        new RequiredSituation("tower", "Find the bell", List.of("opening"), List.of(source))),
+                true, List.of("tower")));
         assertEquals(3, detailed.situations().size());
         assertEquals(List.of("truth"), detailed.situations().getFirst().revelationIds());
         assertEquals(List.of("pressure"), detailed.situations().getFirst().pressureIds());
@@ -356,6 +358,9 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertTrue(detailedRequired.contains("openingSituationIndex"));
         assertTrue(calls.getLast().prompt().contains("openingSituationIndex"));
         assertTrue(calls.getLast().prompt().contains("must select one situation"));
+        assertTrue(calls.getLast().prompt().contains("ALREADY_ASSIGNED_REQUIRED_SITUATION_IDS=[\"tower\"]"));
+        assertTrue(calls.getLast().prompt().contains("Do not emit any already assigned required situation ID"));
+        assertTrue(calls.getLast().prompt().contains("\"situationId\":\"tower\""));
         var detailRefSchema = calls.getLast().outputSchema().path("properties").path("sourceRefIndexes");
         assertEquals("integer", detailRefSchema.path("items").path("type").asText());
         assertEquals(0, detailRefSchema.path("items").path("minimum").asInt());
