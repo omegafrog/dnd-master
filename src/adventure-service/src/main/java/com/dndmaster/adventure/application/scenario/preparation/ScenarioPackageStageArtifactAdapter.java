@@ -231,8 +231,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             JsonNode corrected = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
                     "required-review:repair", "Correct only the invalid entries in the reviewed required-situation list. "
                             + "Keep all valid entries and their meaning unchanged; do not remove a required situation or "
-                            + "invent source evidence or prerequisites. Return {reviewed:true,requiredSituations:[the "
-                            + "correctedSituations:[the corrected invalid entries only]}.\nINVALID_ENTRIES=" + json(invalid)
+                            + "invent source evidence or prerequisites. Return {reviewed:true,correctedSituations:[the "
+                            + "corrected invalid entries only]}.\nINVALID_ENTRIES=" + json(invalid)
                             + "\nCANONICAL_ALLOWED_SOURCE_REFS=" + json(passages.stream()
                                     .map(StorySourcePreviewPort.Passage::sourceRef).distinct().toList())
                             + "\nKNOWN_SITUATION_IDS=" + json(required.stream().map(RequiredSituation::situationId).distinct().toList()));

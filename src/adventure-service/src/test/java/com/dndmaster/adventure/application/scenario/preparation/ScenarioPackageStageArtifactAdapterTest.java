@@ -91,6 +91,7 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertTrue(calls.get(2).prompt().contains("After meeting the keeper, recover the bell."));
         assertTrue(calls.get(2).prompt().contains("PROPOSED_REQUIRED_SITUATIONS"));
         assertTrue(calls.get(3).operationKey().contains("required-review:repair"));
+        assertTrue(calls.get(3).prompt().contains("Return {reviewed:true,correctedSituations:[the corrected invalid entries only]}"));
         assertTrue(calls.get(3).prompt().contains("missing"));
         assertTrue(calls.get(3).prompt().contains("page:99"));
         assertTrue(calls.get(3).prompt().contains("ALLOWED_SOURCE_REFS"));
