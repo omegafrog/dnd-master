@@ -298,11 +298,11 @@ Scenario Preparation은 기존 Document Knowledge의 패키지·추출 개정 �
 
 ### 4.7 Interfaces and Function Signatures
 
-기존 호출 경계를 유지하고 Request 및 Result의 내용만 확장한다. `AdventureId`는 모험 식별자, `SessionId`는 세션 식별자, `StageBackbone`은 모험 진행 골격, `DetailedStage`는 준비된 단계의 핵심 요소와 상황 목록, `SituationDefinition`은 준비된 상황 정의다.
+기존 호출 경계를 유지하고 Request 및 Result의 내용만 확장한다. 초기 상황 생성 Request에는 필수 `JsonNode outputSchema`가 포함되며, JSON 객체 스키마와 `properties`, `required`, `additionalProperties: false`를 요구한다. `HttpInitialSituationGmPort`는 이를 AI Game Master 요청으로 전달하고, `TypedAgentContractController`와 `GmCompletionAdapter`·`GmCompletionRouter`를 거쳐 `AiExecutionRequest.outputSchema` 및 Codex 실행 요청의 출력 스키마에 연결한다. 이 경로의 출력 형식은 `JSON`이다. 기존 Provider 요청 정책과 업무 검증은 유지한다. `AdventureId`는 모험 식별자, `SessionId`는 세션 식별자, `StageBackbone`은 모험 진행 골격, `DetailedStage`는 준비된 단계의 핵심 요소와 상황 목록, `SituationDefinition`은 준비된 상황 정의다.
 
 검토 목록 자료형은 `RequiredSituation(situationId, summary, prerequisiteSituationIds, sourceRefs)`이며 `StageBackbone.requiredSituations`로 해당 모험의 골격 JSON에 저장한다. 상세 단계 생성 요청에도 동일한 목록을 전달한다. 원문 조회 포트인 `StorySourcePreviewPort`(선택된 원문 전체의 위치별 구간을 제공하는 내부 경계)는 `Passage(sourceRef, text)`를 제공한다. 실제 HTTP 어댑터는 선택 문서의 식별자·유형·추출 버전·색인 상태·경고·위치 있는 전체 구간의 완전성을 확인한다.
 
-어댑터는 원문 전체를 구간별로 나누어 필수 상황을 추출한 뒤, 별도 검토 요청 하나에 모든 원문 구간과 전체 추출 제안 목록을 함께 넣어 대조한다. 이 한 번의 검토로 구간 경계에 걸친 상황 관계를 확인하며, 전체 내용을 함께 전달할 수 없을 만큼 모델 입력 한도를 넘으면 검토 미완료로 간주하고 준비에 실패한다. 누락된 항목·관계는 검토 단계에서 보완하고, 검토를 마친 목록만 골격 및 각 상세 단계 생성에 전달한다. 검토 후 원문 위치 참조 또는 선행 상황 식별자가 잘못된 항목이 있으면, 잘못된 항목 목록과 정본 원문 위치 참조를 정수 인덱스와 함께 나열한 목록, 알려진 상황 식별자를 담아 정정 요청을 한 번 보낸다. 응답은 잘못된 항목과 같은 순서·개수의 `correctedSituations` 배열이며, 각 항목은 `sourceRefIndexes`와 `prerequisiteSituationIds`만 제공한다. 인덱스는 나열된 정본 원문 위치 참조 목록의 0부터 시작하는 정수 인덱스다. 기존 항목의 ID와 요약은 애플리케이션이 복원하고, 응답에 ID가 있으면 기존 ID와 일치해야 한다. 배열 개수와 인덱스 범위가 다르면 거부한다. 올바른 기존 항목은 보존하고 잘못된 항목만 교체한 뒤 출처 유효성·선행 관계의 존재·순환을 포함해 전체 목록을 다시 검증한다. 계속 불일치하면 준비를 실패하고 게시하지 않는다. 반복 정정 루프는 두지 않는다. 이 AI 의미 검토가 원문의 모든 의미를 완벽히 찾아낸다고 보장하지 않는다. 검토 목록의 각 필수 상황 ID에는 정확히 연결되는 최종 필수 `SituationDefinition`이 있어야 하며 해당 필수 상황의 `SOURCE_EXTRACTED` 출처 위치 집합은 목록의 sourceRefs와 정확히 같아야 하고 `prerequisiteSituationIds`도 일치해야 한다. 추가·누락 인용 위치는 허용하지 않는다. 중간 상황 후보와 GM 보완 상황은 이 대응 검사 대상이 아니며 기존 출처 구분 규칙을 따른다. 복원된 자료도 검증하며, 불일치 또는 원문 범위 실패에서는 게시하지 않는다.
+어댑터는 원문 전체를 구간별로 나누어 필수 상황을 추출한 뒤, 별도 검토 요청 하나에 모든 원문 구간과 전체 추출 제안 목록을 함께 넣어 대조한다. 이 한 번의 검토로 구간 경계에 걸친 상황 관계를 확인하며, 전체 내용을 함께 전달할 수 없을 만큼 모델 입력 한도를 넘으면 검토 미완료로 간주하고 준비에 실패한다. 다섯 초기 상황 응답(구간별 추출, 전체 원문 검토, 잘못된 항목 정정, 진행 골격 생성, 상세 단계 생성)은 각각 명시적 JSON Schema를 받아 JSON으로 요청한다. 모든 JSON 객체는 허용 필드를 나열하고 그 필드 전체를 required로 지정하며 `additionalProperties: false`를 적용한다. 추출 응답은 `requiredSituations`를 요구하고, 각 항목은 `situationId`, `summary`, `prerequisiteSituationIds`, `sourceRefs`를 요구하며 `sourceRefs`는 하나 이상이어야 한다. 전체 검토 응답은 `reviewed: true`와 하나 이상의 필수 상황을 요구한다. 정정 응답은 `reviewed: true`와 정정 항목 배열을 요구하고, 각 항목은 하나 이상의 0 이상 정수 `sourceRefIndexes`, `prerequisiteSituationIds`, 그리고 문자열 또는 null인 `situationId`를 포함한다. 진행 골격은 하나 이상의 단계와 최상위 `sourceRefs`를 요구하며 단계마다 `stageId`, `order`, `role`, `coreProblem`, `funnelSummary`, `sourceRefs`가 필요하다. 상세 단계 스키마는 상세 DTO의 전체 필드를 기술하고, `mapDefinitionId`는 필수 문자열 또는 null이며 선택 재료 배열은 비어 있을 수 있다. 누락된 항목·관계는 검토 단계에서 보완하고, 검토를 마친 목록만 골격 및 각 상세 단계 생성에 전달한다. 검토 후 원문 위치 참조 또는 선행 상황 식별자가 잘못된 항목이 있으면, 잘못된 항목 목록과 정본 원문 위치를 정수 인덱스로 나열한 목록, 알려진 상황 식별자를 담아 정정 요청을 한 번 보낸다. 응답 배열은 잘못된 항목과 순서·개수가 1:1 대응해야 한다. 애플리케이션은 원래 항목의 ID와 요약을 보존하며, 선택적으로 반환한 ID는 원래 ID와 일치해야 한다. 배열 대응, 값 유형 또는 인덱스 범위가 맞지 않으면 거부한다. 올바른 기존 항목은 보존하고 잘못된 항목만 교체한 뒤 출처 유효성·선행 관계의 존재·순환을 포함해 전체 목록을 다시 검증한다. 계속 불일치하면 준비를 실패하고 게시하지 않는다. 반복 정정 루프는 두지 않는다. 스키마는 응답 형태를 제한하며 원문·지도·상황 관계의 의미 검증을 대체하지 않는다. 이 AI 의미 검토가 원문의 모든 의미를 완벽히 찾아낸다고 보장하지 않는다. 검토 목록의 각 필수 상황 ID에는 정확히 연결되는 최종 필수 `SituationDefinition`이 있어야 하며 해당 필수 상황의 `SOURCE_EXTRACTED` 출처 위치 집합은 목록의 sourceRefs와 정확히 같아야 하고 `prerequisiteSituationIds`도 일치해야 한다. 추가·누락 인용 위치는 허용하지 않는다. 중간 상황 후보와 GM 보완 상황은 이 대응 검사 대상이 아니며 기존 출처 구분 규칙을 따른다. 복원된 자료도 검증하며, 불일치 또는 원문 범위 실패에서는 게시하지 않는다.
 
 ```java
 StageArtifactPreparationApplicationService.Result prepare(
@@ -337,6 +337,7 @@ void saveInitialArtifacts(
 | Failure Point | Source Error | Converted Error | Handler | Result |
 |---|---|---|---|---|
 | AI 생성 | Provider 실패 또는 형식 오류 | 기존 AI·검증 오류 | 기존 요청 정책 | 시작 미완료 또는 턴 대기 제안 유지 |
+| 초기 상황 AI 요청 | 스키마 누락 또는 strict object 조건 위반 | 기존 요청 검증 오류 | 초기 상황 포트·내부 요청 경계 | AI 요청 전 거부 |
 | 준비 검증 | 잘못된 참조·출처·선행 관계 | 기존 준비 검증 오류 | 준비 서비스 | 게시 없음 |
 | 초기 저장 | 동일 모험 버전 경합 | 기존 충돌 결과 | 저장소·준비 서비스 | 승자 결과 재조회 또는 버전 충돌 |
 | 턴 대기/확정 | 굴림 미제출·버전 충돌·저장 실패 | 기존 턴 오류 | 기존 턴 재개·복구 | 상황 사용·추가가 미확정으로 보존 |
@@ -474,7 +475,10 @@ MAT-01에서 확인한 기존 구조는 시작 준비 경로, 상황 준비 포�
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/persistence/PostgresRuntimeTurnRepository.java` | 신규 대기 상태 저장·복원 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/api/AdventureApiConfiguration.java` | 실제 준비 생성 adapter를 기존 AI Provider에 연결 |
 | 신규 마이그레이션 | 모험별 초기 골격·상세 단계 테이블과 기본 키·동일 모험 복합 외래 키 추가; 기존 V68 및 기존 테이블 불변 |
-| 기존 포트의 AI adapter 및 관련 DTO | 복수 상황 생성 요청·응답, 실행 설정, 근거 참조에서 원문 발췌·핵심 스토리 모델을 찾아 전달하는 기존 조회 연결 |
+| `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/InitialSituationGmPort.java` 및 `HttpInitialSituationGmPort.java` | 필수 객체 `outputSchema`를 요청에 포함하고 내부 AI 요청으로 전달 |
+| `src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/api/TypedAgentContractController.java` | strict object 스키마 필수 조건 검증 및 응답 계약 요청 전달 |
+| `src/ai-game-master-service/src/main/java/com/dndmaster/aigamemaster/infrastructure/ai/GmCompletionAdapter.java` 및 `GmCompletionRouter.java` | 초기 상황 요청의 스키마를 JSON 실행 요청에 전달 |
+| `ScenarioPackageStageArtifactAdapter` | 다섯 초기 상황 응답의 명시적 객체·필드·배열 제약 스키마 제공; 기존 출처·지도·관계 도메인 검증 유지 |
 
 ## 6. Runtime Design
 
@@ -614,7 +618,7 @@ MAT-01에서 확인한 기존 구조는 시작 준비 경로, 상황 준비 포�
 
 ### 11.3 Technical Contract Verification
 
-`StageBackbone.requiredSituations`의 모험 소유 JSON 저장·복원, 별도 검토 요청에 모든 원문 구간과 전체 추출 목록이 함께 전달되는지, 입력 한도 초과 시 준비 실패, 원문 위치 참조의 실제 위치 대응, 생성된 필수 상황 ID·필수 표시·`SOURCE_EXTRACTED` 인용 위치 집합의 정확한 동등성·선행 ID 전체 일치, 원문 조회 실패 거부, 검토 목록 누락·변조·목록 밖 관계 거부, 초기 검토 목록과 전체 단계 원자 저장을 검증한다. 잘못된 검토 목록은 잘못된 항목과 번호가 매겨진 정본 원문 위치 참조·알려진 상황 식별자를 전달하는 단일 정정 요청으로 보완한다. 응답의 `correctedSituations`가 잘못된 항목과 순서·개수별로 대응하고 `sourceRefIndexes`·`prerequisiteSituationIds`만 포함하는지, 원래 ID·요약 복원과 선택 입력된 ID 일치, 정수 인덱스 유형·범위를 확인한다. 올바른 항목을 보존해 정정 결과를 합친 뒤 출처·선행 식별자·순환을 포함한 전체 목록을 재검증한다. 정정 후에도 잘못된 항목이 남으면 준비가 실패하고 게시되지 않아야 한다. 기존 모험별 골격·상세 자료 저장 계약 및 맵 없음 시작도 저장소·통합 검사로 확인한다. 이 확장은 제3의 목록 테이블이나 전역 ScenarioModel·컴파일 변경을 추가하지 않는다.
+`InitialSituationGmPort.Request.outputSchema`의 필수 객체 조건, HTTP 내부 요청 전달, `TypedAgentContractController`의 strict object 검사, `GmCompletionAdapter`·`GmCompletionRouter`에서 `AiExecutionRequest.outputSchema`를 거쳐 Codex 실행 요청에 도달하는 스키마 전달과 `JSON` 출력 형식을 확인한다. 다섯 스키마 모두 객체의 required 필드 전체와 `additionalProperties: false`를 포함하는지, 추출·검토·정정·골격·상세 응답의 배열 최소 개수, 필드 유형, null 허용, 선택 재료 빈 배열 허용이 계약과 일치하는지 확인한다. 스키마로 보장되지 않는 정정 배열의 원본 잘못 항목과의 순서·개수 일치, 기존 ID·요약 보존, 참조 인덱스 범위, 원문 위치·지도·상황 관계 의미는 도메인 검증이 계속 강제한다. 기존 `StageBackbone.requiredSituations`의 모험 소유 JSON 저장·복원, 별도 검토 요청의 전체 원문 구간과 전체 추출 목록, 입력 한도 초과 시 준비 실패, 원문 위치의 실제 대응, 생성된 필수 상황 ID·필수 표시·`SOURCE_EXTRACTED` 인용 위치 집합의 정확한 동등성·선행 ID 전체 일치, 원문 조회 실패 거부, 검토 목록 누락·변조·목록 밖 관계 거부, 초기 검토 목록과 전체 단계 원자 저장을 유지한다. 잘못된 검토 목록은 단일 정정 요청으로 보완하며 `correctedSituations`의 원본 항목별 순서·개수 대응, `sourceRefIndexes` 및 `prerequisiteSituationIds`, 원래 ID·요약 보존과 선택 입력 ID 일치, 정수 인덱스 유형·범위를 확인한다. 올바른 항목을 보존해 정정 결과를 합친 뒤 출처·선행 식별자·순환을 포함한 전체 목록을 재검증한다. 정정 후에도 잘못된 항목이 남으면 준비가 실패하고 게시되지 않아야 한다. 기존 모험별 골격·상세 자료 저장 계약 및 맵 없음 시작도 저장소·통합 검사로 확인한다. 이 확장은 제3의 목록 테이블이나 전역 ScenarioModel·컴파일 변경을 추가하지 않는다.
 
 ### 11.4 Runtime Verification
 
@@ -648,7 +652,7 @@ AI 호출 중 저장 트랜잭션이 없고, 초기 세트 전체 게시와 턴 
 
 #### Evidence
 
-이 명세의 기존 설계 근거는 Product Spec, 사용자 승인 방향, `architecture-contracts.yaml`, `system-targets.yaml`, 검토된 `architecture-proposal.yaml`, 승인된 MAT-01 자료 사용 기록이다. 사용자 승인에 따른 원문 전체 직접 대조 요구는 기존 결과에 덧붙인 후속 개정으로 기록한다. MAT-01은 현재 코드 구조를 읽은 자료로 실행 검증이 아니다. 적용 가능한 승인 Principle과 영속 Evidence는 제공되지 않았으며 권위 근거로 꾸며 쓰지 않는다. 이전 검토 결과 ACCEPTED는 당시 설계 검토 이력이며 이 후속 개정·구현·테스트·빌드 검증 완료를 뜻하지 않는다.
+이 명세의 기존 설계 근거는 Product Spec, 사용자 승인 방향, `architecture-contracts.yaml`, `system-targets.yaml`, 검토된 `architecture-proposal.yaml`, 승인된 MAT-01 자료 사용 기록이다. 사용자 승인에 따른 원문 전체 직접 대조 요구는 기존 결과에 덧붙인 후속 개정으로 기록한다. MAT-01은 현재 코드 구조를 읽은 자료로 실행 검증이 아니다. 적용 가능한 승인 Principle과 영속 Evidence는 제공되지 않았으며 권위 근거로 꾸며 쓰지 않는다. 이전 검토 결과 ACCEPTED는 당시 설계 검토 이력이며 이 후속 개정·구현·테스트·빌드 검증 완료를 뜻하지 않는다. 이번 JSON 응답 스키마 개정은 별도 검토가 필요한 상태(REVIEW_REQUIRED)이며, 구현자 focused test 결과와 실제 E2E 완료 주장은 구분한다. 실제 E2E 성공은 확인되지 않았다.
 
 ## 12. Alternatives and Trade-offs
 
