@@ -158,12 +158,12 @@ public final class CodexAppServerClient implements AutoCloseable, CodexAccountCl
                     turnCompletedReceived = true;
                     JsonNode turnError = params.path("turn").path("error");
                     if (!turnError.isMissingNode() && !turnError.isNull()) {
-                        throw turnFailure(threadId, method, turnError);
+                        throw turnFailure(operationId, threadId, method, turnError);
                     }
                     break;
                 }
                 if ("turn/failed".equals(method) || "turn/aborted".equals(method)) {
-                    throw turnFailure(threadId, method, params.path("error"));
+                    throw turnFailure(operationId, threadId, method, params.path("error"));
                 }
                 if (message.has("error")) throw rpcError(message);
             }
@@ -446,9 +446,29 @@ public final class CodexAppServerClient implements AutoCloseable, CodexAccountCl
         return new IllegalStateException("Codex app-server request failed");
     }
 
-    private static RuntimeException turnFailure(String turnId, String method, JsonNode error) {
+    private static RuntimeException turnFailure(String operationId, String turnId, String method, JsonNode error) {
         if (isAuthenticationRejection(error)) return new CodexAuthenticationRejectedException();
-        return new CodexTurnFailedException(turnId, method, "Codex app-server execution failed");
+        String code = safeErrorIdentifier(error.path("code").asText(""));
+        String category = categorizeTurnFailure(code);
+        LOGGER.warn("ai_agent_turn_failed provider=codex operationId={} stage={} turnId={} method={} errorCode={} errorCategory={}",
+                safe(operationId), stage(operationId), safe(turnId), safe(method), code, category);
+        return new CodexTurnFailedException(turnId, method, code, category, "Codex app-server execution failed");
+    }
+
+    private static String safeErrorIdentifier(String value) {
+        if (value == null || value.length() > 64 || !value.matches("[A-Za-z0-9_.-]{1,64}")) return "unclassified";
+        return value.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static String categorizeTurnFailure(String code) {
+        if (code.contains("schema") || code.contains("format") || code.contains("structured_output")) {
+            return "SCHEMA_REJECTED";
+        }
+        if (code.contains("usage") || code.contains("quota") || code.contains("rate_limit")
+                || code.contains("context_length") || code.contains("token_limit")) {
+            return "USAGE_OR_CAPACITY";
+        }
+        return "OTHER";
     }
 
     private static boolean isAuthenticationRejection(JsonNode error) {

@@ -223,7 +223,7 @@ class CodexAppServerClientTest {
                   case "$line" in
                     *'\"method\":\"initialize\"'*) echo '{\"id\":1,\"result\":{}}';;
                     *'\"method\":\"thread/start\"'*) echo '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-1\"}}}';;
-                    *'\"method\":\"turn/start\"'*) echo '{\"id\":3,\"result\":{}}'; echo '{\"method\":\"turn/failed\",\"params\":{\"error\":\"bad turn\"}}';;
+                    *'\"method\":\"turn/start\"'*) echo '{\"id\":3,\"result\":{}}'; echo '{\"method\":\"turn/failed\",\"params\":{\"error\":{\"code\":\"invalid_json_schema\",\"message\":\"secret prompt and response\"}}}}';;
                   esac
                 done
                 """);
@@ -231,8 +231,38 @@ class CodexAppServerClientTest {
                 executable.toString(), executable.getParent(), Duration.ofSeconds(2), new ObjectMapper());
         try {
             assertThatThrownBy(() -> client.complete("turn-failed", "complete", "gpt-5.6-luna"))
-                    .isInstanceOf(CodexTurnFailedException.class)
-                    .hasMessage("Codex app-server execution failed");
+                    .isInstanceOfSatisfying(CodexTurnFailedException.class, failure -> {
+                        assertThat(failure).hasMessage("Codex app-server execution failed");
+                        assertThat(failure.errorCode()).isEqualTo("invalid_json_schema");
+                        assertThat(failure.errorCategory()).isEqualTo("SCHEMA_REJECTED");
+                        assertThat(failure.getMessage()).doesNotContain("secret prompt");
+                    });
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    void categorizesCodexUsageLimitWithoutRetainingProviderMessage() throws Exception {
+        Path executable = appServerScript("""
+                #!/usr/bin/env bash
+                while IFS= read -r line; do
+                  case "$line" in
+                    *'\"method\":\"initialize\"'*) echo '{\"id\":1,\"result\":{}}';;
+                    *'\"method\":\"thread/start\"'*) echo '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-1\"}}}';;
+                    *'\"method\":\"turn/start\"'*) echo '{\"id\":3,\"result\":{}}'; echo '{\"method\":\"turn/failed\",\"params\":{\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"private provider detail\"}}}}';;
+                  esac
+                done
+                """);
+        CodexAppServerClient client = CodexAppServerClient.shared(
+                executable.toString(), executable.getParent(), Duration.ofSeconds(2), new ObjectMapper());
+        try {
+            assertThatThrownBy(() -> client.complete("turn-usage", "complete", "gpt-5.6-luna"))
+                    .isInstanceOfSatisfying(CodexTurnFailedException.class, failure -> {
+                        assertThat(failure.errorCode()).isEqualTo("context_length_exceeded");
+                        assertThat(failure.errorCategory()).isEqualTo("USAGE_OR_CAPACITY");
+                        assertThat(failure.getMessage()).doesNotContain("private provider detail");
+                    });
         } finally {
             client.close();
         }
