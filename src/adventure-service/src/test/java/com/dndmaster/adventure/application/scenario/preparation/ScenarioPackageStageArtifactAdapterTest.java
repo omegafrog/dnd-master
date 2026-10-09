@@ -291,6 +291,21 @@ class ScenarioPackageStageArtifactAdapterTest {
                 .path("properties").path("mapDefinitionId").path("minLength").asInt());
         assertFalse(calls.getLast().outputSchema().path("properties").path("situations").path("items")
                 .path("properties").path("revelationIds").has("minItems"));
+        var situationSchema = calls.getLast().outputSchema().path("properties").path("situations").path("items");
+        assertEquals(5, situationSchema.path("anyOf").size());
+        for (String target : List.of("revelationIds", "pressureIds", "funnelIds", "funnelPredicateIds", "importantConsequenceIds")) {
+            var branch = java.util.stream.StreamSupport.stream(situationSchema.path("anyOf").spliterator(), false)
+                    .filter(candidate -> candidate.path("properties").path(target).has("minItems"))
+                    .findFirst().orElseThrow();
+            assertEquals(1, branch.path("properties").path(target).path("minItems").asInt());
+            assertFalse(branch.path("additionalProperties").asBoolean(true));
+            assertEquals(branch.path("properties").size(), branch.path("required").size());
+            var declared = new java.util.HashSet<String>();
+            branch.path("properties").fieldNames().forEachRemaining(declared::add);
+            var required = new java.util.HashSet<String>();
+            branch.path("required").forEach(field -> required.add(field.asText()));
+            assertEquals(declared, required);
+        }
     }
 
     @Test

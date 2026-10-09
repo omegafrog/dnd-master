@@ -167,7 +167,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                             "sourceRefs", arraySchema(sourceReferenceSchema()))), 1),
                     "sourceRefs", arraySchema(sourceReferenceSchema()));
         } else if (task.startsWith("stage:")) {
-            Map<String, Object> situation = objectSchema(Map.ofEntries(
+            Map<String, Object> situationProperties = Map.ofEntries(
                     Map.entry("situationId", stringSchema()),
                     Map.entry("intents", arraySchema(enumSchema("REVELATION", "PRESSURE", "FUNNEL_OPPORTUNITY", "IMPORTANT_CONSEQUENCE"), 1)),
                     Map.entry("revelationIds", arraySchema(stringSchema())), Map.entry("pressureIds", arraySchema(stringSchema())),
@@ -175,7 +175,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     Map.entry("importantConsequenceIds", arraySchema(stringSchema())), Map.entry("opening", booleanSchema()),
                     Map.entry("required", booleanSchema()), Map.entry("prerequisiteSituationIds", arraySchema(stringSchema())),
                     Map.entry("provenance", enumSchema("SOURCE_EXTRACTED", "GM_SUPPLEMENTED")),
-                    Map.entry("mapDefinitionId", nullableStringSchema()), Map.entry("sourceRefs", arraySchema(sourceReferenceSchema()))));
+                    Map.entry("mapDefinitionId", nullableStringSchema()), Map.entry("sourceRefs", arraySchema(sourceReferenceSchema())));
+            Map<String, Object> situation = situationSchema(situationProperties);
             properties = Map.of("coreProblem", stringSchema(),
                     "revelations", arraySchema(objectSchema(Map.of("revelationId", stringSchema(),
                             "required", booleanSchema(), "sourceRefs", arraySchema(sourceReferenceSchema())))),
@@ -202,6 +203,18 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     private static Map<String, Object> sourceReferenceSchema() {
         return objectSchema(Map.of("knowledgeDocumentId", objectSchema(Map.of("value", stringSchema())),
                 "extractionVersion", Map.of("type", "integer", "minimum", 1), "locator", stringSchema()));
+    }
+
+    private static Map<String, Object> situationSchema(Map<String, Object> properties) {
+        List<Map<String, Object>> targetAlternatives = List.of("revelationIds", "pressureIds", "funnelIds",
+                "funnelPredicateIds", "importantConsequenceIds").stream().map(target -> {
+                    Map<String, Object> branchProperties = new LinkedHashMap<>(properties);
+                    branchProperties.put(target, arraySchema(stringSchema(), 1));
+                    return objectSchema(branchProperties);
+                }).toList();
+        Map<String, Object> schema = new LinkedHashMap<>(objectSchema(properties));
+        schema.put("anyOf", targetAlternatives);
+        return schema;
     }
 
     private static Map<String, Object> objectSchema(Map<String, Object> properties) {
