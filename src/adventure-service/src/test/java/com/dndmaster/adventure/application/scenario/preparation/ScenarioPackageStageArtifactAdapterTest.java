@@ -280,6 +280,14 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertTrue(calls.getFirst().prompt().contains("ALLOWED_SOURCE_REFS"));
         assertEquals("object", calls.getFirst().outputSchema().path("type").asText());
         assertEquals("object", calls.getFirst().outputSchema().path("properties").path("stages").path("items").path("type").asText());
+        var schemaMethod = ScenarioPackageStageArtifactAdapter.class.getDeclaredMethod("outputSchema", String.class, List.class);
+        schemaMethod.setAccessible(true);
+        var emptyAllowedRefsSchema = (com.fasterxml.jackson.databind.JsonNode) schemaMethod.invoke(adapter,
+                "required-extract:empty", List.of());
+        var emptyRequiredSourceRefs = emptyAllowedRefsSchema.path("properties").path("requiredSituations")
+                .path("items").path("properties").path("sourceRefs");
+        assertEquals(0, emptyRequiredSourceRefs.path("maxItems").asInt());
+        assertFalse(emptyRequiredSourceRefs.has("minItems"));
 
         var detailed = adapter.generate(new StageDetailedGenerationPort.Request(adventureId, sessionId,
                 scenarioPackage.packageId(), "arrival", 1, List.of(source)));

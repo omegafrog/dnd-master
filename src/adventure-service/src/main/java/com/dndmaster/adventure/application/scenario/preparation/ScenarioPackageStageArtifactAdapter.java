@@ -200,7 +200,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     private static Map<String, Object> requiredSituationSchema(List<ScenarioSourceReference> allowedRefs) {
         return objectSchema(Map.of("situationId", stringSchema(), "summary", stringSchema(),
                 "prerequisiteSituationIds", arraySchema(stringSchema()),
-                "sourceRefs", arraySchema(sourceReferenceSchema(allowedRefs), 1)));
+                "sourceRefs", allowedRefs.isEmpty() ? sourceReferencesSchema(allowedRefs)
+                        : arraySchema(sourceReferenceSchema(allowedRefs), 1)));
     }
 
     private static Map<String, Object> sourceReferencesSchema(List<ScenarioSourceReference> allowedRefs) {
