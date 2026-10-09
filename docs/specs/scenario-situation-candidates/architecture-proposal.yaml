@@ -18,12 +18,12 @@ proposed_contracts:
   required_situation_review: 원문 구간별로 필수 상황을 추출한 뒤 별도 검토 요청 하나에 전체 원문 구간과 전체 추출 제안 목록을 함께 넣어 누락된 필수 상황·구간 간 명시된 선후 관계를 보완한다. 검토 뒤 잘못된 sourceRefs 또는 prerequisiteSituationIds가 있으면 잘못된 항목, 정수 인덱스로 번호 매긴 정본 원문 위치 참조, 알려진 상황 식별자를 전달해 정정 호출을 한 번 한다. 응답은 잘못된 항목과 순서·개수가 1:1 대응하는 correctedSituations 배열이며 항목별 허용 필드는 sourceRefIndexes와 prerequisiteSituationIds다. 인덱스는 정본 위치 참조 목록의 정수 인덱스다. 애플리케이션은 원래 ID와 summary를 복원하며 선택 입력된 ID는 원래 ID와 일치해야 한다. 개수 불일치·정수 아닌 값·범위 밖 인덱스는 거부한다. 기존 유효 항목을 보존하고 정정 항목을 합친 뒤 출처 참조·선행 식별자·순환을 포함해 전체 목록을 재검증한다. 여전히 잘못된 항목이 있으면 기존 검증 오류로 준비를 실패시키고 게시하지 않는다. 이는 반복 루프나 설정 가능한 횟수가 아니다. 검토가 끝난 목록만 이후 생성에 전달한다. 모델의 의미 검토가 완벽하다고 보장하지 않으며, 최종 필수 상황과 관계는 검토 목록의 모든 항목을 포함해야 한다.
   initial_situation_json_schemas:
     transport: InitialSituationGmPort.Request에 필수 객체 outputSchema를 포함해 HTTP 내부 요청부터 controller와 completion router를 거쳐 Codex AiExecutionRequest.outputSchema까지 전달한다. 출력 형식은 JSON이며, 스키마가 없거나 strict object 형식이 아니면 요청 생성 단계에서 거부한다. 기존 다른 Provider 동작은 유지한다.
-    common: 각 응답별 JSON Schema는 모든 object에 허용 properties, 전체 required 목록, additionalProperties=false를 명시한다. 스키마 검증 외에 기존 도메인 검증도 유지한다.
+    common: 각 응답별 JSON Schema는 모든 object에 허용 properties, 전체 required 목록, additionalProperties=false를 명시한다. 문자열 값에는 minLength=1을 적용한다. 스키마 검증 외에 기존 도메인 검증도 유지한다.
     required_extract: requiredSituations 항목에 situationId, summary, prerequisiteSituationIds, sourceRefs를 요구하며 원문 위치 sourceRefs는 하나 이상이다.
     required_review: reviewed=true와 하나 이상의 requiredSituations를 요구한다.
     required_review_repair: reviewed=true 및 ordered correctedSituations를 요구한다. 각 응답 항목은 하나 이상의 0 이상 정수 sourceRefIndexes, prerequisiteSituationIds, nullable situationId를 포함한다. 항목 개수·순서는 잘못된 검토 항목 목록과 일치하고 ID·summary는 원본에서 복원한다.
     backbone: 하나 이상의 stages와 최상위 sourceRefs를 요구한다. 단계마다 stageId, order, role, coreProblem, funnelSummary, sourceRefs가 필요하다.
-    detailed_stage: 상세 생성 DTO 전체 필드에 대응하는 객체 스키마를 적용한다. mapDefinitionId는 필수 nullable 문자열이고 핵심 재료·상황 참조 배열은 기존 도메인 계약에 따라 비어 있을 수 있다.
+    detailed_stage: 상세 생성 DTO 전체 필드에 대응하는 객체 스키마를 적용한다. 각 상황의 intents 배열은 비지 않아야 한다. mapDefinitionId는 필수 nullable 문자열이고 intents를 제외한 핵심 재료·상황 참조 배열은 기존 도메인 계약에 따라 비어 있을 수 있다.
     validation_boundary: 스키마는 JSON 모양만 제한한다. 원문 출처·제공 맵·상황 관계, 정정의 원본 항목 일대일 대응, 정수 인덱스 범위·ID 보존, 전체 결과 검증은 애플리케이션이 재검증한다.
   preparation_retry: 같은 모험의 동일 준비 요청은 저장된 결과를 재사용한다. 준비 결과가 없는 경우에만 생성하고 동시 요청의 저장 충돌을 검증한다. 준비 단계의 여러 필수 자료는 함께 게시하여 일부 자료만 준비 완료로 노출하지 않는다.
   ingredients: 기존 상황 의도와 대상 참조를 활용하고 필수 여부·원문 선행 관계·원문 추출 또는 GM 보완의 구분·제공 맵 참조를 추가한다. 상세 사건 대본이나 일괄적인 추가 필수 요소는 만들지 않는다.

@@ -25,12 +25,12 @@ original_source_review: 원문 구간별 추출 뒤, 별도 검토 요청 한 �
 original_review_input_limit: 모든 원문 구간과 전체 추출 목록을 하나의 검토 요청에 함께 전달할 수 없으면 검토 실패로 처리한다. 일부 구간만 별도로 검토하거나 원문을 더 작은 하위 집합으로 나눠 각각 검토 완료한 결과처럼 합치지 않는다. 준비 자료를 게시하지 않고 모험 시작도 완료하지 않는다.
 initial_situation_json_schemas:
   transport: InitialSituationGmPort.Request는 필수 객체 outputSchema를 가지며 HTTP 내부 요청부터 TypedAgentContractController·GmCompletionAdapter·GmCompletionRouter를 거쳐 Codex AiExecutionRequest.outputSchema로 전달한다. 출력 형식은 JSON이다. 요청 생성자는 type=object, properties 객체, required 배열, additionalProperties=false를 강제한다. 이 전용 경로를 제외한 기존 Provider 요청·검증 방식은 유지한다.
-  common: 다섯 응답 스키마의 모든 객체는 허용 properties를 명시하고 그 전체를 required에 포함하며 additionalProperties=false를 지정한다. 스키마는 응답의 모양을 강제하고 기존 애플리케이션 도메인 검증을 대체하지 않는다.
+  common: 다섯 응답 스키마의 모든 객체는 허용 properties를 명시하고 그 전체를 required에 포함하며 additionalProperties=false를 지정한다. 문자열 값은 빈 문자열이 아니어야 한다. 스키마는 응답의 모양을 강제하고 기존 애플리케이션 도메인 검증을 대체하지 않는다.
   required_extract: 최상위 requiredSituations 배열. 항목은 situationId, summary, prerequisiteSituationIds, sourceRefs를 요구하고 sourceRefs는 하나 이상이다.
   required_review: reviewed=true 및 requiredSituations 배열을 요구한다. 필수 상황 항목 모양과 위치 참조는 required_extract와 같으며 목록은 하나 이상이다.
   required_review_repair: reviewed=true 및 correctedSituations 배열을 요구한다. 각 항목은 sourceRefIndexes(0 이상의 정수, 하나 이상), prerequisiteSituationIds, nullable situationId를 가진다. 배열 순서·개수는 INVALID_ENTRIES와 일치해야 하며 기존 situationId와 summary는 애플리케이션이 복원한다. sourceRefIndexes는 정본 위치 참조 목록을 가리킨다.
   backbone: stages 배열과 최상위 sourceRefs를 요구한다. stages는 하나 이상이며 각 항목은 stageId, order, role, coreProblem, funnelSummary, sourceRefs를 가진다.
-  detailed_stage: DetailedStage 생성 응답의 실제 모든 필드를 포함한다. SituationDefinition 전체 필드와 source-reference 객체를 기술하고 mapDefinitionId는 required string|null이다. 핵심 요소·상황 참조 배열은 도메인 필수 여부와 관계없이 빈 배열이 허용되는 선택 재료다.
+  detailed_stage: DetailedStage 생성 응답의 실제 모든 필드를 포함한다. SituationDefinition 전체 필드와 source-reference 객체를 기술한다. 각 상황의 intents 배열은 하나 이상이어야 한다. mapDefinitionId는 required string|null이다. intents를 제외한 핵심 요소·상황 참조 배열은 도메인 필수 여부와 관계없이 빈 배열이 허용되는 선택 재료다.
   domain_validation: 스키마로 보장되지 않는 원문 위치·제공 맵·상황 관계, 정정 배열의 원본 항목별 순서·개수, 정수 인덱스 범위, ID 보존 및 전체 결과 검증은 기존 도메인 검증이 계속 강제한다. 정정 후에도 유효하지 않은 응답은 저장 전에 거부한다.
 required_situation_contract: "`RequiredSituation(situationId, summary, prerequisiteSituationIds, sourceRefs)`는 검토된 원문 필수 상황과 위치 참조를 나타낸다. `StageBackbone.requiredSituations`에 보관하며 상세 생성 요청에도 전달한다. 각 검토 목록 항목에는 정확히 연결되는 최종 필수 `SituationDefinition`이 있어야 하며 해당 필수 상황의 `SOURCE_EXTRACTED` 출처 위치 집합은 검토 항목의 sourceRefs와 정확히 같아야 하고 `prerequisiteSituationIds`도 일치해야 한다. 추가·누락 인용 위치를 모두 거부한다. 중간 후보와 GM 보완 상황은 이 원문 필수 상황 대응 검사 대상이 아니며, 기존 출처 규칙을 따른다. 목록의 필수 상황·관계 누락, 출처 위치 불일치, 원문에 없는 선행 관계는 게시 전에 거부한다."
 storage:
