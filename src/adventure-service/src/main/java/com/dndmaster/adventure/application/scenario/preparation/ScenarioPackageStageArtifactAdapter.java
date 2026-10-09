@@ -204,8 +204,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     Map.entry("situationId", stringSchema()),
                     Map.entry("intents", arraySchema(enumSchema("REVELATION", "PRESSURE", "FUNNEL_OPPORTUNITY", "IMPORTANT_CONSEQUENCE"), 1)),
                     Map.entry("revelationIndexes", arraySchema(indexSchema())),
-                    Map.entry("pressureIndexes", arraySchema(indexSchema())),
-                    Map.entry("funnelIndexes", arraySchema(indexSchema())),
+                    Map.entry("pressureIndexes", arraySchema(singleTargetIndexSchema())),
+                    Map.entry("funnelIndexes", arraySchema(singleTargetIndexSchema())),
                     Map.entry("funnelPredicateIndexes", arraySchema(Map.of("type", "integer", "minimum", 0))),
                     Map.entry("importantConsequenceIndexes", arraySchema(indexSchema())),
                     Map.entry("required", booleanSchema()), Map.entry("prerequisiteSituationIds", arraySchema(stringSchema())),
@@ -321,6 +321,9 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     }
 
     private static Map<String, Object> indexSchema() { return Map.of("type", "integer", "minimum", 0); }
+    private static Map<String, Object> singleTargetIndexSchema() {
+        return Map.of("type", "integer", "minimum", 0, "maximum", 0);
+    }
 
     private static Map<String, Object> stringSchema() { return Map.of("type", "string", "minLength", 1); }
     private static Map<String, Object> nullableStringSchema() { return Map.of("type", List.of("string", "null"), "minLength", 1); }
@@ -353,10 +356,11 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 + "Include required situations needed to preserve the source story and multiple intermediate candidates when supported by the story. "
                 + "Do not force a fixed candidate count, add unstated prerequisite relations, or make optional ingredients mandatory. "
                 + "For every situation include required, prerequisiteSituationIds, provenance (SOURCE_EXTRACTED or GM_SUPPLEMENTED), "
-                + "and use integer index arrays for dynamic references: requiredRevelationIndexes and revelationIndexes index this response's "
+                + "and use zero-based integer index arrays for dynamic references: requiredRevelationIndexes and revelationIndexes index this response's "
                 + "revelations[].revelationId values; pressureIndexes indexes the single pressure.pressureId; funnelIndexes indexes the single "
                 + "funnel.funnelId; funnelPredicateIndexes indexes this response's funnel.requiredPredicateIds; and importantConsequenceIndexes "
-                + "indexes importantConsequenceIds. Use only in-range indexes and never invent separate target IDs. "
+                + "indexes importantConsequenceIds. Indexes point to positions in those same-response lists; pressureIndexes and funnelIndexes "
+                + "can only use index 0 when nonempty. Use only in-range indexes and never invent separate target IDs. "
                 + "The funnel's requiredRevelationIndexes also indexes this response's revelations[].revelationId values. "
                 + "Set openingSituationIndex to null when this stage has no opening situation; otherwise set it to the zero-based index "
                 + "of the single opening situation in situations. "
@@ -382,32 +386,44 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         JsonNode situations = detailed.path("situations");
         if (!situations.isArray()) throw new IllegalStateException("detailed situation target indexes are invalid");
         var funnelObject = (com.fasterxml.jackson.databind.node.ObjectNode) funnel;
-        funnelObject.set("requiredRevelationIds", indexValues(funnel.path("requiredRevelationIndexes"), revelationIds));
+        funnelObject.set("requiredRevelationIds", indexValues(funnel.path("requiredRevelationIndexes"), revelationIds,
+                "funnel.requiredRevelationIndexes"));
         funnelObject.remove("requiredRevelationIndexes");
         for (JsonNode situation : situations) {
             if (!situation.isObject()) throw new IllegalStateException("detailed situation target indexes are invalid");
             var object = (com.fasterxml.jackson.databind.node.ObjectNode) situation;
-            object.set("revelationIds", indexValues(situation.path("revelationIndexes"), revelationIds));
-            object.set("pressureIds", indexValues(situation.path("pressureIndexes"), pressureIds));
-            object.set("funnelIds", indexValues(situation.path("funnelIndexes"), funnelIds));
-            object.set("funnelPredicateIds", indexValues(situation.path("funnelPredicateIndexes"), predicateIds));
-            object.set("importantConsequenceIds", indexValues(situation.path("importantConsequenceIndexes"), consequenceIds));
+            object.set("revelationIds", indexValues(situation.path("revelationIndexes"), revelationIds,
+                    "situation.revelationIndexes"));
+            object.set("pressureIds", indexValues(situation.path("pressureIndexes"), pressureIds,
+                    "situation.pressureIndexes"));
+            object.set("funnelIds", indexValues(situation.path("funnelIndexes"), funnelIds,
+                    "situation.funnelIndexes"));
+            object.set("funnelPredicateIds", indexValues(situation.path("funnelPredicateIndexes"), predicateIds,
+                    "situation.funnelPredicateIndexes"));
+            object.set("importantConsequenceIds", indexValues(situation.path("importantConsequenceIndexes"), consequenceIds,
+                    "situation.importantConsequenceIndexes"));
             object.remove(List.of("revelationIndexes", "pressureIndexes", "funnelIndexes", "funnelPredicateIndexes",
                     "importantConsequenceIndexes"));
         }
     }
 
-    private static com.fasterxml.jackson.databind.node.ArrayNode indexValues(JsonNode indexes, List<String> canonicalIds) {
-        if (!indexes.isArray()) throw new IllegalStateException("detailed situation target indexes are invalid");
+    private static com.fasterxml.jackson.databind.node.ArrayNode indexValues(JsonNode indexes, List<String> canonicalIds,
+            String field) {
+        if (!indexes.isArray()) throw targetIndexFailure(field, canonicalIds.size());
         var resolved = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode();
         for (JsonNode index : indexes) {
             if (!index.isIntegralNumber() || !index.canConvertToInt() || index.intValue() < 0
                     || index.intValue() >= canonicalIds.size()) {
-                throw new IllegalStateException("detailed situation references an unknown target index");
+                throw targetIndexFailure(field, canonicalIds.size());
             }
             resolved.add(canonicalIds.get(index.intValue()));
         }
         return resolved;
+    }
+
+    private static IllegalStateException targetIndexFailure(String field, int allowedTargetCount) {
+        return new IllegalStateException("detailed situation target index is invalid: field=" + field
+                + ", allowedTargetCount=" + allowedTargetCount);
     }
 
     private static void resolveOpeningSituationIndex(JsonNode detailed, boolean openingSituationRequired) {

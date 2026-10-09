@@ -381,6 +381,7 @@ class ScenarioPackageStageArtifactAdapterTest {
                 .path("properties").path("revelationIds").has("minItems"));
         var situationSchema = calls.getLast().outputSchema().path("properties").path("situations").path("items");
         assertTrue(calls.getLast().prompt().contains("funnelPredicateIndexes"));
+        assertTrue(calls.getLast().prompt().contains("pressureIndexes and funnelIndexes can only use index 0"));
         assertTrue(situationSchema.path("properties").has("funnelPredicateIndexes"));
         assertFalse(situationSchema.path("properties").has("funnelPredicateIds"));
         assertEquals("integer", situationSchema.path("properties").path("funnelPredicateIndexes").path("items")
@@ -389,6 +390,8 @@ class ScenarioPackageStageArtifactAdapterTest {
                 "importantConsequenceIndexes")) {
             assertEquals("integer", situationSchema.path("properties").path(target).path("items").path("type").asText());
         }
+        assertEquals(0, situationSchema.path("properties").path("pressureIndexes").path("items").path("maximum").asInt());
+        assertEquals(0, situationSchema.path("properties").path("funnelIndexes").path("items").path("maximum").asInt());
         assertEquals("integer", calls.getLast().outputSchema().path("properties").path("funnel").path("properties")
                 .path("requiredRevelationIndexes").path("items").path("type").asText());
         assertEquals(5, situationSchema.path("anyOf").size());
@@ -419,8 +422,25 @@ class ScenarioPackageStageArtifactAdapterTest {
                 "situations", List.of(Map.of("revelationIndexes", List.of(1), "pressureIndexes", List.of(),
                         "funnelIndexes", List.of(), "funnelPredicateIndexes", List.of(),
                         "importantConsequenceIndexes", List.of()))));
-        assertThrows(java.lang.reflect.InvocationTargetException.class,
+        var invalidTargetIndex = assertThrows(java.lang.reflect.InvocationTargetException.class,
                 () -> resolver.invoke(null, invalidIndexResponse));
+        assertEquals("detailed situation target index is invalid: field=situation.revelationIndexes, allowedTargetCount=1",
+                invalidTargetIndex.getCause().getMessage());
+        assertFalse(invalidTargetIndex.getCause().getMessage().contains("truth"));
+        var invalidPredicateIndexResponse = mapper.valueToTree(Map.of(
+                "revelations", List.of(Map.of("revelationId", "truth")),
+                "pressure", Map.of("pressureId", "pressure"),
+                "funnel", Map.of("funnelId", "funnel", "requiredRevelationIndexes", List.of(),
+                        "requiredPredicateIds", List.of("predicate-a", "predicate-b")),
+                "importantConsequenceIds", List.of("consequence"),
+                "situations", List.of(Map.of("revelationIndexes", List.of(), "pressureIndexes", List.of(),
+                        "funnelIndexes", List.of(), "funnelPredicateIndexes", List.of(2),
+                        "importantConsequenceIndexes", List.of()))));
+        var invalidPredicateIndex = assertThrows(java.lang.reflect.InvocationTargetException.class,
+                () -> resolver.invoke(null, invalidPredicateIndexResponse));
+        assertEquals("detailed situation target index is invalid: field=situation.funnelPredicateIndexes, allowedTargetCount=2",
+                invalidPredicateIndex.getCause().getMessage());
+        assertFalse(invalidPredicateIndex.getCause().getMessage().contains("predicate-a"));
 
         var openingResolver = ScenarioPackageStageArtifactAdapter.class.getDeclaredMethod("resolveOpeningSituationIndex",
                 com.fasterxml.jackson.databind.JsonNode.class, boolean.class);
