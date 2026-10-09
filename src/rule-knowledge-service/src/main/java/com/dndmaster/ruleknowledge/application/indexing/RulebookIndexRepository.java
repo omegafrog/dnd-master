@@ -9,9 +9,12 @@ import java.util.Optional;
 import java.time.Duration;
 import java.time.Instant;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
+import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import java.util.function.Supplier;
 
 public interface RulebookIndexRepository {
+    default PublishedRagChunkPage findPublishedChunks(RulebookId documentId, String extractionVersion,
+            OwnerPlayerId owner, int offset, int limit) { throw new UnsupportedOperationException(); }
     RulebookIndex loadOrCreate(IndexKey key, Supplier<RulebookIndex> newIndex);
     void save(RulebookIndex index);
     default void save(RulebookIndex index, IndexLease lease) { save(index); }

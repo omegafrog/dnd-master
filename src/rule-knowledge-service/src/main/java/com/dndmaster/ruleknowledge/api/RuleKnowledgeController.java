@@ -682,6 +682,95 @@ public class RuleKnowledgeController {
         }
     }
 
+    @PostMapping("/internal/v1/evidence-candidates/preparation-search-batch")
+    ResponseEntity<?> searchPreparationEvidenceCandidatesBatch(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody PreparationEvidenceCandidateSearchBatchRequest request) {
+        try {
+            if (hybridEvidenceSearchService == null) return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
+            requireInternalToken(token);
+            if (request.ownerId() == null || request.scenarioSourceBundleId() == null || request.queries() == null
+                    || request.queries().isEmpty() || request.queries().size() > 1000
+                    || request.queries().stream().anyMatch(query -> query == null || query.isBlank() || query.length() > 2000)
+                    || request.scope() == null || request.scope().isEmpty() || request.denseLimit() < 1 || request.denseLimit() > 30
+                    || request.bm25Limit() < 1 || request.bm25Limit() > 30) {
+                return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+            }
+            List<AuthorizedDocumentScope> scope = authorizedPreparationScope(request.ownerId(), request.scope());
+            if (scope.stream().map(AuthorizedDocumentScope::documentType).distinct().count() != 1) {
+                return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+            }
+            List<com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest> searches = request.queries().stream().map(query ->
+                    new com.dndmaster.ruleknowledge.application.search.PreparationEvidenceSearchRequest(
+                            new OwnerPlayerId(request.ownerId()), request.scenarioSourceBundleId(), scope,
+                            request.activeLocators(), query, request.denseLimit(), request.bm25Limit()).asSharedSearchRequest()).toList();
+            List<EvidenceSearchResult> results = hybridEvidenceSearchService.searchBatch(searches);
+            List<PreparationEvidenceCandidateSearchBatchItem> items = java.util.stream.IntStream.range(0, request.queries().size())
+                    .mapToObj(index -> new PreparationEvidenceCandidateSearchBatchItem(request.queries().get(index),
+                            results.get(index).candidates().stream().map(this::candidateResponse).toList())).toList();
+            return ResponseEntity.ok(new PreparationEvidenceCandidateSearchBatchResponse(request.ownerId(),
+                    request.scenarioSourceBundleId(), items));
+        } catch (EvidenceSearchUnavailableException exception) {
+            return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
+        } catch (ResponseStatusException exception) {
+            int status = exception.getStatusCode().value();
+            return evidenceSearchError(status == 401 ? HttpStatus.UNAUTHORIZED : status == 400 ? HttpStatus.BAD_REQUEST : HttpStatus.FORBIDDEN,
+                    status == 401 ? "EVIDENCE_SEARCH_UNAUTHENTICATED" : status == 400 ? "EVIDENCE_SEARCH_INVALID_REQUEST" : "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
+        } catch (IllegalArgumentException exception) {
+            return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+        }
+    }
+
+    private List<AuthorizedDocumentScope> authorizedPreparationScope(UUID ownerId, List<EvidenceCandidateScopeRequest> requested) {
+        Set<String> keys = new HashSet<>();
+        List<AuthorizedDocumentScope> scope = new java.util.ArrayList<>();
+        for (EvidenceCandidateScopeRequest item : requested) {
+            if (item == null || item.documentId() == null || (item.documentType() != DocumentType.STORYBOOK
+                    && item.documentType() != DocumentType.RULEBOOK) || item.extractionVersion() <= 0
+                    || !keys.add(item.documentId() + ":" + item.extractionVersion())) throw new IllegalArgumentException();
+            StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(item.documentId()))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "document scope is not authorized"));
+            boolean catalog = item.documentType() == DocumentType.RULEBOOK && isPublishedCatalogScope(List.of(item.documentId()));
+            if (!catalog && !registration.ownerPlayerId().value().equals(ownerId)) throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+            if (registration.processingStatus() != ProcessingStatus.INDEXED || registration.version() != item.extractionVersion()
+                    || registration.documentType() != item.documentType()) throw new IllegalArgumentException();
+            scope.add(new AuthorizedDocumentScope(new KnowledgeDocumentId(item.documentId()), item.extractionVersion(), item.documentType(),
+                    new OwnerPlayerId(catalog ? CATALOG_OWNER : ownerId)));
+        }
+        return List.copyOf(scope);
+    }
+
+    @GetMapping("/internal/v1/rag-chunks/preparation")
+    ResponseEntity<?> listPreparationChunks(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestParam UUID ownerId, @RequestParam UUID scenarioSourceBundleId, @RequestParam UUID documentId,
+            @RequestParam long extractionVersion, @RequestParam(defaultValue = "0") int offset,
+            @RequestParam(defaultValue = "50") int limit) {
+        try {
+            requireInternalToken(token);
+            if (ownerId == null || scenarioSourceBundleId == null || extractionVersion < 1 || offset < 0 || limit < 1 || limit > 100) {
+                return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+            }
+            StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(documentId))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN));
+            boolean catalog = registration.documentType() == DocumentType.RULEBOOK && isPublishedCatalogScope(List.of(documentId));
+            if (!catalog && !registration.ownerPlayerId().value().equals(ownerId)) return evidenceSearchError(HttpStatus.FORBIDDEN, "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
+            if (registration.processingStatus() != ProcessingStatus.INDEXED || registration.version() != extractionVersion
+                    || (registration.documentType() != DocumentType.STORYBOOK && registration.documentType() != DocumentType.RULEBOOK)) {
+                return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+            }
+            var page = indexRepository.findPublishedChunks(new RulebookId(documentId), Long.toString(extractionVersion),
+                    new OwnerPlayerId(catalog ? CATALOG_OWNER : ownerId), offset, limit);
+            return ResponseEntity.ok(new PreparationRagChunksResponse(ownerId, scenarioSourceBundleId, documentId,
+                    extractionVersion, page.totalCount(), offset, page.chunks()));
+        } catch (ResponseStatusException exception) {
+            int status = exception.getStatusCode().value();
+            return evidenceSearchError(status == 401 ? HttpStatus.UNAUTHORIZED : HttpStatus.FORBIDDEN,
+                    status == 401 ? "EVIDENCE_SEARCH_UNAUTHENTICATED" : "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
+        } catch (IllegalArgumentException exception) {
+            return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+        }
+    }
+
     private static ResponseEntity<EvidenceSearchErrorResponse> evidenceSearchError(HttpStatus status, String code) {
         return ResponseEntity.status(status).body(new EvidenceSearchErrorResponse(code));
     }
@@ -1083,6 +1172,14 @@ public class RuleKnowledgeController {
             List<String> activeLocators, String query, int denseLimit, int bm25Limit) {}
     public record PreparationEvidenceCandidateSearchResponse(
             UUID ownerId, UUID scenarioSourceBundleId, List<UnifiedEvidenceCandidateResponse> candidates) {}
+    public record PreparationEvidenceCandidateSearchBatchRequest(UUID ownerId, UUID scenarioSourceBundleId,
+            List<EvidenceCandidateScopeRequest> scope, List<String> activeLocators, List<String> queries, int denseLimit, int bm25Limit) {}
+    public record PreparationEvidenceCandidateSearchBatchResponse(UUID ownerId, UUID scenarioSourceBundleId,
+            List<PreparationEvidenceCandidateSearchBatchItem> results) {}
+    public record PreparationEvidenceCandidateSearchBatchItem(String query, List<UnifiedEvidenceCandidateResponse> candidates) {}
+    public record PreparationRagChunksResponse(UUID ownerId, UUID scenarioSourceBundleId, UUID documentId,
+            long extractionVersion, long totalCount, int offset,
+            List<com.dndmaster.ruleknowledge.application.indexing.PublishedRagChunkPage.Chunk> chunks) {}
     public record UnifiedEvidenceCandidateResponse(
             UUID chunkId, UUID documentId, long extractionVersion, DocumentType documentType, String locator, String excerpt,
             SourceProvenance provenance, Integer denseRank, Integer bm25Rank, double rrfScore) {}

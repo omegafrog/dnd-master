@@ -31,6 +31,7 @@ import com.dndmaster.ruleknowledge.infrastructure.persistence.RuleVectorPersiste
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLBm25EvidenceCandidateSearchAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLDenseEvidenceCandidateSearchAdapter;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
 import com.dndmaster.ruleknowledge.application.indexing.ChunkEmbedding;
 import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
@@ -74,6 +75,7 @@ class RulebookPgvectorIntegrationTest {
     private static PgvectorRuleEvidenceSearchRepository evidenceRepository;
     private static PgvectorStorySourceSearchRepository storySourceRepository;
     private static PostgreSQLBm25EvidenceCandidateSearchAdapter bm25EvidenceRepository;
+    private static PostgresRulebookIndexRepository indexRepository;
 
     @BeforeAll
     static void startDatabase() {
@@ -85,6 +87,7 @@ class RulebookPgvectorIntegrationTest {
         evidenceRepository = new PgvectorRuleEvidenceSearchRepository(dataSource);
         storySourceRepository = new PgvectorStorySourceSearchRepository(dataSource);
         bm25EvidenceRepository = new PostgreSQLBm25EvidenceCandidateSearchAdapter(dataSource);
+        indexRepository = new PostgresRulebookIndexRepository(dataSource);
     }
 
     @AfterAll
@@ -427,6 +430,32 @@ class RulebookPgvectorIntegrationTest {
         assertEquals(List.of(), new PostgreSQLDenseEvidenceCandidateSearchAdapter(
                 dataSource, new RecordingQueryEmbeddingPort(), "mock-embedding", 3)
                 .search(evidenceRequest(owner, scope, List.of(), "clockwork")));
+    }
+
+    @Test
+    void enumerates_all_published_chunks_in_stable_pages_for_one_document_version() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+        RagExtractionPublicationRequest request = new RagExtractionPublicationRequest(documentId, owner,
+                "all-chunks", "1", "a".repeat(64), "policy-1", "b".repeat(64),
+                List.of(new RagExtractionPage(1, "VALIDATED", 1, List.of()), new RagExtractionPage(2, "VALIDATED", 1, List.of())),
+                List.of(new PublishedRagChunk("first", 0, "first passage", "first passage",
+                                new SourceProvenance(1, List.of(), List.of(), null, "page:1")),
+                        new PublishedRagChunk("second", 1, "second passage", "second passage",
+                                new SourceProvenance(2, List.of(), List.of(), null, "page:2"))), "mock-embedding");
+        publicationRepository.beginCandidate(request);
+        publicationRepository.publish(request, request.chunks().stream()
+                .map(chunk -> new EmbeddedPublishedRagChunk(chunk, new float[] {1, 0, 0})).toList());
+
+        var firstPage = indexRepository.findPublishedChunks(documentId, "1", owner, 0, 1);
+        var secondPage = indexRepository.findPublishedChunks(documentId, "1", owner, 1, 1);
+
+        assertEquals(2, firstPage.totalCount());
+        assertEquals("page:1", firstPage.chunks().getFirst().originalLocator());
+        assertEquals(2, secondPage.totalCount());
+        assertEquals("page:2", secondPage.chunks().getFirst().originalLocator());
+        assertEquals(List.of(), indexRepository.findPublishedChunks(documentId, "2", owner, 0, 1).chunks());
     }
 
     private static EvidenceSearchRequest evidenceRequest(

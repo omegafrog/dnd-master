@@ -8,6 +8,8 @@ import java.util.Set;
 @FunctionalInterface
 public interface StorybookEvidenceLookupPort {
     List<ScenarioSourceReference> lookup(UUID scenarioPackageId);
+    default List<ScenarioSourceReference> lookup(UUID scenarioPackageId,
+            com.dndmaster.adventure.domain.adventure.SessionId sessionId) { return lookup(scenarioPackageId); }
 
     /** True when the package has scenario-document claims that require provenance. */
     default boolean isScenarioBacked(UUID scenarioPackageId) { return true; }

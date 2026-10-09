@@ -45,8 +45,22 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
     public List<EvidenceCandidate> search(EvidenceSearchRequest request) {
         Objects.requireNonNull(request, "request must not be null");
         var authorizedScope = request.scope();
+        return search(request, vectorLiteral(embedQueries(List.of(request)).getFirst()));
+    }
 
-        String vector = vectorLiteral(embedQuery(request.query(), authorizedScope.getFirst()));
+    @Override
+    public List<List<EvidenceCandidate>> searchBatch(List<EvidenceSearchRequest> requests) {
+        requests = List.copyOf(Objects.requireNonNull(requests, "requests must not be null"));
+        if (requests.isEmpty()) return List.of();
+        List<String> vectors = embedQueries(requests).stream().map(PostgreSQLDenseEvidenceCandidateSearchAdapter::vectorLiteral).toList();
+        List<List<EvidenceCandidate>> results = new ArrayList<>();
+        for (int index = 0; index < requests.size(); index++) results.add(search(requests.get(index), vectors.get(index)));
+        return List.copyOf(results);
+    }
+
+    private List<EvidenceCandidate> search(EvidenceSearchRequest request, String vector) {
+        Objects.requireNonNull(request, "request must not be null");
+        var authorizedScope = request.scope();
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(searchSql(authorizedScope.size()))) {
             int parameter = 1;
@@ -81,10 +95,26 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
         }
     }
 
-    private float[] embedQuery(String query, AuthorizedDocumentScope scope) {
-        RulebookChunk queryChunk = new RulebookChunk(scope.documentId().asRulebookId(), new ChunkId(UUID.randomUUID()), 0,
-                new ExtractedContentRange(0, query.length()), query, null, null);
-        return embeddingPort.embed(List.of(queryChunk), embeddingModel, embeddingDimension).getFirst().vector();
+    private List<float[]> embedQueries(List<EvidenceSearchRequest> requests) {
+        List<RulebookChunk> chunks = new ArrayList<>();
+        for (int index = 0; index < requests.size(); index++) {
+            EvidenceSearchRequest request = requests.get(index);
+            String query = request.query();
+            chunks.add(new RulebookChunk(request.scope().getFirst().documentId().asRulebookId(),
+                    new ChunkId(UUID.nameUUIDFromBytes(("preparation-query:" + index).getBytes(java.nio.charset.StandardCharsets.UTF_8))),
+                    index, new ExtractedContentRange(0, query.length()), query, null, null));
+        }
+        List<com.dndmaster.ruleknowledge.application.indexing.ChunkEmbedding> embeddings =
+                embeddingPort.embed(chunks, embeddingModel, embeddingDimension);
+        if (embeddings.size() != requests.size()) throw new IllegalStateException("query embedding count does not match request count");
+        List<float[]> vectors = new ArrayList<>();
+        for (int index = 0; index < embeddings.size(); index++) {
+            if (!chunks.get(index).chunkId().equals(embeddings.get(index).chunkId())) {
+                throw new IllegalStateException("query embedding order does not match request order");
+            }
+            vectors.add(embeddings.get(index).vector());
+        }
+        return List.copyOf(vectors);
     }
 
     private static String searchSql(int scopeSize) {

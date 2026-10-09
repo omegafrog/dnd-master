@@ -1,6 +1,7 @@
 package com.dndmaster.ruleknowledge.infrastructure.persistence;
 
 import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository;
+import com.dndmaster.ruleknowledge.application.indexing.PublishedRagChunkPage;
 import com.dndmaster.ruleknowledge.application.publication.EmbeddedPublishedRagChunk;
 import com.dndmaster.ruleknowledge.application.publication.ExtractionPublicationStatus;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRepository;
@@ -121,6 +122,41 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
     public PostgresRulebookIndexRepository(DataSource dataSource) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
         this.publicationRepository = new PostgresRagExtractionPublicationRepository(dataSource);
+    }
+
+    @Override
+    public PublishedRagChunkPage findPublishedChunks(RulebookId documentId, String extractionVersion,
+            OwnerPlayerId owner, int offset, int limit) {
+        if (offset < 0 || limit < 1 || limit > 100) throw new IllegalArgumentException("invalid chunk page");
+        String where = " FROM published_rag_chunk c JOIN rag_extraction_version v ON v.document_id=c.document_id "
+                + "AND v.extraction_version=c.extraction_version AND v.status='INDEXED' "
+                + "WHERE c.document_id=? AND c.extraction_version=? AND c.owner_player_id=?";
+        try (Connection connection = dataSource.getConnection()) {
+            long total;
+            try (PreparedStatement count = connection.prepareStatement("SELECT COUNT(*)" + where)) {
+                count.setObject(1, documentId.value()); count.setString(2, extractionVersion); count.setObject(3, owner.value());
+                try (ResultSet row = count.executeQuery()) { row.next(); total = row.getLong(1); }
+            }
+            List<PublishedRagChunkPage.Chunk> chunks = new java.util.ArrayList<>();
+            try (PreparedStatement page = connection.prepareStatement("SELECT c.chunk_id,c.sequence,c.content,c.original_locator,"
+                    + "c.page_number,c.section_path" + where + " ORDER BY c.page_number,c.sequence,c.chunk_id LIMIT ? OFFSET ?")) {
+                page.setObject(1, documentId.value()); page.setString(2, extractionVersion); page.setObject(3, owner.value());
+                page.setInt(4, limit); page.setInt(5, offset);
+                try (ResultSet rows = page.executeQuery()) {
+                    while (rows.next()) {
+                        Array sections = rows.getArray("section_path");
+                        List<String> sectionPath = sections == null ? List.of()
+                                : java.util.Arrays.stream((Object[]) sections.getArray()).map(String::valueOf).toList();
+                        chunks.add(new PublishedRagChunkPage.Chunk(rows.getObject("chunk_id", java.util.UUID.class),
+                                rows.getInt("sequence"), rows.getString("content"), rows.getString("original_locator"),
+                                rows.getInt("page_number"), sectionPath));
+                    }
+                }
+            }
+            return new PublishedRagChunkPage(total, offset, chunks);
+        } catch (SQLException exception) {
+            throw new RuleVectorPersistenceException("could not list published RAG chunks", exception);
+        }
     }
 
     @Override

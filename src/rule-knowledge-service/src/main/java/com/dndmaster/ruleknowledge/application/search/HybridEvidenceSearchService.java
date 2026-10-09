@@ -62,6 +62,45 @@ public final class HybridEvidenceSearchService {
         return result;
     }
 
+    /** Embeds every query before running any dense retrieval. */
+    public List<EvidenceSearchResult> searchBatch(List<EvidenceSearchRequest> requests) {
+        requests = List.copyOf(Objects.requireNonNull(requests, "requests must not be null"));
+        if (requests.isEmpty()) return List.of();
+        RuntimeException firstFailure;
+        try {
+            return searchBatchOnce(requests);
+        } catch (RuntimeException failure) {
+            firstFailure = failure;
+        }
+        try {
+            return searchBatchOnce(requests);
+        } catch (RuntimeException retryFailure) {
+            retryFailure.addSuppressed(firstFailure);
+            throw new EvidenceSearchUnavailableException(retryFailure);
+        }
+    }
+
+    private List<EvidenceSearchResult> searchBatchOnce(List<EvidenceSearchRequest> requests) {
+        List<List<EvidenceCandidate>> dense = denseSearch.searchBatch(requests);
+        if (dense.size() != requests.size()) throw new IllegalStateException("dense batch size mismatch");
+        List<EvidenceSearchResult> results = new java.util.ArrayList<>();
+        for (int index = 0; index < requests.size(); index++) {
+            EvidenceSearchRequest request = requests.get(index);
+            List<EvidenceCandidate> denseCandidates = validatedCandidates(request, dense.get(index));
+            List<EvidenceCandidate> bm25Candidates = bm25Enabled
+                    ? validatedCandidates(request, bm25Search.search(request)) : List.of();
+            Map<String, EvidenceCandidate> byId = new LinkedHashMap<>();
+            addCandidates(byId, denseCandidates);
+            addCandidates(byId, bm25Candidates);
+            Map<String, RrfFusionPolicy.RankedChunk> ranks = new LinkedHashMap<>();
+            rrfFusionPolicy.fuse(stableIds(denseCandidates), stableIds(bm25Candidates))
+                    .forEach(rank -> ranks.put(rank.stableChunkId(), rank));
+            results.add(new EvidenceSearchResult(ranks.values().stream()
+                    .map(rank -> withRanks(byId.get(rank.stableChunkId()), rank)).toList()));
+        }
+        return List.copyOf(results);
+    }
+
     private RetrievalCandidates retrieveTogether(EvidenceSearchRequest request) {
         RuntimeException firstFailure;
         try {

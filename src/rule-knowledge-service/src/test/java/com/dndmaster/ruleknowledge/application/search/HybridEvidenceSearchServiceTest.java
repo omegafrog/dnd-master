@@ -42,6 +42,49 @@ class HybridEvidenceSearchServiceTest {
     }
 
     @Test
+    void sendsAllQueriesToDenseRetrievalAsOneBatchBeforeFusingEachResult() {
+        List<EvidenceSearchRequest> embeddedBatch = new ArrayList<>();
+        DenseEvidenceCandidateSearchPort dense = new DenseEvidenceCandidateSearchPort() {
+            @Override public List<EvidenceCandidate> search(EvidenceSearchRequest request) {
+                throw new AssertionError("batch search must be used");
+            }
+            @Override public List<List<EvidenceCandidate>> searchBatch(List<EvidenceSearchRequest> requests) {
+                embeddedBatch.addAll(requests);
+                return requests.stream().map(request -> List.of(candidate(request.query()))).toList();
+            }
+        };
+        Bm25EvidenceCandidateSearchPort bm25 = request -> List.of();
+        EvidenceSearchRequest story = request();
+        EvidenceSearchRequest rules = new EvidenceSearchRequest(OWNER, story.sessionId(), story.scenarioPackageId(),
+                "required-situation", "RULES", List.of(SCOPE), List.of(), "how to resolve this situation", 30, 30);
+
+        List<EvidenceSearchResult> results = new HybridEvidenceSearchService(dense, bm25, new RrfFusionPolicy())
+                .searchBatch(List.of(story, rules));
+
+        assertEquals(List.of(story, rules), embeddedBatch);
+        assertEquals(List.of(story.query(), rules.query()), results.stream()
+                .map(result -> result.candidates().getFirst().excerpt()).toList());
+    }
+
+    @Test
+    void retries_the_whole_query_batch_when_dense_search_fails() {
+        AtomicInteger batchCalls = new AtomicInteger();
+        DenseEvidenceCandidateSearchPort dense = new DenseEvidenceCandidateSearchPort() {
+            @Override public List<EvidenceCandidate> search(EvidenceSearchRequest request) { return List.of(); }
+            @Override public List<List<EvidenceCandidate>> searchBatch(List<EvidenceSearchRequest> requests) {
+                if (batchCalls.incrementAndGet() == 1) throw new IllegalStateException("temporary failure");
+                return requests.stream().map(request -> List.of(candidate(request.query()))).toList();
+            }
+        };
+
+        var results = new HybridEvidenceSearchService(dense, request -> List.of(), new RrfFusionPolicy())
+                .searchBatch(List.of(request()));
+
+        assertEquals(2, batchCalls.get());
+        assertEquals("find the armor class", results.getFirst().candidates().getFirst().excerpt());
+    }
+
+    @Test
     void searchesBothRetrieversWithTheAuthorizedScopeAndFusesTheirThirtyCandidates() {
         List<EvidenceSearchRequest> denseInvocations = new ArrayList<>();
         List<EvidenceSearchRequest> bm25Invocations = new ArrayList<>();

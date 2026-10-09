@@ -63,7 +63,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                     .orElseThrow(() -> new IllegalStateException("opening situation is required"));
             return new Result(persistedBackbone, persistedStages, firstStage, opening);
         }
-        List<ScenarioSourceReference> evidence = List.copyOf(evidenceLookup.lookup(scenarioPackageId));
+        List<ScenarioSourceReference> evidence = List.copyOf(evidenceLookup.lookup(scenarioPackageId, sessionId));
         boolean scenarioBacked = evidenceLookup.isScenarioBacked(scenarioPackageId);
         java.util.Set<UUID> providedMapIds = evidenceLookup.providedMapIds(scenarioPackageId);
         if (scenarioBacked && evidence.isEmpty()) throw new IllegalStateException("published Storybook evidence is required");
@@ -113,7 +113,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                 .mapToInt(stage -> stage.order()).findFirst().orElseThrow(() -> new IllegalArgumentException("current stage is not in backbone"));
         StageBackboneEntry next = backbone.stages().stream().filter(stage -> stage.order() == currentOrder + 1).findFirst()
                 .orElseThrow(() -> new IllegalStateException("current stage has no next stage"));
-        List<ScenarioSourceReference> evidence = List.copyOf(evidenceLookup.lookup(scenarioPackageId));
+        List<ScenarioSourceReference> evidence = List.copyOf(evidenceLookup.lookup(scenarioPackageId, sessionId));
         boolean scenarioBacked = evidenceLookup.isScenarioBacked(scenarioPackageId);
         if (scenarioBacked && evidence.isEmpty()) throw new IllegalStateException("published Storybook evidence is required");
         DetailedStage generated = detailedGeneration.generate(new StageDetailedGenerationPort.Request(
