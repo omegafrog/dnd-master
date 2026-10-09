@@ -234,8 +234,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     "required-review:repair", "Correct only the invalid entries in the reviewed required-situation list. "
                             + "Keep all valid entries and their meaning unchanged; do not remove a required situation or "
                             + "invent source evidence or prerequisites. Return {reviewed:true,correctedSituations:[...]} "
-                            + "with one ordered item per INVALID_ENTRIES item. Each item contains sourceRefIndexes and "
-                            + "prerequisiteSituationIds only; if it also contains situationId, it must match that item. "
+                            + "with one ordered item per INVALID_ENTRIES item. Each item contains sourceRefIndexes, "
+                            + "prerequisiteSituationIds, and optionally a matching situationId. "
                             + "Use integer indexes into NUMBERED_ALLOWED_SOURCE_REFS. "
                             + "Do not return summaries or change situation IDs.\nINVALID_ENTRIES=" + json(invalid)
                             + "\nNUMBERED_ALLOWED_SOURCE_REFS=" + json(java.util.stream.IntStream.range(0, allowedRefs.size())
@@ -273,11 +273,17 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             throw new IllegalStateException("required situation correction changed the reviewed list");
         }
         Map<String, RequiredSituation> corrections = new java.util.HashMap<>();
+        Set<String> allowedFields = Set.of("sourceRefIndexes", "prerequisiteSituationIds", "situationId");
         for (int index = 0; index < invalid.size(); index++) {
             JsonNode item = corrected.get(index);
             RequiredSituation original = (RequiredSituation) invalid.get(index).get("requiredSituation");
+            var fields = item.fieldNames();
+            while (fields.hasNext()) {
+                if (!allowedFields.contains(fields.next())) {
+                    throw new IllegalStateException("required situation correction changed the reviewed list");
+                }
+            }
             if ((item.has("situationId") && !original.situationId().equals(item.path("situationId").asText()))
-                    || (item.has("id") && !original.situationId().equals(item.path("id").asText()))
                     || !item.path("sourceRefIndexes").isArray()
                     || !item.path("prerequisiteSituationIds").isArray()) {
                 throw new IllegalStateException("required situation correction changed the reviewed list");

@@ -96,7 +96,8 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertTrue(calls.get(3).operationKey().contains("required-review:repair"));
         assertTrue(calls.get(3).prompt().contains(
                 "Return {reviewed:true,correctedSituations:[...]} with one ordered item per INVALID_ENTRIES item."));
-        assertTrue(calls.get(3).prompt().contains("sourceRefIndexes and prerequisiteSituationIds only"));
+        assertTrue(calls.get(3).prompt().contains(
+                "sourceRefIndexes, prerequisiteSituationIds, and optionally a matching situationId"));
         assertTrue(calls.get(3).prompt().contains("NUMBERED_ALLOWED_SOURCE_REFS"));
         assertTrue(calls.get(3).prompt().contains("missing"));
         assertTrue(calls.get(3).prompt().contains("page:99"));
@@ -140,6 +141,15 @@ class ScenarioPackageStageArtifactAdapterTest {
                 : gm.generate(request);
         var unknownSourceIndexCorrection = new ScenarioPackageStageArtifactAdapter(packages, unknownSourceIndex, bindings, sessions, mapper, source);
         assertThrows(IllegalStateException.class, () -> unknownSourceIndexCorrection.generate(new StageBackboneGenerationPort.Request(
+                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
+
+        InitialSituationGmPort unexpectedField = request -> request.operationKey().contains("required-review:repair")
+                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
+                        Map.of("summary", "changed", "sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of()),
+                        Map.of("sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
+                : gm.generate(request);
+        var unexpectedCorrection = new ScenarioPackageStageArtifactAdapter(packages, unexpectedField, bindings, sessions, mapper, source);
+        assertThrows(IllegalStateException.class, () -> unexpectedCorrection.generate(new StageBackboneGenerationPort.Request(
                 AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
 
         InitialSituationGmPort failedReview = request -> request.operationKey().contains("required-review")
