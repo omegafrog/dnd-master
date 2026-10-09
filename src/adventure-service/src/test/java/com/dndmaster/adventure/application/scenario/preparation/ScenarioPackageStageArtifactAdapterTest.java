@@ -330,6 +330,8 @@ class ScenarioPackageStageArtifactAdapterTest {
                     .filter(candidate -> candidate.path("properties").path(target).has("minItems"))
                     .findFirst().orElseThrow();
             assertEquals(1, branch.path("properties").path(target).path("minItems").asInt());
+            assertEquals(target.equals("funnelPredicateIndexes") ? "integer" : "string",
+                    branch.path("properties").path(target).path("items").path("type").asText());
             assertFalse(branch.path("additionalProperties").asBoolean(true));
             assertEquals(branch.path("properties").size(), branch.path("required").size());
             var declared = new java.util.HashSet<String>();

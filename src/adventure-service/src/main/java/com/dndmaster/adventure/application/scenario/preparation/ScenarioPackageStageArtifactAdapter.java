@@ -231,7 +231,10 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         List<Map<String, Object>> targetAlternatives = List.of("revelationIds", "pressureIds", "funnelIds",
                 "funnelPredicateIndexes", "importantConsequenceIds").stream().map(target -> {
                     Map<String, Object> branchProperties = new LinkedHashMap<>(properties);
-                    branchProperties.put(target, arraySchema(stringSchema(), 1));
+                    Map<String, Object> targetSchema = new LinkedHashMap<>();
+                    ((Map<?, ?>) properties.get(target)).forEach((key, value) -> targetSchema.put((String) key, value));
+                    targetSchema.put("minItems", 1);
+                    branchProperties.put(target, targetSchema);
                     return objectSchema(branchProperties);
                 }).toList();
         Map<String, Object> schema = new LinkedHashMap<>(objectSchema(properties));
