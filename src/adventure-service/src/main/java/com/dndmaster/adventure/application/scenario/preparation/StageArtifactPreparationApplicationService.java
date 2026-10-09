@@ -77,7 +77,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         List<DetailedStage> effectiveStages = backbone.stages().stream().map(stage -> {
                 DetailedStage detailed = detailedGeneration.generate(new StageDetailedGenerationPort.Request(
                         adventureId, sessionId, scenarioPackageId, stage.stageId(), backbone.revision(), evidence,
-                        backbone.requiredSituations()));
+                        backbone.requiredSituations(), stage.stageId().equals(first.stageId())));
                 requirePackage(detailed.scenarioPackageId(), scenarioPackageId);
                 if (!detailed.stageId().equals(stage.stageId()) || detailed.backboneRevision() != backbone.revision()) {
                     throw new IllegalStateException("detailed stage does not match backbone stage");

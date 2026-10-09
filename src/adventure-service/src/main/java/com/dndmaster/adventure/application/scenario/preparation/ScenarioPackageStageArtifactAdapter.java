@@ -106,10 +106,12 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
             JsonNode generated = generate(request.sessionId(), request.adventureId().value(),
                     request.scenarioPackageId(), "stage:" + request.stageId(),
-                    detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations()),
-                    request.evidence());
+                    detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations())
+                            + (request.openingSituationRequired() ? " The openingSituationIndex must select one situation because this is the first stage." : ""),
+                    request.evidence(), request.openingSituationRequired());
             var content = generated.deepCopy();
             resolveSituationTargetIndexes(content);
+            resolveOpeningSituationIndex(content, request.openingSituationRequired());
             ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("scenarioPackageId", request.scenarioPackageId().toString());
             ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("backboneRevision", request.backboneRevision());
             ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("stageId", request.stageId());
@@ -141,6 +143,11 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
 
     private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
             List<ScenarioSourceReference> allowedRefs) {
+        return generate(sessionId, adventureId, packageId, task, taskPrompt, allowedRefs, false);
+    }
+
+    private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
+            List<ScenarioSourceReference> allowedRefs, boolean openingSituationRequired) {
         var session = sessions.findById(sessionId).orElseThrow(() -> new IllegalStateException("adventure session not found"));
         var binding = bindings.current(sessionId.value()).orElseThrow(() -> new IllegalStateException("GM provider selection not found"));
         String prompt = "ROLE=INITIAL_SITUATION_PREPARATION\nTASK=" + task + "\n" + taskPrompt
@@ -148,10 +155,15 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         return gm.generate(new InitialSituationGmPort.Request(session.ownerPlayerId().value(), sessionId.value(),
                 binding.selection().endpointId(), binding.selection().provider(), binding.selection().model(),
                 binding.selection().reasoning(), "initial-situation:" + adventureId + ":" + packageId + ":" + task,
-                prompt, outputSchema(task, allowedRefs)));
+                prompt, outputSchema(task, allowedRefs, openingSituationRequired)));
     }
 
     private JsonNode outputSchema(String task, List<ScenarioSourceReference> allowedRefs) {
+        return outputSchema(task, allowedRefs, false);
+    }
+
+    private JsonNode outputSchema(String task, List<ScenarioSourceReference> allowedRefs,
+            boolean openingSituationRequired) {
         Map<String, Object> properties;
         if (task.startsWith("required-extract:")) {
             properties = Map.of("requiredSituations", arraySchema(requiredSituationSchema(allowedRefs)));
@@ -178,7 +190,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     Map.entry("pressureIndexes", arraySchema(indexSchema())),
                     Map.entry("funnelIndexes", arraySchema(indexSchema())),
                     Map.entry("funnelPredicateIndexes", arraySchema(Map.of("type", "integer", "minimum", 0))),
-                    Map.entry("importantConsequenceIndexes", arraySchema(indexSchema())), Map.entry("opening", booleanSchema()),
+                    Map.entry("importantConsequenceIndexes", arraySchema(indexSchema())),
                     Map.entry("required", booleanSchema()), Map.entry("prerequisiteSituationIds", arraySchema(stringSchema())),
                     Map.entry("provenance", enumSchema("SOURCE_EXTRACTED", "GM_SUPPLEMENTED")),
                     Map.entry("mapDefinitionId", nullableStringSchema()), Map.entry("sourceRefs", sourceReferencesSchema(allowedRefs)));
@@ -192,7 +204,10 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     "funnel", objectSchema(Map.of("funnelId", stringSchema(), "meaning", stringSchema(),
                             "requiredRevelationIndexes", arraySchema(indexSchema()), "requiredPredicateIds", arraySchema(stringSchema()),
                             "sourceRefs", sourceReferencesSchema(allowedRefs))),
-                    "situations", arraySchema(situation), "importantConsequenceIds", arraySchema(stringSchema()),
+                    "situations", arraySchema(situation),
+                    "openingSituationIndex", openingSituationRequired ? indexSchema()
+                            : Map.of("type", List.of("integer", "null"), "minimum", 0),
+                    "importantConsequenceIds", arraySchema(stringSchema()),
                     "sourceRefs", sourceReferencesSchema(allowedRefs));
         } else {
             throw new IllegalArgumentException("unsupported initial situation task schema");
@@ -285,6 +300,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 + "funnel.funnelId; funnelPredicateIndexes indexes this response's funnel.requiredPredicateIds; and importantConsequenceIndexes "
                 + "indexes importantConsequenceIds. Use only in-range indexes and never invent separate target IDs. "
                 + "The funnel's requiredRevelationIndexes also indexes this response's revelations[].revelationId values. "
+                + "Set openingSituationIndex to null when this stage has no opening situation; otherwise set it to the zero-based index "
+                + "of the single opening situation in situations. "
                 + "sourceRefs (exact allowed references for extracted claims; empty for GM supplements), and mapDefinitionId "
                 + "(one supplied map UUID or null). Return a complete DetailedStage JSON object except package/revision/stage identifiers. "
                 + "Use only these map IDs: " + json(scenarioPackage.mapDefinitions().stream().map(m -> m.id()).toList())
@@ -330,6 +347,26 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             resolved.add(canonicalIds.get(index.intValue()));
         }
         return resolved;
+    }
+
+    private static void resolveOpeningSituationIndex(JsonNode detailed, boolean openingSituationRequired) {
+        JsonNode index = detailed.path("openingSituationIndex");
+        JsonNode situations = detailed.path("situations");
+        if (!detailed.isObject() || !situations.isArray()) {
+            throw new IllegalStateException("detailed opening situation index is invalid");
+        }
+        if (index.isNull()) {
+            if (openingSituationRequired) throw new IllegalStateException("opening situation is required for the first stage");
+        } else if (!index.isIntegralNumber() || !index.canConvertToInt() || index.intValue() < 0
+                || index.intValue() >= situations.size()) {
+            throw new IllegalStateException("detailed opening situation index is invalid");
+        }
+        for (int i = 0; i < situations.size(); i++) {
+            JsonNode situation = situations.get(i);
+            if (!situation.isObject()) throw new IllegalStateException("detailed opening situation index is invalid");
+            ((com.fasterxml.jackson.databind.node.ObjectNode) situation).put("opening", !index.isNull() && i == index.intValue());
+        }
+        ((com.fasterxml.jackson.databind.node.ObjectNode) detailed).remove("openingSituationIndex");
     }
 
     private static List<String> textArray(JsonNode values) {

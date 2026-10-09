@@ -13,10 +13,15 @@ public interface StageDetailedGenerationPort {
     DetailedStage generate(Request request);
 
     record Request(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId, String stageId,
-            long backboneRevision, List<ScenarioSourceReference> evidence, List<RequiredSituation> requiredSituations) {
+            long backboneRevision, List<ScenarioSourceReference> evidence, List<RequiredSituation> requiredSituations,
+            boolean openingSituationRequired) {
         public Request(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId, String stageId,
                 long backboneRevision, List<ScenarioSourceReference> evidence) {
-            this(adventureId, sessionId, scenarioPackageId, stageId, backboneRevision, evidence, List.of());
+            this(adventureId, sessionId, scenarioPackageId, stageId, backboneRevision, evidence, List.of(), false);
+        }
+        public Request(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId, String stageId,
+                long backboneRevision, List<ScenarioSourceReference> evidence, List<RequiredSituation> requiredSituations) {
+            this(adventureId, sessionId, scenarioPackageId, stageId, backboneRevision, evidence, requiredSituations, false);
         }
         public Request { evidence = List.copyOf(evidence); requiredSituations = List.copyOf(requiredSituations); }
     }
