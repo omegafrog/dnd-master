@@ -228,18 +228,24 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         List<RequiredSituation> required = requiredSituations(reviewed);
         List<Map<String, Object>> invalid = invalidRequiredSituations(required, passages);
         if (!invalid.isEmpty()) {
+            List<ScenarioSourceReference> allowedRefs = passages.stream().map(StorySourcePreviewPort.Passage::sourceRef)
+                    .distinct().toList();
             JsonNode corrected = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
                     "required-review:repair", "Correct only the invalid entries in the reviewed required-situation list. "
                             + "Keep all valid entries and their meaning unchanged; do not remove a required situation or "
-                            + "invent source evidence or prerequisites. Return {reviewed:true,correctedSituations:[the "
-                            + "corrected invalid entries only]}.\nINVALID_ENTRIES=" + json(invalid)
-                            + "\nCANONICAL_ALLOWED_SOURCE_REFS=" + json(passages.stream()
-                                    .map(StorySourcePreviewPort.Passage::sourceRef).distinct().toList())
+                            + "invent source evidence or prerequisites. Return {reviewed:true,correctedSituations:[...]} "
+                            + "with one ordered item per INVALID_ENTRIES item. Each item contains sourceRefIndexes and "
+                            + "prerequisiteSituationIds only; if it also contains situationId, it must match that item. "
+                            + "Use integer indexes into NUMBERED_ALLOWED_SOURCE_REFS. "
+                            + "Do not return summaries or change situation IDs.\nINVALID_ENTRIES=" + json(invalid)
+                            + "\nNUMBERED_ALLOWED_SOURCE_REFS=" + json(java.util.stream.IntStream.range(0, allowedRefs.size())
+                                    .mapToObj(index -> Map.of("index", index, "sourceRef", allowedRefs.get(index))).toList())
                             + "\nKNOWN_SITUATION_IDS=" + json(required.stream().map(RequiredSituation::situationId).distinct().toList()));
             if (!corrected.path("reviewed").asBoolean(false)) {
                 throw new IllegalStateException("required situation correction did not complete");
             }
-            List<RequiredSituation> correctedRequired = mergeCorrectedSituations(required, requiredSituations(corrected, "correctedSituations"), invalid);
+            List<RequiredSituation> correctedRequired = mergeCorrectedSituations(required,
+                    corrected.path("correctedSituations"), invalid, allowedRefs);
             required = correctedRequired;
             validateRequiredSituations(required, passages);
         }
@@ -247,14 +253,10 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     }
 
     private List<RequiredSituation> requiredSituations(JsonNode response) {
-        return requiredSituations(response, "requiredSituations");
-    }
-
-    private List<RequiredSituation> requiredSituations(JsonNode response, String field) {
-        if (!response.path(field).isArray()) {
+        if (!response.path("requiredSituations").isArray()) {
             throw new IllegalStateException("GM omitted required situation list");
         }
-        return mapper.convertValue(response.path(field),
+        return mapper.convertValue(response.path("requiredSituations"),
                 mapper.getTypeFactory().constructCollectionType(List.class, RequiredSituation.class));
     }
 
@@ -265,18 +267,34 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         }
     }
 
-    private static List<RequiredSituation> mergeCorrectedSituations(List<RequiredSituation> reviewed,
-            List<RequiredSituation> corrected, List<Map<String, Object>> invalid) {
-        Set<String> invalidIds = invalid.stream().map(item -> (String) item.get("situationId"))
-                .collect(java.util.stream.Collectors.toSet());
+    private List<RequiredSituation> mergeCorrectedSituations(List<RequiredSituation> reviewed,
+            JsonNode corrected, List<Map<String, Object>> invalid, List<ScenarioSourceReference> allowedRefs) {
+        if (!corrected.isArray() || corrected.size() != invalid.size()) {
+            throw new IllegalStateException("required situation correction changed the reviewed list");
+        }
         Map<String, RequiredSituation> corrections = new java.util.HashMap<>();
-        corrected.forEach(item -> {
-            if (!invalidIds.contains(item.situationId()) || corrections.putIfAbsent(item.situationId(), item) != null) {
+        for (int index = 0; index < invalid.size(); index++) {
+            JsonNode item = corrected.get(index);
+            RequiredSituation original = (RequiredSituation) invalid.get(index).get("requiredSituation");
+            if ((item.has("situationId") && !original.situationId().equals(item.path("situationId").asText()))
+                    || (item.has("id") && !original.situationId().equals(item.path("id").asText()))
+                    || !item.path("sourceRefIndexes").isArray()
+                    || !item.path("prerequisiteSituationIds").isArray()) {
                 throw new IllegalStateException("required situation correction changed the reviewed list");
             }
-        });
-        if (!corrections.keySet().equals(invalidIds)) {
-            throw new IllegalStateException("required situation correction changed the reviewed list");
+            List<ScenarioSourceReference> sourceRefs = new ArrayList<>();
+            for (JsonNode sourceRefIndex : item.path("sourceRefIndexes")) {
+                if (!sourceRefIndex.isIntegralNumber() || !sourceRefIndex.canConvertToInt()
+                        || sourceRefIndex.intValue() < 0 || sourceRefIndex.intValue() >= allowedRefs.size()) {
+                    throw new IllegalStateException("required situation correction referenced an unknown source index");
+                }
+                sourceRefs.add(allowedRefs.get(sourceRefIndex.intValue()));
+            }
+            List<String> prerequisites = mapper.convertValue(item.path("prerequisiteSituationIds"),
+                    mapper.getTypeFactory().constructCollectionType(List.class, String.class));
+            RequiredSituation correction = new RequiredSituation(original.situationId(), original.summary(),
+                    prerequisites, sourceRefs);
+            corrections.put(original.situationId(), correction);
         }
         return reviewed.stream().map(item -> corrections.getOrDefault(item.situationId(), item)).toList();
     }
