@@ -289,23 +289,49 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         Set<String> ids = required.stream().map(RequiredSituation::situationId)
                 .collect(java.util.stream.Collectors.toSet());
         if (ids.size() != required.size()) throw new IllegalStateException("required situation ids must be unique");
-        Set<String> seenIds = new java.util.HashSet<>();
+        Set<String> cyclicIds = cyclicSituationIds(required);
         List<Map<String, Object>> invalid = new ArrayList<>();
         for (RequiredSituation item : required) {
             List<ScenarioSourceReference> invalidRefs = item.sourceRefs().stream().filter(ref -> !allowed.contains(ref)).toList();
             List<String> invalidPrerequisites = item.prerequisiteSituationIds().stream().filter(id -> !ids.contains(id)).toList();
-            boolean duplicateId = !seenIds.add(item.situationId());
-            if (!invalidRefs.isEmpty() || !invalidPrerequisites.isEmpty() || duplicateId) {
+            boolean cyclicPrerequisiteSet = cyclicIds.contains(item.situationId());
+            if (!invalidRefs.isEmpty() || !invalidPrerequisites.isEmpty() || cyclicPrerequisiteSet) {
                 Map<String, Object> detail = new LinkedHashMap<>();
                 detail.put("situationId", item.situationId());
-            detail.put("requiredSituation", item);
+                detail.put("requiredSituation", item);
                 detail.put("invalidOriginalSourceRefs", invalidRefs);
                 detail.put("unknownPrerequisiteSituationIds", invalidPrerequisites);
-                detail.put("duplicateSituationId", duplicateId);
+                detail.put("cyclicPrerequisiteSet", cyclicPrerequisiteSet);
                 invalid.add(detail);
             }
         }
         return invalid;
+    }
+
+    private static Set<String> cyclicSituationIds(List<RequiredSituation> situations) {
+        Map<String, List<String>> prerequisites = situations.stream().collect(java.util.stream.Collectors.toMap(
+                RequiredSituation::situationId, RequiredSituation::prerequisiteSituationIds));
+        Set<String> visiting = new java.util.HashSet<>();
+        Set<String> visited = new java.util.HashSet<>();
+        Set<String> cyclic = new java.util.HashSet<>();
+        List<String> path = new ArrayList<>();
+        prerequisites.keySet().forEach(id -> collectCycle(id, prerequisites, visiting, visited, path, cyclic));
+        return cyclic;
+    }
+
+    private static void collectCycle(String id, Map<String, List<String>> prerequisites, Set<String> visiting,
+            Set<String> visited, List<String> path, Set<String> cyclic) {
+        if (visited.contains(id)) return;
+        if (!visiting.add(id)) {
+            cyclic.addAll(path.subList(path.indexOf(id), path.size()));
+            return;
+        }
+        path.add(id);
+        prerequisites.get(id).stream().filter(prerequisites::containsKey)
+                .forEach(prerequisite -> collectCycle(prerequisite, prerequisites, visiting, visited, path, cyclic));
+        path.remove(path.size() - 1);
+        visiting.remove(id);
+        visited.add(id);
     }
 
     private List<ScenarioSourceReference> references(JsonNode node) {

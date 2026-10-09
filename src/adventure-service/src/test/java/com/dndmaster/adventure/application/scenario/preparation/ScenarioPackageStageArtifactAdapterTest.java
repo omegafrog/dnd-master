@@ -63,15 +63,16 @@ class ScenarioPackageStageArtifactAdapterTest {
         var calls = new java.util.ArrayList<InitialSituationGmPort.Request>();
         var a = new RequiredSituation("a", "Meet the keeper", List.of(), List.of(first));
         var b = new RequiredSituation("b", "Recover the bell", List.of("a"), List.of(second));
-        var invalid = new RequiredSituation("b", "Recover the bell", List.of("missing"), List.of(
+        var cyclicA = new RequiredSituation("a", "Meet the keeper", List.of("b"), List.of(first));
+        var invalid = new RequiredSituation("b", "Recover the bell", List.of("a", "missing"), List.of(
                 new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:99")));
         InitialSituationGmPort gm = request -> {
             calls.add(request);
             if (request.operationKey().contains("required-extract")) return mapper.valueToTree(Map.of("requiredSituations", List.of(a)));
             if (request.operationKey().contains("required-review:full")) return mapper.valueToTree(Map.of(
-                    "reviewed", true, "requiredSituations", List.of(a, invalid)));
+                    "reviewed", true, "requiredSituations", List.of(cyclicA, invalid)));
             if (request.operationKey().contains("required-review:repair")) return mapper.valueToTree(Map.of(
-                    "reviewed", true, "correctedSituations", List.of(b)));
+                    "reviewed", true, "correctedSituations", List.of(a, b)));
             return mapper.valueToTree(Map.of("stages", List.of(Map.of("stageId", "first-stage", "order", 1,
                     "role", "opening", "coreProblem", "Find the bell", "funnelSummary", "Follow the story",
                     "sourceRefs", List.of(first))), "sourceRefs", List.of(first)));
@@ -94,6 +95,7 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertTrue(calls.get(3).prompt().contains("Return {reviewed:true,correctedSituations:[the corrected invalid entries only]}"));
         assertTrue(calls.get(3).prompt().contains("missing"));
         assertTrue(calls.get(3).prompt().contains("page:99"));
+        assertTrue(calls.get(3).prompt().contains("\"cyclicPrerequisiteSet\":true"));
         assertTrue(calls.get(3).prompt().contains("ALLOWED_SOURCE_REFS"));
         assertTrue(calls.get(3).prompt().contains("KNOWN_SITUATION_IDS"));
         assertFalse(calls.get(3).prompt().contains("ORIGINAL_STORY_PASSAGES"));
@@ -101,7 +103,7 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertTrue(calls.get(4).prompt().contains("REVIEWED_REQUIRED_SITUATIONS"));
 
         InitialSituationGmPort invalidCorrection = request -> request.operationKey().contains("required-review:repair")
-                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(invalid)))
+                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(cyclicA, invalid)))
                 : gm.generate(request);
         var stillInvalid = new ScenarioPackageStageArtifactAdapter(packages, invalidCorrection, bindings, sessions, mapper, source);
         assertThrows(IllegalStateException.class, () -> stillInvalid.generate(new StageBackboneGenerationPort.Request(
