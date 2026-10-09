@@ -141,7 +141,7 @@ public final class TypedAgentContractController {
                     } catch (java.io.IOException invalid) {
                         throw new IllegalArgumentException("initial situation response is invalid JSON", invalid);
                     }
-                }, requested, resolution, null).response();
+                }, requested, resolution, null, request.outputSchema()).response();
     }
 
     static String safeScenarioCompilationFailureReason(IllegalArgumentException failure) {
@@ -595,7 +595,7 @@ public final class TypedAgentContractController {
     }
 
     public record InitialSituationRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId,
-            String provider, String model, String reasoning, String operationKey, String prompt) {
+            String provider, String model, String reasoning, String operationKey, String prompt, JsonNode outputSchema) {
         public InitialSituationRequest {
             soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             provider = required(provider, "provider");
@@ -603,6 +603,12 @@ public final class TypedAgentContractController {
             reasoning = required(reasoning, "reasoning");
             operationKey = required(operationKey, "operationKey");
             prompt = required(prompt, "prompt");
+            if (outputSchema == null || !outputSchema.isObject() || !"object".equals(outputSchema.path("type").asText())
+                    || !outputSchema.path("properties").isObject() || !outputSchema.path("required").isArray()
+                    || !outputSchema.path("additionalProperties").isBoolean()
+                    || outputSchema.path("additionalProperties").booleanValue()) {
+                throw new IllegalArgumentException("outputSchema must be a strict object schema");
+            }
         }
     }
 

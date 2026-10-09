@@ -89,6 +89,14 @@ class ScenarioPackageStageArtifactAdapterTest {
 
         assertEquals(List.of(a, b), result.requiredSituations());
         assertEquals(5, calls.size());
+        assertEquals("object", calls.get(0).outputSchema().path("type").asText());
+        assertEquals("array", calls.get(0).outputSchema().path("properties").path("requiredSituations").path("type").asText());
+        assertEquals("boolean", calls.get(2).outputSchema().path("properties").path("reviewed").path("type").asText());
+        assertEquals("array", calls.get(3).outputSchema().path("properties").path("correctedSituations").path("type").asText());
+        assertEquals("integer", calls.get(3).outputSchema().path("properties").path("correctedSituations")
+                .path("items").path("properties").path("sourceRefIndexes").path("items").path("type").asText());
+        assertEquals("array", calls.get(4).outputSchema().path("properties").path("stages").path("type").asText());
+        assertFalse(calls.get(0).outputSchema().path("additionalProperties").asBoolean(true));
         assertTrue(calls.get(2).operationKey().contains("required-review:full"));
         assertTrue(calls.get(2).prompt().contains("The keeper meets the party."));
         assertTrue(calls.get(2).prompt().contains("After meeting the keeper, recover the bell."));
@@ -259,6 +267,8 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertEquals("story-model", calls.getFirst().model());
         assertTrue(calls.getFirst().prompt().contains("The village bell is missing"));
         assertTrue(calls.getFirst().prompt().contains("ALLOWED_SOURCE_REFS"));
+        assertEquals("object", calls.getFirst().outputSchema().path("type").asText());
+        assertEquals("object", calls.getFirst().outputSchema().path("properties").path("stages").path("items").path("type").asText());
 
         var detailed = adapter.generate(new StageDetailedGenerationPort.Request(adventureId, sessionId,
                 scenarioPackage.packageId(), "arrival", 1, List.of(source)));
@@ -270,6 +280,10 @@ class ScenarioPackageStageArtifactAdapterTest {
                 detailed.situations().get(1).provenance());
         assertEquals(List.of("opening"), detailed.situations().get(1).prerequisiteSituationIds());
         assertTrue(calls.getLast().prompt().contains("supplied map UUID or null"));
+        assertEquals("array", calls.getLast().outputSchema().path("properties").path("situations").path("type").asText());
+        assertEquals(List.of("string", "null"), mapper.convertValue(calls.getLast().outputSchema()
+                .path("properties").path("situations").path("items").path("properties").path("mapDefinitionId").path("type"),
+                mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
     }
 
     @Test

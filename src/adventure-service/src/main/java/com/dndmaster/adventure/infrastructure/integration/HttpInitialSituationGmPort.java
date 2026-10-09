@@ -30,7 +30,8 @@ public final class HttpInitialSituationGmPort implements InitialSituationGmPort 
     @Override public JsonNode generate(Request request) {
         try {
             String body = mapper.writeValueAsString(new GmRequest(request.ownerPlayerId(), request.endpointId(),
-                    request.provider(), request.model(), request.reasoning(), request.operationKey(), request.prompt()));
+                    request.provider(), request.model(), request.reasoning(), request.operationKey(), request.prompt(),
+                    request.outputSchema()));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/gm/initial-situation"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
@@ -52,5 +53,5 @@ public final class HttpInitialSituationGmPort implements InitialSituationGmPort 
     }
 
     private record GmRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId, String provider, String model,
-            String reasoning, String operationKey, String prompt) {}
+            String reasoning, String operationKey, String prompt, JsonNode outputSchema) {}
 }

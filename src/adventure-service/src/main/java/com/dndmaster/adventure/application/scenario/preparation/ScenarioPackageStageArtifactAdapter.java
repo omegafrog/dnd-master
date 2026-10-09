@@ -144,8 +144,83 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         return gm.generate(new InitialSituationGmPort.Request(session.ownerPlayerId().value(), sessionId.value(),
                 binding.selection().endpointId(), binding.selection().provider(), binding.selection().model(),
                 binding.selection().reasoning(), "initial-situation:" + adventureId + ":" + packageId + ":" + task,
-                prompt));
+                prompt, outputSchema(task)));
     }
+
+    private JsonNode outputSchema(String task) {
+        Map<String, Object> properties;
+        if (task.startsWith("required-extract:")) {
+            properties = Map.of("requiredSituations", arraySchema(requiredSituationSchema()));
+        } else if (task.equals("required-review:full")) {
+            properties = Map.of("reviewed", Map.of("type", "boolean", "enum", List.of(true)),
+                    "requiredSituations", arraySchema(requiredSituationSchema(), 1));
+        } else if (task.equals("required-review:repair")) {
+            properties = Map.of("reviewed", Map.of("type", "boolean", "enum", List.of(true)),
+                    "correctedSituations", arraySchema(objectSchema(Map.of(
+                            "sourceRefIndexes", arraySchema(Map.of("type", "integer", "minimum", 0), 1),
+                            "prerequisiteSituationIds", arraySchema(stringSchema()),
+                            "situationId", nullableStringSchema())), 1));
+        } else if (task.equals("backbone")) {
+            properties = Map.of("stages", arraySchema(objectSchema(Map.of(
+                            "stageId", stringSchema(), "order", Map.of("type", "integer", "minimum", 1),
+                            "role", stringSchema(), "coreProblem", stringSchema(), "funnelSummary", stringSchema(),
+                            "sourceRefs", arraySchema(sourceReferenceSchema()))), 1),
+                    "sourceRefs", arraySchema(sourceReferenceSchema()));
+        } else if (task.startsWith("stage:")) {
+            Map<String, Object> situation = objectSchema(Map.ofEntries(
+                    Map.entry("situationId", stringSchema()),
+                    Map.entry("intents", arraySchema(enumSchema("REVELATION", "PRESSURE", "FUNNEL_OPPORTUNITY", "IMPORTANT_CONSEQUENCE"))),
+                    Map.entry("revelationIds", arraySchema(stringSchema())), Map.entry("pressureIds", arraySchema(stringSchema())),
+                    Map.entry("funnelIds", arraySchema(stringSchema())), Map.entry("funnelPredicateIds", arraySchema(stringSchema())),
+                    Map.entry("importantConsequenceIds", arraySchema(stringSchema())), Map.entry("opening", booleanSchema()),
+                    Map.entry("required", booleanSchema()), Map.entry("prerequisiteSituationIds", arraySchema(stringSchema())),
+                    Map.entry("provenance", enumSchema("SOURCE_EXTRACTED", "GM_SUPPLEMENTED")),
+                    Map.entry("mapDefinitionId", nullableStringSchema()), Map.entry("sourceRefs", arraySchema(sourceReferenceSchema()))));
+            properties = Map.of("coreProblem", stringSchema(),
+                    "revelations", arraySchema(objectSchema(Map.of("revelationId", stringSchema(),
+                            "required", booleanSchema(), "sourceRefs", arraySchema(sourceReferenceSchema())))),
+                    "threat", objectSchema(Map.of("core", stringSchema(), "sourceRefs", arraySchema(sourceReferenceSchema()))),
+                    "pressure", objectSchema(Map.of("pressureId", stringSchema(), "progressionMaterial", stringSchema(),
+                            "sourceRefs", arraySchema(sourceReferenceSchema()))),
+                    "funnel", objectSchema(Map.of("funnelId", stringSchema(), "meaning", stringSchema(),
+                            "requiredRevelationIds", arraySchema(stringSchema()), "requiredPredicateIds", arraySchema(stringSchema()),
+                            "sourceRefs", arraySchema(sourceReferenceSchema()))),
+                    "situations", arraySchema(situation), "importantConsequenceIds", arraySchema(stringSchema()),
+                    "sourceRefs", arraySchema(sourceReferenceSchema()));
+        } else {
+            throw new IllegalArgumentException("unsupported initial situation task schema");
+        }
+        return mapper.valueToTree(objectSchema(properties));
+    }
+
+    private static Map<String, Object> requiredSituationSchema() {
+        return objectSchema(Map.of("situationId", stringSchema(), "summary", stringSchema(),
+                "prerequisiteSituationIds", arraySchema(stringSchema()),
+                "sourceRefs", arraySchema(sourceReferenceSchema(), 1)));
+    }
+
+    private static Map<String, Object> sourceReferenceSchema() {
+        return objectSchema(Map.of("knowledgeDocumentId", objectSchema(Map.of("value", stringSchema())),
+                "extractionVersion", Map.of("type", "integer", "minimum", 1), "locator", stringSchema()));
+    }
+
+    private static Map<String, Object> objectSchema(Map<String, Object> properties) {
+        return Map.of("type", "object", "properties", properties, "required", List.copyOf(properties.keySet()),
+                "additionalProperties", false);
+    }
+
+    private static Map<String, Object> arraySchema(Object items) {
+        return Map.of("type", "array", "items", items);
+    }
+
+    private static Map<String, Object> arraySchema(Object items, int minItems) {
+        return Map.of("type", "array", "items", items, "minItems", minItems);
+    }
+
+    private static Map<String, Object> stringSchema() { return Map.of("type", "string"); }
+    private static Map<String, Object> nullableStringSchema() { return Map.of("type", List.of("string", "null")); }
+    private static Map<String, Object> booleanSchema() { return Map.of("type", "boolean"); }
+    private static Map<String, Object> enumSchema(String... values) { return Map.of("type", "string", "enum", List.of(values)); }
 
     private String backbonePrompt(ScenarioPackage scenarioPackage, List<ScenarioSourceReference> evidence,
             List<RequiredSituation> required) {
@@ -291,7 +366,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     throw new IllegalStateException("required situation correction changed the reviewed list");
                 }
             }
-            if ((item.has("situationId") && (!situationId.isTextual()
+            if ((item.has("situationId") && !situationId.isNull() && (!situationId.isTextual()
                     || !original.situationId().equals(situationId.textValue())))
                     || !item.path("sourceRefIndexes").isArray()
                     || !prerequisiteIds.isArray()

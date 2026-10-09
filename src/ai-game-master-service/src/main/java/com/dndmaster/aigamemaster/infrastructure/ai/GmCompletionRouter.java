@@ -134,10 +134,20 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
             StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
             GmProviderSelectionResolver.EndpointResolution resolution,
             com.fasterxml.jackson.databind.JsonNode ragSearchContext) {
+        return completeWithResolution(soloPlayerId, operationId, prompt, parser, requested, resolution,
+                ragSearchContext, null);
+    }
+
+    @Override
+    public <T> GmCompletionResult<T> completeWithResolution(UUID soloPlayerId, String operationId, String prompt,
+            StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+            GmProviderSelectionResolver.EndpointResolution resolution,
+            com.fasterxml.jackson.databind.JsonNode ragSearchContext,
+            com.fasterxml.jackson.databind.JsonNode outputSchema) {
         EffectiveGmProviderSelection effective = resolution.effectiveSelection();
         T response = "codex-cli".equals(effective.provider())
                 ? parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId, operationId, operationId,
-                        prompt, effective.model(), effective.reasoning(), "JSON", null, "", ragSearchContext)).requireFinalText())
+                        prompt, effective.model(), effective.reasoning(), "JSON", outputSchema, "", ragSearchContext)).requireFinalText())
                 : completeResolved(soloPlayerId, operationId, prompt, parser, resolution.endpoint(), effective);
         return new GmCompletionResult<>(response, effective);
     }

@@ -40,6 +40,14 @@ public interface GmCompletionAdapter {
         return completeWithResolution(soloPlayerId, operationId, prompt, parser, requested, resolution);
     }
 
+    default <T> GmCompletionResult<T> completeWithResolution(UUID soloPlayerId,
+            String operationId, String prompt, StructuredResponseParser<T> parser,
+            RequestedGmProviderSelection requested, GmProviderSelectionResolver.EndpointResolution resolution,
+            com.fasterxml.jackson.databind.JsonNode ragSearchContext,
+            com.fasterxml.jackson.databind.JsonNode outputSchema) {
+        return completeWithResolution(soloPlayerId, operationId, prompt, parser, requested, resolution, ragSearchContext);
+    }
+
     /** Runs one initial completion and, only for a malformed candidate, one repair. */
     default <T> GmCandidateLifecycleResult<T> completeWithOneRepair(
             UUID soloPlayerId, String operationId, String prompt, java.util.function.Function<GmRepairContext, String> repairPrompt,

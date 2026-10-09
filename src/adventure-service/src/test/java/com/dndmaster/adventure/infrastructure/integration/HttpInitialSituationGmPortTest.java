@@ -16,9 +16,21 @@ import org.junit.jupiter.api.Test;
 
 class HttpInitialSituationGmPortTest {
     @Test
+    void initial_situation_request_requires_an_object_schema() {
+        assertThatThrownBy(() -> new InitialSituationGmPort.Request(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                "openai", "story-model", "high", "initial-situation:missing-schema", "prompt", null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new InitialSituationGmPort.Request(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                "openai", "story-model", "high", "initial-situation:invalid-schema", "prompt",
+                new ObjectMapper().createObjectNode().put("type", "object")))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void sends_an_authenticated_selected_provider_request_and_returns_structured_output() throws Exception {
         UUID owner = UUID.randomUUID();
         UUID endpoint = UUID.randomUUID();
+        var schema = new ObjectMapper().readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}");
         var requestBody = new java.util.concurrent.atomic.AtomicReference<String>();
         var token = new java.util.concurrent.atomic.AtomicReference<String>();
         try (var server = new InitialSituationServer(requestBody, token, 200,
@@ -26,7 +38,7 @@ class HttpInitialSituationGmPortTest {
             var port = new HttpInitialSituationGmPort(HttpClient.newHttpClient(), server.baseUri(),
                     Duration.ofSeconds(2), new ObjectMapper(), "internal-token");
             var request = new InitialSituationGmPort.Request(owner, UUID.randomUUID(), endpoint,
-                    "openai", "story-model", "high", "initial-situation:adventure:backbone", "source-grounded prompt");
+                    "openai", "story-model", "high", "initial-situation:adventure:backbone", "source-grounded prompt", schema);
 
             var response = port.generate(request);
 
@@ -39,6 +51,7 @@ class HttpInitialSituationGmPortTest {
             assertThat(sent.path("model").asText()).isEqualTo("story-model");
             assertThat(sent.path("reasoning").asText()).isEqualTo("high");
             assertThat(sent.path("prompt").asText()).contains("source-grounded prompt");
+            assertThat(sent.path("outputSchema")).isEqualTo(schema);
         }
     }
 
@@ -50,7 +63,8 @@ class HttpInitialSituationGmPortTest {
             var port = new HttpInitialSituationGmPort(HttpClient.newHttpClient(), server.baseUri(),
                     Duration.ofSeconds(2), new ObjectMapper(), "internal-token");
             var request = new InitialSituationGmPort.Request(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                    "openai", "story-model", "high", "initial-situation:retry", "prompt");
+                    "openai", "story-model", "high", "initial-situation:retry", "prompt",
+                    new ObjectMapper().readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}"));
 
             assertThatThrownBy(() -> port.generate(request)).isInstanceOf(ScenarioCompilationAgentFailureException.class)
                     .hasMessageNotContaining("prompt");

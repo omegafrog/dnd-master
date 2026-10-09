@@ -292,8 +292,10 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
-    void initial_situation_generation_uses_the_selected_provider_and_internal_authentication() {
+    void initial_situation_generation_uses_the_selected_provider_and_internal_authentication() throws Exception {
         var seen = new AtomicReference<String>();
+        var seenSchema = new AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        var schema = new ObjectMapper().readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}");
         var endpointId = UUID.randomUUID();
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
@@ -301,12 +303,14 @@ class TypedAgentContractControllerTest {
             }
             @Override public <T> GmCompletionResult<T> completeWithResolution(UUID owner, String operation,
                     String prompt, StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
-                    GmProviderSelectionResolver.EndpointResolution resolution, com.fasterxml.jackson.databind.JsonNode rag) {
+                    GmProviderSelectionResolver.EndpointResolution resolution, com.fasterxml.jackson.databind.JsonNode rag,
+                    com.fasterxml.jackson.databind.JsonNode outputSchema) {
                 org.junit.jupiter.api.Assertions.assertEquals(SOLO_PLAYER_ID, owner);
                 org.junit.jupiter.api.Assertions.assertEquals(endpointId, requested.endpointId());
                 org.junit.jupiter.api.Assertions.assertEquals("openai", requested.provider());
                 org.junit.jupiter.api.Assertions.assertEquals("story-model", requested.model());
                 org.junit.jupiter.api.Assertions.assertEquals("high", requested.reasoning());
+                seenSchema.set(outputSchema);
                 seen.set(prompt);
                 return new GmCompletionResult<>(parser.parse("{\"stages\":[{\"stageId\":\"opening\"}]}"), resolution.effectiveSelection());
             }
@@ -319,14 +323,21 @@ class TypedAgentContractControllerTest {
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"),
                 request -> selection);
         var request = new TypedAgentContractController.InitialSituationRequest(SOLO_PLAYER_ID, endpointId,
-                "openai", "story-model", "high", "initial-situation:adventure:backbone", "source grounded prompt");
+                "openai", "story-model", "high", "initial-situation:adventure:backbone", "source grounded prompt", schema);
 
         var response = controller.initialSituation("service-secret", request);
 
         org.junit.jupiter.api.Assertions.assertTrue(response.path("stages").isArray());
         org.junit.jupiter.api.Assertions.assertTrue(seen.get().contains("source grounded prompt"));
+        org.junit.jupiter.api.Assertions.assertEquals(schema, seenSchema.get());
         assertThrows(ApiRequestGuard.ApiContractException.class,
                 () -> controller.initialSituation("wrong-secret", request));
+        assertThrows(IllegalArgumentException.class, () -> new TypedAgentContractController.InitialSituationRequest(
+                SOLO_PLAYER_ID, endpointId, "openai", "story-model", "high", "operation", "prompt",
+                new ObjectMapper().createArrayNode()));
+        assertThrows(IllegalArgumentException.class, () -> new TypedAgentContractController.InitialSituationRequest(
+                SOLO_PLAYER_ID, endpointId, "openai", "story-model", "high", "operation", "prompt",
+                new ObjectMapper().createObjectNode().put("type", "object")));
     }
 
     @Test

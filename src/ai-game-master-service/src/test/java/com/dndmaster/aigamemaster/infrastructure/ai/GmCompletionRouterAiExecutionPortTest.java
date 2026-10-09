@@ -10,6 +10,7 @@ import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
 import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
 import com.dndmaster.aigamemaster.infrastructure.endpoint.InMemoryAgentEndpointStore;
 import com.dndmaster.aigamemaster.infrastructure.ai.SafeAiAuditLogger;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.time.Duration;
 import java.util.UUID;
@@ -18,6 +19,28 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ChatModel;
 
 class GmCompletionRouterAiExecutionPortTest {
+    @Test
+    void initial_situation_schema_is_forwarded_to_the_codex_execution_request() throws Exception {
+        AtomicReference<AiExecutionRequest> captured = new AtomicReference<>();
+        UUID endpointId = UUID.randomUUID();
+        var registry = new AgentEndpointRegistry(new InMemoryAgentEndpointStore());
+        registry.save(new AgentEndpoint(endpointId, "codex", AgentEndpoint.Provider.CODEX_CLI,
+                URI.create("https://codex.example/"), "gpt-5.6-luna", null, true, java.time.Instant.now()));
+        var router = new GmCompletionRouter(new SpringAiChatAdapter(mock(ChatModel.class), 1,
+                new SafeAiAuditLogger(message -> { })),
+                new GmProviderProperties("ollama", "unused", "medium", URI.create("https://api.openai.com/"), "", Duration.ofSeconds(5)),
+                registry, request -> { captured.set(request); return new AiExecutionSuccess("{}"); });
+        var requested = new RequestedGmProviderSelection(endpointId, "codex-cli", "gpt-5.6-luna", "medium");
+        var resolution = new GmProviderSelectionResolver(registry).resolveEndpoint(requested);
+        var schema = new ObjectMapper().readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}");
+
+        router.completeWithResolution(UUID.randomUUID(), "initial-situation", "prompt", value -> value,
+                requested, resolution, null, schema);
+
+        assertThat(captured.get().outputFormat()).isEqualTo("JSON");
+        assertThat(captured.get().outputSchema()).isEqualTo(schema);
+    }
+
     @Test
     void preflight_endpoint_snapshot_is_the_one_used_for_execution() {
         AtomicReference<AiExecutionRequest> captured = new AtomicReference<>();
