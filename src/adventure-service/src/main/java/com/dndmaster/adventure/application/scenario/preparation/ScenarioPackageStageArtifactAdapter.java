@@ -226,19 +226,62 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                         + "\nPROPOSED_REQUIRED_SITUATIONS=" + json(proposed.values()));
         if (!reviewed.path("reviewed").asBoolean(false)) throw new IllegalStateException("original story review did not complete");
         List<RequiredSituation> required = requiredSituations(reviewed);
-        validateRequiredSituations(required, passages);
+        List<Map<String, Object>> invalid = invalidRequiredSituations(required, passages);
+        if (!invalid.isEmpty()) {
+            JsonNode corrected = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
+                    "required-review:repair", "Correct only the invalid entries in the reviewed required-situation list. "
+                            + "Keep all valid entries and their meaning unchanged; do not remove a required situation or "
+                            + "invent source evidence or prerequisites. Return {reviewed:true,requiredSituations:[the "
+                            + "correctedSituations:[the corrected invalid entries only]}.\nINVALID_ENTRIES=" + json(invalid)
+                            + "\nCANONICAL_ALLOWED_SOURCE_REFS=" + json(passages.stream()
+                                    .map(StorySourcePreviewPort.Passage::sourceRef).distinct().toList())
+                            + "\nKNOWN_SITUATION_IDS=" + json(required.stream().map(RequiredSituation::situationId).distinct().toList()));
+            if (!corrected.path("reviewed").asBoolean(false)) {
+                throw new IllegalStateException("required situation correction did not complete");
+            }
+            List<RequiredSituation> correctedRequired = mergeCorrectedSituations(required, requiredSituations(corrected, "correctedSituations"), invalid);
+            required = correctedRequired;
+            validateRequiredSituations(required, passages);
+        }
         return required;
     }
 
     private List<RequiredSituation> requiredSituations(JsonNode response) {
-        if (!response.path("requiredSituations").isArray()) {
+        return requiredSituations(response, "requiredSituations");
+    }
+
+    private List<RequiredSituation> requiredSituations(JsonNode response, String field) {
+        if (!response.path(field).isArray()) {
             throw new IllegalStateException("GM omitted required situation list");
         }
-        return mapper.convertValue(response.path("requiredSituations"),
+        return mapper.convertValue(response.path(field),
                 mapper.getTypeFactory().constructCollectionType(List.class, RequiredSituation.class));
     }
 
     private static void validateRequiredSituations(List<RequiredSituation> required,
+            List<StorySourcePreviewPort.Passage> passages) {
+        if (!invalidRequiredSituations(required, passages).isEmpty()) {
+            throw new IllegalStateException("required situation has an invalid original source or prerequisite");
+        }
+    }
+
+    private static List<RequiredSituation> mergeCorrectedSituations(List<RequiredSituation> reviewed,
+            List<RequiredSituation> corrected, List<Map<String, Object>> invalid) {
+        Set<String> invalidIds = invalid.stream().map(item -> (String) item.get("situationId"))
+                .collect(java.util.stream.Collectors.toSet());
+        Map<String, RequiredSituation> corrections = new java.util.HashMap<>();
+        corrected.forEach(item -> {
+            if (!invalidIds.contains(item.situationId()) || corrections.putIfAbsent(item.situationId(), item) != null) {
+                throw new IllegalStateException("required situation correction changed the reviewed list");
+            }
+        });
+        if (!corrections.keySet().equals(invalidIds)) {
+            throw new IllegalStateException("required situation correction changed the reviewed list");
+        }
+        return reviewed.stream().map(item -> corrections.getOrDefault(item.situationId(), item)).toList();
+    }
+
+    private static List<Map<String, Object>> invalidRequiredSituations(List<RequiredSituation> required,
             List<StorySourcePreviewPort.Passage> passages) {
         if (required.isEmpty()) throw new IllegalStateException("original story review found no required situations");
         Set<ScenarioSourceReference> allowed = passages.stream().map(StorySourcePreviewPort.Passage::sourceRef)
@@ -246,11 +289,23 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         Set<String> ids = required.stream().map(RequiredSituation::situationId)
                 .collect(java.util.stream.Collectors.toSet());
         if (ids.size() != required.size()) throw new IllegalStateException("required situation ids must be unique");
+        Set<String> seenIds = new java.util.HashSet<>();
+        List<Map<String, Object>> invalid = new ArrayList<>();
         for (RequiredSituation item : required) {
-            if (!allowed.containsAll(item.sourceRefs()) || !ids.containsAll(item.prerequisiteSituationIds())) {
-                throw new IllegalStateException("required situation has an invalid original source or prerequisite");
+            List<ScenarioSourceReference> invalidRefs = item.sourceRefs().stream().filter(ref -> !allowed.contains(ref)).toList();
+            List<String> invalidPrerequisites = item.prerequisiteSituationIds().stream().filter(id -> !ids.contains(id)).toList();
+            boolean duplicateId = !seenIds.add(item.situationId());
+            if (!invalidRefs.isEmpty() || !invalidPrerequisites.isEmpty() || duplicateId) {
+                Map<String, Object> detail = new LinkedHashMap<>();
+                detail.put("situationId", item.situationId());
+            detail.put("requiredSituation", item);
+                detail.put("invalidOriginalSourceRefs", invalidRefs);
+                detail.put("unknownPrerequisiteSituationIds", invalidPrerequisites);
+                detail.put("duplicateSituationId", duplicateId);
+                invalid.add(detail);
             }
         }
+        return invalid;
     }
 
     private List<ScenarioSourceReference> references(JsonNode node) {
