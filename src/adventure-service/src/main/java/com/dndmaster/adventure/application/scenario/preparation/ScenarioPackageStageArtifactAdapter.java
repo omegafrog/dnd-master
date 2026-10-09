@@ -588,6 +588,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         if (!chunk.isEmpty()) chunks.add(List.copyOf(chunk));
 
         Map<String, RequiredSituation> proposed = new LinkedHashMap<>();
+        Map<String, RequiredSituation> reviewedSituations = new LinkedHashMap<>();
         for (int index = 0; index < chunks.size(); index++) {
             List<ScenarioSourceReference> chunkRefs = chunks.get(index).stream()
                     .map(StorySourcePreviewPort.Passage::sourceRef).distinct().toList();
@@ -607,14 +608,15 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             JsonNode reviewed = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
                     "required-review:" + index, "Compare the proposed required situations against this bounded source batch. "
                             + "Return only situations supported or clarified by THIS batch, including any omitted story-essential situation "
-                            + "and every prerequisite explicitly stated here. Do not remove a situation supported by another batch. "
+                            + "and every prerequisite explicitly stated here. Omit candidates unsupported by THIS batch; situations "
+                            + "supported by other batches are preserved from their own review. "
                             + "Keep stable IDs and return {reviewed:true,requiredSituations:[...]}; cite only this batch's source references."
                             + "\nSOURCE_BATCH=" + json(chunks.get(index)) + "\nALL_PROPOSED_REQUIRED_SITUATIONS=" + json(proposed.values())
                             + "\nNUMBERED_ALLOWED_SOURCE_REFS=" + numberedSourceRefs(chunkRefs), chunkRefs);
             if (!reviewCompleted(reviewed)) throw new IllegalStateException("bounded source review did not complete");
-            for (RequiredSituation item : requiredSituations(reviewed, chunkRefs)) mergeRequiredSituation(proposed, item);
+            for (RequiredSituation item : requiredSituations(reviewed, chunkRefs)) mergeRequiredSituation(reviewedSituations, item);
         }
-        List<RequiredSituation> required = List.copyOf(proposed.values());
+        List<RequiredSituation> required = List.copyOf(reviewedSituations.values());
         List<Map<String, Object>> invalid = invalidRequiredSituations(required, passages);
         if (!invalid.isEmpty()) {
             List<ScenarioSourceReference> allowedRefs = passages.stream().map(StorySourcePreviewPort.Passage::sourceRef)

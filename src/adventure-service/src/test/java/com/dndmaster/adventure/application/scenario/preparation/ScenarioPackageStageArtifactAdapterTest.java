@@ -71,6 +71,8 @@ class ScenarioPackageStageArtifactAdapterTest {
             calls.add(request);
             if (request.operationKey().endsWith("required-extract:0")) return mapper.valueToTree(Map.of("requiredSituations", List.of(
                     Map.of("situationId", "a", "summary", "Meet the keeper", "prerequisiteSituationIds", List.of(),
+                            "sourceRefIndexes", List.of(0)),
+                    Map.of("situationId", "unsupported", "summary", "An unsupported event", "prerequisiteSituationIds", List.of(),
                             "sourceRefIndexes", List.of(0)))));
             if (request.operationKey().endsWith("required-extract:1")) return mapper.valueToTree(Map.of("requiredSituations", List.of(
                     Map.of("situationId", "b", "summary", "Recover the bell", "prerequisiteSituationIds", List.of("a"),
@@ -100,6 +102,7 @@ class ScenarioPackageStageArtifactAdapterTest {
                 scenarioPackage.packageId(), List.of(first, second)));
 
         assertEquals(List.of(a, b), result.requiredSituations());
+        assertFalse(result.requiredSituations().stream().anyMatch(item -> item.situationId().equals("unsupported")));
         assertEquals(List.of(first), result.requiredSituations().getFirst().sourceRefs());
         assertEquals(List.of(second), result.requiredSituations().getLast().sourceRefs());
         assertEquals(List.of(first), result.stages().getFirst().sourceRefs());
