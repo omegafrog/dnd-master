@@ -235,9 +235,15 @@ class ScenarioPackageStageArtifactAdapterTest {
         ScenarioSourceReference source = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1");
         ScenarioModel model = new ScenarioModel(1, List.of(), List.of(), List.of(element("goal", "objective", "Find the bell")),
                 List.of(), List.of(), List.of(), List.of(), "The village bell is missing");
+        UUID providedMapId = UUID.randomUUID();
+        var providedMap = new com.dndmaster.adventure.domain.scenario.MapDefinition(providedMapId, "map", "asset",
+                new com.dndmaster.adventure.domain.scenario.MapDefinition.MapGrid(0, 0, 50, 0, "5 ft"),
+                List.of(), List.of(), List.of(),
+                new com.dndmaster.adventure.domain.scenario.MapSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1"),
+                0.9, com.dndmaster.adventure.domain.scenario.MapSafetyStatus.SAFE);
         ScenarioPackage scenarioPackage = ScenarioPackage.publishWithScenarioModel(ScenarioBundleId.generate(), 1,
                 "fingerprint", List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
-                CharacterLimit.defaultLimit(), null, List.of(), List.of(), model);
+                CharacterLimit.defaultLimit(), null, List.of(providedMap), List.of(), model);
         ScenarioPackageRepository packages = new ScenarioPackageRepository() {
             @Override public Optional<ScenarioPackage> findByInputFingerprint(String ignored) { return Optional.empty(); }
             @Override public Optional<ScenarioPackage> findById(UUID id) { return Optional.of(scenarioPackage); }
@@ -306,6 +312,14 @@ class ScenarioPackageStageArtifactAdapterTest {
                 .path("items").path("properties").path("sourceRefIndexes");
         assertEquals(0, emptyRequiredSourceRefs.path("maxItems").asInt());
         assertFalse(emptyRequiredSourceRefs.has("minItems"));
+        var mapSchemaMethod = ScenarioPackageStageArtifactAdapter.class.getDeclaredMethod(
+                "outputSchema", String.class, List.class, boolean.class, java.util.Set.class);
+        mapSchemaMethod.setAccessible(true);
+        var noMapsSchema = (com.fasterxml.jackson.databind.JsonNode) mapSchemaMethod.invoke(adapter,
+                "stage:test", List.of(source), false, java.util.Set.of());
+        assertEquals(java.util.Arrays.asList((String) null), mapper.convertValue(noMapsSchema
+                .path("properties").path("situations").path("items").path("properties").path("mapDefinitionId").path("enum"),
+                mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
 
         var detailed = adapter.generate(new StageDetailedGenerationPort.Request(adventureId, sessionId,
                 scenarioPackage.packageId(), "arrival", 1, List.of(source),
@@ -354,6 +368,9 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertEquals(List.of(source), detailed.situations().getFirst().sourceRefs());
         assertEquals(List.of("string", "null"), mapper.convertValue(calls.getLast().outputSchema()
                 .path("properties").path("situations").path("items").path("properties").path("mapDefinitionId").path("type"),
+                mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
+        assertEquals(java.util.Arrays.asList(providedMapId.toString(), null), mapper.convertValue(calls.getLast().outputSchema()
+                .path("properties").path("situations").path("items").path("properties").path("mapDefinitionId").path("enum"),
                 mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
         assertEquals(1, calls.getLast().outputSchema().path("properties").path("situations").path("items")
                 .path("properties").path("intents").path("minItems").asInt());

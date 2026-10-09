@@ -110,7 +110,9 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     request.scenarioPackageId(), "stage:" + request.stageId(),
                     detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations())
                             + (request.openingSituationRequired() ? " The openingSituationIndex must select one situation because this is the first stage." : ""),
-                    request.evidence(), request.openingSituationRequired());
+                    request.evidence(), request.openingSituationRequired(), scenarioPackage.mapDefinitions().stream()
+                            .map(com.dndmaster.adventure.domain.scenario.MapDefinition::id)
+                            .collect(java.util.stream.Collectors.toUnmodifiableSet()));
             var content = generated.deepCopy();
             resolveSituationTargetIndexes(content);
             resolveSourceRefIndexes(content, request.evidence());
@@ -152,6 +154,12 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
 
     private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
             List<ScenarioSourceReference> allowedRefs, boolean openingSituationRequired) {
+        return generate(sessionId, adventureId, packageId, task, taskPrompt, allowedRefs,
+                openingSituationRequired, Set.of());
+    }
+
+    private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
+            List<ScenarioSourceReference> allowedRefs, boolean openingSituationRequired, Set<UUID> allowedMapIds) {
         var session = sessions.findById(sessionId).orElseThrow(() -> new IllegalStateException("adventure session not found"));
         var binding = bindings.current(sessionId.value()).orElseThrow(() -> new IllegalStateException("GM provider selection not found"));
         String prompt = "ROLE=INITIAL_SITUATION_PREPARATION\nTASK=" + task + "\n" + taskPrompt
@@ -159,7 +167,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         return gm.generate(new InitialSituationGmPort.Request(session.ownerPlayerId().value(), sessionId.value(),
                 binding.selection().endpointId(), binding.selection().provider(), binding.selection().model(),
                 binding.selection().reasoning(), "initial-situation:" + adventureId + ":" + packageId + ":" + task,
-                prompt, outputSchema(task, allowedRefs, openingSituationRequired)));
+                prompt, outputSchema(task, allowedRefs, openingSituationRequired, allowedMapIds)));
     }
 
     private JsonNode outputSchema(String task, List<ScenarioSourceReference> allowedRefs) {
@@ -168,6 +176,11 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
 
     private JsonNode outputSchema(String task, List<ScenarioSourceReference> allowedRefs,
             boolean openingSituationRequired) {
+        return outputSchema(task, allowedRefs, openingSituationRequired, Set.of());
+    }
+
+    private JsonNode outputSchema(String task, List<ScenarioSourceReference> allowedRefs,
+            boolean openingSituationRequired, Set<UUID> allowedMapIds) {
         Map<String, Object> properties;
         if (task.startsWith("required-extract:")) {
             properties = Map.of("requiredSituations", arraySchema(requiredSituationSchema(allowedRefs)));
@@ -197,7 +210,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     Map.entry("importantConsequenceIndexes", arraySchema(indexSchema())),
                     Map.entry("required", booleanSchema()), Map.entry("prerequisiteSituationIds", arraySchema(stringSchema())),
                     Map.entry("provenance", enumSchema("SOURCE_EXTRACTED", "GM_SUPPLEMENTED")),
-                    Map.entry("mapDefinitionId", nullableStringSchema()),
+                    Map.entry("mapDefinitionId", nullableMapDefinitionSchema(allowedMapIds)),
                     Map.entry("sourceRefIndexes", sourceRefIndexesSchema(allowedRefs)));
             Map<String, Object> situation = situationSchema(situationProperties);
             properties = Map.of("coreProblem", stringSchema(),
@@ -311,6 +324,13 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
 
     private static Map<String, Object> stringSchema() { return Map.of("type", "string", "minLength", 1); }
     private static Map<String, Object> nullableStringSchema() { return Map.of("type", List.of("string", "null"), "minLength", 1); }
+
+    private static Map<String, Object> nullableMapDefinitionSchema(Set<UUID> allowedMapIds) {
+        List<Object> allowedValues = new ArrayList<>();
+        allowedMapIds.stream().sorted().map(UUID::toString).forEach(allowedValues::add);
+        allowedValues.add(null);
+        return Map.of("type", List.of("string", "null"), "enum", allowedValues, "minLength", 1);
+    }
     private static Map<String, Object> booleanSchema() { return Map.of("type", "boolean"); }
     private static Map<String, Object> enumSchema(String... values) { return Map.of("type", "string", "enum", List.of(values)); }
 
