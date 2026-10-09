@@ -182,11 +182,18 @@ public final class StageArtifactPreparationApplicationService implements StageAr
     private static void validateInitialSituationSet(List<DetailedStage> stages, java.util.Set<UUID> providedMapIds,
             List<RequiredSituation> required) {
         java.util.Map<String, SituationDefinition> situations = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> situationStages = new java.util.HashMap<>();
         for (DetailedStage stage : stages) {
             for (SituationDefinition situation : stage.situations()) {
-                if (situations.putIfAbsent(situation.situationId(), situation) != null) {
-                    throw new IllegalStateException("situation ids must be unique across the initial set");
+                SituationDefinition previous = situations.putIfAbsent(situation.situationId(), situation);
+                if (previous != null) {
+                    throw new IllegalStateException("situation ids must be unique across the initial set"
+                            + " previousStageId=" + situationStages.get(situation.situationId())
+                            + " previousProvenance=" + previous.provenance() + " previousRequired=" + previous.required()
+                            + " currentStageId=" + stage.stageId() + " currentProvenance=" + situation.provenance()
+                            + " currentRequired=" + situation.required());
                 }
+                situationStages.put(situation.situationId(), stage.stageId());
                 if (situation.mapDefinitionId() != null && !providedMapIds.contains(situation.mapDefinitionId())) {
                     throw new IllegalStateException("situation references a map not provided to this adventure");
                 }

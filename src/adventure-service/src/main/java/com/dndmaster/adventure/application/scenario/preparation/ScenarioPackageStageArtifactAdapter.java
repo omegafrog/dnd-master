@@ -112,6 +112,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             var content = generated.deepCopy();
             resolveSituationTargetIndexes(content);
             resolveOpeningSituationIndex(content, request.openingSituationRequired());
+            resolveSupplementedSituationIds(content, request.stageId(), request.requiredSituations());
             ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("scenarioPackageId", request.scenarioPackageId().toString());
             ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("backboneRevision", request.backboneRevision());
             ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("stageId", request.stageId());
@@ -302,6 +303,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 + "The funnel's requiredRevelationIndexes also indexes this response's revelations[].revelationId values. "
                 + "Set openingSituationIndex to null when this stage has no opening situation; otherwise set it to the zero-based index "
                 + "of the single opening situation in situations. "
+                + "For a non-required GM_SUPPLEMENTED situation, keep prerequisiteSituationIds limited to reviewed required situation IDs "
+                + "or situation IDs from this same response; do not refer to optional situations from another stage. "
                 + "sourceRefs (exact allowed references for extracted claims; empty for GM supplements), and mapDefinitionId "
                 + "(one supplied map UUID or null). Return a complete DetailedStage JSON object except package/revision/stage identifiers. "
                 + "Use only these map IDs: " + json(scenarioPackage.mapDefinitions().stream().map(m -> m.id()).toList())
@@ -367,6 +370,60 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             ((com.fasterxml.jackson.databind.node.ObjectNode) situation).put("opening", !index.isNull() && i == index.intValue());
         }
         ((com.fasterxml.jackson.databind.node.ObjectNode) detailed).remove("openingSituationIndex");
+    }
+
+    private static void resolveSupplementedSituationIds(JsonNode detailed, String stageId,
+            List<RequiredSituation> requiredSituations) {
+        JsonNode situations = detailed.path("situations");
+        if (!situations.isArray()) throw new IllegalStateException("detailed situation identities are invalid");
+        java.util.Set<String> requiredIds = requiredSituations.stream().map(RequiredSituation::situationId)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        java.util.Set<String> protectedIds = new java.util.HashSet<>(requiredIds);
+        java.util.Map<String, String> supplementedIds = new java.util.LinkedHashMap<>();
+        for (JsonNode situation : situations) {
+            if (!situation.isObject() || !situation.path("provenance").isTextual()
+                    || !situation.path("required").isBoolean()) {
+                throw new IllegalStateException("detailed situation identities are invalid");
+            }
+            String situationId = requiredText(situation.path("situationId"));
+            boolean optionalSupplement = "GM_SUPPLEMENTED".equals(situation.path("provenance").textValue())
+                    && !situation.path("required").booleanValue();
+            if (!optionalSupplement) protectedIds.add(situationId);
+        }
+        for (JsonNode situation : situations) {
+            if ("GM_SUPPLEMENTED".equals(situation.path("provenance").textValue())
+                    && !situation.path("required").booleanValue()) {
+                String situationId = requiredText(situation.path("situationId"));
+                String canonicalId = stageScopedSupplementedId(stageId, situationId);
+                if (protectedIds.contains(canonicalId)) {
+                    throw new IllegalStateException("stage-scoped supplemented situation id conflicts with a protected situation id");
+                }
+                supplementedIds.put(situationId, canonicalId);
+            }
+        }
+        for (JsonNode situation : situations) {
+            var object = (com.fasterxml.jackson.databind.node.ObjectNode) situation;
+            String originalId = requiredText(situation.path("situationId"));
+            boolean optionalSupplement = "GM_SUPPLEMENTED".equals(situation.path("provenance").textValue())
+                    && !situation.path("required").booleanValue();
+            if (optionalSupplement) object.put("situationId", supplementedIds.get(originalId));
+            if (requiredIds.contains(originalId) && !optionalSupplement) continue;
+            JsonNode prerequisites = situation.path("prerequisiteSituationIds");
+            if (!prerequisites.isArray()) throw new IllegalStateException("detailed situation prerequisites are invalid");
+            var resolved = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.arrayNode();
+            for (JsonNode prerequisite : prerequisites) {
+                String prerequisiteId = requiredText(prerequisite);
+                if (supplementedIds.containsKey(prerequisiteId) && protectedIds.contains(prerequisiteId)) {
+                    throw new IllegalStateException("situation prerequisite ambiguously references a protected situation id");
+                }
+                resolved.add(supplementedIds.getOrDefault(prerequisiteId, prerequisiteId));
+            }
+            object.set("prerequisiteSituationIds", resolved);
+        }
+    }
+
+    private static String stageScopedSupplementedId(String stageId, String situationId) {
+        return "gm-supplemented:" + stageId.length() + ":" + stageId + ":" + situationId;
     }
 
     private static List<String> textArray(JsonNode values) {

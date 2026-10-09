@@ -254,7 +254,8 @@ class ScenarioPackageStageArtifactAdapterTest {
                         "funnel", Map.of("funnelId", "funnel", "meaning", "Find the bell", "requiredRevelationIndexes", List.of(0), "requiredPredicateIds", List.of("predicate-open"), "sourceRefs", refs),
                         "situations", List.of(
                                 generatedSituation("opening", true, List.of(), "SOURCE_EXTRACTED", refs),
-                                generatedSituation("candidate", false, List.of("opening"), "GM_SUPPLEMENTED", List.of())),
+                                generatedSituation("candidate", false, List.of("opening"), "GM_SUPPLEMENTED", List.of()),
+                                generatedSituation("link", false, List.of("candidate"), "GM_SUPPLEMENTED", List.of())),
                         "importantConsequenceIds", List.of("consequence"), "sourceRefs", refs));
                 if (request.operationKey().endsWith(":stage:tower")) {
                     ((com.fasterxml.jackson.databind.node.ObjectNode) detailed).putNull("openingSituationIndex");
@@ -296,8 +297,9 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertFalse(emptyRequiredSourceRefs.has("minItems"));
 
         var detailed = adapter.generate(new StageDetailedGenerationPort.Request(adventureId, sessionId,
-                scenarioPackage.packageId(), "arrival", 1, List.of(source), List.of(), true));
-        assertEquals(2, detailed.situations().size());
+                scenarioPackage.packageId(), "arrival", 1, List.of(source),
+                List.of(new RequiredSituation("opening", "The village bell is missing", List.of(), List.of(source))), true));
+        assertEquals(3, detailed.situations().size());
         assertEquals(List.of("truth"), detailed.situations().getFirst().revelationIds());
         assertEquals(List.of("pressure"), detailed.situations().getFirst().pressureIds());
         assertEquals(List.of("funnel"), detailed.situations().getFirst().funnelIds());
@@ -305,11 +307,15 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertEquals(List.of("consequence"), detailed.situations().getFirst().importantConsequenceIds());
         assertEquals(List.of("truth"), detailed.funnel().requiredRevelationIds());
         assertTrue(detailed.situations().get(0).required());
+        assertEquals("opening", detailed.situations().get(0).situationId());
         assertEquals(com.dndmaster.adventure.domain.scenario.SituationProvenance.SOURCE_EXTRACTED,
                 detailed.situations().get(0).provenance());
         assertEquals(com.dndmaster.adventure.domain.scenario.SituationProvenance.GM_SUPPLEMENTED,
                 detailed.situations().get(1).provenance());
         assertEquals(List.of("opening"), detailed.situations().get(1).prerequisiteSituationIds());
+        assertEquals("gm-supplemented:7:arrival:candidate", detailed.situations().get(1).situationId());
+        assertEquals(List.of("gm-supplemented:7:arrival:candidate"), detailed.situations().get(2).prerequisiteSituationIds());
+        assertEquals("gm-supplemented:7:arrival:link", detailed.situations().get(2).situationId());
         assertTrue(detailed.situations().get(0).opening());
         assertFalse(detailed.situations().get(1).opening());
         assertTrue(calls.getLast().prompt().contains("supplied map UUID or null"));
@@ -398,12 +404,28 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertThrows(java.lang.reflect.InvocationTargetException.class,
                 () -> openingResolver.invoke(null, missingFirstOpening, true));
 
+        var identityResolver = ScenarioPackageStageArtifactAdapter.class.getDeclaredMethod(
+                "resolveSupplementedSituationIds", com.fasterxml.jackson.databind.JsonNode.class, String.class, List.class);
+        identityResolver.setAccessible(true);
+        var ambiguousPrerequisite = mapper.valueToTree(Map.of("situations", List.of(
+                Map.of("situationId", "reviewed", "required", true, "provenance", "SOURCE_EXTRACTED",
+                        "prerequisiteSituationIds", List.of()),
+                Map.of("situationId", "reviewed", "required", false, "provenance", "GM_SUPPLEMENTED",
+                        "prerequisiteSituationIds", List.of()),
+                Map.of("situationId", "link", "required", false, "provenance", "GM_SUPPLEMENTED",
+                        "prerequisiteSituationIds", List.of("reviewed")))));
+        var reviewedRequired = List.of(new RequiredSituation("reviewed", "Known story situation", List.of(), List.of(source)));
+        assertThrows(java.lang.reflect.InvocationTargetException.class,
+                () -> identityResolver.invoke(null, ambiguousPrerequisite, "arrival", reviewedRequired));
+
         var optionalStage = adapter.generate(new StageDetailedGenerationPort.Request(adventureId, sessionId,
                 scenarioPackage.packageId(), "tower", 1, List.of(source)));
         assertEquals(List.of("integer", "null"), mapper.convertValue(calls.getLast().outputSchema()
                 .path("properties").path("openingSituationIndex").path("type"),
                 mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
         assertFalse(optionalStage.situations().get(0).opening());
+        assertEquals("gm-supplemented:5:tower:candidate", optionalStage.situations().get(1).situationId());
+        assertFalse(detailed.situations().get(1).situationId().equals(optionalStage.situations().get(1).situationId()));
 
         adapter.generate(new StageBackboneGenerationPort.Request(adventureId, sessionId,
                 scenarioPackage.packageId(), List.of()));

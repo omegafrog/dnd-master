@@ -1,7 +1,9 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationApplicationService;
 import com.dndmaster.adventure.application.scenario.preparation.StageBackboneGenerationPort;
@@ -94,6 +96,37 @@ class StageArtifactPreparationApplicationServiceTest {
                 request -> request.stageId().equals("stage-1") ? first : secondDetailed());
 
         assertThrows(IllegalStateException.class, () -> service.prepare(adventureId, sessionId, packageId));
+        assertEquals(0, repository.findBackbone(adventureId, packageId, 1).stream().count());
+    }
+
+    @Test
+    void reports_only_safe_origin_fields_when_initial_situation_ids_still_collide() {
+        var repository = new StageArtifactRepository.InMemory();
+        var first = detailedWithSituations(List.of(
+                extractedRequired("opening-situation", List.of()),
+                supplementalCandidate("repeated-candidate"), supplementalCandidate("candidate-b")));
+        var second = new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
+                List.of(new RevelationDefinition("truth-2", true, List.of(evidence))),
+                new ThreatDefinition("Hunters close in", List.of(evidence)),
+                new PressureDefinition("The search grows dangerous", List.of(evidence)),
+                new FunnelDefinition("The heir is located", List.of("truth-2"), List.of(evidence)),
+                List.of(new SituationDefinition("repeated-candidate", List.of(StageIntent.REVELATION), List.of("truth-2"),
+                        List.of(), List.of(), List.of(), List.of(), false, false, List.of(),
+                        SituationProvenance.GM_SUPPLEMENTED, null, List.of())), List.of(), List.of(evidence));
+        var service = new StageArtifactPreparationApplicationService(repository,
+                request -> List.of(evidence), request -> backbone(),
+                request -> request.stageId().equals("stage-1") ? first : second);
+
+        var failure = assertThrows(IllegalStateException.class,
+                () -> service.prepare(adventureId, sessionId, packageId));
+
+        assertTrue(failure.getMessage().contains("previousStageId=stage-1"));
+        assertTrue(failure.getMessage().contains("previousProvenance=GM_SUPPLEMENTED"));
+        assertTrue(failure.getMessage().contains("previousRequired=false"));
+        assertTrue(failure.getMessage().contains("currentStageId=stage-2"));
+        assertTrue(failure.getMessage().contains("currentProvenance=GM_SUPPLEMENTED"));
+        assertTrue(failure.getMessage().contains("currentRequired=false"));
+        assertFalse(failure.getMessage().contains("repeated-candidate"));
         assertEquals(0, repository.findBackbone(adventureId, packageId, 1).stream().count());
     }
 
