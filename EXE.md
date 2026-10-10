@@ -6,7 +6,7 @@
 - If a listener belongs to another checkout, stop or otherwise retire that stale local process, restart the approved launcher from the recorded active checkout, wait for health, and repeat the ownership checks. Do not run E2E until the checks pass.
 - Launch Playwright from the launcher environment after its backend health and worktree checks pass. Capture the test command, active checkout path, source revision, backend/frontend PIDs, and their resolved working directories with the result so the E2E evidence is tied to the code that was built and run.
 - For non-local environments, explicit user-supplied URL overrides remain allowed, but do not present those runs as verification of the local checkout.
-- When an E2E run needs rulebook, map, or other source assets, search `~/workspace/dnd-master/docs/asset` first (expand `~` to the current user's home directory) and verify the selected file matches the requested source. Do not assume assets are under the active checkout's `docs/asset` directory.
+- When an E2E run needs rulebook, map, or other source assets, search `~/workspace/dnd-master/docs/assets` first (expand `~` to the current user's home directory) and verify the selected file matches the requested source. Do not assume assets are under the active checkout's `docs/assets` directory.
 
 ## Development diagnostics
 
