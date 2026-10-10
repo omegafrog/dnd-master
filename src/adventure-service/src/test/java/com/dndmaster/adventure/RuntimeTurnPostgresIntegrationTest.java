@@ -146,6 +146,34 @@ class RuntimeTurnPostgresIntegrationTest {
     }
 
     @Test
+    void knownEvidenceIdsIncludeOnlyConfirmedTurnEvidence() {
+        AdventureId adventureId = AdventureId.generate();
+        SessionId sessionId = SessionId.generate();
+        PostgresAdventureRepository adventureRepository = new PostgresAdventureRepository(dataSource);
+        adventureRepository.save(Adventure.create(adventureId, sessionId, new OwnerPlayerId(UUID.randomUUID()),
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), new CharacterSheetId(UUID.randomUUID()),
+                new AdventureContext("start", null, null, null)));
+        UUID scenarioPackageId = UUID.randomUUID();
+        var confirmedEvidence = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, new KnowledgeDocumentId(UUID.randomUUID()),
+                1L, "page:1:span:1", "confirmed");
+        var unconfirmedEvidence = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, new KnowledgeDocumentId(UUID.randomUUID()),
+                1L, "page:1:span:2", "unconfirmed");
+        RuntimePlan plan = new RuntimePlan("scene", null, "judgment", "narration", null, List.of(), List.of());
+        RuntimeTurn confirmed = new RuntimeTurn(UUID.randomUUID(), UUID.randomUUID(), adventureId, sessionId.value(),
+                scenarioPackageId, 1, "confirmed action", new EvidencePack(List.of(confirmedEvidence), List.of(), List.of()),
+                plan, null, new AdventureContext("scene", null, "confirmed action", "judgment"), List.of(), 0,
+                List.of(), List.of());
+        RuntimeTurn unconfirmed = new RuntimeTurn(UUID.randomUUID(), UUID.randomUUID(), adventureId, sessionId.value(),
+                scenarioPackageId, 1, "unconfirmed action", new EvidencePack(List.of(unconfirmedEvidence), List.of(), List.of()),
+                plan, null, new AdventureContext("scene", null, "unconfirmed action", "judgment"), List.of(), 0,
+                List.of(), List.of()).asRequested();
+        repository.save(confirmed);
+        repository.save(unconfirmed);
+
+        assertEquals(List.of(confirmedEvidence.immutableEvidenceId()), repository.findKnownImmutableEvidenceIds(adventureId));
+    }
+
+    @Test
     void persistsOrderedRuntimeTurnCommandsAndEnforcesOneActiveTurnPerAdventure() {
         AdventureId adventureId = AdventureId.generate();
         SessionId sessionId = SessionId.generate();
