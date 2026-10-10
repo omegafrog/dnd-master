@@ -49,16 +49,16 @@ verification:
   not_performed: 애플리케이션 코드 변경·빌드·단위 테스트·종단 간 실행 테스트
 implementation:
   started: true
-  reason: 원문 필수 상황 검토 및 게시 전 검증의 구현은 926f0a5f에 기록되었다. 이 기록은 구현 완료나 검증 통과를 뜻하지 않는다.
+  reason: RAG 후보 기반 상황 추출과 구조 검증으로 구현 방향을 갱신했다. 이전 구현 기록은 검증 완료를 뜻하지 않는다.
 amendment_source_situation_verification:
-  authorization: 사용자가 추출 목록을 원문과 직접 대조해 누락된 필수 상황·선행 관계를 보완하고, 검토한 전체 목록으로 생성 결과를 검증하는 확장을 승인했다.
+  authorization: 사용자가 원문 전체를 다시 입력해 검토하는 방식이 장문 룰북에 부적절함을 지적했고, RAG 검색 후보에서 상황을 추출하도록 변경하는 데 동의했다. 완전성 검증은 주장하지 않는다.
   changed_documents:
     - product-spec.md
     - architecture-spec.md
     - architecture-contracts.yaml
     - architecture-proposal.yaml
   prior_review_history: 위 기존 ACCEPTED·diagram_review·gate 및 verification 기록은 당시 범위의 이력으로 보존하며 이 개정의 검토·구현·빌드·종단 간 실행 완료를 뜻하지 않는다.
-  current_amendment: 문서 반영됨; e6a63518의 다이어그램 렌더와 XML 검증은 완료했으나 이번 개정의 다이어그램 내용 검토와 상위 검토는 완료로 표시하지 않는다.
-  diagram_artifact_validation: e6a63518의 PlantUML 렌더와 SVG XML 파싱 완료; 이는 개정 설계 검토, 구현 검증 또는 E2E 통과를 뜻하지 않는다.
-  implementation_verification: 미확인; 원문 전체 누락 복구·생성 결과 검증·실패 처리 런타임 결과를 통과로 기록하지 않는다.
-  end_to_end: 기존 #378 E2E 차단 상태 유지; 별도 기본 룰북 자료 상태가 해결되지 않은 것으로 기록한다.
+  current_amendment: RAG 후보 기반 추출과 구조 검증으로 코드·명세 반영; 상위 검토는 미확인.
+  diagram_artifact_validation: UC-1 유스케이스·활동 다이어그램과 상황 구조도의 SVG를 렌더하고 XML 파싱 및 Markdown 링크를 확인했다.
+  implementation_verification: 상황 어댑터와 RAG 어댑터 focused 테스트 통과. RAG 검색 누락의 완전성 보장은 구현·검증하지 않는다.
+  end_to_end: 2026-10-09 실행은 격리 환경에서 D&D 2014 기본 룰북의 10개 페이지가 NEEDS_REVIEW로 남아 카탈로그가 비어 UI 시작 전에 차단되었다. 지원되는 페이지 재시도 두 건 모두 HTTP 400을 반환했다. 서비스·컨테이너·포트·산출물 정리는 통과했다. 현재 RAG 상황 추출 구현의 사용자 흐름 성공 여부는 미확인이다.

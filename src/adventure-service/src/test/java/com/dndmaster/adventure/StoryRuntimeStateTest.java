@@ -51,6 +51,18 @@ class StoryRuntimeStateTest {
     }
 
     @Test
+    void selects_required_situation_only_after_its_prerequisite_is_used() {
+        DetailedStage stage = stageWithRequiredFollowup();
+        StoryRuntimeState selected = StoryRuntimeRules.finishAndSelectNextSituation(
+                StoryRuntimeState.start(stage), stage);
+
+        assertEquals("required-followup", selected.activeSituationId());
+        assertEquals(com.dndmaster.adventure.domain.runtime.story.SituationStatus.USED,
+                selected.situationStatuses().get("opening"));
+        assertEquals("required-followup", StoryRuntimeRules.selectNextSituation(selected, stage).activeSituationId());
+    }
+
+    @Test
     void learns_the_same_revelation_from_different_paths_only_once() {
         DetailedStage stage = stage();
         StoryRuntimeState initial = StoryRuntimeState.start(stage);
@@ -213,6 +225,24 @@ class StoryRuntimeStateTest {
                 List.of(new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
                         List.of(), List.of(), List.of("location-known"), List.of(), true, List.of(evidence))),
                 List.of("heir-missing"), List.of(evidence));
+    }
+
+    private DetailedStage stageWithRequiredFollowup() {
+        return new DetailedStage(packageId, 1, "stage-1", 1, "Find the key",
+                List.of(new RevelationDefinition("truth", true, List.of(evidence))),
+                new ThreatDefinition("The door is guarded", List.of(evidence)),
+                new PressureDefinition("The search grows dangerous", List.of(evidence)),
+                new FunnelDefinition("The key is found", List.of("truth"), List.of(evidence)),
+                List.of(new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
+                                List.of(), List.of(), List.of(), List.of(), true, true, List.of(),
+                                com.dndmaster.adventure.domain.scenario.SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence)),
+                        new SituationDefinition("optional", List.of(StageIntent.PRESSURE), List.of(),
+                                List.of("pressure"), List.of(), List.of(), List.of(), false, false, List.of(),
+                                com.dndmaster.adventure.domain.scenario.SituationProvenance.GM_SUPPLEMENTED, null, List.of()),
+                        new SituationDefinition("required-followup", List.of(StageIntent.PRESSURE), List.of(),
+                                List.of("pressure"), List.of(), List.of(), List.of(), false, true, List.of("opening"),
+                                com.dndmaster.adventure.domain.scenario.SituationProvenance.SOURCE_EXTRACTED, null, List.of(evidence))),
+                List.of(), List.of(evidence));
     }
 
     private DetailedStage nextStage() {

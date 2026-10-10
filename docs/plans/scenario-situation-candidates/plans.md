@@ -20,6 +20,11 @@
 - [시스템 목표](../../specs/scenario-situation-candidates/system-targets.yaml)
 - [승인된 설계 계약](../../specs/scenario-situation-candidates/architecture-contracts.yaml)
 
+## 턴 조회 에이전트 구현 계획
+
+- [#379 턴 조회 에이전트와 오케스트레이션 구현 계획](379-context-lookup-orchestration.md)
+- 한 번의 조회 요청에 두 문서 종류를 포함하고, 고정 JSON 계약·근거 ID 중복 제외·조회 범위 검증·지원 모델의 입력 토큰 캐시 관측을 함께 구현한다.
+
 추가 룰북이 있는 새 모험이 대상이다. 기존 모험 자료는 그대로 두고 이관·호환성 지원은 제외한다. 주어진 맵만 사용하며 적합한 맵이 없으면 맵 없이 진행한다. 신규 형식의 복원, 권한·버전 검증, 굴림 대기와 실패 복구는 각 구현 이슈의 검증 범위에 포함한다.
 
 ## 다이어그램

@@ -860,16 +860,25 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService(
+    com.dndmaster.adventure.evidence.EvidenceCandidateSearchPort runtimeEvidenceCandidateSearchPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String ruleKnowledgeBaseUrl,
             @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long ruleKnowledgeTimeoutSeconds,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpEvidenceCandidateSearchGateway(
+                HttpClient.newHttpClient(), URI.create(ruleKnowledgeBaseUrl), Duration.ofSeconds(ruleKnowledgeTimeoutSeconds),
+                objectMapper, internalToken);
+    }
+
+    @Bean
+    com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService(
+            ObjectMapper objectMapper,
+            com.dndmaster.adventure.evidence.EvidenceCandidateSearchPort candidateSearch,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String aiGameMasterBaseUrl,
             @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long aiGameMasterTimeoutSeconds,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService(
-                new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpEvidenceCandidateSearchGateway(
-                        HttpClient.newHttpClient(), URI.create(ruleKnowledgeBaseUrl), Duration.ofSeconds(ruleKnowledgeTimeoutSeconds), objectMapper, internalToken),
+                candidateSearch,
                 new com.dndmaster.adventure.infrastructure.integration.HttpEvidenceRerankerPort(
                         HttpClient.newHttpClient(), URI.create(aiGameMasterBaseUrl), Duration.ofSeconds(aiGameMasterTimeoutSeconds), objectMapper, internalToken),
                 new com.dndmaster.adventure.infrastructure.integration.HttpEvidenceSufficiencyJudgePort(
@@ -1019,13 +1028,14 @@ public class AdventureApiConfiguration {
             RuntimeTurnLockService runtimeTurnLockService,
             RuntimeTurnCommitOrchestrator commitOrchestrator,
             RuntimeFactLookupService runtimeFactLookupService,
-            com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService,
+            com.dndmaster.adventure.evidence.EvidenceCandidateSearchPort runtimeEvidenceCandidateSearchPort,
             RuntimeCharacterSheetReadPort characterSheetReadPort,
             com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort,
             com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort,
             javax.sql.DataSource dataSource,
             com.dndmaster.adventure.application.runtime.AdventureCompletionCommitPort adventureCompletionCommitPort,
-            com.dndmaster.adventure.application.combat.EnemyCharacterSheetRepository enemyCharacterSheetRepository) {
+            com.dndmaster.adventure.application.combat.EnemyCharacterSheetRepository enemyCharacterSheetRepository,
+            com.dndmaster.adventure.domain.scenario.StageArtifactRepository stageArtifactRepository) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, providerBindingRepository,
@@ -1038,11 +1048,12 @@ public class AdventureApiConfiguration {
         service.setCommitGate(new com.dndmaster.adventure.application.combat.PreparedMapEntryCommitGate(
                 combatMapViewPort, combatMapPreparationPort));
         service.setRuntimeFactLookupService(runtimeFactLookupService);
-        service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(evidenceAcquisitionApplicationService));
+        service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(runtimeEvidenceCandidateSearchPort));
         service.setCharacterSheetReadPort(characterSheetReadPort);
         service.setConversationCompactionJobRepository(conversationCompactionJobRepository(dataSource));
         service.setAdventureCompletionCommitPort(adventureCompletionCommitPort);
         service.setEnemyCharacterSheetRepository(enemyCharacterSheetRepository);
+        service.setStageArtifactRepository(stageArtifactRepository);
         return service;
     }
 

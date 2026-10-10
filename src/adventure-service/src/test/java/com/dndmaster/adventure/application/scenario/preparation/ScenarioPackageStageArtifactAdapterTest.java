@@ -37,17 +37,13 @@ import org.junit.jupiter.api.Test;
 
 class ScenarioPackageStageArtifactAdapterTest {
     @Test
-    void reviews_every_indexed_story_batch_and_repairs_invalid_situation_prerequisites() {
+    void extracts_required_situations_from_rag_candidates_without_reading_or_reviewing_every_story_chunk() {
         ScenarioSourceReference first = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1");
         ScenarioSourceReference second = new ScenarioSourceReference(first.knowledgeDocumentId(), 1, "page:2");
         var document = new ScenarioBundleDocumentSelection(first.knowledgeDocumentId(),
                 ScenarioBundleDocumentRole.MAIN_SCENARIO, () -> "INDEXED", "story.txt", "STORYBOOK", 1);
-        var mapDocument = new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(UUID.randomUUID()),
-                ScenarioBundleDocumentRole.MAP, () -> "INDEXED", "map.pdf", "STORYBOOK", 1);
-        var handoutDocument = new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(UUID.randomUUID()),
-                ScenarioBundleDocumentRole.HANDOUT, () -> "INDEXED", "handout.pdf", "STORYBOOK", 1);
         var scenarioPackage = ScenarioPackage.publishWithScenarioModel(ScenarioBundleId.generate(), 1,
-                "fingerprint", List.of(document, mapDocument, handoutDocument), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                "fingerprint", List.of(document), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
                 CharacterLimit.defaultLimit(), null, List.of(), List.of(),
                 new ScenarioModel(1, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), "A"));
         ScenarioPackageRepository packages = new ScenarioPackageRepository() {
@@ -69,174 +65,43 @@ class ScenarioPackageStageArtifactAdapterTest {
         var b = new RequiredSituation("b", "Recover the bell", List.of("a"), List.of(second));
         InitialSituationGmPort gm = request -> {
             calls.add(request);
-            if (request.operationKey().endsWith("required-extract:0")) return mapper.valueToTree(Map.of("requiredSituations", List.of(
+            if (request.operationKey().endsWith("required-extract")) return mapper.valueToTree(Map.of("requiredSituations", List.of(
                     Map.of("situationId", "a", "summary", "Meet the keeper", "prerequisiteSituationIds", List.of(),
                             "sourceRefIndexes", List.of(0)),
-                    Map.of("situationId", "unsupported", "summary", "An unsupported event", "prerequisiteSituationIds", List.of(),
-                            "sourceRefIndexes", List.of(0)))));
-            if (request.operationKey().endsWith("required-extract:1")) return mapper.valueToTree(Map.of("requiredSituations", List.of(
                     Map.of("situationId", "b", "summary", "Recover the bell", "prerequisiteSituationIds", List.of("a"),
-                            "sourceRefIndexes", List.of(0)))));
-            if (request.operationKey().endsWith("required-review:0")) return mapper.valueToTree(Map.of(
-                    "reviewed", true, "requiredSituations", List.of(Map.of("situationId", "a", "summary", "Meet the keeper",
-                            "prerequisiteSituationIds", List.of("b"), "sourceRefIndexes", List.of(0)))));
-            if (request.operationKey().endsWith("required-review:1")) return mapper.valueToTree(Map.of(
-                    "reviewed", true, "requiredSituations", List.of(Map.of("situationId", "b", "summary", "Recover the bell",
-                            "prerequisiteSituationIds", List.of("a", "missing"), "sourceRefIndexes", List.of(0)))));
-            if (request.operationKey().contains("required-review:repair")) return mapper.valueToTree(Map.of(
-                    "reviewed", true, "correctedSituations", List.of(
-                            Map.of("sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of()),
-                            Map.of("sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))));
+                            "sourceRefIndexes", List.of(1)))));
             return mapper.valueToTree(Map.of("stages", List.of(Map.of("stageId", "first-stage", "order", 1,
                     "role", "opening", "coreProblem", "Find the bell", "funnelSummary", "Follow the story",
                     "sourceRefIndexes", List.of(0))), "sourceRefIndexes", List.of(0)));
         };
+        var storySearchCount = new java.util.concurrent.atomic.AtomicInteger();
         StorySourcePreviewPort source = (selected, ownerId, bundleId) -> {
-            assertEquals(ScenarioBundleDocumentRole.MAIN_SCENARIO, selected.role());
-            return List.of(new StorySourcePreviewPort.Passage(first, "The keeper meets the party." + "x".repeat(12000)),
-                    new StorySourcePreviewPort.Passage(second, "After meeting the keeper, recover the bell."));
+            storySearchCount.incrementAndGet();
+            return List.of(new StorySourcePreviewPort.Passage(first, "The keeper meets the party."),
+                    new StorySourcePreviewPort.Passage(second, "Afterward, recover the bell."));
         };
         var adapter = new ScenarioPackageStageArtifactAdapter(packages, gm, bindings, sessions, mapper, source);
 
+        var preparationEvidence = adapter.lookupForPreparation(scenarioPackage.packageId(), sessionId);
+        assertEquals(1, storySearchCount.get());
+
         var result = adapter.generate(new StageBackboneGenerationPort.Request(AdventureId.generate(), sessionId,
-                scenarioPackage.packageId(), List.of(first, second)));
+                scenarioPackage.packageId(), preparationEvidence.sourceRefs(), preparationEvidence.storyPassages()));
 
         assertEquals(List.of(a, b), result.requiredSituations());
-        assertFalse(result.requiredSituations().stream().anyMatch(item -> item.situationId().equals("unsupported")));
-        assertEquals(List.of(first), result.requiredSituations().getFirst().sourceRefs());
-        assertEquals(List.of(second), result.requiredSituations().getLast().sourceRefs());
-        assertEquals(List.of(first), result.stages().getFirst().sourceRefs());
-        assertEquals(List.of(first), result.sourceRefs());
-        assertEquals(6, calls.size());
-        assertEquals("object", calls.get(0).outputSchema().path("type").asText());
-        assertEquals("array", calls.get(0).outputSchema().path("properties").path("requiredSituations").path("type").asText());
-        var extractionRefIndexSchema = calls.get(0).outputSchema().path("properties").path("requiredSituations")
-                .path("items").path("properties").path("sourceRefIndexes");
-        assertEquals("integer", extractionRefIndexSchema.path("items").path("type").asText());
-        assertEquals(0, extractionRefIndexSchema.path("items").path("minimum").asInt());
-        assertEquals(0, extractionRefIndexSchema.path("items").path("maximum").asInt());
-        assertEquals("boolean", calls.get(2).outputSchema().path("properties").path("reviewed").path("type").asText());
-        assertEquals("array", calls.get(4).outputSchema().path("properties").path("correctedSituations").path("type").asText());
-        assertEquals("integer", calls.get(4).outputSchema().path("properties").path("correctedSituations")
-                .path("items").path("properties").path("sourceRefIndexes").path("items").path("type").asText());
-        assertEquals(1, calls.get(4).outputSchema().path("properties").path("correctedSituations")
-                .path("items").path("properties").path("sourceRefIndexes").path("items").path("maximum").asInt());
-        assertEquals("array", calls.get(5).outputSchema().path("properties").path("stages").path("type").asText());
-        assertFalse(calls.get(0).outputSchema().path("additionalProperties").asBoolean(true));
-        assertTrue(calls.get(2).operationKey().contains("required-review:0"));
-        assertTrue(calls.get(2).prompt().contains("The keeper meets the party."));
-        assertFalse(calls.get(2).prompt().contains("After meeting the keeper, recover the bell."));
-        assertTrue(calls.get(2).prompt().contains("ALL_PROPOSED_REQUIRED_SITUATIONS"));
-        assertTrue(calls.get(4).operationKey().contains("required-review:repair"));
-        assertTrue(calls.get(4).prompt().contains(
-                "Return {reviewed:true,correctedSituations:[...]} with one ordered item per INVALID_ENTRIES item."));
-        assertTrue(calls.get(4).prompt().contains(
-                "sourceRefIndexes, prerequisiteSituationIds, and optionally a matching situationId"));
-        assertTrue(calls.get(0).prompt().contains("NUMBERED_ALLOWED_SOURCE_REFS"));
-        assertTrue(calls.get(2).prompt().contains("NUMBERED_ALLOWED_SOURCE_REFS"));
-        assertTrue(calls.get(4).prompt().contains("NUMBERED_ALLOWED_SOURCE_REFS"));
-        assertTrue(calls.get(4).prompt().contains("missing"));
-        assertFalse(calls.get(4).prompt().contains("page:99"));
-        assertTrue(calls.get(4).prompt().contains("\"cyclicPrerequisiteSet\":true"));
-        assertTrue(calls.get(4).prompt().contains("ALLOWED_SOURCE_REFS"));
-        assertTrue(calls.get(4).prompt().contains("KNOWN_SITUATION_IDS"));
-        assertFalse(calls.get(4).prompt().contains("ORIGINAL_STORY_PASSAGES"));
-        assertFalse(calls.get(4).prompt().contains("SOURCE_QUOTES"));
-        assertTrue(calls.get(5).prompt().contains("REVIEWED_REQUIRED_SITUATIONS"));
-        calls.forEach(call -> assertFalse(call.outputSchema().toString().contains("\"sourceRefs\"")));
-
-        InitialSituationGmPort invalidCorrection = request -> request.operationKey().contains("required-review:repair")
-                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
-                        Map.of("sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of("b")),
-                        Map.of("sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
-                : gm.generate(request);
-        var stillInvalid = new ScenarioPackageStageArtifactAdapter(packages, invalidCorrection, bindings, sessions, mapper, source);
-        assertThrows(IllegalStateException.class, () -> stillInvalid.generate(new StageBackboneGenerationPort.Request(
-                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
-
-        InitialSituationGmPort shortCorrection = request -> request.operationKey().contains("required-review:repair")
-                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
-                        Map.of("sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of()))))
-                : gm.generate(request);
-        var incompleteCorrection = new ScenarioPackageStageArtifactAdapter(packages, shortCorrection, bindings, sessions, mapper, source);
-        assertThrows(IllegalStateException.class, () -> incompleteCorrection.generate(new StageBackboneGenerationPort.Request(
-                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
-
-        InitialSituationGmPort wrongIdCorrection = request -> request.operationKey().contains("required-review:repair")
-                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
-                        Map.of("situationId", "wrong", "sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of()),
-                        Map.of("situationId", "b", "sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
-                : gm.generate(request);
-        var mismatchedIdCorrection = new ScenarioPackageStageArtifactAdapter(packages, wrongIdCorrection, bindings, sessions, mapper, source);
-        assertThrows(IllegalStateException.class, () -> mismatchedIdCorrection.generate(new StageBackboneGenerationPort.Request(
-                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
-
-        InitialSituationGmPort nonTextIdCorrection = request -> request.operationKey().contains("required-review:repair")
-                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
-                        Map.of("situationId", 123, "sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of()),
-                        Map.of("sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
-                : gm.generate(request);
-        var nonTextId = new ScenarioPackageStageArtifactAdapter(packages, nonTextIdCorrection, bindings, sessions, mapper, source);
-        assertThrows(IllegalStateException.class, () -> nonTextId.generate(new StageBackboneGenerationPort.Request(
-                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
-
-        InitialSituationGmPort nonTextPrerequisite = request -> request.operationKey().contains("required-review:repair")
-                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
-                        Map.of("sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of(123)),
-                        Map.of("sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
-                : gm.generate(request);
-        var nonTextPrereq = new ScenarioPackageStageArtifactAdapter(packages, nonTextPrerequisite, bindings, sessions, mapper, source);
-        assertThrows(IllegalStateException.class, () -> nonTextPrereq.generate(new StageBackboneGenerationPort.Request(
-                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
-
-        InitialSituationGmPort unknownSourceIndex = request -> request.operationKey().contains("required-review:repair")
-                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
-                        Map.of("sourceRefIndexes", List.of(99), "prerequisiteSituationIds", List.of()),
-                        Map.of("sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
-                : gm.generate(request);
-        var unknownSourceIndexCorrection = new ScenarioPackageStageArtifactAdapter(packages, unknownSourceIndex, bindings, sessions, mapper, source);
-        assertThrows(IllegalStateException.class, () -> unknownSourceIndexCorrection.generate(new StageBackboneGenerationPort.Request(
-                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
-
-        InitialSituationGmPort unexpectedField = request -> request.operationKey().contains("required-review:repair")
-                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
-                        Map.of("summary", "changed", "sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of()),
-                        Map.of("sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
-                : gm.generate(request);
-        var unexpectedCorrection = new ScenarioPackageStageArtifactAdapter(packages, unexpectedField, bindings, sessions, mapper, source);
-        assertThrows(IllegalStateException.class, () -> unexpectedCorrection.generate(new StageBackboneGenerationPort.Request(
-                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
-
-        InitialSituationGmPort nonBooleanReview = request -> request.operationKey().contains("required-review:repair")
-                ? mapper.valueToTree(Map.of("reviewed", "true", "correctedSituations", List.of()))
-                : gm.generate(request);
-        var nonBooleanReviewAdapter = new ScenarioPackageStageArtifactAdapter(packages, nonBooleanReview, bindings, sessions, mapper, source);
-        assertThrows(IllegalStateException.class, () -> nonBooleanReviewAdapter.generate(new StageBackboneGenerationPort.Request(
-                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
-
-        InitialSituationGmPort nonObjectCorrection = request -> request.operationKey().contains("required-review:repair")
-                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of("bad", Map.of(
-                        "sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
-                : gm.generate(request);
-        var nonObjectCorrectionAdapter = new ScenarioPackageStageArtifactAdapter(packages, nonObjectCorrection, bindings, sessions, mapper, source);
-        assertThrows(IllegalStateException.class, () -> nonObjectCorrectionAdapter.generate(new StageBackboneGenerationPort.Request(
-                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
-
-        InitialSituationGmPort blankPrerequisite = request -> request.operationKey().contains("required-review:repair")
-                ? mapper.valueToTree(Map.of("reviewed", true, "correctedSituations", List.of(
-                        Map.of("sourceRefIndexes", List.of(0), "prerequisiteSituationIds", List.of(" ")),
-                        Map.of("sourceRefIndexes", List.of(1), "prerequisiteSituationIds", List.of("a")))))
-                : gm.generate(request);
-        var blankPrerequisiteAdapter = new ScenarioPackageStageArtifactAdapter(packages, blankPrerequisite, bindings, sessions, mapper, source);
-        assertThrows(IllegalStateException.class, () -> blankPrerequisiteAdapter.generate(new StageBackboneGenerationPort.Request(
-                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
-
-        InitialSituationGmPort failedReview = request -> request.operationKey().contains("required-review")
-                ? mapper.valueToTree(Map.of("reviewed", false, "requiredSituations", List.of(a)))
-                : gm.generate(request);
-        var incomplete = new ScenarioPackageStageArtifactAdapter(packages, failedReview, bindings, sessions, mapper, source);
-        assertThrows(IllegalStateException.class, () -> incomplete.generate(new StageBackboneGenerationPort.Request(
-                AdventureId.generate(), sessionId, scenarioPackage.packageId(), List.of(first, second))));
+        assertEquals(2, calls.size());
+        assertTrue(calls.getFirst().operationKey().endsWith("required-extract"));
+        assertTrue(calls.getFirst().prompt().contains("RETRIEVED_STORY_PASSAGES"));
+        assertTrue(calls.getFirst().prompt().contains("not the complete story"));
+        assertFalse(calls.getFirst().prompt().contains("ALL_PROPOSED_REQUIRED_SITUATIONS"));
+        assertFalse(calls.stream().anyMatch(call -> call.operationKey().contains("required-review")));
+        assertTrue(calls.getFirst().prompt().contains("The keeper meets the party."));
+        assertTrue(calls.getFirst().prompt().contains("Afterward, recover the bell."));
+        assertFalse(calls.getFirst().outputSchema().toString().contains("sourceRefs"));
+        assertEquals("array", calls.getFirst().outputSchema().path("properties").path("requiredSituations").path("type").asText());
+        assertTrue(calls.getFirst().outputSchema().path("required").toString().contains("requiredSituations"));
+        assertEquals(1, storySearchCount.get());
+        assertEquals(List.of(first, second), result.sourceRefs());
     }
 
     @Test
@@ -309,14 +174,16 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertEquals(owner.value(), calls.getFirst().ownerPlayerId());
         assertEquals(selection.endpointId(), calls.getFirst().endpointId());
         assertEquals("story-model", calls.getFirst().model());
-        assertTrue(calls.getFirst().prompt().contains("The village bell is missing"));
+        assertTrue(calls.getFirst().prompt().contains("SCENARIO_CONTEXT="));
+        assertFalse(calls.getFirst().prompt().contains("SCENARIO_MODEL="));
+        assertFalse(calls.getFirst().prompt().contains("SOURCE_QUOTES="));
         assertTrue(calls.getFirst().prompt().contains("ALLOWED_SOURCE_REFS"));
         assertEquals("object", calls.getFirst().outputSchema().path("type").asText());
         assertEquals("object", calls.getFirst().outputSchema().path("properties").path("stages").path("items").path("type").asText());
         var schemaMethod = ScenarioPackageStageArtifactAdapter.class.getDeclaredMethod("outputSchema", String.class, List.class);
         schemaMethod.setAccessible(true);
         var emptyAllowedRefsSchema = (com.fasterxml.jackson.databind.JsonNode) schemaMethod.invoke(adapter,
-                "required-extract:empty", List.of());
+                "required-extract", List.of());
         var emptyRequiredSourceRefs = emptyAllowedRefsSchema.path("properties").path("requiredSituations")
                 .path("items").path("properties").path("sourceRefIndexes");
         assertEquals(0, emptyRequiredSourceRefs.path("maxItems").asInt());
@@ -357,6 +224,16 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertTrue(calls.getLast().prompt().contains("supplied map UUID or null"));
         assertTrue(calls.getLast().prompt().contains("never invent separate target IDs"));
         assertEquals("array", calls.getLast().outputSchema().path("properties").path("situations").path("type").asText());
+        var situationAlternatives = calls.getLast().outputSchema().path("properties").path("situations").path("items").path("anyOf");
+        assertEquals(10, situationAlternatives.size());
+        assertTrue(java.util.stream.StreamSupport.stream(situationAlternatives.spliterator(), false)
+                .filter(branch -> branch.path("properties").path("provenance").path("enum").get(0).asText()
+                        .equals("GM_SUPPLEMENTED"))
+                .allMatch(branch -> branch.path("properties").path("sourceRefIndexes").path("maxItems").asInt() == 0));
+        assertTrue(java.util.stream.StreamSupport.stream(situationAlternatives.spliterator(), false)
+                .anyMatch(branch -> branch.path("properties").path("provenance").path("enum").get(0).asText()
+                        .equals("SOURCE_EXTRACTED")
+                        && !branch.path("properties").path("sourceRefIndexes").has("maxItems")));
         assertEquals("integer", calls.getLast().outputSchema().path("properties").path("openingSituationIndex")
                 .path("type").asText());
         assertEquals(0, calls.getLast().outputSchema().path("properties").path("openingSituationIndex")
@@ -374,6 +251,9 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertEquals("integer", detailRefSchema.path("items").path("type").asText());
         assertEquals(0, detailRefSchema.path("items").path("minimum").asInt());
         assertTrue(calls.getLast().prompt().contains("NUMBERED_ALLOWED_SOURCE_REFS"));
+        assertTrue(calls.getLast().prompt().contains("SCENARIO_CONTEXT="));
+        assertFalse(calls.getLast().prompt().contains("SCENARIO_MODEL="));
+        assertFalse(calls.getLast().prompt().contains("SOURCE_QUOTES="));
         assertEquals(List.of(source), detailed.sourceRefs());
         assertEquals(List.of(source), detailed.revelations().getFirst().sourceRefs());
         assertEquals(List.of(source), detailed.threat().sourceRefs());
@@ -408,7 +288,7 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertEquals(0, situationSchema.path("properties").path("funnelIndexes").path("items").path("maximum").asInt());
         assertEquals("integer", calls.getLast().outputSchema().path("properties").path("funnel").path("properties")
                 .path("requiredRevelationIndexes").path("items").path("type").asText());
-        assertEquals(5, situationSchema.path("anyOf").size());
+        assertEquals(10, situationSchema.path("anyOf").size());
         for (String target : List.of("revelationIndexes", "pressureIndexes", "funnelIndexes", "funnelPredicateIndexes",
                 "importantConsequenceIndexes")) {
             var branch = java.util.stream.StreamSupport.stream(situationSchema.path("anyOf").spliterator(), false)

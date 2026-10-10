@@ -16,8 +16,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Reads every published, located RAG chunk from the selected story document. */
+/** Returns bounded RAG candidates from the selected story document. */
 public final class HttpStorySourcePreviewPort implements StorySourcePreviewPort {
+    private static final int STORY_CANDIDATE_LIMIT = 15;
+    private static final int RULE_SEARCH_CANDIDATE_LIMIT = 8;
+    private static final int RULE_EXCERPTS_PER_SITUATION = 4;
+    private static final int MAX_RAG_EXCERPT_CODE_POINTS = 1200;
     private final HttpClient client;
     private final URI baseUri;
     private final Duration timeout;
@@ -36,54 +40,16 @@ public final class HttpStorySourcePreviewPort implements StorySourcePreviewPort 
     @Override public List<Passage> load(ScenarioBundleDocumentSelection document, UUID ownerId, UUID bundleId) {
         if (document.role() != com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAIN_SCENARIO
                 || !"STORYBOOK".equalsIgnoreCase(document.documentType())) throw new IllegalArgumentException("main story document is required");
-        try {
-            List<String> rankedLocators = searchBatch(ownerId, bundleId, List.of(document), List.of(
-                    "Find story-essential situations, explicit prerequisite relationships, intermediate events, and the ending."))
-                    .getFirst().stream().map(Candidate::locator).distinct().toList();
-            List<Passage> passages = new java.util.ArrayList<>();
-            java.util.Set<UUID> chunkIds = new java.util.HashSet<>();
-            long expectedCount = -1;
-            for (int offset = 0; expectedCount < 0 || offset < expectedCount; offset += 50) {
-                URI uri = baseUri.resolve("internal/v1/rag-chunks/preparation?ownerId=" + ownerId + "&scenarioSourceBundleId=" + bundleId
-                        + "&documentId=" + document.knowledgeDocumentId().value() + "&extractionVersion=" + document.extractionVersion()
-                        + "&offset=" + offset + "&limit=50");
-                HttpRequest request = HttpRequest.newBuilder(uri).timeout(timeout).header("X-Internal-Token", token).GET().build();
-                HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() / 100 != 2) throw new IllegalStateException("indexed story lookup failed with status " + response.statusCode());
-                ChunkPage page = mapper.readValue(response.body(), ChunkPage.class);
-                if (!ownerId.equals(page.ownerId()) || !bundleId.equals(page.scenarioSourceBundleId())
-                        || !document.knowledgeDocumentId().value().equals(page.documentId())
-                        || page.extractionVersion() != document.extractionVersion() || page.offset() != offset
-                        || page.totalCount() < 1 || page.chunks() == null || page.chunks().isEmpty()
-                        || (expectedCount >= 0 && expectedCount != page.totalCount())) {
-                    throw new IllegalStateException("indexed story page scope or coverage does not match the selected document");
-                }
-                expectedCount = page.totalCount();
-                for (Chunk chunk : page.chunks()) {
-                    if (chunk.chunkId() == null || !chunkIds.add(chunk.chunkId()) || chunk.originalLocator() == null
-                            || chunk.originalLocator().isBlank() || chunk.content() == null || chunk.content().isBlank()) {
-                        throw new IllegalStateException("indexed story contains an invalid or duplicate chunk");
-                    }
-                    passages.add(new Passage(new ScenarioSourceReference(document.knowledgeDocumentId(),
-                            document.extractionVersion(), chunk.originalLocator()), chunk.content()));
-                }
-                if (page.chunks().size() > 50 || offset + page.chunks().size() > expectedCount) {
-                    throw new IllegalStateException("indexed story page exceeds the declared coverage");
-                }
-            }
-            if (passages.size() != expectedCount) {
-                throw new IllegalStateException("indexed story chunks do not cover the declared chunk count");
-            }
-            Map<String, Integer> rank = new java.util.HashMap<>();
-            for (int index = 0; index < rankedLocators.size(); index++) rank.putIfAbsent(rankedLocators.get(index), index);
-            passages.sort(java.util.Comparator.comparingInt(item -> rank.getOrDefault(item.sourceRef().locator(), Integer.MAX_VALUE)));
-            return List.copyOf(passages);
-        } catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("original story lookup interrupted", failure);
-        } catch (java.io.IOException failure) {
-            throw new IllegalStateException("original story lookup failed", failure);
-        }
+        return searchBatch(ownerId, bundleId, List.of(document), List.of(
+                "Find story-essential situations, explicit prerequisite relationships, intermediate events, and the ending."),
+                STORY_CANDIDATE_LIMIT).getFirst().stream()
+                .collect(java.util.stream.Collectors.toMap(Candidate::locator, candidate -> candidate, (first, ignored) -> first,
+                        java.util.LinkedHashMap::new))
+                .values().stream()
+                .map(candidate -> new Passage(new ScenarioSourceReference(document.knowledgeDocumentId(),
+                        document.extractionVersion(), candidate.locator()),
+                        boundedText(candidate.excerpt(), MAX_RAG_EXCERPT_CODE_POINTS)))
+                .toList();
     }
 
     @Override public List<List<String>> findApplicableRules(List<ScenarioBundleDocumentSelection> rulebooks,
@@ -91,19 +57,21 @@ public final class HttpStorySourcePreviewPort implements StorySourcePreviewPort 
         if (rulebooks.isEmpty()) return situations.stream().map(ignored -> List.<String>of()).toList();
         List<String> queries = situations.stream().map(situation -> "For this story situation, find the applicable D&D rules for checks, saves, hazards, creatures, combat, and resolution. Situation: "
                 + situation.summary()).toList();
-        return searchBatch(ownerId, bundleId, rulebooks, queries).stream()
-                .map(candidates -> candidates.stream().map(Candidate::excerpt).toList()).toList();
+        return searchBatch(ownerId, bundleId, rulebooks, queries, RULE_SEARCH_CANDIDATE_LIMIT).stream()
+                .map(candidates -> candidates.stream().limit(RULE_EXCERPTS_PER_SITUATION)
+                        .map(candidate -> boundedText(candidate.excerpt(), MAX_RAG_EXCERPT_CODE_POINTS)).toList()).toList();
     }
 
     private List<List<Candidate>> searchBatch(UUID ownerId, UUID bundleId,
-            List<ScenarioBundleDocumentSelection> documents, List<String> queries) {
+            List<ScenarioBundleDocumentSelection> documents, List<String> queries, int candidateLimit) {
         if (queries.isEmpty()) return List.of();
         try {
             List<Map<String, Object>> scopes = documents.stream().map(document -> Map.<String, Object>of(
                     "documentId", document.knowledgeDocumentId().value(), "extractionVersion", document.extractionVersion(),
                     "documentType", document.documentType())).toList();
             String body = mapper.writeValueAsString(Map.of("ownerId", ownerId, "scenarioSourceBundleId", bundleId,
-                    "scope", scopes, "activeLocators", List.of(), "queries", queries, "denseLimit", 30, "bm25Limit", 30));
+                    "scope", scopes, "activeLocators", List.of(), "queries", queries,
+                    "denseLimit", candidateLimit, "bm25Limit", candidateLimit));
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/evidence-candidates/preparation-search-batch"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", token)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
@@ -125,7 +93,7 @@ public final class HttpStorySourcePreviewPort implements StorySourcePreviewPort 
                         throw new IllegalStateException("preparation RAG candidate is outside the selected document scope");
                     }
                 }
-                candidates.add(List.copyOf(item.candidates()));
+                candidates.add(item.candidates().stream().limit(candidateLimit).toList());
             }
             return List.copyOf(candidates);
         } catch (InterruptedException failure) {
@@ -136,11 +104,11 @@ public final class HttpStorySourcePreviewPort implements StorySourcePreviewPort 
         }
     }
 
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record ChunkPage(UUID ownerId, UUID scenarioSourceBundleId, UUID documentId, long extractionVersion,
-            long totalCount, int offset, List<Chunk> chunks) {}
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Chunk(UUID chunkId, int sequence, String content, String originalLocator, int pageNumber, List<String> sectionPath) {}
+    private static String boundedText(String value, int maxCodePoints) {
+        int codePoints = value.codePointCount(0, value.length());
+        return codePoints <= maxCodePoints ? value : value.substring(0, value.offsetByCodePoints(0, maxCodePoints));
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record BatchResponse(UUID ownerId, UUID scenarioSourceBundleId, List<BatchItem> results) {}
     @JsonIgnoreProperties(ignoreUnknown = true)

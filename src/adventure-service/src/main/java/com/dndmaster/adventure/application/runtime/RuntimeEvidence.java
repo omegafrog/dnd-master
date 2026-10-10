@@ -33,6 +33,13 @@ public record RuntimeEvidence(
                 + ":" + extractionVersion + ":" + locator;
     }
 
+    public String immutableEvidenceId() {
+        return evidenceType == RuntimeEvidenceType.STORYBOOK || evidenceType == RuntimeEvidenceType.RULEBOOK
+                ? "IMMUTABLE_DOCUMENT:" + evidenceType.name() + ":" + knowledgeDocumentId.value()
+                        + ":" + extractionVersion + ":" + locator
+                : null;
+    }
+
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
         return value.trim();

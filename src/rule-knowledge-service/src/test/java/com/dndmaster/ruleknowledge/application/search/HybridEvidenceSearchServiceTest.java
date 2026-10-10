@@ -42,6 +42,29 @@ class HybridEvidenceSearchServiceTest {
     }
 
     @Test
+    void dense_only_batch_never_calls_bm25() {
+        AtomicInteger bm25Calls = new AtomicInteger();
+        DenseEvidenceCandidateSearchPort dense = new DenseEvidenceCandidateSearchPort() {
+            @Override public List<EvidenceCandidate> search(EvidenceSearchRequest request) {
+                return List.of(candidate("dense-only"));
+            }
+            @Override public List<List<EvidenceCandidate>> searchBatch(List<EvidenceSearchRequest> requests) {
+                return requests.stream().map(request -> List.of(candidate(request.query()))).toList();
+            }
+        };
+        var service = new HybridEvidenceSearchService(dense, request -> {
+            bm25Calls.incrementAndGet();
+            throw new AssertionError("BM25 must not run for rulebook preparation");
+        }, new RrfFusionPolicy());
+
+        var result = service.searchDenseBatch(List.of(request()));
+
+        assertEquals(0, bm25Calls.get());
+        assertEquals("find the armor class", result.getFirst().candidates().getFirst().excerpt());
+        assertNull(result.getFirst().candidates().getFirst().bm25Rank());
+    }
+
+    @Test
     void sendsAllQueriesToDenseRetrievalAsOneBatchBeforeFusingEachResult() {
         List<EvidenceSearchRequest> embeddedBatch = new ArrayList<>();
         DenseEvidenceCandidateSearchPort dense = new DenseEvidenceCandidateSearchPort() {

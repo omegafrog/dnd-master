@@ -193,6 +193,7 @@ public final class Adventure {
         List<ConversationEntry> validatedConversation = validateConversation(completeConversation);
         currentSituation = situationWithFirstNarration(pending.situation(), validatedConversation);
         runtimeAddedFacts = mergeRuntimeFacts(pending.runtimeAddedFacts());
+        if (pending.storyRuntimeState() != null) storyRuntimeState = pending.storyRuntimeState();
         currentContext = Objects.requireNonNull(playerContext, "player context must not be null");
         conversation = validatedConversation;
         if (completion.complete()) {

@@ -33,6 +33,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 public final class ScenarioPackageStageArtifactAdapter implements StorybookEvidenceLookupPort,
         StageBackboneGenerationPort, StageDetailedGenerationPort {
     private static final String FIRST_STAGE_ID = "first-stage";
+    private static final int REQUIRED_SITUATION_SUMMARY_MAX_CODE_POINTS = 500;
     private final ScenarioPackageRepository packages;
     private final InitialSituationGmPort gm;
     private final GmProviderBindingRepository bindings;
@@ -67,10 +68,17 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
 
     @Override
     public List<ScenarioSourceReference> lookup(UUID scenarioPackageId, SessionId sessionId) {
+        return lookup(scenarioPackageId);
+    }
+
+    @Override
+    public StorybookEvidenceLookupPort.PreparationEvidence lookupForPreparation(UUID scenarioPackageId, SessionId sessionId) {
         ScenarioPackage scenarioPackage = loadPackage(scenarioPackageId);
         var session = sessions.findById(sessionId).orElseThrow(() -> new IllegalStateException("adventure session not found"));
-        return Stream.concat(elements(scenarioPackage).flatMap(element -> element.sourceRefs().stream()),
-                sourcePassages(scenarioPackage, session.ownerPlayerId().value()).stream().map(StorySourcePreviewPort.Passage::sourceRef)).distinct().toList();
+        List<StorySourcePreviewPort.Passage> passages = sourcePassages(scenarioPackage, session.ownerPlayerId().value());
+        List<ScenarioSourceReference> refs = Stream.concat(elements(scenarioPackage).flatMap(element -> element.sourceRefs().stream()),
+                passages.stream().map(StorySourcePreviewPort.Passage::sourceRef)).distinct().toList();
+        return new StorybookEvidenceLookupPort.PreparationEvidence(refs, passages);
     }
 
     @Override
@@ -91,7 +99,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     public StageBackbone generate(StageBackboneGenerationPort.Request request) {
         if (gm != null) {
             ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
-            List<RequiredSituation> required = reviewRequiredSituations(request, scenarioPackage);
+            List<RequiredSituation> required = extractRequiredSituations(request, scenarioPackage, request.storyPassages());
             List<List<String>> rules = lookupRules(scenarioPackage, request.sessionId(), required);
             JsonNode generated = generate(request.sessionId(), request.adventureId().value(),
                     request.scenarioPackageId(), "backbone", backbonePrompt(scenarioPackage, request.evidence(), required, rules),
@@ -100,8 +108,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             resolveSourceRefIndexes(resolved, request.evidence());
             List<StageBackboneEntry> stages = mapper.convertValue(resolved.path("stages"),
                     mapper.getTypeFactory().constructCollectionType(List.class, StageBackboneEntry.class));
-            List<ScenarioSourceReference> refs = references(resolved.path("sourceRefs"));
-            return new StageBackbone(request.scenarioPackageId(), 1, stages, refs, required);
+            return new StageBackbone(request.scenarioPackageId(), 1, stages, request.evidence(), required);
         }
         ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
         String coreProblem = openingProblem(scenarioPackage);
@@ -193,17 +200,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     private JsonNode outputSchema(String task, List<ScenarioSourceReference> allowedRefs,
             boolean openingSituationRequired, Set<UUID> allowedMapIds) {
         Map<String, Object> properties;
-        if (task.startsWith("required-extract:")) {
+        if (task.equals("required-extract")) {
             properties = Map.of("requiredSituations", arraySchema(requiredSituationSchema(allowedRefs)));
-        } else if (task.startsWith("required-review:") && !task.equals("required-review:repair")) {
-            properties = Map.of("reviewed", Map.of("type", "boolean", "enum", List.of(true)),
-                    "requiredSituations", arraySchema(requiredSituationSchema(allowedRefs)));
-        } else if (task.equals("required-review:repair")) {
-            properties = Map.of("reviewed", Map.of("type", "boolean", "enum", List.of(true)),
-                    "correctedSituations", arraySchema(objectSchema(Map.of(
-                            "sourceRefIndexes", requiredSourceRefIndexesSchema(allowedRefs),
-                            "prerequisiteSituationIds", arraySchema(stringSchema()),
-                            "situationId", nullableStringSchema())), 1));
         } else if (task.equals("backbone")) {
             properties = Map.of("stages", arraySchema(objectSchema(Map.of(
                             "stageId", stringSchema(), "order", Map.of("type", "integer", "minimum", 1),
@@ -245,7 +243,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     }
 
     private static Map<String, Object> requiredSituationSchema(List<ScenarioSourceReference> allowedRefs) {
-        return objectSchema(Map.of("situationId", stringSchema(), "summary", stringSchema(),
+        return objectSchema(Map.of("situationId", stringSchema(), "summary", boundedStringSchema(REQUIRED_SITUATION_SUMMARY_MAX_CODE_POINTS),
                 "prerequisiteSituationIds", arraySchema(stringSchema()),
                 "sourceRefIndexes", requiredSourceRefIndexesSchema(allowedRefs)));
     }
@@ -304,17 +302,25 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     }
 
     private static Map<String, Object> situationSchema(Map<String, Object> properties) {
-        List<Map<String, Object>> targetAlternatives = List.of("revelationIndexes", "pressureIndexes", "funnelIndexes",
-                "funnelPredicateIndexes", "importantConsequenceIndexes").stream().map(target -> {
+        List<Map<String, Object>> alternatives = new ArrayList<>();
+        for (String target : List.of("revelationIndexes", "pressureIndexes", "funnelIndexes",
+                "funnelPredicateIndexes", "importantConsequenceIndexes")) {
+            for (String provenance : List.of("SOURCE_EXTRACTED", "GM_SUPPLEMENTED")) {
                     Map<String, Object> branchProperties = new LinkedHashMap<>(properties);
                     Map<String, Object> targetSchema = new LinkedHashMap<>();
                     ((Map<?, ?>) properties.get(target)).forEach((key, value) -> targetSchema.put((String) key, value));
                     targetSchema.put("minItems", 1);
                     branchProperties.put(target, targetSchema);
-                    return objectSchema(branchProperties);
-                }).toList();
+                branchProperties.put("provenance", Map.of("type", "string", "enum", List.of(provenance)));
+                if ("GM_SUPPLEMENTED".equals(provenance)) {
+                    branchProperties.put("sourceRefIndexes", Map.of(
+                            "type", "array", "items", indexSchema(), "maxItems", 0));
+                }
+                alternatives.add(objectSchema(branchProperties));
+            }
+        }
         Map<String, Object> schema = new LinkedHashMap<>(objectSchema(properties));
-        schema.put("anyOf", targetAlternatives);
+        schema.put("anyOf", alternatives);
         return schema;
     }
 
@@ -337,6 +343,9 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     }
 
     private static Map<String, Object> stringSchema() { return Map.of("type", "string", "minLength", 1); }
+    private static Map<String, Object> boundedStringSchema(int maxCodePoints) {
+        return Map.of("type", "string", "minLength", 1, "maxLength", maxCodePoints);
+    }
     private static Map<String, Object> nullableStringSchema() { return Map.of("type", List.of("string", "null"), "minLength", 1); }
 
     private static Map<String, Object> nullableMapDefinitionSchema(Set<UUID> allowedMapIds) {
@@ -350,21 +359,20 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
 
     private String backbonePrompt(ScenarioPackage scenarioPackage, List<ScenarioSourceReference> evidence,
             List<RequiredSituation> required, List<List<String>> rules) {
-        return "Create the adventure story backbone from this compiled story model and source evidence. "
+        return "Create the adventure story backbone from the reviewed story situations and retrieved rule evidence. "
                 + "Include every story-essential required situation and only prerequisites explicit in the source. "
                 + "Add as many intermediate candidate stages as the story needs; do not use a fixed count or impose unstated order. "
                 + "Each stage needs stageId, contiguous order, role, coreProblem, funnelSummary, and sourceRefIndexes. "
                 + "Return stages and sourceRefIndexes. Every sourceRefIndexes array contains only integer indexes from "
-                + "NUMBERED_ALLOWED_SOURCE_REFS and must not contain source reference objects.\nSCENARIO_MODEL=" + json(scenarioPackage.scenarioModel())
-                + "\nREVIEWED_REQUIRED_SITUATIONS=" + json(required)
+                + "NUMBERED_ALLOWED_SOURCE_REFS and must not contain source reference objects.\nSCENARIO_CONTEXT="
+                + promptStoryContext(scenarioPackage) + "\nREQUIRED_STORY_SITUATIONS=" + json(required)
                 + "\nCORE_RULEBOOK_EVIDENCE_BY_SITUATION=" + json(rulesBySituation(required, rules))
-                + "\nSOURCE_QUOTES=" + sourceQuotes(scenarioPackage)
                 + "\nNUMBERED_ALLOWED_SOURCE_REFS=" + numberedSourceRefs(evidence);
     }
 
     private String detailedPrompt(ScenarioPackage scenarioPackage, String stageId, List<ScenarioSourceReference> evidence,
             List<RequiredSituation> required, List<String> alreadyAssigned, List<List<String>> rules) {
-        return "Prepare the situation definitions and supporting details for stage " + stageId + " from this compiled story model. "
+        return "Prepare the situation definitions and supporting details for stage " + stageId + " from the extracted required story situations and retrieved rule evidence. "
                 + "Include required situations needed to preserve the source story and multiple intermediate candidates when supported by the story. "
                 + "Do not force a fixed candidate count, add unstated prerequisite relations, or make optional ingredients mandatory. "
                 + "For every situation include required, prerequisiteSituationIds, provenance (SOURCE_EXTRACTED or GM_SUPPLEMENTED), "
@@ -376,14 +384,14 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 + "The funnel's requiredRevelationIndexes also indexes this response's revelations[].revelationId values. "
                 + "Set openingSituationIndex to null when this stage has no opening situation; otherwise set it to the zero-based index "
                 + "of the single opening situation in situations. "
-                + "For a non-required GM_SUPPLEMENTED situation, keep prerequisiteSituationIds limited to reviewed required situation IDs "
+                + "For a non-required GM_SUPPLEMENTED situation, keep prerequisiteSituationIds limited to extracted required situation IDs "
                 + "or situation IDs from this same response; do not refer to optional situations from another stage. "
                 + "sourceRefIndexes (integer indexes into NUMBERED_ALLOWED_SOURCE_REFS for extracted claims; empty for GM supplements), "
                 + "and mapDefinitionId "
                 + "(one supplied map UUID or null). Return a complete DetailedStage JSON object except package/revision/stage identifiers. "
                 + "Use only these map IDs: " + json(scenarioPackage.mapDefinitions().stream().map(m -> m.id()).toList())
-                + "\nUse these exact situationId values for every reviewed required situation and preserve each prerequisiteSituationIds list: "
-                + json(required) + "\nSCENARIO_MODEL=" + json(scenarioPackage.scenarioModel()) + "\nSOURCE_QUOTES=" + sourceQuotes(scenarioPackage)
+                + "\nUse these exact situationId values for every extracted required situation and preserve each prerequisiteSituationIds list: "
+                + json(required) + "\nSCENARIO_CONTEXT=" + promptStoryContext(scenarioPackage)
                 + "\nCORE_RULEBOOK_EVIDENCE_BY_SITUATION=" + json(rulesBySituation(required, rules))
                 + "\nALREADY_ASSIGNED_REQUIRED_SITUATION_IDS=" + json(alreadyAssigned)
                 + "\nDo not emit any already assigned required situation ID in this stage; emit each remaining required situation at most once."
@@ -561,103 +569,27 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 .flatMap(document -> storySource.load(document, ownerId, scenarioPackage.bundleId().value()).stream()).toList();
     }
 
-    private List<RequiredSituation> reviewRequiredSituations(StageBackboneGenerationPort.Request request,
-            ScenarioPackage scenarioPackage) {
-        UUID ownerId = sessions.findById(request.sessionId()).orElseThrow(() -> new IllegalStateException("adventure session not found"))
-                .ownerPlayerId().value();
-        List<StorySourcePreviewPort.Passage> passages = sourcePassages(scenarioPackage, ownerId);
+    private List<RequiredSituation> extractRequiredSituations(StageBackboneGenerationPort.Request request,
+            ScenarioPackage scenarioPackage, List<StorySourcePreviewPort.Passage> passages) {
         if (passages.isEmpty()) {
             if (scenarioPackage.documents().stream().anyMatch(document -> document.role()
                     == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAIN_SCENARIO)) {
-                throw new IllegalStateException("selected original story passages are unavailable");
+                throw new IllegalStateException("story RAG returned no candidate passages");
             }
             return List.of();
         }
-        List<List<StorySourcePreviewPort.Passage>> chunks = new ArrayList<>();
-        List<StorySourcePreviewPort.Passage> chunk = new ArrayList<>();
-        int characters = 0;
-        for (StorySourcePreviewPort.Passage passage : passages) {
-            if (!chunk.isEmpty() && characters + passage.text().length() > 12000) {
-                chunks.add(List.copyOf(chunk));
-                chunk.clear();
-                characters = 0;
-            }
-            chunk.add(passage);
-            characters += passage.text().length();
-        }
-        if (!chunk.isEmpty()) chunks.add(List.copyOf(chunk));
-
-        Map<String, RequiredSituation> proposed = new LinkedHashMap<>();
-        Map<String, RequiredSituation> reviewedSituations = new LinkedHashMap<>();
-        for (int index = 0; index < chunks.size(); index++) {
-            List<ScenarioSourceReference> chunkRefs = chunks.get(index).stream()
-                    .map(StorySourcePreviewPort.Passage::sourceRef).distinct().toList();
-            JsonNode extracted = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
-                    "required-extract:" + index, "Extract every story-essential required situation and every source-explicit "
-                            + "prerequisite from these ORIGINAL STORY PASSAGES. Use stable situationId values, a short summary, "
-                            + "prerequisiteSituationIds, and sourceRefIndexes citing numbered original passage locations. Do not infer an unstated order. "
-                            + "Return {requiredSituations:[...]}; do not return source reference objects.\nORIGINAL_STORY_PASSAGES=" + json(chunks.get(index))
-                            + "\nNUMBERED_ALLOWED_SOURCE_REFS=" + numberedSourceRefs(chunkRefs), chunkRefs);
-            for (RequiredSituation item : requiredSituations(extracted, chunkRefs)) {
-                mergeRequiredSituation(proposed, item);
-            }
-        }
-        for (int index = 0; index < chunks.size(); index++) {
-            List<ScenarioSourceReference> chunkRefs = chunks.get(index).stream()
-                    .map(StorySourcePreviewPort.Passage::sourceRef).distinct().toList();
-            JsonNode reviewed = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
-                    "required-review:" + index, "Compare the proposed required situations against this bounded source batch. "
-                            + "Return only situations supported or clarified by THIS batch, including any omitted story-essential situation "
-                            + "and every prerequisite explicitly stated here. Omit candidates unsupported by THIS batch; situations "
-                            + "supported by other batches are preserved from their own review. "
-                            + "Keep stable IDs and return {reviewed:true,requiredSituations:[...]}; cite only this batch's source references."
-                            + "\nSOURCE_BATCH=" + json(chunks.get(index)) + "\nALL_PROPOSED_REQUIRED_SITUATIONS=" + json(proposed.values())
-                            + "\nNUMBERED_ALLOWED_SOURCE_REFS=" + numberedSourceRefs(chunkRefs), chunkRefs);
-            if (!reviewCompleted(reviewed)) throw new IllegalStateException("bounded source review did not complete");
-            for (RequiredSituation item : requiredSituations(reviewed, chunkRefs)) mergeRequiredSituation(reviewedSituations, item);
-        }
-        List<RequiredSituation> required = List.copyOf(reviewedSituations.values());
-        List<Map<String, Object>> invalid = invalidRequiredSituations(required, passages);
-        if (!invalid.isEmpty()) {
-            List<ScenarioSourceReference> allowedRefs = passages.stream().map(StorySourcePreviewPort.Passage::sourceRef)
-                    .distinct().toList();
-            JsonNode corrected = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
-                    "required-review:repair", "Correct only the invalid entries in the reviewed required-situation list. "
-                            + "Keep all valid entries and their meaning unchanged; do not remove a required situation or "
-                            + "invent source evidence or prerequisites. Return {reviewed:true,correctedSituations:[...]} "
-                            + "with one ordered item per INVALID_ENTRIES item. Each item contains sourceRefIndexes, "
-                            + "prerequisiteSituationIds, and optionally a matching situationId. "
-                            + "Use integer indexes into NUMBERED_ALLOWED_SOURCE_REFS. "
-                            + "Do not return summaries or change situation IDs.\nINVALID_ENTRIES=" + json(invalid)
-                            + "\nNUMBERED_ALLOWED_SOURCE_REFS=" + json(java.util.stream.IntStream.range(0, allowedRefs.size())
-                                    .mapToObj(index -> Map.of("index", index, "sourceRef", allowedRefs.get(index))).toList())
-                            + "\nKNOWN_SITUATION_IDS=" + json(required.stream().map(RequiredSituation::situationId).distinct().toList()),
-                    allowedRefs);
-            if (!reviewCompleted(corrected)) {
-                throw new IllegalStateException("required situation correction did not complete");
-            }
-            List<RequiredSituation> correctedRequired = mergeCorrectedSituations(required,
-                    corrected.path("correctedSituations"), invalid, allowedRefs);
-            required = correctedRequired;
-            validateRequiredSituations(required, passages);
-        }
+        List<ScenarioSourceReference> allowedRefs = passages.stream()
+                .map(StorySourcePreviewPort.Passage::sourceRef).distinct().toList();
+        JsonNode extracted = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
+                "required-extract", "From only these RAG-retrieved story passages, extract story-essential situations and explicit prerequisites. "
+                        + "Treat these as retrieved candidates, not the complete story; do not claim that no other required situation exists. "
+                        + "Return each situation once with a unique stable ID, a concise summary, prerequisiteSituationIds, "
+                        + "and sourceRefIndexes citing the supplied passages. Return {requiredSituations:[...]} and no source objects.\n"
+                        + "RETRIEVED_STORY_PASSAGES=" + json(passages)
+                        + "\nNUMBERED_ALLOWED_SOURCE_REFS=" + numberedSourceRefs(allowedRefs), allowedRefs);
+        List<RequiredSituation> required = requiredSituations(extracted, allowedRefs);
+        validateRequiredSituations(required, passages);
         return required;
-    }
-
-    private static void mergeRequiredSituation(Map<String, RequiredSituation> target, RequiredSituation candidate) {
-        RequiredSituation earlier = target.get(candidate.situationId());
-        if (earlier == null) {
-            target.put(candidate.situationId(), candidate);
-            return;
-        }
-        if (!earlier.summary().equals(candidate.summary())) {
-            throw new IllegalStateException("required situation extraction returned conflicting ids");
-        }
-        List<ScenarioSourceReference> refs = Stream.concat(earlier.sourceRefs().stream(), candidate.sourceRefs().stream())
-                .distinct().toList();
-        List<String> prerequisites = Stream.concat(earlier.prerequisiteSituationIds().stream(), candidate.prerequisiteSituationIds().stream())
-                .distinct().toList();
-        target.put(candidate.situationId(), new RequiredSituation(candidate.situationId(), candidate.summary(), prerequisites, refs));
     }
 
     private List<RequiredSituation> requiredSituations(JsonNode response, List<ScenarioSourceReference> allowedRefs) {
@@ -670,87 +602,24 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 mapper.getTypeFactory().constructCollectionType(List.class, RequiredSituation.class));
     }
 
-    private static boolean reviewCompleted(JsonNode response) {
-        return response.isObject() && response.path("reviewed").isBoolean()
-                && response.path("reviewed").booleanValue();
-    }
-
     private static void validateRequiredSituations(List<RequiredSituation> required,
             List<StorySourcePreviewPort.Passage> passages) {
-        if (!invalidRequiredSituations(required, passages).isEmpty()) {
-            throw new IllegalStateException("required situation has an invalid original source or prerequisite");
-        }
-    }
-
-    private List<RequiredSituation> mergeCorrectedSituations(List<RequiredSituation> reviewed,
-            JsonNode corrected, List<Map<String, Object>> invalid, List<ScenarioSourceReference> allowedRefs) {
-        if (!corrected.isArray() || corrected.size() != invalid.size()) {
-            throw new IllegalStateException("required situation correction changed the reviewed list");
-        }
-        Map<String, RequiredSituation> corrections = new java.util.HashMap<>();
-        Set<String> allowedFields = Set.of("sourceRefIndexes", "prerequisiteSituationIds", "situationId");
-        for (int index = 0; index < invalid.size(); index++) {
-            JsonNode item = corrected.get(index);
-            if (!item.isObject()) throw new IllegalStateException("required situation correction changed the reviewed list");
-            RequiredSituation original = (RequiredSituation) invalid.get(index).get("requiredSituation");
-            JsonNode situationId = item.path("situationId");
-            JsonNode prerequisiteIds = item.path("prerequisiteSituationIds");
-            var fields = item.fieldNames();
-            while (fields.hasNext()) {
-                if (!allowedFields.contains(fields.next())) {
-                    throw new IllegalStateException("required situation correction changed the reviewed list");
-                }
-            }
-            if ((item.has("situationId") && !situationId.isNull() && (!situationId.isTextual()
-                    || !original.situationId().equals(situationId.textValue())))
-                    || !item.path("sourceRefIndexes").isArray()
-                    || !prerequisiteIds.isArray()
-                    || java.util.stream.StreamSupport.stream(prerequisiteIds.spliterator(), false)
-                            .anyMatch(id -> !id.isTextual() || id.textValue().isBlank())) {
-                throw new IllegalStateException("required situation correction changed the reviewed list");
-            }
-            List<ScenarioSourceReference> sourceRefs = new ArrayList<>();
-            for (JsonNode sourceRefIndex : item.path("sourceRefIndexes")) {
-                if (!sourceRefIndex.isIntegralNumber() || !sourceRefIndex.canConvertToInt()
-                        || sourceRefIndex.intValue() < 0 || sourceRefIndex.intValue() >= allowedRefs.size()) {
-                    throw new IllegalStateException("required situation correction referenced an unknown source index");
-                }
-                sourceRefs.add(allowedRefs.get(sourceRefIndex.intValue()));
-            }
-            List<String> prerequisites = new ArrayList<>();
-            prerequisiteIds.forEach(id -> prerequisites.add(id.textValue()));
-            RequiredSituation correction = new RequiredSituation(original.situationId(), original.summary(),
-                    prerequisites, sourceRefs);
-            corrections.put(original.situationId(), correction);
-        }
-        return reviewed.stream().map(item -> corrections.getOrDefault(item.situationId(), item)).toList();
-    }
-
-    private static List<Map<String, Object>> invalidRequiredSituations(List<RequiredSituation> required,
-            List<StorySourcePreviewPort.Passage> passages) {
-        if (required.isEmpty()) throw new IllegalStateException("original story review found no required situations");
+        if (required.isEmpty()) throw new IllegalStateException("story RAG returned no required situations");
         Set<ScenarioSourceReference> allowed = passages.stream().map(StorySourcePreviewPort.Passage::sourceRef)
                 .collect(java.util.stream.Collectors.toSet());
         Set<String> ids = required.stream().map(RequiredSituation::situationId)
                 .collect(java.util.stream.Collectors.toSet());
-        if (ids.size() != required.size()) throw new IllegalStateException("required situation ids must be unique");
-        Set<String> cyclicIds = cyclicSituationIds(required);
-        List<Map<String, Object>> invalid = new ArrayList<>();
-        for (RequiredSituation item : required) {
-            List<ScenarioSourceReference> invalidRefs = item.sourceRefs().stream().filter(ref -> !allowed.contains(ref)).toList();
-            List<String> invalidPrerequisites = item.prerequisiteSituationIds().stream().filter(id -> !ids.contains(id)).toList();
-            boolean cyclicPrerequisiteSet = cyclicIds.contains(item.situationId());
-            if (!invalidRefs.isEmpty() || !invalidPrerequisites.isEmpty() || cyclicPrerequisiteSet) {
-                Map<String, Object> detail = new LinkedHashMap<>();
-                detail.put("situationId", item.situationId());
-                detail.put("requiredSituation", item);
-                detail.put("invalidOriginalSourceRefs", invalidRefs);
-                detail.put("unknownPrerequisiteSituationIds", invalidPrerequisites);
-                detail.put("cyclicPrerequisiteSet", cyclicPrerequisiteSet);
-                invalid.add(detail);
-            }
+        if (ids.size() != required.size()) throw new IllegalStateException("required situation IDs must be unique");
+        if (required.stream().anyMatch(item -> item.sourceRefs().isEmpty()
+                || item.sourceRefs().stream().anyMatch(ref -> !allowed.contains(ref)))) {
+            throw new IllegalStateException("required situation source reference is outside the RAG results");
         }
-        return invalid;
+        if (required.stream().flatMap(item -> item.prerequisiteSituationIds().stream()).anyMatch(id -> !ids.contains(id))) {
+            throw new IllegalStateException("required situation has an unknown prerequisite ID");
+        }
+        if (!cyclicSituationIds(required).isEmpty()) {
+            throw new IllegalStateException("required situation prerequisites contain a cycle");
+        }
     }
 
     private static Set<String> cyclicSituationIds(List<RequiredSituation> situations) {
@@ -788,17 +657,18 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         catch (Exception failure) { throw new IllegalStateException("initial situation prompt serialization failed", failure); }
     }
 
-    private static List<String> sourceQuotes(ScenarioPackage scenarioPackage) {
-        return scenarioPackage.units().stream().filter(unit -> !unit.sourceQuote().isBlank())
-                .map(unit -> unit.sourceQuote() + " [" + unit.sourceRefs() + "]").distinct().toList();
-    }
-
     private ScenarioPackage loadPackage(UUID scenarioPackageId) {
         return packages.findById(scenarioPackageId).orElseThrow(() -> new IllegalStateException("scenario package not found"));
     }
 
     private static String openingProblem(ScenarioPackage scenarioPackage) {
         return text(scenarioPackage.scenarioModel().objectives(), scenarioPackage.scenarioModel().startingSituation());
+    }
+
+    private static String promptStoryContext(ScenarioPackage scenarioPackage) {
+        String context = openingProblem(scenarioPackage);
+        int codePoints = context.codePointCount(0, context.length());
+        return codePoints <= 2000 ? context : context.substring(0, context.offsetByCodePoints(0, 2000));
     }
 
     private static String openingThreat(ScenarioPackage scenarioPackage) {

@@ -5,7 +5,7 @@ left to right direction
 actor "혼자 플레이하는 사용자" as Player
 actor "AI Game Master" as GM
 rectangle "추가 룰북 모험" {
-  usecase "UC-1\n원문 대조를 마친\n초기 상황 준비" as UC1
+  usecase "UC-1\nRAG 후보에서 추출한\n초기 상황 준비" as UC1
   usecase "UC-2\n후보 선택 및\n다음 상황 진행" as UC2
   usecase "UC-3\n적합 후보가 없을 때\n새 상황 생성" as UC3
 }
@@ -15,9 +15,8 @@ GM -- UC2
 GM -- UC3
 UC2 ..> UC3 : 후보가 없으면
 note bottom of UC1
-  선택한 STORYBOOK 원문의 전체 위치 구간에서 필수 상황과
-  명시된 선행 관계를 추출하고, 원문 전체와 별도 대조해 검토한다.
-  검토 목록만 골격과 모든 상세 단계 생성에 전달한다.
+  RAG 검색 후보에서 필수 상황과 명시된 선행 관계를 추출한다.
+  추출 목록을 골격과 모든 상세 단계 생성에 전달한다.
   전체 결과의 필수 ID·표시·출처·인용·선행 관계를 확인한 뒤
   모험별 자료 전체를 원자 게시한다.
   원문 근거가 부족한 내용은 출처를 구분해 보완한다.

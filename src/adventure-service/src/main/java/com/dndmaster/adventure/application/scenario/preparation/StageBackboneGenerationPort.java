@@ -12,7 +12,14 @@ public interface StageBackboneGenerationPort {
     StageBackbone generate(Request request);
 
     record Request(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId,
-            List<ScenarioSourceReference> evidence) {
-        public Request { evidence = List.copyOf(evidence); }
+            List<ScenarioSourceReference> evidence, List<StorySourcePreviewPort.Passage> storyPassages) {
+        public Request(AdventureId adventureId, SessionId sessionId, UUID scenarioPackageId,
+                List<ScenarioSourceReference> evidence) {
+            this(adventureId, sessionId, scenarioPackageId, evidence, List.of());
+        }
+        public Request {
+            evidence = List.copyOf(evidence);
+            storyPassages = List.copyOf(storyPassages);
+        }
     }
 }

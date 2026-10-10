@@ -65,6 +65,27 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
     }
 
     @Override
+    public List<String> findKnownImmutableEvidenceIds(AdventureId adventureId) {
+        String sql = "SELECT (runtime_turn_json::jsonb)->'evidencePack' FROM adventure_runtime_turn "
+                + "WHERE adventure_id = ? AND lifecycle IN ('PRESENTED','COMMITTED')";
+        List<String> ids = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, adventureId.value());
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    com.dndmaster.adventure.application.runtime.EvidencePack evidencePack = objectMapper.treeToValue(
+                            objectMapper.readTree(rows.getString(1)), com.dndmaster.adventure.application.runtime.EvidencePack.class);
+                    evidencePack.all().stream().map(com.dndmaster.adventure.application.runtime.RuntimeEvidence::immutableEvidenceId)
+                            .filter(java.util.Objects::nonNull).forEach(ids::add);
+                }
+            }
+            return ids.stream().distinct().toList();
+        } catch (SQLException | java.io.IOException exception) {
+            throw new RuntimeTurnPersistenceException("could not load previously confirmed evidence ids", exception);
+        }
+    }
+
+    @Override
     public List<RuntimeTurn> findAllBySessionId(UUID sessionId) {
         String sql = "SELECT runtime_turn_json, turn_id, command_id, session_id, scenario_package_id FROM adventure_runtime_turn WHERE session_id = ? ORDER BY created_at, turn_id";
         List<RuntimeTurn> turns = new ArrayList<>();

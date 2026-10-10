@@ -41,7 +41,7 @@ class CrossContextHttpEvidenceCandidateSearchGatewayTest {
                 .withRequestBody(equalToJson("""
                         {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","stageKey":"runtime",
                          "actionIntent":"MIXED","scope":[{"documentId":"%s","extractionVersion":7,"documentType":"RULEBOOK"}],
-                         "activeLocators":["p:3"],"query":"attack question","denseLimit":30,"bm25Limit":30}
+                         "activeLocators":["p:3"],"excludedEvidenceIds":[],"query":"attack question","denseLimit":30}
                         """.formatted(ownerId, sessionId, scenarioPackageId, documentId)))
                 .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
                         {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","candidates":[
@@ -78,43 +78,40 @@ class CrossContextHttpEvidenceCandidateSearchGatewayTest {
     }
 
     @Test
-    void searches_base_and_supplemental_rules_independently_with_the_same_turn_query() {
+    void searches_base_and_supplemental_rules_together_with_one_turn_query() {
         UUID storybookId = UUID.randomUUID();
         UUID storyChunkId = UUID.randomUUID();
         UUID ruleChunkId = UUID.randomUUID();
+        String knownEvidenceId = "IMMUTABLE_DOCUMENT:STORYBOOK:" + storybookId + ":3:p:1";
         String query = "행동: 조용히 창고 안을 살펴본다. 현재 상황: 낡은 창고. 관련 판정 규칙이 있는지 찾는다.";
         String envelope = "\"ownerId\":\"%s\",\"sessionId\":\"%s\",\"scenarioPackageId\":\"%s\"";
         server.stubFor(post(urlEqualTo("/internal/v1/evidence-candidates/search"))
                 .withRequestBody(matchingJsonPath("$.scope[0].documentType", equalTo("RULEBOOK")))
-                .withRequestBody(matchingJsonPath("$.denseLimit", equalTo("15")))
-                .withRequestBody(matchingJsonPath("$.bm25Limit", equalTo("15")))
+                .withRequestBody(matchingJsonPath("$.scope[1].documentType", equalTo("STORYBOOK")))
+                .withRequestBody(matchingJsonPath("$.excludedEvidenceIds[0]", equalTo(knownEvidenceId)))
+                .withRequestBody(matchingJsonPath("$.denseLimit", equalTo("30")))
                 .withRequestBody(matchingJsonPath("$.query", equalTo(query)))
                 .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody(("{" + envelope
-                        + ",\"candidates\":[{\"chunkId\":\"%s\",\"documentId\":\"%s\",\"extractionVersion\":7,\"documentType\":\"RULEBOOK\",\"locator\":\"p:3\",\"excerpt\":\"base rule\"}]}"
-                        ).formatted(ownerId, sessionId, scenarioPackageId, ruleChunkId, documentId))));
-        server.stubFor(post(urlEqualTo("/internal/v1/evidence-candidates/search"))
-                .withRequestBody(matchingJsonPath("$.scope[0].documentType", equalTo("STORYBOOK")))
-                .withRequestBody(matchingJsonPath("$.denseLimit", equalTo("15")))
-                .withRequestBody(matchingJsonPath("$.bm25Limit", equalTo("15")))
-                .withRequestBody(matchingJsonPath("$.query", equalTo(query)))
-                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody(("{" + envelope
-                        + ",\"candidates\":[{\"chunkId\":\"%s\",\"documentId\":\"%s\",\"extractionVersion\":4,\"documentType\":\"STORYBOOK\",\"locator\":\"p:8\",\"excerpt\":\"supplemental rule\"}]}"
-                        ).formatted(ownerId, sessionId, scenarioPackageId, storyChunkId, storybookId))));
+                        + ",\"candidates\":[{\"chunkId\":\"%s\",\"documentId\":\"%s\",\"extractionVersion\":7,\"documentType\":\"RULEBOOK\",\"locator\":\"p:3\",\"excerpt\":\"base rule\"},"
+                        + "{\"chunkId\":\"%s\",\"documentId\":\"%s\",\"extractionVersion\":4,\"documentType\":\"STORYBOOK\",\"locator\":\"p:8\",\"excerpt\":\"supplemental rule\"}]}"
+                        ).formatted(ownerId, sessionId, scenarioPackageId, ruleChunkId, documentId, storyChunkId, storybookId))));
         var gateway = new CrossContextHttpEvidenceCandidateSearchGateway(HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"),
                 Duration.ofSeconds(2), new ObjectMapper(), "internal-token");
         var scope = new EvidenceSearchScope(ownerId, sessionId, scenarioPackageId, "scene:warehouse", "PLAYER_ACTION",
                 List.of(new EvidenceSearchScope.Document(documentId, 7, "RULEBOOK"),
-                        new EvidenceSearchScope.Document(storybookId, 4, "STORYBOOK")), List.of());
+                        new EvidenceSearchScope.Document(storybookId, 4, "STORYBOOK")), List.of(), List.of(knownEvidenceId));
 
         var result = gateway.search(new EvidenceCandidateSearchRequest(
                 new EvidenceAcquisitionRequest("PLAYER_ACTION", query, List.of(), scope), query, 0));
 
         assertEquals(List.of(ruleChunkId, storyChunkId), result.stream().map(item -> item.id()).toList());
-        assertEquals(2, server.getAllServeEvents().size());
-        assertEquals(List.of(query, query), server.getAllServeEvents().stream()
+        assertEquals(1, server.getAllServeEvents().size());
+        assertEquals(List.of(query), server.getAllServeEvents().stream()
                 .map(event -> {
                     try { return new ObjectMapper().readTree(event.getRequest().getBodyAsString()).path("query").asText(); }
                     catch (Exception failure) { throw new IllegalStateException(failure); }
                 }).toList());
+        org.junit.jupiter.api.Assertions.assertFalse(server.getAllServeEvents().getFirst().getRequest().getBodyAsString()
+                .contains("bm25Limit"));
     }
 }

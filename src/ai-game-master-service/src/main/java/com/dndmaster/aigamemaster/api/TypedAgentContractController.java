@@ -33,6 +33,9 @@ import org.slf4j.LoggerFactory;
 @RestController
 public final class TypedAgentContractController {
     private static final Logger log = LoggerFactory.getLogger(TypedAgentContractController.class);
+    private static final String ACTION_LOOKUP_OUTPUT_SCHEMA = """
+            {"type":"object","additionalProperties":false,"required":["status","answer","supportingElementIds"],"properties":{"status":{"enum":["FOUND","NOT_FOUND"]},"answer":{"type":"string"},"supportingElementIds":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}}}}
+            """.trim();
     private final GmCompletionAdapter adapter;
     private final ObjectMapper mapper;
     private final ApiRequestGuard requestGuard;
@@ -161,17 +164,42 @@ public final class TypedAgentContractController {
     @PostMapping("/internal/gm/scenario-lookup")
     ScenarioLookupResponse scenarioLookup(
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
-            @RequestBody ScenarioLookupRequest request) {
+            @RequestBody JsonNode body) {
+        requestGuard.internal(token);
+        java.util.Set<String> fields = new java.util.HashSet<>();
+        if (body != null && body.isObject()) body.fieldNames().forEachRemaining(fields::add);
+        if (!fields.equals(java.util.Set.of("soloPlayerId", "query", "currentSituation", "currentScene",
+                "establishedGameState", "runtimeAddedFacts", "evidence", "lockedScenarioModel",
+                "preparedSituation", "longTermFacts", "knownEvidenceIds"))) {
+            throw new IllegalArgumentException("scenario lookup request does not match its JSON schema");
+        }
+        ScenarioLookupRequest request;
+        try {
+            request = mapper.treeToValue(body, ScenarioLookupRequest.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            throw new IllegalArgumentException("scenario lookup request does not match its JSON schema", invalid);
+        }
+        return scenarioLookup(token, request);
+    }
+
+    ScenarioLookupResponse scenarioLookup(String token, ScenarioLookupRequest request) {
         requestGuard.internal(token);
         require(request);
-        return adapter.complete(request.soloPlayerId(), "scenario-lookup:" + request.query(),
-                "ROLE=SCENARIO_LOOKUP\nREAD_ONLY_LOCKED_SCENARIO_MODEL=" + write(request.lockedScenarioModel())
-                        + "\nQUERY=" + request.query()
-                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with status, answer, and supportingElementIds. "
-                        + "status must be FOUND or NOT_FOUND. answer must be a concise answer grounded in the locked ScenarioModel; "
-                        + "use an empty answer and an empty supportingElementIds array for NOT_FOUND. "
-                        + "supportingElementIds must contain only element ids present in the locked ScenarioModel. "
-                        + "Do not use markdown, code fences, or any other text.",
+        return adapter.complete(request.soloPlayerId(), "action-context-lookup:" + request.query(),
+                "ROLE=ISOLATED_ACTION_CONTEXT_LOOKUP\n"
+                        + "TASK=Return only a concise fact relevant to resolving PLAYER_ACTION, grounded in confirmed state, the locked scenario model, or retrieved evidence. Do not use dialogue history, narrate, or decide an outcome.\n"
+                        + "OUTPUT_CONTRACT=Return one JSON object: status is FOUND or NOT_FOUND; answer is concise or empty for NOT_FOUND; supportingElementIds only names locked scenario elements and is empty for NOT_FOUND. No markdown.\n"
+                        + "OUTPUT_SCHEMA=" + ACTION_LOOKUP_OUTPUT_SCHEMA + "\n"
+                        + "PLAYER_ACTION=" + request.query()
+                        + "\nPREPARED_SITUATION=" + write(request.preparedSituation())
+                        + "\nCURRENT_SCENE=" + write(request.currentScene())
+                        + "\nCURRENT_SITUATION=" + write(request.currentSituation())
+                        + "\nCONFIRMED_GAME_STATE=" + write(request.establishedGameState())
+                        + "\nCONFIRMED_FACTS_FROM_PLAY=" + write(request.runtimeAddedFacts())
+                        + "\nLONG_TERM_ADVENTURE_FACTS=" + write(request.longTermFacts())
+                        + "\nALREADY_KNOWN_IMMUTABLE_EVIDENCE_IDS=" + write(request.knownEvidenceIds())
+                        + "\nLOCKED_SCENARIO_MODEL=" + write(request.lockedScenarioModel())
+                        + "\nRETRIEVED_STORYBOOK_AND_RULEBOOK_EVIDENCE=" + write(request.evidence()),
                 this::parseLookup);
     }
 
@@ -191,7 +219,26 @@ public final class TypedAgentContractController {
     @PostMapping("/internal/gm/runtime-turn")
     RuntimeTurnResponse runtimeTurn(
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
-            @RequestBody RuntimeTurnRequest request) {
+            @RequestBody JsonNode body) {
+        requestGuard.internal(token);
+        java.util.Set<String> fields = new java.util.HashSet<>();
+        if (body != null && body.isObject()) body.fieldNames().forEachRemaining(fields::add);
+        java.util.Set<String> allowed = java.util.Set.of("soloPlayerId", "operationKey", "action", "endpointId", "provider",
+                "model", "reasoning", "effectiveEndpointId", "effectiveEndpointVersion", "effectiveProvider",
+                "effectiveModel", "prompt", "ragSearchContext");
+        if (!allowed.containsAll(fields) || !fields.containsAll(allowed.stream().filter(field -> !field.equals("ragSearchContext")).toList())) {
+            throw new IllegalArgumentException("runtime turn request does not match its JSON schema");
+        }
+        RuntimeTurnRequest request;
+        try {
+            request = mapper.treeToValue(body, RuntimeTurnRequest.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            throw new IllegalArgumentException("runtime turn request does not match its JSON schema", invalid);
+        }
+        return runtimeTurn(token, request);
+    }
+
+    RuntimeTurnResponse runtimeTurn(String token, RuntimeTurnRequest request) {
         requestGuard.internal(token);
         require(request);
         RequestedGmProviderSelection requested = new RequestedGmProviderSelection(request.endpointId(), request.provider(), request.model(), request.reasoning());
@@ -318,17 +365,35 @@ public final class TypedAgentContractController {
 
     private ScenarioLookupResponse parseLookup(String json) {
         JsonNode root = readObject(json);
-        List<String> ids = root.has("supportingElementIds")
-                ? mapper.convertValue(root.path("supportingElementIds"), mapper.getTypeFactory()
-                        .constructCollectionType(List.class, String.class))
-                : List.of();
+        java.util.Set<String> fields = new java.util.HashSet<>();
+        root.fieldNames().forEachRemaining(fields::add);
+        if (!fields.equals(java.util.Set.of("status", "answer", "supportingElementIds"))) {
+            throw new IllegalArgumentException("lookup response must contain exactly status, answer, and supportingElementIds");
+        }
+        JsonNode answerNode = root.path("answer");
+        JsonNode idsNode = root.path("supportingElementIds");
+        if (!answerNode.isTextual() || !idsNode.isArray()
+                || java.util.stream.StreamSupport.stream(idsNode.spliterator(), false).anyMatch(id -> !id.isTextual() || id.asText().isBlank())) {
+            throw new IllegalArgumentException("lookup answer and supportingElementIds have invalid types");
+        }
+        List<String> ids = mapper.convertValue(idsNode, mapper.getTypeFactory().constructCollectionType(List.class, String.class));
+        if (ids.size() != new java.util.HashSet<>(ids).size()) throw new IllegalArgumentException("lookup supportingElementIds must be unique");
         String status = required(root, "status").toUpperCase(java.util.Locale.ROOT);
         if (!status.equals("FOUND") && !status.equals("NOT_FOUND")) throw new IllegalArgumentException("invalid lookup status");
-        return new ScenarioLookupResponse(status, root.path("answer").asText(""), ids);
+        String answer = answerNode.asText();
+        if ((status.equals("NOT_FOUND") && (!answer.isEmpty() || !ids.isEmpty()))
+                || (status.equals("FOUND") && answer.isBlank())) {
+            throw new IllegalArgumentException("lookup response fields do not match status");
+        }
+        return new ScenarioLookupResponse(status, answer, ids);
     }
 
     private RuntimeTurnResponse parseRuntimeTurn(String json) {
         JsonNode root = readObject(json);
+        requireOnlyFields(root, java.util.Set.of("scene", "judgment", "narration", "combatStart", "combatEnemies",
+                "situation", "mapEntryRequested", "runtimeFacts", "completion", "citedEvidence", "판정제안"),
+                java.util.Set.of("scene", "judgment", "narration", "combatStart", "combatEnemies", "situation",
+                        "mapEntryRequested", "판정제안"), "runtime turn response");
         String scene = required(root, "scene");
         String judgment = required(root, "judgment");
         String narration = required(root, "narration");
@@ -340,6 +405,8 @@ public final class TypedAgentContractController {
             throw new IllegalArgumentException("mapEntryRequested is required and must be boolean");
         }
         JsonNode checkNode = root.path("판정제안");
+        requireOnlyFields(checkNode, java.util.Set.of("필요", "이유", "판정능력또는기술", "대상캐릭터ID", "굴림주체",
+                "굴림식", "보정치", "난이도", "근거키", "성공시결과", "실패시결과"), java.util.Set.of("필요"), "check proposal");
         if (!checkNode.isObject() || !checkNode.path("필요").isBoolean()) {
             throw new IllegalArgumentException("판정제안 with a boolean 필요 field is required");
         }
@@ -376,6 +443,8 @@ public final class TypedAgentContractController {
         List<CombatEnemyResponse> enemies = new java.util.ArrayList<>();
         for (JsonNode enemy : enemiesNode) {
             if (!enemy.isObject()) throw new IllegalArgumentException("combatEnemies entries must be objects");
+            requireOnlyFields(enemy, java.util.Set.of("mode", "scenarioId", "enemyKey", "name", "count", "abilities", "actions"),
+                    java.util.Set.of("enemyKey", "name", "count"), "combat enemy");
             int count = enemy.path("count").asInt(0);
             if (count < 1) throw new IllegalArgumentException("combatEnemies count must be positive");
             String mode = enemy.path("mode").asText("SCENARIO").toUpperCase(java.util.Locale.ROOT);
@@ -390,6 +459,8 @@ public final class TypedAgentContractController {
             List<CombatEnemyAbilityResponse> abilities = new java.util.ArrayList<>();
             JsonNode abilityArray = enemy.path("abilities");
             if (abilityArray.isArray()) for (JsonNode ability : abilityArray) {
+                requireOnlyFields(ability, java.util.Set.of("ability", "score", "citationKeys"),
+                        java.util.Set.of("ability", "score", "citationKeys"), "combat enemy ability");
                 int score = ability.path("score").asInt(-1);
                 if (score < 1 || score > 30) throw new IllegalArgumentException("combat enemy ability score must be within 1..30");
                 abilities.add(new CombatEnemyAbilityResponse(required(ability, "ability"), score,
@@ -398,6 +469,8 @@ public final class TypedAgentContractController {
             List<CombatEnemyActionResponse> actions = new java.util.ArrayList<>();
             JsonNode actionArray = enemy.path("actions");
             if (actionArray.isArray()) for (JsonNode action : actionArray) {
+                requireOnlyFields(action, java.util.Set.of("name", "description", "citationKeys"),
+                        java.util.Set.of("name", "description", "citationKeys"), "combat enemy action");
                 actions.add(new CombatEnemyActionResponse(required(action, "name"), required(action, "description"),
                         citationKeys(action.path("citationKeys"), "combat enemy action")));
             }
@@ -409,6 +482,8 @@ public final class TypedAgentContractController {
             throw new IllegalArgumentException("combatStart requires at least one structured combat enemy");
         }
         JsonNode situation = root.path("situation");
+        requireOnlyFields(situation, java.util.Set.of("kind", "location", "problem", "threat", "goal", "basis", "reference", "required"),
+                java.util.Set.of("kind", "location", "problem", "threat", "goal", "basis", "required"), "situation");
         if (!situation.isObject()) throw new IllegalArgumentException("situation is required and must be an object");
         String basis = required(situation, "basis").toUpperCase(java.util.Locale.ROOT);
         if (!basis.equals("SCENARIO") && !basis.equals("RAG") && !basis.equals("FALLBACK")) {
@@ -431,6 +506,7 @@ public final class TypedAgentContractController {
             if (!runtimeFactsNode.isArray()) throw new IllegalArgumentException("runtimeFacts must be an array when provided");
             for (JsonNode fact : runtimeFactsNode) {
                 if (!fact.isObject()) throw new IllegalArgumentException("runtimeFacts entries must be objects");
+                requireOnlyFields(fact, java.util.Set.of("subject", "content"), java.util.Set.of("subject", "content"), "runtime fact");
                 String subject = required(fact, "subject");
                 String content = required(fact, "content");
                 runtimeFacts.add(new RuntimeFactResponse(subject, content));
@@ -439,6 +515,8 @@ public final class TypedAgentContractController {
         CompletionResponse completion = CompletionResponse.continueAdventure();
         JsonNode completionNode = root.path("completion");
         if (!completionNode.isMissingNode()) {
+            requireOnlyFields(completionNode, java.util.Set.of("complete", "resolvedObjectiveIds",
+                    "satisfiedResolutionCriteriaIds", "concludingScene"), java.util.Set.of("complete"), "completion");
             if (!completionNode.isObject() || !completionNode.path("complete").isBoolean()) {
                 throw new IllegalArgumentException("completion must be an object with a boolean complete field");
             }
@@ -537,6 +615,16 @@ public final class TypedAgentContractController {
         }
     }
 
+    private static void requireOnlyFields(JsonNode node, java.util.Set<String> allowed,
+            java.util.Set<String> required, String subject) {
+        if (node == null || !node.isObject()) throw new IllegalArgumentException(subject + " must be an object");
+        java.util.Set<String> actual = new java.util.HashSet<>();
+        node.fieldNames().forEachRemaining(actual::add);
+        if (!allowed.containsAll(actual) || !actual.containsAll(required)) {
+            throw new IllegalArgumentException(subject + " does not match its JSON schema");
+        }
+    }
+
     private static List<String> citationKeys(JsonNode array, String subject) {
         if (!array.isArray() || array.isEmpty()) throw new IllegalArgumentException(subject + " requires citationKeys");
         List<String> keys = new java.util.ArrayList<>();
@@ -612,11 +700,28 @@ public final class TypedAgentContractController {
         }
     }
 
-    public record ScenarioLookupRequest(java.util.UUID soloPlayerId, String query, Map<String, Object> lockedScenarioModel) {
+    public record ScenarioLookupRequest(java.util.UUID soloPlayerId, String query, String currentSituation,
+            String currentScene, Map<String, Object> establishedGameState,
+            List<Map<String, Object>> runtimeAddedFacts, List<Map<String, Object>> evidence,
+            Map<String, Object> lockedScenarioModel, String preparedSituation,
+            List<Map<String, Object>> longTermFacts, List<String> knownEvidenceIds) {
+        public ScenarioLookupRequest(java.util.UUID soloPlayerId, String query, Map<String, Object> lockedScenarioModel) {
+            this(soloPlayerId, query, "", "", Map.of(), List.of(), List.of(), lockedScenarioModel, "", List.of(), List.of());
+        }
         public ScenarioLookupRequest {
             soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             query = required(query, "query");
+            currentSituation = currentSituation == null ? "" : currentSituation;
+            currentScene = currentScene == null ? "" : currentScene;
+            establishedGameState = Map.copyOf(Objects.requireNonNull(establishedGameState, "establishedGameState is required"));
+            runtimeAddedFacts = List.copyOf(Objects.requireNonNull(runtimeAddedFacts, "runtimeAddedFacts is required"));
+            evidence = List.copyOf(Objects.requireNonNull(evidence, "evidence is required"));
             lockedScenarioModel = Map.copyOf(Objects.requireNonNull(lockedScenarioModel, "lockedScenarioModel is required"));
+            preparedSituation = preparedSituation == null ? "" : preparedSituation;
+            longTermFacts = List.copyOf(Objects.requireNonNull(longTermFacts, "longTermFacts is required"));
+            knownEvidenceIds = List.copyOf(Objects.requireNonNull(knownEvidenceIds, "knownEvidenceIds is required"));
+            if (knownEvidenceIds.stream().anyMatch(id -> id == null || !id.startsWith("IMMUTABLE_DOCUMENT:")))
+                throw new IllegalArgumentException("knownEvidenceIds must use immutable document references");
         }
     }
 

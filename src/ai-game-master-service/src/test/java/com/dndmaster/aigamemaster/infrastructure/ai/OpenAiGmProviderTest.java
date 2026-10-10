@@ -3,6 +3,7 @@ package com.dndmaster.aigamemaster.infrastructure.ai;
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
@@ -19,7 +20,7 @@ class OpenAiGmProviderTest {
 
     @Test void sendsStructuredResponsesRequestAndUsesCanonicalParser() {
         server.stubFor(post("/v1/responses").willReturn(okJson(
-                "{\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"{\\\"scene\\\":\\\"crypt\\\"}\"}]}]}")));
+                "{\"usage\":{\"input_tokens\":2048,\"input_tokens_details\":{\"cached_tokens\":1536},\"output_tokens\":128},\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"{\\\"scene\\\":\\\"crypt\\\"}\"}]}]}")));
         GmCompletionAdapter adapter = new OpenAiGmProvider(HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"),
                 "test-key", "gpt-5.6-luna", "medium", Duration.ofSeconds(1));
 
@@ -29,6 +30,14 @@ class OpenAiGmProviderTest {
                 .withRequestBody(matchingJsonPath("$.model", equalTo("gpt-5.6-luna")))
                 .withRequestBody(matchingJsonPath("$.reasoning.effort", equalTo("medium")))
                 .withRequestBody(matchingJsonPath("$.text.format.type", equalTo("json_object"))));
+    }
+
+    @Test void reads_cached_input_usage_reported_by_responses_api() throws Exception {
+        var usage = new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                "{\"input_tokens\":2048,\"input_tokens_details\":{\"cached_tokens\":1536},\"output_tokens\":128}");
+
+        assertEquals(new com.dndmaster.aigamemaster.application.ai.AiExecutionUsage(2048L, 1536L, 128L),
+                OpenAiGmProvider.reportedUsage(usage));
     }
 
     @Test void maps_rate_limit_to_provider_contract_error() {

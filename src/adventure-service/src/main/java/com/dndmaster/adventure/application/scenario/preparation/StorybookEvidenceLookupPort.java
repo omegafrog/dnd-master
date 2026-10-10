@@ -10,8 +10,20 @@ public interface StorybookEvidenceLookupPort {
     List<ScenarioSourceReference> lookup(UUID scenarioPackageId);
     default List<ScenarioSourceReference> lookup(UUID scenarioPackageId,
             com.dndmaster.adventure.domain.adventure.SessionId sessionId) { return lookup(scenarioPackageId); }
+    default PreparationEvidence lookupForPreparation(UUID scenarioPackageId,
+            com.dndmaster.adventure.domain.adventure.SessionId sessionId) {
+        return new PreparationEvidence(lookup(scenarioPackageId), List.of());
+    }
 
     /** True when the package has scenario-document claims that require provenance. */
     default boolean isScenarioBacked(UUID scenarioPackageId) { return true; }
     default Set<UUID> providedMapIds(UUID scenarioPackageId) { return Set.of(); }
+
+    record PreparationEvidence(List<ScenarioSourceReference> sourceRefs,
+            List<StorySourcePreviewPort.Passage> storyPassages) {
+        public PreparationEvidence {
+            sourceRefs = List.copyOf(sourceRefs);
+            storyPassages = List.copyOf(storyPassages);
+        }
+    }
 }

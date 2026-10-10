@@ -14,6 +14,7 @@ import java.util.Objects;
 
 /** Provider-neutral GM completion over OpenAI Responses API. */
 public final class OpenAiGmProvider implements GmCompletionAdapter {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(OpenAiGmProvider.class);
     private final HttpClient client;
     private final URI baseUri;
     private final String apiKey;
@@ -48,19 +49,37 @@ public final class OpenAiGmProvider implements GmCompletionAdapter {
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 429) throw new ProviderRateLimitException();
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("OpenAI Responses request failed");
-            return parser.parse(outputText(response.body()));
+            JsonNode payload = mapper.readTree(response.body());
+            logUsage(operationId, payload.path("usage"));
+            return parser.parse(outputText(payload));
         } catch (java.net.http.HttpTimeoutException exception) { throw new ProviderTimeoutException(exception);
         } catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new ProviderTimeoutException(exception);
         } catch (IOException exception) { throw new IllegalStateException("OpenAI Responses request failed", exception); }
     }
 
-    private String outputText(String payload) throws IOException {
-        JsonNode output = mapper.readTree(payload).path("output");
+    private String outputText(JsonNode payload) {
+        JsonNode output = payload.path("output");
         if (!output.isArray()) throw new ProviderMalformedResponseException("OpenAI response missing output");
         for (JsonNode item : output) for (JsonNode content : item.path("content")) {
             if ("output_text".equals(content.path("type").asText()) && !content.path("text").asText().isBlank()) return content.path("text").asText();
         }
         throw new ProviderMalformedResponseException("OpenAI response missing output text");
+    }
+
+    private static void logUsage(String operationId, JsonNode usage) {
+        if (!usage.isObject()) return;
+        com.dndmaster.aigamemaster.application.ai.AiExecutionUsage counts = reportedUsage(usage);
+        LOGGER.info("openai_response_usage operationId={} inputTokens={} cachedInputTokens={} outputTokens={}",
+                operationId, counts.inputTokens(), counts.cachedInputTokens(), counts.outputTokens());
+    }
+
+    static com.dndmaster.aigamemaster.application.ai.AiExecutionUsage reportedUsage(JsonNode usage) {
+        return new com.dndmaster.aigamemaster.application.ai.AiExecutionUsage(count(usage.path("input_tokens")),
+                count(usage.path("input_tokens_details").path("cached_tokens")), count(usage.path("output_tokens")));
+    }
+
+    private static Long count(JsonNode node) {
+        return node.isIntegralNumber() && node.canConvertToLong() && node.longValue() >= 0 ? node.longValue() : null;
     }
 
     private static String required(String value, String name) { if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " required"); return value.trim(); }

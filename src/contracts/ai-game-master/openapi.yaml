@@ -7,6 +7,42 @@ components:
       in: header
       name: X-Internal-Token
 paths:
+  /internal/gm/scenario-lookup:
+    post:
+      operationId: scenarioLookup
+      summary: Resolve one action fact in a separate, conversation-free lookup context
+      security: [{ internalServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/scenario-lookup-request.json' }
+      responses:
+        '200':
+          description: Strict lookup result grounded in supplied state, selected prepared situation, scenario model, or retrieved evidence.
+          content:
+            application/json:
+              schema: { $ref: './schemas/scenario-lookup-response.json' }
+        '400': { description: Request or lookup response violated its JSON contract. }
+        '401': { description: Invalid internal service token. }
+  /internal/gm/runtime-turn:
+    post:
+      operationId: runRuntimeTurn
+      summary: Produce a typed turn plan from the orchestrator's confirmed turn context
+      security: [{ internalServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/runtime-turn-request.json' }
+      responses:
+        '200':
+          description: Typed turn plan; the service rejects invalid fields before state changes are committed.
+          content:
+            application/json:
+              schema: { $ref: './schemas/runtime-turn-response.json' }
+        '400': { description: Request or turn response violated the typed contract. }
+        '401': { description: Invalid internal service token. }
   /internal/v1/gm/judgments:
     post: { operationId: adjudicate, security: [{ internalServiceToken: [] }], responses: { '200': { description: rule-set judgment }, '401': { description: invalid internal service token } } }
   /internal/v1/gm/rule-answers:

@@ -5,7 +5,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.RequiredSituation;
 import java.util.List;
 
-/** Reads every located passage of the selected original story document. */
+/** Retrieves bounded story passages relevant to preparation from the selected story document. */
 @FunctionalInterface
 public interface StorySourcePreviewPort {
     List<Passage> load(ScenarioBundleDocumentSelection document, java.util.UUID ownerId, java.util.UUID bundleId);

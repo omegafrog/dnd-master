@@ -190,7 +190,7 @@ cp -R "$ROOT/gradle" "$GRADLEW_TMP_DIR/gradle"
 chmod +x "$GRADLEW_TMP_DIR/gradlew"
 
 echo "==> Starting local agent connection relay..."
-(cd "$ROOT" && exec bash "$GRADLEW_TMP_DIR/gradlew" :agent-connection-relay-service:bootRun --args="--server.port=$LOCAL_AGENT_CONNECTION_RELAY_PORT") &
+(cd "$ROOT" && exec bash "$GRADLEW_TMP_DIR/gradlew" --no-daemon :agent-connection-relay-service:bootRun --args="--server.port=$LOCAL_AGENT_CONNECTION_RELAY_PORT") &
 RELAY_PID=$!
 echo "    Relay PID: $RELAY_PID"
 
@@ -212,7 +212,7 @@ for attempt in $(seq 1 90); do
 done
 
 echo "==> Starting backend (app-all)..."
-(cd "$ROOT" && exec bash "$GRADLEW_TMP_DIR/gradlew" :app-all:bootRun --args="--server.port=$BACKEND_SERVER_PORT") &
+(cd "$ROOT" && exec bash "$GRADLEW_TMP_DIR/gradlew" --no-daemon :app-all:bootRun --args="--server.port=$BACKEND_SERVER_PORT") &
 BACKEND_PID=$!
 echo "    Backend PID: $BACKEND_PID"
 
@@ -269,7 +269,7 @@ USER_PC_AGENT_LOG="$(mktemp "${TMPDIR:-/tmp}/dnd-master-user-pc-agent.XXXXXX.log
     AGENT_CONNECTION_ID="$AGENT_CONNECTION_ID" \
     CODEX_EXECUTABLE="$CODEX_EXECUTABLE" \
     CODEX_WORK_DIRECTORY="$ROOT" \
-    exec bash "$GRADLEW_TMP_DIR/gradlew" :user-pc-agent:run) >"$USER_PC_AGENT_LOG" 2>&1 &
+    exec bash "$GRADLEW_TMP_DIR/gradlew" --no-daemon :user-pc-agent:run) >"$USER_PC_AGENT_LOG" 2>&1 &
 USER_PC_AGENT_PID=$!
 echo "    User PC agent PID: $USER_PC_AGENT_PID"
 

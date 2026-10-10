@@ -15,6 +15,51 @@ import java.util.Set;
 public final class StoryRuntimeRules {
     private StoryRuntimeRules() {}
 
+    /** Selects the next available situation whose declared prerequisites are complete. */
+    public static StoryRuntimeState selectNextSituation(StoryRuntimeState state, DetailedStage stage) {
+        Objects.requireNonNull(state, "story runtime state must not be null");
+        Objects.requireNonNull(stage, "detailed stage must not be null");
+        validateReference(state, stage);
+        if (state.lifecycle() != StageLifecycle.ACTIVE || state.activeSituationId() != null) return state;
+        SituationDefinition next = nextEligibleSituation(state, stage);
+        if (next == null) return state;
+        return evolveActiveSituation(state, next.situationId());
+    }
+
+    /** Finishes the active situation and admits the next one in the same pending turn. */
+    public static StoryRuntimeState finishAndSelectNextSituation(StoryRuntimeState state, DetailedStage stage) {
+        Objects.requireNonNull(state, "story runtime state must not be null");
+        Objects.requireNonNull(stage, "detailed stage must not be null");
+        validateReference(state, stage);
+        if (state.lifecycle() != StageLifecycle.ACTIVE || state.activeSituationId() == null) {
+            return selectNextSituation(state, stage);
+        }
+        Map<String, SituationStatus> situations = new LinkedHashMap<>(state.situationStatuses());
+        situations.put(state.activeSituationId(), SituationStatus.USED);
+        SituationDefinition next = nextEligibleSituation(situations, stage);
+        return state.evolve(situations, state.revelationStatuses(), state.pressureStates(),
+                next == null ? null : next.situationId(), state.openingPresented(), null);
+    }
+
+    private static SituationDefinition nextEligibleSituation(StoryRuntimeState state, DetailedStage stage) {
+        return nextEligibleSituation(state.situationStatuses(), stage);
+    }
+
+    private static SituationDefinition nextEligibleSituation(Map<String, SituationStatus> statuses, DetailedStage stage) {
+        return stage.situations().stream()
+                .filter(situation -> statuses.get(situation.situationId()) == SituationStatus.AVAILABLE)
+                .filter(situation -> situation.prerequisiteSituationIds().stream()
+                        .allMatch(id -> statuses.get(id) == SituationStatus.USED))
+                .sorted(java.util.Comparator.comparing(SituationDefinition::required).reversed())
+                .findFirst().orElse(null);
+    }
+
+    private static StoryRuntimeState evolveActiveSituation(StoryRuntimeState state, String situationId) {
+        Map<String, SituationStatus> situations = new LinkedHashMap<>(state.situationStatuses());
+        return state.evolve(situations, state.revelationStatuses(), state.pressureStates(), situationId,
+                state.openingPresented(), null);
+    }
+
     public static StoryRuntimeState apply(StoryRuntimeState state, DetailedStage stage, StoryRuntimeProposal proposal) {
         Objects.requireNonNull(state, "story runtime state must not be null");
         Objects.requireNonNull(stage, "detailed stage must not be null");

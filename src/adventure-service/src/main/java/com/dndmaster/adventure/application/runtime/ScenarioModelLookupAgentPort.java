@@ -2,7 +2,7 @@ package com.dndmaster.adventure.application.runtime;
 
 import java.util.UUID;
 
-/** Typed, read-only ScenarioModel lookup boundary for the AI service. */
+/** Isolated read-only lookup boundary for one player action and its scoped facts and evidence. */
 @FunctionalInterface
 public interface ScenarioModelLookupAgentPort {
     ScenarioLookupResult lookup(ScenarioModelLookupRequest request);

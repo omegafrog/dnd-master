@@ -31,8 +31,10 @@ class HttpStorySourcePreviewPortTest {
             List<String> queries = new java.util.ArrayList<>();
             request.path("queries").forEach(query -> queries.add(query.asText()));
             byte[] body = mapper.writeValueAsBytes(Map.of("ownerId", owner, "scenarioSourceBundleId", bundle, "results",
-                    List.of(Map.of("query", queries.get(0), "candidates", List.of(Map.of("documentId", doc, "extractionVersion", 3,
-                                    "documentType", "RULEBOOK", "locator", "page:1", "excerpt", "Use an ability check"))),
+                    List.of(Map.of("query", queries.get(0), "candidates", java.util.stream.IntStream.range(0, 6).mapToObj(index ->
+                                    Map.of("documentId", doc, "extractionVersion", 3, "documentType", "RULEBOOK",
+                                            "locator", "page:" + index, "excerpt", index == 0 ? "x".repeat(1500) : "Use an ability check"))
+                                    .toList()),
                             Map.of("query", queries.get(1), "candidates", List.of(Map.of("documentId", doc, "extractionVersion", 3,
                                     "documentType", "RULEBOOK", "locator", "page:2", "excerpt", "Apply the saving throw"))))));
             exchange.getResponseHeaders().add("Content-Type", "application/json");
@@ -51,34 +53,37 @@ class HttpStorySourcePreviewPortTest {
 
             var results = port.findApplicableRules(List.of(rulebook), owner, bundle, situations);
 
-            assertEquals(List.of(List.of("Use an ability check"), List.of("Apply the saving throw")), results);
+            assertEquals(4, results.getFirst().size());
+            assertEquals(1200, results.getFirst().getFirst().length());
+            assertEquals(List.of("Apply the saving throw"), results.getLast());
             assertEquals(2, ((List<?>) captured.get().get("queries")).size());
+            assertEquals(8, captured.get().get("denseLimit"));
+            assertEquals(8, captured.get().get("bm25Limit"));
             assertEquals("RULEBOOK", ((Map<?, ?>) ((List<?>) captured.get().get("scope")).getFirst()).get("documentType"));
         } finally { server.stop(0); }
     }
 
     @Test
-    void loads_every_indexed_chunk_and_rejects_a_page_that_does_not_match_declared_coverage() throws Exception {
+    void loads_only_bounded_story_candidates_returned_by_rag() throws Exception {
         UUID owner = UUID.randomUUID();
         UUID bundle = UUID.randomUUID();
         UUID id = UUID.randomUUID();
         var document = new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(id),
                 ScenarioBundleDocumentRole.MAIN_SCENARIO, () -> "INDEXED", "story.txt", "STORYBOOK", 2);
         var mapper = new ObjectMapper();
-        var page = new AtomicReference<Map<String, Object>>();
+        var captured = new AtomicReference<Map<String, Object>>();
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/internal/v1/evidence-candidates/preparation-search-batch", exchange -> {
             var request = mapper.readTree(exchange.getRequestBody());
+            captured.set(mapper.convertValue(request, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}));
             String query = request.path("queries").get(0).asText();
             byte[] body = mapper.writeValueAsBytes(Map.of("ownerId", owner, "scenarioSourceBundleId", bundle,
-                    "results", List.of(Map.of("query", query, "candidates", List.of(Map.of("documentId", id,
-                            "extractionVersion", 2, "documentType", "STORYBOOK", "locator", "page:2", "excerpt", "ending"))))));
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, body.length);
-            try (var output = exchange.getResponseBody()) { output.write(body); }
-        });
-        server.createContext("/internal/v1/rag-chunks/preparation", exchange -> {
-            byte[] body = mapper.writeValueAsBytes(page.get());
+                    "results", List.of(Map.of("query", query, "candidates", java.util.stream.IntStream.range(0, 17)
+                            .mapToObj(index -> Map.of("documentId", id, "extractionVersion", 2, "documentType", "STORYBOOK",
+                                    "locator", index < 2 ? "page:2" : "page:" + (index + 2),
+                                    "excerpt", index == 0 ? "ending" : index == 1 ? "duplicate ending"
+                                            : index == 2 ? "x".repeat(1500) : "candidate " + index))
+                            .toList()))));
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             try (var output = exchange.getResponseBody()) { output.write(body); }
@@ -87,22 +92,21 @@ class HttpStorySourcePreviewPortTest {
         try {
             var port = new HttpStorySourcePreviewPort(HttpClient.newHttpClient(),
                     URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"), Duration.ofSeconds(2), mapper, "internal-token");
-            page.set(Map.of("ownerId", owner, "scenarioSourceBundleId", bundle, "documentId", id,
-                    "extractionVersion", 2, "totalCount", 2, "offset", 0,
-                    "chunks", List.of(Map.of("chunkId", UUID.randomUUID(), "sequence", 0, "content", "beginning",
-                                    "originalLocator", "page:1", "pageNumber", 1, "sectionPath", List.of()),
-                            Map.of("chunkId", UUID.randomUUID(), "sequence", 1, "content", "ending",
-                                    "originalLocator", "page:2", "pageNumber", 2, "sectionPath", List.of()))));
-            assertEquals(List.of("page:2", "page:1"), port.load(document, owner, bundle).stream()
-                    .map(item -> item.sourceRef().locator()).toList());
 
-            page.set(Map.of("ownerId", owner, "scenarioSourceBundleId", bundle, "documentId", id,
-                    "extractionVersion", 2, "totalCount", 3, "offset", 0,
-                    "chunks", List.of(Map.of("chunkId", UUID.randomUUID(), "sequence", 0, "content", "beginning",
-                            "originalLocator", "page:1", "pageNumber", 1, "sectionPath", List.of()))));
-            assertThrows(IllegalStateException.class, () -> port.load(document, owner, bundle));
+            var passages = port.load(document, owner, bundle);
+
+            assertEquals(14, passages.size());
+            assertEquals(List.of("page:2", "page:4"), passages.stream()
+                    .map(item -> item.sourceRef().locator()).limit(2).toList());
+            assertEquals("ending", passages.getFirst().text());
+            assertEquals(1200, passages.get(1).text().length());
+            assertEquals(15, captured.get().get("denseLimit"));
+            assertEquals(15, captured.get().get("bm25Limit"));
+            assertEquals("STORYBOOK", ((Map<?, ?>) ((List<?>) captured.get().get("scope")).getFirst()).get("documentType"));
+            assertEquals(1, ((List<?>) captured.get().get("queries")).size());
         } finally {
             server.stop(0);
         }
     }
+
 }

@@ -18,16 +18,14 @@
 
 #### RAG 기반 초기 상황 준비 계약
 
-이 항목은 아래의 이전 `source-preview` 전체 전달·단일 전체 대조 설명을 구현 기준에서 대체한다. 선택된 추가 STORYBOOK에 대한 이야기 후보 검색과 기본 RULEBOOK에 대한 규칙 검색은 서로 분리한다. 이야기 검색 결과는 우선순위에만 쓰며, 누락을 줄이기 위해 선택 문서의 색인 구간을 페이지로 모두 읽어 각 구간을 제한된 입력으로 추출·대조한다. 각 구간 대조 결과는 해당 구간에서 뒷받침되는 상황만 반환하며, 전체 검토 목록은 모든 구간의 대조 결과를 합쳐 만든다. 따라서 한 구간의 검토가 다른 구간에서 확인된 상황을 지우지 않고, 근거 없는 추출 후보는 최종 목록에 남지 않는다. 페이지 응답의 문서·추출 버전·위치·전체 개수·중복 여부가 맞지 않으면 준비를 실패시킨다. 필수 상황별 기본 규칙 검색문은 한 묶음으로 임베딩한 뒤 dense 검색을 시작한다.
-
-이 수량 검증은 “현재 RAG에 색인된 구간을 전부 처리했다”는 것만 확인한다. 원본 자료가 색인 단계에서 누락 없이 추출됐는지, AI가 모든 필수 상황이나 관계를 의미상 빠짐없이 찾았는지는 증명하지 않는다. 모든 상황에 대한 기존 최종 목록·출처·선행 관계 검증은 그대로 적용한다.
+선택된 추가 STORYBOOK의 RAG 검색으로 제한된 상황 후보를 얻고, 이를 한 번의 구조화된 JSON 요청으로 필수 상황과 명시된 선행 관계로 추출한다. 검색 결과는 원문 전체를 대표한다고 간주하지 않으며, 원문 전체를 다시 넣거나 페이지 단위로 열거·검토하지 않는다. 소유자·모험·문서·추출 버전·위치 범위, 중복 후보, 발췌 길이, 출력 식별자·출처·선행 관계를 검증한다. 이 구조 검증은 RAG가 검색하지 못한 원문 상황의 누락을 찾아내거나 완전성을 증명하지 않는다. 추가 STORYBOOK 검색과 기본 RULEBOOK 규칙 검색은 분리한다. 기본 RULEBOOK 검색문은 상황별로 묶어 임베딩한 뒤 dense 검색하며, 각 상황은 최대 네 발췌를 사용하고 발췌당 1,200자까지만 전달한다. 필수 상황 요약은 500자 이내다. backbone과 상세 상황 생성에는 전체 컴파일 모델이나 원문 전체를 전달하지 않고, 최대 2,000자 시작 맥락, 검색에서 추출한 필수 상황, 상황별 기본 규칙 발췌와 허용된 출처 위치를 전달한다.
 
 | Product Spec 항목 | Architecture 요소 |
 |---|---|
-| UC-1, R-01, R-02, R-03, R-07, R-09 | 준비 서비스가 모든 색인 구간을 제한된 입력으로 추출·대조해 마련한 필수 상황·선후 관계를 기준으로 모험별 초기 전체 상황 세트를 생성·검증·게시 |
+| UC-1, R-01, R-02, R-03, R-07, R-09 | 준비 서비스가 제한된 STORYBOOK RAG 후보에서 추출한 필수 상황·선후 관계를 기준으로 모험별 초기 전체 상황 세트를 생성·검증·게시 |
 | UC-2, R-01, R-03, R-04, R-06, R-08, R-09 | 기존 턴 서비스가 현재 상황과 확정 사건을 바탕으로 계속 진행 또는 후보 선택을 제안하고 검증 |
 | UC-3, R-05, R-06, R-08, R-09 | 후보가 없으면 새 중간 상황 후보를 제안하고 기존 턴 확정에 포함 |
-| R-01, R-06, R-07 | 색인 구간 전체 처리 검증, 최종 목록 반영, 위치 출처, 선행 관계 및 모험에 제공된 지도만 도메인 검증에서 강제 |
+| R-01, R-06, R-07 | RAG 후보의 범위와 구조, 추출 목록 반영, 위치 출처, 선행 관계 및 모험에 제공된 지도만 도메인 검증에서 강제; 검색 누락의 완전성은 보장하지 않음 |
 | R-08 | 기존 버전·권한·공개 범위·플레이어 굴림 대기 절차를 유지 |
 | R-09, ST-05 | 초기 자료 및 플레이 상태에 AdventureId 소유 범위를 적용하고 모험 간 공유 금지 |
 | ST-01, ST-02 | 응답 시간 및 저장량 수치 목표는 근거가 없어 미확정 |
@@ -46,10 +44,10 @@
  if (완성된 초기 자료 존재?) then (예)
    :저장된 같은 모험 자료 반환;
  else (아니오)
-   :STORYBOOK 이야기 검색문을 먼저 묶음 임베딩·검색하고 선택 문서의 색인 구간을 모두 페이지 조회;
-   :각 색인 구간을 제한된 입력으로 추출·대조하고 검증 결과를 합침;
+   :STORYBOOK 이야기 검색문으로 제한된 후보를 RAG 검색;
+   :검색 후보를 구조화된 JSON으로 한 번 추출하고 식별자·출처·선행 관계를 검증;
    :필수 상황별 RULEBOOK 검색문을 묶음 임베딩·검색;
-   :준비 서비스가 검토 목록만 골격·상세 생성에 전달;
+   :준비 서비스가 추출된 필수 상황 목록을 골격·상세 생성에 전달;
    :준비 서비스가 목록 전체 반영·출처·관계·지도 범위 검증;
    :골격과 전체 초기 단계 자료를 한 번에 저장;
  endif
@@ -68,7 +66,7 @@
 
 | Command | Actor | Target | Input | Preconditions | Result |
 |---|---|---|---|---|---|
-| 초기 상황 준비 | 시작 응용 서비스 | Scenario Preparation | AdventureId, SessionId, 패키지 ID | 권한·세션 버전 확인, 모험 ID 예약, 선택 STORYBOOK의 색인 구간 전체 처리 성공 | 모든 필수 상황을 반영한 전체 초기 준비 결과 또는 기존 완성 결과 |
+| 초기 상황 준비 | 시작 응용 서비스 | Scenario Preparation | AdventureId, SessionId, 패키지 ID | 권한·세션 버전 확인, 모험 ID 예약, 선택 STORYBOOK의 제한된 RAG 검색과 구조 검증 성공 | 모든 필수 상황을 반영한 전체 초기 준비 결과 또는 기존 완성 결과 |
 | 상황 진행 계획 | Runtime Turn 응용 서비스 | Adventure Runtime | 현재 상황, 모험별 후보·사용 상태, 확정 사건 | 활성 모험·턴 소유권 확인 | 계속, 후보 선택 또는 새 상황 제안 |
 | 상황 진행 확정 | 기존 턴 확정 흐름 | Adventure | PendingRuntimeState와 턴 식별자 | 버전·굴림·소유권 검증 통과 | 상황 진행 및 나머지 턴 결과의 단일 확정 |
 
@@ -98,8 +96,8 @@
 
 | External System | Trigger | Input | Output | Failure |
 |---|---|---|---|---|
-| RAG 색인 구간 조회·검색 API | 초기 준비 | 추가 STORYBOOK 이야기 검색 및 선택 문서의 모든 색인 구간 페이지 조회; 기본 RULEBOOK의 필수 상황별 규칙 검색 | 문서·유형·추출 버전·소유 범위·페이지 수·위치 | 검색 범위 혼합, 누락·중복 페이지, 조회 실패는 준비 실패 |
-| AI Game Master | 색인 구간별 필수 상황 추출·대조·상세 생성 또는 턴 상황 계획 | STORYBOOK 색인 구간을 제한 크기로 입력; RULEBOOK 검색문은 상황별 묶음 임베딩 후 별도 검색 | 검토 목록 또는 상황 후보 제안 | 구간 처리·검색·분류 실패는 준비 실패; 실패를 완성 결과로 취급하지 않음 |
+| RAG 후보·규칙 검색 API | 초기 준비 | 추가 STORYBOOK 제한 후보 검색; 기본 RULEBOOK의 필수 상황별 규칙 검색 | 문서·유형·추출 버전·소유 범위·위치 | 검색 범위 불일치와 조회 실패는 준비 실패; 검색 누락은 완전성을 증명하지 않음 |
+| AI Game Master | RAG 후보의 필수 상황 추출·상세 생성 또는 턴 상황 계획 | STORYBOOK 제한 후보를 한 번 입력; RULEBOOK 검색문은 상황별 묶음 임베딩 후 별도 검색 | 추출 목록 또는 상황 후보 제안 | 검색·분류 실패는 준비 실패; 실패를 완성 결과로 취급하지 않음 |
 | PostgreSQL | 자료 조회·게시 또는 턴 확정 | 모험 키·버전 조건의 저장 명령 | 저장 결과 | 기존 충돌·확정 복구 절차 적용 |
 
 ### 2.7 Hotspots
@@ -108,8 +106,8 @@
 |---|---|---|
 | 같은 원문을 쓰는 모험의 초기 상황 공유 | 패키지 기준 공유 / 모험별 분리 | AdventureId 포함 키로 독립 생성·저장. 원문 패키지는 참조만 함 |
 | 시작 전 생성 또는 시작 후 지연 생성 | 전체 초기 자료 선준비 / 다음 단계에서 생성 | 시작 완료 전에 모든 초기 필수 상황과 중간 후보의 핵심 요소를 준비 |
-| 상위 RAG 결과에만 의존 | 색인 구간 전체를 열거·처리하고 구간별 대조 결과를 합침 | 색인 누락이나 모델 의미 판단 완전성은 증명하지 않음; 입력은 제한 크기로 유지 |
-| 단계 순서 의미 | 연속 진행 제약 / 자료 정리 순서 | StageBackbone.order는 준비 자료의 나열 순서다. 상황 진행은 원문에 명시된 선행 관계만 제약하며, 검토된 필수 상황 사이의 선행 상황은 같은 단계 또는 더 앞선 단계에 있어야 한다. 선택 상황과 무관한 단계에는 추가 순서를 강제하지 않는다 |
+| RAG 검색 후보에만 의존 | 제한된 검색 후보를 구조화된 출력으로 추출하고 범위·관계 검증 | 검색되지 않은 원문 상황의 누락이나 모델 의미 판단 완전성은 증명하지 않음 |
+| 단계 순서 의미 | 연속 진행 제약 / 자료 정리 순서 | StageBackbone.order는 준비 자료의 나열 순서다. 상황 진행은 원문에 명시된 선행 관계만 제약하며, 추출된 필수 상황 사이의 선행 상황은 같은 단계 또는 더 앞선 단계에 있어야 한다. 선택 상황과 무관한 단계에는 추가 순서를 강제하지 않는다 |
 | 상황 전환 확정 | 별도 저장 / 기존 턴 확정에 포함 | 현재 상황 종료·다음 활성화·후보 사용 및 신규 상황을 같은 턴 확정에 포함 |
 
 ## 3. DDD Architecture
@@ -153,8 +151,8 @@ Scenario Preparation은 기존 Document Knowledge의 패키지·추출 개정 �
 | Entity | Aggregate | Identity | Responsibility | State |
 |---|---|---|---|---|
 | `SituationDefinition` | 초기 준비 자료 또는 `Adventure` 내부 이야기 진행 상태 | 모험 범위 내 상황 식별자 | 필수 여부·선행 관계·출처·핵심 요소·지도 참조 보유 | 게시된 초기 정의는 불변; 플레이 중 추가 정의는 해당 모험에만 저장 |
-| `RequiredSituation` | 모험별 `StageBackbone` | `situationId` | 원문에서 확인·검토한 필수 상황 요약, 선행 상황 ID, 원문 위치 참조 | 검토 목록의 항목·관계·위치가 원문에 대응 |
-| `StageBackbone` | 초기 준비 자료 | 모험·패키지·개정 | 준비 단계와 검토된 `requiredSituations` 보유 | `order`는 준비 나열 순서; 검토 목록은 모험별 JSON에 함께 저장 |
+| `RequiredSituation` | 모험별 `StageBackbone` | `situationId` | RAG 후보에서 추출한 필수 상황 요약, 선행 상황 ID, 원문 위치 참조 | 식별자·관계·허용 위치가 구조적으로 유효 |
+| `StageBackbone` | 초기 준비 자료 | 모험·패키지·개정 | 준비 단계와 추출된 `requiredSituations` 보유 | `order`는 준비 나열 순서; 목록은 모험별 JSON에 함께 저장 |
 | `DetailedStage` | 초기 준비 자료 | 모험·패키지·개정·단계 | 단계 핵심 요소와 상황 목록 제공 | 초기 게시 시 전체 세트 확정 |
 
 #### 3.4.1 Class Diagram
@@ -180,7 +178,7 @@ Scenario Preparation은 기존 Document Knowledge의 패키지·추출 개정 �
 
 | Business Rule | Owner | Enforcement Point |
 |---|---|---|
-| R-01 원문에 명시된 필수 상황과 선행 관계 보존 | Scenario Preparation 및 Adventure Runtime | 준비 검증과 다음 상황으로 진행할 수 있는지 검증 |
+| R-01 원문에 명시된 필수 상황과 선행 관계 보존 | Scenario Preparation 및 Adventure Runtime | RAG 후보 추출 목록·출처·선행 관계 검증과 다음 상황으로 진행할 수 있는지 검증 |
 | R-02 초기 복수 후보, 고정 개수 없음 | Scenario Preparation | 초기 생성 요청·전체 결과 검증 |
 | R-03 상세 대본 대신 핵심 요소 유지 | Scenario Preparation | 상황 정의 검증 |
 | R-04 플레이 행동·확정 사건 기반 후보 선택 | Adventure Runtime | `StoryRuntimeRules` 및 계획 제안 검증 |
@@ -301,9 +299,9 @@ Scenario Preparation은 기존 Document Knowledge의 패키지·추출 개정 �
 
 기존 호출 경계를 유지하고 Request 및 Result의 내용만 확장한다. 초기 상황 생성 Request에는 필수 `JsonNode outputSchema`가 포함되며, JSON 객체 스키마와 `properties`, `required`, `additionalProperties: false`를 요구한다. `HttpInitialSituationGmPort`는 이를 AI Game Master 요청으로 전달하고, `TypedAgentContractController`와 `GmCompletionAdapter`·`GmCompletionRouter`를 거쳐 `AiExecutionRequest.outputSchema` 및 Codex 실행 요청의 출력 스키마에 연결한다. 이 경로의 출력 형식은 `JSON`이다. 기존 Provider 요청 정책과 업무 검증은 유지한다. `AdventureId`는 모험 식별자, `SessionId`는 세션 식별자, `StageBackbone`은 모험 진행 골격, `DetailedStage`는 준비된 단계의 핵심 요소와 상황 목록, `SituationDefinition`은 준비된 상황 정의다.
 
-검토 목록 자료형은 `RequiredSituation(situationId, summary, prerequisiteSituationIds, sourceRefs)`이며 `StageBackbone.requiredSituations`로 해당 모험 골격에 저장하고 상세 단계 생성에 전달한다. 내부 `StorySourcePreviewPort`는 선택한 STORYBOOK 문서·버전의 RAG 색인 구간을 페이지로 모두 읽어 `Passage(sourceRef, text)`로 반환한다. 응답 문서·소유·버전·전체 구간 수·위치·중복을 검증하며 이 검증은 색인 단계 전처리 누락이나 AI의 의미 판단 완전성을 증명하지 않는다.
+상황 자료형은 `RequiredSituation(situationId, summary, prerequisiteSituationIds, sourceRefs)`이며 `StageBackbone.requiredSituations`로 해당 모험 골격에 저장하고 상세 단계 생성에 전달한다. `StorybookEvidenceLookupPort.lookupForPreparation`은 선택된 STORYBOOK RAG 검색에서 나온 위치 참조와 제한된 `Passage(sourceRef, text)`를 한 번에 준비 서비스로 전달한다. 준비 서비스는 그 참조를 근거 허용 범위로 사용하고 같은 발췌를 `StageBackboneGenerationPort.Request`에 담아 상황 추출로 전달한다. 다음 단계 준비는 저장된 골격의 참조를 재사용하며 STORYBOOK RAG를 다시 조회하지 않는다. 응답의 소유·모험·문서·버전·위치 범위와 중복을 확인하고 발췌 길이를 제한한다. 검색되지 않은 상황의 누락은 검증하지 않는다.
 
-어댑터는 이야기 RAG 결과로 처리 순서를 정한 뒤 모든 색인 구간을 제한된 묶음으로 추출하고 같은 묶음별로 필수 상황과 명시적 선행 관계를 대조한다. 검토 결과는 통합해 참조·관계·순환 검증을 거친다. 다섯 초기 상황 응답(구간별 추출, 구간별 대조, 잘못된 항목 정정, 진행 골격 생성, 상세 단계 생성)은 각각 명시적 JSON Schema를 받아 JSON으로 요청한다. 모든 JSON 객체는 허용 필드를 나열하고 그 필드 전체를 required로 지정하며 `additionalProperties: false`를 적용한다. 일반 문자열 필드는 빈 문자열을 허용하지 않고, 문자열 또는 null인 값은 null을 허용하되 문자열일 때는 비어 있지 않아야 한다. 비공개 생성 응답의 모든 원문 근거 위치는 해당 호출에 번호를 붙여 제공한 정본 허용 참조 목록을 `sourceRefIndexes` 정수 배열로 가리킨다. 이 계약은 구간별 추출·대조, 진행 골격의 최상위·단계별 근거, 상세 단계의 최상위·폭로·위협·압박·흐름·상황 근거에 적용한다. 각 인덱스는 정수이며 0 이상이고 해당 호출의 허용 목록 범위 안이어야 한다. 허용 목록이 비어 있으면 배열도 비어 있어야 하며, 비어 있지 않은 목록에 대한 배열 길이 제한은 추가하지 않고 중복 인덱스도 허용한다. 애플리케이션은 기존 자료 객체를 만들기 전에 인덱스를 정본 참조로 바꾸고, 기존 원문 근거·출처 구분·범위 검증을 계속 적용한다. 응답에서 직접 `sourceRefs` 객체를 받지 않는다. 정정 응답의 `correctedSituations[].sourceRefIndexes`는 같은 인덱스 범위 규칙을 따르며 기존 정정 매퍼에서 한 번만 변환한다. 추출 응답은 `requiredSituations`를 요구하고, 각 항목은 `situationId`, `summary`, `prerequisiteSituationIds`, `sourceRefIndexes`를 요구하며 허용 참조가 있을 때 `sourceRefIndexes`는 하나 이상이어야 한다. 구간별 대조 응답은 `reviewed: true`와 해당 구간에서 확인한 필수 상황 목록을 요구하며 목록은 비어 있을 수 있다. 정정 응답은 `reviewed: true`와 정정 항목 배열을 요구하고, 각 항목은 하나 이상의 0 이상 정수 `sourceRefIndexes`, `prerequisiteSituationIds`, 그리고 문자열 또는 null인 `situationId`를 포함한다. 진행 골격은 하나 이상의 단계와 최상위 `sourceRefIndexes`를 요구하며 단계마다 `stageId`, `order`, `role`, `coreProblem`, `funnelSummary`, `sourceRefIndexes`가 필요하다. 상세 단계 스키마는 상세 DTO의 전체 필드를 기술하며 각 상황의 `intents`는 하나 이상이어야 한다. 또한 `revelationIds`, `pressureIds`, `funnelIds`, `funnelPredicateIds`, `importantConsequenceIds` 중 적어도 하나는 비어 있지 않아야 한다. 이 다섯 배열은 각각 비어 있을 수 있고, `intents`와 특정 배열의 의미상 종류를 맞추는 별도 조건은 없다. 이 전체 조건은 다섯 strict 객체 분기를 둔 중첩 `anyOf` 스키마로 표현한다. 비공개 상세 응답은 새 식별자를 임의 문자열로 만들지 않고 같은 응답의 기준 목록을 가리키는 정수 인덱스로 연결한다. `funnel.requiredRevelationIndexes`와 상황별 `revelationIndexes`는 `revelations[].revelationId`를, 상황별 `pressureIndexes`와 `funnelIndexes`는 각각 `pressure.pressureId`와 `funnel.funnelId`를, 상황별 `funnelPredicateIndexes`는 `funnel.requiredPredicateIds`를, 상황별 `importantConsequenceIndexes`는 최상위 `importantConsequenceIds`를 가리킨다. 각 값은 0부터 시작하는 정수 인덱스이며 기준 목록 범위 안이어야 한다. `pressureIndexes`와 `funnelIndexes`는 각각 단일 압박·흐름 대상 목록을 가리켜 값이 있으면 0만 허용하고 배열은 비어 있을 수 있다. 그 밖의 동적 대상 인덱스는 임의의 배열 길이 상한을 두지 않고 서버가 정본 목록 범위를 검증한다. 범위 오류 진단에는 고정된 응답 필드 경로와 허용 대상 수만 포함하며 반환된 인덱스 값, 대상 식별자, 원문이나 이야기 문장은 기록하지 않는다. 서버가 기준 ID로 바꿔 기존 상세 단계 객체를 만들며 잘못된 유형·범위나 기준 ID는 거부한다. 저장·외부 상세 DTO의 기존 ID 필드는 그대로 유지되고, 별도 생성 재시도는 추가하지 않는다. `mapDefinitionId`는 필수 문자열 또는 null이며, 비 null 문자열은 해당 모험에 제공된 지도 UUID 중 하나로 제한한다. 제공 지도가 없으면 null만 허용한다. 기존 지도 소속 검증과 저장·외부 자료 계약은 유지한다. 선택적인 재료·참조 배열은 빈 배열을 허용하고, 지도 식별자 null 허용은 유지한다. Structured Outputs가 중첩 `anyOf`를 지원하는 범위 안에서 각 분기는 객체 필드와 추가 속성 금지를 명시한다. 누락된 항목·관계는 검토 단계에서 보완하고, 검토를 마친 전체 목록을 골격 및 각 상세 단계 생성에 전달한다. 상세 단계 요청은 단계 순서대로 진행하며 각 요청에 앞선 응답에서 이미 배정된 필수 상황 ID를 `alreadyAssignedRequiredSituationIds`로 함께 전달한다. 생성기는 해당 ID를 다시 출력하지 않고, 남은 필수 상황은 검토 목록의 정확한 ID와 자료를 보존해 한 번씩 배정한다. 마지막에는 기존 전체 필수 상황 완전성 및 전역 고유성 검증을 그대로 적용한다. 검토 후 원문 위치 참조 또는 선행 상황 식별자가 잘못된 항목이 있으면, 잘못된 항목 목록과 정본 원문 위치를 정수 인덱스로 나열한 목록, 알려진 상황 식별자를 담아 정정 요청을 한 번 보낸다. 응답 배열은 잘못된 항목과 순서·개수가 1:1 대응해야 한다. 애플리케이션은 원래 항목의 ID와 요약을 보존하며, 선택적으로 반환한 ID는 원래 ID와 일치해야 한다. 배열 대응, 값 유형 또는 인덱스 범위가 맞지 않으면 거부한다. 올바른 기존 항목은 보존하고 잘못된 항목만 교체한 뒤 출처 유효성·선행 관계의 존재·순환을 포함해 전체 목록을 다시 검증한다. 계속 불일치하면 준비를 실패하고 게시하지 않는다. 반복 정정 루프는 두지 않는다. 스키마는 응답 형태를 제한하며 원문·지도·상황 관계의 의미 검증을 대체하지 않는다. 이 AI 의미 검토가 원문의 모든 의미를 완벽히 찾아낸다고 보장하지 않는다. 검토 목록의 각 필수 상황 ID에는 정확히 연결되는 최종 필수 `SituationDefinition`이 있어야 하며 해당 필수 상황의 `SOURCE_EXTRACTED` 출처 위치 집합은 목록의 sourceRefs와 정확히 같아야 하고 `prerequisiteSituationIds`도 일치해야 한다. 추가·누락 인용 위치는 허용하지 않는다. 검토된 필수 상황 간 선행 관계는 선행 상황이 의존 상황과 같은 단계 또는 더 앞선 단계에 배치되어야 한다. 더 뒤 단계의 선행 상황은 허용하지 않으며, 같은 단계의 관계는 허용한다. 이 단계 순서 검사는 검토된 필수 상황 간 관계에만 적용하고 선택·보완 상황이나 무관한 단계의 순서는 제한하지 않는다. 식별자와 관계는 변경하지 않고 단계를 자동 재정렬하지 않는다. 중간 상황 후보와 GM 보완 상황은 이 대응 검사 대상이 아니며 기존 출처 구분 규칙을 따른다. 복원된 자료도 검증하며, 불일치 또는 원문 범위 실패에서는 게시하지 않는다.
+어댑터는 제한된 RAG 후보를 한 번의 구조화된 JSON 요청으로 필수 상황과 명시적 선행 관계로 추출하고, 중복 식별자·허용되지 않은 출처·존재하지 않는 선행 식별자·순환을 검증한다. 검색 누락에 대한 완전성 주장은 하지 않는다. 세 초기 상황 응답(상황 추출, 진행 골격 생성, 상세 단계 생성)은 각각 명시적 JSON Schema를 받아 JSON으로 요청한다. 모든 JSON 객체는 허용 필드를 나열하고 그 필드 전체를 required로 지정하며 `additionalProperties: false`를 적용한다. 일반 문자열 필드는 빈 문자열을 허용하지 않고, 문자열 또는 null인 값은 null을 허용하되 문자열일 때는 비어 있지 않아야 한다. 비공개 생성 응답의 모든 원문 근거 위치는 해당 호출에 번호를 붙여 제공한 정본 허용 참조 목록을 `sourceRefIndexes` 정수 배열로 가리킨다. 이 계약은 상황 추출, 진행 골격의 최상위·단계별 근거, 상세 단계의 최상위·폭로·위협·압박·흐름·상황 근거에 적용한다. 각 인덱스는 정수이며 0 이상이고 해당 호출의 허용 목록 범위 안이어야 한다. 허용 목록이 비어 있으면 배열도 비어 있어야 하며, 비어 있지 않은 목록에 대한 배열 길이 제한은 추가하지 않고 중복 인덱스도 허용한다. 애플리케이션은 기존 자료 객체를 만들기 전에 인덱스를 정본 참조로 바꾸고, 기존 원문 근거·출처 구분·범위 검증을 계속 적용한다. 응답에서 직접 `sourceRefs` 객체를 받지 않는다. 상황 추출 응답은 `requiredSituations` 배열을 요구하고, 각 항목은 `situationId`, `summary`, `prerequisiteSituationIds`, `sourceRefIndexes`를 포함한다. 허용 참조가 있을 때 `sourceRefIndexes`는 하나 이상이어야 한다. 진행 골격은 하나 이상의 단계와 최상위 `sourceRefIndexes`를 요구하며 단계마다 `stageId`, `order`, `role`, `coreProblem`, `funnelSummary`, `sourceRefIndexes`가 필요하다. 상세 단계 스키마는 상세 DTO의 전체 필드를 기술하며 각 상황의 `intents`는 하나 이상이어야 한다. 또한 `revelationIds`, `pressureIds`, `funnelIds`, `funnelPredicateIds`, `importantConsequenceIds` 중 적어도 하나는 비어 있지 않아야 한다. 이 다섯 배열은 각각 비어 있을 수 있고, `intents`와 특정 배열의 의미상 종류를 맞추는 별도 조건은 없다. 이 전체 조건은 다섯 strict 객체 분기를 둔 중첩 `anyOf` 스키마로 표현한다. 비공개 상세 응답은 새 식별자를 임의 문자열로 만들지 않고 같은 응답의 기준 목록을 가리키는 정수 인덱스로 연결한다. `funnel.requiredRevelationIndexes`와 상황별 `revelationIndexes`는 `revelations[].revelationId`를, 상황별 `pressureIndexes`와 `funnelIndexes`는 각각 `pressure.pressureId`와 `funnel.funnelId`를, 상황별 `funnelPredicateIndexes`는 `funnel.requiredPredicateIds`를, 상황별 `importantConsequenceIndexes`는 최상위 `importantConsequenceIds`를 가리킨다. 각 값은 0부터 시작하는 정수 인덱스이며 기준 목록 범위 안이어야 한다. `pressureIndexes`와 `funnelIndexes`는 각각 단일 압박·흐름 대상 목록을 가리켜 값이 있으면 0만 허용하고 배열은 비어 있을 수 있다. 그 밖의 동적 대상 인덱스는 임의의 배열 길이 상한을 두지 않고 서버가 정본 목록 범위를 검증한다. 범위 오류 진단에는 고정된 응답 필드 경로와 허용 대상 수만 포함하며 반환된 인덱스 값, 대상 식별자, 원문이나 이야기 문장은 기록하지 않는다. 서버가 기준 ID로 바꿔 기존 상세 단계 객체를 만들며 잘못된 유형·범위나 기준 ID는 거부한다. 저장·외부 상세 DTO의 기존 ID 필드는 그대로 유지되고, 별도 생성 재시도는 추가하지 않는다. `mapDefinitionId`는 필수 문자열 또는 null이며, 비 null 문자열은 해당 모험에 제공된 지도 UUID 중 하나로 제한한다. 제공 지도가 없으면 null만 허용한다. 기존 지도 소속 검증과 저장·외부 자료 계약은 유지한다. 선택적인 재료·참조 배열은 빈 배열을 허용하고, 지도 식별자 null 허용은 유지한다. Structured Outputs가 중첩 `anyOf`를 지원하는 범위 안에서 각 분기는 객체 필드와 추가 속성 금지를 명시한다. 추출 목록을 골격 및 각 상세 단계 생성에 전달하고 목록의 최종 반영 여부를 검증한다. 원문 전체나 별도 대조 요청은 사용하지 않는다. 상세 단계 요청은 단계 순서대로 진행하며 각 요청에 앞선 응답에서 이미 배정된 필수 상황 ID를 `alreadyAssignedRequiredSituationIds`로 함께 전달한다. 생성기는 해당 ID를 다시 출력하지 않고, 남은 필수 상황은 추출 목록의 정확한 ID와 자료를 보존해 한 번씩 배정한다. 마지막에는 추출 목록의 전체 반영 및 전역 고유성 검증을 그대로 적용한다. 스키마는 응답 형태를 제한하며 원문·지도·상황 관계의 의미 검증을 대체하지 않는다. 검색 후보에서 추출한 목록이 원문의 모든 필수 상황을 빠짐없이 찾았다고 보장하지 않는다. 추출 목록의 각 필수 상황 ID에는 정확히 연결되는 최종 필수 `SituationDefinition`이 있어야 하며 해당 필수 상황의 `SOURCE_EXTRACTED` 출처 위치 집합은 목록의 sourceRefs와 정확히 같아야 하고 `prerequisiteSituationIds`도 일치해야 한다. 추가·누락 인용 위치는 허용하지 않는다. 추출된 필수 상황 간 선행 관계는 선행 상황이 의존 상황과 같은 단계 또는 더 앞선 단계에 배치되어야 한다. 더 뒤 단계의 선행 상황은 허용하지 않으며, 같은 단계의 관계는 허용한다. 이 단계 순서 검사는 추출된 필수 상황 간 관계에만 적용하고 선택·보완 상황이나 무관한 단계의 순서는 제한하지 않는다. 식별자와 관계는 변경하지 않고 단계를 자동 재정렬하지 않는다. 중간 상황 후보와 GM 보완 상황은 이 대응 검사 대상이 아니며 기존 출처 구분 규칙을 따른다. 복원된 자료도 검증하며, 불일치 또는 원문 범위 실패에서는 게시하지 않는다.
 
 ```java
 StageArtifactPreparationApplicationService.Result prepare(
@@ -331,9 +329,24 @@ void saveInitialArtifacts(
 | Side Effects | 모험별 초기 자료 저장 또는 기존 턴 확정 |
 | Idempotency | 같은 모험 준비 재시도는 저장 자료 재사용; 같은 턴 중복 확정은 기존 결과 반환 |
 
+#### 턴 근거 조회 계약
+
+턴 시작 시 `RuntimeTurnApplicationService`는 현재 준비된 상황을 먼저 선택하고, 선택 결과와 관련 장기 모험 기록, 현재 상태, 플레이 중 추가 사실 및 이미 확정된 고정 문서 근거 식별자를 `RuntimeFactLookupService`에 전달한다. 조회 호출은 플레이어 행동마다 별도의 문맥에서 한 번 수행하며, 전체 대화 기록은 전달하지 않는다. 이미 확정된 사실만으로 조회 질문에 답할 수 있으면 기존 단축 경로를 유지한다.
+
+조회 담당 AI의 한 번의 요청은 근거 검색과 답변을 함께 수행한다. 근거 검색은 허용된 STORYBOOK과 RULEBOOK을 한 검색 요청의 dense 임베딩 경로로 조회하며 BM25, 별도 재정렬, 근거 충분성 판정 요청을 추가하지 않는다. 검색 결과는 출처별 상위 5개 이내로 제한하고, 현재 모험의 선택된 자료 범위·문서·추출 버전·위치가 서버의 허용 범위와 일치하는지 검증한다. 이미 전달된 `IMMUTABLE_DOCUMENT:<출처>:<문서 ID>:<추출 버전>:<위치>` 식별자는 검색 제외 목록으로 전달한다. 이 제외는 확정 턴의 근거 묶음에서 재구성하며, 변할 수 있는 게임 상태·추가 사실·상황에는 적용하지 않는다.
+
+| Contract | Boundary | Required Input | Required Output / Validation |
+|---|---|---|---|
+| `scenario-lookup-request.json` | `POST /internal/gm/scenario-lookup` | 행동, 게임 상태, 추가 사실, 현재·선택된 준비 상황, 관련 장기 모험 기록, 잠긴 시나리오 모델, 제외할 고정 문서 근거 식별자 | 정의되지 않은 필드 거부; 대화 전체 제외 |
+| `evidence-candidate-search-request.json` | 근거 검색 내부 요청 | 한 번의 혼합 출처 dense 검색 범위와 제외 식별자 | 출처·자료 범위 검증; BM25 실행 안 함 |
+| `scenario-lookup-response.json` | 조회 담당 AI 응답 | 해당 요청의 허용 근거 자료 | `status`, `answer`, `supportingElementIds`만 허용; 상태별 필수 값과 고유 식별자 검증 |
+| `runtime-turn-request.json` / `runtime-turn-response.json` | 턴 진행 AI 경계 | 전체 턴 진행 문맥과 조회 결과 | 고정 JSON Schema 적용; 도구 요청과 확정 결과를 오케스트레이터가 순서대로 검증·처리 |
+
+OpenAI 응답의 입력 토큰 및 캐시된 입력 토큰 사용량은 제공자가 반환한 경우에만 관측한다. 토큰 캐시 절감을 가정하지 않으며 캐시를 채우기 위한 입력 확장은 하지 않는다.
+
 ### 4.8 Error Propagation
 
-원문 조회 실패, 문서 식별·유형·추출 버전·색인 상태 불일치, 경고 또는 위치 구간의 누락·불완전성, 빈 원문은 준비 실패다. 추출 본문이나 검색 발췌로 대신 완료 처리하지 않는다. 정상적인 원문 근거 부족만 GM 보완으로 허용한다. 검토 목록 또는 최종 상황 세트의 누락·무근거 추가·원문과 맞지 않는 선행 관계는 검증 오류로 전체 게시를 거부한다.
+원문 조회 실패, 문서 식별·유형·추출 버전·색인 상태 불일치, 경고 또는 위치 구간의 누락·불완전성, 빈 원문은 준비 실패다. 추출 본문이나 검색 발췌로 대신 완료 처리하지 않는다. 정상적인 원문 근거 부족만 GM 보완으로 허용한다. 추출 목록 또는 최종 상황 세트의 누락·무근거 추가·원문과 맞지 않는 선행 관계는 검증 오류로 전체 게시를 거부한다.
 
 | Failure Point | Source Error | Converted Error | Handler | Result |
 |---|---|---|---|---|
@@ -386,7 +399,7 @@ void saveInitialArtifacts(
 
 ### 5.3 System Interaction Flow
 
-두 시작 진입점 모두 모험 ID 예약·복원 후 준비 서비스에 전달한다. 준비 서비스는 추가 STORYBOOK 검색과 색인 구간 전체 페이지 처리를 검증하고 구간별 추출·대조 결과를 통합한다. 필수 상황별 기본 RULEBOOK 검색문은 한 묶음으로 임베딩한 뒤 별도 dense 검색하며 STORYBOOK 결과와 범위를 섞지 않는다. 최종 생성 결과를 검증한 뒤 DB에 원자적으로 게시한다. 색인 페이지 누락·조회·추출·대조 실패는 시작을 막는다. 기존 시작 응답을 유지한다. 런타임에서 AI는 계획 후보만 제안하며 기존 엔진이 검증 후 확정한다. 새 공개 API는 없다.
+두 시작 진입점 모두 모험 ID 예약·복원 후 준비 서비스에 전달한다. 준비 서비스는 추가 STORYBOOK에서 제한된 RAG 후보를 검색하고, 검색 결과 범위와 JSON으로 추출한 상황 관계를 검증한다. 필수 상황별 기본 RULEBOOK 검색문은 한 묶음으로 임베딩한 뒤 별도 dense 검색하며 STORYBOOK 결과와 범위를 섞지 않는다. 최종 생성 결과를 검증한 뒤 DB에 원자적으로 게시한다. 검색·추출·검증 실패는 시작을 막는다. RAG에서 검색되지 않은 원문 상황의 누락은 증명할 수 없다. 기존 시작 응답을 유지한다. 런타임에서는 활성 준비 상황 선택 후 별도 조회 담당 AI가 한 번의 혼합 출처 dense 검색으로 근거를 확인하고, 그 결과를 턴 진행 AI가 받는다. 상태 확정과 도구 실행 순서는 오케스트레이터가 유지한다. 새 공개 API는 없다.
 
 ### 5.4 Synchronous Communication
 
@@ -416,7 +429,7 @@ void saveInitialArtifacts(
 
 ### 5.8 Data Ownership
 
-초기 정의와 그 준비 개정은 모험별 준비 자료가 소유한다. 각 조회·기본 키·유일성에 AdventureId를 포함한다. `StageBackbone.requiredSituations`에는 RAG 색인 구간별 추출·대조를 거친 필수 상황 목록이 기존 모험 소유 JSON으로 저장된다. 별도 공용 목록이나 전역 ScenarioModel 변경은 없다. 패키지·추출 개정은 원문 출처 참조로만 사용한다. 게시한 초기 정의는 불변이다. `StoryRuntimeState`는 초기 후보 사용 여부·필수 상황 진행·신규 상황을 해당 모험 범위에서 소유한다. 지도 원본, 원문, 캐릭터 등은 기존 소유자가 관리한다.
+초기 정의와 그 준비 개정은 모험별 준비 자료가 소유한다. 각 조회·기본 키·유일성에 AdventureId를 포함한다. `StageBackbone.requiredSituations`에는 RAG 색인 상황 추출를 거친 필수 상황 목록이 기존 모험 소유 JSON으로 저장된다. 별도 공용 목록이나 전역 ScenarioModel 변경은 없다. 패키지·추출 개정은 원문 출처 참조로만 사용한다. 게시한 초기 정의는 불변이다. `StoryRuntimeState`는 초기 후보 사용 여부·필수 상황 진행·신규 상황을 해당 모험 범위에서 소유한다. 지도 원본, 원문, 캐릭터 등은 기존 소유자가 관리한다.
 
 ### 5.9 Schema Changes
 
@@ -431,7 +444,7 @@ void saveInitialArtifacts(
 
 ### 5.10 Consistency Model
 
-초기 자료는 모험별 준비 개정에 대해 원문 대조를 마친 `StageBackbone.requiredSituations`와 골격·전체 상세 단계가 단일 트랜잭션으로 게시된다. 골격 JSON의 검토 목록은 기존 모험 소유 범위에 저장되고 준비 재시도·복원 시 다시 검증된다. 턴 상태는 기존 모험 버전과 확정 경계를 따른다. 플레이어 굴림 대기 중에는 현재 상황·사용 상태·새 상황을 정본에 반영하지 않는다. 턴 확정에서 상황 진행과 기존 게임 결과를 함께 저장한다.
+초기 자료는 모험별 준비 개정에 대해 RAG 후보에서 추출한 `StageBackbone.requiredSituations`와 골격·전체 상세 단계가 단일 트랜잭션으로 게시된다. 골격 JSON의 추출 목록은 기존 모험 소유 범위에 저장되고 준비 재시도·복원 시 다시 검증된다. 턴 상태는 기존 모험 버전과 확정 경계를 따른다. 플레이어 굴림 대기 중에는 현재 상황·사용 상태·새 상황을 정본에 반영하지 않는다. 턴 확정에서 상황 진행과 기존 게임 결과를 함께 저장한다.
 
 ### 5.11 Infrastructure Dependencies
 
@@ -445,7 +458,7 @@ AI 생성 포트와 adapter를 유지한다. 응답 형식·참조 ID·모험 �
 
 #### Existing Structure
 
-MAT-01에서 확인한 기존 구조는 시작 준비 경로, 상황 준비 포트·서비스·저장소, StoryRuntimeState, PendingRuntimeState, Adventure, Runtime Turn 서비스, PostgreSQL 저장소 및 API 설정이다. 원문 미리보기 조회 포트와 HTTP adapter, `RequiredSituation`, 골격에 보관하는 검토 목록은 이번 사용자 승인 확장에서 추가하는 대상이다. 이 변경 대상은 MAT-01의 기존 구조 관찰이 아니며, 구현·검증 결과를 뜻하지 않는다.
+MAT-01에서 확인한 기존 구조는 시작 준비 경로, 상황 준비 포트·서비스·저장소, StoryRuntimeState, PendingRuntimeState, Adventure, Runtime Turn 서비스, PostgreSQL 저장소 및 API 설정이다. 원문 미리보기 조회 포트와 HTTP adapter, `RequiredSituation`, 골격에 보관하는 추출 목록은 이번 사용자 승인 확장에서 추가하는 대상이다. 이 변경 대상은 MAT-01의 기존 구조 관찰이 아니며, 구현·검증 결과를 뜻하지 않는다.
 
 #### Target Structure
 
@@ -459,10 +472,10 @@ MAT-01에서 확인한 기존 구조는 시작 준비 경로, 상황 준비 포�
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/AdventureStartApplicationService.java` | 예약한 동일 식별자로 실제 시작 전 전체 준비 확인 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/StageArtifactPreparationPort.java` | 모험·세션 입력 및 전체 결과 계약 반영 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/StageArtifactPreparationApplicationService.java` | 재사용·생성·검증·게시 순서 구현 |
-| `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPackageStageArtifactAdapter.java` | STORYBOOK 색인 구간별 상황 추출·대조, 필수 상황별 RULEBOOK 조회, 검토 목록 전달 및 최종 자료 대조 |
-| `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/StorySourcePreviewPort.java` | 기존 원문 읽기 API를 통해 선택된 STORYBOOK 원문의 위치별 전체 구간 제공 |
+| `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPackageStageArtifactAdapter.java` | STORYBOOK 색인 구간별 상황 추출·대조, 필수 상황별 RULEBOOK 조회, 추출 목록 전달 및 최종 자료 대조 |
+| `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/StorySourcePreviewPort.java` | 기존 RAG API에서 선택된 STORYBOOK의 제한된 검색 후보를 제공 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpStorySourcePreviewPort.java` | 문서 식별·유형·추출 버전·색인 상태·경고·구간 완전성 검증과 원문 반환 |
-| `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/RequiredSituation.java` | 검토된 필수 상황의 ID·요약·선행 ID·원문 위치 참조 표현 |
+| `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/RequiredSituation.java` | 추출된 필수 상황의 ID·요약·선행 ID·원문 위치 참조 표현 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/StageArtifactRepository.java` | 모험 키 조회·일괄 저장 계약 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/SituationDefinition.java` | 필수·선행·출처·맵·핵심 요소 의미 확장 |
 | `src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/persistence/PostgresStageArtifactRepository.java` | 모험별 저장·조회 및 원자적 전체 게시 |
@@ -485,7 +498,7 @@ MAT-01에서 확인한 기존 구조는 시작 준비 경로, 상황 준비 포�
 
 ### 6.1 Runtime Flow
 
-시작 ID 확보·예약 → 같은 모험 자료 조회 → 추가 STORYBOOK 검색 → 선택 문서의 색인 구간 전체 페이지 처리 → 제한된 구간별 추출·대조 및 결과 통합 → 필수 상황별 기본 RULEBOOK 검색문 묶음 임베딩·별도 검색 → 검토 목록 저장 포함 생성 → 모든 목록 항목·관계·출처 검증 → 골격·전체 단계 원자 게시 → 모험 시작. 색인 누락·중복 또는 조회·처리 실패는 준비 실패다. 색인 완전성 검증은 색인 전처리 누락과 의미 추출 완전성을 증명하지 않는다. 각 플레이 턴은 후보·사용 상태 입력 → 계속/선택/생성 제안 → 검증 및 대기 저장 → 기존 굴림 게이트 → 기존 턴 확정으로 실행된다.
+시작 ID 확보·예약 → 같은 모험 자료 조회 → 추가 STORYBOOK에서 제한된 후보 검색 → JSON 상황 추출과 범위·식별자·출처·관계 검증 → 필수 상황별 기본 RULEBOOK 검색문 묶음 임베딩·별도 검색 → 추출 목록을 입력으로 생성 → 최종 목록·관계·출처 검증 → 골격·전체 단계 원자 게시 → 모험 시작. 검색·처리 실패는 준비 실패다. 이 흐름은 검색되지 않은 원문 상황의 누락을 증명하지 않는다. 각 플레이 턴은 후보·사용 상태 입력 → 계속/선택/생성 제안 → 검증 및 대기 저장 → 기존 굴림 게이트 → 기존 턴 확정으로 실행된다.
 
 ### 6.2 Concurrent Access
 
@@ -509,22 +522,22 @@ MAT-01에서 확인한 기존 구조는 시작 준비 경로, 상황 준비 포�
 
 ### 6.7 Partial Failure
 
-RAG 검색·모든 색인 구간 페이지 조회·구간별 추출·대조·생성 중 어느 단계든 실패하면 검토 목록을 게시하지 않고 모험 시작을 완료하지 않는다. 페이지 범위나 전체 수량이 맞지 않으면 준비가 실패한다. 부분 초기 자료는 완료로 게시하지 않는다. Provider·검증 오류에서는 시작을 완료하지 않는다. 굴림 대기나 턴 저장 실패에서는 제안과 기존 재개 절차를 보존하고 상황 사용·추가를 정본화하지 않는다. 제공 지도가 없을 때는 맵 없이 계속 진행한다.
+RAG 검색·상황 추출·생성 중 어느 단계든 실패하면 초기 자료를 게시하지 않고 모험 시작을 완료하지 않는다. 검색 후보의 범위나 추출 목록의 구조가 맞지 않으면 준비가 실패한다. 부분 초기 자료는 완료로 게시하지 않는다. Provider·검증 오류에서는 시작을 완료하지 않는다. 굴림 대기나 턴 저장 실패에서는 제안과 기존 재개 절차를 보존하고 상황 사용·추가를 정본화하지 않는다. 제공 지도가 없을 때는 맵 없이 계속 진행한다.
 
 ## 7. Error Handling and Recovery
 
 ### 7.1 Failure and Recovery Flow
 
-실패를 RAG 페이지 조회·수량·위치 검증 실패, 구간별 추출·대조 실패, 정상적인 근거 부족, 잘못된 생성 또는 검토 목록 불일치, Provider 장애, 저장 경쟁, 굴림 대기, 턴 확정 실패로 분류한다. 각각 준비 중단·GM 보완·기존 검증·제한된 AI 요청·저장 충돌·턴 재개 절차를 사용한다.
+실패를 RAG 페이지 조회·수량·위치 검증 실패, 상황 추출 실패, 정상적인 근거 부족, 잘못된 생성 또는 추출 목록 불일치, Provider 장애, 저장 경쟁, 굴림 대기, 턴 확정 실패로 분류한다. 각각 준비 중단·GM 보완·기존 검증·제한된 AI 요청·저장 충돌·턴 재개 절차를 사용한다.
 
 ### 7.2 Error Classification
 
 | 종류 | 처리 |
 |---|---|
-| STORYBOOK 검색·색인 구간 조회·구간별 추출·대조 불가, 페이지 수·위치 불일치 | 준비 실패로 처리하고 검토 목록·초기 자료 게시 및 모험 시작을 완료하지 않음 |
+| STORYBOOK 검색·색인 구간 조회·상황 추출 불가, 페이지 수·위치 불일치 | 준비 실패로 처리하고 추출 목록·초기 자료 게시 및 모험 시작을 완료하지 않음 |
 | 원문 근거 부족 | 위치가 완전히 확인된 원문 안의 세부 부족만 출처를 표시한 정상 GM 보완으로 진행 |
-| 검토 목록 또는 최종 상황 누락·불일치 | 검토된 필수 상황 ID·출처·선행 관계를 모두 반영하기 전 초기 자료 전체를 게시하지 않음 |
-| 검토 목록의 잘못된 원문 위치 참조·선행 관계 | 잘못된 항목마다 순서대로 하나씩 정정 결과를 받고, 정수 인덱스로 위치 참조를 재구성; ID·요약은 기존 값 복원, 선택 입력된 ID 불일치·개수 불일치·범위 밖 인덱스는 거부; 전체 목록의 출처·선행 식별자·순환을 재검증하고 여전히 잘못되면 기존 검증 오류로 거부 |
+| 추출 목록 또는 최종 상황 누락·불일치 | 추출된 필수 상황 ID·출처·선행 관계를 모두 반영하기 전 초기 자료 전체를 게시하지 않음 |
+| 추출 목록의 잘못된 원문 위치 참조·선행 관계 | 잘못된 항목마다 순서대로 하나씩 정정 결과를 받고, 정수 인덱스로 위치 참조를 재구성; ID·요약은 기존 값 복원, 선택 입력된 ID 불일치·개수 불일치·범위 밖 인덱스는 거부; 전체 목록의 출처·선행 식별자·순환을 재검증하고 여전히 잘못되면 기존 검증 오류로 거부 |
 | Provider 실패 | 기존 Provider 정책 사용, 완성 자료로 위장 금지 |
 | 저장 충돌 | 같은 모험의 완성본 재조회 또는 버전 충돌 |
 | 굴림 대기·턴 확정 실패 | 대기 제안 보존 및 기존 재개 흐름 |
@@ -532,7 +545,7 @@ RAG 검색·모든 색인 구간 페이지 조회·구간별 추출·대조·생
 
 ### 7.3 Retry Policy
 
-모든 색인 구간별 대조를 거친 검토 목록에 잘못된 원문 위치 참조나 선행 상황 식별자가 있으면, 어댑터는 잘못된 항목들과 정본 원문 위치 참조를 정수 인덱스로 번호 매긴 목록, 알려진 상황 식별자를 전달해 정정 요청을 한 번 보낸다. 응답의 `correctedSituations`는 잘못된 항목과 동일한 순서·개수여야 하며 각 항목은 `sourceRefIndexes`와 `prerequisiteSituationIds`만 제공한다. 애플리케이션은 정수 인덱스를 정본 위치 참조로 바꾸고 원래 항목의 ID와 요약을 복원한다. 선택 입력된 ID가 원래 ID와 다르거나 배열 개수 또는 인덱스 범위가 맞지 않으면 거부한다. 정정 결과는 기존의 올바른 항목을 보존하며 잘못된 항목에만 반영하고, 출처 유효성·선행 식별자 존재·순환을 포함해 전체 목록을 다시 검증한다. 검증이 실패하면 준비를 실패 처리하고 게시하지 않는다. 이는 한 번의 정정 호출이며 반복 루프나 설정 가능한 횟수를 추가하지 않는다. 그 밖의 AI 호출 제한·분류·재시도는 기존 정책을 따른다. 원문 대조까지 완료되어 저장된 검토 목록은 재호출 때 복원·검증해 사용하고, 원문 처리에서 실패했거나 완료 자료가 없는 경우에는 준비를 성공으로 간주하지 않는다. 완성 자료가 확인된 경우에만 생성을 생략한다.
+RAG에서 추출한 필수 상황 목록을 골격과 상세 단계에 전달하고, 준비된 필수 상황이 그 목록의 ID·출처 위치·선행 관계를 반영하는지 구조적으로 검증한다. 중복 ID, 허용되지 않은 출처, 존재하지 않는 선행 식별자, 순환이 있으면 준비를 실패 처리하고 게시하지 않는다. 자동 정정 호출은 하지 않는다. 저장된 추출 목록은 같은 모험의 재시도에서 복원한다. 이는 RAG에서 검색되지 않은 원문 상황의 누락을 검증하지 않는다.
 
 ### 7.4 Compensation
 
@@ -602,8 +615,8 @@ RAG 검색·모든 색인 구간 페이지 조회·구간별 추출·대조·생
 
 | 검증 | 기준 |
 |---|---|
-| UC-1 / R-01 | 필수 상황 및 원문 명시 선행 관계 보존; 없는 관계 강제 없음; 검토된 필수 상황 간 선행 상황은 같은 단계 또는 앞선 단계에 배치하며 같은 단계 허용 |
-| UC-1 / R-01 | 모든 색인 구간을 처리하고 최종 단계의 필수 상황·선행 관계가 검토 목록과 일치; 색인 누락·AI 의미 완전성은 증명하지 않음 |
+| UC-1 / R-01 | 필수 상황 및 원문 명시 선행 관계 보존; 없는 관계 강제 없음; 추출된 필수 상황 간 선행 상황은 같은 단계 또는 앞선 단계에 배치하며 같은 단계 허용 |
+| UC-1 / R-01 | 제한된 RAG 후보에서 추출한 필수 상황·선행 관계가 최종 단계에 반영됨; 검색 누락의 완전성은 증명하지 않음 |
 | UC-1 / R-02, R-03 | 여러 초기 후보 생성, 개수 고정 없음, 상세 대본 대신 선택적 핵심 요소 |
 | R-07 | 원문 내 세부 근거 부족은 위치 참조와 GM 보완 구분으로 허용; 실제 원문 조회·추출·대조 실패는 준비·시작 실패 |
 | UC-2 / R-04, R-06 | 현재 행동·확정 사건에 맞는 모험 내 후보 선택; 제공 지도만 사용 |
@@ -613,17 +626,17 @@ RAG 검색·모든 색인 구간 페이지 조회·구간별 추출·대조·생
 
 ### 11.2 Program Verification
 
-두 시작 진입점이 같은 예약 ID를 넘기는지, 선택 STORYBOOK의 RAG 검색과 모든 색인 구간 페이지 조회가 문서·소유·추출 버전·위치·총량·중복을 확인하는지, 각 구간의 제한 크기 추출·대조가 수행되는지, 필수 상황별 기본 RULEBOOK 검색문을 묶음 임베딩 후 검색하며 문서 범위를 섞지 않는지, 검토된 목록만 골격·상세 생성에 들어가는지, 검토 목록의 위치 집합과 최종 필수 상황 인용 위치 집합이 추가·누락 없이 같은지, 색인 페이지·추출·검색 실패가 준비·시작을 막는지, 준비 결과와 기존 호출 시그니처가 유지되는지 검증한다.
+두 시작 진입점이 같은 예약 ID를 전달하는지, 선택 STORYBOOK의 제한된 RAG 결과에서 문서·소유·추출 버전·위치 범위를 확인하는지, 후보 중복과 발췌 길이를 제한하는지, 상황 추출이 JSON Schema를 적용하는 단일 요청인지, 추출 목록의 고유 식별자·허용 출처·선행 식별자·비순환 관계를 검증하는지 확인한다. 기본 RULEBOOK 검색은 상황별 묶음 임베딩 뒤 별도로 수행하며 STORYBOOK과 검색 범위를 섞지 않는다. 검색되지 않은 원문 상황의 누락을 완전성 검증으로 표시하지 않는다. 준비 실패는 게시와 모험 시작을 막고, 준비 결과와 기존 호출 시그니처는 유지한다.
 
 테스트 범위에는 다음 기존 단위·통합 테스트 접점을 새 계약에 맞춰 갱신한다. 아래는 구현 시 검증 범위이며 실행 완료를 뜻하지 않는다: `StageArtifactPreparationApplicationServiceTest.java`, `ScenarioPackageStageArtifactAdapterTest.java`, `ScenarioRuntimeAdventureStartTest.java`, `AdventureSessionStageStartTest.java`, `StoryRuntimeStateTest.java`, `RuntimeTurnPostgresIntegrationTest.java`, `ScenarioRuntimeTurnSafetyTest.java`, `PreparedMapEntryCommitGateTest.java`.
 
 ### 11.3 Technical Contract Verification
 
-`InitialSituationGmPort.Request.outputSchema`의 필수 객체 조건, HTTP 내부 요청 전달, `TypedAgentContractController`의 strict object 검사, `GmCompletionAdapter`·`GmCompletionRouter`에서 `AiExecutionRequest.outputSchema`를 거쳐 Codex 실행 요청에 도달하는 스키마 전달과 `JSON` 출력 형식을 확인한다. 다섯 스키마 모두 객체의 required 필드 전체와 `additionalProperties: false`를 포함하는지, 추출·검토·정정·골격·상세 응답의 배열 최소 개수, 필드 유형, 문자열 최소 길이, null 허용이 계약과 일치하는지 확인한다. 구간별 추출·전체 검토·골격·상세 응답의 모든 원문 근거 위치가 각 호출에 제공된 번호 목록의 `sourceRefIndexes`를 사용하고, 각 항목이 정수·0 이상·목록 범위 이내인지 확인한다. 허용 목록이 비어 있으면 배열은 비어 있어야 하며, 비어 있지 않은 목록에서는 배열 길이 제한 없이 중복 인덱스를 허용한다. 서버가 인덱스를 정본 참조로 바꾼 뒤 기존 원문 근거 검증을 적용하고 응답의 직접 `sourceRefs` 객체는 거부하는지 확인한다. 정정 응답의 `correctedSituations[].sourceRefIndexes`는 기존 매퍼가 한 번만 변환하며 같은 인덱스 범위를 검증한다. 상세 상황의 `intents`는 하나 이상이어야 하며, 다섯 대상 배열(`revelationIds`, `pressureIds`, `funnelIds`, `funnelPredicateIds`, `importantConsequenceIds`) 중 적어도 하나가 비어 있지 않아야 한다. 각 대상 배열은 개별적으로 비어 있을 수 있고 `intents`와 대상 종류를 짝짓지 않는다. 이 합계 조건은 다섯 strict 객체 분기의 중첩 `anyOf`로 표현하며, 공식 Structured Outputs 문서의 중첩 `anyOf` 지원 범위에 둔다. 비공개 상세 응답은 `requiredRevelationIndexes`, `revelationIndexes`, `pressureIndexes`, `funnelIndexes`, `funnelPredicateIndexes`, `importantConsequenceIndexes` 정수 배열로 기존 동적 참조를 연결한다. 각각 같은 응답의 `revelations[].revelationId`, 단일 `pressure.pressureId`, 단일 `funnel.funnelId`, `funnel.requiredPredicateIds`, 최상위 `importantConsequenceIds` 목록을 기준으로 0부터 시작하는 정수 인덱스의 범위를 검사한 뒤 기존 정본 ID로 변환한다. 단일 압박·흐름 목록 인덱스는 배열 값이 있으면 0만 허용하고, 그 밖의 동적 대상 인덱스 배열에는 임의의 길이 상한을 두지 않는다. 범위 오류 진단은 고정 필드 경로와 허용 대상 수만 기록하며 반환 인덱스, 대상 식별자, 원문·이야기 문장을 기록하지 않는다. 잘못된 기준 ID나 범위 밖 인덱스는 거부한다. 저장·외부 `DetailedStage`의 기존 ID 필드는 유지하며, 이 변환을 위한 별도 생성 재시도는 없다. 비공개 상세 응답은 상황별 `opening` 불리언 대신 최상위 `openingSituationIndex`를 사용한다. 첫 단계 요청에서는 0 이상 정수 인덱스가 필수이며 이후 단계 요청에서는 정수 또는 null을 허용한다. 인덱스는 해당 응답의 `situations` 목록을 가리키며 서버가 범위와 첫 단계 필수 조건을 검증하고 선택된 한 상황에만 기존 `opening=true`를 복원한다. 비공개 인덱스 필드는 변환 후 제거된다. 이후 단계의 null은 그 단계에 여는 상황이 없음을 뜻하고, 기존 첫 단계 시작 상황 조건은 유지한다. 저장·외부 상세 DTO와 기존 ID/opening 필드는 그대로 유지되고 별도 생성 재시도는 추가하지 않는다. 단계 사이의 상황 ID 충돌을 막기 위해 비공개 응답 중 `required=false`이고 `provenance=GM_SUPPLEMENTED`인 선택 상황만 `gm-supplemented:<단계 ID 길이>:<단계 ID>:<원래 ID>` 형식의 단계별 ID로 정규화한다. 같은 응답의 선행 참조도 그 ID에 맞게 바꾸며, 검토된 필수 상황의 ID·자료·근거·선행 관계는 보존한다. 보호된 ID와 정규화 결과가 충돌하거나 선행 참조가 필수 ID와 선택 ID 양쪽을 가리켜 대상을 판별할 수 없으면 거부한다. 선택 상황은 다른 단계의 선택 상황을 선행 참조할 수 없다. 전역 고유성·선행 참조 존재·순환 검사와 전체 검증 후 저장을 유지한다. 충돌 진단에는 단계 ID, 출처 구분, 필수 여부만 기록하고 상황 ID와 원문은 기록하지 않는다. 선택적인 재료 배열은 빈 배열을 허용한다. 상세 응답 스키마의 필수 `mapDefinitionId`는 해당 모험에 제공된 지도 UUID 중 하나 또는 null만 허용하며, 제공 지도가 없으면 null만 허용한다. 기존 지도 소속 검증과 저장·외부 자료 계약은 유지된다. 스키마로 보장되지 않는 정정 배열의 원본 잘못 항목과의 순서·개수 일치, 기존 ID·요약 보존, 참조 인덱스 범위, 원문 위치·지도·상황 관계 의미는 도메인 검증이 계속 강제한다. 기존 `StageBackbone.requiredSituations`의 모험 소유 JSON 저장·복원, 별도 검토 요청의 색인 구간 전체과 전체 추출 목록, 입력 한도 초과 시 준비 실패, 원문 위치의 실제 대응, 순차 상세 단계 요청마다 앞서 배정된 필수 상황 ID 전달과 중복 출력 금지, 생성된 필수 상황 ID·필수 표시·`SOURCE_EXTRACTED` 인용 위치 집합의 정확한 동등성·선행 ID 전체 일치, 전체 상황 ID 전역 고유성, 원문 조회 실패 거부, 검토 목록 누락·변조·목록 밖 관계 거부, 초기 검토 목록과 전체 단계 원자 저장을 유지한다. 잘못된 검토 목록은 단일 정정 요청으로 보완하며 `correctedSituations`의 원본 항목별 순서·개수 대응, `sourceRefIndexes` 및 `prerequisiteSituationIds`, 원래 ID·요약 보존과 선택 입력 ID 일치, 정수 인덱스 유형·범위를 확인한다. 올바른 항목을 보존해 정정 결과를 합친 뒤 출처·선행 식별자·순환을 포함한 전체 목록을 재검증한다. 정정 후에도 잘못된 항목이 남으면 준비가 실패하고 게시되지 않아야 한다. 기존 모험별 골격·상세 자료 저장 계약 및 맵 없음 시작도 저장소·통합 검사로 확인한다. 이 확장은 제3의 목록 테이블이나 전역 ScenarioModel·컴파일 변경을 추가하지 않는다.
+`InitialSituationGmPort.Request.outputSchema`가 필수 객체 조건과 JSON 출력 형식을 유지하고, 상황 추출·골격·상세 응답이 strict JSON Schema를 적용하는지 확인한다. 상황 추출 응답은 `requiredSituations`와 각 항목의 식별자·요약·선행 ID·sourceRefIndexes를 요구한다. sourceRefIndexes는 해당 요청의 정본 허용 참조 목록 범위 안인 정수여야 하며 응답에서 직접 sourceRefs 객체를 받지 않는다. 추출 후에는 고유 식별자, 허용된 위치, 선행 ID 존재 및 순환 여부를 애플리케이션이 검증한다. 상세 응답의 대상 인덱스, 시작 상황, 단계별 선택 상황 ID, 제공 지도 범위 등 나머지 기존 검증은 유지한다. 검색 후보에서 추출한 결과가 원문 전체를 포괄한다고 증명하는 계약은 두지 않는다.
 
 ### 11.4 Runtime Verification
 
-구간별 첫 추출에서 빠진 B 또는 구간 경계를 넘는 A→B 관계를 각 색인 구간과 전체 제안 요약 목록을 한 요청에 함께 전달한 대조가 찾아 보완하는 경우, 최종 생성에 B·A→B가 빠져 게시를 막는 경우, 검토 목록의 sourceRefs에 없는 추가 인용 위치를 거부하는 경우, 색인 구간 페이지 수·위치 불일치가 있을 때 준비가 실패하는 경우, 원문 조회·추출·대조 기술 실패가 최초 자료 생성·시작을 막는 경우, 잘못된 sourceRefs 또는 prerequisiteSituationIds에 대한 단일 정정 요청이 유효한 정정 결과를 합치고 전체 재검증하는 경우, 정정 후에도 불일치가 남아 준비·게시가 실패하는 경우, 저장된 검토 목록이 같은 모험 재시도에서 복원되는 경우를 검증한다. 같은 모험 저장 경쟁, 독립된 두 모험, 시작 전 전체 준비, 원문 선행 관계 기반 선택, 준비 순서와 플레이 순서 구분, 후보 선택·신규 생성 후 기존 턴 단일 확정도 검증한다. 이전 #378 E2E 시도에서는 실제 GM 응답이 두 차례 잘못된 위치 참조·선행 식별자를 반환해 저장 검증이 시작을 차단했다. 2026-10-09 시작 실행에서는 상세 응답의 `intents`가 비어 도메인 객체 생성이 실패했고, 해당 제약을 상세 스키마의 최소 배열 개수로 보완했다. 후속 실행에서는 다섯 대상 배열이 모두 비어 도메인 검증에 실패했으며, 적어도 하나의 대상 배열을 요구하는 스키마 조건을 추가했다. 각 배열을 개별적으로 비우는 경우와 `intents` 종류별 일치 여부는 이 도메인 불변식에 포함되지 않는다. 이후 상황 추출 응답의 첫 원문 참조 문서 ID 형식이 잘못되어 실행이 400으로 실패했고 부분 저장 행은 0개였다. 당시에는 작업별 허용 참조를 사용한 문서 ID·추출 버전 스키마 제한을 적용했으나, 뒤의 비정본 locator 실패를 막기 위해 현재 비공개 응답 계약은 원문 참조 객체 대신 작업별 정본 참조 인덱스를 사용한다. 후속 E2E에서는 생성된 `funnelPredicateIds`가 같은 응답의 `funnel.requiredPredicateIds`에 없는 값으로 검증을 실패했다. 비공개 응답은 이제 해당 목록의 정수 위치를 내고 서버가 정본 ID로 매핑하며, 범위를 벗어난 위치를 거부한다. 뒤이은 시도에서는 situation의 기타 참조 ID들에서도 같은 문제가 확인되었고 시작 요청은 400, 부분 저장 행은 0개였다. `requiredRevelationIndexes`, `revelationIndexes`, `pressureIndexes`, `funnelIndexes`, `funnelPredicateIndexes`, `importantConsequenceIndexes`를 기존 응답 내 목록에 연결하고 서버에서 범위 검사 후 기존 ID로 변환한다. 저장·외부 DTO는 유지된다. 이후 시작 검증에서는 상세 응답의 시작 표시가 둘 이상인 경우 도메인 검증이 400으로 실패했다. 비공개 응답은 단계별 단일 `openingSituationIndex`를 사용하고 서버가 선택한 상황 하나만 기존 시작 표시로 복원한다. 첫 단계에는 인덱스가 필수이며 이후 단계에서는 null을 허용한다. 저장·외부 DTO는 유지된다. 이 변경 뒤 시작 시도에서는 상세 단계 각각의 응답 검증은 통과했지만, 전체 자료를 저장하기 전 단계 사이의 선택 상황 ID 중복이 충돌했다. 선택적 GM 보완 상황 ID만 단계 식별자를 포함한 ID로 정규화하며 같은 응답의 선행 참조를 함께 변경한다. 검토된 필수 자료는 보존하고 모호한 충돌은 거부한다. 이 수정 뒤의 종단 간 시작 성공은 확인되지 않았다. 후속 시작 재시도에서는 마지막 상세 단계의 최상위 근거 참조가 정본 허용 근거와 일치하지 않아 검증에 실패했다. 비공개 응답의 원문 근거를 작업별 정본 목록 인덱스로 받도록 바꾸고 서버에서 정본 참조로 복원하지만, 이 수정 후 종단 간 성공은 확인되지 않았다.
+RAG 응답의 소유자·모험·문서·추출 버전·위치 불일치, 중복 위치, 빈 후보, 과도한 발췌, 잘못된 JSON, 중복 상황 ID, 허용되지 않은 출처, 알 수 없는 선행 ID, 순환 관계를 검사한다. 각 실패가 초기 자료 게시와 모험 시작을 막는지 확인한다. 검증 통과 시 추출 목록이 골격·상세 결과에 반영되고 모험별로 저장·복원되는지, 동일 모험 재시도와 다른 모험 간 분리가 유지되는지 확인한다. RAG에서 검색되지 않은 필수 상황이 없는지를 테스트로 보장한다고 주장하지 않는다. 기존 E2E 시도에서 확인된 provider 출력 및 상세 자료 검증 실패 이력은 회귀 원인 기록으로 유지하며, 이후 실제 시작 성공 여부는 별도 E2E 결과로 기록한다.
 
 ### 11.5 Recovery Verification
 
@@ -633,7 +646,7 @@ Provider 오류, 잘못된 참조, 준비 저장 실패, 확정 대기 및 굴�
 
 #### Domain
 
-UC-1..3 및 R-01..09와 ST-03..05가 설계 경계·소유권·검증 기준에 연결되어야 한다. R-01 검증은 색인된 모든 구간의 처리·페이지 수량 대조와 최종 목록 반영을 포함하되, 색인 전처리 누락이나 AI 의미 판단 완전성을 증명한다고 주장하지 않는다. R-07의 정상 근거 부족과 실제 기술 실패를 구분해야 한다.
+UC-1..3 및 R-01..09와 ST-03..05가 설계 경계·소유권·검증 기준에 연결되어야 한다. R-01 검증은 제한된 RAG 후보의 범위·출처·선행 관계와 추출 목록의 최종 반영을 확인하되, 검색되지 않은 상황이나 AI 의미 판단의 완전성을 증명한다고 주장하지 않는다. R-07의 정상 근거 부족과 실제 기술 실패를 구분해야 한다.
 
 #### Program Design
 
@@ -653,7 +666,7 @@ AI 호출 중 저장 트랜잭션이 없고, 초기 세트 전체 게시와 턴 
 
 #### Evidence
 
-이 명세의 기존 설계 근거는 Product Spec, 사용자 승인 방향, `architecture-contracts.yaml`, `system-targets.yaml`, 검토된 `architecture-proposal.yaml`, 승인된 MAT-01 자료 사용 기록이다. 사용자 승인에 따른 색인 구간 전체 처리·대조 요구는 기존 결과에 덧붙인 후속 개정으로 기록한다. MAT-01은 현재 코드 구조를 읽은 자료로 실행 검증이 아니다. 적용 가능한 승인 Principle과 영속 Evidence는 제공되지 않았으며 권위 근거로 꾸며 쓰지 않는다. 이전 검토 결과 ACCEPTED는 당시 설계 검토 이력이며 이 후속 개정·구현·테스트·빌드 검증 완료를 뜻하지 않는다. 이번 JSON 응답 스키마 개정은 별도 검토가 필요한 상태(REVIEW_REQUIRED)이며, 구현자 focused test 결과와 실제 E2E 완료 주장은 구분한다. 실제 E2E 성공은 확인되지 않았다.
+이 명세의 설계 근거는 Product Spec, 사용자 승인 방향, `architecture-contracts.yaml`, `system-targets.yaml`, 검토된 `architecture-proposal.yaml`, 승인된 MAT-01 자료 사용 기록이다. 이번 설계는 제한된 RAG 후보 추출과 구조 검증을 정의하며, 검색 누락을 완전성으로 간주하지 않는다. MAT-01은 현재 코드 구조를 읽은 자료로 실행 검증이 아니다. 적용 가능한 승인 Principle과 영속 Evidence는 제공되지 않았으며 권위 근거로 꾸며 쓰지 않는다. 이전 검토 결과 ACCEPTED는 당시 설계 검토 이력이며 이 후속 개정·구현·테스트·빌드 검증 완료를 뜻하지 않는다. 이번 JSON 응답 스키마 개정은 별도 검토가 필요한 상태(REVIEW_REQUIRED)이며, 구현자 focused test 결과와 실제 E2E 완료 주장은 구분한다. 실제 E2E 성공은 확인되지 않았다.
 
 ## 12. Alternatives and Trade-offs
 

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dnd-master.local/contracts/ai-game-master/v1/scenario-lookup-request.json",
+  "title": "분리된 상황 조회 요청",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "soloPlayerId", "query", "currentSituation", "currentScene", "establishedGameState",
+    "runtimeAddedFacts", "evidence", "lockedScenarioModel", "preparedSituation", "longTermFacts", "knownEvidenceIds"
+  ],
+  "properties": {
+    "soloPlayerId": { "type": "string", "format": "uuid" },
+    "query": { "type": "string", "minLength": 1 },
+    "currentSituation": { "type": "string" },
+    "currentScene": { "type": "string" },
+    "establishedGameState": { "type": "object" },
+    "runtimeAddedFacts": { "type": "array", "items": { "type": "object" } },
+    "evidence": { "type": "array", "items": { "type": "object" } },
+    "lockedScenarioModel": { "type": "object" },
+    "preparedSituation": { "type": "string" },
+    "longTermFacts": { "type": "array", "items": { "type": "object" } },
+    "knownEvidenceIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^IMMUTABLE_DOCUMENT:(RULEBOOK|STORYBOOK):[^:]+:[1-9][0-9]*:.+$" }
+    }
+  }
+}

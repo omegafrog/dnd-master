@@ -277,7 +277,7 @@ class TypedAgentContractControllerTest {
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 seen.add(owner);
                 String response = operation.startsWith("scenario-compilation") ? "{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1}}"
-                        : operation.startsWith("scenario-lookup") ? "{\"status\":\"NOT_FOUND\",\"answer\":\"\",\"supportingElementIds\":[]}"
+                        : operation.startsWith("action-context-lookup") ? "{\"status\":\"NOT_FOUND\",\"answer\":\"\",\"supportingElementIds\":[]}"
                         : "{\"approved\":true}";
                 return parser.parse(response);
             }
@@ -341,7 +341,7 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
-    void scenario_lookup_prompt_declares_the_json_contract_required_by_its_parser() {
+    void action_context_lookup_receives_only_scoped_facts_and_retrieved_sources() {
         AtomicReference<String> prompt = new AtomicReference<>();
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override
@@ -355,12 +355,40 @@ class TypedAgentContractControllerTest {
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
         var response = controller.scenarioLookup("service-secret",
-                new TypedAgentContractController.ScenarioLookupRequest(SOLO_PLAYER_ID, "opening", Map.of()));
+                new TypedAgentContractController.ScenarioLookupRequest(SOLO_PLAYER_ID, "opening",
+                        "the gatehouse", "North Road", Map.of("gate", "open"),
+                        List.of(Map.of("content", "Mara promised a reward")),
+                        List.of(Map.of("evidenceType", "STORYBOOK", "locator", "page:3", "excerpt", "The reward is a key.")),
+                        Map.of("schemaVersion", 1), "gatehouse guard situation", List.of(Map.of("kind", "NPC", "relevance", "Mara promised a reward")), List.of()));
 
         org.junit.jupiter.api.Assertions.assertEquals("NOT_FOUND", response.status());
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("OUTPUT_CONTRACT"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("status must be FOUND or NOT_FOUND"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not use markdown, code fences, or any other text"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("CURRENT_SITUATION=\"the gatehouse\""));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("CONFIRMED_GAME_STATE={\"gate\":\"open\"}"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Mara promised a reward"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("The reward is a key."));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("PREPARED_SITUATION=\"gatehouse guard situation\""));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("LONG_TERM_ADVENTURE_FACTS"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not use dialogue history"));
+        org.junit.jupiter.api.Assertions.assertFalse(prompt.get().contains("RECENT_TURNS"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("status is FOUND or NOT_FOUND"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("No markdown"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().indexOf("OUTPUT_CONTRACT") < prompt.get().indexOf("\nPLAYER_ACTION="));
+    }
+
+    @Test
+    void rejects_unknown_fields_in_the_isolated_lookup_request() throws Exception {
+        TypedAgentContractController controller = new TypedAgentContractController(
+                selectedAdapter((operation, prompt, requested) -> "{\"status\":\"NOT_FOUND\",\"answer\":\"\",\"supportingElementIds\":[]}"),
+                new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        var body = new ObjectMapper().readTree("""
+                {"soloPlayerId":"%s","query":"open gate","currentSituation":"","currentScene":"",
+                 "establishedGameState":{},"runtimeAddedFacts":[],"evidence":[],"lockedScenarioModel":{},
+                 "preparedSituation":"","longTermFacts":[],"knownEvidenceIds":[],"unexpected":true}
+                """.formatted(SOLO_PLAYER_ID));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> controller.scenarioLookup("service-secret", body));
     }
 
     @Test
@@ -602,6 +630,35 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> controller.runtimeTurn("service-secret",
                         new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "look around", List.of())));
+    }
+
+    @Test
+    void runtime_turn_rejects_fields_outside_its_response_schema() {
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"복도\",\"judgment\":\"안전\","
+                + "\"narration\":\"복도가 조용합니다.\",\"situation\":" + situation("FALLBACK", "")
+                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},"
+                + "\"combatEnemies\":[],\"unknown\":true}");
+        TypedAgentContractController controller = new TypedAgentContractController(
+                adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> controller.runtimeTurn("service-secret",
+                        new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "look around", List.of())));
+    }
+
+    @Test
+    void runtime_turn_rejects_unknown_request_fields_before_provider_execution() throws Exception {
+        TypedAgentContractController controller = new TypedAgentContractController(
+                selectedAdapter((operation, prompt, requested) -> "{}"), new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        var body = new ObjectMapper().readTree("""
+                {"soloPlayerId":"%s","operationKey":"op","action":"look","endpointId":"%s",
+                 "provider":"openai","model":"gpt-5","reasoning":"low","effectiveEndpointId":"%s",
+                 "effectiveEndpointVersion":"v1","effectiveProvider":"openai","effectiveModel":"gpt-5",
+                 "prompt":"role","unexpected":true}
+                """.formatted(SOLO_PLAYER_ID, SELECTED_ENDPOINT_ID, SELECTED_ENDPOINT_ID));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> controller.runtimeTurn("service-secret", body));
     }
 
     @Test

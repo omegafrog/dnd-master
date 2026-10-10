@@ -63,12 +63,13 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                     .orElseThrow(() -> new IllegalStateException("opening situation is required"));
             return new Result(persistedBackbone, persistedStages, firstStage, opening);
         }
-        List<ScenarioSourceReference> evidence = List.copyOf(evidenceLookup.lookup(scenarioPackageId, sessionId));
+        StorybookEvidenceLookupPort.PreparationEvidence preparationEvidence = evidenceLookup.lookupForPreparation(scenarioPackageId, sessionId);
+        List<ScenarioSourceReference> evidence = preparationEvidence.sourceRefs();
         boolean scenarioBacked = evidenceLookup.isScenarioBacked(scenarioPackageId);
         java.util.Set<UUID> providedMapIds = evidenceLookup.providedMapIds(scenarioPackageId);
         if (scenarioBacked && evidence.isEmpty()) throw new IllegalStateException("published Storybook evidence is required");
         StageBackbone generated = backboneGeneration.generate(new StageBackboneGenerationPort.Request(
-                adventureId, sessionId, scenarioPackageId, evidence));
+                adventureId, sessionId, scenarioPackageId, evidence, preparationEvidence.storyPassages()));
         requirePackage(generated.scenarioPackageId(), scenarioPackageId);
         requireGrounding(generated.sourceRefs(), evidence, scenarioBacked, "backbone");
         generated.stages().forEach(stage -> requireGrounding(stage.sourceRefs(), evidence, scenarioBacked, "stage " + stage.stageId()));
@@ -113,7 +114,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
                 .mapToInt(stage -> stage.order()).findFirst().orElseThrow(() -> new IllegalArgumentException("current stage is not in backbone"));
         StageBackboneEntry next = backbone.stages().stream().filter(stage -> stage.order() == currentOrder + 1).findFirst()
                 .orElseThrow(() -> new IllegalStateException("current stage has no next stage"));
-        List<ScenarioSourceReference> evidence = List.copyOf(evidenceLookup.lookup(scenarioPackageId, sessionId));
+        List<ScenarioSourceReference> evidence = backbone.sourceRefs();
         boolean scenarioBacked = evidenceLookup.isScenarioBacked(scenarioPackageId);
         if (scenarioBacked && evidence.isEmpty()) throw new IllegalStateException("published Storybook evidence is required");
         DetailedStage generated = detailedGeneration.generate(new StageDetailedGenerationPort.Request(
@@ -180,7 +181,7 @@ public final class StageArtifactPreparationApplicationService implements StageAr
             List<ScenarioSourceReference> evidence) {
         for (RequiredSituation item : required) {
             if (!evidence.containsAll(item.sourceRefs())) {
-                throw new IllegalStateException("reviewed required situation cites an unavailable original passage");
+                throw new IllegalStateException("required situation cites an unavailable RAG passage");
             }
         }
     }
@@ -221,14 +222,14 @@ public final class StageArtifactPreparationApplicationService implements StageAr
             if (actual == null || !actual.required() || actual.provenance() != SituationProvenance.SOURCE_EXTRACTED
                     || !java.util.Set.copyOf(actual.sourceRefs()).equals(java.util.Set.copyOf(item.sourceRefs()))
                     || !actual.prerequisiteSituationIds().equals(item.prerequisiteSituationIds())) {
-                throw new IllegalStateException("initial situation set does not preserve a reviewed required situation");
+                throw new IllegalStateException("initial situation set does not preserve a required story situation");
             }
         }
         for (SituationDefinition actual : situations.values()) {
             if (actual.required() && actual.provenance() == SituationProvenance.SOURCE_EXTRACTED
                     && required.stream().noneMatch(item -> item.situationId().equals(actual.situationId()))
                     && !required.isEmpty()) {
-                throw new IllegalStateException("initial situation set has an unreviewed required situation");
+                throw new IllegalStateException("initial situation set has a required story situation that was not extracted");
             }
         }
         for (SituationDefinition situation : situations.values()) {
@@ -241,10 +242,10 @@ public final class StageArtifactPreparationApplicationService implements StageAr
             for (String prerequisiteId : item.prerequisiteSituationIds()) {
                 Integer prerequisiteOrder = stageOrders.get(situationStages.get(prerequisiteId));
                 if (dependentOrder == null || prerequisiteOrder == null) {
-                    throw new IllegalStateException("reviewed situation prerequisite has no initial stage");
+                    throw new IllegalStateException("required situation prerequisite has no initial stage");
                 }
                 if (prerequisiteOrder > dependentOrder) {
-                    throw new IllegalStateException("reviewed situation prerequisite must be in the same or an earlier stage");
+                    throw new IllegalStateException("required situation prerequisite must be in the same or an earlier stage");
                 }
             }
         }

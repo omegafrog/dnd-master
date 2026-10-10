@@ -250,7 +250,7 @@ paths:
   /internal/v1/evidence-candidates/search:
     post:
       operationId: searchEvidenceCandidates
-      summary: Search scoped evidence candidates for an active session stage
+      summary: Search scoped dense-retrieval candidates once, across the supplied session document types
       security: [{ internalToken: [] }]
       requestBody:
         required: true
@@ -258,20 +258,24 @@ paths:
           application/json:
             schema:
               type: object
-              required: [ownerId, sessionId, scenarioPackageId, stageKey, scope, query, denseLimit, bm25Limit]
+              additionalProperties: false
+              required: [ownerId, sessionId, scenarioPackageId, stageKey, actionIntent, scope, activeLocators, excludedEvidenceIds, query, denseLimit]
               properties:
                 ownerId: { type: string, format: uuid }
                 sessionId: { type: string, format: uuid }
                 scenarioPackageId: { type: string, format: uuid }
                 stageKey: { type: string, minLength: 1 }
-                actionIntent: { type: string }
+                actionIntent: { type: string, minLength: 1 }
                 scope: { type: array, minItems: 1, items: { $ref: '#/components/schemas/CandidateScope' } }
                 activeLocators: { type: array, items: { type: string } }
+                excludedEvidenceIds:
+                  type: array
+                  uniqueItems: true
+                  items: { type: string, pattern: '^IMMUTABLE_DOCUMENT:(RULEBOOK|STORYBOOK):[^:]+:[1-9][0-9]*:.+$' }
                 query: { type: string, minLength: 1 }
-                denseLimit: { type: integer, minimum: 1 }
-                bm25Limit: { type: integer, minimum: 1 }
+                denseLimit: { type: integer, minimum: 1, maximum: 30 }
       responses:
-        '200': { description: Candidate list restricted to owner/scope/version or published catalog documents. }
+        '200': { description: Candidate list restricted to owner/scope/version, excluding previously confirmed immutable evidence IDs. }
         '400': { description: Invalid request, duplicate scope, wrong type, or unindexed extraction version. }
         '401': { description: Missing internal token, reported as EVIDENCE_SEARCH_UNAUTHENTICATED. }
         '403': { description: Cross-owner or unpublished catalog scope, reported as EVIDENCE_SEARCH_SCOPE_FORBIDDEN. }

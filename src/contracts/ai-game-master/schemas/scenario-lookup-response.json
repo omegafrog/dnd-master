@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dnd-master.local/contracts/ai-game-master/v1/scenario-lookup-response.json",
+  "title": "분리된 상황 조회 응답",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "answer", "supportingElementIds"],
+  "properties": {
+    "status": { "enum": ["FOUND", "NOT_FOUND"] },
+    "answer": { "type": "string" },
+    "supportingElementIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "NOT_FOUND" } } },
+      "then": { "properties": { "answer": { "const": "" }, "supportingElementIds": { "maxItems": 0 } } }
+    },
+    {
+      "if": { "properties": { "status": { "const": "FOUND" } } },
+      "then": { "properties": { "answer": { "minLength": 1 } } }
+    }
+  ]
+}

@@ -62,6 +62,23 @@ public final class HybridEvidenceSearchService {
         return result;
     }
 
+    public EvidenceSearchResult searchDenseOnly(EvidenceSearchRequest request) {
+        Objects.requireNonNull(request, "request must not be null");
+        return new EvidenceSearchResult(validatedCandidates(request, denseSearch.search(request)));
+    }
+
+    public List<EvidenceSearchResult> searchDenseBatch(List<EvidenceSearchRequest> requests) {
+        requests = List.copyOf(Objects.requireNonNull(requests, "requests must not be null"));
+        if (requests.isEmpty()) return List.of();
+        List<List<EvidenceCandidate>> candidates = denseSearch.searchBatch(requests);
+        if (candidates.size() != requests.size()) throw new IllegalStateException("dense batch size mismatch");
+        List<EvidenceSearchResult> results = new java.util.ArrayList<>();
+        for (int index = 0; index < requests.size(); index++) {
+            results.add(new EvidenceSearchResult(validatedCandidates(requests.get(index), candidates.get(index))));
+        }
+        return List.copyOf(results);
+    }
+
     /** Embeds every query before running any dense retrieval. */
     public List<EvidenceSearchResult> searchBatch(List<EvidenceSearchRequest> requests) {
         requests = List.copyOf(Objects.requireNonNull(requests, "requests must not be null"));

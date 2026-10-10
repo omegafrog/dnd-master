@@ -490,10 +490,17 @@ class StageArtifactPreparationApplicationServiceTest {
                 new FunnelDefinition("Reach the confrontation", List.of("truth-2"), List.of(evidence)),
                 List.of(new SituationDefinition("stage-2-situation", List.of(StageIntent.REVELATION), List.of("truth-2"),
                         List.of(), List.of(), List.of(), List.of(), false, List.of(evidence))), List.of(), List.of(evidence));
-        var service = new StageArtifactPreparationApplicationService(repository,
-                request -> List.of(evidence), request -> backbone, request -> next);
+        var lookupCount = new java.util.concurrent.atomic.AtomicInteger();
+        StorybookEvidenceLookupPort lookup = new StorybookEvidenceLookupPort() {
+            @Override public List<ScenarioSourceReference> lookup(UUID ignored) {
+                lookupCount.incrementAndGet();
+                return List.of(evidence);
+            }
+        };
+        var service = new StageArtifactPreparationApplicationService(repository, lookup, request -> backbone, request -> next);
 
         assertEquals(secondDetailed(), service.prepareNext(adventureId, sessionId, packageId, backbone, "stage-1"));
+        assertEquals(0, lookupCount.get());
         assertEquals(secondDetailed(), repository.findDetailedStage(adventureId, packageId, "stage-2", 1, 1).orElseThrow());
     }
 

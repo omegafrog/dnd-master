@@ -7,63 +7,56 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Enforces the authoritative lookup order and keeps source access behind typed ports. */
+/** Resolves established facts first, then searches the locked adventure context and retrieved evidence. */
 public final class RuntimeFactLookupService {
     private final ScenarioModelLookupAgentPort scenarioModelLookup;
-    private final StorybookRagPort storybookRag;
-
-    public RuntimeFactLookupService(ScenarioModelLookupAgentPort scenarioModelLookup, StorybookRagPort storybookRag) {
-        this.scenarioModelLookup = Objects.requireNonNull(scenarioModelLookup, "scenario model lookup must not be null");
-        this.storybookRag = Objects.requireNonNull(storybookRag, "storybook RAG must not be null");
-    }
 
     public RuntimeFactLookupService(ScenarioModelLookupAgentPort scenarioModelLookup) {
-        this(scenarioModelLookup, ignored -> StorybookRagResult.notFound());
+        this.scenarioModelLookup = Objects.requireNonNull(scenarioModelLookup, "scenario model lookup must not be null");
     }
 
     public RuntimeFactLookupResult lookup(RuntimeFactLookupRequest request) {
-        return lookup(request, List.of(), null);
+        return lookup(request, request.evidence(), null);
     }
 
-    public RuntimeFactLookupResult lookup(UUID soloPlayerId, RuntimeFactLookupRequest request, List<RuntimeEvidence> storybookEvidence) {
-        return lookup(request, storybookEvidence, Objects.requireNonNull(soloPlayerId, "solo player id must not be null"));
+    public RuntimeFactLookupResult lookup(UUID soloPlayerId, RuntimeFactLookupRequest request, List<RuntimeEvidence> evidence) {
+        return lookup(request, evidence, Objects.requireNonNull(soloPlayerId, "solo player id must not be null"));
     }
 
-    private RuntimeFactLookupResult lookup(RuntimeFactLookupRequest request, List<RuntimeEvidence> storybookEvidence, UUID soloPlayerId) {
+    private RuntimeFactLookupResult lookup(RuntimeFactLookupRequest request, List<RuntimeEvidence> evidence, UUID soloPlayerId) {
         Objects.requireNonNull(request, "lookup request must not be null");
-        storybookEvidence = List.copyOf(Objects.requireNonNull(storybookEvidence, "storybook evidence must not be null"));
+        List<RuntimeEvidence> contextualEvidence = List.copyOf(Objects.requireNonNull(evidence,
+                "runtime evidence must not be null"));
+        if (contextualEvidence.isEmpty()) contextualEvidence = request.evidence();
         String query = request.query();
 
         Optional<RuntimeFactLookupResult> established = findEstablished(request, query);
         if (established.isPresent()) return established.get();
 
+        ScenarioModelLookupRequest lookupRequest = new ScenarioModelLookupRequest(request.query(),
+                request.lockedScenarioModel(), request.currentSituation(), request.currentScene(),
+                request.gameState().values(), request.runtimeAddedFacts(), contextualEvidence,
+                request.preparedSituation(), request.longTermFacts(), request.knownEvidenceIds());
         ScenarioLookupResult modelResult = Objects.requireNonNull(
                 soloPlayerId == null
-                        ? scenarioModelLookup.lookup(new ScenarioModelLookupRequest(request.query(), request.lockedScenarioModel()))
-                        : scenarioModelLookup.lookup(soloPlayerId, new ScenarioModelLookupRequest(request.query(), request.lockedScenarioModel())),
+                        ? scenarioModelLookup.lookup(lookupRequest)
+                        : scenarioModelLookup.lookup(soloPlayerId, lookupRequest),
                 "scenario lookup result must not be null");
         if (modelResult.status() == ScenarioLookupResult.Status.FOUND) {
             validateSupportingElementIds(modelResult, request);
             return RuntimeFactLookupResult.foundScenario(modelResult.answer(), modelResult.supportingElementIds());
         }
 
-        StorybookRagResult ragResult = Objects.requireNonNull(
-                storybookRag.search(new StorybookRagRequest(request.query())),
-                "storybook RAG result must not be null");
-        if (ragResult.status() == StorybookRagResult.Status.FOUND) {
-            validateStorybookEvidence(ragResult);
-            return RuntimeFactLookupResult.foundRag(ragResult.answer(), ragResult.evidence());
-        }
         return RuntimeFactLookupResult.notFound();
     }
 
     /**
-     * Resolves against a pre-fetched, session-scoped Storybook pack. This is
+     * Resolves against pre-fetched, session-scoped source excerpts. This is
      * used by the synchronous runtime turn so source lookup remains separate
      * from dialogue generation while preserving the same precedence order.
      */
-    public RuntimeFactLookupResult lookup(RuntimeFactLookupRequest request, List<RuntimeEvidence> storybookEvidence) {
-        return lookup(request, storybookEvidence, null);
+    public RuntimeFactLookupResult lookup(RuntimeFactLookupRequest request, List<RuntimeEvidence> evidence) {
+        return lookup(request, evidence, null);
     }
 
     private static Optional<RuntimeFactLookupResult> findEstablished(RuntimeFactLookupRequest request, String query) {
@@ -96,10 +89,4 @@ public final class RuntimeFactLookupService {
         }
     }
 
-    private static void validateStorybookEvidence(StorybookRagResult result) {
-        if (result.evidence().stream().anyMatch(evidence -> evidence == null
-                || evidence.evidenceType() != RuntimeEvidenceType.STORYBOOK)) {
-            throw new IllegalArgumentException("Storybook RAG returned a non-Storybook source reference");
-        }
-    }
 }

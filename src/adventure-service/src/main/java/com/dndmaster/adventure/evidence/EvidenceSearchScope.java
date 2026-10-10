@@ -7,7 +7,12 @@ import java.util.UUID;
 
 /** Server-verified session document scope supplied by the Adventure caller; adapters must not invent it. */
 public record EvidenceSearchScope(UUID ownerId, UUID sessionId, UUID scenarioPackageId, String stageKey,
-                                  String actionIntent, List<Document> documents, List<String> activeLocators) {
+                                  String actionIntent, List<Document> documents, List<String> activeLocators,
+                                  List<String> knownEvidenceIds) {
+    public EvidenceSearchScope(UUID ownerId, UUID sessionId, UUID scenarioPackageId, String stageKey,
+            String actionIntent, List<Document> documents, List<String> activeLocators) {
+        this(ownerId, sessionId, scenarioPackageId, stageKey, actionIntent, documents, activeLocators, List.of());
+    }
     public EvidenceSearchScope {
         Objects.requireNonNull(ownerId, "owner id must not be null");
         Objects.requireNonNull(sessionId, "session id must not be null");
@@ -23,6 +28,11 @@ public record EvidenceSearchScope(UUID ownerId, UUID sessionId, UUID scenarioPac
         if (activeLocators.stream().anyMatch(locator -> locator == null || locator.isBlank())
                 || activeLocators.size() != new LinkedHashSet<>(activeLocators).size()) {
             throw new IllegalArgumentException("active locators must be unique and nonblank");
+        }
+        knownEvidenceIds = knownEvidenceIds == null ? List.of() : List.copyOf(knownEvidenceIds);
+        if (knownEvidenceIds.stream().anyMatch(id -> id == null || !id.startsWith("IMMUTABLE_DOCUMENT:"))
+                || knownEvidenceIds.size() != new LinkedHashSet<>(knownEvidenceIds).size()) {
+            throw new IllegalArgumentException("known evidence ids must be unique immutable document references");
         }
     }
     public record Document(UUID id, long extractionVersion, String type) {

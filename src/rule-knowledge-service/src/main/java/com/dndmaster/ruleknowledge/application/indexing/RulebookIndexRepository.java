@@ -13,7 +13,7 @@ import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import java.util.function.Supplier;
 
 public interface RulebookIndexRepository {
-    default PublishedRagChunkPage findPublishedChunks(RulebookId documentId, String extractionVersion,
+    default PublishedRagChunkPage findPublishedChunks(RulebookId documentId, long extractionVersion,
             OwnerPlayerId owner, int offset, int limit) { throw new UnsupportedOperationException(); }
     RulebookIndex loadOrCreate(IndexKey key, Supplier<RulebookIndex> newIndex);
     void save(RulebookIndex index);

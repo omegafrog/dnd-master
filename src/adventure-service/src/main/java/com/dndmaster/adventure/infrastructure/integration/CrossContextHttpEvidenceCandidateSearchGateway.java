@@ -32,31 +32,13 @@ public final class CrossContextHttpEvidenceCandidateSearchGateway implements Evi
         Objects.requireNonNull(request,"request must not be null");
         EvidenceSearchScope scope=request.acquisitionRequest().searchScope();
         if(scope==null) throw new EvidenceAcquisitionContractException("evidence search requires a server-confirmed session document scope");
-        List<EvidenceCandidate> result = new java.util.ArrayList<>();
-        long documentTypeCount = scope.documents().stream().map(EvidenceSearchScope.Document::type).distinct().count();
-        int perRetrieverLimit = (int) Math.max(1, 30 / Math.max(1, documentTypeCount));
-        var countsByType = new LinkedHashMap<String, Integer>();
-        for (String documentType : List.of("RULEBOOK", "STORYBOOK")) {
-            List<EvidenceSearchScope.Document> documents = scope.documents().stream()
-                    .filter(document -> document.type().equals(documentType)).toList();
-            if (documents.isEmpty()) continue;
-            List<EvidenceCandidate> candidates = search(request, scope, documents, perRetrieverLimit);
-            countsByType.put(documentType, candidates.size());
-            result.addAll(candidates);
-        }
-        var seenIds = new java.util.HashSet<UUID>();
-        List<UUID> duplicateIds = result.stream().map(EvidenceCandidate::id).filter(id -> !seenIds.add(id)).distinct().toList();
-        if (result.size() > 60 || !duplicateIds.isEmpty()) {
-            throw new EvidenceAcquisitionContractException("evidence candidate response violates aggregate limit total="
-                    + result.size() + " byDocumentType=" + countsByType + " duplicateChunkIds=" + duplicateIds);
-        }
-        return List.copyOf(result);
+        return search(request, scope, scope.documents(), 30);
     }
 
     private List<EvidenceCandidate> search(EvidenceCandidateSearchRequest request, EvidenceSearchScope scope,
             List<EvidenceSearchScope.Document> documents, int perRetrieverLimit) {
         try {
-            Request body=new Request(scope.ownerId(),scope.sessionId(),scope.scenarioPackageId(),scope.stageKey(),scope.actionIntent(),documents.stream().map(document->new Scope(document.id(),document.extractionVersion(),document.type())).toList(),scope.activeLocators(),request.query(),perRetrieverLimit,perRetrieverLimit);
+            Request body=new Request(scope.ownerId(),scope.sessionId(),scope.scenarioPackageId(),scope.stageKey(),scope.actionIntent(),documents.stream().map(document->new Scope(document.id(),document.extractionVersion(),document.type())).toList(),scope.activeLocators(),scope.knownEvidenceIds(),request.query(),perRetrieverLimit);
             HttpResponse<String> response=client.send(HttpRequest.newBuilder(baseUri.resolve(CANDIDATE_SEARCH_PATH)).timeout(timeout).header("X-Internal-Token",internalToken).header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build(),HttpResponse.BodyHandlers.ofString());
             if(response.statusCode()==429||response.statusCode()>=500) throw new EvidenceAcquisitionTransientException("evidence candidate search is unavailable");
             if(response.statusCode()/100!=2) throw new EvidenceAcquisitionContractException("evidence candidate search failed with status "+response.statusCode());
@@ -80,7 +62,7 @@ public final class CrossContextHttpEvidenceCandidateSearchGateway implements Evi
             return new EvidenceCandidate(candidate.chunkId(),candidate.documentId().toString(),candidate.documentType(),candidate.locator(),candidate.excerpt());
         }).toList();
     }
-    record Request(UUID ownerId,UUID sessionId,UUID scenarioPackageId,String stageKey,String actionIntent,List<Scope> scope,List<String> activeLocators,String query,int denseLimit,int bm25Limit) {}
+    record Request(UUID ownerId,UUID sessionId,UUID scenarioPackageId,String stageKey,String actionIntent,List<Scope> scope,List<String> activeLocators,List<String> excludedEvidenceIds,String query,int denseLimit) {}
     record Scope(UUID documentId,long extractionVersion,String documentType) {}
     @JsonIgnoreProperties(ignoreUnknown=true) record Response(UUID ownerId,UUID sessionId,UUID scenarioPackageId,List<Candidate> candidates) {}
     @JsonIgnoreProperties(ignoreUnknown=true) record Candidate(UUID chunkId,UUID documentId,long extractionVersion,String documentType,String locator,String excerpt) {}

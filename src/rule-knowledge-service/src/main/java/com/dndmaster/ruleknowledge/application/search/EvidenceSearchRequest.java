@@ -36,7 +36,9 @@ public record EvidenceSearchRequest(
         }
         if (query == null || query.isBlank()) throw new IllegalArgumentException("query must not be blank");
         validateLimit(denseLimit, "dense limit");
-        validateLimit(bm25Limit, "BM25 limit");
+        if (bm25Limit < 0 || bm25Limit > RrfFusionPolicy.MAX_RESULTS_PER_RETRIEVER) {
+            throw new IllegalArgumentException("BM25 limit must be between 0 and 30");
+        }
     }
 
     private static void validateLimit(int value, String name) {

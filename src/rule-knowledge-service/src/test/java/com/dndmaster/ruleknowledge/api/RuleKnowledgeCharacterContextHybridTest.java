@@ -64,7 +64,7 @@ class RuleKnowledgeCharacterContextHybridTest {
                         .header("X-Internal-Token", "internal-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"ownerId":"%s","documents":[{"documentId":"%s","documentType":"STORYBOOK","extractionVersion":1}],"situation":"find constraints"}
+                                {"ownerId":"%s","documents":[{"documentId":"%s","documentType":"STORYBOOK","extractionVersion":1}],"situation":"find constraints","tokenBudget":0}
                                 """.formatted(owner, document)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.evidence[0].knowledgeDocumentId").value(document.toString()))

@@ -438,7 +438,7 @@ class RulebookPgvectorIntegrationTest {
         RulebookId documentId = RulebookId.generate();
         register(documentId, owner);
         RagExtractionPublicationRequest request = new RagExtractionPublicationRequest(documentId, owner,
-                "all-chunks", "1", "a".repeat(64), "policy-1", "b".repeat(64),
+                "all-chunks", "ev-all-chunks", "a".repeat(64), "policy-1", "b".repeat(64),
                 List.of(new RagExtractionPage(1, "VALIDATED", 1, List.of()), new RagExtractionPage(2, "VALIDATED", 1, List.of())),
                 List.of(new PublishedRagChunk("first", 0, "first passage", "first passage",
                                 new SourceProvenance(1, List.of(), List.of(), null, "page:1")),
@@ -448,14 +448,14 @@ class RulebookPgvectorIntegrationTest {
         publicationRepository.publish(request, request.chunks().stream()
                 .map(chunk -> new EmbeddedPublishedRagChunk(chunk, new float[] {1, 0, 0})).toList());
 
-        var firstPage = indexRepository.findPublishedChunks(documentId, "1", owner, 0, 1);
-        var secondPage = indexRepository.findPublishedChunks(documentId, "1", owner, 1, 1);
+        var firstPage = indexRepository.findPublishedChunks(documentId, 1, owner, 0, 1);
+        var secondPage = indexRepository.findPublishedChunks(documentId, 1, owner, 1, 1);
 
         assertEquals(2, firstPage.totalCount());
         assertEquals("page:1", firstPage.chunks().getFirst().originalLocator());
         assertEquals(2, secondPage.totalCount());
         assertEquals("page:2", secondPage.chunks().getFirst().originalLocator());
-        assertEquals(List.of(), indexRepository.findPublishedChunks(documentId, "2", owner, 0, 1).chunks());
+        assertEquals(List.of(), indexRepository.findPublishedChunks(documentId, 2, owner, 0, 1).chunks());
     }
 
     private static EvidenceSearchRequest evidenceRequest(

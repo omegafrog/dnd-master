@@ -45,7 +45,7 @@ class UnifiedEvidenceCandidateSearchControllerTest {
     void authenticatesValidatesScopeAndReturnsCandidateProvenance() throws Exception {
         UUID documentId = UUID.randomUUID();
         HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
-        when(hybrid.search(any())).thenReturn(new EvidenceSearchResult(List.of(new EvidenceCandidate(
+        when(hybrid.searchDenseOnly(any())).thenReturn(new EvidenceSearchResult(List.of(new EvidenceCandidate(
                 new KnowledgeDocumentId(documentId), new ChunkId(UUID.randomUUID()), 1, DocumentType.STORYBOOK,
                 "page:2", "A hidden passage", new SourceProvenance(2, List.of("Chapter 1"), List.of(), null, "page:2"),
                 1, 2, 0.032))));
@@ -60,16 +60,36 @@ class UnifiedEvidenceCandidateSearchControllerTest {
                 .andExpect(jsonPath("$.candidates[0].locator").value("page:2"))
                 .andExpect(jsonPath("$.candidates[0].provenance.pageNumber").value(2))
                 .andExpect(jsonPath("$.candidates[0].bm25Rank").value(2));
-        verify(hybrid).search(any());
+        verify(hybrid).searchDenseOnly(any());
         ArgumentCaptor<com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest> requestCaptor =
                 ArgumentCaptor.forClass(com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest.class);
-        verify(hybrid).search(requestCaptor.capture());
+        verify(hybrid).searchDenseOnly(requestCaptor.capture());
         var captured = requestCaptor.getValue();
         assertEquals(OWNER, captured.ownerPlayerId().value());
         assertEquals(DocumentType.STORYBOOK, captured.scope().getFirst().documentType());
         assertEquals(List.of("page:1"), captured.activeLocators());
         assertEquals("opening", captured.stageKey());
         assertEquals("STORY", captured.actionIntent());
+        assertEquals(0, captured.bm25Limit());
+    }
+
+    @Test
+    void excludes_previously_seen_immutable_document_evidence_from_the_returned_candidates() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
+        when(hybrid.searchDenseOnly(any())).thenReturn(new EvidenceSearchResult(List.of(new EvidenceCandidate(
+                new KnowledgeDocumentId(documentId), new ChunkId(UUID.randomUUID()), 1, DocumentType.STORYBOOK,
+                "page:2", "Previously returned passage", new SourceProvenance(2, List.of(), List.of(), null, "page:2"),
+                1, null, 0.01))));
+        String knownId = "IMMUTABLE_DOCUMENT:STORYBOOK:" + documentId + ":1:page:2";
+
+        controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid)
+                .perform(post("/internal/v1/evidence-candidates/search")
+                        .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
+                        .content(request(documentId, 5, 7).replace("\"excludedEvidenceIds\":[]",
+                                "\"excludedEvidenceIds\":[\"" + knownId + "\"]")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.candidates").isEmpty());
     }
 
     @Test
@@ -80,6 +100,20 @@ class UnifiedEvidenceCandidateSearchControllerTest {
         controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid).perform(post("/internal/v1/evidence-candidates/search")
                         .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
                         .content(request(documentId, 0, 7)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EVIDENCE_SEARCH_INVALID_REQUEST"));
+        org.mockito.Mockito.verifyNoInteractions(hybrid);
+    }
+
+    @Test
+    void rejects_unknown_candidate_search_fields() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
+
+        controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid)
+                .perform(post("/internal/v1/evidence-candidates/search")
+                        .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
+                        .content(request(documentId, 5, 7).replace("\"denseLimit\":5", "\"denseLimit\":5,\"bm25Limit\":7")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("EVIDENCE_SEARCH_INVALID_REQUEST"));
         org.mockito.Mockito.verifyNoInteractions(hybrid);
@@ -112,7 +146,7 @@ class UnifiedEvidenceCandidateSearchControllerTest {
         UUID documentId = UUID.randomUUID();
         UUID bundleId = UUID.randomUUID();
         HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
-        when(hybrid.search(any())).thenReturn(new EvidenceSearchResult(List.of()));
+        when(hybrid.searchDenseOnly(any())).thenReturn(new EvidenceSearchResult(List.of()));
         RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
         UUID catalogOwner = UUID.fromString("00000000-0000-0000-0000-000000000005");
         when(registrations.findById(any())).thenReturn(java.util.Optional.of(registration(
@@ -129,7 +163,7 @@ class UnifiedEvidenceCandidateSearchControllerTest {
 
         ArgumentCaptor<com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest> captured =
                 ArgumentCaptor.forClass(com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest.class);
-        verify(hybrid).search(captured.capture());
+        verify(hybrid).searchDenseOnly(captured.capture());
         assertEquals(DocumentType.RULEBOOK, captured.getValue().scope().getFirst().documentType());
         assertEquals(catalogOwner, captured.getValue().scope().getFirst().documentOwner().value());
         assertEquals(null, captured.getValue().sessionId());
@@ -193,7 +227,7 @@ class UnifiedEvidenceCandidateSearchControllerTest {
     void acceptsCallerConfirmedPublishedCatalogRulebookScope() throws Exception {
         UUID documentId = UUID.randomUUID();
         HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
-        when(hybrid.search(any())).thenReturn(new EvidenceSearchResult(List.of()));
+        when(hybrid.searchDenseOnly(any())).thenReturn(new EvidenceSearchResult(List.of()));
         RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
         when(registrations.findById(any())).thenReturn(java.util.Optional.of(registration(
                 documentId, ProcessingStatus.INDEXED, UUID.fromString("00000000-0000-0000-0000-000000000005"), DocumentType.RULEBOOK)));
@@ -205,10 +239,10 @@ class UnifiedEvidenceCandidateSearchControllerTest {
                         .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
                         .content(rulebookRequest(documentId)))
                 .andExpect(status().isOk());
-        verify(hybrid).search(any());
+        verify(hybrid).searchDenseOnly(any());
         ArgumentCaptor<com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest> requestCaptor =
                 ArgumentCaptor.forClass(com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest.class);
-        verify(hybrid).search(requestCaptor.capture());
+        verify(hybrid).searchDenseOnly(requestCaptor.capture());
         assertEquals(UUID.fromString("00000000-0000-0000-0000-000000000005"),
                 requestCaptor.getValue().scope().getFirst().documentOwner().value());
     }
@@ -231,7 +265,7 @@ class UnifiedEvidenceCandidateSearchControllerTest {
     void returnsStableUnavailableErrorWhenBothSearchAttemptsFail() throws Exception {
         UUID documentId = UUID.randomUUID();
         HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
-        when(hybrid.search(any())).thenThrow(new com.dndmaster.ruleknowledge.application.search.EvidenceSearchUnavailableException(new IllegalStateException("down")));
+        when(hybrid.searchDenseOnly(any())).thenThrow(new com.dndmaster.ruleknowledge.application.search.EvidenceSearchUnavailableException(new IllegalStateException("down")));
 
         controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid)
                 .perform(post("/internal/v1/evidence-candidates/search").header("X-Internal-Token", "internal-token")
@@ -272,13 +306,13 @@ class UnifiedEvidenceCandidateSearchControllerTest {
 
     private static String request(UUID documentId, int denseLimit, int bm25Limit) {
         return """
-                {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","stageKey":"opening","actionIntent":"STORY","scope":[{"documentId":"%s","extractionVersion":1,"documentType":"STORYBOOK"}],"activeLocators":["page:1"],"query":"where is the passage?","denseLimit":%d,"bm25Limit":%d}
-                """.formatted(OWNER, UUID.randomUUID(), UUID.randomUUID(), documentId, denseLimit, bm25Limit);
+                {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","stageKey":"opening","actionIntent":"STORY","scope":[{"documentId":"%s","extractionVersion":1,"documentType":"STORYBOOK"}],"activeLocators":["page:1"],"excludedEvidenceIds":[],"query":"where is the passage?","denseLimit":%d}
+                """.formatted(OWNER, UUID.randomUUID(), UUID.randomUUID(), documentId, denseLimit);
     }
 
     private static String rulebookRequest(UUID documentId) {
         return """
-                {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","stageKey":"opening","actionIntent":"RULE","scope":[{"documentId":"%s","extractionVersion":1,"documentType":"RULEBOOK"}],"activeLocators":[],"query":"what is the rule?","denseLimit":5,"bm25Limit":7}
+                {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","stageKey":"opening","actionIntent":"RULE","scope":[{"documentId":"%s","extractionVersion":1,"documentType":"RULEBOOK"}],"activeLocators":[],"excludedEvidenceIds":[],"query":"what is the rule?","denseLimit":5}
                 """.formatted(OWNER, UUID.randomUUID(), UUID.randomUUID(), documentId);
     }
 
