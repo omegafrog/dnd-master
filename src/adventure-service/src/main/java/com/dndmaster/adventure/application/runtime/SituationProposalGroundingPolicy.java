@@ -25,9 +25,11 @@ public final class SituationProposalGroundingPolicy {
                 if (!found) throw new IllegalArgumentException("SITUATION_RAG_REFERENCE_REQUIRED");
             }
             case FALLBACK -> {
-                RuntimeAddedFact fact = new RuntimeAddedFact(UUID.randomUUID(), describe(situation.update()), turnId);
+                String description = describe(situation.update());
+                List<RuntimeAddedFact> facts = description.isBlank() ? proposal.runtimeAddedFacts()
+                        : List.of(new RuntimeAddedFact(UUID.randomUUID(), description, turnId));
                 return new RuntimeResolutionProposal(proposal.gameStateDelta(), proposal.disclosureState(),
-                        situation.update(), List.of(fact), proposal.completionProposal(), situation);
+                        situation.update(), facts, proposal.completionProposal(), situation);
             }
         }
         return new RuntimeResolutionProposal(proposal.gameStateDelta(), proposal.disclosureState(), situation.update(),
@@ -35,7 +37,13 @@ public final class SituationProposalGroundingPolicy {
     }
 
     private static String describe(SituationUpdateProposal update) {
-        return "location=" + update.location() + "; problem=" + update.problem()
-                + "; threat=" + update.threat() + "; goal=" + update.goal();
+        return java.util.stream.Stream.of(
+                value("location", update.location()), value("problem", update.problem()),
+                value("threat", update.threat()), value("goal", update.goal()))
+                .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.joining("; "));
+    }
+
+    private static String value(String field, String value) {
+        return value == null ? null : field + "=" + value;
     }
 }

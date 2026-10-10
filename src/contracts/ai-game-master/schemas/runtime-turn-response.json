@@ -32,7 +32,7 @@
     },
     "situation": {
       "type": "object", "additionalProperties": false,
-      "required": ["kind", "location", "problem", "threat", "goal", "basis", "required"],
+      "required": ["kind", "basis", "required"],
       "properties": {
         "kind": { "enum": ["CONTINUE", "TRANSITION"] }, "location": { "type": "string", "minLength": 1 },
         "problem": { "type": "string", "minLength": 1 }, "threat": { "type": "string", "minLength": 1 },

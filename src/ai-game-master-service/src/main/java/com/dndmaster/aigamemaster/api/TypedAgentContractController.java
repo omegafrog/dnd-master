@@ -483,7 +483,7 @@ public final class TypedAgentContractController {
         }
         JsonNode situation = root.path("situation");
         requireOnlyFields(situation, java.util.Set.of("kind", "location", "problem", "threat", "goal", "basis", "reference", "required"),
-                java.util.Set.of("kind", "location", "problem", "threat", "goal", "basis", "required"), "situation");
+                java.util.Set.of("kind", "basis", "required"), "situation");
         if (!situation.isObject()) throw new IllegalArgumentException("situation is required and must be an object");
         String basis = required(situation, "basis").toUpperCase(java.util.Locale.ROOT);
         if (!basis.equals("SCENARIO") && !basis.equals("RAG") && !basis.equals("FALLBACK")) {
@@ -494,10 +494,10 @@ public final class TypedAgentContractController {
         }
         String kind = required(situation, "kind").toUpperCase(java.util.Locale.ROOT);
         if (!kind.equals("CONTINUE") && !kind.equals("TRANSITION")) throw new IllegalArgumentException("invalid situation kind");
-        String location = required(situation, "location");
-        String problem = required(situation, "problem");
-        String threat = required(situation, "threat");
-        String goal = required(situation, "goal");
+        String location = optional(situation, "location");
+        String problem = optional(situation, "problem");
+        String threat = optional(situation, "threat");
+        String goal = optional(situation, "goal");
         SituationResponse response = new SituationResponse(kind, location, problem, threat, goal, basis, situation.path("reference").asText(""),
                 situation.path("required").booleanValue());
         List<RuntimeFactResponse> runtimeFacts = new java.util.ArrayList<>();
@@ -638,6 +638,13 @@ public final class TypedAgentContractController {
     private static String required(JsonNode root, String field) {
         String value = root.path(field).asText("").trim();
         if (value.isBlank()) throw new IllegalArgumentException(field + " is required");
+        return value;
+    }
+
+    private static String optional(JsonNode root, String field) {
+        if (!root.has(field)) return null;
+        String value = root.path(field).asText("").trim();
+        if (value.isBlank()) throw new IllegalArgumentException(field + " must not be blank when provided");
         return value;
     }
 

@@ -572,6 +572,25 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void normal_action_accepts_a_situation_with_only_the_provided_core_element() {
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> """
+                {"scene":"양조장 지하실","judgment":"문제를 확인했다","narration":"쥐가 통로를 막고 있습니다.",
+                 "situation":{"kind":"TRANSITION","problem":"쥐가 통로를 막고 있다",
+                   "basis":"FALLBACK","reference":"","required":true},
+                 "combatStart":false,"mapEntryRequested":false,"판정제안":{"필요":false},"combatEnemies":[]}
+                """);
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        var response = controller.runtimeTurn("service-secret",
+                new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "살펴본다", List.of()));
+
+        org.junit.jupiter.api.Assertions.assertNull(response.situation().location());
+        org.junit.jupiter.api.Assertions.assertEquals("쥐가 통로를 막고 있다", response.situation().problem());
+        org.junit.jupiter.api.Assertions.assertNull(response.situation().threat());
+        org.junit.jupiter.api.Assertions.assertNull(response.situation().goal());
+    }
+
+    @Test
     void opening_accepts_korean_text_with_names_abbreviations_and_dice_notation() {
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"Potent Brew 양조장\",\"judgment\":\"HP 변화 없이 DC 12 확인과 1d20 굴림을 기다립니다.\","
                 + "\"narration\":\"NPC Bob이 입구에서 기다립니다. 어떻게 하시겠어요?\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")

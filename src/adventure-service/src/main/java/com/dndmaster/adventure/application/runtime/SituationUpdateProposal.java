@@ -8,10 +8,10 @@ public record SituationUpdateProposal(Kind kind, String location, String problem
 
     public SituationUpdateProposal {
         kind = Objects.requireNonNull(kind, "situation update kind must not be null");
-        location = required(location, "situation location");
-        problem = required(problem, "situation problem");
-        threat = required(threat, "situation threat");
-        goal = required(goal, "situation goal");
+        location = optional(location);
+        problem = optional(problem);
+        threat = optional(threat);
+        goal = optional(goal);
     }
 
     public static SituationUpdateProposal continueSituation(String problem, String threat, String goal) {
@@ -22,8 +22,7 @@ public record SituationUpdateProposal(Kind kind, String location, String problem
         return new SituationUpdateProposal(Kind.TRANSITION, location, problem, threat, goal);
     }
 
-    private static String required(String value, String name) {
-        if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
-        return value.trim();
+    private static String optional(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }
