@@ -226,6 +226,53 @@ class ScenarioRuntimeAdventureStartTest {
         assertEquals(0, adventures.saveCount);
     }
 
+    @Test
+    void unauthorized_existing_adventure_start_does_not_lock_preparation() {
+        OwnerPlayerId preparationOwner = owner();
+        OwnerPlayerId adventureOwner = owner();
+        ScenarioPackage packageVersion = readyPackage();
+        SessionId sessionId = SessionId.generate();
+        var approved = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory
+                .load(new KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst().approve();
+        var preparation = new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
+                UUID.randomUUID(), packageVersion.packageId(), preparationOwner.value(), 2, false, List.of(approved), sessionId.value());
+        ReviewablePackageRepository packages = new ReviewablePackageRepository(packageVersion, preparation);
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository();
+        Adventure existing = Adventure.beginScenarioRuntime(AdventureId.generate(), sessionId, adventureOwner,
+                new ScenarioId(packageVersion.packageId()), new RuleSetId(UUID.randomUUID()), packageVersion.packageId(),
+                packageVersion.bundleRevision(), party(), new AdventureContext("opening", null, null, null));
+        adventures.save(existing);
+        int savesBeforeStart = adventures.saveCount;
+        AdventureStartApplicationService service = new AdventureStartApplicationService(
+                packages, adventures, stagePreparation(packageVersion));
+
+        StartAdventureCommand command = new StartAdventureCommand(existing.id(), sessionId, preparationOwner,
+                packageVersion.packageId(), packageVersion.bundleRevision(), new ScenarioId(packageVersion.packageId()),
+                new RuleSetId(UUID.randomUUID()), party(), new AdventureContext("opening", null, null, null), UUID.randomUUID());
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AdventureStartApplicationService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        try {
+            assertThrows(SecurityException.class, () -> service.start(command));
+            assertTrue(appender.list.stream().map(event -> event.getFormattedMessage()).anyMatch(message ->
+                    message.contains("operation=adventure_start_existing_guard outcome=blocked")
+                            && message.contains("adventureId=" + existing.id().value())
+                            && message.contains("expectedOwnerId=" + adventureOwner.value())
+                            && message.contains("actualOwnerId=" + preparationOwner.value())
+                            && message.contains("reason=owner_mismatch")));
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+
+        assertEquals(0, packages.lockCalls);
+        assertEquals(false, packages.locked);
+        assertEquals(savesBeforeStart, adventures.saveCount);
+    }
+
     private static StartAdventureCommand command(OwnerPlayerId owner, ScenarioPackage packageVersion) {
         return command(owner, packageVersion, SessionId.generate());
     }

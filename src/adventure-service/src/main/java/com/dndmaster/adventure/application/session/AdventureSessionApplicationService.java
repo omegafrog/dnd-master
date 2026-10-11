@@ -72,6 +72,7 @@ public class AdventureSessionApplicationService {
         return create(owner, scenarioPackageId, blueprintId, blueprintRevision, runtimeConfiguration, requestedPartySize, null);
     }
 
+    @Transactional
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId, java.util.UUID blueprintId,
             long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer requestedPartySize,
             java.util.UUID preparationId) {
@@ -87,8 +88,9 @@ public class AdventureSessionApplicationService {
         }
         int partySize = partySize(scenarioPackage.characterLimit(), requestedPartySize);
         SessionId sessionId = SessionId.generate();
+        com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation review = null;
         if (preparationId != null) {
-            var review = packageRepository.findSpellDefinitionPreparation(preparationId)
+            review = packageRepository.findSpellDefinitionPreparation(preparationId)
                     .orElseThrow(() -> new IllegalStateException("spell/action review preparation not found"));
             if (!review.packageId().equals(scenarioPackageId) || !review.ownerId().equals(owner.value()))
                 throw new SecurityException("spell/action review preparation does not belong to this owner and package");
@@ -140,12 +142,31 @@ public class AdventureSessionApplicationService {
                         pendingDefinitions > 0 ? "pending_review" : "required_unsupported");
                 throw new IllegalStateException("spell/action definitions require review or supported required definitions before session creation");
             }
-            packageRepository.bindSpellDefinitionPreparation(preparationId, scenarioPackageId, owner.value(),
-                    sessionId.value(), review.revision());
         }
         AdventureSession session = AdventureSession.create(sessionId, owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), blueprintId, blueprintRevision, blueprint.provenance().edition(), partySize,
                 runtimeConfiguration == null ? defaultRuntimeConfiguration(scenarioPackage) : runtimeConfiguration);
-        repository.save(session, 0); return session;
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_flow operation=adventure_session_create outcome=started sessionId={} packageId={} preparationId={} expectedVersion=0 expectedPartySize={} reason=session_persist_and_preparation_bind",
+                    sessionId.value(), scenarioPackageId, preparationId, partySize);
+        }
+        try {
+            repository.save(session, 0);
+        } catch (RuntimeException failure) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                LOGGER.info("dev_flow operation=adventure_session_create outcome=failed sessionId={} packageId={} preparationId={} expectedVersion=0 actualVersion={} failureType={} reason=session_persist_failed recovery=retry_session_creation",
+                        sessionId.value(), scenarioPackageId, preparationId, session.version(), failure.getClass().getSimpleName());
+            }
+            throw failure;
+        }
+        if (preparationId != null) {
+            packageRepository.bindSpellDefinitionPreparation(preparationId, scenarioPackageId, owner.value(),
+                    sessionId.value(), review.revision());
+        }
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_flow operation=adventure_session_create outcome=completed sessionId={} packageId={} preparationId={} actualVersion={} actualPartySize={} reason=session_persisted_and_preparation_bound",
+                    sessionId.value(), scenarioPackageId, preparationId, session.version(), session.party().size());
+        }
+        return session;
     }
 
     private static void logPreparationGate(java.util.UUID preparationId, long pending, long requiredUnsupported, String reason) {

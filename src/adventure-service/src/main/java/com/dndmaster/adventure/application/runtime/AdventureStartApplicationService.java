@@ -36,6 +36,25 @@ public final class AdventureStartApplicationService {
             throw new IllegalStateException("scenario package revision does not match start request");
         }
 
+        Adventure adventure = adventures.findById(command.adventureId()).orElse(null);
+        if (adventure != null) {
+            if (!adventure.ownerPlayerId().equals(command.ownerPlayerId())) {
+                if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                    LOGGER.info("dev_flow operation=adventure_start_existing_guard outcome=blocked adventureId={} expectedOwnerId={} actualOwnerId={} expectedPackageId={} actualPackageId={} expectedStatus=authorized_existing_adventure actualStatus={} reason=owner_mismatch recovery=retry_with_adventure_owner",
+                            command.adventureId().value(), adventure.ownerPlayerId().value(), command.ownerPlayerId().value(),
+                            adventure.lockedScenarioPackageId(), command.scenarioPackageId(), adventure.status());
+                }
+                throw new SecurityException("adventure access denied");
+            }
+            if (!command.scenarioPackageId().equals(adventure.lockedScenarioPackageId())) {
+                throw new IllegalStateException("adventure is locked to another scenario package");
+            }
+            if (adventure.status() == com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE) return adventure;
+            if (adventure.status() != com.dndmaster.adventure.domain.adventure.AdventureStatus.STARTING) {
+                throw new IllegalStateException("adventure cannot resume from " + adventure.status());
+            }
+        }
+
         var preparation = packages.findSpellDefinitionPreparationBySession(command.sessionId().value());
         boolean requires2014Inventory = scenarioPackage.characterCreationBlueprint() != null
                 && "DND_5E_2014".equalsIgnoreCase(scenarioPackage.characterCreationBlueprint().provenance().edition());
@@ -102,21 +121,11 @@ public final class AdventureStartApplicationService {
             }
         }
 
-        Adventure adventure = adventures.findById(command.adventureId()).orElse(null);
-        if (adventure != null && adventure.status() == com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE) return adventure;
         if (adventure == null) {
             adventure = Adventure.beginScenarioRuntime(command.adventureId(), command.sessionId(), command.ownerPlayerId(),
                     command.scenarioId(), command.ruleSetId(), command.scenarioPackageId(), command.scenarioPackageRevision(),
                     command.party(), command.initialContext());
             adventures.save(adventure);
-        } else {
-            if (!adventure.ownerPlayerId().equals(command.ownerPlayerId())) throw new SecurityException("adventure access denied");
-            if (!command.scenarioPackageId().equals(adventure.lockedScenarioPackageId())) {
-                throw new IllegalStateException("adventure is locked to another scenario package");
-            }
-            if (adventure.status() != com.dndmaster.adventure.domain.adventure.AdventureStatus.STARTING) {
-                throw new IllegalStateException("adventure cannot resume from " + adventure.status());
-            }
         }
 
         var prepared = stagePreparation.prepare(adventure.id(), command.sessionId(), scenarioPackage.packageId());

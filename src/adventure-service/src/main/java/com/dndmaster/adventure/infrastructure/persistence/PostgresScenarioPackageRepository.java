@@ -46,9 +46,11 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     private static final ObjectMapper JSON = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     private final DataSource dataSource;
+    private final DataSource transactionAwareDataSource;
 
     public PostgresScenarioPackageRepository(DataSource dataSource) {
         this.dataSource = java.util.Objects.requireNonNull(dataSource, "data source must not be null");
+        this.transactionAwareDataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(this.dataSource);
     }
 
     @Override
@@ -313,7 +315,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     @Override
     public void bindSpellDefinitionPreparation(UUID preparationId, UUID packageId, UUID ownerId,
             UUID sessionId, long expectedRevision) {
-        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+        try (Connection connection = transactionAwareDataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
                 "UPDATE spell_definition_review_preparation SET session_id = ? WHERE preparation_id = ? AND package_id = ? AND owner_player_id = ? AND revision = ? AND NOT locked AND (session_id IS NULL OR session_id = ?)")) {
             statement.setObject(1, sessionId); statement.setObject(2, preparationId); statement.setObject(3, packageId);
             statement.setObject(4, ownerId); statement.setLong(5, expectedRevision); statement.setObject(6, sessionId);
