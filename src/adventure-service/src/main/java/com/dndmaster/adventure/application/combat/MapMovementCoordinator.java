@@ -14,31 +14,12 @@ public final class MapMovementCoordinator {
     private final SpatialActionAuthorizationPort spatialAuthorization;
 
     public MapMovementCoordinator(CombatMapPort combatMap) {
-        this(combatMap, new DiceCombatPort() {
-            @Override public int roll(CombatActionCommand command) {
-                throw new UnsupportedOperationException("combat dice roll is unavailable");
-            }
-            @Override public int rollSpatialCheck(SpatialCheckRollCommand command) {
-                return combatMap.rollSpatialCheck(command);
-            }
-            @Override public int rollEnemyObservation(EnemyObservationRollCommand command) {
-                return combatMap.rollEnemyObservation(command);
-            }
-        }, new DefaultResolutionPort(), SpatialActionAuthorizationPort.requiredPlayerAction(), combatMap::rollEnemyObservation);
+        this(combatMap, unavailableDice(), new DefaultResolutionPort(),
+                SpatialActionAuthorizationPort.requiredPlayerAction());
     }
 
     public MapMovementCoordinator(CombatMapPort combatMap, SpatialActionAuthorizationPort spatialAuthorization) {
-        this(combatMap, new DiceCombatPort() {
-            @Override public int roll(CombatActionCommand command) {
-                throw new UnsupportedOperationException("combat dice roll is unavailable");
-            }
-            @Override public int rollSpatialCheck(SpatialCheckRollCommand command) {
-                return combatMap.rollSpatialCheck(command);
-            }
-            @Override public int rollEnemyObservation(EnemyObservationRollCommand command) {
-                return combatMap.rollEnemyObservation(command);
-            }
-        }, new DefaultResolutionPort(), spatialAuthorization, combatMap::rollEnemyObservation);
+        this(combatMap, unavailableDice(), new DefaultResolutionPort(), spatialAuthorization);
     }
 
     public MapMovementCoordinator(CombatMapPort combatMap, DiceCombatPort dice) {
@@ -61,6 +42,14 @@ public final class MapMovementCoordinator {
         this.resolution = Objects.requireNonNull(resolution, "resolution port must not be null");
         this.spatialAuthorization = Objects.requireNonNull(spatialAuthorization, "spatial action authorization must not be null");
         this.enemyObservationRoll = Objects.requireNonNull(enemyObservationRoll, "enemy observation roll port must not be null");
+    }
+
+    private static DiceCombatPort unavailableDice() {
+        return new DiceCombatPort() {
+            @Override public int roll(CombatActionCommand command) {
+                throw new UnsupportedOperationException("combat dice roll is unavailable");
+            }
+        };
     }
 
     public CombatMapMoveResult resolve(CombatMapMoveCommand command) {

@@ -53,7 +53,7 @@ class MapMovementCoordinatorTest {
         UUID checkId = UUID.randomUUID();
         UUID owner = UUID.randomUUID();
         CapturingMapPort map = new CapturingMapPort(mapId, operationId, checkId, owner, 15);
-        MapMovementCoordinator coordinator = new MapMovementCoordinator(map);
+        MapMovementCoordinator coordinator = new MapMovementCoordinator(map, localDice(map));
 
         coordinator.rollAndResume(new SpatialCheckRollCommand(UUID.randomUUID(), mapId, UUID.randomUUID(),
                 new RuleSetId(UUID.randomUUID()), owner, checkId, operationId, 3));
@@ -145,8 +145,6 @@ class MapMovementCoordinatorTest {
             if (!this.mapId.equals(mapId)) throw new IllegalArgumentException("wrong map");
             return pending;
         }
-        @Override public int rollSpatialCheck(SpatialCheckRollCommand command) { rolls++; return roll; }
-        @Override public int rollEnemyObservation(EnemyObservationRollCommand command) { enemyRolls++; return roll; }
         @Override public CombatMapSpatialResult observe(CombatMapSpatialActionCommand command) {
             observations++;
             return new CombatMapSpatialResult(mapId, 1, List.of());
@@ -160,5 +158,15 @@ class MapMovementCoordinatorTest {
             this.submission = submission;
             return pending;
         }
+    }
+
+    private static com.dndmaster.adventure.application.combat.DiceCombatPort localDice(CapturingMapPort map) {
+        return new com.dndmaster.adventure.application.combat.DiceCombatPort() {
+            @Override public int roll(com.dndmaster.adventure.application.combat.CombatActionCommand command) {
+                throw new UnsupportedOperationException();
+            }
+            @Override public int rollSpatialCheck(SpatialCheckRollCommand command) { return map.roll; }
+            @Override public int rollEnemyObservation(EnemyObservationRollCommand command) { return map.roll; }
+        };
     }
 }

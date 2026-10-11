@@ -175,9 +175,6 @@ class CombatMapRuntimeTurnCommandAdapterTest {
                 return new com.dndmaster.adventure.application.combat.CombatMapMoveResult(5, id,
                         CombatMapMovementStatus.CHECK_REQUIRED, List.of(), List.of(), null, List.of(), null, null, details);
             }
-            @Override public int rollEnemyObservation(com.dndmaster.adventure.application.combat.EnemyObservationRollCommand command) {
-                return 15;
-            }
             @Override public com.dndmaster.adventure.application.combat.CombatMapMoveResult resumeMovementOperation(UUID mapId, UUID id,
                     com.dndmaster.adventure.application.combat.CombatMapCheckSubmission submission) {
                 submitted.set(submission);
@@ -259,7 +256,16 @@ class CombatMapRuntimeTurnCommandAdapterTest {
     }
 
     private static CombatMapRuntimeTurnCommandAdapter adapter(CombatMapPort mapPort) {
-        return new CombatMapRuntimeTurnCommandAdapter(mapPort, mapPort::rollEnemyObservation,
+        var localDice = new com.dndmaster.adventure.application.combat.DiceCombatPort() {
+            @Override public int roll(CombatActionCommand command) { throw new UnsupportedOperationException(); }
+            @Override public int rollSpatialCheck(com.dndmaster.adventure.application.combat.SpatialCheckRollCommand command) {
+                return mapPort.rollSpatialCheck(command);
+            }
+            @Override public int rollEnemyObservation(com.dndmaster.adventure.application.combat.EnemyObservationRollCommand command) {
+                return 15;
+            }
+        };
+        return new CombatMapRuntimeTurnCommandAdapter(mapPort, localDice,
                 new ObjectMapper(), new DefaultResolutionPort(),
                 trigger -> switch (trigger) {
                     case "HOSTILE_OBSERVED" -> com.dndmaster.adventure.application.combat.MovementFollowUpCommand.Kind.COMBAT;

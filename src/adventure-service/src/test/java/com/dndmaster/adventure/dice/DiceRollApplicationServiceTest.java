@@ -108,6 +108,37 @@ class DiceRollApplicationServiceTest {
     }
 
     @Test
+    void denied_ai_replay_logs_safe_scope_diagnostics_before_returning_no_saved_player_result() {
+        RecordingRepository repository = new RecordingRepository();
+        RollCommand command = command(RollScope.PLAYER_ACTION, die());
+        DiceRoll saved = new DiceRoll(RollId.generate(), command.adventureId(), command.ruleSetId(), command.scope(),
+                command.expression(), command.sessionId(), command.turnId(), command.commandId(), command.expectedVersion(),
+                command.ruleReference(), command.difficulty());
+        saved.recordBuiltInResult(DiceResult.forExpression(command.expression(), List.of(9)));
+        repository.saved.add(saved);
+        var service = new DiceRollApplicationService(repository, new FakeRandom());
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(DiceRollApplicationService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        try {
+            assertThrows(RollPermissionDeniedException.class, () -> service.executeAiRoll(command));
+            assertTrue(appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
+                    .anyMatch(message -> message.contains("commandId=" + command.commandId())
+                            && message.contains("expectedScope=NPC_OR_ENEMY")
+                            && message.contains("actualScope=PLAYER_ACTION")
+                            && message.contains("result=denied") && message.contains("outcome=failed")));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+    }
+
+    @Test
     void conflicting_replay_diagnostics_include_safe_expected_and_actual_details() {
         var repository = new RecordingRepository();
         var service = new DiceRollApplicationService(repository, new FakeRandom(0));

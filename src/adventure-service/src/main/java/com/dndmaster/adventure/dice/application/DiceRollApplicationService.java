@@ -31,13 +31,22 @@ public final class DiceRollApplicationService {
 
     private DiceRoll execute(RollCommand command, boolean playerExecution) {
         Objects.requireNonNull(command, "command must not be null");
-        DiceRoll candidate = create(command);
-        if (playerExecution) candidate.authorizePlayerExecution(); else candidate.authorizeAiExecution();
         String context = "commandId=" + command.commandId() + " adventureId=" + command.adventureId().value()
                 + " scope=" + command.scope() + " diceCount=" + command.expression().count()
                 + " dieSides=" + command.expression().sides();
         long startedAt = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics
                 .begin(LOGGER, "dice_roll", context);
+        DiceRoll candidate;
+        try {
+            candidate = create(command);
+            if (playerExecution) candidate.authorizePlayerExecution(); else candidate.authorizeAiExecution();
+        } catch (RuntimeException failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "dice_roll_authorization", context + " expectedScope="
+                            + (playerExecution ? "PLAYER_ACTION" : "NPC_OR_ENEMY") + " actualScope="
+                            + command.scope() + " result=denied", startedAt, failure);
+            throw failure;
+        }
         try {
             DiceRoll existing = repository.findByCommandId(command.commandId()).orElse(null);
             if (existing != null) {

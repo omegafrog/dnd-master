@@ -3,7 +3,6 @@ package com.dndmaster.adventure.application.runtime;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
-import com.dndmaster.adventure.application.combat.EnemyObservationRollPort;
 import com.dndmaster.adventure.application.combat.CombatMapMovementPreviewRejectedException;
 import com.dndmaster.adventure.application.combat.CombatMapPreviewCommand;
 import com.dndmaster.adventure.application.combat.MapMovementCoordinator;
@@ -23,19 +22,13 @@ public final class CombatMapRuntimeTurnCommandAdapter implements RuntimeTurnComm
     private final ObjectMapper mapper;
     private final MovementFollowUpPolicy followUpPolicy;
 
-    public CombatMapRuntimeTurnCommandAdapter(CombatMapPort mapPort, EnemyObservationRollPort enemyObservationRoll,
+    public CombatMapRuntimeTurnCommandAdapter(CombatMapPort mapPort,
+            com.dndmaster.adventure.application.combat.DiceCombatPort dice,
             ObjectMapper mapper, ResolutionPort resolution, MovementFollowUpPolicy followUpPolicy) {
         ResolutionPort durableResolution = java.util.Objects.requireNonNull(resolution,
                 "resolution port must not be null");
-        this.movementCoordinator = new MapMovementCoordinator(mapPort, new com.dndmaster.adventure.application.combat.DiceCombatPort() {
-            @Override public int roll(com.dndmaster.adventure.application.combat.CombatActionCommand command) {
-                throw new UnsupportedOperationException("combat dice roll is unavailable");
-            }
-            @Override public int rollSpatialCheck(com.dndmaster.adventure.application.combat.SpatialCheckRollCommand command) {
-                return mapPort.rollSpatialCheck(command);
-            }
-        }, durableResolution,
-                SpatialActionAuthorizationPort.requiredPlayerAction(), enemyObservationRoll);
+        this.movementCoordinator = new MapMovementCoordinator(mapPort, dice, durableResolution,
+                SpatialActionAuthorizationPort.requiredPlayerAction(), dice::rollEnemyObservation);
         this.mapper = java.util.Objects.requireNonNull(mapper, "object mapper must not be null");
         this.followUpPolicy = java.util.Objects.requireNonNull(followUpPolicy, "follow-up policy must not be null");
     }

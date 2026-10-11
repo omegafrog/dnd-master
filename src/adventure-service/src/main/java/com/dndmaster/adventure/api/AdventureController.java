@@ -70,7 +70,8 @@ public class AdventureController {
     private final AdventureScenarioApplicationService scenarioService;
     private final AuthenticatedPlayerResolver playerResolver;
     private final CombatMapPort combatMapPort;
-    private final com.dndmaster.adventure.application.combat.MapMovementCoordinator mapMovementCoordinator;
+    private com.dndmaster.adventure.application.combat.MapMovementCoordinator mapMovementCoordinator;
+    private final com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort spatialActionAuthorizationPort;
     private final PendingMapMovementConfirmationRepository pendingMapMovementConfirmationRepository;
     private final CharacterCombatPort characterCombatPort;
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
@@ -152,8 +153,10 @@ public class AdventureController {
         this.combatMapPort = combatMapPort.getIfAvailable(() -> command -> {
             throw new IllegalStateException("combat map gateway unavailable");
         });
+        this.spatialActionAuthorizationPort = spatialActionAuthorization.getIfAvailable(
+                com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort::requiredPlayerAction);
         this.mapMovementCoordinator = new com.dndmaster.adventure.application.combat.MapMovementCoordinator(this.combatMapPort,
-                spatialActionAuthorization.getIfAvailable(com.dndmaster.adventure.application.combat.SpatialActionAuthorizationPort::requiredPlayerAction));
+                this.spatialActionAuthorizationPort);
         this.pendingMapMovementConfirmationRepository = Objects.requireNonNull(pendingMapMovementConfirmationRepository,
                 "pending map movement confirmation repository must not be null");
         this.characterCombatPort = characterCombatPort.getIfAvailable(() -> command -> {
@@ -173,6 +176,9 @@ public class AdventureController {
 
     public void setInitiativeDicePorts(com.dndmaster.adventure.dice.AdventureDicePorts dicePorts) {
         this.initiativeDicePorts = Objects.requireNonNull(dicePorts);
+        this.mapMovementCoordinator = new com.dndmaster.adventure.application.combat.MapMovementCoordinator(
+                combatMapPort, dicePorts, new com.dndmaster.adventure.application.runtime.DefaultResolutionPort(),
+                spatialActionAuthorizationPort, dicePorts::rollEnemyObservation);
     }
 
     /** Player read boundary; canonical runtime snapshots and ScenarioModel are intentionally absent. */
@@ -1004,7 +1010,8 @@ public class AdventureController {
     @Deprecated(forRemoval = false)
     @Operation(deprecated = true, summary = "Legacy combat dice path", description = "Use POST combat/actions with Idempotency-Key and If-Match-Version.")
     ResponseEntity<DiceRollResponse> diceRoll(
-            @PathVariable UUID adventureId, @RequestBody DiceRollRequest request) {
+            @PathVariable UUID adventureId, @RequestBody DiceRollRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) UUID idempotencyKey) {
         if (request.endCombat()) {
             throw new ApiRequestGuard.ApiContractException(410, "LEGACY_COMBAT_END_UNSUPPORTED");
         }
@@ -1033,7 +1040,7 @@ public class AdventureController {
             throw new ApiRequestGuard.ApiContractException(403, "CHARACTER_NOT_IN_ADVENTURE");
         }
         CombatActionCommand command = new CombatActionCommand(
-                UUID.randomUUID(),
+                legacyDiceCommandId(idempotencyKey),
                 adventure.id(),
                 adventure.sessionId().value(),
                 requestedRuleSet,
@@ -1054,6 +1061,10 @@ public class AdventureController {
                         result.diceTotal() == null ? List.of() : List.of(result.diceTotal()),
                         result.diceTotal() == null ? 0 : result.diceTotal(), result.judgment(), result.status(),
                         "COMMITTED".equals(result.status())));
+    }
+
+    static UUID legacyDiceCommandId(UUID idempotencyKey) {
+        return idempotencyKey == null ? UUID.randomUUID() : idempotencyKey;
     }
 
     @PutMapping("/api/v1/adventures/{adventureId}/save")

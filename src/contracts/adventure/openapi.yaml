@@ -129,6 +129,8 @@ paths:
     post:
       operationId: rollDice
       deprecated: true
+      parameters:
+        - { name: Idempotency-Key, in: header, required: false, schema: { type: string, format: uuid }, description: "Optional stable identity for safe retries of this legacy route." }
       requestBody:
         required: true
         content:

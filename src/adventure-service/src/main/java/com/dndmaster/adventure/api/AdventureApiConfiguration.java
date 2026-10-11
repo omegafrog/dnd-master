@@ -381,11 +381,11 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimeTurnCommandAdapter runtimeTurnCommandAdapter(ObjectMapper objectMapper,
             CombatMapPort combatMapPort,
-            @Qualifier("enemyObservationRollPort") com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort,
+            @Qualifier("adventureDicePorts") com.dndmaster.adventure.dice.AdventureDicePorts dicePorts,
             RuntimeContinuationCommandPort continuationPort,
             ResolutionPort resolutionPort, MovementFollowUpPolicy movementFollowUpPolicy) {
         return new RuntimeTurnCommandAdapterRegistry(
-                Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, enemyObservationRollPort,
+                Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, dicePorts,
                                 objectMapper, resolutionPort, movementFollowUpPolicy),
                         "movement.continuation.combat", new TypedRuntimeContinuationCommandAdapter(TypedRuntimeContinuationCommandAdapter.Kind.COMBAT, continuationPort)));
     }
@@ -1174,16 +1174,6 @@ public class AdventureApiConfiguration {
             @Override
             public CombatMapMoveResult move(CombatMapMoveCommand command) {
                 return gateway.move(command);
-            }
-
-            @Override
-            public int rollSpatialCheck(SpatialCheckRollCommand command) {
-                return gateway.rollSpatialCheck(command);
-            }
-
-            @Override
-            public int rollEnemyObservation(com.dndmaster.adventure.application.combat.EnemyObservationRollCommand command) {
-                return gateway.rollEnemyObservation(command);
             }
 
             @Override

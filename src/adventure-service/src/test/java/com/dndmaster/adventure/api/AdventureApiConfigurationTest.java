@@ -58,6 +58,21 @@ class AdventureApiConfigurationTest {
     }
 
     @Test
+    void enemy_spatial_check_uses_enemy_scope_on_the_local_roll_service() {
+        var repository = new DiceRepository();
+        var configured = new AdventureApiConfiguration().adventureDicePorts(
+                new com.dndmaster.adventure.dice.application.DiceRollApplicationService(repository, bound -> 4),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+        var command = new SpatialCheckRollCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                "monster.perception", "1d20", 0, 14, 2L,
+                com.dndmaster.adventure.application.combat.CombatMapCheckActor.ENEMY);
+
+        assertEquals(5, configured.rollSpatialCheck(command));
+        assertEquals("ENEMY", repository.saved.getFirst().scope().name());
+    }
+
+    @Test
     void enemy_observation_roll_uses_the_local_roll_service() {
         var repository = new DiceRepository();
         var configured = new AdventureApiConfiguration().adventureDicePorts(

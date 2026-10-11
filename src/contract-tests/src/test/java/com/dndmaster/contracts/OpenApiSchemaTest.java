@@ -19,6 +19,17 @@ class OpenApiSchemaTest {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @Test
+    void legacy_adventure_dice_route_accepts_an_optional_idempotency_key() throws IOException {
+        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve("adventure/openapi.yaml")));
+        Map<String, Object> paths = (Map<String, Object>) root.get("paths");
+        Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths
+                .get("/api/v1/adventures/{adventureId}/dice-rolls")).get("post");
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) operation.get("parameters");
+        assertTrue(parameters.stream().anyMatch(parameter -> "Idempotency-Key".equals(parameter.get("name"))
+                && "header".equals(parameter.get("in")) && Boolean.FALSE.equals(parameter.get("required"))));
+    }
+
+    @Test
     void canonical_openapi_documents_contain_every_allowlisted_public_and_internal_path() throws IOException {
         assertPaths("identity-access", "/api/v1/identity/sessions", "/internal/v1/auth/introspections");
         assertPaths("adventure", "/api/v1/adventures/{adventureId}/turns", "/api/v1/adventures/{adventureId}/rule-inquiries",
