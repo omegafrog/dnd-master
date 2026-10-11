@@ -4,12 +4,11 @@ public interface DiceCombatPort {
     int roll(CombatActionCommand command);
 
     default int rollDamage(int diceCount, int dieSides, int modifier) {
-        if (diceCount < 1 || dieSides < 2) throw new IllegalArgumentException("damage dice are invalid");
-        int total = modifier;
-        for (int index = 0; index < diceCount; index++) {
-            total += java.util.concurrent.ThreadLocalRandom.current().nextInt(1, dieSides + 1);
-        }
-        return total;
+        throw new UnsupportedOperationException("damage dice require a command-aware persistent roller");
+    }
+
+    default int rollDamage(CombatActionCommand command, int diceCount, int dieSides, int modifier) {
+        return rollDamage(diceCount, dieSides, modifier);
     }
 
     default int rollSpatialCheck(SpatialCheckRollCommand command) {

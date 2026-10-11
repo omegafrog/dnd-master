@@ -250,7 +250,7 @@ public final class CombatActionApplicationService {
             if (operation.diceTotal() != null && stepDone(operation, "dice")) {
                 damage = operation.diceTotal();
             } else {
-                damage = dicePort.rollDamage(3, 4, 3);
+                damage = dicePort.rollDamage(command, 3, 4, 3);
                 operation.recordDiceTotal(damage);
                 operation.completeStep("dice");
                 operationRepository.save(operation);

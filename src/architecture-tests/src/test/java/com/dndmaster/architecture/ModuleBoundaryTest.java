@@ -86,7 +86,6 @@ class ModuleBoundaryTest {
         packages.put("adventure-service", "com.dndmaster.adventure");
         packages.put("rule-knowledge-service", "com.dndmaster.ruleknowledge");
         packages.put("character-management-service", "com.dndmaster.character");
-        packages.put("dice-roll-service", "com.dndmaster.diceroll");
         packages.put("combat-map-service", "com.dndmaster.combatmap");
         packages.put("ai-game-master-service", "com.dndmaster.aigamemaster");
         return Map.copyOf(packages);

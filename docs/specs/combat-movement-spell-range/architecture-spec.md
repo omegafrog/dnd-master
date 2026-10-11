@@ -12,15 +12,15 @@
 | Product Spec | `docs/specs/combat-movement-spell-range/product-spec.md` |
 | Use Cases | UC-001 준비, UC-002 이동·주문·원거리 공격·투척, UC-003 지도 확대, UC-004 주문 효과의 환경 응용 |
 | Domain | 주문·행동 정의, 지도 조준·미리보기, 전투 실행, 환경 상호작용 |
-| Bounded Contexts | Scenario Preparation, Adventure Runtime, Document Knowledge, AI Game Master, Combat Map, Character Management, Dice Roll — 모두 기존 경계 |
-| Existing Services | `adventure-service`, `rule-knowledge-service`, `ai-game-master-service`, `combat-map-service`, `character-management-service`, `dice-roll-service`, `web-ui` |
+| Bounded Contexts | Scenario Preparation, Adventure Runtime (주사위 굴림 내부 기능 포함), Document Knowledge, AI Game Master, Combat Map, Character Management — 모두 기존 경계 |
+| Existing Services | `adventure-service`, `rule-knowledge-service`, `ai-game-master-service`, `combat-map-service`, `character-management-service`, `web-ui` |
 | External Dependencies | 기존 HTTP 서비스 경계와 현재 AI 제공자 연동. MCP 서버 추가 없음 |
 | Affected Data | 게시 원본 정의·출처 버전, 지문 재사용되는 ScenarioPackage 원본, 준비 ID별 정의 편집·승인·이력, Session의 준비 ID 연결, 전투 명령·실행 단계 |
 ## 1.2 Product Spec Mapping
 | Product 항목 | 아키텍처 매핑 |
 |---|---|
 | UC-001, BR-01~04, BR-22, BR-29 | Document Knowledge의 불변 게시 원본과 Scenario Preparation의 전체 주문 정의·모험별 수정본·승인본; Bundle Lock |
-| UC-002, BR-05~21 | Adventure Runtime의 전투 명령·규칙 판정; Combat Map의 이동·위치·고도·시야; Character Management와 Dice Roll의 기존 권위 |
+| UC-002, BR-05~21 | Adventure Runtime의 전투 명령·규칙 판정·주사위 결과 저장; Combat Map의 이동·위치·고도·시야; Character Management의 기존 권위 |
 | AC-28~30, BR-30~32 | 출처가 연결된 행동 정의의 사거리·표적·모양·차단 자료; 공통 조준 미리보기와 Combat Map의 공개 경로/효과 칸; 이름별 분기 없는 자료 추가·수정·삭제 |
 | UC-004, BR-23~28 | AI Game Master가 허용 목록으로 환경 응용을 계획; Adventure Runtime의 `OfficialGmToolRegistry`/`GmToolGatewayService`와 기존 명령 경계가 검증·실행 |
 | AC-14~15, BR-14~15 | 공개 정보만 사용한 읽기 전용 미리보기; 현재 encounter/map/definition 버전 최종 검증 |
@@ -64,12 +64,11 @@
 |---|---|
 | Document Knowledge | 게시된 기본 룰북/추가 자료의 불변 원본, Source Span 및 추출 버전 |
 | Scenario Preparation | 전체 기본 주문 인벤토리와 선택 자료 정의의 모험별 구조화·수정·승인. Bundle Lock은 승인 정의·출처·추출 버전을 고정 |
-| Adventure Runtime | `CombatEncounter` lifecycle·턴·행동·이동 예산, 적 전투 수치·HP·효과, 적 집중 상태, 승인된 모험 준비 정의와 전투 명령 operation 기록 |
+| Adventure Runtime | `CombatEncounter` lifecycle·턴·행동·이동 예산, 적 전투 수치·HP·효과, 적 집중 상태, 주사위 굴림과 불변 결과, 승인된 모험 준비 정의와 전투 명령 operation 기록 |
 | Character Management | 플레이어·동료 HP/효과·집중 상태, 인벤토리·수량·아이템 식별자, 주문 사용 권한·슬롯, 공격/내성/시전 능력치 |
 | Combat Map | 토큰 위치·고도·공개 상태, 기하/차단 및 실제 이동 도달 경로·비용 |
-| Dice Roll | 변경할 수 없는 주사위 굴림 결과와 동일 명령의 재조회 결과 |
 | AI Game Master | 제한된 근거와 허용 작업 목록으로 제안/작업 요청. 규칙·상태를 직접 확정하지 않음 |
-Scenario Preparation은 Document Knowledge의 문서·추출 버전을 ID로 참조하고 원본을 수정하지 않는다. Adventure Runtime은 AI 제안을 검증하고 Combat Map, Character Management, Dice Roll에 각 소유자 명령을 보낸다. 상태 복제나 분산 ACID 트랜잭션은 도입하지 않는다.
+Scenario Preparation은 Document Knowledge의 문서·추출 버전을 ID로 참조하고 원본을 수정하지 않는다. Adventure Runtime은 AI 제안을 검증하고 Character Management와 Combat Map에 각 소유자 명령을 보낸다. 주사위 결과는 Adventure Runtime 내부 기능이 같은 서비스의 저장소에 저장하며 상태 복제나 분산 ACID 트랜잭션은 도입하지 않는다.
 ## 3.3 Aggregates, Types, and Invariants
 | Aggregate/개념 | 책임 및 불변식 |
 |---|---|
@@ -84,7 +83,7 @@ Scenario Preparation은 Document Knowledge의 문서·추출 버전을 ID로 참
 | `SpellActionSelection` | 선택된 정의 버전, 슬롯, 대상·배분, 위치/방향/고도, 기대 상태 버전 |
 | `SpellActionPreview` | 공개 가능한 사거리/효과/경로/비용/대상/선택 필요/경고만 포함 |
 | `SpellTrait` | 서로 다른 실제 규칙 기제를 구현하는 전략. 정의·선택·문맥을 평가해 허용된 연산과 추가 요구조건 반환 |
-`CombatEncounter`는 전투 lifecycle·턴·행동·이동 예산·적 전투 상태를 소유한다. Character Management는 플레이어와 동료의 HP·효과·집중 상태·인벤토리·주문 사용 권한과 슬롯·전투 능력치를 소유한다. Adventure Runtime은 적 HP·효과·집중 상태를 소유한다. Combat Map은 토큰의 위치·고도·공개 상태, 기하·차단 및 실제 이동 결과를 소유한다. Dice Roll은 변경할 수 없는 굴림 결과를 소유한다. AI와 클라이언트는 제안과 선택만 제공한다.
+`CombatEncounter`는 전투 lifecycle·턴·행동·이동 예산·적 전투 상태를 소유한다. Character Management는 플레이어와 동료의 HP·효과·집중 상태·인벤토리·주문 사용 권한과 슬롯·전투 능력치를 소유한다. Adventure Runtime은 적 HP·효과·집중 상태와 변경할 수 없는 굴림 결과를 소유한다. Combat Map은 토큰의 위치·고도·공개 상태, 기하·차단 및 실제 이동 결과를 소유한다. AI와 클라이언트는 제안과 선택만 제공한다.
 ## 3.4 Business Rule Ownership and State
 | 규칙 | 소유/강제 지점 |
 |---|---|
@@ -95,7 +94,7 @@ Scenario Preparation은 Document Knowledge의 문서·추출 버전을 ID로 참
 | 플레이어/동료 HP·효과·집중 상태·아이템 수량·주문 사용 권한/슬롯·공격/내성/시전 능력치 | Character Management; 기존 `CharacterSheetApplicationService.applyRuntimeMutation`의 버전·명령 ID·재생 처리 경로를 재사용/확장 |
 | 적 방어/HP/공격/내성 수치와 근거 출처·버전, 적 HP/효과·집중 상태 | Adventure Runtime의 적 캐릭터 시트와 전투 상태. 필요한 내성 수치가 자료에서 확인되지 않거나 권위 사실로 계산할 수 없으면 미지원으로 처리하고 0으로 기본 설정하지 않음; 확인된 능력치/숙련도로 산출한 0은 유효 |
 | 위치·고도·공개 상태·기하/차단 및 실제 도달 경로·비용 | Combat Map; 실행 시 기대 지도 버전으로 권위 재검증 |
-| 주사위 결과 | Dice Roll의 불변 결과 |
+| 주사위 결과 | Adventure Runtime 내부 굴림 기능의 불변 결과 |
 | AI 작업은 허용 목록·권한·입력 조건을 통과해야 함 | `GmToolGatewayService` preflight/invoke 및 기존 runtime command 경계 |
 | 기본 효과/비용은 환경 응용 실패나 재시도에 중복되지 않음 | 기존 영속 Runtime Command 단계 |
 | 전이 | 조건/결과 |
@@ -188,7 +187,7 @@ Combat Map은 토큰의 지면으로부터의 높이를 피트 단위로 저장�
 표의 경로는 기존 파일인지 신규 제안인지 각 행에 표시했다. 신규 SpellAction 타입만 proposed file이며 현행 파일이라는 뜻이 아니다. 기존 MCP 연동은 읽기 전용 검색 범위로 유지하며 새 MCP 서버를 추가하지 않는다.
 ## 5.3 Data, Communication, and Persistence
 
-- 동기 HTTP/기존 포트: adventure → map/character/dice; adventure → AI GM 계획; scenario preparation → document knowledge 참조. 새 서비스·브로커·MCP 없음.
+- 동기 HTTP/기존 포트: adventure → map/character; adventure → AI GM 계획; scenario preparation → document knowledge 참조. 주사위 굴림은 Adventure Runtime 내부 호출이다. 새 서비스·브로커·MCP 없음.
 - 비동기 메시지 계약: 신규 메시지를 만들지 않는다. 기존 명령/operation 저장과 응답 계약을 재사용한다.
 - 원본 정의와 Source Span은 Document Knowledge가 불변으로 소유한다. `ScenarioPackage`는 기본 룰북 전체 정의 인벤토리, 선택 추가 자료 정의, 원문·추출 버전 참조만 보유한다. 사용자 수정·필수 여부·승인·이력·잠금은 `preparationId`와 ScenarioPackage ID에 연결된 모험 준비 검토 자료에 저장하고, Session이 그 ID를 참조한다. Bundle Lock은 불변 패키지 및 출처 버전을 고정한다.
 - 전투 operation 저장은 기존 commandId/operation persistence를 확장해 단계와 확정 결과를 보존한다. CombatEncounter와 지도 등 서비스별 저장소의 소유권은 유지한다.
@@ -197,12 +196,12 @@ Combat Map은 토큰의 지면으로부터의 높이를 피트 단위로 저장�
 
 - Preview는 공개 projection과 정의/상태 버전을 읽고 계산만 한다. 실행은 `commandId`, 기대 encounter/map/definition 버전을 검사하고 기존 operation 경로에서 상태·비용을 반영한다.
 - 요청 재생은 먼저 기존 operation과 소유자 처리 결과를 명령 ID 및 지문으로 조회한다. 동일 ID/동일 지문이면 최초 결과 또는 저장된 복구 단계를 반환하며, 자체 선행 커밋으로 기대 버전이 달라졌어도 오래된 버전 거부를 적용하지 않는다. 같은 ID/다른 지문이면 충돌이다. 새 동작이면 소비 전에 소유자, 현재 턴, 잠긴 정의와 리비전, 지도/전투/캐릭터 사실 버전, 모든 필수 입력을 검증한다. Adventure Runtime은 고정 선택, 정의 참조/스냅샷, 제한된 권위 사실 버전, 행동 지문, 단계별 명령 ID, 예정 기계 결과와 굴림을 기존 영속 operation에 기록한다. encounter마다 한 동작만 대기시켜 종속 턴이 시작되지 않게 한다.
-- 재시도는 저장된 굴림과 판정 결과를 재사용한다. Dice Roll·Character Management·Combat Map 각 소유자 명령은 런타임 명령 ID와 안정된 단계 ID를 재사용한다. 같은 ID와 같은 지문은 이후 다른 쓰기가 있어도 최초 결과를 돌려주고, 다른 지문은 충돌이다. Character Management는 한 캐릭터의 슬롯과 소모 아이템을 기존 `CharacterSheetApplicationService.applyRuntimeMutation`의 한 트랜잭션에서 함께 변경한다. 기존 `character_sheet_command_history`/`findByCommandId` 기록의 원자성·재생 동작을 사용하며 별도 저장 결과 저장소를 중복 도입하지 않는다.
+- 재시도는 저장된 굴림과 판정 결과를 재사용한다. Adventure Runtime 내부 굴림과 Character Management·Combat Map 소유자 명령은 런타임 명령 ID와 안정된 단계 ID를 재사용한다. 같은 ID와 같은 입력은 최초 저장 결과를 돌려주고, 다른 입력은 충돌이다. Character Management는 한 캐릭터의 슬롯과 소모 아이템을 기존 `CharacterSheetApplicationService.applyRuntimeMutation`의 한 트랜잭션에서 함께 변경한다. 기존 `character_sheet_command_history`/`findByCommandId` 기록의 원자성·재생 동작을 사용하며 별도 저장 결과 저장소를 중복 도입하지 않는다.
 - 각 소유자 서비스는 자기 DB 트랜잭션에서 상태 변경과 해당 명령의 내구성 결과/지문을 함께 확정한다. Adventure Runtime은 적 효과와 턴 자원 차감, 처리 결과 기록 및 명령 처리 단계 상태를 encounter 기대 버전과 함께 원자적으로 확정해야 한다. 기존 Adventure operation은 대기 작업 조회와 단계 기록을 지원하지만 단계/operation/encounter 저장이 현재 별도이므로, 단계 완료 전 장애 뒤 중복 적용을 막는 원자적 확정 경로가 구현 과제다. 분산 ACID나 새 saga 서비스는 추가하지 않는다.
 - 명령 처리 기록/`commandId` 중복은 기존 결과를 반환한다. 원격 결과가 불명확하면 같은 ID로 저장 결과를 조회하거나 같은 요청을 재시도하고, 처리 대기 상태와 예약을 유지한다. 새 ID·새 굴림 생성이나 미확인 결과의 환불은 금지한다. 알 수 없는 작업 이름은 실행 전에 거부한다.
 - 기본 효과와 비용이 확정된 뒤 추가 환경 응용은 별도 단계다. 추가 응용 실패/보정은 기본 결과를 보상 취소하지 않으며, 재시도도 기본 효과/비용을 중복 적용하지 않는다.
 - 이동은 Adventure Runtime의 동일한 명령 operation을 통하고 허용 가능한 전투 이동 예산을 예약한다. Combat Map은 기대 지도 버전을 기준으로 실행 시 기하·차단을 다시 계산하고 실제 도달 경로와 비용을 저장 결과로 확정한다. Adventure Runtime은 실제 비용만 이동 예산에서 차감하고 encounter와 중복 방지 표식/operation 단계를 함께 확정한다. 기존 독립 지도 재생 처리는 예산을 다시 빼거나 전투 예산을 우회하지 않는다. 중단 시 미도달 경로 비용을 사용하지 않는다.
-- Dice Roll에만 굴림이 기록된 것은 게임 상태·자원 변경으로 보지 않는다. 어떤 상태/자원 변경도 확정되기 전 명확한 거부는 예약을 풀고 비용 없이 끝낼 수 있다. 일부 소유자 변경이 확정된 뒤에는 저장된 나머지 단계를 재개하며 성공 처리나 무조건 환불을 하지 않는다. 모든 필수 소유자의 저장 결과를 확인한 뒤에만 행동 완료를 반환한다. 이후 GM 서술/환경 응용 오류는 성공한 효과와 비용을 되돌리지 않는다.
+- 굴림 결과만 저장된 것은 게임 상태·자원 변경으로 보지 않는다. 어떤 상태/자원 변경도 확정되기 전 명확한 거부는 예약을 풀고 비용 없이 끝낼 수 있다. 일부 소유자 변경이 확정된 뒤에는 저장된 나머지 단계를 재개하며 성공 처리나 무조건 환불을 하지 않는다. 모든 필수 저장 결과를 확인한 뒤에만 행동 완료를 반환한다. 이후 GM 서술/환경 응용 오류는 성공한 효과와 비용을 되돌리지 않는다.
 - 화면 좌표는 기존 공용 screen-to-grid 변환을 사용한다. 줌 상태에서도 토큰/overlay/포인터는 같은 변환을 따른다. 전장의 안개는 공개 경계 필터와 안개 경계의 clipping/mask를 함께 적용해 벽·공간 형상이 어두운 미탐험 셀 위로 그려지지 않게 한다. 확정 이벤트/응답은 적 비공개 정보가 제거된 Player projection을 사용한다.
 # 7. Error Handling and Recovery
 | 오류 | 분류/처리 |

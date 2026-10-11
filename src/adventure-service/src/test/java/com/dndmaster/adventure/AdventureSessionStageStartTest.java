@@ -109,6 +109,7 @@ class AdventureSessionStageStartTest {
                 mock(AdventureSessionStartCoordinator.class), mock(CharacterSheetOwnershipPort.class),
                 mock(SessionKnowledgeSetRepository.class), mock(AiCompanionGenerationPort.class),
                 mock(AiCompanionSheetCreationPort.class), maps, preparation, openingRuntime, lifecycle);
+        service.setInitiativeDicePorts(mock(com.dndmaster.adventure.dice.AdventureDicePorts.class));
 
         service.start(session.id(), owner, 0, requestId, adventureId);
 

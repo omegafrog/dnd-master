@@ -2,7 +2,7 @@ param([int]$StartupTimeoutSeconds = 90)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$modules = 'identity-access-service,adventure-service,rule-knowledge-service,character-management-service,dice-roll-service,combat-map-service,ai-game-master-service'
+$modules = 'identity-access-service,adventure-service,rule-knowledge-service,character-management-service,combat-map-service,ai-game-master-service'
 $manifest = $null
 
 function Use-Java21 {

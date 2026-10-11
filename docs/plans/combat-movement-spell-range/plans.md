@@ -22,6 +22,7 @@ D&D 5판(2014) 기본 룰북 전체 주문과 원거리·투척 행동을 모험
 - [공용 룰북 전처리 검토 보충 제품 계약](../../specs/combat-movement-spell-range/source-review-product-spec.md)
 - [공용 룰북 전처리 검토 보충 구조 계약](../../specs/combat-movement-spell-range/source-review-architecture-spec.md)
 - [시스템 목표](../../specs/combat-movement-spell-range/system-targets.yaml)
+- [주사위 굴림의 모험 서비스 내부 통합 계획](dice-in-adventure.md): 사용자가 추가로 지시한 서비스 경계 정리. 개별 전투 기능의 완료 상태와 구분한다.
 
 - [UC-001.usecase.svg](../../specs/combat-movement-spell-range/diagrams/product/UC-001.usecase.svg)
 - [UC-001.activity.svg](../../specs/combat-movement-spell-range/diagrams/product/UC-001.activity.svg)

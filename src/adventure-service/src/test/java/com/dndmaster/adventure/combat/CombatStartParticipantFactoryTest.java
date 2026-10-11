@@ -27,7 +27,8 @@ class CombatStartParticipantFactoryTest {
                         List.of(new CombatEnemyProposal("instant-goblin", "Goblin", 1,
                                 com.dndmaster.adventure.application.runtime.CombatStartMode.INSTANT,
                                 new CombatEnemyStatBlock(15, 7, 4, "1d6 + 2",
-                                        new CombatStatBlockSource(UUID.randomUUID(), 1, "page-138")))));
+                                        new CombatStatBlockSource(UUID.randomUUID(), 1, "page-138")))),
+                        ignored -> "Hero", ignored -> 0, () -> 10);
 
         assertEquals(2, participants.size());
         var enemy = participants.get(1);
@@ -60,7 +61,8 @@ class CombatStartParticipantFactoryTest {
                         List.of(new CombatEnemyProposal("cellar-rat-ambush", "Giant Rat", 8,
                                 com.dndmaster.adventure.application.runtime.CombatStartMode.SCENARIO,
                                 new CombatEnemyStatBlock(12, 7, 4, "1d6 + 2",
-                                        new CombatStatBlockSource(UUID.randomUUID(), 1, "page-135")))));
+                                        new CombatStatBlockSource(UUID.randomUUID(), 1, "page-135")))),
+                        ignored -> "Hero", ignored -> 0, () -> 10);
 
         assertEquals(9, participants.size());
         assertEquals("Giant Rat 1", participants.get(1).displayName());

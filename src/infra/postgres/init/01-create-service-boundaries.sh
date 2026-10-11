@@ -25,7 +25,6 @@ create_boundary identity_access identity_access_app identity_access identity-acc
 create_boundary adventure adventure_app adventure adventure-local
 create_boundary rule_knowledge rule_knowledge_app rule_knowledge rule-knowledge-local
 create_boundary character_management character_management_app character_management character-management-local
-create_boundary dice_roll dice_roll_app dice_roll dice-roll-local
 create_boundary combat_map combat_map_app combat_map combat-map-local
 create_boundary ai_game_master ai_game_master_app ai_game_master ai-game-master-local
 

@@ -23,7 +23,6 @@ class PersistenceCompatibilityTest {
             new ModuleSchema("adventure-service", "adventure_contract"),
             new ModuleSchema("rule-knowledge-service", "rule_knowledge_contract"),
             new ModuleSchema("character-management-service", "character_management"),
-            new ModuleSchema("dice-roll-service", "dice_roll_contract"),
             new ModuleSchema("combat-map-service", "combat_map_contract"),
             new ModuleSchema("ai-game-master-service", "ai_game_master_contract"));
 
@@ -41,7 +40,7 @@ class PersistenceCompatibilityTest {
         assertColumn("adventure_contract", "adventure", "version");
         assertColumn("rule_knowledge_contract", "rulebook_vector_index", "version");
         assertColumn("character_management", "character_sheet", "version");
-        assertColumn("dice_roll_contract", "dice_roll", "version");
+        assertColumn("adventure_contract", "dice_roll", "version");
         assertColumn("combat_map_contract", "combat_map", "version");
         assertColumn("combat_map_contract", "adventure_active_tactical_map", "active");
         assertColumn("ai_game_master_contract", "ai_operation", "version");
@@ -132,13 +131,16 @@ class PersistenceCompatibilityTest {
 
     private static Flyway flyway(ModuleSchema module, String target) {
         Path root = Path.of(System.getProperty("dnd.reactor.root"));
-        String location = "filesystem:" + root.resolve(module.module())
-                .resolve("src/main/resources/db/migration").toAbsolutePath().toString().replace('\\', '/');
+        Path migrationRoot = root.resolve(module.module()).resolve("src/main/resources/db/migration");
+        String location = "filesystem:" + migrationRoot.toAbsolutePath().toString().replace('\\', '/');
+        String legacyDiceLocation = "filesystem:" + root.resolve("adventure-service")
+                .resolve("src/main/dice-roll-migration").toAbsolutePath().toString().replace('\\', '/');
         var configuration = Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas(module.schema())
                 .defaultSchema(module.schema())
-                .locations(location);
+                .locations(module.module().equals("adventure-service") ? new String[] {location, legacyDiceLocation} : new String[] {location});
+        if (module.module().equals("dice-roll-service")) configuration.locations(legacyDiceLocation);
         if (target != null) configuration.target(target);
         return configuration.load();
     }

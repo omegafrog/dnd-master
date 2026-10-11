@@ -28,6 +28,7 @@ class DomainResponsibilityContractTest {
             "CombatEndProposalPolicy.java",
             "PostCombatProjectionPolicy.java",
             "CombatStartPolicy.java",
+            "CombatAimPreviewPolicy.java",
             "CompilationOutcomePolicy.java",
             "ScenarioModelCompilationPolicy.java");
 
@@ -108,7 +109,6 @@ class DomainResponsibilityContractTest {
         services.put("adventure-service", "com.dndmaster.adventure");
         services.put("rule-knowledge-service", "com.dndmaster.ruleknowledge");
         services.put("character-management-service", "com.dndmaster.character");
-        services.put("dice-roll-service", "com.dndmaster.diceroll");
         services.put("combat-map-service", "com.dndmaster.combatmap");
         services.put("ai-game-master-service", "com.dndmaster.aigamemaster");
         services.put("agent-connection-relay-service", "com.dndmaster.relay");

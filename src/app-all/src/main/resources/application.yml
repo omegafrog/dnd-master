@@ -32,8 +32,6 @@ adventure:
       base-url: ${CHARACTER_BASE_URL:${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}}
     identity-access:
       base-url: ${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}
-    dice-roll:
-      base-url: ${DICE_ROLL_BASE_URL:${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}}
     rule-knowledge:
       base-url: ${RULE_KNOWLEDGE_BASE_URL:http://127.0.0.1:8080/}
     combat-map:

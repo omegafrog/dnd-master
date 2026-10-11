@@ -49,7 +49,7 @@ subprojects {
     if (path in setOf(
             ":identity-access-service", ":adventure-service",
             ":rule-knowledge-service", ":character-management-service",
-            ":dice-roll-service", ":combat-map-service",
+            ":combat-map-service",
             ":ai-game-master-service", ":app-all",
     )) {
         apply(plugin = "org.springframework.boot")
@@ -58,14 +58,26 @@ subprojects {
     if (path in setOf(
             ":identity-access-service", ":adventure-service",
             ":rule-knowledge-service", ":character-management-service",
-            ":dice-roll-service", ":combat-map-service",
+            ":combat-map-service",
             ":ai-game-master-service",
     )) {
+        extensions.configure<SourceSetContainer>("sourceSets") {
+            named("main") { resources.setSrcDirs(emptyList<Any>()) }
+        }
         tasks.named<ProcessResources>("processResources") {
-            exclude("db/migration/**/*.sql")
+            from(layout.projectDirectory.dir("src/main/resources")) {
+                exclude("db/migration/**/*.sql")
+            }
             from(layout.projectDirectory.dir("src/main/resources/db/migration")) {
                 include("**/*.sql")
+                exclude("**/dice-roll-service/**/*.sql")
                 into("db/migration/${project.name}")
+            }
+            if (project.name == "adventure-service") {
+                from(project.file("src/main/dice-roll-migration")) {
+                    include("*.sql")
+                    into("db/migration/dice-roll-service")
+                }
             }
         }
     }

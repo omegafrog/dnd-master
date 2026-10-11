@@ -12,7 +12,6 @@ dependencies {
     implementation(project(":adventure-service"))
     implementation(project(":rule-knowledge-service"))
     implementation(project(":character-management-service"))
-    implementation(project(":dice-roll-service"))
     implementation(project(":combat-map-service"))
     implementation(project(":ai-game-master-service"))
 }

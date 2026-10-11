@@ -1,6 +1,5 @@
 package com.dndmaster.adventure.application.combat;
 
-import com.dndmaster.adventure.application.runtime.TypedCheckRule;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -22,7 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class CrossContextHttpCombatGateway
-        implements CharacterCombatPort, DiceCombatPort, EnemyObservationRollPort, CombatMapPort, AiCombatPort {
+        implements CharacterCombatPort, CombatMapPort, AiCombatPort {
     private static final Logger log = LoggerFactory.getLogger(CrossContextHttpCombatGateway.class);
     private static final int GRID_DISTANCE_UNIT = 5;
     private final HttpClient client;
@@ -357,69 +356,6 @@ public final class CrossContextHttpCombatGateway
         } catch (IOException | InterruptedException exception) {
             if (exception instanceof InterruptedException) Thread.currentThread().interrupt();
             throw new CrossContextCallException("target character read failed", exception);
-        }
-    }
-
-    @Override
-    public int roll(CombatActionCommand command) {
-        String value = send("rolls", "POST", command.role().name(), command);
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (NumberFormatException exception) {
-            throw new CrossContextCallException("Dice Roll BC returned malformed total", exception);
-        }
-    }
-
-    @Override
-    public int rollSpatialCheck(SpatialCheckRollCommand command) {
-        Objects.requireNonNull(command, "spatial check roll command must not be null");
-        try {
-            TypedCheckRule.DiceExpression dice = TypedCheckRule.DiceExpression.parse(
-                    command.diceExpression(), command.modifier());
-            PlayerCheckRollRequest request = new PlayerCheckRollRequest(command.adventureId(), command.ruleSetId().value(),
-                    "PLAYER_ACTION", command.ruleReference(), command.difficulty(), dice.count(), dice.sides(), dice.modifier(),
-                    command.sessionId(), command.operationId(), command.commandId(), command.expectedVersion());
-            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/dice-rolls/player"))
-                    .timeout(timeout).header("Content-Type", "application/json")
-                    .header("X-Internal-Token", internalToken)
-                    .header("Idempotency-Key", command.commandId().toString())
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request))).build();
-            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new CrossContextCallException("spatial check dice roll failed with status " + response.statusCode());
-            }
-            return objectMapper.readTree(response.body()).path("total").asInt(-1);
-        } catch (IOException exception) {
-            throw new CrossContextCallException("spatial check dice roll serialization failed", exception);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new CrossContextCallException("spatial check dice roll interrupted", exception);
-        }
-    }
-
-    @Override
-    public int rollEnemyObservation(EnemyObservationRollCommand command) {
-        Objects.requireNonNull(command, "enemy observation roll command must not be null");
-        try {
-            TypedCheckRule.DiceExpression dice = TypedCheckRule.DiceExpression.parse(command.diceExpression(), command.modifier());
-            EnemyObservationRollRequest request = new EnemyObservationRollRequest(command.adventureId(), command.ruleSetId().value(),
-                    "ENEMY", command.ruleReference(), command.difficulty(), dice.count(), dice.sides(), dice.modifier(),
-                    command.sessionId(), command.turnId(), command.commandId(), command.expectedVersion());
-            HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/dice-rolls/enemy-observation"))
-                    .timeout(timeout).header("Content-Type", "application/json")
-                    .header("X-Internal-Token", internalToken)
-                    .header("Idempotency-Key", command.commandId().toString())
-                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(request))).build();
-            HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new CrossContextCallException("enemy observation dice roll failed with status " + response.statusCode());
-            }
-            return objectMapper.readTree(response.body()).path("total").asInt(-1);
-        } catch (IOException exception) {
-            throw new CrossContextCallException("enemy observation dice roll serialization failed", exception);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new CrossContextCallException("enemy observation dice roll interrupted", exception);
         }
     }
 
@@ -832,12 +768,6 @@ public final class CrossContextHttpCombatGateway
             long expectedVersion, java.util.UUID commandId) {}
     private record MovementCancelRequest(java.util.UUID operationId, java.util.UUID commandId) {}
     private record SpatialTurnRequest(java.util.UUID ownerId, long expectedVersion, java.util.UUID commandId) {}
-    private record PlayerCheckRollRequest(java.util.UUID adventureId, java.util.UUID ruleSetId, String scope,
-            String ruleReference, Integer difficulty, int count, int sides, int modifier, java.util.UUID sessionId, java.util.UUID turnId,
-            java.util.UUID commandId, long expectedVersion) {}
-    private record EnemyObservationRollRequest(java.util.UUID adventureId, java.util.UUID ruleSetId, String scope,
-            String ruleReference, Integer difficulty, int count, int sides, int modifier, java.util.UUID sessionId,
-            java.util.UUID turnId, java.util.UUID commandId, long expectedVersion) {}
     private record AiStateRequest(
             java.util.UUID ownerId, java.util.UUID tokenId, int x, int y, java.util.UUID commandId,
             long expectedVersion, List<LayerRequest> layers) {}

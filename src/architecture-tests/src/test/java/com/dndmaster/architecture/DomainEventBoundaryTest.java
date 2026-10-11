@@ -96,7 +96,6 @@ class DomainEventBoundaryTest {
         services.put("adventure-service", "com.dndmaster.adventure");
         services.put("rule-knowledge-service", "com.dndmaster.ruleknowledge");
         services.put("character-management-service", "com.dndmaster.character");
-        services.put("dice-roll-service", "com.dndmaster.diceroll");
         services.put("combat-map-service", "com.dndmaster.combatmap");
         services.put("ai-game-master-service", "com.dndmaster.aigamemaster");
         return Map.copyOf(services);

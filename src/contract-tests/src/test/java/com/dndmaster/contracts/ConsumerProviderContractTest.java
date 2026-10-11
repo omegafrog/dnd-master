@@ -19,7 +19,6 @@ class ConsumerProviderContractTest {
         assertProviderPath("identity-access", "/internal/v1/auth/introspections");
         assertProviderPath("rule-knowledge", "/internal/v1/rule-evidence/search");
         assertProviderPath("character-management", "/internal/v1/character-sheets/{sheetId}");
-        assertProviderPath("dice-roll", "/internal/v1/dice-rolls/player");
         assertProviderPath("combat-map", "/internal/v1/combat-maps/{mapId}/moves");
         assertProviderPath("ai-game-master", "/internal/v1/gm/judgments");
         assertProviderPath("ai-game-master", "/internal/v1/gm/intent-classifications");

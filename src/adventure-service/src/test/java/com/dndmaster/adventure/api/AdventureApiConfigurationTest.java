@@ -41,66 +41,64 @@ class AdventureApiConfigurationTest {
     }
 
     @Test
-    void sends_spatial_check_roll_to_the_typed_dice_gateway_with_stable_check_identity() throws Exception {
-        AtomicReference<String> requestPath = new AtomicReference<>();
-        AtomicReference<String> requestBody = new AtomicReference<>();
-        AtomicReference<String> idempotencyKey = new AtomicReference<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
-        server.createContext("/", exchange -> {
-            requestPath.set(exchange.getRequestURI().getPath());
-            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
-            idempotencyKey.set(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
-            byte[] body = "{\"total\":17}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(200, body.length);
-            exchange.getResponseBody().write(body);
-            exchange.getResponseBody().close();
-        });
-        server.start();
-        try {
-            CombatMapPort configured = new AdventureApiConfiguration().combatMapPort(
-                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
-            UUID checkId = UUID.randomUUID();
-            UUID commandId = UUID.randomUUID();
-            var command = new SpatialCheckRollCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                    new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), checkId, UUID.randomUUID(), commandId,
-                    "dnd5e.perception", "2d6", 3, 15, 4L);
+    void spatial_check_uses_local_persistent_roll_and_replays_by_command_id() {
+        var repository = new DiceRepository();
+        var configured = new AdventureApiConfiguration().adventureDicePorts(
+                new com.dndmaster.adventure.dice.application.DiceRollApplicationService(repository, bound -> 4),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+        UUID commandId = UUID.randomUUID();
+        var command = new SpatialCheckRollCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), commandId,
+                "dnd5e.perception", "2d6", 3, 15, 4L);
 
-            assertEquals(17, configured.rollSpatialCheck(command));
-            assertEquals("/internal/v1/dice-rolls/player", requestPath.get());
-            assertEquals(commandId.toString(), idempotencyKey.get());
-            assertTrue(requestBody.get().contains("\"ruleReference\":\"dnd5e.perception\""));
-            assertTrue(requestBody.get().contains("\"count\":2"));
-            assertTrue(requestBody.get().contains("\"sides\":6"));
-            assertTrue(requestBody.get().contains("\"modifier\":3"));
-            assertTrue(requestBody.get().contains("\"commandId\":\"" + commandId + "\""));
-        } finally {
-            server.stop(0);
-        }
+        assertEquals(13, configured.rollSpatialCheck(command));
+        assertEquals(13, configured.rollSpatialCheck(command));
+        assertEquals(1, repository.saved.size());
+        assertEquals("dnd5e.perception", repository.saved.get(0).ruleReference());
     }
 
     @Test
-    void wires_enemy_observation_roll_to_the_dice_roll_service_url() throws Exception {
-        AtomicReference<String> requestPath = new AtomicReference<>();
-        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
-        server.createContext("/", exchange -> {
-            requestPath.set(exchange.getRequestURI().getPath());
-            byte[] body = "{\"total\":12}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            exchange.sendResponseHeaders(200, body.length);
-            exchange.getResponseBody().write(body);
-            exchange.getResponseBody().close();
-        });
-        server.start();
-        try {
-            var configured = new AdventureApiConfiguration().enemyObservationRollPort(
-                    "http://127.0.0.1:" + server.getAddress().getPort() + "/", "test-token");
-            var command = new EnemyObservationRollCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                    new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                    "dnd5e.perception", "1d20", 0, 12, 1L);
-            assertEquals(12, configured.rollEnemyObservation(command));
-            assertEquals("/internal/v1/dice-rolls/enemy-observation", requestPath.get());
-        } finally {
-            server.stop(0);
+    void enemy_observation_roll_uses_the_local_roll_service() {
+        var repository = new DiceRepository();
+        var configured = new AdventureApiConfiguration().adventureDicePorts(
+                new com.dndmaster.adventure.dice.application.DiceRollApplicationService(repository, bound -> 11),
+                new com.fasterxml.jackson.databind.ObjectMapper());
+        var command = new EnemyObservationRollCommand(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                new RuleSetId(UUID.randomUUID()), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                "dnd5e.perception", "1d20", 0, 12, 1L);
+        assertEquals(12, configured.rollEnemyObservation(command));
+        assertEquals(1, repository.saved.size());
+        assertEquals("ENEMY", repository.saved.get(0).scope().name());
+    }
+
+    @Test
+    void initiative_roll_uses_preparation_and_participant_identity_for_replay() {
+        var repository = new DiceRepository();
+        AtomicInteger draws = new AtomicInteger();
+        var configured = new AdventureApiConfiguration().adventureDicePorts(
+                new com.dndmaster.adventure.dice.application.DiceRollApplicationService(repository,
+                        bound -> { draws.incrementAndGet(); return 7; }), new com.fasterxml.jackson.databind.ObjectMapper());
+        UUID adventureId = UUID.randomUUID();
+        UUID rules = UUID.randomUUID();
+        UUID session = UUID.randomUUID();
+        UUID preparation = UUID.randomUUID();
+        UUID participant = UUID.randomUUID();
+
+        assertEquals(8, configured.rollInitiative(adventureId, rules, session, preparation, participant, 3,
+                com.dndmaster.adventure.dice.domain.RollScope.ENEMY));
+        assertEquals(8, configured.rollInitiative(adventureId, rules, session, preparation, participant, 3,
+                com.dndmaster.adventure.dice.domain.RollScope.ENEMY));
+        assertEquals(1, draws.get());
+        assertEquals(1, repository.saved.size());
+        assertEquals("ENEMY", repository.saved.get(0).scope().name());
+    }
+
+    private static final class DiceRepository implements com.dndmaster.adventure.dice.application.DiceRollRepository {
+        private final java.util.List<com.dndmaster.adventure.dice.domain.DiceRoll> saved = new java.util.ArrayList<>();
+        @Override public java.util.Optional<com.dndmaster.adventure.dice.domain.DiceRoll> findByCommandId(UUID id) {
+            return saved.stream().filter(roll -> roll.commandId().equals(id)).findFirst();
         }
+        @Override public void save(com.dndmaster.adventure.dice.domain.DiceRoll roll) { saved.add(roll); }
     }
 
     @Test

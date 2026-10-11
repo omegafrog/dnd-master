@@ -80,6 +80,7 @@ public class AdventureController {
     private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
     private final AppliedRuleSetApplicationService appliedRuleSetService;
     private final AdventureAiRequestApplicationService aiRequestService;
+    private com.dndmaster.adventure.dice.AdventureDicePorts initiativeDicePorts;
     private MovementPlacementModelPort movementPlacementModelPort = context ->
             new MovementPlacementModelPort.MovementPlacementProposal("UNRESOLVED", null, List.of(), "목적지를 해석하지 못했습니다. 지도에서 목적지를 선택해주세요.");
 
@@ -168,6 +169,10 @@ public class AdventureController {
         this.combatLifecycleService = combatLifecycleService;
         this.appliedRuleSetService = appliedRuleSetService;
         this.aiRequestService = Objects.requireNonNull(aiRequestService, "AI request service must not be null");
+    }
+
+    public void setInitiativeDicePorts(com.dndmaster.adventure.dice.AdventureDicePorts dicePorts) {
+        this.initiativeDicePorts = Objects.requireNonNull(dicePorts);
     }
 
     /** Player read boundary; canonical runtime snapshots and ScenarioModel are intentionally absent. */
@@ -376,7 +381,9 @@ public class AdventureController {
                                                 member -> characterCombatPort.movementSpeed(
                                                         member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                         adventure.sessionId().value()),
-                                                () -> java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 21)),
+                                                (participantId, scope) -> initiativeDicePorts.rollInitiative(adventureId,
+                                                        adventure.ruleSetId().value(), adventure.sessionId().value(),
+                                                        committedTurn.turnId(), participantId, adventure.version(), scope)),
                                         result.enemySheetPreparationRequest());
                     } else {
                         LOGGER.warn("gm_turn_combat_start_skipped adventureId={} reason=ACTIVE_COMBAT_ALREADY_EXISTS turnId={}",
@@ -468,7 +475,9 @@ public class AdventureController {
                                         member -> characterCombatPort.movementSpeed(
                                                 member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                 adventure.sessionId().value()),
-                                                () -> java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 21)),
+                                                (participantId, scope) -> initiativeDicePorts.rollInitiative(adventureId,
+                                                        adventure.ruleSetId().value(), adventure.sessionId().value(),
+                                                        result.turn().turnId(), participantId, adventure.version(), scope)),
                                 result.enemySheetPreparationRequest());
             }
         }

@@ -80,7 +80,6 @@ class CrossContextHttpIntegrationTest {
                          "ownedEquipment":[{"name":"Longsword","quantity":1}],
                          "unknownFutureField":{"source":"character-service"}}
                         """)));
-        server.stubFor(post(urlEqualTo("/rolls")).willReturn(aResponse().withStatus(200).withBody("17")));
         server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/movement-operations"))
                 .willReturn(aResponse().withStatus(200).withBody("{\"status\":\"COMMITTED\",\"mapVersion\":8}")));
         server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/ai-state")).willReturn(aResponse().withStatus(200)));
@@ -94,7 +93,8 @@ class CrossContextHttpIntegrationTest {
         var repository = new MemoryRepository();
         var gateway = new CrossContextHttpCombatGateway(
                 HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2));
-        var service = new AdventureCombatApplicationService(repository, gateway, gateway, gateway, gateway);
+        var dice = localDice(16);
+        var service = new AdventureCombatApplicationService(repository, gateway, dice, gateway, gateway);
         UUID operationId = UUID.randomUUID();
         UUID combatMapId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
@@ -117,7 +117,7 @@ class CrossContextHttpIntegrationTest {
                 .withHeader("X-Internal-Token", equalTo(""))
                 .withHeader("X-Session-ID", equalTo(sessionId.toString()))
                 .withHeader("X-Owner-Player-ID", equalTo(ownerId.toString())));
-        server.verify(exactly(1), postRequestedFor(urlEqualTo("/rolls")).withHeader("Idempotency-Key", equalTo(key)));
+        server.verify(exactly(0), postRequestedFor(urlEqualTo("/rolls")));
         server.verify(exactly(1), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/movement-operations"))
                 .withRequestBody(equalToJson("""
                         {"playerId":"%s","tokenId":"%s","positions":[{"x":0,"y":0},{"x":1,"y":0},{"x":2,"y":0}],
@@ -144,7 +144,8 @@ class CrossContextHttpIntegrationTest {
         var repository = new MemoryRepository();
         var gateway = new CrossContextHttpCombatGateway(
                 HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2));
-        var service = new AdventureCombatApplicationService(repository, gateway, gateway, gateway, gateway);
+        var service = new AdventureCombatApplicationService(repository, gateway,
+                command -> { throw new AssertionError("death save roll must not run for an unusable character"); }, gateway, gateway);
         var command = new CombatActionCommand(
                 UUID.randomUUID(), AdventureId.generate(), UUID.randomUUID(), new RuleSetId(UUID.randomUUID()),
                 new CharacterSheetId(UUID.randomUUID()), UUID.randomUUID(), CombatActorRole.PLAYER, "attack", "A1>B1",
@@ -154,6 +155,18 @@ class CrossContextHttpIntegrationTest {
         server.verify(exactly(0), postRequestedFor(urlEqualTo("/rolls")));
         server.verify(exactly(0), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/movement-operations")));
         server.verify(exactly(0), postRequestedFor(urlEqualTo("/ai/adjudications")));
+    }
+
+    private static com.dndmaster.adventure.application.combat.DiceCombatPort localDice(int randomValue) {
+        return new com.dndmaster.adventure.dice.AdventureDicePorts(
+                new com.dndmaster.adventure.dice.application.DiceRollApplicationService(
+                        new com.dndmaster.adventure.dice.application.DiceRollRepository() {
+                            private final java.util.Map<UUID, com.dndmaster.adventure.dice.domain.DiceRoll> saved = new java.util.concurrent.ConcurrentHashMap<>();
+                            @Override public java.util.Optional<com.dndmaster.adventure.dice.domain.DiceRoll> findByCommandId(UUID id) {
+                                return java.util.Optional.ofNullable(saved.get(id));
+                            }
+                            @Override public void save(com.dndmaster.adventure.dice.domain.DiceRoll roll) { saved.put(roll.commandId(), roll); }
+                        }, bound -> randomValue), new com.fasterxml.jackson.databind.ObjectMapper());
     }
 
     @Test

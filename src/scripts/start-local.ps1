@@ -10,7 +10,6 @@ $services = @(
     [pscustomobject]@{ Name = 'adventure-service'; Port = 18082 },
     [pscustomobject]@{ Name = 'rule-knowledge-service'; Port = 18083 },
     [pscustomobject]@{ Name = 'character-management-service'; Port = 18084 },
-    [pscustomobject]@{ Name = 'dice-roll-service'; Port = 18085 },
     [pscustomobject]@{ Name = 'combat-map-service'; Port = 18086 },
     [pscustomobject]@{ Name = 'ai-game-master-service'; Port = 18087 }
 )

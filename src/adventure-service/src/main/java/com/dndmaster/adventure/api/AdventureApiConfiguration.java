@@ -57,7 +57,6 @@ import com.dndmaster.adventure.infrastructure.integration.HttpConversationCompac
 import com.dndmaster.adventure.infrastructure.integration.HttpRuntimeCharacterSheetReadPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpScenarioModelLookupAgentPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpScenarioCompilationAgentPort;
-import com.dndmaster.adventure.infrastructure.integration.HttpDiceToolPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpCharacterToolPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -218,11 +217,15 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort,
             StageArtifactPreparationApplicationService stagePreparation,
             com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService,
-            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
-        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository,
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService,
+            @org.springframework.beans.factory.annotation.Qualifier("adventureDicePorts")
+            com.dndmaster.adventure.dice.AdventureDicePorts initiativeDicePorts) {
+        AdventureSessionApplicationService service = new AdventureSessionApplicationService(repository, packageRepository, adventureRepository,
                 runtimeBindingService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort,
                 sessionKnowledgeSetRepository, aiCompanionGenerationPort, aiCompanionSheetCreationPort,
                 combatMapPreparationPort, stagePreparation, runtimeTurnService, combatLifecycleService);
+        service.setInitiativeDicePorts(initiativeDicePorts);
+        return service;
     }
 
     @Bean
@@ -440,13 +443,18 @@ public class AdventureApiConfiguration {
         return new MovementFollowUpRuntimeConsumer(events, commands, objectMapper, continuationPort);
     }
 
+    @Bean
+    com.dndmaster.adventure.dice.AdventureDicePorts adventureDicePorts(
+            com.dndmaster.adventure.dice.application.DiceRollApplicationService rolls,
+            ObjectMapper objectMapper) {
+        return new com.dndmaster.adventure.dice.AdventureDicePorts(rolls, objectMapper);
+    }
+
     @Bean(name = "enemyObservationRollPort")
     com.dndmaster.adventure.application.combat.EnemyObservationRollPort enemyObservationRollPort(
-            @Value("${adventure.integration.dice-roll.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
-        CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
-        return gateway::rollEnemyObservation;
+            @org.springframework.beans.factory.annotation.Qualifier("adventureDicePorts")
+            com.dndmaster.adventure.dice.AdventureDicePorts dicePorts) {
+        return dicePorts;
     }
 
     @Bean
@@ -920,10 +928,9 @@ public class AdventureApiConfiguration {
 
     @Bean
     OfficialToolPort diceToolPort(
-            ObjectMapper objectMapper,
-            @Value("${adventure.integration.dice-roll.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
-        return new HttpDiceToolPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
+            @org.springframework.beans.factory.annotation.Qualifier("adventureDicePorts")
+            com.dndmaster.adventure.dice.AdventureDicePorts dicePorts) {
+        return dicePorts;
     }
 
     @Bean
@@ -1146,8 +1153,10 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    DiceCombatPort diceCombatPort() {
-        return command -> (int) (Math.random() * 20) + 1;
+    DiceCombatPort diceCombatPort(
+            @org.springframework.beans.factory.annotation.Qualifier("adventureDicePorts")
+            com.dndmaster.adventure.dice.AdventureDicePorts dicePorts) {
+        return dicePorts;
     }
 
     @Bean
@@ -1481,9 +1490,13 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService,
             com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService appliedRuleSetService,
-            com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService aiRequestService) {
-        return new AdventureController(
+            com.dndmaster.adventure.application.session.AdventureAiRequestApplicationService aiRequestService,
+            @org.springframework.beans.factory.annotation.Qualifier("adventureDicePorts")
+            com.dndmaster.adventure.dice.AdventureDicePorts initiativeDicePorts) {
+        AdventureController controller = new AdventureController(
                 savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, spatialActionAuthorization, characterCombatPort, objectMapper, combatMapViewPort, combatMapPreparationPort, pendingMapMovementConfirmationRepository, scenarioPackageRepository, combatLifecycleService, appliedRuleSetService, aiRequestService);
+        controller.setInitiativeDicePorts(initiativeDicePorts);
+        return controller;
     }
 
     @Bean
