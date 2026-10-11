@@ -103,13 +103,24 @@ class CombatAimPreviewPolicyTest {
                 "the cylinder extends upward from its target elevation, not downward through ground");
         assertFalse(CombatAimPreviewPolicy.containsEffectTarget(profile, center, 0,
                 new CombatAimPreviewPolicy.Cell(4, 2), 5, 5));
+        var broadCylinder = new StructuredSpellDefinition.TargetingProfile(StructuredSpellDefinition.TargetMode.POINT,
+                StructuredSpellDefinition.OriginMode.TARGET, StructuredSpellDefinition.EffectShape.CYLINDER,
+                null, null, 10, 20, StructuredSpellDefinition.PathBlockingRule.NONE,
+                StructuredSpellDefinition.PropagationRule.AREA_FROM_POINT, StructuredSpellDefinition.VerticalDirection.UP);
+        assertTrue(CombatAimPreviewPolicy.containsEffectTarget(broadCylinder, center, 0,
+                new CombatAimPreviewPolicy.Cell(5, 2), 0, 5),
+                "horizontal radius remains independent of the cylinder's shorter vertical height");
 
         var downward = new StructuredSpellDefinition.TargetingProfile(StructuredSpellDefinition.TargetMode.POINT,
                 StructuredSpellDefinition.OriginMode.TARGET, StructuredSpellDefinition.EffectShape.CYLINDER,
                 null, null, 10, 5, StructuredSpellDefinition.PathBlockingRule.NONE,
                 StructuredSpellDefinition.PropagationRule.AREA_FROM_POINT, StructuredSpellDefinition.VerticalDirection.DOWN);
-        assertTrue(CombatAimPreviewPolicy.containsEffectTarget(downward, center, 10, center, 0, 5));
-        assertFalse(CombatAimPreviewPolicy.containsEffectTarget(downward, center, 10, center, 15, 5));
+        assertTrue(CombatAimPreviewPolicy.containsEffectTarget(downward, center, 15, center, 5, 5),
+                "a downward cylinder includes its exact height boundary");
+        assertFalse(CombatAimPreviewPolicy.containsEffectTarget(downward, center, 15, center, 0, 5),
+                "a downward cylinder excludes cells beyond its saved height");
+        assertFalse(CombatAimPreviewPolicy.containsEffectTarget(downward, center, 15, center, 20, 5),
+                "a downward cylinder excludes candidates above its top");
 
         var cylinderDefinition = definition(StructuredSpellDefinition.EffectShape.CYLINDER,
                 StructuredSpellDefinition.PathBlockingRule.NONE, StructuredSpellDefinition.PropagationRule.AREA_FROM_POINT,

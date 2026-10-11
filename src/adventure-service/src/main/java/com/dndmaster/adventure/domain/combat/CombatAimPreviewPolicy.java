@@ -120,8 +120,11 @@ public final class CombatAimPreviewPolicy {
     private static int cellsBetween(Cell left, Cell right) { return Math.max(Math.abs(left.x() - right.x()), Math.abs(left.y() - right.y())); }
     private static int gridCellsBetween(Cell from, int fromElevationFeet, Cell to, int toElevationFeet, int feetPerCell) {
         int horizontal = cellsBetween(from, to);
-        int vertical = (int) ((Math.abs((long) toElevationFeet - fromElevationFeet) + feetPerCell - 1L) / feetPerCell);
+        int vertical = verticalCellsBetween(fromElevationFeet, toElevationFeet, feetPerCell);
         return Math.max(horizontal, vertical);
+    }
+    private static int verticalCellsBetween(int fromElevationFeet, int toElevationFeet, int feetPerCell) {
+        return (int) ((Math.abs((long) toElevationFeet - fromElevationFeet) + feetPerCell - 1L) / feetPerCell);
     }
 
     /** Tests a candidate map cell or public token against the saved 3D area dimensions. */
@@ -138,7 +141,7 @@ public final class CombatAimPreviewPolicy {
                     && (profile.verticalDirection() == StructuredSpellDefinition.VerticalDirection.UP
                             ? candidateElevationFeet >= centerElevationFeet : candidateElevationFeet <= centerElevationFeet)
                     && cellsBetween(center, candidate) <= radiusCells
-                    && gridCellsBetween(center, centerElevationFeet, candidate, candidateElevationFeet, feetPerCell)
+                    && verticalCellsBetween(centerElevationFeet, candidateElevationFeet, feetPerCell)
                             * feetPerCell <= value(profile.heightFeet(), 0);
             default -> false;
         };
