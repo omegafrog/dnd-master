@@ -74,8 +74,11 @@ class AdventureSessionPreparationBindingTest {
                             && message.contains("expectedPackageId=" + packageId)
                             && message.contains("actualPackageId=unconfirmed")
                             && message.contains("expectedOwnerId=" + owner.value())
+                            && message.matches(".*expectedSessionId=[0-9a-f-]{36} actualSessionId=unconfirmed.*")
                             && message.contains("expectedRevision=4 actualRevision=unknown")
-                            && message.contains("reason=preparation_bind_failed")));
+                            && message.contains("failureType=IllegalStateException")
+                            && message.contains("reason=preparation_bind_failed")
+                            && message.contains("recovery=retry_after_preparation_reload")));
         } finally {
             logger.detachAppender(appender);
             if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
