@@ -100,6 +100,24 @@ it('uses the authenticated public image rather than a map image layer', async ()
   expect(map.querySelectorAll('button')).toHaveLength(400)
 })
 
+it('zooms the map and its token and boundary overlays together', async () => {
+  const api = fakeApi()
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 2, height: 1 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 0, y: 0 }],
+    current: [{ x: 0, y: 0 }, { x: 1, y: 0 }], explored: [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+    layers: [{ type: 'MAP_BOUNDARIES', value: '1,0,VERTICAL,WALL,false' }],
+  })
+  render(<CombatMapView adventureId="a1" api={api} />)
+  const map = await screen.findByLabelText('tactical-map')
+  expect(map.getAttribute('style')).toContain('--map-zoom: 1;')
+  await userEvent.click(screen.getByRole('button', { name: '지도 확대' }))
+  expect(map).toHaveAttribute('data-map-zoom', '1.25')
+  expect(map.getAttribute('style')).toContain('--map-zoom: 1.25;')
+  expect(map.querySelector('.map-boundary')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'PLAYER 0,0' })).toBeInTheDocument()
+})
+
 it('falls back to the reviewed preparation image when the play image is not ready', async () => {
   const api = fakeApi()
   api.getPublicMapImage = async () => null

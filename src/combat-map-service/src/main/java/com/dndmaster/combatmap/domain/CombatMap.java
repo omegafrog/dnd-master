@@ -214,7 +214,7 @@ public final class CombatMap {
         List<CombatToken> nextTokens = tokens.stream().map(token -> targets.contains(token.id().value())
                 ? new CombatToken(token.id(), token.type(), token.position(), token.controller(), token.ownerPlayerId().orElse(null),
                         token.discovery() == TokenDiscovery.REVEALED ? TokenDiscovery.REVEALED : targetDiscovery,
-                        token.hostileObservationRule().orElse(null)) : token).toList();
+                        token.hostileObservationRule().orElse(null), token.elevation()) : token).toList();
         List<MapLayer> nextLayers = new ArrayList<>(layers);
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL) {
             nextLayers.replaceAll(layer -> layer.type().equals("INITIAL_FOG") ? revealFog(layer, effect.targetIds(), tokens) : layer);

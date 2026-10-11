@@ -366,7 +366,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 statement.executeUpdate();
             }
         }
-        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO combat_map_token(map_id,token_id,token_type,x,y,controller,owner_player_id,discovery,hostile_rule_reference,hostile_dice_expression,hostile_modifier,hostile_difficulty,hostile_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO combat_map_token(map_id,token_id,token_type,x,y,controller,owner_player_id,discovery,hostile_rule_reference,hostile_dice_expression,hostile_modifier,hostile_difficulty,hostile_mode,elevation) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
             for (CombatToken token : map.tokens()) {
                 statement.setObject(1, map.id().value());
                 statement.setObject(2, token.id().value());
@@ -377,6 +377,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 statement.setObject(7, token.ownerPlayerId().map(PlayerId::value).orElse(null));
                 statement.setString(8, token.discovery().name());
                 bindHostileRule(statement, 9, token.hostileObservationRule().orElse(null));
+                statement.setInt(14, token.elevation());
                 statement.addBatch();
             }
             statement.executeBatch();
@@ -492,7 +493,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             statement.executeUpdate();
         }
         try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO " + HISTORY_TOKEN_TABLE + " (command_id, sequence, token_id, token_type, x, y, controller, owner_player_id, discovery, hostile_rule_reference, hostile_dice_expression, hostile_modifier, hostile_difficulty, hostile_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO " + HISTORY_TOKEN_TABLE + " (command_id, sequence, token_id, token_type, x, y, controller, owner_player_id, discovery, hostile_rule_reference, hostile_dice_expression, hostile_modifier, hostile_difficulty, hostile_mode, elevation) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
             int index = 0;
             for (CombatToken token : map.tokens()) {
                 statement.setObject(1, operationKey);
@@ -505,6 +506,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 statement.setObject(8, token.ownerPlayerId().map(PlayerId::value).orElse(null));
                 statement.setString(9, token.discovery().name());
                 bindHostileRule(statement, 10, token.hostileObservationRule().orElse(null));
+                statement.setInt(15, token.elevation());
                 statement.addBatch();
             }
             statement.executeBatch();
@@ -779,7 +781,8 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 new GridPosition(row.getInt("x"), row.getInt("y")),
                 TokenController.valueOf(row.getString("controller")),
                 row.getObject("owner_player_id") == null ? null : new PlayerId(row.getObject("owner_player_id", UUID.class)),
-                row.getString("discovery") == null ? TokenDiscovery.DISCOVERED : TokenDiscovery.valueOf(row.getString("discovery")), hostileRule);
+                row.getString("discovery") == null ? TokenDiscovery.DISCOVERED : TokenDiscovery.valueOf(row.getString("discovery")), hostileRule,
+                row.getObject("elevation", Integer.class) == null ? 0 : row.getInt("elevation"));
     }
 
     private static void bindHostileRule(PreparedStatement statement, int start, HostileObservationRule rule) throws SQLException {

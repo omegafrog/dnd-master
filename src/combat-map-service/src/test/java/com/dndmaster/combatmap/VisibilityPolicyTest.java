@@ -9,6 +9,17 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class VisibilityPolicyTest {
+    @Test
+    void player_safe_boundary_projection_hides_segments_touching_unexplored_cells() {
+        GridSpec grid = new GridSpec(3, 2, 50, 5);
+        var layer = new MapLayer("MAP_BOUNDARIES", "0,0,VERTICAL,WALL,false;1,0,VERTICAL,WALL,false;2,0,VERTICAL,WALL,false", LayerVisibility.PLAYER_VISIBLE);
+
+        var projected = com.dndmaster.combatmap.application.view.PlayerSafeFogProjection.clipBoundaries(
+                List.of(layer), grid, Set.of(new GridPosition(0, 0)));
+
+        assertEquals("0,0,VERTICAL,WALL,false", projected.getFirst().value());
+    }
+
     private final GridSpec grid = new GridSpec(7, 3, 50, 5);
     private final VisibilityPolicy policy = new VisibilityPolicy();
 

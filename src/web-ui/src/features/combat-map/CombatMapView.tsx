@@ -4,6 +4,8 @@ import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
 import { tokenVisualCatalog } from './TokenVisualCatalog'
+import { screenPointToGrid } from './mapScreenToGrid'
+import { diagnosticEvent } from '../../shared/developmentDiagnostics'
 
 type PendingMovement = { mapId: string; tokenId: string; turnId?: string; commandId?: string; cancelCommandId?: string; result: MapMovementResult }
 type PendingMovementCommand = { candidate: MapInteractionCandidate; turnId: string; commandId: string; expectedVersion: number }
@@ -34,6 +36,13 @@ function createMapCommandIdentity() {
   return { turnId: value, commandId: value }
 }
 
+function logMapZoom(previous: number, zoom: number, outcome: 'changed' | 'reset') {
+  const environment = (import.meta as ImportMeta & { readonly env: { readonly DEV: boolean; readonly VITE_ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED?: string } }).env
+  if (environment.DEV && environment.VITE_ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED === 'true') {
+    diagnosticEvent('combat_map_zoom', { outcome, previous, zoom })
+  }
+}
+
 export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, movementRemaining, onPreparationComplete }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; movementRemaining?: number; onPreparationComplete?: () => void | Promise<void> }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [publicMapImage, setPublicMapImage] = useState<string | null>(null)
@@ -45,6 +54,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [previewing, setPreviewing] = useState(false)
   const [waypointMode, setWaypointMode] = useState(false)
   const [movementHoverEnabled, setMovementHoverEnabled] = useState(false)
+  const [mapZoom, setMapZoom] = useState(1)
   const [locationMode, setLocationMode] = useState(false)
   const [gridEditor, setGridEditor] = useState(false)
   const [gridMessage, setGridMessage] = useState('')
@@ -503,6 +513,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const backgroundPositionY = renderedImageHeight > renderedGridHeight ? `${(previewGrid.originY / (renderedImageHeight - renderedGridHeight)) * 100}%` : 'center'
   const preserveAlignmentForLayout = preparationMode && layoutEditing
   const mapStyle = {
+    '--map-zoom': mapZoom,
     '--grid-columns': displayedColumns,
     '--grid-rows': displayedRows,
     '--map-aspect': `${Math.max(displayedGridWidth, 1)} / ${Math.max(displayedGridHeight, 1)}`,
@@ -645,9 +656,26 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   }
   const tacticalMap = map.tokens ? (
     <div className="tactical-map-window">
+      {!preparationMode && <div className="combat-map-zoom" role="group" aria-label="지도 확대/축소">
+        <button type="button" aria-label="지도 축소" disabled={mapZoom <= .75} onClick={() => setMapZoom(current => {
+          const next = Math.max(.75, Math.round((current - .25) * 100) / 100)
+          logMapZoom(current, next, 'changed')
+          return next
+        })}>−</button>
+        <output aria-label="지도 배율">{Math.round(mapZoom * 100)}%</output>
+        <button type="button" aria-label="지도 확대" disabled={mapZoom >= 2} onClick={() => setMapZoom(current => {
+          const next = Math.min(2, Math.round((current + .25) * 100) / 100)
+          logMapZoom(current, next, 'changed')
+          return next
+        })}>+</button>
+        <button type="button" aria-label="지도 배율 초기화" disabled={mapZoom === 1} onClick={() => {
+          logMapZoom(mapZoom, 1, 'reset')
+          setMapZoom(1)
+        }}>초기화</button>
+      </div>}
       {!preparationMode && <button type="button" aria-pressed={movementHoverEnabled} onClick={() => setMovementHoverEnabled(current => !current)} disabled={!selectedToken}>이동 미리 보기</button>}
       {!preparationMode && <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>}
-          <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} className="tactical-map" style={mapStyle} onPointerDown={event => {
+          <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} data-map-zoom={mapZoom} className="tactical-map" style={mapStyle} onPointerDown={event => {
             if (!preparationMode || !layoutEditing) return
             const stroke = startBoundaryStroke(event, previewGrid.width, previewGrid.height)
             if (!stroke) return
@@ -691,7 +719,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           const ghostDestination = movementPreview && candidate?.to?.x === cell.x && candidate.to.y === cell.y
           const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
           return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : displayToken ? `${displayToken.type} ${displayToken.x},${displayToken.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={displayToken?.type} data-token-faction={tokenVisual?.faction} data-token-status={tokenVisual?.primaryStatus} data-token-asset={tokenVisual?.assetPath} data-token-frame={tokenVisual?.framePath} data-movement-preview={movementPreview ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={displayToken?.lastSeen ? 'true' : 'false'} className={tokenVisual?.classes.join(' ')} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible && !explored)} draggable={!preparationMode && displayToken?.type === 'PLAYER'} onPointerEnter={() => { if (movementHoverEnabled && !preparationMode && selectedToken && displayToken?.type !== 'PLAYER' && (visible || explored)) void chooseCell(cell) }} onDragStart={() => { if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id) }} onClick={() => { if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id); else if (!preparationMode) void chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => { void chooseCell(cell) }}>
-            {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : ghostDestination ? '유령 토큰' : tokenVisual && displayToken ? <span className="token-visual" aria-hidden="true"><span className="token-visual-frame" style={{ backgroundImage: `url(${tokenVisual.framePath})` }} /><img src={tokenVisual.assetPath} alt="" /><span className="token-visual-label">{`${displayToken.type} (${displayToken.x},${displayToken.y})`}</span></span> : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
+            {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : ghostDestination ? '유령 토큰' : tokenVisual && displayToken ? <span className="token-visual" aria-hidden="true"><span className="token-visual-frame" style={{ backgroundImage: `url(${tokenVisual.framePath})` }} /><img src={tokenVisual.assetPath} alt="" /><span className="token-visual-label">{`${displayToken.type} (${displayToken.x},${displayToken.y})${displayToken.elevation ? ` · 지면에서 높이 ${displayToken.elevation}` : ''}`}</span></span> : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
           </button>
           })}
           {mapBoundaries.map(boundary => <span key={`boundary-${boundary.x}-${boundary.y}-${boundary.orientation}`} aria-hidden="true" className={`map-boundary map-boundary-${boundary.kind.toLowerCase()}`} data-boundary={`${boundary.orientation}:${boundary.x}:${boundary.y}`} style={boundaryStyle(boundary, previewGrid.width, previewGrid.height)} />)}
@@ -905,8 +933,7 @@ type BoundaryStroke = BoundaryGeometry & { tool: 'WALL' | 'DOOR' | 'ERASE'; orig
 
 function startBoundaryStroke(event: React.PointerEvent<HTMLDivElement>, width: number, height: number): BoundaryGeometry | null {
   const rect = event.currentTarget.getBoundingClientRect()
-  const x = Math.max(0, Math.min(width, ((event.clientX - rect.left) / rect.width) * width))
-  const y = Math.max(0, Math.min(height, ((event.clientY - rect.top) / rect.height) * height))
+  const { x, y } = screenPointToGrid(event.clientX, event.clientY, rect, width, height)
   const verticalDistance = Math.abs(x - Math.round(x))
   const horizontalDistance = Math.abs(y - Math.round(y))
   if (Math.min(verticalDistance, horizontalDistance) > .28) return null
@@ -917,9 +944,10 @@ function startBoundaryStroke(event: React.PointerEvent<HTMLDivElement>, width: n
 
 function extendBoundaryStroke(stroke: BoundaryGeometry, event: React.PointerEvent<HTMLDivElement>, width: number, height: number): BoundaryGeometry {
   const rect = event.currentTarget.getBoundingClientRect()
+  const point = screenPointToGrid(event.clientX, event.clientY, rect, width, height)
   const coordinate = stroke.orientation === 'HORIZONTAL'
-    ? Math.max(0, Math.min(width - 1, Math.floor(((event.clientX - rect.left) / rect.width) * width)))
-    : Math.max(0, Math.min(height - 1, Math.floor(((event.clientY - rect.top) / rect.height) * height)))
+    ? Math.max(0, Math.min(width - 1, Math.floor(point.x)))
+    : Math.max(0, Math.min(height - 1, Math.floor(point.y)))
   return { ...stroke, to: coordinate }
 }
 

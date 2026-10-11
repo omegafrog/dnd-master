@@ -705,27 +705,75 @@ public final class CombatMapViewService {
                 exposed.add(new CombatToken(last.tokenId(), last.type(), last.position(), TokenController.AI_GAME_MASTER, null));
                 lastSeenIds.add(last.tokenId());
             }
-        return new PlayerCombatMapView(map.id(), map.grid(), exposed, map.obstacles().stream().filter(explored::contains).collect(Collectors.toSet()), map.doors().stream().filter(door->explored.contains(door.position())).toList(), playerSafeLayers(map), current, explored, lastSeenIds, version, List.of(), playerSpatialFeatures(map));
+        List<MapLayer> visibleLayers = playerSafeLayers(map, explored);
+        return new PlayerCombatMapView(map.id(), map.grid(), exposed, map.obstacles().stream().filter(explored::contains).collect(Collectors.toSet()), map.doors().stream().filter(door->explored.contains(door.position())).toList(), visibleLayers, current, explored, lastSeenIds, version, List.of(), playerSpatialFeatures(map, explored));
     }
     private PlayerCombatMapView failClosedProjection(CombatMap map, long version) {
         Set<GridPosition> origins = playerOrigins(map);
         List<CombatToken> players = map.tokens().stream().filter(t -> t.type() == TokenType.PLAYER && origins.contains(t.position())).toList();
         return new PlayerCombatMapView(map.id(), map.grid(), players, Set.of(), List.of(),
-                playerSafeLayers(map),
+                playerSafeLayers(map, origins),
                 origins, origins, Set.of(), version, List.of(), List.of());
     }
     private CombatMap replay(MapId id,MapOwnerId owner,UUID commandId,String fingerprint){VersionedOwnedCombatMap replay=store.findByCommandId(commandId).orElse(null);if(replay==null)return null;if(!replay.map().id().equals(id)||!replay.owner().equals(owner)||!fingerprint.equals(replay.map().operationFingerprint()))throw new IllegalStateException("command id reused with different payload or owner");return replay.map();}
     private static Set<GridPosition> playerOrigins(CombatMap map) { return map.tokens().stream().filter(t -> t.type() == TokenType.PLAYER).map(CombatToken::position).collect(Collectors.toSet()); }
-    private static List<PlayerCombatMapView.SpatialFeature> playerSpatialFeatures(CombatMap map) {
-        return map.spatialFeatures().stream()
-                .filter(feature -> feature.visibility() != SpatialFeatureVisibility.HIDDEN)
-                .map(feature -> new PlayerCombatMapView.SpatialFeature(feature.id(), feature.type().name(),
-                        feature.cells().stream().map(cell -> new PlayerCombatMapView.Position(cell.x(), cell.y())).toList(),
-                        feature.visibility().name(), feature.state().name(),
-                        feature.triggers().contains(SpatialTrigger.INTERACT) && feature.canTrigger()))
-                .toList();
+    private List<PlayerCombatMapView.SpatialFeature> playerSpatialFeatures(CombatMap map, Set<GridPosition> explored) {
+        int sourceCount = map.spatialFeatures().stream().filter(feature -> feature.visibility() != SpatialFeatureVisibility.HIDDEN)
+                .mapToInt(feature -> feature.cells().size()).sum();
+        boolean diagnostics = Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+        long startedAt = diagnostics ? System.nanoTime() : 0L;
+        if (diagnostics) LOGGER.info("dev_player_map_spatial outcome=started mapId={} featureCount={} sourceCells={} exploredCells={}",
+                map.id().value(), map.spatialFeatures().size(), sourceCount, explored.size());
+        try {
+            List<PlayerCombatMapView.SpatialFeature> projected = map.spatialFeatures().stream()
+                    .filter(feature -> feature.visibility() != SpatialFeatureVisibility.HIDDEN)
+                    .map(feature -> new PlayerCombatMapView.SpatialFeature(feature.id(), feature.type().name(),
+                            feature.cells().stream().filter(explored::contains)
+                                    .map(cell -> new PlayerCombatMapView.Position(cell.x(), cell.y())).toList(),
+                            feature.visibility().name(), feature.state().name(),
+                            feature.triggers().contains(SpatialTrigger.INTERACT) && feature.canTrigger()))
+                    .filter(feature -> !feature.cells().isEmpty()).toList();
+            int projectedCells = projected.stream().mapToInt(feature -> feature.cells().size()).sum();
+            if (diagnostics) LOGGER.info("dev_player_map_spatial outcome=completed mapId={} featureCount={} projectedFeatureCount={} sourceCells={} projectedCells={} clippedCells={} elapsedMs={}",
+                    map.id().value(), map.spatialFeatures().size(), projected.size(), sourceCount, projectedCells,
+                    sourceCount - projectedCells, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            return projected;
+        } catch (RuntimeException | Error failure) {
+            if (diagnostics) LOGGER.info("dev_player_map_spatial outcome=failed mapId={} featureCount={} sourceCells={} exploredCells={} failureClass={} elapsedMs={}",
+                    map.id().value(), map.spatialFeatures().size(), sourceCount, explored.size(), failure.getClass().getSimpleName(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            throw failure;
+        }
     }
-    private static List<MapLayer> playerSafeLayers(CombatMap map) { return map.layers().stream().filter(l -> l.visibility() == LayerVisibility.PLAYER_VISIBLE && !"MAP_IMAGE".equals(l.type())).toList(); }
+    private List<MapLayer> playerSafeLayers(CombatMap map, Set<GridPosition> explored) {
+        List<MapLayer> visibleLayers = playerSafeLayers(map);
+        int boundaryCount = visibleLayers.stream().filter(layer -> "MAP_BOUNDARIES".equals(layer.type()))
+                .mapToInt(layer -> layer.value().split(";").length).sum();
+        boolean diagnostics = Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+        long startedAt = diagnostics ? System.nanoTime() : 0L;
+        if (diagnostics) LOGGER.info("dev_player_map_boundaries outcome=started mapId={} boundaryCount={} exploredCells={}",
+                map.id().value(), boundaryCount, explored.size());
+        try {
+            List<MapLayer> projected = PlayerSafeFogProjection.clipBoundaries(visibleLayers, map.grid(), explored);
+            int projectedCount = projected.stream().filter(layer -> "MAP_BOUNDARIES".equals(layer.type()))
+                    .mapToInt(layer -> layer.value().split(";").length).sum();
+            if (diagnostics) LOGGER.info("dev_player_map_boundaries outcome=completed mapId={} boundaryCount={} projectedCount={} clippedCount={} elapsedMs={}",
+                    map.id().value(), boundaryCount, projectedCount, boundaryCount - projectedCount,
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            return projected;
+        } catch (RuntimeException | Error failure) {
+            if (diagnostics) LOGGER.info("dev_player_map_boundaries outcome=failed mapId={} boundaryCount={} exploredCells={} failureClass={} elapsedMs={}",
+                    map.id().value(), boundaryCount, explored.size(), failure.getClass().getSimpleName(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            throw failure;
+        }
+    }
+    private static List<MapLayer> playerSafeLayers(CombatMap map) {
+        return map.layers().stream().filter(layer -> layer.visibility() == LayerVisibility.PLAYER_VISIBLE
+                && !"MAP_IMAGE".equals(layer.type())).toList();
+    }
     private static Optional<GridPosition> confirmedPlayerStart(CombatMap map) {
         return map.layers().stream().filter(layer -> "PLAYER_START_CONFIRMED".equals(layer.type()))
                 .map(MapLayer::value).map(CombatMapViewService::parsePosition).flatMap(Optional::stream).findFirst();
@@ -817,5 +865,5 @@ public final class CombatMapViewService {
     }
     private void observePublicImage(MapId id, MapOwnerId owner, VersionedOwnedCombatMap state) { if (publicImages != null) publicImages.observe(id, owner, state.version()); }
     private VersionedOwnedCombatMap owned(MapId id, MapOwnerId owner) { VersionedOwnedCombatMap state = store.find(id).orElseThrow(CombatMapAccessDeniedException::new); if (!state.owner().equals(owner)) throw new CombatMapAccessDeniedException(); return state; }
-    private static CombatToken copy(CombatToken t, GridPosition p) { return new CombatToken(t.id(), t.type(), p, t.controller(), t.ownerPlayerId().orElse(null), t.discovery(), t.hostileObservationRule().orElse(null)); }
+    private static CombatToken copy(CombatToken t, GridPosition p) { return new CombatToken(t.id(), t.type(), p, t.controller(), t.ownerPlayerId().orElse(null), t.discovery(), t.hostileObservationRule().orElse(null), t.elevation()); }
 }

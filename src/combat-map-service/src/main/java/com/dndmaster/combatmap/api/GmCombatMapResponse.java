@@ -14,12 +14,12 @@ public record GmCombatMapResponse(UUID mapId, List<TokenResponse> tokens, List<O
     }
     public static GmCombatMapResponse from(CombatMap map) {
         return new GmCombatMapResponse(map.id().value(), map.tokens().stream()
-                .map(token -> new TokenResponse(token.id().value(), token.type().name(), token.position().x(), token.position().y(), token.discovery().name()))
+                .map(token -> new TokenResponse(token.id().value(), token.type().name(), token.position().x(), token.position().y(), token.discovery().name(), token.elevation()))
                 .toList(), map.obstacles().stream().map(point -> new ObstacleResponse(point.x(), point.y())).toList(),
                 map.layers().stream().map(layer -> new LayerResponse(layer.type(), layer.value(), layer.visibility().name())).toList(), map.version(),
                 map.spatialFeatures().stream().map(feature -> SpatialFeatureResponse.from(feature)).toList(), map.spatialPreparationBlocked());
     }
-    public record TokenResponse(UUID id, String type, int x, int y, String discovery) { }
+    public record TokenResponse(UUID id, String type, int x, int y, String discovery, int elevation) { }
     public record ObstacleResponse(int x, int y) { }
     public record LayerResponse(String type, String value, String visibility) { }
     public record PositionResponse(int x, int y) { }

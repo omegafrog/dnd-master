@@ -38,6 +38,27 @@ import org.junit.jupiter.api.Test;
 
 class PlayerCombatMapProjectionTest {
     @Test
+    void player_projection_omits_wall_segments_touching_fogged_cells() {
+        Fixture fixture = fixture(List.of(), List.of(new com.dndmaster.combatmap.domain.MapLayer(
+                "MAP_BOUNDARIES", "1,1,VERTICAL,WALL,false", com.dndmaster.combatmap.domain.LayerVisibility.PLAYER_VISIBLE)));
+
+        PlayerCombatMapResponse response = PlayerCombatMapResponse.from(fixture.service.displayForPlayer(fixture.map.id(), fixture.owner));
+
+        assertTrue(response.layers().stream().noneMatch(layer -> layer.type().equals("MAP_BOUNDARIES")));
+    }
+
+    @Test
+    void fail_closed_player_projection_also_clips_wall_segments() {
+        Fixture fixture = fixture(List.of(), List.of(new com.dndmaster.combatmap.domain.MapLayer(
+                "MAP_BOUNDARIES", "1,1,VERTICAL,WALL,false", com.dndmaster.combatmap.domain.LayerVisibility.PLAYER_VISIBLE)));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(Set.of(), Set.of(), Set.of(), List.of(), 0));
+
+        PlayerCombatMapResponse response = PlayerCombatMapResponse.from(fixture.service.displayForPlayer(fixture.map.id(), fixture.owner));
+
+        assertTrue(response.layers().stream().noneMatch(layer -> layer.type().equals("MAP_BOUNDARIES")));
+    }
+
+    @Test
     void failed_detection_keeps_spatial_feature_out_of_player_map() {
         Fixture fixture = fixture(SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.SECRET_DOOR,
                 List.of(new GridPosition(2, 1)), DetectionSpec.passive("perception", 15),
@@ -72,14 +93,31 @@ class PlayerCombatMapProjectionTest {
         assertFalse(response.toString().contains("secret payload"));
     }
 
+    @Test
+    void discovered_spatial_feature_is_clipped_to_explored_cells() {
+        SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.SECRET_DOOR,
+                List.of(new GridPosition(2, 1), new GridPosition(3, 1)), DetectionSpec.passive("perception", 15),
+                Set.of(SpatialTrigger.INTERACT), SpatialFeatureProvenance.storyPlan("hidden", 3, 1));
+        feature.discover();
+        Fixture fixture = fixture(feature);
+
+        PlayerCombatMapResponse response = PlayerCombatMapResponse.from(fixture.service.displayForPlayer(fixture.map.id(), fixture.owner));
+
+        assertEquals(List.of(new PlayerCombatMapResponse.PositionResponse(2, 1)), response.spatialFeatures().getFirst().cells());
+    }
+
     private static Fixture fixture(SpatialFeature feature) {
+        return fixture(List.of(feature), List.of());
+    }
+
+    private static Fixture fixture(List<SpatialFeature> features, List<com.dndmaster.combatmap.domain.MapLayer> layers) {
         UUID ownerId = UUID.randomUUID();
         MapOwnerId owner = new MapOwnerId(ownerId);
         CombatToken player = new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
                 new GridPosition(1, 1), TokenController.PLAYER, new PlayerId(ownerId));
         CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()),
                 new RuleSetId(UUID.randomUUID()), new GridSpec(4, 3, 50, 5), new PlayerId(ownerId),
-                List.of(player), Set.of(), List.of(), 0, null, null, List.of(feature));
+                List.of(player), Set.of(), layers, 0, null, null, features);
         map.replaceVisibility(new VisibilitySnapshot(Set.of(new GridPosition(1, 1), new GridPosition(2, 1)),
                 Set.of(new GridPosition(1, 1), new GridPosition(2, 1)), Set.of(player.id()), List.of(), 0));
         InMemoryStore store = new InMemoryStore(owner, map);
