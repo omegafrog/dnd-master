@@ -156,20 +156,35 @@ export function PreparationFlow({
   }, [api, bundle, onError, playerId, retryNonce])
 
   useEffect(() => {
-    if (!scenarioPackage || !api.getPlayPreparation) return
+    if (!scenarioPackage) return
+    if (!api.createPlayPreparation) {
+      const error = new Error('캐릭터 설정 준비를 시작할 수 없습니다.')
+      diagnosticEvent('preparation', { stage: 'character_setup_failed', bundleId: bundle.bundleId, packageId: scenarioPackage.packageId, expected: 'createPlayPreparation', actual: 'unavailable', failureClass: error.name })
+      setFailure(error.message)
+      onError(error.message)
+      return
+    }
     let active = true
-    diagnosticEvent('preparation', { stage: 'character_setup_loading', bundleId: bundle.bundleId, packageId: scenarioPackage.packageId })
-    void api.getPlayPreparation(scenarioPackage.packageId)
+    const requestStorageKey = `play-preparation-request:${scenarioPackage.packageId}`
+    let requestKey = window.localStorage.getItem(requestStorageKey)
+    const requestKeyBranch = requestKey ? 'saved_key_reused' : 'new_key_saved'
+    if (!requestKey) {
+      requestKey = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
+      window.localStorage.setItem(requestStorageKey, requestKey)
+    }
+    const startedAt = Date.now()
+    diagnosticEvent('preparation', { stage: 'character_setup_request_started', bundleId: bundle.bundleId, packageId: scenarioPackage.packageId, branch: requestKeyBranch })
+    void api.createPlayPreparation(scenarioPackage.packageId, requestKey)
       .then(preparation => {
         if (!active) return
         setPlayPreparation(preparation)
         setProgress(100)
-        diagnosticEvent('preparation', { stage: 'ready', bundleId: bundle.bundleId, packageId: scenarioPackage.packageId, blueprintStatus: preparation.characterCreationBlueprint.status ?? null })
+        diagnosticEvent('preparation', { stage: 'character_setup_ready', bundleId: bundle.bundleId, packageId: scenarioPackage.packageId, preparationId: preparation.preparationId ?? null, expected: 'preparation view', actual: preparation.status, elapsedMs: Date.now() - startedAt, blueprintStatus: preparation.characterCreationBlueprint.status ?? null })
       })
       .catch(error => {
         if (!active) return
         const message = error instanceof Error ? error.message : '캐릭터 설정을 확인하지 못했습니다.'
-        diagnosticEvent('preparation', { stage: 'character_setup_failed', bundleId: bundle.bundleId, packageId: scenarioPackage.packageId, failureClass: error instanceof Error ? error.constructor.name : 'UnknownError' })
+        diagnosticEvent('preparation', { stage: 'character_setup_failed', bundleId: bundle.bundleId, packageId: scenarioPackage.packageId, expected: 'preparation view', actual: 'request failed', elapsedMs: Date.now() - startedAt, failureClass: error instanceof Error ? error.constructor.name : 'UnknownError', branch: 'retry_same_request_key' })
         setFailure(message)
         onError(message)
       })
@@ -204,6 +219,7 @@ export function PreparationFlow({
         blueprintId: scenarioPackage.packageId,
         blueprintRevision: blueprint.revision,
         partySize: Math.min(partySize, scenarioPackage.characterLimit.maximumCharacters),
+        preparationId: playPreparation.preparationId ?? undefined,
       })
       diagnosticEvent('preparation', { stage: 'adventure_created', bundleId: bundle.bundleId, packageId: scenarioPackage.packageId, sessionId: session.sessionId })
       if (onAdventureCreated) onAdventureCreated(session)
