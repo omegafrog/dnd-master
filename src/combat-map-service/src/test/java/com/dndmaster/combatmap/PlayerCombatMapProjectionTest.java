@@ -34,7 +34,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import org.assertj.core.api.Assertions;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 class PlayerCombatMapProjectionTest {
     @Test
@@ -104,6 +108,42 @@ class PlayerCombatMapProjectionTest {
         PlayerCombatMapResponse response = PlayerCombatMapResponse.from(fixture.service.displayForPlayer(fixture.map.id(), fixture.owner));
 
         assertEquals(List.of(new PlayerCombatMapResponse.PositionResponse(2, 1)), response.spatialFeatures().getFirst().cells());
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void reports_public_projection_counts_when_diagnostics_are_enabled(CapturedOutput output) {
+        SpatialFeature feature = SpatialFeature.hidden(UUID.randomUUID(), SpatialFeatureType.SECRET_DOOR,
+                List.of(new GridPosition(2, 1), new GridPosition(3, 1)), DetectionSpec.passive("perception", 15),
+                Set.of(SpatialTrigger.INTERACT), SpatialFeatureProvenance.storyPlan("hidden", 3, 1));
+        feature.discover();
+        Fixture fixture = fixture(List.of(feature), List.of(new com.dndmaster.combatmap.domain.MapLayer(
+                "MAP_BOUNDARIES", "1,1,VERTICAL,WALL,false", com.dndmaster.combatmap.domain.LayerVisibility.PLAYER_VISIBLE)));
+
+        withDiagnosticsFlag("true", () -> fixture.service.displayForPlayer(fixture.map.id(), fixture.owner));
+
+        Assertions.assertThat(output)
+                .contains("dev_player_map_boundaries outcome=started")
+                .contains("mapId=" + fixture.map.id().value())
+                .contains("boundaryCount=1")
+                .contains("dev_player_map_boundaries outcome=completed")
+                .contains("projectedCount=0")
+                .contains("clippedCount=1")
+                .contains("dev_player_map_spatial outcome=started")
+                .contains("sourceCells=2")
+                .contains("dev_player_map_spatial outcome=completed")
+                .contains("projectedCells=1")
+                .contains("clippedCells=1");
+    }
+
+    private static void withDiagnosticsFlag(String value, Runnable action) {
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", value);
+        try { action.run(); }
+        finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
     }
 
     private static Fixture fixture(SpatialFeature feature) {
