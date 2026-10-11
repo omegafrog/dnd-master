@@ -1,9 +1,11 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -34,6 +36,54 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class AdventureSessionPreparationBindingTest {
+    @Test
+    void logs_binding_failure_context_and_preserves_exception() {
+        UUID packageId = UUID.randomUUID();
+        UUID preparationId = UUID.randomUUID();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        var blueprint = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.PUBLISHED,
+                List.of(new CharacterCreationBlueprint.Field("class", List.of(), true, "RULEBOOK", List.of(), "EXTRACTED", List.of())),
+                List.of(), new BlueprintProvenance(1, 1, List.of("RULEBOOK"), "OTHER_SYSTEM"));
+        ScenarioPackage scenarioPackage = ScenarioPackage.rehydrate(packageId, ScenarioBundleId.generate(), 1,
+                "preparation-bind-failure", List.of(), List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of(), CompilationOutcome.COMPLETE),
+                CharacterLimit.defaultLimit(), blueprint);
+        var review = new SpellDefinitionReviewPreparation(preparationId, packageId, owner.value(), 4, false, List.of());
+        ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(packageId)).thenReturn(Optional.of(scenarioPackage));
+        when(packages.findSpellDefinitionPreparation(preparationId)).thenReturn(Optional.of(review));
+        IllegalStateException bindingFailure = new IllegalStateException("simulated binding failure");
+        doThrow(bindingFailure).when(packages).bindSpellDefinitionPreparation(eq(preparationId), eq(packageId),
+                eq(owner.value()), any(), eq(4L));
+        AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
+        AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions, packages,
+                mock(AdventureRepository.class), mock(RuntimeBindingApplicationService.class),
+                mock(AdventureSessionStartCoordinator.class));
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AdventureSessionApplicationService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        try {
+            assertSame(bindingFailure, assertThrows(IllegalStateException.class, () ->
+                    service.create(owner, packageId, packageId, 1, null, null, preparationId)));
+            org.junit.jupiter.api.Assertions.assertTrue(appender.list.stream().map(event -> event.getFormattedMessage()).anyMatch(message ->
+                    message.contains("operation=adventure_session_create outcome=failed")
+                            && message.contains("expectedPreparationId=" + preparationId)
+                            && message.contains("actualPreparationId=unconfirmed")
+                            && message.contains("expectedPackageId=" + packageId)
+                            && message.contains("actualPackageId=unconfirmed")
+                            && message.contains("expectedOwnerId=" + owner.value())
+                            && message.contains("expectedRevision=4 actualRevision=unknown")
+                            && message.contains("reason=preparation_bind_failed")));
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+        verify(sessions).save(any(), eq(0L));
+    }
+
     @Test
     void failed_session_save_does_not_bind_preparation_and_retry_can_succeed() {
         UUID packageId = UUID.randomUUID();

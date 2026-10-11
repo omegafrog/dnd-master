@@ -159,8 +159,20 @@ public class AdventureSessionApplicationService {
             throw failure;
         }
         if (preparationId != null) {
-            packageRepository.bindSpellDefinitionPreparation(preparationId, scenarioPackageId, owner.value(),
-                    sessionId.value(), review.revision());
+            try {
+                packageRepository.bindSpellDefinitionPreparation(preparationId, scenarioPackageId, owner.value(),
+                        sessionId.value(), review.revision());
+            } catch (RuntimeException failure) {
+                if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                    String actualRevision = failure instanceof com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException conflict
+                            ? Long.toString(conflict.actualRevision()) : "unknown";
+                    LOGGER.info("dev_flow operation=adventure_session_create outcome=failed sessionId={} packageId={} preparationId={} expectedPreparationId={} actualPreparationId={} expectedPackageId={} actualPackageId=unconfirmed expectedOwnerId={} actualOwnerId=unconfirmed expectedSessionId={} actualSessionId=unconfirmed expectedRevision={} actualRevision={} failureType={} reason=preparation_bind_failed recovery=retry_after_preparation_reload",
+                            sessionId.value(), scenarioPackageId, preparationId, preparationId, "unconfirmed",
+                            scenarioPackageId, owner.value(), sessionId.value(), review.revision(), actualRevision,
+                            failure.getClass().getSimpleName());
+                }
+                throw failure;
+            }
         }
         if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
             LOGGER.info("dev_flow operation=adventure_session_create outcome=completed sessionId={} packageId={} preparationId={} actualVersion={} actualPartySize={} reason=session_persisted_and_preparation_bound",
