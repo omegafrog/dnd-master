@@ -4,6 +4,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition;
 import com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory;
+import com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilation;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic;
 import java.util.Optional;
@@ -36,4 +37,19 @@ public interface ScenarioPackageRepository {
         return expectedRevision + 1;
     }
     default void lockSpellDefinitionsForStart(UUID packageId, long expectedRevision) {}
+    default SpellDefinitionReviewPreparation createSpellDefinitionPreparation(UUID packageId, UUID ownerId,
+            String requestKey, List<StructuredSpellDefinition> definitions) {
+        throw new UnsupportedOperationException("spell review preparations are not supported by this repository");
+    }
+    default Optional<SpellDefinitionReviewPreparation> findSpellDefinitionPreparation(UUID preparationId) { return Optional.empty(); }
+    default List<SpellDefinitionEditHistory> spellDefinitionPreparationHistory(UUID preparationId) { return List.of(); }
+    default long updateSpellDefinitionPreparation(UUID preparationId, long expectedRevision,
+            List<StructuredSpellDefinition> definitions, SpellDefinitionEditHistory history) {
+        throw new UnsupportedOperationException("spell review preparations are not supported by this repository");
+    }
+    default void bindAndLockSpellDefinitionPreparation(UUID preparationId, UUID packageId, UUID ownerId,
+            UUID sessionId, long expectedRevision) {
+        throw new UnsupportedOperationException("spell review preparations are not supported by this repository");
+    }
+    default Optional<SpellDefinitionReviewPreparation> findSpellDefinitionPreparationBySession(UUID sessionId) { return Optional.empty(); }
 }

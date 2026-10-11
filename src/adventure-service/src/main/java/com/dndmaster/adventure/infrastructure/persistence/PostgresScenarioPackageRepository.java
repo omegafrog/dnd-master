@@ -23,6 +23,7 @@ import com.dndmaster.adventure.domain.scenario.StoryMapBinding;
 import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition;
 import com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory;
+import com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -36,6 +37,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import com.fasterxml.jackson.core.type.TypeReference;
 import javax.sql.DataSource;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilation;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic;
@@ -193,82 +195,114 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
 
     @Override
     public void saveSpellDefinitions(UUID packageId, List<StructuredSpellDefinition> definitions) {
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement update = connection.prepareStatement(
-                        "UPDATE scenario_package SET spell_definitions_json = ?::jsonb WHERE package_id = ? AND NOT spell_definition_locked AND NOT EXISTS (SELECT 1 FROM adventure WHERE locked_scenario_package_id = ?) AND (spell_definitions_json IS NULL OR jsonb_array_length(spell_definitions_json) < ?)")) {
-            update.setString(1, writeJson(definitions));
-            update.setObject(2, packageId);
-            update.setObject(3, packageId);
-            update.setInt(4, definitions.size());
-            update.executeUpdate();
-        } catch (SQLException exception) {
-            throw new ScenarioPackagePersistenceException("could not update scenario package spell definitions", exception);
-        }
+        // Spell definitions on ScenarioPackage are source data; mutable review state is stored by preparationId.
     }
 
     @Override
     public long spellDefinitionRevision(UUID packageId) {
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(
-                        "SELECT spell_definition_revision FROM scenario_package WHERE package_id = ?")) {
-            statement.setObject(1, packageId);
-            try (ResultSet row = statement.executeQuery()) {
-                if (!row.next()) throw new IllegalStateException("scenario package not found");
-                return row.getLong(1);
-            }
-        } catch (SQLException exception) {
-            throw new ScenarioPackagePersistenceException("could not read spell definition revision", exception);
-        }
+        return 0;
     }
 
     @Override
     public List<SpellDefinitionEditHistory> spellDefinitionHistory(UUID packageId) {
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(
-                        "SELECT revision, definition_id, editor_id, changed_at, previous_definition_json, current_definition_json FROM scenario_package_spell_definition_history WHERE package_id = ? ORDER BY revision")) {
-            statement.setObject(1, packageId);
-            try (ResultSet rows = statement.executeQuery()) {
-                List<SpellDefinitionEditHistory> history = new ArrayList<>();
-                while (rows.next()) history.add(new SpellDefinitionEditHistory(rows.getLong("revision"),
-                        rows.getString("definition_id"), rows.getObject("editor_id", UUID.class),
-                        rows.getTimestamp("changed_at").toInstant(),
-                        readJsonValue(rows.getString("previous_definition_json"), StructuredSpellDefinition.class),
-                        readJsonValue(rows.getString("current_definition_json"), StructuredSpellDefinition.class)));
-                return List.copyOf(history);
-            }
-        } catch (SQLException exception) {
-            throw new ScenarioPackagePersistenceException("could not read spell definition history", exception);
-        }
+        return List.of();
     }
 
     @Override
     public long updateSpellDefinitions(UUID packageId, long expectedRevision,
             List<StructuredSpellDefinition> definitions, SpellDefinitionEditHistory history) {
-        String json = writeJson(definitions);
+        throw new UnsupportedOperationException("spell review state requires a preparationId");
+    }
+
+    @Override
+    public void lockSpellDefinitionsForStart(UUID packageId, long expectedRevision) {
+        throw new UnsupportedOperationException("spell review state requires a preparationId");
+    }
+
+    @Override
+    public SpellDefinitionReviewPreparation createSpellDefinitionPreparation(UUID packageId, UUID ownerId,
+            String requestKey, List<StructuredSpellDefinition> definitions) {
+        UUID preparationId = UUID.randomUUID();
+        try (Connection connection = dataSource.getConnection()) {
+            try (PreparedStatement insert = connection.prepareStatement(
+                    "INSERT INTO spell_definition_review_preparation(preparation_id, package_id, owner_player_id, request_key, definitions_json) VALUES (?, ?, ?, ?, ?::jsonb) ON CONFLICT (owner_player_id, request_key) DO NOTHING")) {
+                insert.setObject(1, preparationId); insert.setObject(2, packageId); insert.setObject(3, ownerId);
+                insert.setString(4, requestKey); insert.setString(5, writeJson(definitions));
+                insert.executeUpdate();
+            }
+            try (PreparedStatement select = connection.prepareStatement(
+                    "SELECT preparation_id, package_id, owner_player_id, revision, locked, definitions_json FROM spell_definition_review_preparation WHERE owner_player_id = ? AND request_key = ?")) {
+                select.setObject(1, ownerId); select.setString(2, requestKey);
+                try (ResultSet row = select.executeQuery()) {
+                    if (!row.next()) throw new IllegalStateException("spell review preparation was not created");
+                    UUID actualPackageId = row.getObject("package_id", UUID.class);
+                    if (!packageId.equals(actualPackageId)) {
+                        throw new IllegalStateException("preparation request key is already bound to another package");
+                    }
+                    return new SpellDefinitionReviewPreparation(row.getObject("preparation_id", UUID.class), actualPackageId,
+                            row.getObject("owner_player_id", UUID.class), row.getLong("revision"), row.getBoolean("locked"),
+                            readSpellDefinitions(row.getString("definitions_json")));
+                }
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not create spell review preparation", exception);
+        }
+    }
+
+    @Override
+    public Optional<SpellDefinitionReviewPreparation> findSpellDefinitionPreparation(UUID preparationId) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+                "SELECT preparation_id, package_id, owner_player_id, revision, locked, definitions_json FROM spell_definition_review_preparation WHERE preparation_id = ?")) {
+            statement.setObject(1, preparationId);
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? Optional.of(new SpellDefinitionReviewPreparation(row.getObject("preparation_id", UUID.class),
+                        row.getObject("package_id", UUID.class), row.getObject("owner_player_id", UUID.class),
+                        row.getLong("revision"), row.getBoolean("locked"), readSpellDefinitions(row.getString("definitions_json"))))
+                        : Optional.empty();
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not load spell review preparation", exception);
+        }
+    }
+
+    @Override
+    public List<SpellDefinitionEditHistory> spellDefinitionPreparationHistory(UUID preparationId) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+                "SELECT revision, definition_id, editor_id, changed_at, previous_definition_json, current_definition_json FROM spell_definition_review_preparation_history WHERE preparation_id = ? ORDER BY revision")) {
+            statement.setObject(1, preparationId);
+            try (ResultSet rows = statement.executeQuery()) {
+                List<SpellDefinitionEditHistory> history = new ArrayList<>();
+                while (rows.next()) history.add(new SpellDefinitionEditHistory(rows.getLong("revision"), rows.getString("definition_id"),
+                        rows.getObject("editor_id", UUID.class), rows.getTimestamp("changed_at").toInstant(),
+                        readJsonValue(rows.getString("previous_definition_json"), StructuredSpellDefinition.class),
+                        readJsonValue(rows.getString("current_definition_json"), StructuredSpellDefinition.class)));
+                return List.copyOf(history);
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not read spell review preparation history", exception);
+        }
+    }
+
+    @Override
+    public long updateSpellDefinitionPreparation(UUID preparationId, long expectedRevision,
+            List<StructuredSpellDefinition> definitions, SpellDefinitionEditHistory history) {
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try (PreparedStatement update = connection.prepareStatement(
-                    "UPDATE scenario_package SET spell_definitions_json = ?::jsonb, spell_definition_revision = spell_definition_revision + 1 WHERE package_id = ? AND spell_definition_revision = ? AND NOT spell_definition_locked AND NOT EXISTS (SELECT 1 FROM adventure WHERE locked_scenario_package_id = ?)");
-                    PreparedStatement insert = connection.prepareStatement(
-                            "INSERT INTO scenario_package_spell_definition_history(package_id, revision, definition_id, editor_id, changed_at, previous_definition_json, current_definition_json) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)")) {
-                update.setString(1, json);
-                update.setObject(2, packageId);
-                update.setLong(3, expectedRevision);
-                update.setObject(4, packageId);
+                    "UPDATE spell_definition_review_preparation SET definitions_json = ?::jsonb, revision = revision + 1 WHERE preparation_id = ? AND revision = ? AND NOT locked");
+                 PreparedStatement insert = connection.prepareStatement(
+                    "INSERT INTO spell_definition_review_preparation_history(preparation_id, revision, definition_id, editor_id, changed_at, previous_definition_json, current_definition_json) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)")) {
+                update.setString(1, writeJson(definitions)); update.setObject(2, preparationId); update.setLong(3, expectedRevision);
                 if (update.executeUpdate() != 1) {
                     connection.rollback();
-                    long actual = spellDefinitionRevision(packageId);
-                    if (actual != expectedRevision) throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(expectedRevision, actual);
-                    throw new IllegalStateException("spell definitions are locked or scenario package is missing");
+                    var actual = findSpellDefinitionPreparation(preparationId);
+                    if (actual.isEmpty()) throw new IllegalStateException("spell review preparation not found");
+                    if (actual.get().revision() != expectedRevision) throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(expectedRevision, actual.get().revision());
+                    throw new IllegalStateException("spell review preparation is locked");
                 }
-                insert.setObject(1, packageId);
-                insert.setLong(2, expectedRevision + 1);
-                insert.setString(3, history.definitionId());
-                insert.setObject(4, history.editorId());
-                insert.setTimestamp(5, java.sql.Timestamp.from(history.changedAt()));
-                insert.setString(6, writeJson(history.previous()));
-                insert.setString(7, writeJson(history.current()));
-                insert.executeUpdate();
+                insert.setObject(1, preparationId); insert.setLong(2, expectedRevision + 1); insert.setString(3, history.definitionId());
+                insert.setObject(4, history.editorId()); insert.setTimestamp(5, java.sql.Timestamp.from(history.changedAt()));
+                insert.setString(6, writeJson(history.previous())); insert.setString(7, writeJson(history.current())); insert.executeUpdate();
                 connection.commit();
                 return expectedRevision + 1;
             } catch (SQLException | RuntimeException failure) {
@@ -276,25 +310,48 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                 throw failure;
             }
         } catch (SQLException exception) {
-            throw new ScenarioPackagePersistenceException("could not update spell definition review", exception);
+            throw new ScenarioPackagePersistenceException("could not update spell review preparation", exception);
         }
     }
 
     @Override
-    public void lockSpellDefinitionsForStart(UUID packageId, long expectedRevision) {
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(
-                        "UPDATE scenario_package SET spell_definition_locked = TRUE WHERE package_id = ? AND spell_definition_revision = ? AND (spell_definitions_json IS NULL OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(spell_definitions_json) definition WHERE definition ->> 'reviewStatus' <> 'APPROVED'))")) {
-            statement.setObject(1, packageId);
-            statement.setLong(2, expectedRevision);
+    public void bindAndLockSpellDefinitionPreparation(UUID preparationId, UUID packageId, UUID ownerId,
+            UUID sessionId, long expectedRevision) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+                "UPDATE spell_definition_review_preparation SET session_id = ?, locked = TRUE WHERE preparation_id = ? AND package_id = ? AND owner_player_id = ? AND revision = ? AND NOT locked AND (session_id IS NULL OR session_id = ?) AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(definitions_json) definition WHERE definition ->> 'active' <> 'false' AND definition ->> 'reviewStatus' <> 'APPROVED')")) {
+            statement.setObject(1, sessionId); statement.setObject(2, preparationId); statement.setObject(3, packageId);
+            statement.setObject(4, ownerId); statement.setLong(5, expectedRevision); statement.setObject(6, sessionId);
             if (statement.executeUpdate() != 1) {
-                long actual = spellDefinitionRevision(packageId);
-                if (actual != expectedRevision) throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(expectedRevision, actual);
-                throw new IllegalStateException("spell definitions are not approved for start");
+                var actual = findSpellDefinitionPreparation(preparationId);
+                if (actual.isEmpty() || !packageId.equals(actual.get().packageId()) || !ownerId.equals(actual.get().ownerId()))
+                    throw new SecurityException("spell review preparation does not belong to this owner and package");
+                if (actual.get().revision() != expectedRevision) throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(expectedRevision, actual.get().revision());
+                throw new IllegalStateException("spell review preparation is not approved or is locked");
             }
         } catch (SQLException exception) {
-            throw new ScenarioPackagePersistenceException("could not lock spell definitions for adventure start", exception);
+            throw new ScenarioPackagePersistenceException("could not bind and lock spell review preparation", exception);
         }
+    }
+
+    @Override
+    public Optional<SpellDefinitionReviewPreparation> findSpellDefinitionPreparationBySession(UUID sessionId) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+                "SELECT preparation_id, package_id, owner_player_id, revision, locked, definitions_json FROM spell_definition_review_preparation WHERE session_id = ?")) {
+            statement.setObject(1, sessionId);
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? Optional.of(new SpellDefinitionReviewPreparation(row.getObject("preparation_id", UUID.class),
+                        row.getObject("package_id", UUID.class), row.getObject("owner_player_id", UUID.class),
+                        row.getLong("revision"), row.getBoolean("locked"), readSpellDefinitions(row.getString("definitions_json"))))
+                        : Optional.empty();
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not load session spell review preparation", exception);
+        }
+    }
+
+    private static List<StructuredSpellDefinition> readSpellDefinitions(String json) {
+        try { return JSON.readValue(json, new TypeReference<List<StructuredSpellDefinition>>() {}); }
+        catch (JsonProcessingException exception) { throw new ScenarioPackagePersistenceException("could not deserialize spell review preparation", exception); }
     }
 
     private static void insertHeader(Connection connection, ScenarioPackage packageVersion) throws SQLException {

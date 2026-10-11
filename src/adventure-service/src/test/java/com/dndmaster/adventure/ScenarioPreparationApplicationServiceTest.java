@@ -11,6 +11,7 @@ import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.preparation.CharacterCreationBlueprintView;
 import com.dndmaster.adventure.application.scenario.preparation.PlayPreparationStatus;
+import com.dndmaster.adventure.application.scenario.preparation.PlayPreparationView;
 import com.dndmaster.adventure.application.scenario.preparation.RuntimeOptionCatalogPort;
 import com.dndmaster.adventure.application.scenario.preparation.RuntimeOptionsView;
 import com.dndmaster.adventure.application.scenario.preparation.ScenarioPreparationApplicationService;
@@ -388,19 +389,15 @@ class ScenarioPreparationApplicationServiceTest {
     }
 
     @Test
-    void allowsPreparationWhenRulebookIsSeparateFromScenarioBundle() {
+    void blocksRequired2014InventoryWhenBasicRulesSourceIsUnavailable() {
         TestFixture fixture = bundle(withoutRulebookPackage(), bundleWithoutRulebook());
         ScenarioPreparationApplicationService service = service(fixture);
 
         var preparation = service.read(fixture.packageId(), owner());
 
-        assertEquals(PlayPreparationStatus.READY, preparation.status());
-        assertTrue(preparation.blockers().isEmpty());
-        assertTrue(preparation.characterCreationBlueprint().available());
-        assertEquals(0, preparation.characterCreationBlueprint().rulebookDocumentCount());
-        assertEquals(1, preparation.characterCreationBlueprint().storybookDocumentCount());
-        assertEquals(CharacterCreationBlueprintView.StorybookExtractionState.NO_PROPOSALS,
-                preparation.characterCreationBlueprint().storybookExtractionState());
+        assertEquals(PlayPreparationStatus.BLOCKED, preparation.status());
+        assertTrue(preparation.blockers().stream().anyMatch(blocker -> blocker.contains("기본 룰북 주문 정의")));
+        assertFalse(preparation.characterCreationBlueprint().available());
     }
 
     @Test
@@ -513,6 +510,8 @@ class ScenarioPreparationApplicationServiceTest {
         var canonical = BasicRulebookSpellInventory.load(new KnowledgeDocumentId(rulebookDocumentId()), 1);
         var currentPackage = new ScenarioPackage[] { withRulebookPackage().withSpellDefinitions(canonical) };
         long[] revision = { 0 };
+        UUID[] preparationId = { null };
+        List<StructuredSpellDefinition>[] reviewDefinitions = new List[] { List.of() };
         var history = new java.util.ArrayList<com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory>();
         ScenarioPackageRepository packages = new ScenarioPackageRepository() {
             @Override public Optional<ScenarioPackage> findByInputFingerprint(String fingerprint) { return Optional.empty(); }
@@ -520,6 +519,24 @@ class ScenarioPreparationApplicationServiceTest {
             @Override public void save(ScenarioPackage scenarioPackage) {}
             @Override public long spellDefinitionRevision(UUID packageId) { return revision[0]; }
             @Override public List<com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory> spellDefinitionHistory(UUID packageId) { return List.copyOf(history); }
+            @Override public com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation createSpellDefinitionPreparation(
+                    UUID packageId, UUID ownerId, String requestKey, List<StructuredSpellDefinition> definitions) {
+                if (preparationId[0] == null) { preparationId[0] = UUID.randomUUID(); reviewDefinitions[0] = List.copyOf(definitions); }
+                return new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
+                        preparationId[0], packageId, ownerId, revision[0], false, reviewDefinitions[0]);
+            }
+            @Override public Optional<com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation> findSpellDefinitionPreparation(UUID id) {
+                return preparationId[0] != null && preparationId[0].equals(id)
+                        ? Optional.of(new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
+                                id, currentPackage[0].packageId(), owner().value(), revision[0], false, reviewDefinitions[0]))
+                        : Optional.empty();
+            }
+            @Override public List<com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory> spellDefinitionPreparationHistory(UUID id) { return List.copyOf(history); }
+            @Override public long updateSpellDefinitionPreparation(UUID id, long expectedRevision, List<StructuredSpellDefinition> definitions,
+                    com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory change) {
+                if (expectedRevision != revision[0]) throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(expectedRevision, revision[0]);
+                reviewDefinitions[0] = List.copyOf(definitions); revision[0]++; history.add(change); return revision[0];
+            }
             @Override public long updateSpellDefinitions(UUID packageId, long expectedRevision, List<StructuredSpellDefinition> definitions,
                     com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory change) {
                 if (expectedRevision != revision[0]) throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(expectedRevision, revision[0]);
@@ -542,7 +559,9 @@ class ScenarioPreparationApplicationServiceTest {
                 request -> List.of(), new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort(), lookup);
         var original = canonical.getFirst();
 
-        var edited = service.editSpellDefinition(currentPackage[0].packageId(), owner(), original.id(),
+        var initial = service.createPlayPreparation(currentPackage[0].packageId(), owner(), "review-1");
+        UUID prepId = initial.preparationId();
+        var edited = service.editSpellDefinition(prepId, owner(), original.id(),
                 new com.dndmaster.adventure.application.scenario.preparation.SpellDefinitionEditRequest(0,
                         original.level(), original.castingTime(), original.rangeArea(), original.components(),
                         original.duration(), original.school(), "사용자가 수정한 내성", original.damageEffect()));
@@ -560,7 +579,7 @@ class ScenarioPreparationApplicationServiceTest {
         System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
         try {
             assertThrows(com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException.class,
-                    () -> service.approveSpellDefinition(currentPackage[0].packageId(), owner(), original.id(), 0));
+                    () -> service.approveSpellDefinition(prepId, owner(), original.id(), 0));
             assertTrue(appender.list.stream().map(event -> event.getFormattedMessage()).anyMatch(message ->
                     message.contains("definitionId=" + original.id()) && message.contains("expectedRevision=0 actualRevision=1")));
         } finally {
@@ -569,11 +588,71 @@ class ScenarioPreparationApplicationServiceTest {
             else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, priorDiagnostics);
         }
         assertThrows(com.dndmaster.adventure.domain.scenario.ScenarioBundleAccessDeniedException.class,
-                () -> service.approveSpellDefinition(currentPackage[0].packageId(), new OwnerPlayerId(UUID.randomUUID()), original.id(), 1));
+                () -> service.approveSpellDefinition(prepId, new OwnerPlayerId(UUID.randomUUID()), original.id(), 1));
 
-        var approved = service.approveSpellDefinition(currentPackage[0].packageId(), owner(), original.id(), 1);
+        var approved = service.approveSpellDefinition(prepId, owner(), original.id(), 1);
         assertEquals(2, approved.spellDefinitionRevision());
         assertEquals(StructuredSpellDefinition.ReviewStatus.APPROVED, approved.spellDefinitions().getFirst().reviewStatus());
+        assertEquals(canonical, currentPackage[0].spellDefinitions(), "review edits must not mutate the shared package");
+
+        var addLogger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(ScenarioPreparationApplicationService.class);
+        var addAppender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        addAppender.start();
+        addLogger.addAppender(addAppender);
+        String addPriorDiagnostics = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        PlayPreparationView action;
+        try {
+        action = service.addActionDefinition(prepId, owner(), new com.dndmaster.adventure.application.scenario.preparation.AddActionDefinitionRequest(
+                2, "장궁 공격", rulebookDocumentId(), "page=42;node=longbow", StructuredSpellDefinition.ActionKind.RANGED_ATTACK,
+                null, null, null, null, null, null, null, null,
+                new StructuredSpellDefinition.RangeProfile(StructuredSpellDefinition.RangeForm.NORMAL_AND_LONG, 150, 600),
+                new StructuredSpellDefinition.TargetingProfile(StructuredSpellDefinition.TargetMode.SINGLE_TARGET,
+                        StructuredSpellDefinition.OriginMode.ACTOR_TOKEN, StructuredSpellDefinition.EffectShape.NONE,
+                        null, null, null, null, StructuredSpellDefinition.PathBlockingRule.CLEAR_PATH_REQUIRED,
+                        StructuredSpellDefinition.PropagationRule.DIRECT), false));
+        assertTrue(addAppender.list.stream().map(event -> event.getFormattedMessage()).anyMatch(message ->
+                message.contains("preparationId=" + prepId) && message.contains("outcome=completed")
+                        && message.contains("actualRevision=3") && message.contains("actualDefinitionCount=127")
+                        && message.contains("durationMs=")));
+        } finally {
+            addLogger.detachAppender(addAppender);
+            if (addPriorDiagnostics == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, addPriorDiagnostics);
+        }
+        var added = action.spellDefinitions().stream().filter(StructuredSpellDefinition::userAdded).findFirst().orElseThrow();
+        assertEquals("package-document:" + rulebookDocumentId() + ":1", added.sourceVersion());
+        assertEquals(StructuredSpellDefinition.ActionKind.RANGED_ATTACK, added.actionKind());
+        assertEquals(null, added.level());
+        assertTrue(action.spellDefinitionHistory().stream().anyMatch(change -> change.definitionId().equals(added.id())));
+        var sourceLogger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(ScenarioPreparationApplicationService.class);
+        var sourceAppender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        sourceAppender.start();
+        sourceLogger.addAppender(sourceAppender);
+        String sourcePriorDiagnostics = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        try {
+        assertThrows(IllegalArgumentException.class, () -> service.addActionDefinition(prepId, owner(),
+                new com.dndmaster.adventure.application.scenario.preparation.AddActionDefinitionRequest(
+                        action.spellDefinitionRevision(), "위조 출처", UUID.randomUUID(), "page=1", StructuredSpellDefinition.ActionKind.THROWN,
+                        null, null, null, null, null, null, null, null,
+                        new StructuredSpellDefinition.RangeProfile(StructuredSpellDefinition.RangeForm.SINGLE, 20, null),
+                        new StructuredSpellDefinition.TargetingProfile(StructuredSpellDefinition.TargetMode.SINGLE_TARGET,
+                                StructuredSpellDefinition.OriginMode.ACTOR_TOKEN, StructuredSpellDefinition.EffectShape.NONE,
+                                null, null, null, null, StructuredSpellDefinition.PathBlockingRule.NONE,
+                                StructuredSpellDefinition.PropagationRule.DIRECT), false)));
+        assertTrue(sourceAppender.list.stream().map(event -> event.getFormattedMessage()).anyMatch(message ->
+                message.contains("preparationId=" + prepId) && message.contains("expected=package_indexed_source")
+                        && message.contains("reason=source_not_in_package")));
+        } finally {
+            sourceLogger.detachAppender(sourceAppender);
+            if (sourcePriorDiagnostics == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, sourcePriorDiagnostics);
+        }
+        assertThrows(IllegalArgumentException.class, () -> service.removeUserAddedActionDefinition(prepId, owner(), original.id(), action.spellDefinitionRevision()));
+        var removed = service.removeUserAddedActionDefinition(prepId, owner(), added.id(), action.spellDefinitionRevision());
+        assertFalse(removed.spellDefinitions().stream().anyMatch(definition -> definition.id().equals(added.id())));
+        assertEquals(added.id(), removed.spellDefinitionHistory().getLast().definitionId());
     }
 
     @Test
@@ -584,13 +663,10 @@ class ScenarioPreparationApplicationServiceTest {
         var preparation = service.read(fixture.packageId(), owner());
         RuntimeOptionsView options = service.runtimeOptions(owner());
 
-        assertEquals(PlayPreparationStatus.READY, preparation.status());
+        assertEquals(PlayPreparationStatus.BLOCKED, preparation.status());
+        assertTrue(preparation.blockers().stream().anyMatch(blocker -> blocker.contains("기본 룰북 주문 정의")));
         CharacterCreationBlueprintView blueprint = preparation.characterCreationBlueprint();
-        assertTrue(blueprint.available());
-        assertEquals("STORYBOOK 1개, RULEBOOK 런타임 세트 별도", blueprint.summary());
-        assertEquals(0, blueprint.rulebookDocumentCount());
-        assertEquals(1, blueprint.storybookDocumentCount());
-        assertTrue(blueprint.diagnostics().isEmpty());
+        assertFalse(blueprint.available());
         assertEquals(6, preparation.characterLimit().maximumCharacters());
 
         assertEquals("ollama", options.defaultEngineId());
@@ -769,8 +845,8 @@ class ScenarioPreparationApplicationServiceTest {
         var preparation = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions())
                 .read(scenarioPackage.packageId(), owner());
 
-        assertEquals(PlayPreparationStatus.READY, preparation.status());
-        assertTrue(preparation.blockers().isEmpty());
+        assertEquals(PlayPreparationStatus.BLOCKED, preparation.status());
+        assertTrue(preparation.blockers().stream().anyMatch(blocker -> blocker.contains("기본 룰북 주문 정의")));
         assertTrue(preparation.characterCreationBlueprint().available());
     }
 

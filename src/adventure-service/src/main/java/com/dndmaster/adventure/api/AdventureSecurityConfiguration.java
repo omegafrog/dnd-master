@@ -32,6 +32,7 @@ public class AdventureSecurityConfiguration {
                         "/api/v1/adventures/**",
                         "/api/v1/adventure-sessions/**",
                         "/api/v1/scenario-packages/**",
+                        "/api/v1/play-preparations/**",
                         "/api/v1/runtime-options",
                         "/internal/v1/adventures/**",
                         "/api/v1/internal/adventures/**")

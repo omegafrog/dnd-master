@@ -146,16 +146,15 @@ class PostgresScenarioCompilationRepositoryIntegrationTest {
                 first.components(), first.duration(), first.school(), "사용자 수정 판정", "사용자 수정 효과",
                 first.ownerPlanNumbers(), first.ownerEvidence(), first.executable(), first.reviewStatus());
         packages.save(packageVersion);
-        packages.saveSpellDefinitions(packageVersion.packageId(), List.of(edited));
         var repaired = new java.util.ArrayList<>(spells);
         repaired.set(0, edited);
-        packages.saveSpellDefinitions(packageVersion.packageId(), repaired);
-
-        var reloaded = packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions();
+        var preparation = packages.createSpellDefinitionPreparation(packageVersion.packageId(), UUID.randomUUID(),
+                UUID.randomUUID().toString(), repaired);
+        var reloaded = packages.findSpellDefinitionPreparation(preparation.preparationId()).orElseThrow().definitions();
         assertEquals(126, reloaded.size());
         assertEquals(repaired, reloaded);
-        packages.saveSpellDefinitions(packageVersion.packageId(), spells);
-        assertEquals(repaired, packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions());
+        assertEquals(List.of(), packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions(),
+                "review edits belong to the preparation and must not mutate the shared package");
     }
 
     @Test
@@ -166,27 +165,28 @@ class PostgresScenarioCompilationRepositoryIntegrationTest {
         var original = BasicRulebookSpellInventory.load(
                 new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()), 7).getFirst();
         packages.save(packageVersion);
-        packages.saveSpellDefinitions(packageVersion.packageId(), List.of(original));
+        var preparation = packages.createSpellDefinitionPreparation(packageVersion.packageId(), UUID.randomUUID(),
+                UUID.randomUUID().toString(), List.of(original));
         var edited = original.edit(original.level(), original.castingTime(), original.rangeArea(), original.components(),
                 original.duration(), original.school(), "사용자 수정 내성", original.damageEffect());
         var history = new com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory(1, original.id(),
                 UUID.randomUUID(), java.time.Instant.now(), original, edited);
 
-        assertEquals(1, packages.updateSpellDefinitions(packageVersion.packageId(), 0, List.of(edited), history));
-        assertEquals(1, packages.spellDefinitionRevision(packageVersion.packageId()));
-        assertEquals(edited, packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions().getFirst());
-        assertEquals(history.previous(), packages.spellDefinitionHistory(packageVersion.packageId()).getFirst().previous());
+        assertEquals(1, packages.updateSpellDefinitionPreparation(preparation.preparationId(), 0, List.of(edited), history));
+        assertEquals(edited, packages.findSpellDefinitionPreparation(preparation.preparationId()).orElseThrow().definitions().getFirst());
+        assertEquals(history.previous(), packages.spellDefinitionPreparationHistory(preparation.preparationId()).getFirst().previous());
         assertThrows(com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException.class,
-                () -> packages.updateSpellDefinitions(packageVersion.packageId(), 0, List.of(original), history));
-        assertEquals(edited, packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions().getFirst());
+                () -> packages.updateSpellDefinitionPreparation(preparation.preparationId(), 0, List.of(original), history));
+        assertEquals(edited, packages.findSpellDefinitionPreparation(preparation.preparationId()).orElseThrow().definitions().getFirst());
         var approved = edited.approve();
         var approval = new com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory(2, original.id(),
                 UUID.randomUUID(), java.time.Instant.now(), edited, approved);
-        assertEquals(2, packages.updateSpellDefinitions(packageVersion.packageId(), 1, List.of(approved), approval));
-        packages.lockSpellDefinitionsForStart(packageVersion.packageId(), 2);
+        assertEquals(2, packages.updateSpellDefinitionPreparation(preparation.preparationId(), 1, List.of(approved), approval));
+        packages.bindAndLockSpellDefinitionPreparation(preparation.preparationId(), packageVersion.packageId(),
+                preparation.ownerId(), UUID.randomUUID(), 2);
         assertThrows(IllegalStateException.class,
-                () -> packages.updateSpellDefinitions(packageVersion.packageId(), 2, List.of(edited), approval));
-        assertEquals(approved, packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions().getFirst());
+                () -> packages.updateSpellDefinitionPreparation(preparation.preparationId(), 2, List.of(edited), approval));
+        assertEquals(approved, packages.findSpellDefinitionPreparation(preparation.preparationId()).orElseThrow().definitions().getFirst());
     }
 
     private static ScenarioModelElement element(String type, String value) {

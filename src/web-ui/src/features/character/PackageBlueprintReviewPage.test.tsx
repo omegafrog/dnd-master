@@ -114,6 +114,25 @@ describe('PackageBlueprintReviewPage', () => {
     expect(within(inventory).getByRole('listitem')).toHaveTextContent('실행 미지원 · 검토 대기')
   })
 
+  it('adds a source-linked ranged action using the preparation revision', async () => {
+    const current = { ...preparation(), preparationId: 'prep-1', spellDefinitionRevision: 3,
+      packageSources: [{ documentId: 'source-doc-1', originalFilename: '무기 규칙.pdf', extractionVersion: 2 }], spellDefinitions: [] }
+    const addActionDefinition = vi.fn(async (_preparationId: string, _definition: unknown) => current)
+    render(<PackageBlueprintReviewPage packageId="package-1" setupApi={{ getPlayPreparation: async () => current,
+      addActionDefinition }} sessionApi={{ create: vi.fn() }} onSessionCreated={vi.fn()} />)
+    const inventory = await screen.findByRole('region', { name: '기본 룰북 주문 목록' })
+    await userEvent.setup().click(within(inventory).getByText('출처를 확인한 행동 정의 추가'))
+    await userEvent.setup().type(within(inventory).getByRole('textbox', { name: '새 행동 이름' }), '장궁 공격')
+    await userEvent.setup().selectOptions(within(inventory).getByRole('combobox', { name: '새 행동 출처 문서' }), 'source-doc-1')
+    await userEvent.setup().type(within(inventory).getByRole('textbox', { name: '새 행동 출처 위치' }), 'page=42;node=longbow')
+    await userEvent.setup().type(within(inventory).getByRole('spinbutton', { name: '새 행동 사거리(피트)' }), '150')
+    await userEvent.setup().click(within(inventory).getByRole('button', { name: '행동 정의 추가' }))
+    await waitFor(() => expect(addActionDefinition).toHaveBeenCalledWith('prep-1', expect.objectContaining({
+      expectedRevision: 3, sourceDocumentId: 'source-doc-1', sourceLocator: 'page=42;node=longbow',
+      actionKind: 'RANGED_ATTACK', rangeProfile: expect.objectContaining({ normalRangeFeet: 150 }),
+    })))
+  })
+
   it('edits one rule definition with the displayed revision and then approves it', async () => {
     const spell = {
       id: 'spell-review-1', name: 'Acid Splash', sourceDocumentId: 'source-1', sourceLocator: 'page=87;node=node-2478',

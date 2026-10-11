@@ -243,6 +243,7 @@ export type CharacterInputNodeView = {
 }
 
 export type PlayPreparationView = {
+  preparationId?: string | null
   scenarioPackageId: string
   bundleId: string
   bundleRevision: number
@@ -254,6 +255,7 @@ export type PlayPreparationView = {
   sourceSpellDefinitions?: StructuredSpellDefinitionView[]
   spellDefinitionRevision?: number
   spellDefinitionHistory?: Array<{ revision: number; definitionId: string; changedAt: string; previous: StructuredSpellDefinitionView; current: StructuredSpellDefinitionView }>
+  packageSources?: Array<{ documentId: string; originalFilename: string; extractionVersion: number }>
 }
 
 export type StructuredSpellDefinitionView = {
@@ -275,6 +277,30 @@ export type StructuredSpellDefinitionView = {
   ownerEvidence: string
   executable: boolean
   reviewStatus: 'PENDING' | 'APPROVED'
+  required?: boolean
+  actionKind?: 'SPELL' | 'RANGED_ATTACK' | 'THROWN'
+  rangeProfile?: { form: 'SINGLE' | 'NORMAL_AND_LONG' | 'UNSUPPORTED'; normalRangeFeet: number | null; longRangeFeet: number | null } | null
+  targetingProfile?: {
+    mode: 'SINGLE_TARGET' | 'MULTIPLE_TARGETS' | 'POINT' | 'DIRECTION' | 'SELF' | 'UNSUPPORTED'
+    origin: 'ACTOR_TOKEN' | 'TARGET' | 'CURSOR_POINT' | 'CURSOR_DIRECTION' | 'UNSUPPORTED'
+    shape: 'NONE' | 'CONE' | 'LINE' | 'CUBE' | 'SPHERE' | 'CYLINDER' | 'WALL' | 'UNSUPPORTED'
+    lengthFeet: number | null; widthFeet: number | null; heightFeet: number | null; radiusFeet: number | null
+    pathBlocking: 'SOLID_BLOCKS' | 'CLEAR_PATH_REQUIRED' | 'NONE' | 'UNSUPPORTED'
+    propagation: 'DIRECT' | 'AREA_FROM_POINT' | 'CONTIGUOUS' | 'NONE' | 'UNSUPPORTED'
+  } | null
+  active?: boolean
+}
+
+export type StructuredActionEdit = Partial<Pick<StructuredSpellDefinitionView,
+  'level' | 'castingTime' | 'rangeArea' | 'components' | 'duration' | 'school' | 'attackSave' | 'damageEffect'
+  | 'required' | 'actionKind' | 'rangeProfile' | 'targetingProfile' | 'active'>>
+
+export type AddActionDefinition = {
+  expectedRevision: number; name: string; sourceDocumentId: string; sourceLocator: string
+  actionKind: 'SPELL' | 'RANGED_ATTACK' | 'THROWN'; level?: string; castingTime?: string; rangeArea?: string
+  components?: string; duration?: string; school?: string; attackSave?: string; damageEffect?: string
+  rangeProfile: NonNullable<StructuredSpellDefinitionView['rangeProfile']>
+  targetingProfile: NonNullable<StructuredSpellDefinitionView['targetingProfile']>; required: boolean
 }
 
 export type CreatedCharacterSheetView = {
@@ -526,10 +552,13 @@ export interface SetupApi {
   getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
   preflightAgentEndpoint?(): Promise<AgentEndpointPreflightView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
-  getPlayPreparation?(scenarioPackageId: string): Promise<PlayPreparationView>
-  editSpellDefinition?(scenarioPackageId: string, definitionId: string, expectedRevision: number,
-    edit: Pick<StructuredSpellDefinitionView, 'level' | 'castingTime' | 'rangeArea' | 'components' | 'duration' | 'school' | 'attackSave' | 'damageEffect'>): Promise<PlayPreparationView>
-  approveSpellDefinition?(scenarioPackageId: string, definitionId: string, expectedRevision: number): Promise<PlayPreparationView>
+  createPlayPreparation?(scenarioPackageId: string, requestKey: string): Promise<PlayPreparationView>
+  getPlayPreparation?(preparationId: string): Promise<PlayPreparationView>
+  editSpellDefinition?(preparationId: string, definitionId: string, expectedRevision: number,
+    edit: StructuredActionEdit): Promise<PlayPreparationView>
+  addActionDefinition?(preparationId: string, definition: AddActionDefinition): Promise<PlayPreparationView>
+  removeUserAddedActionDefinition?(preparationId: string, definitionId: string, expectedRevision: number): Promise<PlayPreparationView>
+  approveSpellDefinition?(preparationId: string, definitionId: string, expectedRevision: number): Promise<PlayPreparationView>
   generateBlueprintDraft?(scenarioPackageId: string, catalogRulebookId?: string, catalogExtractionVersion?: number): Promise<CharacterCreationBlueprintView>
   resolveBlueprint?(scenarioPackageId: string, fieldKey: string, value: string, expectedRevision?: number): Promise<unknown>
   addBlueprintChild?(scenarioPackageId: string, expectedRevision: number, parentId: string, key: string, label: string): Promise<unknown>
@@ -753,21 +782,39 @@ export class HttpSetupApi implements SetupApi {
     }, '모험 준비 결과를 불러오지 못했습니다.')
   }
 
-  getPlayPreparation(scenarioPackageId: string) {
-    return request<PlayPreparationView>(`/api/v1/scenario-packages/${scenarioPackageId}/play-preparation`, {
+  createPlayPreparation(scenarioPackageId: string, requestKey: string) {
+    return request<PlayPreparationView>(`/api/v1/scenario-packages/${scenarioPackageId}/play-preparations`, {
+      method: 'POST', headers: { ...this.authHeaders(), 'Idempotency-Key': requestKey },
+    }, '모험 준비 검토를 시작하지 못했습니다.')
+  }
+
+  getPlayPreparation(preparationId: string) {
+    return request<PlayPreparationView>(`/api/v1/play-preparations/${preparationId}`, {
       headers: this.authHeaders(),
     }, '플레이 준비 상태를 불러오지 못했습니다.')
   }
 
-  editSpellDefinition(scenarioPackageId: string, definitionId: string, expectedRevision: number, edit: Record<string, string>) {
-    return request<PlayPreparationView>(`/api/v1/scenario-packages/${scenarioPackageId}/play-preparation/spell-action-definitions/${encodeURIComponent(definitionId)}`, {
+  editSpellDefinition(preparationId: string, definitionId: string, expectedRevision: number, edit: StructuredActionEdit) {
+    return request<PlayPreparationView>(`/api/v1/play-preparations/${preparationId}/spell-action-definitions/${encodeURIComponent(definitionId)}`, {
       method: 'PUT', headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ expectedRevision, ...edit }),
     }, '주문 정의를 수정하지 못했습니다.')
   }
 
-  approveSpellDefinition(scenarioPackageId: string, definitionId: string, expectedRevision: number) {
-    return request<PlayPreparationView>(`/api/v1/scenario-packages/${scenarioPackageId}/play-preparation/spell-action-definitions/${encodeURIComponent(definitionId)}/approve`, {
+  addActionDefinition(preparationId: string, definition: AddActionDefinition) {
+    return request<PlayPreparationView>(`/api/v1/play-preparations/${preparationId}/spell-action-definitions`, {
+      method: 'POST', headers: { ...this.authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(definition),
+    }, '행동 정의를 추가하지 못했습니다.')
+  }
+
+  removeUserAddedActionDefinition(preparationId: string, definitionId: string, expectedRevision: number) {
+    return request<PlayPreparationView>(`/api/v1/play-preparations/${preparationId}/spell-action-definitions/${encodeURIComponent(definitionId)}?expectedRevision=${expectedRevision}`, {
+      method: 'DELETE', headers: this.authHeaders(),
+    }, '추가한 행동 정의를 삭제하지 못했습니다.')
+  }
+
+  approveSpellDefinition(preparationId: string, definitionId: string, expectedRevision: number) {
+    return request<PlayPreparationView>(`/api/v1/play-preparations/${preparationId}/spell-action-definitions/${encodeURIComponent(definitionId)}/approve`, {
       method: 'POST', headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ expectedRevision }),
     }, '주문 정의를 승인하지 못했습니다.')

@@ -172,7 +172,16 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
     }
     let active = true
     setPlayPreparation(null)
-    void api.getPlayPreparation(scenarioPackage.packageId)
+    const requestStorageKey = `play-preparation-request:${scenarioPackage.packageId}`
+    let requestKey = window.localStorage.getItem(requestStorageKey)
+    if (!requestKey) {
+      requestKey = crypto.randomUUID()
+      window.localStorage.setItem(requestStorageKey, requestKey)
+    }
+    const loading = api.createPlayPreparation
+      ? api.createPlayPreparation(scenarioPackage.packageId, requestKey)
+      : api.getPlayPreparation(scenarioPackage.packageId)
+    void loading
       .then(preparation => { if (active) setPlayPreparation(preparation) })
       .catch(error => {
         if (active) onError(error instanceof Error ? error.message : '캐릭터 생성 설정을 확인하지 못했습니다.')
@@ -311,13 +320,20 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
   async function createAdventure() {
     if (!scenarioPackage || !sessionApi?.create || !api.getPlayPreparation) return
     try {
-      const preparation = await api.getPlayPreparation(scenarioPackage.packageId)
+      const preparation = playPreparation?.preparationId
+        ? await api.getPlayPreparation(playPreparation.preparationId)
+        : await api.getPlayPreparation(scenarioPackage.packageId)
+      if ((preparation.spellDefinitions ?? []).some(definition => definition.reviewStatus !== 'APPROVED')) {
+        window.location.hash = `#/scenario-packages/${scenarioPackage.packageId}/character-blueprint`
+        return
+      }
       if (preparation.characterCreationBlueprint.status !== 'PUBLISHED' || preparation.characterCreationBlueprint.revision == null) {
         setPlayPreparation(preparation)
         onError('캐릭터 생성 설정을 먼저 검토하고 게시해 주세요.')
         return
       }
-      const session = await sessionApi.create({ scenarioPackageId: scenarioPackage.packageId, blueprintId: scenarioPackage.packageId, blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0, partySize: Math.min(partySize, scenarioPackage.characterLimit.maximumCharacters) })
+      const session = await sessionApi.create({ scenarioPackageId: scenarioPackage.packageId, blueprintId: scenarioPackage.packageId, blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0, partySize: Math.min(partySize, scenarioPackage.characterLimit.maximumCharacters), preparationId: preparation.preparationId ?? undefined })
+      window.localStorage.removeItem(`play-preparation-request:${scenarioPackage.packageId}`)
       window.location.hash = `#/sessions/${session.sessionId}/party`
     } catch (error) {
       onError(error instanceof Error ? error.message : '모험 세션을 만들지 못했습니다.')

@@ -42,7 +42,7 @@ public final class AdventureSessionController {
         this.combatMapViewPort = combatMapViewPort;
     }
 
-    @PostMapping SessionView create(@RequestBody CreateSessionRequest request) { return SessionView.from(service.create(owner(), request.scenarioPackageId(), request.blueprintId(), request.blueprintRevision(), request.runtimeConfiguration(), request.partySize())); }
+    @PostMapping SessionView create(@RequestBody CreateSessionRequest request) { return SessionView.from(service.create(owner(), request.scenarioPackageId(), request.blueprintId(), request.blueprintRevision(), request.runtimeConfiguration(), request.partySize(), request.preparationId())); }
     @GetMapping List<SessionView> list(@RequestParam UUID scenarioPackageId) { return service.listByScenarioPackageId(scenarioPackageId, owner()).stream().map(SessionView::from).toList(); }
     @GetMapping("/{sessionId}") SessionView read(@PathVariable UUID sessionId) {
         SessionView result = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
@@ -156,7 +156,7 @@ public final class AdventureSessionController {
         }
     }
     private static GmProviderSelection defaultProvider() { return new GmProviderSelection("codex-cli", "gpt-5.6-luna", "medium"); }
-    public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize) {}
+    public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize, UUID preparationId) {}
     public record StartRequest(UUID adventureId, boolean prepareMapOnly) {
         public StartRequest(UUID adventureId) { this(adventureId, false); }
     }

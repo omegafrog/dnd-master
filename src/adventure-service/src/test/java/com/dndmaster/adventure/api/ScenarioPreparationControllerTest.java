@@ -110,23 +110,23 @@ class ScenarioPreparationControllerTest {
     @Test
     void spellDefinitionEditAndApprovalUseAuthenticatedOwnerAndExpectedRevision() throws Exception {
         UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
-        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        UUID preparationId = UUID.fromString("66666666-6666-6666-6666-666666666666");
         when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
 
-        mockMvc.perform(put("/api/v1/scenario-packages/{scenarioPackageId}/play-preparation/spell-action-definitions/{definitionId}", packageId, "spell-1")
+        mockMvc.perform(put("/api/v1/play-preparations/{preparationId}/spell-action-definitions/{definitionId}", preparationId, "spell-1")
                         .header("Authorization", "Bearer token").contentType(APPLICATION_JSON)
                         .content("""
                                 {"expectedRevision":3,"level":"Cantrip","castingTime":"1 action","rangeArea":"60 ft.","components":"V,S","duration":"Instantaneous","school":"Evocation","attackSave":"DEX save","damageEffect":"1d6 fire"}
                                 """))
                 .andExpect(status().isOk());
-        verify(service).editSpellDefinition(eq(packageId), eq(new OwnerPlayerId(ownerId)), eq("spell-1"),
-                org.mockito.ArgumentMatchers.argThat(edit -> edit.expectedRevision() == 3 && edit.damageEffect().equals("1d6 fire")));
+        verify(service).editSpellDefinition(eq(preparationId), eq(new OwnerPlayerId(ownerId)), eq("spell-1"),
+                org.mockito.ArgumentMatchers.argThat((com.dndmaster.adventure.application.scenario.preparation.SpellDefinitionEditRequest edit) -> edit.expectedRevision() == 3 && edit.damageEffect().equals("1d6 fire")));
 
-        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/play-preparation/spell-action-definitions/{definitionId}/approve", packageId, "spell-1")
+        mockMvc.perform(post("/api/v1/play-preparations/{preparationId}/spell-action-definitions/{definitionId}/approve", preparationId, "spell-1")
                         .header("Authorization", "Bearer token").contentType(APPLICATION_JSON)
                         .content("{\"expectedRevision\":4}"))
                 .andExpect(status().isOk());
-        verify(service).approveSpellDefinition(packageId, new OwnerPlayerId(ownerId), "spell-1", 4);
+        verify(service).approveSpellDefinition(preparationId, new OwnerPlayerId(ownerId), "spell-1", 4);
     }
 
     @Test

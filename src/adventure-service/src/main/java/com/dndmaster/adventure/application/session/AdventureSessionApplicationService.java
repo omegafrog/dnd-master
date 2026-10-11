@@ -69,13 +69,91 @@ public class AdventureSessionApplicationService {
         return create(owner, scenarioPackageId, blueprintId, blueprintRevision, runtimeConfiguration, null);
     }
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId, java.util.UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer requestedPartySize) {
+        return create(owner, scenarioPackageId, blueprintId, blueprintRevision, runtimeConfiguration, requestedPartySize, null);
+    }
+
+    public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId, java.util.UUID blueprintId,
+            long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer requestedPartySize,
+            java.util.UUID preparationId) {
         var scenarioPackage = packageRepository.findById(scenarioPackageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
         var blueprint = scenarioPackage.characterCreationBlueprint();
         requirePublishedBlueprint(scenarioPackage, blueprintId, blueprintRevision);
+        boolean requires2014Inventory = "DND_5E_2014".equalsIgnoreCase(blueprint.provenance().edition());
+        boolean hasDeclaredActionDefinitions = requires2014Inventory || !scenarioPackage.spellDefinitions().isEmpty()
+                || scenarioPackage.documents().stream().anyMatch(document ->
+                        "DnD_BasicRules_2018.pdf".equalsIgnoreCase(document.originalFilename()));
+        if (hasDeclaredActionDefinitions && preparationId == null) {
+            throw new IllegalStateException("spell/action review preparation is required before session creation");
+        }
         int partySize = partySize(scenarioPackage.characterLimit(), requestedPartySize);
-        AdventureSession session = AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), blueprintId, blueprintRevision, blueprint.provenance().edition(), partySize,
+        SessionId sessionId = SessionId.generate();
+        if (preparationId != null) {
+            var review = packageRepository.findSpellDefinitionPreparation(preparationId)
+                    .orElseThrow(() -> new IllegalStateException("spell/action review preparation not found"));
+            if (!review.packageId().equals(scenarioPackageId) || !review.ownerId().equals(owner.value()))
+                throw new SecurityException("spell/action review preparation does not belong to this owner and package");
+            long pendingDefinitions = review.definitions().stream().filter(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition::active)
+                    .filter(definition -> definition.reviewStatus()
+                    != com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.APPROVED)
+                    .count();
+            long requiredUnsupported = review.definitions().stream()
+                    .filter(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition::required)
+                    .filter(definition -> !definition.executable() || definition.rangeProfile() == null
+                            || !definition.rangeProfile().supported() || definition.targetingProfile() == null
+                            || !definition.targetingProfile().supported())
+                    .count();
+            var basicRulesSources = scenarioPackage.documents().stream()
+                    .filter(document -> "DnD_BasicRules_2018.pdf".equalsIgnoreCase(document.originalFilename()))
+                    .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
+                    .filter(document -> document.status() == com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED)
+                    .toList();
+            long missingCanonicalDefinitions = 0;
+            long expectedCanonicalDefinitions = -1;
+            if (requires2014Inventory && basicRulesSources.size() == 1) {
+                var source = basicRulesSources.getFirst();
+                var expectedInventory = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory.load(
+                        source.knowledgeDocumentId(), source.extractionVersion());
+                expectedCanonicalDefinitions = expectedInventory.size();
+                var actualById = review.definitions().stream().collect(java.util.stream.Collectors.toMap(
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition::id, definition -> definition, (first, ignored) -> first));
+                missingCanonicalDefinitions = Math.max(0, review.definitions().size() - actualById.size());
+                missingCanonicalDefinitions += expectedInventory.stream().filter(expected -> {
+                    var actual = actualById.get(expected.id());
+                    return actual == null || !actual.sourceDocumentId().equals(source.knowledgeDocumentId().value())
+                            || !actual.sourceVersion().equals(expected.sourceVersion())
+                            || actual.extractionVersion() != source.extractionVersion()
+                            || !actual.sourceLocator().equals(expected.sourceLocator());
+                }).count();
+            } else if (requires2014Inventory) {
+                missingCanonicalDefinitions = 1;
+            }
+            if (requires2014Inventory && (review.definitions().isEmpty() || missingCanonicalDefinitions > 0)) {
+                if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                    LOGGER.info("dev_flow operation=spell_definition_preparation outcome=blocked preparationId={} expectedSourceCount=1 actualSourceCount={} expectedCanonicalDefinitionCount={} actualDefinitionCount={} actualMissingOrInvalidCount={} reason=missing_or_invalid_inventory recovery=restore_verified_package_inventory",
+                            preparationId, basicRulesSources.size(), expectedCanonicalDefinitions,
+                            review.definitions().size(), missingCanonicalDefinitions);
+                }
+                throw new IllegalStateException("required basic rulebook action definitions are unavailable");
+            }
+            if (pendingDefinitions > 0 || requiredUnsupported > 0) {
+                logPreparationGate(preparationId, pendingDefinitions, requiredUnsupported,
+                        pendingDefinitions > 0 ? "pending_review" : "required_unsupported");
+                throw new IllegalStateException("spell/action definitions require review or supported required definitions before session creation");
+            }
+            packageRepository.bindAndLockSpellDefinitionPreparation(preparationId, scenarioPackageId, owner.value(),
+                    sessionId.value(), review.revision());
+        }
+        AdventureSession session = AdventureSession.create(sessionId, owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), blueprintId, blueprintRevision, blueprint.provenance().edition(), partySize,
                 runtimeConfiguration == null ? defaultRuntimeConfiguration(scenarioPackage) : runtimeConfiguration);
         repository.save(session, 0); return session;
+    }
+
+    private static void logPreparationGate(java.util.UUID preparationId, long pending, long requiredUnsupported, String reason) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            org.slf4j.LoggerFactory.getLogger(AdventureSessionApplicationService.class).info(
+                    "dev_flow operation=spell_definition_preparation outcome=blocked preparationId={} expected=active_approved_and_required_supported actualPending={} actualRequiredUnsupported={} reason={}",
+                    preparationId, pending, requiredUnsupported, reason);
+        }
     }
 
     private static com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint requirePublishedBlueprint(

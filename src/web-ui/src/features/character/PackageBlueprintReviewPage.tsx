@@ -7,11 +7,14 @@ import type {
   PlayPreparationView,
   RulebookBaseSchemaView,
   SetupApi,
+  AddActionDefinition,
+  StructuredActionEdit,
   StorybookProposalView,
   StructuredSpellDefinitionView,
 } from '../rulebooks/SetupApi'
 
 type PackageSetupApi = {
+  createPlayPreparation?: SetupApi['createPlayPreparation']
   getPlayPreparation: NonNullable<SetupApi['getPlayPreparation']>
   generateBlueprintDraft?: SetupApi['generateBlueprintDraft']
   useStorybookProposal?: SetupApi['useStorybookProposal']
@@ -19,6 +22,8 @@ type PackageSetupApi = {
   publishBlueprint?: SetupApi['publishBlueprint']
   editSpellDefinition?: SetupApi['editSpellDefinition']
   approveSpellDefinition?: SetupApi['approveSpellDefinition']
+  addActionDefinition?: SetupApi['addActionDefinition']
+  removeUserAddedActionDefinition?: SetupApi['removeUserAddedActionDefinition']
 }
 
 type CatalogRulebook = {
@@ -55,7 +60,10 @@ export function PackageBlueprintReviewPage({
   const [confirmationResult, setConfirmationResult] = useState<BlueprintPublicationView | null>(null)
   const [retrySession, setRetrySession] = useState(false)
   const [spellEdits, setSpellEdits] = useState<Record<string, string>>({})
+  const [requiredSpellEdits, setRequiredSpellEdits] = useState<Record<string, boolean>>({})
+  const [actionEdits, setActionEdits] = useState<Record<string, StructuredActionEdit>>({})
   const [pendingSpellId, setPendingSpellId] = useState<string | null>(null)
+  const [newAction, setNewAction] = useState({ name: '', sourceDocumentId: '', sourceLocator: '', actionKind: 'RANGED_ATTACK' as const, rangeFeet: '', targetMode: 'SINGLE_TARGET' as const })
   const selectedPartySize = preparation
     ? preparation.characterLimit.exactPartySize
       ? preparation.characterLimit.maximumCharacters
@@ -66,7 +74,16 @@ export function PackageBlueprintReviewPage({
     let active = true
     setPreparation(null)
     setLoadError(null)
-    void setupApi.getPlayPreparation(packageId)
+    const requestStorageKey = `play-preparation-request:${packageId}`
+    let requestKey = window.localStorage.getItem(requestStorageKey)
+    if (!requestKey) {
+      requestKey = crypto.randomUUID()
+      window.localStorage.setItem(requestStorageKey, requestKey)
+    }
+    const loading = setupApi.createPlayPreparation
+      ? setupApi.createPlayPreparation(packageId, requestKey)
+      : setupApi.getPlayPreparation(packageId)
+    void loading
       .then(next => { if (active) setPreparation(next) })
       .catch(error => {
         if (!active) return
@@ -160,6 +177,12 @@ export function PackageBlueprintReviewPage({
 
   async function createSession() {
     if (!blueprint.available || blueprint.status !== 'PUBLISHED' || blueprint.revision == null) return
+    const unsupportedRequired = (preparation?.spellDefinitions ?? []).filter(spell => spell.active !== false && spell.required
+      && (!rangeProfileSupported(spell.rangeProfile) || !targetingProfileSupported(spell.targetingProfile) || !spell.executable)).length
+    if (unsupportedRequired > 0) {
+      setMessage('필수 행동 정의의 사거리나 대상 방식이 아직 지원되지 않아 모험을 시작할 수 없습니다.')
+      return
+    }
     if ((preparation?.spellDefinitions ?? []).some(spell => spell.reviewStatus !== 'APPROVED')) {
       setMessage('주문 정의를 검토하고 승인한 뒤 모험을 시작할 수 있습니다.')
       return
@@ -172,7 +195,9 @@ export function PackageBlueprintReviewPage({
         blueprintId: packageId,
         blueprintRevision: blueprint.revision,
         partySize: selectedPartySize,
+        preparationId: preparation?.preparationId ?? undefined,
       })
+      window.localStorage.removeItem(`play-preparation-request:${packageId}`)
       onSessionCreated(session.sessionId)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '세션 초안을 생성하지 못했습니다.')
@@ -200,6 +225,8 @@ export function PackageBlueprintReviewPage({
   }
 
   const spellDefinitions = preparation.spellDefinitions ?? []
+  const unsupportedRequired = spellDefinitions.some(spell => spell.active !== false && spell.required
+    && (!rangeProfileSupported(spell.rangeProfile) || !targetingProfileSupported(spell.targetingProfile) || !spell.executable))
   const sourceSpells = new Map((preparation.sourceSpellDefinitions ?? []).map(spell => [spell.id, spell]))
   const spellFields = [
     ['level', '등급'], ['castingTime', '시전 시간'], ['rangeArea', '사거리·범위'], ['components', '구성 요소'],
@@ -211,9 +238,12 @@ export function PackageBlueprintReviewPage({
     setPendingSpellId(spell.id)
     try {
       const next = approve
-        ? await setupApi.approveSpellDefinition?.(packageId, spell.id, preparation.spellDefinitionRevision)
-        : await setupApi.editSpellDefinition?.(packageId, spell.id, preparation.spellDefinitionRevision,
-            Object.fromEntries(spellFields.map(([key]) => [key, spellEdits[`${spell.id}.${key}`] ?? spell[key]])) as Pick<StructuredSpellDefinitionView, typeof spellFields[number][0]>)
+        ? await setupApi.approveSpellDefinition?.(preparation.preparationId ?? packageId, spell.id, preparation.spellDefinitionRevision)
+        : await setupApi.editSpellDefinition?.(preparation.preparationId ?? packageId, spell.id, preparation.spellDefinitionRevision,
+            { ...Object.fromEntries(spellFields.map(([key]) => [key, spellEdits[`${spell.id}.${key}`] ?? spell[key]])),
+              required: requiredSpellEdits[spell.id] ?? spell.required ?? false,
+              actionKind: actionEdits[spell.id]?.actionKind ?? spell.actionKind ?? 'SPELL',
+              ...actionEdits[spell.id] } as StructuredActionEdit)
       if (next) {
         setPreparation(next)
         setSpellEdits({})
@@ -225,6 +255,61 @@ export function PackageBlueprintReviewPage({
     } finally {
       setPendingSpellId(null)
     }
+  }
+
+  async function addAction() {
+    if (!preparation || !setupApi.addActionDefinition || preparation.spellDefinitionRevision == null) return
+    const rangeFeet = Number(newAction.rangeFeet)
+    if (!newAction.name.trim() || !newAction.sourceDocumentId || !newAction.sourceLocator.trim() || !Number.isFinite(rangeFeet) || rangeFeet <= 0) {
+      setMessage('이름, 이 모험의 출처, 출처 위치와 양수 사거리를 입력하세요.')
+      return
+    }
+    const definition: AddActionDefinition = {
+      expectedRevision: preparation.spellDefinitionRevision,
+      name: newAction.name.trim(), sourceDocumentId: newAction.sourceDocumentId,
+      sourceLocator: newAction.sourceLocator.trim(), actionKind: newAction.actionKind,
+      rangeArea: `${rangeFeet} ft.`, rangeProfile: { form: 'SINGLE', normalRangeFeet: rangeFeet, longRangeFeet: null },
+      targetingProfile: { mode: newAction.targetMode, origin: 'ACTOR_TOKEN', shape: 'NONE', lengthFeet: null,
+        widthFeet: null, heightFeet: null, radiusFeet: null, pathBlocking: 'UNSUPPORTED', propagation: 'DIRECT' },
+      required: false,
+    }
+    setPendingSpellId('new-action')
+    try {
+      const next = await setupApi.addActionDefinition(preparation.preparationId ?? '', definition)
+      setPreparation(next)
+      setNewAction({ name: '', sourceDocumentId: '', sourceLocator: '', actionKind: 'RANGED_ATTACK', rangeFeet: '', targetMode: 'SINGLE_TARGET' })
+      setMessage('출처가 연결된 행동 정의를 추가했습니다. 지원 여부와 내용을 검토한 뒤 승인하세요.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '행동 정의를 추가하지 못했습니다.')
+    } finally { setPendingSpellId(null) }
+  }
+
+  async function removeAddedAction(spell: StructuredSpellDefinitionView) {
+    if (!preparation || !setupApi.removeUserAddedActionDefinition || preparation.spellDefinitionRevision == null) return
+    setPendingSpellId(spell.id)
+    try {
+      setPreparation(await setupApi.removeUserAddedActionDefinition(preparation.preparationId ?? '', spell.id, preparation.spellDefinitionRevision))
+      setMessage('추가한 행동 정의를 삭제했습니다.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '행동 정의를 삭제하지 못했습니다.')
+    } finally { setPendingSpellId(null) }
+  }
+
+  function updateRange(spell: StructuredSpellDefinitionView, patch: Partial<NonNullable<StructuredSpellDefinitionView['rangeProfile']>>) {
+    const current = actionEdits[spell.id]?.rangeProfile ?? spell.rangeProfile ?? {
+      form: 'UNSUPPORTED' as const, normalRangeFeet: null, longRangeFeet: null,
+    }
+    setActionEdits(values => ({ ...values, [spell.id]: { ...values[spell.id], rangeProfile: { ...current, ...patch } } }))
+  }
+
+  function updateTargeting(spell: StructuredSpellDefinitionView,
+    patch: Partial<NonNullable<StructuredSpellDefinitionView['targetingProfile']>>) {
+    const current = actionEdits[spell.id]?.targetingProfile ?? spell.targetingProfile ?? {
+      mode: 'UNSUPPORTED' as const, origin: 'UNSUPPORTED' as const, shape: 'UNSUPPORTED' as const,
+      lengthFeet: null, widthFeet: null, heightFeet: null, radiusFeet: null,
+      pathBlocking: 'UNSUPPORTED' as const, propagation: 'UNSUPPORTED' as const,
+    }
+    setActionEdits(values => ({ ...values, [spell.id]: { ...values[spell.id], targetingProfile: { ...current, ...patch } } }))
   }
 
   return (
@@ -257,6 +342,9 @@ export function PackageBlueprintReviewPage({
                 <span> · 실행 담당 계획: {spell.ownerPlanNumbers.map(number => `#${number}`).join(', ')}</span>
                 <span> · 담당 근거: {spell.ownerEvidence}</span>
                 <span> · {spell.executable ? '실행 확인됨' : '실행 미지원'} · {spell.reviewStatus === 'PENDING' ? '검토 대기' : '검토 완료'}</span>
+                {(!rangeProfileSupported(spell.rangeProfile) || !targetingProfileSupported(spell.targetingProfile)) && (
+                  <span> · 사거리 또는 대상 방식 지원 미확인{spell.required ? ' · 필수 정의라면 시작이 차단됩니다' : ' · 선택 정의라 시작을 막지 않습니다'}</span>
+                )}
                 {sourceSpells.has(spell.id) && spellFields.some(([key]) => spell[key] !== sourceSpells.get(spell.id)![key]) && (
                   <details><summary>원문과 수정 내용 비교</summary>
                     {spellFields.filter(([key]) => spell[key] !== sourceSpells.get(spell.id)![key]).map(([key, label]) => (
@@ -267,16 +355,98 @@ export function PackageBlueprintReviewPage({
                 <details><summary>정의 검토·수정</summary>
                   {spellFields.map(([key, label]) => (
                     <label key={key}>{label}
-                      <input aria-label={`${spell.name} ${label}`} value={spellEdits[`${spell.id}.${key}`] ?? spell[key]}
+                      <input aria-label={`${spell.name} ${label}`} value={spellEdits[`${spell.id}.${key}`] ?? spell[key] ?? ''}
                         onChange={event => setSpellEdits(values => ({ ...values, [`${spell.id}.${key}`]: event.target.value }))} />
                     </label>
                   ))}
+                  <label>필수 정의
+                    <input aria-label={`${spell.name} 필수 정의`} type="checkbox"
+                      checked={requiredSpellEdits[spell.id] ?? spell.required ?? false}
+                      onChange={event => setRequiredSpellEdits(values => ({ ...values, [spell.id]: event.target.checked }))} />
+                  </label>
+                  <label>{'행동 종류'}
+                    <select aria-label={`${spell.name} 행동 종류`} value={actionEdits[spell.id]?.actionKind ?? spell.actionKind ?? 'SPELL'}
+                      onChange={event => setActionEdits(values => ({ ...values, [spell.id]: { ...values[spell.id], actionKind: event.target.value as StructuredSpellDefinitionView['actionKind'] } }))}>
+                      <option value="SPELL">주문</option><option value="RANGED_ATTACK">원거리 공격</option><option value="THROWN">투척</option>
+                    </select>
+                  </label>
+                  <label>활성 정의
+                    <input aria-label={`${spell.name} 활성 정의`} type="checkbox"
+                      checked={actionEdits[spell.id]?.active ?? spell.active ?? true}
+                      onChange={event => setActionEdits(values => ({ ...values, [spell.id]: { ...values[spell.id], active: event.target.checked } }))} />
+                  </label>
+                  <label>사거리 형식
+                    <select aria-label={`${spell.name} 사거리 형식`} value={actionEdits[spell.id]?.rangeProfile?.form ?? spell.rangeProfile?.form ?? 'UNSUPPORTED'}
+                      onChange={event => {
+                        const form = event.target.value as NonNullable<StructuredSpellDefinitionView['rangeProfile']>['form']
+                        updateRange(spell, { form, longRangeFeet: form === 'SINGLE' ? null
+                          : actionEdits[spell.id]?.rangeProfile?.longRangeFeet ?? spell.rangeProfile?.longRangeFeet ?? null })
+                      }}>
+                      <option value="SINGLE">하나의 사거리</option><option value="NORMAL_AND_LONG">일반·긴 사거리</option><option value="UNSUPPORTED">지원 미확인</option>
+                    </select>
+                  </label>
+                  <label>일반 사거리(피트)
+                    <input aria-label={`${spell.name} 일반 사거리(피트)`} type="number" min="0"
+                      value={actionEdits[spell.id]?.rangeProfile?.normalRangeFeet ?? spell.rangeProfile?.normalRangeFeet ?? ''}
+                      onChange={event => updateRange(spell, { normalRangeFeet: event.target.value === '' ? null : Number(event.target.value) })} />
+                  </label>
+                  <label>긴 사거리(피트)
+                    <input aria-label={`${spell.name} 긴 사거리(피트)`} type="number" min="0"
+                      value={actionEdits[spell.id]?.rangeProfile?.longRangeFeet ?? spell.rangeProfile?.longRangeFeet ?? ''}
+                      onChange={event => updateRange(spell, { longRangeFeet: event.target.value === '' ? null : Number(event.target.value) })} />
+                  </label>
+                  <label>대상 선택
+                    <select aria-label={`${spell.name} 대상 선택`} value={actionEdits[spell.id]?.targetingProfile?.mode ?? spell.targetingProfile?.mode ?? 'UNSUPPORTED'}
+                      onChange={event => setActionEdits(values => ({ ...values, [spell.id]: { ...values[spell.id], targetingProfile: {
+                        ...(values[spell.id]?.targetingProfile ?? spell.targetingProfile ?? { origin: 'UNSUPPORTED', shape: 'UNSUPPORTED', lengthFeet: null, widthFeet: null, heightFeet: null, radiusFeet: null, pathBlocking: 'UNSUPPORTED', propagation: 'UNSUPPORTED' }),
+                        mode: event.target.value as NonNullable<StructuredSpellDefinitionView['targetingProfile']>['mode'],
+                      } } }))}>
+                      <option value="SINGLE_TARGET">단일 대상</option><option value="MULTIPLE_TARGETS">여러 대상</option><option value="POINT">지점</option><option value="DIRECTION">방향</option><option value="SELF">자기 자신</option><option value="UNSUPPORTED">지원 미확인</option>
+                    </select>
+                  </label>
+                  <label>효과 모양
+                    <select aria-label={`${spell.name} 효과 모양`} value={actionEdits[spell.id]?.targetingProfile?.shape ?? spell.targetingProfile?.shape ?? 'UNSUPPORTED'}
+                      onChange={event => setActionEdits(values => ({ ...values, [spell.id]: { ...values[spell.id], targetingProfile: {
+                        ...(values[spell.id]?.targetingProfile ?? spell.targetingProfile ?? { mode: 'UNSUPPORTED', origin: 'UNSUPPORTED', lengthFeet: null, widthFeet: null, heightFeet: null, radiusFeet: null, pathBlocking: 'UNSUPPORTED', propagation: 'UNSUPPORTED' }),
+                        shape: event.target.value as NonNullable<StructuredSpellDefinitionView['targetingProfile']>['shape'],
+                      } } }))}>
+                      {['NONE', 'CONE', 'LINE', 'CUBE', 'SPHERE', 'CYLINDER', 'WALL', 'UNSUPPORTED'].map(shape => <option key={shape} value={shape}>{shape}</option>)}
+                    </select>
+                  </label>
+                  <label>효과 시작 위치
+                    <select aria-label={`${spell.name} 효과 시작 위치`} value={actionEdits[spell.id]?.targetingProfile?.origin ?? spell.targetingProfile?.origin ?? 'UNSUPPORTED'}
+                      onChange={event => updateTargeting(spell, { origin: event.target.value as NonNullable<StructuredSpellDefinitionView['targetingProfile']>['origin'] })}>
+                      <option value="ACTOR_TOKEN">행동자 말판</option><option value="TARGET">대상</option><option value="CURSOR_POINT">지정 지점</option><option value="CURSOR_DIRECTION">지정 방향</option><option value="UNSUPPORTED">지원 미확인</option>
+                    </select>
+                  </label>
+                  {(['lengthFeet', 'widthFeet', 'heightFeet', 'radiusFeet'] as const).map((dimension) => (
+                    <label key={dimension}>{({ lengthFeet: '길이', widthFeet: '너비', heightFeet: '높이', radiusFeet: '반지름' })[dimension]}(피트)
+                      <input aria-label={`${spell.name} ${{ lengthFeet: '길이', widthFeet: '너비', heightFeet: '높이', radiusFeet: '반지름' }[dimension]}(피트)`}
+                        type="number" min="0"
+                        value={actionEdits[spell.id]?.targetingProfile?.[dimension] ?? spell.targetingProfile?.[dimension] ?? ''}
+                        onChange={event => updateTargeting(spell, { [dimension]: event.target.value === '' ? null : Number(event.target.value) })} />
+                    </label>
+                  ))}
+                  <label>경로 차단 규칙
+                    <select aria-label={`${spell.name} 경로 차단 규칙`} value={actionEdits[spell.id]?.targetingProfile?.pathBlocking ?? spell.targetingProfile?.pathBlocking ?? 'UNSUPPORTED'}
+                      onChange={event => updateTargeting(spell, { pathBlocking: event.target.value as NonNullable<StructuredSpellDefinitionView['targetingProfile']>['pathBlocking'] })}>
+                      <option value="SOLID_BLOCKS">단단한 장애물이 차단</option><option value="CLEAR_PATH_REQUIRED">대상까지 분명한 경로 필요</option><option value="NONE">경로 차단 규칙 없음</option><option value="UNSUPPORTED">지원 미확인</option>
+                    </select>
+                  </label>
+                  <label>효과 전달 규칙
+                    <select aria-label={`${spell.name} 효과 전달 규칙`} value={actionEdits[spell.id]?.targetingProfile?.propagation ?? spell.targetingProfile?.propagation ?? 'UNSUPPORTED'}
+                      onChange={event => updateTargeting(spell, { propagation: event.target.value as NonNullable<StructuredSpellDefinitionView['targetingProfile']>['propagation'] })}>
+                      <option value="DIRECT">직접 대상에게 전달</option><option value="AREA_FROM_POINT">지정 지점에서 영역 발생</option><option value="CONTIGUOUS">인접한 공간으로 이어짐</option><option value="NONE">효과 전달 없음</option><option value="UNSUPPORTED">지원 미확인</option>
+                    </select>
+                  </label>
                   <button type="button" onClick={() => void saveSpell(spell, false)} disabled={!setupApi.editSpellDefinition || pendingSpellId === spell.id}>
                     수정 저장
                   </button>
                   <button type="button" onClick={() => void saveSpell(spell, true)} disabled={!setupApi.approveSpellDefinition || spell.reviewStatus === 'APPROVED' || pendingSpellId === spell.id}>
                     {spell.reviewStatus === 'APPROVED' ? '승인됨' : '이 정의 승인'}
                   </button>
+                  {spell.id.startsWith('user-action-') && <button type="button" onClick={() => void removeAddedAction(spell)}
+                    disabled={!setupApi.removeUserAddedActionDefinition || pendingSpellId === spell.id}>추가한 정의 삭제</button>}
                   {(preparation.spellDefinitionHistory ?? []).filter(change => change.definitionId === spell.id).map(change => (
                     <details key={change.revision}><summary>변경 이력 {change.revision}</summary>
                       {spellFields.filter(([key]) => change.previous[key] !== change.current[key]).map(([key, label]) => (
@@ -288,6 +458,19 @@ export function PackageBlueprintReviewPage({
               </li>
             ))}
           </ol>
+        </details>
+        <details>
+          <summary>출처를 확인한 행동 정의 추가</summary>
+          <label>행동 이름<input aria-label="새 행동 이름" value={newAction.name} onChange={event => setNewAction(value => ({ ...value, name: event.target.value }))} /></label>
+          <label>출처 문서<select aria-label="새 행동 출처 문서" value={newAction.sourceDocumentId} onChange={event => setNewAction(value => ({ ...value, sourceDocumentId: event.target.value }))}>
+            <option value="">출처 선택</option>{(preparation.packageSources ?? []).map(source => <option key={source.documentId} value={source.documentId}>{source.originalFilename}</option>)}
+          </select></label>
+          <label>출처 위치<input aria-label="새 행동 출처 위치" value={newAction.sourceLocator} onChange={event => setNewAction(value => ({ ...value, sourceLocator: event.target.value }))} /></label>
+          <label>행동 종류<select aria-label="새 행동 종류" value={newAction.actionKind} onChange={event => setNewAction(value => ({ ...value, actionKind: event.target.value as typeof value.actionKind }))}>
+            <option value="RANGED_ATTACK">원거리 공격</option><option value="THROWN">투척</option>
+          </select></label>
+          <label>사거리(피트)<input aria-label="새 행동 사거리(피트)" type="number" min="1" value={newAction.rangeFeet} onChange={event => setNewAction(value => ({ ...value, rangeFeet: event.target.value }))} /></label>
+          <button type="button" onClick={() => void addAction()} disabled={!setupApi.addActionDefinition || pendingSpellId === 'new-action'}>행동 정의 추가</button>
         </details>
       </section>
       {setupApi.generateBlueprintDraft && catalogRulebooks.length > 0 && (
@@ -369,7 +552,7 @@ export function PackageBlueprintReviewPage({
               <p>{preparation.characterLimit.exactPartySize
                 ? `룰북의 인원 조건에 따라 ${preparation.characterLimit.maximumCharacters}명으로 고정됩니다.`
                 : `룰북이 고정 인원을 요구하지 않아 1~${preparation.characterLimit.maximumCharacters}명 중 선택할 수 있습니다.`}</p>
-              <button type="button" onClick={() => void createSession()} disabled={creatingSession || spellDefinitions.some(spell => spell.reviewStatus !== 'APPROVED')}>
+                  <button type="button" onClick={() => void createSession()} disabled={creatingSession || unsupportedRequired || spellDefinitions.some(spell => spell.active !== false && spell.reviewStatus !== 'APPROVED')}>
                 {creatingSession ? '캐릭터 생성 준비 중…' : '캐릭터 생성 시작'}
               </button>
               {retrySession && <button type="button" onClick={() => void createSession()} disabled={creatingSession}>다시 시도</button>}
@@ -732,6 +915,26 @@ function inputModeLabel(inputMode: string | undefined) {
 }
 
 type SchemaField = RulebookBaseSchemaView['fields'][number]
+
+function rangeProfileSupported(profile: StructuredSpellDefinitionView['rangeProfile']) {
+  if (!profile) return false
+  if (profile.form === 'SINGLE') return (profile.normalRangeFeet ?? 0) > 0 && profile.longRangeFeet == null
+  if (profile.form === 'NORMAL_AND_LONG') return (profile.normalRangeFeet ?? 0) > 0
+    && (profile.longRangeFeet ?? 0) > (profile.normalRangeFeet ?? 0)
+  return false
+}
+
+function targetingProfileSupported(profile: StructuredSpellDefinitionView['targetingProfile']) {
+  if (!profile || [profile.mode, profile.origin, profile.shape, profile.pathBlocking, profile.propagation].includes('UNSUPPORTED')) return false
+  const positive = (value: number | null) => value != null && value > 0
+  if (profile.shape === 'NONE') return true
+  if (profile.shape === 'CONE' || profile.shape === 'CUBE') return positive(profile.lengthFeet)
+  if (profile.shape === 'LINE') return positive(profile.lengthFeet) && positive(profile.widthFeet)
+  if (profile.shape === 'SPHERE') return positive(profile.radiusFeet)
+  if (profile.shape === 'CYLINDER') return positive(profile.radiusFeet) && positive(profile.heightFeet)
+  if (profile.shape === 'WALL') return positive(profile.lengthFeet) && positive(profile.widthFeet) && positive(profile.heightFeet)
+  return false
+}
 
 function fieldDescription(field: SchemaField) {
   if (field.key === 'equipment') return '클래스·배경 장비 또는 시작 골드를 선택하고 결과를 확인하는 항목'

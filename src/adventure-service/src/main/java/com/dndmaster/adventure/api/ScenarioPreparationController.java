@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestHeader;
 
 @RestController
 @RequestMapping("/api/v1")
@@ -30,18 +31,42 @@ public class ScenarioPreparationController {
         return service.read(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
     }
 
+    @PostMapping("/scenario-packages/{scenarioPackageId}/play-preparations")
+    PlayPreparationView createPlayPreparation(@PathVariable UUID scenarioPackageId,
+            @RequestHeader("Idempotency-Key") String requestKey) {
+        return service.createPlayPreparation(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()), requestKey);
+    }
+
+    @GetMapping("/play-preparations/{preparationId}")
+    PlayPreparationView readPlayPreparationById(@PathVariable UUID preparationId) {
+        return service.readPlayPreparation(preparationId, new OwnerPlayerId(playerResolver.playerId()));
+    }
+
     @org.springframework.web.bind.annotation.PutMapping(
-            "/scenario-packages/{scenarioPackageId}/play-preparation/spell-action-definitions/{definitionId}")
-    PlayPreparationView editSpellDefinition(@PathVariable UUID scenarioPackageId, @PathVariable String definitionId,
+            "/play-preparations/{preparationId}/spell-action-definitions/{definitionId}")
+    PlayPreparationView editSpellDefinition(@PathVariable UUID preparationId, @PathVariable String definitionId,
             @RequestBody com.dndmaster.adventure.application.scenario.preparation.SpellDefinitionEditRequest request) {
-        return service.editSpellDefinition(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()),
+        return service.editSpellDefinition(preparationId, new OwnerPlayerId(playerResolver.playerId()),
                 definitionId, request);
     }
 
-    @PostMapping("/scenario-packages/{scenarioPackageId}/play-preparation/spell-action-definitions/{definitionId}/approve")
-    PlayPreparationView approveSpellDefinition(@PathVariable UUID scenarioPackageId, @PathVariable String definitionId,
+    @PostMapping("/play-preparations/{preparationId}/spell-action-definitions")
+    PlayPreparationView addActionDefinition(@PathVariable UUID preparationId,
+            @RequestBody com.dndmaster.adventure.application.scenario.preparation.AddActionDefinitionRequest request) {
+        return service.addActionDefinition(preparationId, new OwnerPlayerId(playerResolver.playerId()), request);
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/play-preparations/{preparationId}/spell-action-definitions/{definitionId}")
+    PlayPreparationView removeUserAddedActionDefinition(@PathVariable UUID preparationId, @PathVariable String definitionId,
+            @org.springframework.web.bind.annotation.RequestParam long expectedRevision) {
+        return service.removeUserAddedActionDefinition(preparationId, new OwnerPlayerId(playerResolver.playerId()),
+                definitionId, expectedRevision);
+    }
+
+    @PostMapping("/play-preparations/{preparationId}/spell-action-definitions/{definitionId}/approve")
+    PlayPreparationView approveSpellDefinition(@PathVariable UUID preparationId, @PathVariable String definitionId,
             @RequestBody SpellDefinitionReviewRequest request) {
-        return service.approveSpellDefinition(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()),
+        return service.approveSpellDefinition(preparationId, new OwnerPlayerId(playerResolver.playerId()),
                 definitionId, request.expectedRevision());
     }
 
