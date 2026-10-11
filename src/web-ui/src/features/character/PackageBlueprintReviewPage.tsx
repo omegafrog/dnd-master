@@ -270,7 +270,8 @@ export function PackageBlueprintReviewPage({
       sourceLocator: newAction.sourceLocator.trim(), actionKind: newAction.actionKind,
       rangeArea: `${rangeFeet} ft.`, rangeProfile: { form: 'SINGLE', normalRangeFeet: rangeFeet, longRangeFeet: null },
       targetingProfile: { mode: newAction.targetMode, origin: 'ACTOR_TOKEN', shape: 'NONE', lengthFeet: null,
-        widthFeet: null, heightFeet: null, radiusFeet: null, pathBlocking: 'UNSUPPORTED', propagation: 'DIRECT' },
+        widthFeet: null, heightFeet: null, radiusFeet: null, verticalDirection: null,
+        pathBlocking: 'UNSUPPORTED', propagation: 'DIRECT' },
       required: false,
     }
     setPendingSpellId('new-action')
@@ -307,7 +308,7 @@ export function PackageBlueprintReviewPage({
     const current = actionEdits[spell.id]?.targetingProfile ?? spell.targetingProfile ?? {
       mode: 'UNSUPPORTED' as const, origin: 'UNSUPPORTED' as const, shape: 'UNSUPPORTED' as const,
       lengthFeet: null, widthFeet: null, heightFeet: null, radiusFeet: null,
-      pathBlocking: 'UNSUPPORTED' as const, propagation: 'UNSUPPORTED' as const,
+      verticalDirection: null, pathBlocking: 'UNSUPPORTED' as const, propagation: 'UNSUPPORTED' as const,
     }
     setActionEdits(values => ({ ...values, [spell.id]: { ...values[spell.id], targetingProfile: { ...current, ...patch } } }))
   }
@@ -427,6 +428,15 @@ export function PackageBlueprintReviewPage({
                         onChange={event => updateTargeting(spell, { [dimension]: event.target.value === '' ? null : Number(event.target.value) })} />
                     </label>
                   ))}
+                  {(actionEdits[spell.id]?.targetingProfile?.shape ?? spell.targetingProfile?.shape) === 'CYLINDER' && (
+                    <label>원기둥 높이 방향
+                      <select aria-label={`${spell.name} 원기둥 높이 방향`}
+                        value={actionEdits[spell.id]?.targetingProfile?.verticalDirection ?? spell.targetingProfile?.verticalDirection ?? 'UNSUPPORTED'}
+                        onChange={event => updateTargeting(spell, { verticalDirection: event.target.value as NonNullable<StructuredSpellDefinitionView['targetingProfile']>['verticalDirection'] })}>
+                        <option value="UP">밑면에서 위쪽으로</option><option value="DOWN">윗면에서 아래쪽으로</option><option value="UNSUPPORTED">지원 미확인</option>
+                      </select>
+                    </label>
+                  )}
                   <label>경로 차단 규칙
                     <select aria-label={`${spell.name} 경로 차단 규칙`} value={actionEdits[spell.id]?.targetingProfile?.pathBlocking ?? spell.targetingProfile?.pathBlocking ?? 'UNSUPPORTED'}
                       onChange={event => updateTargeting(spell, { pathBlocking: event.target.value as NonNullable<StructuredSpellDefinitionView['targetingProfile']>['pathBlocking'] })}>
@@ -932,6 +942,7 @@ function targetingProfileSupported(profile: StructuredSpellDefinitionView['targe
   if (profile.shape === 'LINE') return positive(profile.lengthFeet) && positive(profile.widthFeet)
   if (profile.shape === 'SPHERE') return positive(profile.radiusFeet)
   if (profile.shape === 'CYLINDER') return positive(profile.radiusFeet) && positive(profile.heightFeet)
+    && (profile.verticalDirection === 'UP' || profile.verticalDirection === 'DOWN')
   if (profile.shape === 'WALL') return positive(profile.lengthFeet) && positive(profile.widthFeet) && positive(profile.heightFeet)
   return false
 }

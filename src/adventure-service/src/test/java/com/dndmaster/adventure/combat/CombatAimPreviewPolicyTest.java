@@ -59,6 +59,75 @@ class CombatAimPreviewPolicyTest {
     }
 
     @Test
+    void sphere_uses_elevation_for_ground_and_public_token_inclusion() {
+        var profile = new StructuredSpellDefinition.TargetingProfile(StructuredSpellDefinition.TargetMode.POINT,
+                StructuredSpellDefinition.OriginMode.TARGET, StructuredSpellDefinition.EffectShape.SPHERE,
+                null, null, null, 15, StructuredSpellDefinition.PathBlockingRule.NONE,
+                StructuredSpellDefinition.PropagationRule.AREA_FROM_POINT);
+        var center = new CombatAimPreviewPolicy.Cell(2, 2);
+
+        assertTrue(CombatAimPreviewPolicy.containsEffectTarget(profile, center, 10, center, 0, 5),
+                "ground two grid cells below a 15-foot sphere center is included");
+        assertFalse(CombatAimPreviewPolicy.containsEffectTarget(profile, center, 10,
+                new CombatAimPreviewPolicy.Cell(6, 2), 0, 5));
+        assertTrue(CombatAimPreviewPolicy.containsEffectTarget(profile, center, 10, center, 15, 5),
+                "a public token three vertical grid cells from the center is included at the radius boundary");
+
+        var definition = definition(StructuredSpellDefinition.EffectShape.SPHERE,
+                StructuredSpellDefinition.PathBlockingRule.NONE,
+                StructuredSpellDefinition.PropagationRule.AREA_FROM_POINT, 30, null, null, 15);
+        var preview = CombatAimPreviewPolicy.preview(definition, new CombatAimPreviewPolicy.Cell(0, 0), 0,
+                center, 10, 5, 8, 8, List.of(), List.of(), List.of());
+        assertTrue(preview.effectCells().contains(center), "the preview overlay includes ground intersected by the sphere");
+
+        var elevatedCenter = CombatAimPreviewPolicy.preview(definition, new CombatAimPreviewPolicy.Cell(0, 0), 0,
+                center, 15, 5, 8, 8, List.of(), List.of(),
+                List.of(new CombatAimPreviewPolicy.ElevatedCell(center, 15)));
+        assertTrue(elevatedCenter.effectCells().contains(center),
+                "a currently public token at the sphere center is included even when ground is below the radius");
+    }
+
+    @Test
+    void cylinder_uses_explicit_vertical_direction_for_ground_and_public_tokens() {
+        var profile = new StructuredSpellDefinition.TargetingProfile(StructuredSpellDefinition.TargetMode.POINT,
+                StructuredSpellDefinition.OriginMode.TARGET, StructuredSpellDefinition.EffectShape.CYLINDER,
+                null, null, 10, 5, StructuredSpellDefinition.PathBlockingRule.NONE,
+                StructuredSpellDefinition.PropagationRule.AREA_FROM_POINT, StructuredSpellDefinition.VerticalDirection.UP);
+        var center = new CombatAimPreviewPolicy.Cell(2, 2);
+
+        assertTrue(CombatAimPreviewPolicy.containsEffectTarget(profile, center, 0, center, 0, 5));
+        assertTrue(CombatAimPreviewPolicy.containsEffectTarget(profile, center, 0, center, 10, 5));
+        assertFalse(CombatAimPreviewPolicy.containsEffectTarget(profile, center, 0, center, 15, 5),
+                "the cylinder ends at its saved height");
+        assertFalse(CombatAimPreviewPolicy.containsEffectTarget(profile, center, 10, center, 0, 5),
+                "the cylinder extends upward from its target elevation, not downward through ground");
+        assertFalse(CombatAimPreviewPolicy.containsEffectTarget(profile, center, 0,
+                new CombatAimPreviewPolicy.Cell(4, 2), 5, 5));
+
+        var downward = new StructuredSpellDefinition.TargetingProfile(StructuredSpellDefinition.TargetMode.POINT,
+                StructuredSpellDefinition.OriginMode.TARGET, StructuredSpellDefinition.EffectShape.CYLINDER,
+                null, null, 10, 5, StructuredSpellDefinition.PathBlockingRule.NONE,
+                StructuredSpellDefinition.PropagationRule.AREA_FROM_POINT, StructuredSpellDefinition.VerticalDirection.DOWN);
+        assertTrue(CombatAimPreviewPolicy.containsEffectTarget(downward, center, 10, center, 0, 5));
+        assertFalse(CombatAimPreviewPolicy.containsEffectTarget(downward, center, 10, center, 15, 5));
+
+        var cylinderDefinition = definition(StructuredSpellDefinition.EffectShape.CYLINDER,
+                StructuredSpellDefinition.PathBlockingRule.NONE, StructuredSpellDefinition.PropagationRule.AREA_FROM_POINT,
+                30, null, null, 5, 10);
+        var elevatedToken = CombatAimPreviewPolicy.preview(cylinderDefinition, new CombatAimPreviewPolicy.Cell(0, 0), 0,
+                center, 0, 5, 8, 8, List.of(), List.of(),
+                List.of(new CombatAimPreviewPolicy.ElevatedCell(center, 10)));
+        assertTrue(elevatedToken.effectCells().contains(center),
+                "the cylinder's saved height includes an elevated public token in its footprint");
+
+        var directionMissing = new StructuredSpellDefinition.TargetingProfile(StructuredSpellDefinition.TargetMode.POINT,
+                StructuredSpellDefinition.OriginMode.TARGET, StructuredSpellDefinition.EffectShape.CYLINDER,
+                null, null, 10, 5, StructuredSpellDefinition.PathBlockingRule.NONE,
+                StructuredSpellDefinition.PropagationRule.AREA_FROM_POINT);
+        assertFalse(directionMissing.supported(), "the cylinder must fail closed without a saved height direction");
+    }
+
+    @Test
     void boundary_blocking_uses_orientation_kind_and_open_state() {
         var definition = definition(StructuredSpellDefinition.EffectShape.NONE,
                 StructuredSpellDefinition.PathBlockingRule.SOLID_BLOCKS,
@@ -128,7 +197,8 @@ class CombatAimPreviewPolicyTest {
                         normalRange, normalRange * 2),
                 new StructuredSpellDefinition.TargetingProfile(StructuredSpellDefinition.TargetMode.POINT,
                         StructuredSpellDefinition.OriginMode.ACTOR_TOKEN, shape, length, width, height, radius,
-                        pathRule, propagation), true);
+                        pathRule, propagation, shape == StructuredSpellDefinition.EffectShape.CYLINDER
+                                ? StructuredSpellDefinition.VerticalDirection.UP : null), true);
     }
 
     private record ShapeCase(StructuredSpellDefinition.EffectShape shape, Integer length, Integer width,

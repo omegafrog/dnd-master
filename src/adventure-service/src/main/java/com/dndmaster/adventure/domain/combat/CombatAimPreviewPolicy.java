@@ -17,12 +17,19 @@ public final class CombatAimPreviewPolicy {
             Cell target, int targetElevationFeet, int feetPerCell, int gridWidth, int gridHeight,
             List<Cell> publicBlockers) {
         return preview(definition, origin, originElevationFeet, target, targetElevationFeet, feetPerCell,
-                gridWidth, gridHeight, publicBlockers, List.of());
+                gridWidth, gridHeight, publicBlockers, List.of(), List.of());
     }
 
     public static Preview preview(StructuredSpellDefinition definition, Cell origin, int originElevationFeet,
             Cell target, int targetElevationFeet, int feetPerCell, int gridWidth, int gridHeight,
             List<Cell> publicBlockers, List<Boundary> publicBoundaries) {
+        return preview(definition, origin, originElevationFeet, target, targetElevationFeet, feetPerCell,
+                gridWidth, gridHeight, publicBlockers, publicBoundaries, List.of());
+    }
+
+    public static Preview preview(StructuredSpellDefinition definition, Cell origin, int originElevationFeet,
+            Cell target, int targetElevationFeet, int feetPerCell, int gridWidth, int gridHeight,
+            List<Cell> publicBlockers, List<Boundary> publicBoundaries, List<ElevatedCell> publicTokens) {
         if (definition == null || !definition.active() || definition.reviewStatus() != StructuredSpellDefinition.ReviewStatus.APPROVED
                 || definition.rangeProfile() == null || !definition.rangeProfile().supported()
                 || definition.targetingProfile() == null || !definition.targetingProfile().supported()) {
@@ -46,7 +53,7 @@ public final class CombatAimPreviewPolicy {
         boolean clearPath = blockerIndex < 0;
         if (blockerIndex > 0) path = path.subList(0, blockerIndex);
         List<Cell> effect = effectCells(targeting, origin, target, feetPerCell, gridWidth, gridHeight, path,
-                publicBlockers, publicBoundaries);
+                publicBlockers, publicBoundaries, targetElevationFeet, publicTokens);
         if ((targeting.propagation() == StructuredSpellDefinition.PropagationRule.CONTIGUOUS
                 || targeting.propagation() == StructuredSpellDefinition.PropagationRule.DIRECT) && publicBlockers != null) {
             Cell propagationOrigin = targeting.origin() == StructuredSpellDefinition.OriginMode.ACTOR_TOKEN ? origin : target;
@@ -58,11 +65,11 @@ public final class CombatAimPreviewPolicy {
     }
 
     private static List<Cell> effectCells(StructuredSpellDefinition.TargetingProfile profile, Cell origin, Cell target,
-            int feetPerCell, int width, int height, List<Cell> path, List<Cell> blockers, List<Boundary> boundaries) {
+            int feetPerCell, int width, int height, List<Cell> path, List<Cell> blockers, List<Boundary> boundaries,
+            int targetElevationFeet, List<ElevatedCell> publicTokens) {
         if (profile.shape() == StructuredSpellDefinition.EffectShape.NONE
                 || profile.propagation() == StructuredSpellDefinition.PropagationRule.NONE) return List.of();
         int length = value(profile.lengthFeet(), 0) / feetPerCell;
-        int radius = value(profile.radiusFeet(), 0) / feetPerCell;
         int halfWidth = Math.max(0, value(profile.widthFeet(),
                 profile.shape() == StructuredSpellDefinition.EffectShape.CUBE ? profile.lengthFeet() : feetPerCell) / feetPerCell / 2);
         Cell shapeOrigin = profile.origin() == StructuredSpellDefinition.OriginMode.ACTOR_TOKEN ? origin : target;
@@ -73,7 +80,10 @@ public final class CombatAimPreviewPolicy {
             Cell cell = new Cell(x, y);
             double px = x - shapeOrigin.x(), py = y - shapeOrigin.y();
             boolean included = switch (profile.shape()) {
-                case SPHERE, CYLINDER -> cellsBetween(target, cell) <= radius;
+                case SPHERE, CYLINDER -> containsEffectTarget(profile, target, targetElevationFeet, cell, 0, feetPerCell)
+                        || publicTokens != null && publicTokens.stream().filter(token -> token.cell().equals(cell))
+                                .anyMatch(token -> containsEffectTarget(profile, target, targetElevationFeet,
+                                        cell, token.elevationFeet(), feetPerCell));
                 case CUBE -> profile.origin() == StructuredSpellDefinition.OriginMode.CURSOR_POINT
                         ? Math.abs(px) <= halfWidth && Math.abs(py) <= halfWidth
                         : projection(px, py, dx, dy, magnitude) >= 0
@@ -114,6 +124,26 @@ public final class CombatAimPreviewPolicy {
         return Math.max(horizontal, vertical);
     }
 
+    /** Tests a candidate map cell or public token against the saved 3D area dimensions. */
+    public static boolean containsEffectTarget(StructuredSpellDefinition.TargetingProfile profile,
+            Cell center, int centerElevationFeet, Cell candidate, int candidateElevationFeet, int feetPerCell) {
+        if (profile == null || center == null || candidate == null || feetPerCell <= 0
+                || centerElevationFeet < 0 || candidateElevationFeet < 0) return false;
+        int radiusCells = value(profile.radiusFeet(), 0) / feetPerCell;
+        return switch (profile.shape()) {
+            case SPHERE -> gridCellsBetween(center, centerElevationFeet, candidate, candidateElevationFeet, feetPerCell)
+                    <= radiusCells;
+            case CYLINDER -> profile.verticalDirection() != null
+                    && profile.verticalDirection() != StructuredSpellDefinition.VerticalDirection.UNSUPPORTED
+                    && (profile.verticalDirection() == StructuredSpellDefinition.VerticalDirection.UP
+                            ? candidateElevationFeet >= centerElevationFeet : candidateElevationFeet <= centerElevationFeet)
+                    && cellsBetween(center, candidate) <= radiusCells
+                    && gridCellsBetween(center, centerElevationFeet, candidate, candidateElevationFeet, feetPerCell)
+                            * feetPerCell <= value(profile.heightFeet(), 0);
+            default -> false;
+        };
+    }
+
     private static List<Cell> line(Cell from, Cell to) {
         List<Cell> cells = new ArrayList<>();
         int x = from.x(), y = from.y();
@@ -130,6 +160,7 @@ public final class CombatAimPreviewPolicy {
     }
 
     public record Cell(int x, int y) { }
+    public record ElevatedCell(Cell cell, int elevationFeet) { }
     public record Boundary(int x, int y, String orientation, String kind, boolean open) {
         boolean blocks(Cell from, Cell to) {
             if ("DOOR".equals(kind) && open) return false;

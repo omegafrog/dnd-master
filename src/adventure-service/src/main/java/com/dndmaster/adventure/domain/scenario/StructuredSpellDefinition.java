@@ -122,6 +122,7 @@ public record StructuredSpellDefinition(
     public enum TargetMode { SINGLE_TARGET, MULTIPLE_TARGETS, POINT, DIRECTION, SELF, UNSUPPORTED }
     public enum OriginMode { ACTOR_TOKEN, TARGET, CURSOR_POINT, CURSOR_DIRECTION, UNSUPPORTED }
     public enum EffectShape { NONE, CONE, LINE, CUBE, SPHERE, CYLINDER, WALL, UNSUPPORTED }
+    public enum VerticalDirection { UP, DOWN, UNSUPPORTED }
     public enum PathBlockingRule { SOLID_BLOCKS, CLEAR_PATH_REQUIRED, NONE, UNSUPPORTED }
     public enum PropagationRule { DIRECT, AREA_FROM_POINT, CONTIGUOUS, NONE, UNSUPPORTED }
     public record RangeProfile(RangeForm form, Integer normalRangeFeet, Integer longRangeFeet) {
@@ -144,7 +145,12 @@ public record StructuredSpellDefinition(
     }
     public record TargetingProfile(TargetMode mode, OriginMode origin, EffectShape shape,
             Integer lengthFeet, Integer widthFeet, Integer heightFeet, Integer radiusFeet,
-            PathBlockingRule pathBlocking, PropagationRule propagation) {
+            PathBlockingRule pathBlocking, PropagationRule propagation, VerticalDirection verticalDirection) {
+        public TargetingProfile(TargetMode mode, OriginMode origin, EffectShape shape, Integer lengthFeet,
+                Integer widthFeet, Integer heightFeet, Integer radiusFeet, PathBlockingRule pathBlocking,
+                PropagationRule propagation) {
+            this(mode, origin, shape, lengthFeet, widthFeet, heightFeet, radiusFeet, pathBlocking, propagation, null);
+        }
         public TargetingProfile {
             mode = Objects.requireNonNull(mode);
             origin = Objects.requireNonNull(origin);
@@ -157,13 +163,15 @@ public record StructuredSpellDefinition(
         }
         public boolean supported() {
             if (mode == TargetMode.UNSUPPORTED || origin == OriginMode.UNSUPPORTED || shape == EffectShape.UNSUPPORTED
-                    || pathBlocking == PathBlockingRule.UNSUPPORTED || propagation == PropagationRule.UNSUPPORTED) return false;
+                    || pathBlocking == PathBlockingRule.UNSUPPORTED || propagation == PropagationRule.UNSUPPORTED
+                    || shape == EffectShape.CYLINDER && verticalDirection == VerticalDirection.UNSUPPORTED) return false;
             return switch (shape) {
                 case NONE -> true;
                 case CONE, CUBE -> positive(lengthFeet);
                 case LINE -> positive(lengthFeet) && positive(widthFeet);
                 case SPHERE -> positive(radiusFeet);
-                case CYLINDER -> positive(radiusFeet) && positive(heightFeet);
+                case CYLINDER -> positive(radiusFeet) && positive(heightFeet)
+                        && verticalDirection != null;
                 case WALL -> positive(lengthFeet) && positive(widthFeet) && positive(heightFeet);
                 case UNSUPPORTED -> false;
             };

@@ -89,7 +89,10 @@ public final class CombatAimPreviewController {
             var preview = CombatAimPreviewPolicy.preview(definition,
                     new CombatAimPreviewPolicy.Cell(actor.x(), actor.y()), actor.elevationFeet(), target,
                     targetElevationFeet, view.grid().distanceUnit(),
-                    view.grid().width(), view.grid().height(), blockers, publicBoundaries(view));
+                    view.grid().width(), view.grid().height(), blockers, publicBoundaries(view),
+                    view.tokens().stream().filter(token -> currentlyVisible(view, new CombatAimPreviewPolicy.Cell(token.x(), token.y())))
+                            .map(token -> new CombatAimPreviewPolicy.ElevatedCell(
+                                    new CombatAimPreviewPolicy.Cell(token.x(), token.y()), token.elevationFeet())).toList());
             List<CombatAimPreviewPolicy.Cell> publicPath = preview.path().stream().filter(cell -> visible(view, cell)).toList();
             List<CombatAimPreviewPolicy.Cell> publicEffect = preview.effectCells().stream().filter(cell -> visible(view, cell)).toList();
             boolean pathPublic = publicPath.size() == preview.path().size();
@@ -108,6 +111,8 @@ public final class CombatAimPreviewController {
         } catch (RuntimeException | Error failure) {
             DevelopmentDiagnostics.fail(LOGGER, "combat_action_aim_preview",
                     "adventureId=" + adventureId + " definitionId=" + safeId(request.definitionId())
+                            + " expectedEncounterVersion=" + request.expectedEncounterVersion()
+                            + " expectedMapVersion=" + request.expectedMapVersion()
                             + " target=" + request.targetX() + "," + request.targetY(), startedAt, failure);
             throw failure;
         }
@@ -129,6 +134,11 @@ public final class CombatAimPreviewController {
         if (target.x() < 0 || target.y() < 0 || target.x() >= view.grid().width() || target.y() >= view.grid().height()) return false;
         return view.current() != null && view.current().stream().anyMatch(cell -> cell.x() == target.x() && cell.y() == target.y())
                 || view.explored() != null && view.explored().stream().anyMatch(cell -> cell.x() == target.x() && cell.y() == target.y());
+    }
+
+    private static boolean currentlyVisible(CombatMapViewPort.View view, CombatAimPreviewPolicy.Cell target) {
+        return view.current() != null && view.current().stream()
+                .anyMatch(cell -> cell.x() == target.x() && cell.y() == target.y());
     }
 
     private static boolean supportsAimAction(StructuredSpellDefinition definition) {

@@ -65,7 +65,7 @@ export type CombatAimDefinition = {
   version: number
   actionKind: 'SPELL' | 'RANGED_ATTACK' | 'THROWN'
   rangeProfile: { form: 'SINGLE' | 'NORMAL_AND_LONG' | 'UNSUPPORTED'; normalRangeFeet: number | null; longRangeFeet: number | null } | null
-  targetingProfile: { mode: string; origin: string; shape: string; lengthFeet: number | null; widthFeet: number | null; heightFeet: number | null; radiusFeet: number | null; pathBlocking: string; propagation: string } | null
+  targetingProfile: { mode: string; origin: string; shape: string; lengthFeet: number | null; widthFeet: number | null; heightFeet: number | null; radiusFeet: number | null; verticalDirection?: string | null; pathBlocking: string; propagation: string } | null
 }
 
 export type CombatAimPreview = {

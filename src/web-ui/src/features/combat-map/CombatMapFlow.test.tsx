@@ -28,6 +28,8 @@ it('uses the shared screen-to-grid conversion for aim hover, overlays public cel
     const cursorCell = await screen.findByRole('button', { name: '격자 2,1' })
     fireEvent.pointerEnter(cursorCell, { clientX: 250, clientY: 150 })
     expect(onHover).toHaveBeenCalledWith({ x: 2, y: 1 }, 0, 'p1')
+    fireEvent.focus(cursorCell)
+    expect(onHover).toHaveBeenLastCalledWith({ x: 2, y: 1 }, 0, 'p1')
     expect(await screen.findByRole('button', { name: 'PLAYER 1,1' })).toHaveAttribute('data-aim-path', 'true')
     expect(cursorCell).toHaveAttribute('data-aim-effect', 'true')
     expect(map.querySelector('[data-visibility="hidden"][data-aim-path="true"]')).toBeNull()

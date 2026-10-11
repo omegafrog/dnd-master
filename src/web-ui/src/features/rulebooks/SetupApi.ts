@@ -285,6 +285,7 @@ export type StructuredSpellDefinitionView = {
     origin: 'ACTOR_TOKEN' | 'TARGET' | 'CURSOR_POINT' | 'CURSOR_DIRECTION' | 'UNSUPPORTED'
     shape: 'NONE' | 'CONE' | 'LINE' | 'CUBE' | 'SPHERE' | 'CYLINDER' | 'WALL' | 'UNSUPPORTED'
     lengthFeet: number | null; widthFeet: number | null; heightFeet: number | null; radiusFeet: number | null
+    verticalDirection?: 'UP' | 'DOWN' | 'UNSUPPORTED' | null
     pathBlocking: 'SOLID_BLOCKS' | 'CLEAR_PATH_REQUIRED' | 'NONE' | 'UNSUPPORTED'
     propagation: 'DIRECT' | 'AREA_FROM_POINT' | 'CONTIGUOUS' | 'NONE' | 'UNSUPPORTED'
   } | null

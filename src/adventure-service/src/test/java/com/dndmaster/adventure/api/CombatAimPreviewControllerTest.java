@@ -106,9 +106,14 @@ class CombatAimPreviewControllerTest {
         String oldDiagnostics = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
         System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
         CombatAimPreviewController.AimPreviewResponse result;
+        org.springframework.web.server.ResponseStatusException versionFailure;
         try {
             result = controller.preview(adventureId, new CombatAimPreviewController.AimPreviewRequest(
                     UUID.randomUUID(), definition.id(), 2, tokenId, 2, 0, 3, 4));
+            versionFailure = org.junit.jupiter.api.Assertions.assertThrows(
+                    org.springframework.web.server.ResponseStatusException.class,
+                    () -> controller.preview(adventureId, new CombatAimPreviewController.AimPreviewRequest(
+                            UUID.randomUUID(), definition.id(), 2, tokenId, 2, 0, 99, 4)));
         } finally {
             if (oldDiagnostics == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
             else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", oldDiagnostics);
@@ -122,6 +127,12 @@ class CombatAimPreviewControllerTest {
         assertTrue(appender.list.stream().anyMatch(event -> event.getFormattedMessage().contains("outcome=completed")
                 && event.getFormattedMessage().contains("distanceFeet=10")
                 && event.getFormattedMessage().contains("maxRangeFeet=20")));
+        assertTrue(appender.list.stream().anyMatch(event -> event.getFormattedMessage().contains("outcome=fallback")
+                && event.getFormattedMessage().contains("PATH_CROSSES_UNEXPLORED")));
+        assertTrue(appender.list.stream().anyMatch(event -> event.getFormattedMessage().contains("outcome=failed")
+                && event.getFormattedMessage().contains("failureClass=ResponseStatusException")
+                && event.getFormattedMessage().contains("expectedEncounterVersion=99")));
+        assertEquals(org.springframework.http.HttpStatus.CONFLICT, versionFailure.getStatusCode());
         verify(encounters, never()).save(any());
         verify(packages, never()).updateSpellDefinitionPreparation(any(), anyLong(), any(), any());
         verify(maps, never()).updateLayout(any(), any(), anyLong(), any(), any(), any(), any(), any());

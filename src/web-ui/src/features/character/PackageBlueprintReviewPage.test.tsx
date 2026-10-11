@@ -170,6 +170,32 @@ describe('PackageBlueprintReviewPage', () => {
     await waitFor(() => expect(approveSpellDefinition).toHaveBeenCalledWith('package-1', spell.id, 1))
   })
 
+  it('saves an explicit cylinder height direction with the reviewed action profile', async () => {
+    const spell = {
+      id: 'spell-cylinder', name: '기둥 효과', sourceDocumentId: 'source-1', sourceLocator: 'page=3;node=cylinder',
+      sourceVersion: 'sha256:approved', extractionVersion: 1, level: '1', castingTime: '1 Action', rangeArea: '30 ft.',
+      components: 'V', duration: 'Instantaneous', school: 'Evocation', attackSave: '', damageEffect: '',
+      ownerPlanNumbers: [368], ownerEvidence: '근거', executable: false, reviewStatus: 'PENDING' as const,
+      actionKind: 'SPELL' as const, rangeProfile: { form: 'SINGLE' as const, normalRangeFeet: 30, longRangeFeet: null },
+      targetingProfile: { mode: 'POINT' as const, origin: 'TARGET' as const, shape: 'CYLINDER' as const,
+        lengthFeet: null, widthFeet: null, heightFeet: 10, radiusFeet: 5, verticalDirection: 'UP' as const,
+        pathBlocking: 'NONE' as const, propagation: 'AREA_FROM_POINT' as const },
+    }
+    const current = { ...preparation(), spellDefinitionRevision: 0, spellDefinitions: [spell], sourceSpellDefinitions: [spell], spellDefinitionHistory: [] }
+    const editSpellDefinition = vi.fn(async () => current)
+    render(<PackageBlueprintReviewPage packageId="package-1" setupApi={{ getPlayPreparation: async () => current,
+      editSpellDefinition }} sessionApi={{ create: vi.fn() }} onSessionCreated={vi.fn()} />)
+
+    const inventory = await screen.findByRole('region', { name: '기본 룰북 주문 목록' })
+    await userEvent.setup().click(within(inventory).getByText('1개 주문과 출처 보기'))
+    await userEvent.setup().click(within(inventory).getByText('정의 검토·수정'))
+    await userEvent.setup().selectOptions(within(inventory).getByRole('combobox', { name: '기둥 효과 원기둥 높이 방향' }), 'DOWN')
+    await userEvent.setup().click(within(inventory).getByRole('button', { name: '수정 저장' }))
+
+    await waitFor(() => expect(editSpellDefinition).toHaveBeenCalledWith('package-1', 'spell-cylinder', 0,
+      expect.objectContaining({ targetingProfile: expect.objectContaining({ verticalDirection: 'DOWN' }) })))
+  })
+
   it('shows a loading state while the review is being requested', () => {
     renderReview(() => new Promise(() => undefined))
 

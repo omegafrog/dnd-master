@@ -69,7 +69,9 @@ class SpellDefinitionReviewTest {
         return new StructuredSpellDefinition.TargetingProfile(
                 StructuredSpellDefinition.TargetMode.SINGLE_TARGET,
                 StructuredSpellDefinition.OriginMode.ACTOR_TOKEN, shape, length, width, height, radius,
-                pathBlocking, StructuredSpellDefinition.PropagationRule.DIRECT);
+                pathBlocking, StructuredSpellDefinition.PropagationRule.DIRECT,
+                shape == StructuredSpellDefinition.EffectShape.CYLINDER
+                        ? StructuredSpellDefinition.VerticalDirection.UP : null);
     }
 
     @Test
