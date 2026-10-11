@@ -532,6 +532,28 @@ public final class CombatMapMovementService {
      */
     public MovementPreview preview(MovementPreviewRequest request) {
         Objects.requireNonNull(request, "movement preview request must not be null");
+        boolean diagnostics = Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+        long startedAt = diagnostics ? System.nanoTime() : 0L;
+        String context = "mapId=" + request.mapId() + " playerId=" + request.playerId() + " tokenId=" + request.tokenId()
+                + " expectedVersion=" + request.expectedVersion() + " waypointCount=" + request.waypoints().size()
+                + " destination=" + request.destination();
+        if (diagnostics) LOGGER.info("dev_movement_preview outcome=started context={}", context);
+        try {
+            MovementPreview result = calculatePreview(request);
+            if (diagnostics) LOGGER.info("dev_movement_preview outcome=completed elapsedMs={} context={} actualVersion={} pathCells={} distance={} result=reachable",
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt), context,
+                    result.baseMapVersion(), result.orderedPositions().size(), result.distance());
+            return result;
+        } catch (RuntimeException | Error failure) {
+            if (diagnostics) LOGGER.info("dev_movement_preview outcome=failed elapsedMs={} context={} failureClass={} result=unavailable",
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt), context,
+                    failure.getClass().getSimpleName());
+            throw failure;
+        }
+    }
+
+    private MovementPreview calculatePreview(MovementPreviewRequest request) {
         CombatMap map = repository.findById(request.mapId())
                 .orElseThrow(() -> new CombatMapMovementDeniedException("map not found"));
         if (map.version() != request.expectedVersion()) throw new CombatMapMovementStaleException();

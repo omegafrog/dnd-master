@@ -385,6 +385,26 @@ class CombatActionPolicyTest {
     }
 
     @Test
+    void dash_consumes_action_and_adds_the_actor_current_speed_to_remaining_movement() {
+        CombatActionCommand dash = new CombatActionCommand(UUID.randomUUID(), new AdventureId(adventureId), sessionId,
+                new RuleSetId(ruleSetId), new CharacterSheetId(heroId), null, CombatActorRole.PLAYER,
+                "DASH", null, ownerId, heroId, 1, null, null, null, null, false);
+        Fixture fixture = fixture(dash);
+        fixture.encounters.value = CombatStartPolicy.startFromCommittedGmTurn(true, adventureId, List.of(
+                new CombatParticipant(heroId, "Hero", CombatParticipant.Controller.PLAYER, 15, "healthy",
+                        com.dndmaster.adventure.domain.combat.TurnResources.initial(25)),
+                new CombatParticipant(goblinId, "Goblin", CombatParticipant.Controller.AI, 10, null)));
+
+        fixture.service.submit(dash);
+
+        var resources = fixture.encounters.value.currentParticipant().resources();
+        assertEquals(50, resources.movement());
+        assertEquals(25, resources.movementSpeed());
+        assertEquals(false, resources.actionAvailable());
+        assertEquals(0, fixture.calls.dice);
+    }
+
+    @Test
     void zero_hit_point_turn_records_death_save_and_advances_turn() {
         CombatActionCommand action = command(UUID.randomUUID(), heroId, 1);
         Fixture fixture = fixture(action);

@@ -403,11 +403,10 @@ public final class CombatActionApplicationService {
             throw new CombatCommandRejectedException(code, List.of(exception.getMessage()));
         }
 
+        boolean dash = "DASH".equalsIgnoreCase(command.action());
         CombatActionOperation operation = existing == null
                 ? new CombatActionOperation(command.operationId(), command.fingerprint(), encounter.encounterId(),
-                command.characterSheetId().value(), evaluation.cost(), List.of(
-                new CombatActionStep("dice", command.operationId() + ":dice", CombatActionStep.Status.PENDING),
-                new CombatActionStep("character", command.operationId() + ":character", CombatActionStep.Status.PENDING)))
+                command.characterSheetId().value(), evaluation.cost(), structuredSteps(command.operationId(), dash))
                 : existing;
         operationRepository.save(operation);
         if (existing == null) {
@@ -420,6 +419,20 @@ public final class CombatActionApplicationService {
             // Their hit points and readiness are owned by this encounter's prepared enemy sheet.
             if (!aiActor || encounter.currentParticipant().enemyKind() == null) {
                 characterPort.requireUsableCharacter(command);
+            }
+            if (dash) {
+                operation.completeStep("action");
+                operationRepository.save(operation);
+                CombatEncounter committed = encounter.commitAction(command.characterSheetId().value(), reservation,
+                        null, 0, true);
+                encounterRepository.save(committed, encounter.version());
+                CombatActionResponse response = new CombatActionResponse(committed.encounterId(), command.operationId(),
+                        committed.version(), "COMMITTED", null, "추가 이동량을 확보했습니다.", List.of());
+                operation.committed(response);
+                operationRepository.save(operation);
+                eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(),
+                        "ACTION_RESOLVED", "{\"operationId\":\"" + command.operationId() + "\",\"kind\":\"DASH\"}"));
+                return response;
             }
             CombatActionCommand resolvedCommand = aiActor
                     ? resolveAiAttack(command, encounter)
@@ -441,7 +454,7 @@ public final class CombatActionApplicationService {
             }
             int damage = outcome.mutation().hitPointDelta() < 0 ? -outcome.mutation().hitPointDelta() : 0;
             CombatEncounter committed = encounter.commitAction(command.characterSheetId().value(), reservation,
-                    resolvedCommand.targetCharacterSheetId() == null ? null : resolvedCommand.targetCharacterSheetId().value(), damage);
+                    resolvedCommand.targetCharacterSheetId() == null ? null : resolvedCommand.targetCharacterSheetId().value(), damage, dash);
             encounterRepository.save(committed, encounter.version());
             CombatActionResponse response = new CombatActionResponse(encounter.encounterId(), command.operationId(),
                     committed.version(), "COMMITTED", diceTotal, outcome.judgment(), List.of());
@@ -471,6 +484,12 @@ public final class CombatActionApplicationService {
             operationRepository.save(operation);
             throw new CombatExternalFailureException(exception);
         }
+    }
+
+    private static List<CombatActionStep> structuredSteps(UUID operationId, boolean dash) {
+        if (dash) return List.of(new CombatActionStep("action", operationId + ":action", CombatActionStep.Status.PENDING));
+        return List.of(new CombatActionStep("dice", operationId + ":dice", CombatActionStep.Status.PENDING),
+                new CombatActionStep("character", operationId + ":character", CombatActionStep.Status.PENDING));
     }
 
     private CombatActionCommand resolvePlayerAttack(CombatActionCommand command, CombatEncounter encounter) {

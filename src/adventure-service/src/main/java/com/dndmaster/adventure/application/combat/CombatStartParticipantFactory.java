@@ -6,6 +6,7 @@ import com.dndmaster.adventure.domain.combat.CombatParticipant;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.function.Function;
 import java.util.UUID;
 
@@ -31,6 +32,16 @@ public final class CombatStartParticipantFactory {
             Function<AdventurePartyMember, String> displayNameFor,
             Function<AdventurePartyMember, Integer> initiativeModifier,
             java.util.function.IntSupplier d20) {
+        return fromPartyAndGmProposal(adventureId, party, enemies, displayNameFor, initiativeModifier,
+                ignored -> 30, d20);
+    }
+
+    public static List<CombatParticipant> fromPartyAndGmProposal(UUID adventureId,
+            List<AdventurePartyMember> party, List<CombatEnemyProposal> enemies,
+            Function<AdventurePartyMember, String> displayNameFor,
+            Function<AdventurePartyMember, Integer> initiativeModifier,
+            Function<AdventurePartyMember, Integer> movementSpeed,
+            java.util.function.IntSupplier d20) {
         if (enemies == null || enemies.isEmpty()) {
             throw new IllegalArgumentException("combat start requires at least one structured enemy");
         }
@@ -40,7 +51,9 @@ public final class CombatStartParticipantFactory {
                         member.controlMode() == com.dndmaster.adventure.domain.adventure.ControlMode.AGENT
                                 ? CombatParticipant.Controller.AI
                                 : CombatParticipant.Controller.PLAYER,
-                        d20.getAsInt() + initiativeModifier.apply(member), null))
+                        d20.getAsInt() + initiativeModifier.apply(member), null,
+                        com.dndmaster.adventure.domain.combat.TurnResources.initial(
+                                Objects.requireNonNull(movementSpeed.apply(member), "movement speed must not be null"))))
                 .toList());
 
         int index = 0;
@@ -69,6 +82,29 @@ public final class CombatStartParticipantFactory {
             java.util.function.IntSupplier d20) {
         List<CombatParticipant> resolved = fromPartyAndGmProposal(adventureId, party, enemies,
                 displayNameFor, initiativeModifier, d20);
+        int partySize = party.size();
+        List<CombatParticipant> pending = new ArrayList<>(resolved.subList(0, partySize));
+        int participantIndex = partySize;
+        for (CombatEnemyProposal enemy : enemies) {
+            if (enemy.sheetIdentity() == null) throw new IllegalArgumentException("ENEMY_SHEET_IDENTITY_REQUIRED");
+            for (int instance = 0; instance < enemy.count(); instance++) {
+                CombatParticipant participant = resolved.get(participantIndex++);
+                pending.add(new CombatParticipant(participant.participantId(), participant.displayName(), participant.controller(),
+                        participant.initiative(), participant.publicCondition(), participant.resources(), null, null,
+                        enemy.sheetIdentity().enemyKind()));
+            }
+        }
+        return List.copyOf(pending);
+    }
+
+    public static List<CombatParticipant> preparingFromPartyAndGmProposal(UUID adventureId,
+            List<AdventurePartyMember> party, List<CombatEnemyProposal> enemies,
+            Function<AdventurePartyMember, String> displayNameFor,
+            Function<AdventurePartyMember, Integer> initiativeModifier,
+            Function<AdventurePartyMember, Integer> movementSpeed,
+            java.util.function.IntSupplier d20) {
+        List<CombatParticipant> resolved = fromPartyAndGmProposal(adventureId, party, enemies,
+                displayNameFor, initiativeModifier, movementSpeed, d20);
         int partySize = party.size();
         List<CombatParticipant> pending = new ArrayList<>(resolved.subList(0, partySize));
         int participantIndex = partySize;

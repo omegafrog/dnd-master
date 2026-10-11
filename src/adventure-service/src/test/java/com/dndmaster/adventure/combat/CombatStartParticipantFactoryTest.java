@@ -109,4 +109,21 @@ class CombatStartParticipantFactoryTest {
         assertEquals(13, participants.get(1).initiative());
         assertNotEquals(0, participants.get(0).initiative());
     }
+
+    @Test
+    void initializes_each_player_turn_with_the_speed_from_character_data() {
+        UUID adventureId = UUID.randomUUID();
+        UUID heroId = UUID.randomUUID();
+        var participants = CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, List.of(
+                        new AdventurePartyMember(new CharacterSheetId(heroId), ControlMode.DIRECT,
+                                true, true, true, true, true, true)),
+                List.of(new CombatEnemyProposal("rat", "Giant Rat", 1,
+                        com.dndmaster.adventure.application.runtime.CombatStartMode.INSTANT,
+                        new CombatEnemyStatBlock(12, 7, 4, "1d6+2",
+                                new CombatStatBlockSource(UUID.randomUUID(), 1, "p. 1")))),
+                ignored -> "Hero", ignored -> 0, ignored -> 25, () -> 10);
+
+        assertEquals(25, participants.getFirst().resources().movementSpeed());
+        assertEquals(25, participants.getFirst().resources().movement());
+    }
 }

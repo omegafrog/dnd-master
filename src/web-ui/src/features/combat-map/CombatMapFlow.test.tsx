@@ -590,6 +590,21 @@ it('keeps a drag candidate local until confirmed, and cancel sends nothing', asy
   expect(api.submitMapAction).not.toHaveBeenCalled()
 })
 
+it('previews movement on hover and blocks confirmation beyond the current encounter allowance', async () => {
+  const api = fakeApi()
+  const preview = vi.fn(api.previewMapMovement)
+  api.previewMapMovement = preview
+  const user = userEvent.setup()
+  render(<CombatMapView adventureId="a1" api={api} movementRemaining={0} />)
+  await user.click(await screen.findByRole('button', { name: /PLAYER.*1,1/ }))
+  await user.click(screen.getByRole('button', { name: '이동 미리 보기' }))
+  await user.hover(screen.getByRole('button', { name: '격자 2,1' }))
+  await waitFor(() => expect(preview).toHaveBeenCalled())
+  await user.click(screen.getByRole('button', { name: '확인' }))
+  expect(screen.getByText(/남은 이동량 0ft를 초과합니다/)).toBeInTheDocument()
+  expect(api.submitMapAction).not.toHaveBeenCalled()
+})
+
 it('submits exactly one typed map action after confirmation', async () => {
   const api = fakeApi()
   const user = userEvent.setup()

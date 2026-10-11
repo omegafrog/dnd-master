@@ -52,10 +52,8 @@ public final class CombatMap {
         for(int i=0;i<path.orderedPositions().size();i++){
             GridPosition position=path.orderedPositions().get(i);
             if(!isPublicTraversable(position)) throw new CombatMapMovementDeniedException("path crosses blocked or outside public position");
-            if(i>0 && !path.orderedPositions().get(i-1).adjacentTo(position)) throw new CombatMapMovementDeniedException("path positions must be adjacent");
-            if(i>0) {
-                GridPosition previous = path.orderedPositions().get(i - 1);
-                if (publicBoundaries().stream().anyMatch(boundary -> boundary.blocks(previous, position))) throw new CombatMapMovementDeniedException("path crosses wall or closed door");
+            if(i>0 && !publiclyTraversableBetween(path.orderedPositions().get(i - 1), position)) {
+                throw new CombatMapMovementDeniedException("path crosses blocked position or wall");
             }
         }
     }
@@ -63,8 +61,7 @@ public final class CombatMap {
     public void advancePlayerToken(PlayerId playerId, TokenId tokenId, GridPosition nextPosition) {
         CombatToken token=tokens.stream().filter(t->t.id().equals(tokenId)).findFirst().orElseThrow(()->new CombatMapMovementDeniedException("token not found"));
         if(token.type()!=TokenType.PLAYER || token.controller()!=TokenController.PLAYER || !token.ownerPlayerId().orElseThrow().equals(playerId)) throw new CombatMapMovementDeniedException("player may move only own PLAYER token");
-        if (!token.position().adjacentTo(nextPosition) || !isPublicTraversable(nextPosition)
-                || publicBoundaries().stream().anyMatch(boundary -> boundary.blocks(token.position(), nextPosition))) {
+        if (!token.position().adjacentTo(nextPosition) || !publiclyTraversableBetween(token.position(), nextPosition)) {
             throw new CombatMapMovementDeniedException("next movement cell is not publicly traversable");
         }
         token.moveTo(nextPosition);
@@ -92,8 +89,13 @@ public final class CombatMap {
                 && doors.stream().noneMatch(door -> door.position().equals(position) && !door.open());
     }
     public boolean publiclyTraversableBetween(GridPosition from, GridPosition to) {
-        return isPublicTraversable(from) && isPublicTraversable(to)
-                && publicBoundaries().stream().noneMatch(boundary -> boundary.blocks(from, to));
+        if (!from.adjacentTo(to) || !isPublicTraversable(from) || !isPublicTraversable(to)
+                || publicBoundaries().stream().anyMatch(boundary -> boundary.blocks(from, to))) return false;
+        boolean diagonal = from.x() != to.x() && from.y() != to.y();
+        if (!diagonal) return true;
+        GridPosition horizontal = new GridPosition(to.x(), from.y());
+        GridPosition vertical = new GridPosition(from.x(), to.y());
+        return isPublicTraversable(horizontal) || isPublicTraversable(vertical);
     }
     public void markPersisted(long version, UUID operationKey, String operationFingerprint) {
         if (version < 0) throw new IllegalArgumentException("version must not be negative");

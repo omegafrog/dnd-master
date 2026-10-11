@@ -34,6 +34,10 @@ public interface CharacterCombatPort {
     default int initiativeModifier(java.util.UUID characterSheetId, java.util.UUID ownerPlayerId,
             java.util.UUID sessionId) { return 0; }
 
+    /** Returns the character sheet's current movement speed in feet. */
+    default int movementSpeed(java.util.UUID characterSheetId, java.util.UUID ownerPlayerId,
+            java.util.UUID sessionId) { return 30; }
+
     /**
      * Gives the owning Character service a terminal, idempotent commit boundary.
      * Existing action mutations remain the authoritative state; this hook must

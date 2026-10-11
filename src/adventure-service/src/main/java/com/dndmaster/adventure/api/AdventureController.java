@@ -373,6 +373,9 @@ public class AdventureController {
                                                 member -> characterCombatPort.initiativeModifier(
                                                         member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                         adventure.sessionId().value()),
+                                                member -> characterCombatPort.movementSpeed(
+                                                        member.characterSheetId().value(), adventure.ownerPlayerId().value(),
+                                                        adventure.sessionId().value()),
                                                 () -> java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 21)),
                                         result.enemySheetPreparationRequest());
                     } else {
@@ -460,6 +463,9 @@ public class AdventureController {
                                                 member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                 adventure.sessionId().value()),
                                         member -> characterCombatPort.initiativeModifier(
+                                                member.characterSheetId().value(), adventure.ownerPlayerId().value(),
+                                                adventure.sessionId().value()),
+                                        member -> characterCombatPort.movementSpeed(
                                                 member.characterSheetId().value(), adventure.ownerPlayerId().value(),
                                                 adventure.sessionId().value()),
                                                 () -> java.util.concurrent.ThreadLocalRandom.current().nextInt(1, 21)),

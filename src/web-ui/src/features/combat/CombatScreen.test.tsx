@@ -5,6 +5,20 @@ import { describe, expect, it, vi } from 'vitest'
 import { CombatScreen } from './CombatScreen'
 
 describe('CombatScreen', () => {
+  it('shows current speed, used and remaining movement and submits Dash', async () => {
+    const user = userEvent.setup()
+    const submitAction = vi.fn(async () => ({ status: 'COMMITTED' }))
+    render(<CombatScreen api={{ readSnapshot: vi.fn(), submitAction, endTurn: vi.fn() }} snapshot={{
+      encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE', round: 1, currentParticipantId: 'p1',
+      version: 2, eventCursor: 1, resources: { movement: 15, movementSpeed: 25, movementUsed: 10,
+        actionAvailable: true, bonusActionAvailable: true, reactionAvailable: true },
+      initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }],
+    }} />)
+    expect(screen.getByText('25ft 속도 · 10ft 사용 · 15ft 남음')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '질주' }))
+    expect(submitAction).toHaveBeenCalledWith('a1', { characterSheetId: 'p1', action: 'DASH' }, 2)
+  })
+
   it('shows only the final summary after combat and never exposes detailed replay', () => {
     render(<CombatScreen snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ENDED', round: 2,
       currentParticipantId: 'p1', version: 9, eventCursor: 8,
@@ -27,7 +41,7 @@ describe('CombatScreen', () => {
     ] }} />)
     expect(screen.getByRole('heading', { name: '전투 · 1라운드' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('현재 차례영웅')
-    expect(screen.getByText('30ft')).toBeInTheDocument()
+    expect(screen.getByText('30ft 속도 · 0ft 사용 · 30ft 남음')).toBeInTheDocument()
     expect(screen.queryByText(/AC|HP|정확한/)).not.toBeInTheDocument()
   })
 

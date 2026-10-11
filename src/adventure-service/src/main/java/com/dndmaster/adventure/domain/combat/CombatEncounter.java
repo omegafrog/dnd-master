@@ -65,10 +65,17 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
 
     public CombatEncounter commitAction(UUID actorId, TurnResources.Reservation reservation,
                                         UUID targetId, int damage) {
+        return commitAction(actorId, reservation, targetId, damage, false);
+    }
+
+    public CombatEncounter commitAction(UUID actorId, TurnResources.Reservation reservation,
+                                        UUID targetId, int damage, boolean dash) {
         if (!currentParticipantId.equals(actorId)) throw new IllegalStateException("NOT_CURRENT_ACTOR");
         if (damage < 0) throw new IllegalArgumentException("damage must not be negative");
         CombatParticipant actor = currentParticipant();
-        CombatParticipant updated = actor.withResources(actor.resources().commit(reservation));
+        TurnResources updatedResources = actor.resources().commit(reservation);
+        if (dash) updatedResources = updatedResources.dash();
+        CombatParticipant updated = actor.withResources(updatedResources);
         List<CombatParticipant> updatedParticipants = participants.stream()
                 .map(p -> p.participantId().equals(actorId) ? updated : p).toList();
         if (targetId != null && damage > 0) {
@@ -124,7 +131,8 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
         int nextRound = nextIndex <= currentIndex ? round + 1 : round;
         UUID nextParticipantId = currentParticipants.get(nextIndex).participantId();
         List<CombatParticipant> resetParticipants = currentParticipants.stream()
-                .map(p -> p.participantId().equals(nextParticipantId) ? p.withResources(TurnResources.initial()) : p)
+                .map(p -> p.participantId().equals(nextParticipantId)
+                        ? p.withResources(TurnResources.initial(p.resources().movementSpeed())) : p)
                 .toList();
         return new CombatEncounter(encounterId, adventureId, status, nextRound, nextParticipantId,
                 resetParticipants, version + 1, eventCursor + 1, narrativePositions, null);

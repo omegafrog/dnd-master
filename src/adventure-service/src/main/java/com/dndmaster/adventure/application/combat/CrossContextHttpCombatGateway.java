@@ -125,6 +125,48 @@ public final class CrossContextHttpCombatGateway
         }
     }
 
+    @Override
+    public int movementSpeed(java.util.UUID characterSheetId, java.util.UUID ownerPlayerId,
+            java.util.UUID sessionId) {
+        String context = "characterSheetId=" + characterSheetId;
+        long startedAt = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics
+                .begin(log, "combat_movement_speed_lookup", context);
+        try {
+            CharacterSheetView sheet = readCharacterSheet(characterSheetId, ownerPlayerId, sessionId);
+            int speed = sheet.derivedStatistics() == null || sheet.derivedStatistics().isBlank()
+                    ? 30 : objectMapper.readTree(sheet.derivedStatistics()).path("speed").asInt(30);
+            if (speed < 0) throw new IllegalArgumentException("character movement speed must be non-negative");
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(log,
+                    "combat_movement_speed_lookup", context + " speed=" + speed, startedAt);
+            return speed;
+        } catch (IOException | RuntimeException failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(log,
+                    "combat_movement_speed_lookup", context, startedAt, failure);
+            throw new CrossContextCallException("character movement speed could not be read", failure);
+        }
+    }
+
+    private CharacterSheetView readCharacterSheet(java.util.UUID characterSheetId, java.util.UUID ownerPlayerId,
+            java.util.UUID sessionId) {
+        try {
+            HttpRequest.Builder builder = HttpRequest.newBuilder(baseUri.resolve(
+                            "internal/v1/character-sheets/" + characterSheetId + "/runtime"))
+                    .timeout(timeout).header("X-Internal-Token", internalToken)
+                    .header("X-Session-ID", sessionId.toString());
+            if (ownerPlayerId != null) builder.header("X-Owner-Player-ID", ownerPlayerId.toString());
+            HttpResponse<String> response = client.send(builder.GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("character movement speed lookup failed with status " + response.statusCode());
+            }
+            return objectMapper.readValue(response.body(), CharacterSheetView.class);
+        } catch (IOException exception) {
+            throw new CrossContextCallException("character movement speed response could not be read", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("character movement speed lookup was interrupted", exception);
+        }
+    }
+
     private int parseDexterity(String startingAbilities) throws IOException {
         if (startingAbilities == null || startingAbilities.isBlank()) return 10;
         var textMatch = java.util.regex.Pattern.compile("(?i)(?:^|,)\\s*(?:dexterity|dex|민첩)\\s*=\\s*(\\d+)")

@@ -109,6 +109,25 @@ class CombatEncounterPolicyTest {
     }
 
     @Test
+    void ending_turn_restores_each_participants_current_speed_after_partial_movement() {
+        var hero = new CombatParticipant(HERO, "Hero", CombatParticipant.Controller.PLAYER, 15, null,
+                TurnResources.initial(25));
+        var goblin = new CombatParticipant(GOBLIN, "Goblin", CombatParticipant.Controller.AI, 10, "enemy",
+                TurnResources.initial(30), GOBLIN_STATS);
+        var encounter = CombatStartPolicy.startFromCommittedGmTurn(true, ADVENTURE, List.of(hero, goblin));
+        var reservation = encounter.reserveAction(HERO, TurnResourceCost.movementOnly(10), encounter.version());
+        var moved = encounter.commitMovement(HERO, reservation, null);
+
+        var goblinTurn = moved.endCurrentTurn(moved.version());
+        var returned = goblinTurn.endCurrentTurn(goblinTurn.version());
+        TurnResources restored = returned.currentParticipant().resources();
+
+        assertEquals(25, restored.movementSpeed());
+        assertEquals(25, restored.movement());
+        assertEquals(0, restored.movementUsed());
+    }
+
+    @Test
     void resume_requires_same_adventure_and_preserves_snapshot_cursor() {
         var encounter = CombatStartPolicy.startFromCommittedGmTurn(true, ADVENTURE,
                 List.of(new CombatParticipant(HERO, "Hero", CombatParticipant.Controller.PLAYER, 10, null)))

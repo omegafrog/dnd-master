@@ -171,6 +171,37 @@ class CombatMapMovementTest {
     }
 
     @Test
+    void preview_does_not_cut_diagonally_between_two_blocked_cells() {
+        Fixture fixture = new Fixture();
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.map.ownerPlayerId(), fixture.map.tokens(),
+                List.of(new GridPosition(2, 1), new GridPosition(1, 2)), fixture.map.layers(), 0, null);
+        Set<GridPosition> known = new HashSet<>();
+        for (int y = 0; y < fixture.map.grid().height(); y++) for (int x = 0; x < fixture.map.grid().width(); x++) known.add(new GridPosition(x, y));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(known, known, Set.of(), List.of(), 0));
+
+        MovementPreview preview = fixture.service(30).preview(new MovementPreviewRequest(fixture.map.id(), fixture.player,
+                fixture.playerToken.id(), new GridPosition(2, 2), List.of(), "5E", 0));
+
+        assertEquals(4, preview.orderedPositions().size());
+        assertEquals(15, preview.distance());
+    }
+
+    @Test
+    void rejects_execution_that_cuts_diagonally_between_two_blocked_cells() {
+        Fixture fixture = new Fixture();
+        fixture.map = new CombatMap(fixture.map.id(), fixture.map.adventureId(), fixture.map.ruleSetId(), fixture.map.grid(),
+                fixture.map.ownerPlayerId(), fixture.map.tokens(),
+                List.of(new GridPosition(2, 1), new GridPosition(1, 2)), fixture.map.layers(), 0, null);
+        Set<GridPosition> known = new HashSet<>();
+        for (int y = 0; y < fixture.map.grid().height(); y++) for (int x = 0; x < fixture.map.grid().width(); x++) known.add(new GridPosition(x, y));
+        fixture.map.replaceVisibility(new VisibilitySnapshot(known, known, Set.of(), List.of(), 0));
+
+        assertThrows(CombatMapMovementDeniedException.class, () -> fixture.service(30).movePlayerToken(command(fixture,
+                new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 2)), 5), 0)));
+    }
+
+    @Test
     void enforces_controller_and_layer_visibility_model() {
         PlayerId player = new PlayerId(UUID.randomUUID());
         assertThrows(IllegalArgumentException.class, () -> new CombatToken(

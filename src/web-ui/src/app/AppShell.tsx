@@ -247,7 +247,7 @@ export function AppShell() {
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
       {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} sessionApi={sessionApi} playerId={playerId} forceList onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}?tab=materials` }} />}
       {route.page === 'adventure-workspace' && <AdventureWorkspace adventureId={route.adventureId} activeTab={route.tab} playApi={playApi} setupApi={setupApi} sessionApi={sessionApi} playerId={playerId} />}
-      {route.page === 'adventure' && (combatSnapshot && combatSnapshot.status !== 'ENDED' ? <><SpatialTurnRuntime adventureId={route.adventureId} playApi={playApi} combatSnapshot={combatSnapshot} /><CombatScreen snapshot={combatSnapshot} api={combatApi} onCommandCommitted={refreshCombat} map={<CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} compact />} /></> : <>
+      {route.page === 'adventure' && (combatSnapshot && combatSnapshot.status !== 'ENDED' ? <><SpatialTurnRuntime adventureId={route.adventureId} playApi={playApi} combatSnapshot={combatSnapshot} /><CombatScreen snapshot={combatSnapshot} api={combatApi} onCommandCommitted={refreshCombat} map={<CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} compact movementRemaining={combatSnapshot.resources.movement} />} /></> : <>
         {combatFinalSummary && <section className="combat-final-summary" aria-labelledby="combat-final-summary-title">
           <p className="eyebrow">COMBAT COMPLETE</p>
           <h2 id="combat-final-summary-title">전투 종료 요약</h2>

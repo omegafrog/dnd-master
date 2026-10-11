@@ -34,7 +34,7 @@ function createMapCommandIdentity() {
   return { turnId: value, commandId: value }
 }
 
-export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, onPreparationComplete }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; onPreparationComplete?: () => void | Promise<void> }) {
+export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, movementRemaining, onPreparationComplete }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; movementRemaining?: number; onPreparationComplete?: () => void | Promise<void> }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [publicMapImage, setPublicMapImage] = useState<string | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
@@ -44,6 +44,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [submitting, setSubmitting] = useState(false)
   const [previewing, setPreviewing] = useState(false)
   const [waypointMode, setWaypointMode] = useState(false)
+  const [movementHoverEnabled, setMovementHoverEnabled] = useState(false)
   const [locationMode, setLocationMode] = useState(false)
   const [gridEditor, setGridEditor] = useState(false)
   const [gridMessage, setGridMessage] = useState('')
@@ -234,6 +235,10 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   async function confirm() {
     if (!candidate) return
     if (submitting) return
+    if (candidate.action === 'MOVE' && movementRemaining !== undefined && candidate.distance !== undefined && candidate.distance > movementRemaining) {
+      setMessage(`이동 경로 비용 ${candidate.distance}ft가 남은 이동량 ${movementRemaining}ft를 초과합니다.`)
+      return
+    }
     if (candidate.action === 'MOVE' && !candidate.terminal && candidate.mapVersion !== (map?.version ?? candidate.mapVersion)) {
       if (candidate.to) await previewMovement(candidate.tokenId, candidate.to, candidate.waypoints ?? [], candidate)
       setMessage('지도 상태가 바뀌었습니다. 최신 이동 경로를 다시 확인해주세요.')
@@ -640,6 +645,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   }
   const tacticalMap = map.tokens ? (
     <div className="tactical-map-window">
+      {!preparationMode && <button type="button" aria-pressed={movementHoverEnabled} onClick={() => setMovementHoverEnabled(current => !current)} disabled={!selectedToken}>이동 미리 보기</button>}
       {!preparationMode && <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>}
           <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} className="tactical-map" style={mapStyle} onPointerDown={event => {
             if (!preparationMode || !layoutEditing) return
@@ -684,7 +690,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           const movementPreview = !preparationMode && candidate?.action === 'MOVE' && candidate.path?.some(position => position.x === cell.x && position.y === cell.y)
           const ghostDestination = movementPreview && candidate?.to?.x === cell.x && candidate.to.y === cell.y
           const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
-          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : displayToken ? `${displayToken.type} ${displayToken.x},${displayToken.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={displayToken?.type} data-token-faction={tokenVisual?.faction} data-token-status={tokenVisual?.primaryStatus} data-token-asset={tokenVisual?.assetPath} data-token-frame={tokenVisual?.framePath} data-movement-preview={movementPreview ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={displayToken?.lastSeen ? 'true' : 'false'} className={tokenVisual?.classes.join(' ')} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible && !explored)} draggable={!preparationMode && displayToken?.type === 'PLAYER'} onDragStart={() => { if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id) }} onClick={() => { if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id); else if (!preparationMode) void chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => { void chooseCell(cell) }}>
+          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : displayToken ? `${displayToken.type} ${displayToken.x},${displayToken.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={displayToken?.type} data-token-faction={tokenVisual?.faction} data-token-status={tokenVisual?.primaryStatus} data-token-asset={tokenVisual?.assetPath} data-token-frame={tokenVisual?.framePath} data-movement-preview={movementPreview ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={displayToken?.lastSeen ? 'true' : 'false'} className={tokenVisual?.classes.join(' ')} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible && !explored)} draggable={!preparationMode && displayToken?.type === 'PLAYER'} onPointerEnter={() => { if (movementHoverEnabled && !preparationMode && selectedToken && displayToken?.type !== 'PLAYER' && (visible || explored)) void chooseCell(cell) }} onDragStart={() => { if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id) }} onClick={() => { if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id); else if (!preparationMode) void chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => { void chooseCell(cell) }}>
             {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : ghostDestination ? '유령 토큰' : tokenVisual && displayToken ? <span className="token-visual" aria-hidden="true"><span className="token-visual-frame" style={{ backgroundImage: `url(${tokenVisual.framePath})` }} /><img src={tokenVisual.assetPath} alt="" /><span className="token-visual-label">{`${displayToken.type} (${displayToken.x},${displayToken.y})`}</span></span> : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
           </button>
           })}
