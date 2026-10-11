@@ -1,6 +1,8 @@
 package com.dndmaster.combatmap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.combatmap.application.spatial.SpatialFeatureDetectionPolicy;
 import com.dndmaster.combatmap.domain.AdventureId;
@@ -8,6 +10,8 @@ import com.dndmaster.combatmap.domain.CombatMap;
 import com.dndmaster.combatmap.domain.CombatToken;
 import com.dndmaster.combatmap.domain.DetectionSpec;
 import com.dndmaster.combatmap.domain.GridPosition;
+import com.dndmaster.combatmap.domain.LayerVisibility;
+import com.dndmaster.combatmap.domain.MapLayer;
 import com.dndmaster.combatmap.domain.GridSpec;
 import com.dndmaster.combatmap.domain.MapId;
 import com.dndmaster.combatmap.domain.PlayerId;
@@ -21,12 +25,40 @@ import com.dndmaster.combatmap.domain.TokenDiscovery;
 import com.dndmaster.combatmap.domain.TokenId;
 import com.dndmaster.combatmap.domain.TokenType;
 import com.dndmaster.combatmap.domain.VisibilitySnapshot;
+import com.dndmaster.combatmap.domain.VisibilityProfile;
+import com.dndmaster.combatmap.domain.LineOfSightQuery;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class SpatialFeatureDetectionPolicyTest {
+    @Test
+    void token_elevation_changes_range_and_never_bypasses_a_2d_wall() {
+        PlayerId player = new PlayerId(UUID.randomUUID());
+        GridPosition origin = new GridPosition(0, 0);
+        GridPosition target = new GridPosition(2, 0);
+        CombatToken token = new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
+                origin, TokenController.PLAYER, player, 10);
+        Set<GridPosition> visible = Set.of(origin, target);
+        CombatMap open = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()),
+                new RuleSetId(UUID.randomUUID()), new GridSpec(4, 2, 50, 5), player,
+                List.of(token), Set.of(), List.of(), 0, null);
+        open.replaceVisibility(new VisibilitySnapshot(visible, visible, Set.of(), List.of(), 0));
+        var policy = new SpatialFeatureDetectionPolicy(new LineOfSightQuery(), new VisibilityProfile(2));
+
+        assertTrue(policy.detectable(open, origin, target));
+        open.setTokenElevation(token.id(), 15);
+        assertFalse(policy.detectable(open, origin, target));
+
+        CombatMap behindWall = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()),
+                new RuleSetId(UUID.randomUUID()), new GridSpec(4, 2, 50, 5), player,
+                List.of(new CombatToken(token.id(), TokenType.PLAYER, origin, TokenController.PLAYER, player, 50)),
+                Set.of(), List.of(new MapLayer("MAP_BOUNDARIES", "1,0,VERTICAL,WALL,false", LayerVisibility.PLAYER_VISIBLE)), 0, null);
+        behindWall.replaceVisibility(new VisibilitySnapshot(visible, visible, Set.of(), List.of(), 0));
+        assertFalse(policy.detectable(behindWall, origin, target));
+    }
+
     @Test
     void only_returns_hidden_features_in_current_public_sight_and_range() {
         PlayerId player = new PlayerId(UUID.randomUUID());

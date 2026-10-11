@@ -78,6 +78,11 @@ public final class CombatMap {
     public java.util.Optional<CombatToken> token(TokenId tokenId) {
         return tokens.stream().filter(candidate -> candidate.id().equals(Objects.requireNonNull(tokenId))).findFirst();
     }
+    public int setTokenElevation(TokenId tokenId, int elevationFeet) {
+        CombatToken token = token(tokenId).orElseThrow(() -> new CombatMapMovementDeniedException("token not found"));
+        token.setElevation(elevationFeet);
+        return token.elevation();
+    }
     public List<CombatToken> tokensAt(Set<GridPosition> cells) {
         Objects.requireNonNull(cells, "token cells must not be null");
         return tokens.stream().filter(token -> cells.contains(token.position())).toList();

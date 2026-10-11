@@ -449,6 +449,41 @@ public final class CombatMapViewService {
         store.update(owner,state.map(),expectedVersion,expectedVersion+1,commandId,fingerprint); return state.map();
     }
 
+    public CombatMap setTokenElevation(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId,
+            TokenId tokenId, int elevationFeet) {
+        boolean diagnostics = Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+        long startedAt = diagnostics ? System.nanoTime() : 0L;
+        String context = "mapId=" + id.value() + " tokenId=" + tokenId.value() + " expectedVersion=" + expectedVersion
+                + " expectedElevationFeet=" + elevationFeet;
+        long actualVersion = -1;
+        if (diagnostics) LOGGER.info("dev_combat_map_token_elevation outcome=started context={}", context);
+        try {
+            VersionedOwnedCombatMap state = owned(id, owner);
+            actualVersion = state.version();
+            String fingerprint = id + "|" + owner + "|TOKEN_ELEVATION|" + tokenId + "|" + elevationFeet;
+            CombatMap replay = replay(id, owner, commandId, fingerprint);
+            if (replay != null) {
+                if (diagnostics) LOGGER.info("dev_combat_map_token_elevation outcome=replayed context={} actualElevationFeet={} elapsedMs={}",
+                        context, replay.token(tokenId).map(CombatToken::elevation).orElse(-1),
+                        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+                return replay;
+            }
+            if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
+            int actualElevation = state.map().setTokenElevation(tokenId, elevationFeet);
+            store.update(owner, state.map(), expectedVersion, expectedVersion + 1, commandId, fingerprint);
+            if (diagnostics) LOGGER.info("dev_combat_map_token_elevation outcome=completed context={} actualVersion={} actualElevationFeet={} result=updated elapsedMs={}",
+                    context, expectedVersion + 1, actualElevation,
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            return state.map();
+        } catch (RuntimeException | Error failure) {
+            if (diagnostics) LOGGER.info("dev_combat_map_token_elevation outcome=failed context={} actualVersion={} actualElevationFeet=unavailable result=unchanged failureClass={} elapsedMs={}",
+                    context, actualVersion, failure.getClass().getSimpleName(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            throw failure;
+        }
+    }
+
     /** 맵 시작 전 사용자가 AI 초안을 검수해 벽·문·자르기 영역을 확정한다. */
     public CombatMap updateLayout(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId,
             Set<GridPosition> obstacles, Collection<Door> doors, String crop) {

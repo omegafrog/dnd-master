@@ -637,6 +637,22 @@ public class CombatMapController {
         return new CombatMapAiStateResponse(map.id().value());
     }
 
+    @PutMapping("/internal/v1/combat-maps/{mapId}/tokens/elevation")
+    public CombatMapAiStateResponse setTokenElevation(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) TokenElevationRequest request) {
+        requestGuard.internal(token);
+        requireRequest(request, "token elevation request is required");
+        if (request.ownerId() == null || request.tokenId() == null || request.elevationFeet() == null
+                || request.elevationFeet() < 0 || request.commandId() == null || request.expectedVersion() == null) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "ownerId, tokenId, nonnegative elevationFeet, commandId and expectedVersion are required");
+        }
+        CombatMap map = mapViewService.setTokenElevation(new MapId(mapId), new MapOwnerId(request.ownerId()),
+                request.expectedVersion(), request.commandId(), new TokenId(request.tokenId()), request.elevationFeet());
+        return new CombatMapAiStateResponse(map.id().value());
+    }
+
     @PutMapping("/internal/v1/combat-maps/{mapId}/layout")
     public CombatMapAiStateResponse updateLayout(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody(required = false) LayoutRequest request) {
@@ -727,6 +743,7 @@ public class CombatMapController {
             long expectedVersion,
             List<LayerRequest> layers) {}
     public record DoorRequest(UUID ownerId,int x,int y,boolean open,UUID commandId,long expectedVersion) {}
+    public record TokenElevationRequest(UUID ownerId, UUID tokenId, Integer elevationFeet, UUID commandId, Long expectedVersion) {}
     public record LayoutRequest(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors,
                                 List<String> boundaries, String crop, Long alignmentVersion, String imageRevision, PositionRequest playerStart) {
         public LayoutRequest(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles,

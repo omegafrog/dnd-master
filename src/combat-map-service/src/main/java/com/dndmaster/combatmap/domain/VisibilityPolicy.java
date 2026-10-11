@@ -36,7 +36,7 @@ public final class VisibilityPolicy {
         Set<GridPosition> current = new HashSet<>();
         for (int y = 0; y < grid.height(); y++) for (int x = 0; x < grid.width(); x++) {
             GridPosition cell = new GridPosition(x, y);
-            if (origins.stream().anyMatch(origin -> withinRange(origin, cell, profile)
+            if (origins.stream().anyMatch(origin -> withinRange(grid, origin, cell, profile, tokens)
                     && lineOfSightQuery.clear(origin, cell, blockers, boundaries))) current.add(cell);
         }
         Set<GridPosition> explored = new HashSet<>(exploredBefore);
@@ -85,8 +85,11 @@ public final class VisibilityPolicy {
         return calculate(grid, origins, exploredBefore, blockers, tokens, previousLastSeen, ruleTurn, VisibilityProfile.DEFAULT, boundaries);
     }
 
-    private boolean withinRange(GridPosition from, GridPosition to, VisibilityProfile profile) {
-        return Math.max(Math.abs(to.x() - from.x()), Math.abs(to.y() - from.y())) <= profile.maxRangeCells();
+    private boolean withinRange(GridSpec grid, GridPosition from, GridPosition to, VisibilityProfile profile,
+            List<CombatToken> tokens) {
+        int elevationFeet = tokens.stream().filter(token -> token.type() == TokenType.PLAYER && token.position().equals(from))
+                .mapToInt(CombatToken::elevation).max().orElse(0);
+        return GridDistance.cellsBetween(from, elevationFeet, to, 0, grid.distanceUnit()) <= profile.maxRangeCells();
     }
 
 }

@@ -53,7 +53,9 @@ public interface CombatMapViewPort {
         }
     }
     record Grid(int width, int height, int cellSize, int distanceUnit) {}
-    record Token(UUID id, String type, int x, int y) {}
+    record Token(UUID id, String type, int x, int y, int elevationFeet) {
+        public Token(UUID id, String type, int x, int y) { this(id, type, x, y, 0); }
+    }
     record Obstacle(int x, int y) {}
     record Door(int x, int y, boolean open) {}
     record Boundary(int x, int y, String orientation, String kind, boolean open) {}

@@ -31,6 +31,34 @@ import org.junit.jupiter.api.Test;
 
 class HttpCombatMapPreparationGatewayTest {
     @Test
+    void player_map_gateway_preserves_public_token_elevation_in_feet() throws Exception {
+        UUID mapId = UUID.randomUUID();
+        UUID tokenId = UUID.randomUUID();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/adventures/", exchange -> {
+            String body = "{\"mapId\":\"" + mapId + "\",\"grid\":{\"width\":2,\"height\":2,\"cellSize\":50,\"distanceUnit\":5},"
+                    + "\"tokens\":[{\"id\":\"" + tokenId + "\",\"type\":\"PLAYER\",\"x\":0,\"y\":0,\"elevationFeet\":15}],"
+                    + "\"obstacles\":[],\"doors\":[],\"layers\":[],\"current\":[],\"explored\":[],\"version\":3,"
+                    + "\"playerStartCandidates\":[],\"spatialFeatures\":[]}";
+            byte[] response = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            var gateway = new com.dndmaster.adventure.application.combat.HttpCombatMapViewGateway(
+                    HttpClient.newHttpClient(), java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(2), new ObjectMapper(), "secret");
+            var token = gateway.playerView(UUID.randomUUID(), UUID.randomUUID()).orElseThrow().tokens().getFirst();
+            assertEquals(tokenId, token.id());
+            assertEquals(15, token.elevationFeet());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void allows_adventure_start_when_no_map_draft_exists() throws Exception {
         AtomicReference<String> requestPath = new AtomicReference<>();
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);

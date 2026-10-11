@@ -27,7 +27,7 @@ public record PlayerCombatMapResponse(UUID mapId, GridResponse grid, List<TokenR
     public record GridResponse(int width, int height, int cellSize, int distanceUnit) {}
     public record ObstacleResponse(int x, int y) {}
     public record DoorResponse(int x, int y, boolean open) {}
-    public record TokenResponse(UUID id, String type, int x, int y, boolean lastSeen, int elevation) {}
+    public record TokenResponse(UUID id, String type, int x, int y, boolean lastSeen, int elevationFeet) {}
     public record PositionResponse(int x, int y) {}
     public record LayerResponse(String type, String value, String visibility) {}
     public record PlayerStartResponse(int x, int y, double confidence, List<String> evidence, String source) {

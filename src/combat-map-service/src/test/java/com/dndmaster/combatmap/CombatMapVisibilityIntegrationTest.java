@@ -12,6 +12,30 @@ class CombatMapVisibilityIntegrationTest{
   map.refreshVisibility(0);store.insert(owner,map);
   assertEquals(12,store.find(map.id()).orElseThrow().map().tokens().getFirst().elevation());
  }
+ @Test @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+ void ownerCanChangeTokenElevationWithExpectedVersionAndPersistIt(org.springframework.boot.test.system.CapturedOutput output){
+  var token=new CombatToken(new TokenId(UUID.randomUUID()),TokenType.PLAYER,new GridPosition(1,1),TokenController.PLAYER,new PlayerId(owner.value()));
+  var map=new CombatMap(new MapId(UUID.randomUUID()),adventure(),rules(),new GridSpec(4,4,50,5),new PlayerId(owner.value()),List.of(token),Set.of(),List.of(),0,null);
+  map.refreshVisibility(0);store.insert(owner,map);
+  CombatMapViewService service=service(data());
+  UUID command=UUID.randomUUID();
+  String previous=System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+  System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED","true");
+  CombatMap changed;
+  try { changed=service.setTokenElevation(map.id(),owner,0,command,token.id(),11); }
+  finally { if(previous==null)System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED"); else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",previous); }
+  assertEquals(11,changed.tokens().getFirst().elevation());
+  assertEquals(1L,store.find(map.id()).orElseThrow().version());
+  assertEquals(11,store.find(map.id()).orElseThrow().map().tokens().getFirst().elevation());
+  assertThrows(IllegalStateException.class,()->service.setTokenElevation(map.id(),owner,0,UUID.randomUUID(),token.id(),20));
+  assertThrows(CombatMapAccessDeniedException.class,()->service.setTokenElevation(map.id(),new MapOwnerId(UUID.randomUUID()),1,UUID.randomUUID(),token.id(),20));
+  org.assertj.core.api.Assertions.assertThat(output)
+   .contains("dev_combat_map_token_elevation outcome=started")
+   .contains("expectedElevationFeet=11")
+   .contains("dev_combat_map_token_elevation outcome=completed")
+   .contains("actualElevationFeet=11")
+   .contains("result=updated");
+ }
  @Test void uploadedAndAiGeneratedMapsRestoreFromDatabase(){PreparedMapData data=data();CombatMapViewService service=new CombatMapViewService(store,source->data,description->data);CombatMap uploaded=service.prepareUploaded(owner,adventure(),rules(),new UploadedMapSource("map.png",new byte[]{1}));CombatMap generated=service.prepareGenerated(owner,adventure(),rules(),"dungeon");assertEquals(data.grid(),store.find(uploaded.id()).orElseThrow().map().grid());assertEquals(2,store.find(generated.id()).orElseThrow().map().tokens().size());}
  @Test void adventureProjectionUsesPersistedActiveStageMapInsteadOfMostRecentlyUpdatedMap() throws Exception {PreparedMapData data=data();CombatMapViewService service=service(data);AdventureId adventure=adventure();CombatMap stageOne=service.prepareGenerated(owner,adventure,rules(),"stage-one");CombatMap stageTwo=service.prepareGenerated(owner,adventure,rules(),"stage-two");try(Connection c=ds.getConnection();PreparedStatement p=c.prepareStatement("INSERT INTO adventure_active_tactical_map(adventure_id,stage_position,owner_player_id,combat_map_id,active) VALUES (?,?,?,?,true)")){p.setObject(1,adventure.value());p.setInt(2,1);p.setObject(3,owner.value());p.setObject(4,stageOne.id().value());p.executeUpdate();}assertEquals(stageOne.id(),service.displayForAdventure(adventure,owner).orElseThrow().mapId());assertNotEquals(stageTwo.id(),service.displayForAdventure(adventure,owner).orElseThrow().mapId());assertEquals(stageTwo.id(),service.preparedMapIdForAdventure(adventure,owner).orElseThrow());}
  @Test void activatingPreparedMapMakesItVisibleThroughAdventureProjection(){PreparedMapData data=data();CombatMapViewService service=service(data);AdventureId adventure=adventure();CombatMap map=service.prepareGenerated(owner,adventure,rules(),"opening");service.activateForAdventure(map.id(),owner,new MapActivationContext(1,Optional.of(new GridPosition(0,0))));assertEquals(map.id(),service.displayForAdventure(adventure,owner).orElseThrow().mapId());}

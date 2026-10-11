@@ -130,6 +130,8 @@ SpellActionRulesEngine.execute(authoritativeContext, definition, selection, comm
 전투 화면의 입력 흐름은 주문·원거리 공격·투척 선택 → 가리키기 → 미리보기 → 확정이다. 경로의 각 지도 칸을 붉게 표시하고, 정의에 공간 효과가 있으면 그 영향 칸을 별도 오버레이로 표시한다. 단일 대상 선택만으로 충분하면 클릭으로 제출한다. 여러 대상이나 투사체 배분이 필요하면 선택을 마친 뒤 명시적으로 시전한다. 원뿔·선처럼 방향이 규칙상 필요한 효과는 행동 토큰에서 커서 방향을 사용하고, 점 지정 효과는 커서를 중심점으로 삼는다. 대상 지정형 행동에는 정의가 요구하지 않는 방향을 붙이지 않는다. 지면으로부터의 높이는 비행·거리·효과 판정에서 필요한 경우에만 입력·표시한다.
 
 정의 자료에는 행동 종류, 사거리 표현(단일 거리 또는 일반·최대 거리), 대상 선택 방식, 시작점, 지원 형상과 치수, 직접 표적 경로의 차단 조건, 범위 효과의 차단·확산 조건을 출처와 함께 저장한다. 기본 룰북의 원뿔·정육면체·원기둥·선·구와 완전 엄폐·명확한 경로 규칙은 이 공통 자료형에 매핑한다. 효과 모양의 계산과 칸별 공개는 Combat Map의 기존 지형·벽·고도·가시성 권위를 사용한다. 정의가 현재 지원하는 자료형으로 표현되지 않으면 준비 과정에서 미지원과 이유를 보여주고 실행을 막는다. 경로 칸은 공개 가능한 정보만 색칠하며 숨겨진 벽의 위치나 형상을 드러내지 않는다.
+Combat Map은 토큰의 지면으로부터의 높이를 피트 단위로 저장한다. 거리 계산은 `GridDistance.cellsBetween(from, fromElevationFeet, to, toElevationFeet, distanceUnitFeet)`를 사용하며, 가로·세로 칸 차이 중 큰 값과 높이 차이를 칸 거리로 나누어 올림한 값 중 큰 값을 반환한다. 높이 자료가 없는 기존 벽과 닫힌 문은 모든 높이에서 차단한다. 벽별 높이는 지원하지 않는다. 내부 인증을 통과한 지도 소유자만 `expectedVersion`과 `commandId`를 포함한 높이 변경 명령을 보낼 수 있다.
+
 ### API contracts
 | 기존 및 추가 경로 | 계약 |
 |---|---|
@@ -138,6 +140,7 @@ SpellActionRulesEngine.execute(authoritativeContext, definition, selection, comm
 | `PUT /api/v1/play-preparations/{preparationId}/spell-action-definitions/{definitionId}` | `expectedRevision`과 편집본 수신. 소유권·패키지 연결·버전 검사, 원문/편집 출처 보존 |
 | `POST /api/v1/play-preparations/{preparationId}/spell-action-definitions/{definitionId}/approve` | 모험 시작 전 사용자 승인; 해당 준비 자료와 연결된 Session에만 고정 |
 | `POST /api/v1/adventures/{adventureId}/combat/actions/preview` | 주문·원거리 공격·투척의 정의 ID/버전, 선택 위치, `commandId`, 기대 encounter/map/definition 버전. 행동 토큰부터 커서 위치까지의 유효 경로 칸, 사거리 판정, 정의된 효과 칸과 차단 결과를 공개 지도 투영으로 반환하며 상태를 바꾸지 않음 |
+| `PUT /internal/v1/combat-maps/{mapId}/tokens/elevation` | 내부 인증과 지도 소유자를 확인하고 `tokenId`, 0 이상인 피트 단위 `elevationFeet`, `expectedVersion`, `commandId`로 토큰 높이를 갱신 |
 | `POST /api/v1/adventures/{adventureId}/combat/spells/preview` | 기존 주문 입력 경로. 주문 정의·슬롯·대상/배분·필요 시 위치/방향/높이를 공통 행동 미리보기 계약으로 전달하고 공개 결과만 반환 |
 | 기존 `POST /api/v1/adventures/{adventureId}/combat/actions` | 일반 행동 제출; `Idempotency-Key`, `If-Match-Version`과 최신 선택 정보를 기존 멱등 경로에서 검증 |
 | 기존 `POST /api/v1/adventures/{adventureId}/combat/spells` | 이름 대신 잠긴 `definitionId/version` 기반 선택; `Idempotency-Key`, `If-Match-Version`, 필요한 대상·배분·방향·높이 포함 |

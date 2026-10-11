@@ -33,6 +33,23 @@ class VisibilityPolicyTest {
     }
 
     @Test
+    void token_elevation_reduces_visibility_range_in_grid_cells() {
+        GridSpec longGrid = new GridSpec(8, 1, 50, 5);
+        GridPosition origin = new GridPosition(0, 0);
+        GridPosition target = new GridPosition(6, 0);
+        PlayerId owner = new PlayerId(UUID.randomUUID());
+        CombatToken onGround = new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
+                origin, TokenController.PLAYER, owner, 0);
+        CombatToken elevated = new CombatToken(onGround.id(), TokenType.PLAYER,
+                origin, TokenController.PLAYER, owner, 35);
+
+        assertTrue(policy.calculate(longGrid, Set.of(origin), Set.of(), Set.of(), List.of(onGround), Set.of(), 0)
+                .current().contains(target));
+        assertFalse(policy.calculate(longGrid, Set.of(origin), Set.of(), Set.of(), List.of(elevated), Set.of(), 0)
+                .current().contains(target));
+    }
+
+    @Test
     void wallAndClosedDoorBlockLineOfSightAndOpeningRevealsCell() {
         GridPosition origin = new GridPosition(1, 1);
         GridPosition target = new GridPosition(5, 1);
