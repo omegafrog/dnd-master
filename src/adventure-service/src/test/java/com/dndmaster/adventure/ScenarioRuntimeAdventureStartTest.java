@@ -3,6 +3,7 @@ package com.dndmaster.adventure;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.runtime.AdventurePlayerProjection;
 import com.dndmaster.adventure.application.runtime.AdventureStartApplicationService;
@@ -129,6 +130,44 @@ class ScenarioRuntimeAdventureStartTest {
 
         assertThrows(IllegalStateException.class, () -> service.start(command(owner(), notReady)));
         assertEquals(0, adventures.saveCount);
+    }
+
+    @Test
+    void rejects_adventure_start_until_all_spell_definitions_are_approved() {
+        var pendingSpell = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory
+                .load(new KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst();
+        ScenarioPackage packageVersion = readyPackage().withSpellDefinitions(List.of(pendingSpell));
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository();
+        AdventureStartApplicationService service = new AdventureStartApplicationService(
+                packageRepository(packageVersion), adventures, stagePreparation(packageVersion));
+
+        assertThrows(IllegalStateException.class, () -> service.start(command(owner(), packageVersion)));
+        assertEquals(0, adventures.saveCount);
+    }
+
+    @Test
+    void logs_expected_and_actual_spell_review_gate_when_diagnostics_are_enabled() {
+        var pendingSpell = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory
+                .load(new KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst();
+        ScenarioPackage packageVersion = readyPackage().withSpellDefinitions(List.of(pendingSpell));
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository();
+        AdventureStartApplicationService service = new AdventureStartApplicationService(
+                packageRepository(packageVersion), adventures, stagePreparation(packageVersion));
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AdventureStartApplicationService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        try {
+            assertThrows(IllegalStateException.class, () -> service.start(command(owner(), packageVersion)));
+            assertTrue(appender.list.stream().map(event -> event.getFormattedMessage()).anyMatch(message ->
+                    message.contains("expected=all_approved actualPending=1")));
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
     }
 
     private static StartAdventureCommand command(OwnerPlayerId owner, ScenarioPackage packageVersion) {

@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.scenario.compilation;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition;
+import com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilation;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic;
 import java.util.Optional;
@@ -27,4 +28,12 @@ public interface ScenarioPackageRepository {
     }
 
     default void saveSpellDefinitions(UUID packageId, List<StructuredSpellDefinition> definitions) {}
+    default long spellDefinitionRevision(UUID packageId) { return 0; }
+    default List<SpellDefinitionEditHistory> spellDefinitionHistory(UUID packageId) { return List.of(); }
+    default long updateSpellDefinitions(UUID packageId, long expectedRevision,
+            List<StructuredSpellDefinition> definitions, SpellDefinitionEditHistory history) {
+        saveSpellDefinitions(packageId, definitions);
+        return expectedRevision + 1;
+    }
+    default void lockSpellDefinitionsForStart(UUID packageId, long expectedRevision) {}
 }

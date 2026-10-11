@@ -8,6 +8,7 @@ import type {
   RulebookBaseSchemaView,
   SetupApi,
   StorybookProposalView,
+  StructuredSpellDefinitionView,
 } from '../rulebooks/SetupApi'
 
 type PackageSetupApi = {
@@ -16,6 +17,8 @@ type PackageSetupApi = {
   useStorybookProposal?: SetupApi['useStorybookProposal']
   excludeStorybookProposal?: SetupApi['excludeStorybookProposal']
   publishBlueprint?: SetupApi['publishBlueprint']
+  editSpellDefinition?: SetupApi['editSpellDefinition']
+  approveSpellDefinition?: SetupApi['approveSpellDefinition']
 }
 
 type CatalogRulebook = {
@@ -51,6 +54,8 @@ export function PackageBlueprintReviewPage({
   const [confirming, setConfirming] = useState(false)
   const [confirmationResult, setConfirmationResult] = useState<BlueprintPublicationView | null>(null)
   const [retrySession, setRetrySession] = useState(false)
+  const [spellEdits, setSpellEdits] = useState<Record<string, string>>({})
+  const [pendingSpellId, setPendingSpellId] = useState<string | null>(null)
   const selectedPartySize = preparation
     ? preparation.characterLimit.exactPartySize
       ? preparation.characterLimit.maximumCharacters
@@ -155,6 +160,10 @@ export function PackageBlueprintReviewPage({
 
   async function createSession() {
     if (!blueprint.available || blueprint.status !== 'PUBLISHED' || blueprint.revision == null) return
+    if ((preparation?.spellDefinitions ?? []).some(spell => spell.reviewStatus !== 'APPROVED')) {
+      setMessage('주문 정의를 검토하고 승인한 뒤 모험을 시작할 수 있습니다.')
+      return
+    }
     setCreatingSession(true)
     setRetrySession(false)
     try {
@@ -191,6 +200,32 @@ export function PackageBlueprintReviewPage({
   }
 
   const spellDefinitions = preparation.spellDefinitions ?? []
+  const sourceSpells = new Map((preparation.sourceSpellDefinitions ?? []).map(spell => [spell.id, spell]))
+  const spellFields = [
+    ['level', '등급'], ['castingTime', '시전 시간'], ['rangeArea', '사거리·범위'], ['components', '구성 요소'],
+    ['duration', '지속 시간'], ['school', '학파'], ['attackSave', '공격·내성'], ['damageEffect', '효과'],
+  ] as const
+
+  async function saveSpell(spell: StructuredSpellDefinitionView, approve: boolean) {
+    if (!preparation || pendingSpellId || preparation.spellDefinitionRevision == null) return
+    setPendingSpellId(spell.id)
+    try {
+      const next = approve
+        ? await setupApi.approveSpellDefinition?.(packageId, spell.id, preparation.spellDefinitionRevision)
+        : await setupApi.editSpellDefinition?.(packageId, spell.id, preparation.spellDefinitionRevision,
+            Object.fromEntries(spellFields.map(([key]) => [key, spellEdits[`${spell.id}.${key}`] ?? spell[key]])) as Pick<StructuredSpellDefinitionView, typeof spellFields[number][0]>)
+      if (next) {
+        setPreparation(next)
+        setSpellEdits({})
+        setMessage(approve ? '주문 정의를 승인했습니다.' : '주문 정의를 수정했습니다. 수정한 정의를 다시 승인해야 합니다.')
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '주문 검토 상태를 저장하지 못했습니다.')
+      setReloadToken(token => token + 1)
+    } finally {
+      setPendingSpellId(null)
+    }
+  }
 
   return (
     <section className="character-settings-review-page" aria-labelledby="package-blueprint-review-heading">
@@ -222,6 +257,34 @@ export function PackageBlueprintReviewPage({
                 <span> · 실행 담당 계획: {spell.ownerPlanNumbers.map(number => `#${number}`).join(', ')}</span>
                 <span> · 담당 근거: {spell.ownerEvidence}</span>
                 <span> · {spell.executable ? '실행 확인됨' : '실행 미지원'} · {spell.reviewStatus === 'PENDING' ? '검토 대기' : '검토 완료'}</span>
+                {sourceSpells.has(spell.id) && spellFields.some(([key]) => spell[key] !== sourceSpells.get(spell.id)![key]) && (
+                  <details><summary>원문과 수정 내용 비교</summary>
+                    {spellFields.filter(([key]) => spell[key] !== sourceSpells.get(spell.id)![key]).map(([key, label]) => (
+                      <p key={key}>{label}: 원문 “{sourceSpells.get(spell.id)![key]}” → 수정 “{spell[key]}”</p>
+                    ))}
+                  </details>
+                )}
+                <details><summary>정의 검토·수정</summary>
+                  {spellFields.map(([key, label]) => (
+                    <label key={key}>{label}
+                      <input aria-label={`${spell.name} ${label}`} value={spellEdits[`${spell.id}.${key}`] ?? spell[key]}
+                        onChange={event => setSpellEdits(values => ({ ...values, [`${spell.id}.${key}`]: event.target.value }))} />
+                    </label>
+                  ))}
+                  <button type="button" onClick={() => void saveSpell(spell, false)} disabled={!setupApi.editSpellDefinition || pendingSpellId === spell.id}>
+                    수정 저장
+                  </button>
+                  <button type="button" onClick={() => void saveSpell(spell, true)} disabled={!setupApi.approveSpellDefinition || spell.reviewStatus === 'APPROVED' || pendingSpellId === spell.id}>
+                    {spell.reviewStatus === 'APPROVED' ? '승인됨' : '이 정의 승인'}
+                  </button>
+                  {(preparation.spellDefinitionHistory ?? []).filter(change => change.definitionId === spell.id).map(change => (
+                    <details key={change.revision}><summary>변경 이력 {change.revision}</summary>
+                      {spellFields.filter(([key]) => change.previous[key] !== change.current[key]).map(([key, label]) => (
+                        <p key={key}>{label}: “{change.previous[key]}” → “{change.current[key]}”</p>
+                      ))}
+                    </details>
+                  ))}
+                </details>
               </li>
             ))}
           </ol>
@@ -306,7 +369,7 @@ export function PackageBlueprintReviewPage({
               <p>{preparation.characterLimit.exactPartySize
                 ? `룰북의 인원 조건에 따라 ${preparation.characterLimit.maximumCharacters}명으로 고정됩니다.`
                 : `룰북이 고정 인원을 요구하지 않아 1~${preparation.characterLimit.maximumCharacters}명 중 선택할 수 있습니다.`}</p>
-              <button type="button" onClick={() => void createSession()} disabled={creatingSession}>
+              <button type="button" onClick={() => void createSession()} disabled={creatingSession || spellDefinitions.some(spell => spell.reviewStatus !== 'APPROVED')}>
                 {creatingSession ? '캐릭터 생성 준비 중…' : '캐릭터 생성 시작'}
               </button>
               {retrySession && <button type="button" onClick={() => void createSession()} disabled={creatingSession}>다시 시도</button>}

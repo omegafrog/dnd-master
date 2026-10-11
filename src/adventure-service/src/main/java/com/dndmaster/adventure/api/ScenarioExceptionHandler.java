@@ -162,6 +162,13 @@ public final class ScenarioExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).build();
     }
 
+    @ExceptionHandler(com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException.class)
+    public ResponseEntity<Map<String, Object>> spellDefinitionRevisionConflict(
+            com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "SPELL_DEFINITION_REVISION_CONFLICT",
+                "expectedRevision", exception.expectedRevision(), "actualRevision", exception.actualRevision()));
+    }
+
     @ExceptionHandler(RuntimeTurnCompatibilityException.class)
     public ResponseEntity<Map<String, String>> runtimeTurnCompatibility(RuntimeTurnCompatibilityException exception) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(

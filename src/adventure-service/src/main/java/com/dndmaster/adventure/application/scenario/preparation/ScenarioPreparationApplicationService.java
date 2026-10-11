@@ -114,6 +114,7 @@ public final class ScenarioPreparationApplicationService {
                 .filter(document -> document.status() == KnowledgeDocumentStatus.INDEXED)
                 .toList();
         List<StructuredSpellDefinition> spellDefinitions = scenarioPackage.spellDefinitions();
+        List<StructuredSpellDefinition> sourceSpellDefinitions = List.of();
         if (bundle.rulebookEdition() != RulebookEdition.DND_5E_2014 || basicRulesSources.size() != 1) {
             spellDefinitions = List.of();
         } else {
@@ -129,6 +130,7 @@ public final class ScenarioPreparationApplicationService {
                             && spell.sourceVersion().equals(BasicRulebookSpellInventory.SOURCE_VERSION)
                             && spell.extractionVersion() == source.extractionVersion());
             if (sourceMatches && definitionsMatch && uniqueKnownIds) {
+                sourceSpellDefinitions = canonicalDefinitions;
                 var completeDefinitions = canonicalDefinitions.stream()
                         .map(spell -> existingById.getOrDefault(spell.id(), spell).withSourceLocator(spell.sourceLocator()))
                         .toList();
@@ -188,7 +190,66 @@ public final class ScenarioPreparationApplicationService {
                 blockers,
                 blueprint,
                 CharacterLimitView.from(scenarioPackage.characterLimit()),
-                spellDefinitions);
+                spellDefinitions,
+                sourceSpellDefinitions,
+                packageRepository.spellDefinitionRevision(scenarioPackageId),
+                packageRepository.spellDefinitionHistory(scenarioPackageId));
+    }
+
+    public PlayPreparationView editSpellDefinition(UUID packageId, OwnerPlayerId owner, String definitionId,
+            SpellDefinitionEditRequest edit) {
+        Objects.requireNonNull(edit, "spell definition edit must not be null");
+        return changeSpellDefinition(packageId, owner, definitionId, edit.expectedRevision(), current ->
+                current.edit(edit.level(), edit.castingTime(), edit.rangeArea(), edit.components(), edit.duration(),
+                        edit.school(), edit.attackSave(), edit.damageEffect()));
+    }
+
+    public PlayPreparationView approveSpellDefinition(UUID packageId, OwnerPlayerId owner, String definitionId,
+            long expectedRevision) {
+        return changeSpellDefinition(packageId, owner, definitionId, expectedRevision, StructuredSpellDefinition::approve);
+    }
+
+    private PlayPreparationView changeSpellDefinition(UUID packageId, OwnerPlayerId owner, String definitionId,
+            long expectedRevision, java.util.function.UnaryOperator<StructuredSpellDefinition> change) {
+        String context = "packageId=" + packageId + " definitionId=" + definitionId + " expectedRevision=" + expectedRevision;
+        return com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(LOGGER,
+                "spell_definition_review", context, () -> changeSpellDefinitionInternal(packageId, owner,
+                        definitionId, expectedRevision, change));
+    }
+
+    private PlayPreparationView changeSpellDefinitionInternal(UUID packageId, OwnerPlayerId owner, String definitionId,
+            long expectedRevision, java.util.function.UnaryOperator<StructuredSpellDefinition> change) {
+        if (expectedRevision < 0 || definitionId == null || definitionId.isBlank()) {
+            throw new IllegalArgumentException("spell definition revision and identifier are required");
+        }
+        PlayPreparationView current = read(packageId, owner);
+        if (current.spellDefinitions().isEmpty()) throw new IllegalStateException("spell definitions are unavailable for review");
+        if (current.spellDefinitionRevision() != expectedRevision) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                LOGGER.info("dev_flow operation=spell_definition_review outcome=conflict packageId={} definitionId={} expectedRevision={} actualRevision={}",
+                        packageId, definitionId, expectedRevision, current.spellDefinitionRevision());
+            }
+            throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(
+                    expectedRevision, current.spellDefinitionRevision());
+        }
+        List<StructuredSpellDefinition> definitions = current.spellDefinitions();
+        StructuredSpellDefinition previous = definitions.stream().filter(item -> item.id().equals(definitionId))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("spell definition not found"));
+        StructuredSpellDefinition next = change.apply(previous);
+        List<StructuredSpellDefinition> updated = definitions.stream()
+                .map(item -> item.id().equals(definitionId) ? next : item).toList();
+        var history = new com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory(expectedRevision + 1,
+                definitionId, owner.value(), java.time.Instant.now(), previous, next);
+        try {
+            packageRepository.updateSpellDefinitions(packageId, expectedRevision, updated, history);
+        } catch (com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException conflict) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                LOGGER.info("dev_flow operation=spell_definition_review outcome=conflict packageId={} definitionId={} expectedRevision={} actualRevision={}",
+                        packageId, definitionId, conflict.expectedRevision(), conflict.actualRevision());
+            }
+            throw conflict;
+        }
+        return read(packageId, owner);
     }
 
     private boolean hasApprovedBasicRulebookSource(ScenarioBundleDocumentSelection source) {

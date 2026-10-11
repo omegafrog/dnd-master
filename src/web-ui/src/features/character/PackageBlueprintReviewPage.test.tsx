@@ -114,6 +114,43 @@ describe('PackageBlueprintReviewPage', () => {
     expect(within(inventory).getByRole('listitem')).toHaveTextContent('실행 미지원 · 검토 대기')
   })
 
+  it('edits one rule definition with the displayed revision and then approves it', async () => {
+    const spell = {
+      id: 'spell-review-1', name: 'Acid Splash', sourceDocumentId: 'source-1', sourceLocator: 'page=87;node=node-2478',
+      sourceVersion: 'sha256:approved', extractionVersion: 7, level: 'Cantrip', castingTime: '1 Action', rangeArea: '60 ft.',
+      components: 'V, S', duration: 'Instantaneous', school: 'Conjuration', attackSave: 'DEX Save', damageEffect: 'Acid',
+      ownerPlanNumbers: [368], ownerEvidence: '근거', executable: false, reviewStatus: 'PENDING' as const,
+    }
+    const current = { ...preparation(), spellDefinitionRevision: 0, spellDefinitions: [spell], sourceSpellDefinitions: [spell], spellDefinitionHistory: [] }
+    const editSpellDefinition = vi.fn(async (_packageId: string, _definitionId: string, revision: number, edit: { attackSave: string }) => ({
+      ...current, spellDefinitionRevision: revision + 1,
+      spellDefinitions: [{ ...spell, attackSave: edit.attackSave }],
+      spellDefinitionHistory: [{ revision: revision + 1, definitionId: spell.id, changedAt: 'now', previous: spell,
+        current: { ...spell, attackSave: edit.attackSave } }],
+    }))
+    const approveSpellDefinition = vi.fn(async (_packageId: string, _definitionId: string, revision: number) => ({
+      ...current, spellDefinitionRevision: revision + 1,
+      spellDefinitions: [{ ...spell, attackSave: '사용자 내성', reviewStatus: 'APPROVED' as const }],
+      spellDefinitionHistory: [],
+    }))
+    render(<PackageBlueprintReviewPage packageId="package-1" setupApi={{ getPlayPreparation: async () => current,
+      editSpellDefinition, approveSpellDefinition }} sessionApi={{ create: vi.fn() }} onSessionCreated={vi.fn()} />)
+
+    const inventory = await screen.findByRole('region', { name: '기본 룰북 주문 목록' })
+    await userEvent.setup().click(within(inventory).getByText('1개 주문과 출처 보기'))
+    await userEvent.setup().click(within(inventory).getByText('정의 검토·수정'))
+    await userEvent.setup().clear(within(inventory).getByRole('textbox', { name: 'Acid Splash 공격·내성' }))
+    await userEvent.setup().type(within(inventory).getByRole('textbox', { name: 'Acid Splash 공격·내성' }), '사용자 내성')
+    await userEvent.setup().click(within(inventory).getByRole('button', { name: '수정 저장' }))
+
+    await waitFor(() => expect(editSpellDefinition).toHaveBeenCalledWith('package-1', spell.id, 0, expect.objectContaining({ attackSave: '사용자 내성' })))
+    await userEvent.setup().click(within(inventory).getByText('원문과 수정 내용 비교'))
+    expect(within(inventory).getByText(/원문 “DEX Save” → 수정 “사용자 내성”/)).toBeInTheDocument()
+    expect(within(inventory).getByText(/변경 이력 1/)).toBeInTheDocument()
+    await userEvent.setup().click(within(inventory).getByRole('button', { name: '이 정의 승인' }))
+    await waitFor(() => expect(approveSpellDefinition).toHaveBeenCalledWith('package-1', spell.id, 1))
+  })
+
   it('shows a loading state while the review is being requested', () => {
     renderReview(() => new Promise(() => undefined))
 

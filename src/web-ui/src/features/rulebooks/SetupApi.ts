@@ -251,6 +251,9 @@ export type PlayPreparationView = {
   characterCreationBlueprint: CharacterCreationBlueprintView
   characterLimit: CharacterLimitView
   spellDefinitions?: StructuredSpellDefinitionView[]
+  sourceSpellDefinitions?: StructuredSpellDefinitionView[]
+  spellDefinitionRevision?: number
+  spellDefinitionHistory?: Array<{ revision: number; definitionId: string; changedAt: string; previous: StructuredSpellDefinitionView; current: StructuredSpellDefinitionView }>
 }
 
 export type StructuredSpellDefinitionView = {
@@ -271,7 +274,7 @@ export type StructuredSpellDefinitionView = {
   ownerPlanNumbers: number[]
   ownerEvidence: string
   executable: boolean
-  reviewStatus: 'PENDING'
+  reviewStatus: 'PENDING' | 'APPROVED'
 }
 
 export type CreatedCharacterSheetView = {
@@ -524,6 +527,9 @@ export interface SetupApi {
   preflightAgentEndpoint?(): Promise<AgentEndpointPreflightView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
   getPlayPreparation?(scenarioPackageId: string): Promise<PlayPreparationView>
+  editSpellDefinition?(scenarioPackageId: string, definitionId: string, expectedRevision: number,
+    edit: Pick<StructuredSpellDefinitionView, 'level' | 'castingTime' | 'rangeArea' | 'components' | 'duration' | 'school' | 'attackSave' | 'damageEffect'>): Promise<PlayPreparationView>
+  approveSpellDefinition?(scenarioPackageId: string, definitionId: string, expectedRevision: number): Promise<PlayPreparationView>
   generateBlueprintDraft?(scenarioPackageId: string, catalogRulebookId?: string, catalogExtractionVersion?: number): Promise<CharacterCreationBlueprintView>
   resolveBlueprint?(scenarioPackageId: string, fieldKey: string, value: string, expectedRevision?: number): Promise<unknown>
   addBlueprintChild?(scenarioPackageId: string, expectedRevision: number, parentId: string, key: string, label: string): Promise<unknown>
@@ -751,6 +757,20 @@ export class HttpSetupApi implements SetupApi {
     return request<PlayPreparationView>(`/api/v1/scenario-packages/${scenarioPackageId}/play-preparation`, {
       headers: this.authHeaders(),
     }, '플레이 준비 상태를 불러오지 못했습니다.')
+  }
+
+  editSpellDefinition(scenarioPackageId: string, definitionId: string, expectedRevision: number, edit: Record<string, string>) {
+    return request<PlayPreparationView>(`/api/v1/scenario-packages/${scenarioPackageId}/play-preparation/spell-action-definitions/${encodeURIComponent(definitionId)}`, {
+      method: 'PUT', headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision, ...edit }),
+    }, '주문 정의를 수정하지 못했습니다.')
+  }
+
+  approveSpellDefinition(scenarioPackageId: string, definitionId: string, expectedRevision: number) {
+    return request<PlayPreparationView>(`/api/v1/scenario-packages/${scenarioPackageId}/play-preparation/spell-action-definitions/${encodeURIComponent(definitionId)}/approve`, {
+      method: 'POST', headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision }),
+    }, '주문 정의를 승인하지 못했습니다.')
   }
 
   useStorybookProposal(scenarioPackageId: string, proposalId: string, expectedRevision: number) {

@@ -30,6 +30,21 @@ public class ScenarioPreparationController {
         return service.read(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
     }
 
+    @org.springframework.web.bind.annotation.PutMapping(
+            "/scenario-packages/{scenarioPackageId}/play-preparation/spell-action-definitions/{definitionId}")
+    PlayPreparationView editSpellDefinition(@PathVariable UUID scenarioPackageId, @PathVariable String definitionId,
+            @RequestBody com.dndmaster.adventure.application.scenario.preparation.SpellDefinitionEditRequest request) {
+        return service.editSpellDefinition(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()),
+                definitionId, request);
+    }
+
+    @PostMapping("/scenario-packages/{scenarioPackageId}/play-preparation/spell-action-definitions/{definitionId}/approve")
+    PlayPreparationView approveSpellDefinition(@PathVariable UUID scenarioPackageId, @PathVariable String definitionId,
+            @RequestBody SpellDefinitionReviewRequest request) {
+        return service.approveSpellDefinition(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()),
+                definitionId, request.expectedRevision());
+    }
+
     @PostMapping({
             "/scenario-packages/{scenarioPackageId}/character-blueprint/draft",
             "/scenario-packages/{scenarioPackageId}/character-blueprint"})
@@ -96,4 +111,9 @@ public class ScenarioPreparationController {
     record AddChildRequest(long expectedRevision, String parentId, String key, String label) {}
     record AddOptionRequest(long expectedRevision, String fieldKey, String option) {}
     record ProposalDecisionRequest(long expectedRevision) {}
+    record SpellDefinitionReviewRequest(long expectedRevision) {
+        SpellDefinitionReviewRequest {
+            if (expectedRevision < 0) throw new IllegalArgumentException("expected revision must not be negative");
+        }
+    }
 }

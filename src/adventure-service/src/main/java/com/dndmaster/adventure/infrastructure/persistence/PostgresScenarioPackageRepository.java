@@ -22,6 +22,7 @@ import com.dndmaster.adventure.domain.scenario.MapDefinition;
 import com.dndmaster.adventure.domain.scenario.StoryMapBinding;
 import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition;
+import com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -194,13 +195,105 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     public void saveSpellDefinitions(UUID packageId, List<StructuredSpellDefinition> definitions) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement update = connection.prepareStatement(
-                        "UPDATE scenario_package SET spell_definitions_json = ?::jsonb WHERE package_id = ? AND (spell_definitions_json IS NULL OR jsonb_array_length(spell_definitions_json) < ?)")) {
+                        "UPDATE scenario_package SET spell_definitions_json = ?::jsonb WHERE package_id = ? AND NOT spell_definition_locked AND NOT EXISTS (SELECT 1 FROM adventure WHERE locked_scenario_package_id = ?) AND (spell_definitions_json IS NULL OR jsonb_array_length(spell_definitions_json) < ?)")) {
             update.setString(1, writeJson(definitions));
             update.setObject(2, packageId);
-            update.setInt(3, definitions.size());
+            update.setObject(3, packageId);
+            update.setInt(4, definitions.size());
             update.executeUpdate();
         } catch (SQLException exception) {
             throw new ScenarioPackagePersistenceException("could not update scenario package spell definitions", exception);
+        }
+    }
+
+    @Override
+    public long spellDefinitionRevision(UUID packageId) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT spell_definition_revision FROM scenario_package WHERE package_id = ?")) {
+            statement.setObject(1, packageId);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) throw new IllegalStateException("scenario package not found");
+                return row.getLong(1);
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not read spell definition revision", exception);
+        }
+    }
+
+    @Override
+    public List<SpellDefinitionEditHistory> spellDefinitionHistory(UUID packageId) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT revision, definition_id, editor_id, changed_at, previous_definition_json, current_definition_json FROM scenario_package_spell_definition_history WHERE package_id = ? ORDER BY revision")) {
+            statement.setObject(1, packageId);
+            try (ResultSet rows = statement.executeQuery()) {
+                List<SpellDefinitionEditHistory> history = new ArrayList<>();
+                while (rows.next()) history.add(new SpellDefinitionEditHistory(rows.getLong("revision"),
+                        rows.getString("definition_id"), rows.getObject("editor_id", UUID.class),
+                        rows.getTimestamp("changed_at").toInstant(),
+                        readJsonValue(rows.getString("previous_definition_json"), StructuredSpellDefinition.class),
+                        readJsonValue(rows.getString("current_definition_json"), StructuredSpellDefinition.class)));
+                return List.copyOf(history);
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not read spell definition history", exception);
+        }
+    }
+
+    @Override
+    public long updateSpellDefinitions(UUID packageId, long expectedRevision,
+            List<StructuredSpellDefinition> definitions, SpellDefinitionEditHistory history) {
+        String json = writeJson(definitions);
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement update = connection.prepareStatement(
+                    "UPDATE scenario_package SET spell_definitions_json = ?::jsonb, spell_definition_revision = spell_definition_revision + 1 WHERE package_id = ? AND spell_definition_revision = ? AND NOT spell_definition_locked AND NOT EXISTS (SELECT 1 FROM adventure WHERE locked_scenario_package_id = ?)");
+                    PreparedStatement insert = connection.prepareStatement(
+                            "INSERT INTO scenario_package_spell_definition_history(package_id, revision, definition_id, editor_id, changed_at, previous_definition_json, current_definition_json) VALUES (?, ?, ?, ?, ?, ?::jsonb, ?::jsonb)")) {
+                update.setString(1, json);
+                update.setObject(2, packageId);
+                update.setLong(3, expectedRevision);
+                update.setObject(4, packageId);
+                if (update.executeUpdate() != 1) {
+                    connection.rollback();
+                    long actual = spellDefinitionRevision(packageId);
+                    if (actual != expectedRevision) throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(expectedRevision, actual);
+                    throw new IllegalStateException("spell definitions are locked or scenario package is missing");
+                }
+                insert.setObject(1, packageId);
+                insert.setLong(2, expectedRevision + 1);
+                insert.setString(3, history.definitionId());
+                insert.setObject(4, history.editorId());
+                insert.setTimestamp(5, java.sql.Timestamp.from(history.changedAt()));
+                insert.setString(6, writeJson(history.previous()));
+                insert.setString(7, writeJson(history.current()));
+                insert.executeUpdate();
+                connection.commit();
+                return expectedRevision + 1;
+            } catch (SQLException | RuntimeException failure) {
+                try { connection.rollback(); } catch (SQLException rollback) { failure.addSuppressed(rollback); }
+                throw failure;
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not update spell definition review", exception);
+        }
+    }
+
+    @Override
+    public void lockSpellDefinitionsForStart(UUID packageId, long expectedRevision) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "UPDATE scenario_package SET spell_definition_locked = TRUE WHERE package_id = ? AND spell_definition_revision = ? AND (spell_definitions_json IS NULL OR NOT EXISTS (SELECT 1 FROM jsonb_array_elements(spell_definitions_json) definition WHERE definition ->> 'reviewStatus' <> 'APPROVED'))")) {
+            statement.setObject(1, packageId);
+            statement.setLong(2, expectedRevision);
+            if (statement.executeUpdate() != 1) {
+                long actual = spellDefinitionRevision(packageId);
+                if (actual != expectedRevision) throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(expectedRevision, actual);
+                throw new IllegalStateException("spell definitions are not approved for start");
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not lock spell definitions for adventure start", exception);
         }
     }
 
@@ -361,6 +454,11 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     private static <T> List<T> readJson(String value, com.fasterxml.jackson.core.type.TypeReference<List<T>> type) {
         if (value == null || value.isBlank()) return List.of();
         try { return JSON.readValue(value, type); } catch (JsonProcessingException e) { throw new ScenarioPackagePersistenceException("could not deserialize map data", e); }
+    }
+
+    private static <T> T readJsonValue(String value, Class<T> type) {
+        try { return JSON.readValue(value, type); }
+        catch (JsonProcessingException exception) { throw new ScenarioPackagePersistenceException("could not deserialize spell definition history", exception); }
     }
 
     private static CharacterLimit readCharacterLimit(ResultSet row) throws SQLException {

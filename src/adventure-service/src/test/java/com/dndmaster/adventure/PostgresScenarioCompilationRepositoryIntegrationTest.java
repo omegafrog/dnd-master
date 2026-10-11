@@ -2,6 +2,7 @@ package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilation;
@@ -155,6 +156,37 @@ class PostgresScenarioCompilationRepositoryIntegrationTest {
         assertEquals(repaired, reloaded);
         packages.saveSpellDefinitions(packageVersion.packageId(), spells);
         assertEquals(repaired, packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions());
+    }
+
+    @Test
+    void updates_spell_review_with_expected_revision_and_keeps_edit_history() {
+        var packageVersion = ScenarioPackage.publish(bundleId, 1, "spell-review-revision",
+                List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()));
+        var packages = new PostgresScenarioPackageRepository(dataSource);
+        var original = BasicRulebookSpellInventory.load(
+                new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()), 7).getFirst();
+        packages.save(packageVersion);
+        packages.saveSpellDefinitions(packageVersion.packageId(), List.of(original));
+        var edited = original.edit(original.level(), original.castingTime(), original.rangeArea(), original.components(),
+                original.duration(), original.school(), "사용자 수정 내성", original.damageEffect());
+        var history = new com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory(1, original.id(),
+                UUID.randomUUID(), java.time.Instant.now(), original, edited);
+
+        assertEquals(1, packages.updateSpellDefinitions(packageVersion.packageId(), 0, List.of(edited), history));
+        assertEquals(1, packages.spellDefinitionRevision(packageVersion.packageId()));
+        assertEquals(edited, packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions().getFirst());
+        assertEquals(history.previous(), packages.spellDefinitionHistory(packageVersion.packageId()).getFirst().previous());
+        assertThrows(com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException.class,
+                () -> packages.updateSpellDefinitions(packageVersion.packageId(), 0, List.of(original), history));
+        assertEquals(edited, packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions().getFirst());
+        var approved = edited.approve();
+        var approval = new com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory(2, original.id(),
+                UUID.randomUUID(), java.time.Instant.now(), edited, approved);
+        assertEquals(2, packages.updateSpellDefinitions(packageVersion.packageId(), 1, List.of(approved), approval));
+        packages.lockSpellDefinitionsForStart(packageVersion.packageId(), 2);
+        assertThrows(IllegalStateException.class,
+                () -> packages.updateSpellDefinitions(packageVersion.packageId(), 2, List.of(edited), approval));
+        assertEquals(approved, packages.findById(packageVersion.packageId()).orElseThrow().spellDefinitions().getFirst());
     }
 
     private static ScenarioModelElement element(String type, String value) {

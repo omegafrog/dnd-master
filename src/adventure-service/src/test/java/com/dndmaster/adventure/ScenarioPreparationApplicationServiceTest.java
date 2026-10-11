@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -412,6 +413,7 @@ class ScenarioPreparationApplicationServiceTest {
         var preparation = service(bundle(scenarioPackage, bundle)).read(scenarioPackage.packageId(), owner());
 
         assertTrue(preparation.spellDefinitions().isEmpty());
+        assertTrue(preparation.sourceSpellDefinitions().isEmpty());
     }
 
     @Test
@@ -503,6 +505,75 @@ class ScenarioPreparationApplicationServiceTest {
         var preparation = service(fixture, "another-pdf").read(fixture.packageId(), owner());
 
         assertTrue(preparation.spellDefinitions().isEmpty());
+        assertTrue(preparation.sourceSpellDefinitions().isEmpty());
+    }
+
+    @Test
+    void editsAndApprovesOnlyWithCurrentRevisionAndAuthorizedPackageOwner() {
+        var canonical = BasicRulebookSpellInventory.load(new KnowledgeDocumentId(rulebookDocumentId()), 1);
+        var currentPackage = new ScenarioPackage[] { withRulebookPackage().withSpellDefinitions(canonical) };
+        long[] revision = { 0 };
+        var history = new java.util.ArrayList<com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory>();
+        ScenarioPackageRepository packages = new ScenarioPackageRepository() {
+            @Override public Optional<ScenarioPackage> findByInputFingerprint(String fingerprint) { return Optional.empty(); }
+            @Override public Optional<ScenarioPackage> findById(UUID id) { return Optional.of(currentPackage[0]); }
+            @Override public void save(ScenarioPackage scenarioPackage) {}
+            @Override public long spellDefinitionRevision(UUID packageId) { return revision[0]; }
+            @Override public List<com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory> spellDefinitionHistory(UUID packageId) { return List.copyOf(history); }
+            @Override public long updateSpellDefinitions(UUID packageId, long expectedRevision, List<StructuredSpellDefinition> definitions,
+                    com.dndmaster.adventure.domain.scenario.SpellDefinitionEditHistory change) {
+                if (expectedRevision != revision[0]) throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(expectedRevision, revision[0]);
+                currentPackage[0] = currentPackage[0].withSpellDefinitions(definitions);
+                revision[0]++;
+                history.add(change);
+                return revision[0];
+            }
+        };
+        KnowledgeDocumentLookupPort lookup = new KnowledgeDocumentLookupPort() {
+            @Override public List<KnowledgeDocumentRecord> findOwnedDocuments(UUID ownerId) { return List.of(); }
+            @Override public List<KnowledgeDocumentRecord> findPublishedSharedCatalogDocuments() {
+                return List.of(new KnowledgeDocumentRecord(new KnowledgeDocumentId(rulebookDocumentId()), KnowledgeDocumentStatus.INDEXED,
+                        "DnD_BasicRules_2018.pdf", "RULEBOOK", 1,
+                        BasicRulebookSpellInventory.SOURCE_VERSION.substring("sha256:".length())));
+            }
+        };
+        var service = new ScenarioPreparationApplicationService(packages,
+                bundle(withRulebookPackage(), bundleWithRulebook()).bundles(), fixtureRuntimeOptions(), request -> List.of(),
+                request -> List.of(), new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort(), lookup);
+        var original = canonical.getFirst();
+
+        var edited = service.editSpellDefinition(currentPackage[0].packageId(), owner(), original.id(),
+                new com.dndmaster.adventure.application.scenario.preparation.SpellDefinitionEditRequest(0,
+                        original.level(), original.castingTime(), original.rangeArea(), original.components(),
+                        original.duration(), original.school(), "사용자가 수정한 내성", original.damageEffect()));
+
+        assertEquals(1, edited.spellDefinitionRevision());
+        assertEquals("사용자가 수정한 내성", edited.spellDefinitions().getFirst().attackSave());
+        assertEquals(original.sourceDocumentId(), edited.spellDefinitions().getFirst().sourceDocumentId());
+        assertEquals(original, edited.sourceSpellDefinitions().getFirst());
+        assertEquals("사용자가 수정한 내성", edited.spellDefinitionHistory().getFirst().current().attackSave());
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(ScenarioPreparationApplicationService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        String priorDiagnostics = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        try {
+            assertThrows(com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException.class,
+                    () -> service.approveSpellDefinition(currentPackage[0].packageId(), owner(), original.id(), 0));
+            assertTrue(appender.list.stream().map(event -> event.getFormattedMessage()).anyMatch(message ->
+                    message.contains("definitionId=" + original.id()) && message.contains("expectedRevision=0 actualRevision=1")));
+        } finally {
+            logger.detachAppender(appender);
+            if (priorDiagnostics == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, priorDiagnostics);
+        }
+        assertThrows(com.dndmaster.adventure.domain.scenario.ScenarioBundleAccessDeniedException.class,
+                () -> service.approveSpellDefinition(currentPackage[0].packageId(), new OwnerPlayerId(UUID.randomUUID()), original.id(), 1));
+
+        var approved = service.approveSpellDefinition(currentPackage[0].packageId(), owner(), original.id(), 1);
+        assertEquals(2, approved.spellDefinitionRevision());
+        assertEquals(StructuredSpellDefinition.ReviewStatus.APPROVED, approved.spellDefinitions().getFirst().reviewStatus());
     }
 
     @Test

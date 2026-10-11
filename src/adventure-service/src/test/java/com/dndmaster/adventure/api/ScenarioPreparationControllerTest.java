@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
@@ -104,6 +105,28 @@ class ScenarioPreparationControllerTest {
                         .content("{\"expectedRevision\":7,\"fieldKey\":\"node-race\",\"value\":\"Elf\"}"))
                 .andExpect(status().isOk());
         verify(service).resolveBlueprint(eq(packageId), any(OwnerPlayerId.class), eq(7L), eq("node-race"), eq("Elf"));
+    }
+
+    @Test
+    void spellDefinitionEditAndApprovalUseAuthenticatedOwnerAndExpectedRevision() throws Exception {
+        UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
+
+        mockMvc.perform(put("/api/v1/scenario-packages/{scenarioPackageId}/play-preparation/spell-action-definitions/{definitionId}", packageId, "spell-1")
+                        .header("Authorization", "Bearer token").contentType(APPLICATION_JSON)
+                        .content("""
+                                {"expectedRevision":3,"level":"Cantrip","castingTime":"1 action","rangeArea":"60 ft.","components":"V,S","duration":"Instantaneous","school":"Evocation","attackSave":"DEX save","damageEffect":"1d6 fire"}
+                                """))
+                .andExpect(status().isOk());
+        verify(service).editSpellDefinition(eq(packageId), eq(new OwnerPlayerId(ownerId)), eq("spell-1"),
+                org.mockito.ArgumentMatchers.argThat(edit -> edit.expectedRevision() == 3 && edit.damageEffect().equals("1d6 fire")));
+
+        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/play-preparation/spell-action-definitions/{definitionId}/approve", packageId, "spell-1")
+                        .header("Authorization", "Bearer token").contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":4}"))
+                .andExpect(status().isOk());
+        verify(service).approveSpellDefinition(packageId, new OwnerPlayerId(ownerId), "spell-1", 4);
     }
 
     @Test

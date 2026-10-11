@@ -50,7 +50,20 @@ public record StructuredSpellDefinition(
         return value;
     }
 
-    public enum ReviewStatus { PENDING }
+    public enum ReviewStatus { PENDING, APPROVED }
+
+    public StructuredSpellDefinition edit(String level, String castingTime, String rangeArea, String components,
+            String duration, String school, String attackSave, String damageEffect) {
+        return new StructuredSpellDefinition(id, name, sourceDocumentId, sourceLocator, sourceVersion,
+                extractionVersion, level, castingTime, rangeArea, components, duration, school, attackSave,
+                damageEffect, ownerPlanNumbers, ownerEvidence, executable, ReviewStatus.PENDING);
+    }
+
+    public StructuredSpellDefinition approve() {
+        return new StructuredSpellDefinition(id, name, sourceDocumentId, sourceLocator, sourceVersion,
+                extractionVersion, level, castingTime, rangeArea, components, duration, school, attackSave,
+                damageEffect, ownerPlanNumbers, ownerEvidence, executable, ReviewStatus.APPROVED);
+    }
 
     public StructuredSpellDefinition withSourceLocator(String locator) {
         if (sourceLocator.equals(locator)) return this;

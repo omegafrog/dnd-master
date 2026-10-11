@@ -8,6 +8,7 @@ import java.util.Objects;
 
 /** Starts a Scenario Model Runtime Adventure and owns the READY guard. */
 public final class AdventureStartApplicationService {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(AdventureStartApplicationService.class);
     private final ScenarioPackageRepository packages;
     private final AdventureRepository adventures;
     private final com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationApplicationService stagePreparation;
@@ -21,14 +22,28 @@ public final class AdventureStartApplicationService {
 
     public Adventure start(StartAdventureCommand command) {
         Objects.requireNonNull(command, "start command must not be null");
+        long spellDefinitionRevision = packages.spellDefinitionRevision(command.scenarioPackageId());
         ScenarioPackage scenarioPackage = packages.findById(command.scenarioPackageId())
                 .orElseThrow(() -> new IllegalStateException("scenario package not found"));
         if (!scenarioPackage.isReady()) throw new IllegalStateException("scenario package is not READY");
+        long pendingSpellReviews = scenarioPackage.spellDefinitions().stream()
+                .filter(definition -> definition.reviewStatus() != com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.APPROVED)
+                .count();
+        if (pendingSpellReviews > 0) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                LOGGER.info("dev_flow operation=adventure_start_spell_review outcome=blocked packageId={} expected=all_approved actualPending={}",
+                        scenarioPackage.packageId(), pendingSpellReviews);
+            }
+            throw new IllegalStateException("spell definitions require user review before adventure start");
+        }
         if (scenarioPackage.bundleRevision() != command.scenarioPackageRevision()) {
             throw new IllegalStateException("scenario package revision does not match start request");
         }
 
         Adventure adventure = adventures.findById(command.adventureId()).orElse(null);
+        if (adventure == null && !scenarioPackage.spellDefinitions().isEmpty()) {
+            packages.lockSpellDefinitionsForStart(scenarioPackage.packageId(), spellDefinitionRevision);
+        }
         if (adventure != null && adventure.status() == com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE) return adventure;
         if (adventure == null) {
             adventure = Adventure.beginScenarioRuntime(command.adventureId(), command.sessionId(), command.ownerPlayerId(),
