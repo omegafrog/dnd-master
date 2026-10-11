@@ -6,6 +6,41 @@ import { CharacterSheetView } from '../character/CharacterSheetView'
 import { RoleDiceRoller } from '../dice/RoleDiceRoller'
 import { HttpAdventurePlayApi, type AdventurePlayApi, type CombatMapView as CombatMapState } from '../saved-adventures/AdventurePlayApi'
 import { animateCommittedMovement, boundariesInStroke, CombatMapView } from './CombatMapView'
+import type { CombatAimMapInteraction } from './CombatMapView'
+
+it('uses the shared screen-to-grid conversion for aim hover, overlays public cells, and leaves click selection read-only', async () => {
+  const api = fakeApi()
+  const onHover = vi.fn()
+  const onSelect = vi.fn()
+  const aimInteraction: CombatAimMapInteraction = {
+    definitionId: 'definition-1',
+    preview: { supported: true, distanceFeet: 10, inRange: true, longRange: false, clearPath: true,
+      blockReason: null, path: [{ x: 1, y: 1 }, { x: 2, y: 1 }], effectCells: [{ x: 2, y: 1 }, { x: 2, y: 0 }],
+      encounterVersion: 3, mapVersion: 0, definitionVersion: 2 },
+    onHover, onSelect,
+  }
+  const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    left: 0, top: 0, width: 300, height: 200, right: 300, bottom: 200, x: 0, y: 0, toJSON: () => ({}),
+  } as DOMRect)
+  try {
+    render(<CombatMapView adventureId="a1" api={api} aimInteraction={aimInteraction} />)
+    const map = await screen.findByLabelText('tactical-map')
+    const cursorCell = await screen.findByRole('button', { name: '격자 2,1' })
+    fireEvent.pointerEnter(cursorCell, { clientX: 250, clientY: 150 })
+    expect(onHover).toHaveBeenCalledWith({ x: 2, y: 1 }, 0, 'p1')
+    expect(await screen.findByRole('button', { name: 'PLAYER 1,1' })).toHaveAttribute('data-aim-path', 'true')
+    expect(cursorCell).toHaveAttribute('data-aim-effect', 'true')
+    expect(map.querySelector('[data-visibility="hidden"][data-aim-path="true"]')).toBeNull()
+    expect(map.querySelector('[data-visibility="hidden"][data-aim-effect="true"]')).toBeNull()
+    fireEvent.drop(cursorCell)
+    expect(screen.queryByRole('dialog', { name: '맵 행동 확인' })).not.toBeInTheDocument()
+    await userEvent.click(cursorCell)
+    expect(onSelect).toHaveBeenCalledWith({ x: 2, y: 1 }, 0, 'p1')
+    expect(api.submitMapAction).not.toHaveBeenCalled()
+  } finally {
+    bounds.mockRestore()
+  }
+})
 
 it('animates only the server committed traversed path', async () => {
   vi.useFakeTimers()

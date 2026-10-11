@@ -3,8 +3,36 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CombatScreen } from './CombatScreen'
+import type { CombatAimMapInteraction } from '../combat-map/CombatMapView'
 
 describe('CombatScreen', () => {
+  it('previews a selected definition and keeps map click in the read-only selection seam', async () => {
+    const user = userEvent.setup()
+    const submitAction = vi.fn(async () => ({ status: 'COMMITTED' }))
+    const castSpell = vi.fn(async () => ({ status: 'COMMITTED' }))
+    const previewAim = vi.fn(async () => ({ supported: true, distanceFeet: 10, inRange: true, longRange: false,
+      clearPath: true, blockReason: null, path: [{ x: 1, y: 0 }], effectCells: [{ x: 2, y: 0 }],
+      encounterVersion: 3, mapVersion: 5, definitionVersion: 2 }))
+    const definition = { id: 'action-1', name: '활 쏘기', version: 2, actionKind: 'RANGED_ATTACK' as const,
+      rangeProfile: { form: 'NORMAL_AND_LONG' as const, normalRangeFeet: 30, longRangeFeet: 120 }, targetingProfile: null }
+    const api = { readSnapshot: vi.fn(), submitAction, castSpell, previewAim, endTurn: vi.fn(),
+      readAimDefinitions: vi.fn(async () => [definition]) }
+    render(<CombatScreen api={api} map={<AimMapHarness />} snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE',
+      round: 1, currentParticipantId: 'p1', version: 3, eventCursor: 2,
+      resources: { movement: 30, actionAvailable: true, bonusActionAvailable: true, reactionAvailable: true },
+      initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
+
+    await user.hover(await screen.findByRole('button', { name: '조준 미리보기 위치' }))
+    expect(await screen.findByText(/거리 10ft · 사거리 안/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '조준 미리보기 위치' }))
+
+    expect(screen.getByText('선택 위치: (2,3)')).toBeInTheDocument()
+    expect(previewAim).toHaveBeenCalledWith('a1', expect.objectContaining({ definitionId: 'action-1', targetX: 2, targetY: 3,
+      tokenId: 'p1', expectedEncounterVersion: 3, expectedMapVersion: 5 }))
+    expect(submitAction).not.toHaveBeenCalled()
+    expect(castSpell).not.toHaveBeenCalled()
+  })
+
   it('shows current speed, used and remaining movement and submits Dash', async () => {
     const user = userEvent.setup()
     const submitAction = vi.fn(async () => ({ status: 'COMMITTED' }))
@@ -199,3 +227,9 @@ describe('CombatScreen', () => {
     expect(screen.getAllByRole('status').at(-1)).toHaveTextContent('전투 처리를 다시 요청했습니다.')
   })
 })
+
+function AimMapHarness({ aimInteraction }: { aimInteraction?: CombatAimMapInteraction }) {
+  return <button type="button" aria-label="조준 미리보기 위치"
+    onPointerEnter={() => aimInteraction?.onHover({ x: 2, y: 3 }, 5, 'p1')}
+    onClick={() => aimInteraction?.onSelect({ x: 2, y: 3 }, 5, 'p1')}>조준 칸</button>
+}

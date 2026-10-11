@@ -6,6 +6,14 @@ import { MapCropEditor } from './MapCropEditor'
 import { tokenVisualCatalog } from './TokenVisualCatalog'
 import { screenPointToGrid } from './mapScreenToGrid'
 import { diagnosticEvent } from '../../shared/developmentDiagnostics'
+import type { CombatAimPreview } from '../combat/CombatApi'
+
+export type CombatAimMapInteraction = {
+  definitionId: string
+  preview?: CombatAimPreview
+  onHover: (cell: { x: number; y: number }, mapVersion: number, tokenId: string) => void
+  onSelect: (cell: { x: number; y: number }, mapVersion: number, tokenId: string) => void
+}
 
 type PendingMovement = { mapId: string; tokenId: string; turnId?: string; commandId?: string; cancelCommandId?: string; result: MapMovementResult }
 type PendingMovementCommand = { candidate: MapInteractionCandidate; turnId: string; commandId: string; expectedVersion: number }
@@ -43,7 +51,7 @@ function logMapZoom(previous: number, zoom: number, outcome: 'changed' | 'reset'
   }
 }
 
-export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, movementRemaining, onPreparationComplete }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; movementRemaining?: number; onPreparationComplete?: () => void | Promise<void> }) {
+export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, movementRemaining, onPreparationComplete, aimInteraction }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; movementRemaining?: number; onPreparationComplete?: () => void | Promise<void>; aimInteraction?: CombatAimMapInteraction }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [publicMapImage, setPublicMapImage] = useState<string | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
@@ -717,8 +725,22 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
           const tokenVisual = displayToken ? tokenVisualCatalog.resolve(displayToken, { selectedTokenId: selectedToken, currentTurnTokenId: map.currentTurnTokenId }) : undefined
           const movementPreview = !preparationMode && candidate?.action === 'MOVE' && candidate.path?.some(position => position.x === cell.x && position.y === cell.y)
           const ghostDestination = movementPreview && candidate?.to?.x === cell.x && candidate.to.y === cell.y
+          const aimPath = !preparationMode && (visible || explored) && aimInteraction?.preview?.path.some(position => position.x === cell.x && position.y === cell.y)
+          const aimEffect = !preparationMode && (visible || explored) && aimInteraction?.preview?.effectCells.some(position => position.x === cell.x && position.y === cell.y)
+          const aimActor = (selectedToken ? map.tokens?.find(item => item.id === selectedToken && item.type === 'PLAYER') : undefined)
+            ?? map.tokens?.find(item => item.type === 'PLAYER')
+          const aimCell = (event: { currentTarget: HTMLButtonElement; clientX: number; clientY: number }) => {
+            const rect = event.currentTarget.parentElement?.getBoundingClientRect()
+            if (!rect || !aimInteraction || !aimActor || !map.mapId) return
+            if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY) || rect.width <= 0 || rect.height <= 0) {
+              return { target: cell, tokenId: aimActor.id }
+            }
+            const point = screenPointToGrid(event.clientX, event.clientY, rect, displayedColumns, displayedRows)
+            const target = { x: (playableWindow?.minX ?? 0) + Math.floor(point.x), y: (playableWindow?.minY ?? 0) + Math.floor(point.y) }
+            return { target, tokenId: aimActor.id }
+          }
           const draftLabel = door ? `${door.open ? '열린 문' : '닫힌 문'} ${cell.x},${cell.y}` : blocked ? `벽 ${cell.x},${cell.y}` : token ? `플레이어 시작 위치 ${cell.x},${cell.y}` : `빈 격자 ${cell.x},${cell.y}`
-          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : displayToken ? `${displayToken.type} ${displayToken.x},${displayToken.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={displayToken?.type} data-token-faction={tokenVisual?.faction} data-token-status={tokenVisual?.primaryStatus} data-token-asset={tokenVisual?.assetPath} data-token-frame={tokenVisual?.framePath} data-movement-preview={movementPreview ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={displayToken?.lastSeen ? 'true' : 'false'} className={tokenVisual?.classes.join(' ')} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible && !explored)} draggable={!preparationMode && displayToken?.type === 'PLAYER'} onPointerEnter={() => { if (movementHoverEnabled && !preparationMode && selectedToken && displayToken?.type !== 'PLAYER' && (visible || explored)) void chooseCell(cell) }} onDragStart={() => { if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id) }} onClick={() => { if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id); else if (!preparationMode) void chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => { void chooseCell(cell) }}>
+          return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={preparationMode ? draftLabel : !playable ? '지도 밖 영역' : displayToken ? `${displayToken.type} ${displayToken.x},${displayToken.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={!playable ? 'outside' : visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={displayToken?.type} data-token-faction={tokenVisual?.faction} data-token-status={tokenVisual?.primaryStatus} data-token-asset={tokenVisual?.assetPath} data-token-frame={tokenVisual?.framePath} data-movement-preview={movementPreview ? 'true' : undefined} data-aim-path={aimPath ? 'true' : undefined} data-aim-effect={aimEffect ? 'true' : undefined} data-ghost-token={ghostDestination ? 'true' : undefined} data-start-selected={preparationMode && selectedPlayerStart?.x === cell.x && selectedPlayerStart?.y === cell.y ? 'true' : undefined} data-last-seen={displayToken?.lastSeen ? 'true' : 'false'} className={tokenVisual?.classes.join(' ')} disabled={!playable || startBlocked || (preparationMode && layoutEditing) || (!preparationMode && !visible && !explored)} draggable={!aimInteraction && !preparationMode && displayToken?.type === 'PLAYER'} onPointerEnter={event => { if (aimInteraction) { const aim = aimCell(event); if (aim) aimInteraction.onHover(aim.target, map.version ?? 0, aim.tokenId) } else if (movementHoverEnabled && !preparationMode && selectedToken && displayToken?.type !== 'PLAYER' && (visible || explored)) void chooseCell(cell) }} onDragStart={() => { if (!aimInteraction && !preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id) }} onClick={() => { if (aimInteraction) { if (aimActor && map.mapId) aimInteraction.onSelect(cell, map.version ?? 0, aimActor.id) } else if (preparationMode && !layoutEditing) setSelectedPlayerStart(cell); else if (!preparationMode && displayToken?.type === 'PLAYER') setSelectedToken(displayToken.id); else if (!preparationMode) void chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => { if (!aimInteraction) void chooseCell(cell) }}>
             {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : ghostDestination ? '유령 토큰' : tokenVisual && displayToken ? <span className="token-visual" aria-hidden="true"><span className="token-visual-frame" style={{ backgroundImage: `url(${tokenVisual.framePath})` }} /><img src={tokenVisual.assetPath} alt="" /><span className="token-visual-label">{`${displayToken.type} (${displayToken.x},${displayToken.y})${displayToken.elevationFeet ? ` · 지면에서 높이 ${displayToken.elevationFeet} 피트` : ''}`}</span></span> : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
           </button>
           })}

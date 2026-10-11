@@ -59,6 +59,40 @@ export type CombatCommandResult = {
 }
 export type CombatEvent = { sequence: number; type: string; payload: string }
 
+export type CombatAimDefinition = {
+  id: string
+  name: string
+  version: number
+  actionKind: 'SPELL' | 'RANGED_ATTACK' | 'THROWN'
+  rangeProfile: { form: 'SINGLE' | 'NORMAL_AND_LONG' | 'UNSUPPORTED'; normalRangeFeet: number | null; longRangeFeet: number | null } | null
+  targetingProfile: { mode: string; origin: string; shape: string; lengthFeet: number | null; widthFeet: number | null; heightFeet: number | null; radiusFeet: number | null; pathBlocking: string; propagation: string } | null
+}
+
+export type CombatAimPreview = {
+  supported: boolean
+  distanceFeet: number
+  inRange: boolean
+  longRange: boolean
+  clearPath: boolean
+  blockReason: string | null
+  path: Array<{ x: number; y: number }>
+  effectCells: Array<{ x: number; y: number }>
+  encounterVersion: number
+  mapVersion: number
+  definitionVersion: number
+}
+
+/** Confirmed target selection contract for the action submission flow. */
+export type CombatAimSelection = {
+  definitionId: string
+  definitionVersion: number
+  tokenId: string
+  targetX: number
+  targetY: number
+  expectedEncounterVersion: number
+  expectedMapVersion: number
+}
+
 export interface CombatApi {
   subscribeEvents?(adventureId: string, afterSequence: number, onEvent: (event: CombatEvent) => void, onError?: () => void): () => void
   readSnapshot(adventureId: string): Promise<CombatSnapshot | null>
@@ -70,6 +104,8 @@ export interface CombatApi {
   endTurn(adventureId: string, characterSheetId: string, version: number): Promise<CombatCommandResult>
   resolveReaction?(adventureId: string, reactionId: string, choice: 'USE' | 'PASS', version: number): Promise<CombatCommandResult>
   retry?(adventureId: string, operationId: string, version: number): Promise<CombatCommandResult>
+  readAimDefinitions?(adventureId: string): Promise<CombatAimDefinition[]>
+  previewAim?(adventureId: string, request: { commandId: string; definitionId: string; definitionVersion: number; tokenId: string; targetX: number; targetY: number; expectedEncounterVersion: number; expectedMapVersion: number }): Promise<CombatAimPreview>
 }
 
 export class HttpCombatApi implements CombatApi {
@@ -144,6 +180,24 @@ export class HttpCombatApi implements CombatApi {
 
   async retry(adventureId: string, operationId: string, version: number): Promise<CombatCommandResult> {
     return this.postCommand(`/api/v1/adventures/${adventureId}/combat/retry`, { operationId }, version)
+  }
+
+  async readAimDefinitions(adventureId: string): Promise<CombatAimDefinition[]> {
+    const response = await fetch(`/api/v1/adventures/${adventureId}/combat/actions/definitions`, {
+      headers: { Authorization: `Bearer ${this.getToken()}` },
+    })
+    if (!response.ok) throw new Error(`전투 행동 정의를 불러오지 못했습니다. (${response.status})`)
+    return response.json() as Promise<CombatAimDefinition[]>
+  }
+
+  async previewAim(adventureId: string, request: Parameters<NonNullable<CombatApi['previewAim']>>[1]): Promise<CombatAimPreview> {
+    const response = await fetch(`/api/v1/adventures/${adventureId}/combat/actions/preview`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.getToken()}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    })
+    if (!response.ok) throw new Error(`조준 미리보기를 갱신하지 못했습니다. (${response.status})`)
+    return response.json() as Promise<CombatAimPreview>
   }
 
   private async postCommand(path: string, body: unknown, version: number): Promise<CombatCommandResult> {
