@@ -10,17 +10,18 @@
 | 항목 | 대상 |
 |---|---|
 | Product Spec | `docs/specs/combat-movement-spell-range/product-spec.md` |
-| Use Cases | UC-001 준비, UC-002 이동·주문, UC-003 지도 확대, UC-004 주문 효과의 환경 응용 |
-| Domain | 주문·행동 정의, 선택·미리보기, 전투 실행, 환경 상호작용 |
+| Use Cases | UC-001 준비, UC-002 이동·주문·원거리 공격·투척, UC-003 지도 확대, UC-004 주문 효과의 환경 응용 |
+| Domain | 주문·행동 정의, 지도 조준·미리보기, 전투 실행, 환경 상호작용 |
 | Bounded Contexts | Scenario Preparation, Adventure Runtime, Document Knowledge, AI Game Master, Combat Map, Character Management, Dice Roll — 모두 기존 경계 |
 | Existing Services | `adventure-service`, `rule-knowledge-service`, `ai-game-master-service`, `combat-map-service`, `character-management-service`, `dice-roll-service`, `web-ui` |
 | External Dependencies | 기존 HTTP 서비스 경계와 현재 AI 제공자 연동. MCP 서버 추가 없음 |
-| Affected Data | 게시 원본 정의·출처 버전, ScenarioPackage의 모험별 정의·편집·승인, Bundle 잠금 참조, 전투 명령·실행 단계 |
+| Affected Data | 게시 원본 정의·출처 버전, 지문 재사용되는 ScenarioPackage 원본, 준비 ID별 정의 편집·승인·이력, Session의 준비 ID 연결, 전투 명령·실행 단계 |
 ## 1.2 Product Spec Mapping
 | Product 항목 | 아키텍처 매핑 |
 |---|---|
 | UC-001, BR-01~04, BR-22, BR-29 | Document Knowledge의 불변 게시 원본과 Scenario Preparation의 전체 주문 정의·모험별 수정본·승인본; Bundle Lock |
 | UC-002, BR-05~21 | Adventure Runtime의 전투 명령·규칙 판정; Combat Map의 이동·위치·고도·시야; Character Management와 Dice Roll의 기존 권위 |
+| AC-28~30, BR-30~32 | 출처가 연결된 행동 정의의 사거리·표적·모양·차단 자료; 공통 조준 미리보기와 Combat Map의 공개 경로/효과 칸; 이름별 분기 없는 자료 추가·수정·삭제 |
 | UC-004, BR-23~28 | AI Game Master가 허용 목록으로 환경 응용을 계획; Adventure Runtime의 `OfficialGmToolRegistry`/`GmToolGatewayService`와 기존 명령 경계가 검증·실행 |
 | AC-14~15, BR-14~15 | 공개 정보만 사용한 읽기 전용 미리보기; 현재 encounter/map/definition 버전 최종 검증 |
 | AC-21, BR-22 | 구조·출처·지원 특성의 자동 확인과 의미·구성의 사용자 최종 검토를 분리 |
@@ -29,7 +30,7 @@
 
 ## 2.1 핵심 흐름
 
-- **준비:** 게시 룰북 원본·추출 버전을 참조해 D&D 5판(2014) 기본 룰북 전체 주문 및 선택 추가 자료를 ScenarioPackage에 구조화한다. 구조, 출처, 지원 가능한 특성만 자동 검사한다. 사용자가 의미·수치·조건·구성을 직접 검토·수정·승인한다. 수정본은 현재 모험에만 적용하고 시작 전에 잠근다.
+- **준비:** 게시 룰북 원본·추출 버전을 참조해 D&D 5판(2014) 기본 룰북 전체 주문 및 선택 추가 자료를 불변 ScenarioPackage에 구조화한다. 구조, 출처, 지원 가능한 특성만 자동 검사한다. 새 모험 준비를 시작할 때 서버가 고유 `preparationId`를 발급하고, 해당 ID와 ScenarioPackage ID에 연결된 별도 검토 자료에 사용자의 수정·승인·이력을 저장한다. 사용자가 의미·수치·조건·구성을 직접 검토·수정·승인하며, 새로 만든 Session에 `preparationId`를 연결해 그 준비 자료만 시작 전에 잠근다. 같은 패키지를 재사용하는 다른 모험은 별도 ID와 검토 자료를 사용한다.
 
 `combat-01`의 기본 주문 목록은 제공된 `DnD_BasicRules_2018.pdf`와 동반 노드 자료에서만 만든다. 각 정의는 선택된 기본 룰북의 실제 문서 ID·추출 버전과 PDF 페이지·노드 위치를 보존한다. 이 인벤토리에 선택 추가 자료를 섞지 않는다.
 - **이동·주문:** 공개 상태 미리보기 → 사용자 선택/명시적 제출 → 기대 encounter/map/definition 버전 확인 → 규칙 검증과 기존 명령 실행. 시전 시간은 정의된 규칙을 따르며, 모든 주문이 즉시 클릭 한 번으로 발동하는 것은 아니다.
@@ -55,7 +56,7 @@
 | Capability | Owner Context | Chosen Boundary | 더 약한 경계가 부족한가? | 더 강한 경계 비용 |
 |---|---|---|---|---|
 | 주문 정의·특성 실행 | Adventure Runtime | 기존 `adventure-service` 내부 도메인/응용 기능 | 기존 `CombatRulesEngine`와 명령 흐름을 확장해 불변식·멱등성을 보존 | 새 서비스는 공유 상태 조정과 동기 호출을 늘리며 독립 수명주기 근거가 없음 |
-| 모험별 구조화·검토·승인 | Scenario Preparation | 기존 `adventure-service` 패키지·ScenarioPackage 저장 | ScenarioPackage가 이미 모험 자료·수정본·리비전을 소유 | 별도 컨텍스트·저장소는 Bundle Lock 전후 불일치 추가 |
+| 모험별 구조화·검토·승인 | Scenario Preparation | 기존 `adventure-service`와 ScenarioPackage 및 준비 검토 저장 | ScenarioPackage는 지문으로 재사용되는 불변 원본이므로 수정·승인·이력은 `preparationId`와 패키지 ID로 분리 | 별도 서비스는 추가하지 않고 기존 저장소 경계 안의 준비 검토 자료를 사용 |
 | 이동·고도·벽·시야·공간 효과 | Combat Map | 기존 `combat-map-service` | 지도 상태와 칸별 이동의 기존 정본을 재사용 | 지도 로직 복제 시 가시성·경로 권위 충돌 |
 | GM 환경 응용 허용 목록 | Adventure Runtime / AI Game Master | 기존 도구 등록·게이트웨이·GM 계획 연동 | 기존 GM 호출과 권한 발급 경계에 기능을 추가 | MCP/새 외부 서버는 요청되지 않았고 운영 경계만 추가 |
 ## 3.2 Context Map and Ownership
@@ -71,11 +72,14 @@ Scenario Preparation은 Document Knowledge의 문서·추출 버전을 ID로 참
 ## 3.3 Aggregates, Types, and Invariants
 | Aggregate/개념 | 책임 및 불변식 |
 |---|---|
-| `ScenarioPackage` | 주문 정의 전체 인벤토리·모험별 편집본·사용자 승인 이력을 보유. 승인본은 현재 모험에만 적용; 공개 룰북/다른 모험 자료는 변경하지 않음 |
-| `Bundle` | 기존 Bundle Lock으로 정확한 ScenarioPackage·정의·원문·추출 버전을 참조 |
+| `ScenarioPackage` | 주문 정의 전체 인벤토리와 원문·추출 버전을 보유하는 불변 원본 |
+| 준비 검토 자료 | `preparationId`와 ScenarioPackage ID로 연결된 사용자 편집본·필수 여부·승인·이력·리비전·잠금 상태를 보유 |
+| `Session` | 준비 검토 자료의 `preparationId`를 보유해 이후 모험 시작 때 같은 승인본을 잠금 |
+| `Bundle` | 기존 Bundle Lock으로 정확한 ScenarioPackage·원문·추출 버전을 참조 |
 | `CombatEncounter` | Initiative, 턴, 캐릭터와 현재 속도 변경 효과에서 계산한 속도/이동 사용량, `TurnResources`의 행동·보너스 행동·반응 및 주문 슬롯·집중 사용, 확정 전투 결과 소유 |
 | 기존 Runtime Command operation | commandId·단계·결과의 영속 상태. 재실행 방지 및 불명 결과 조회 |
-| `SpellActionDefinition` | 안정 ID·버전·출처, 시전 시점/비용/구성요소, 사거리·대상·형상, 경로·엄폐 조건, 지속/집중/발동, 효과·단계별 변화, 특성 매개변수 |
+| `SpellActionDefinition` | 안정 ID·버전·출처, 시전 시점/비용/구성요소, 지속/집중/발동, 효과·단계별 변화와 특성 매개변수. `ActionKind`는 주문·원거리 공격·투척을 구분하고, `RangeProfile`은 단일 사거리 또는 일반·최대 사거리를 담으며, `TargetingProfile`은 대상 방식·시작점·효과 모양/치수·표적 경로 차단·범위 효과 확산을 담음 |
+| 정의 조준 자료 | 위 정의 안의 출처가 확인된 자료. 효과 모양과 차단 조건은 공통으로 지원하는 기하 규칙에서만 선택하며, 준비 화면에서 추가·수정·비활성화·삭제 가능. 주문/무기 이름이나 특정 룰북을 검사하는 실행 분기는 두지 않음 |
 | `SpellActionSelection` | 선택된 정의 버전, 슬롯, 대상·배분, 위치/방향/고도, 기대 상태 버전 |
 | `SpellActionPreview` | 공개 가능한 사거리/효과/경로/비용/대상/선택 필요/경고만 포함 |
 | `SpellTrait` | 서로 다른 실제 규칙 기제를 구현하는 전략. 정의·선택·문맥을 평가해 허용된 연산과 추가 요구조건 반환 |
@@ -123,15 +127,18 @@ SpellActionRulesEngine.execute(authoritativeContext, definition, selection, comm
 ```
 `TraitEvaluation`은 허용된 타입 연산, 추가 사용자 선택/굴림 요구, 거부 사유를 반환한다. 특성은 복수의 실제 주문 기제를 구현한다. 주문별 숫자와 특성 조합은 버전형 데이터이며, 새 기제를 추가할 때만 코드를 추가한다. 필수 구조·형식·지원 특성은 자동 검사한다. trait 조합의 의미·조건 충돌은 사용자가 검토하며 완전한 의미 충돌 검증기를 요구하지 않는다. 임의 스크립트는 실행하지 않는다.
 
-전투 화면의 입력 흐름은 선택 → 가리키기 → 미리보기 → 확정이다. 단일 대상 선택만으로 충분하면 클릭으로 제출한다. 여러 대상이나 투사체 배분이 필요하면 선택을 마친 뒤 명시적으로 시전한다. 원뿔·선처럼 방향이 규칙상 필요한 효과는 시전자에서 커서 방향을 사용하고, 점 지정 효과는 커서를 중심점으로 삼는다. 마법 화살처럼 유효 대상 지정형 주문에는 임의 방향을 요구하지 않는다. 지면으로부터의 높이는 비행·거리·효과 판정에서 필요한 경우에만 입력·표시한다.
+전투 화면의 입력 흐름은 주문·원거리 공격·투척 선택 → 가리키기 → 미리보기 → 확정이다. 경로의 각 지도 칸을 붉게 표시하고, 정의에 공간 효과가 있으면 그 영향 칸을 별도 오버레이로 표시한다. 단일 대상 선택만으로 충분하면 클릭으로 제출한다. 여러 대상이나 투사체 배분이 필요하면 선택을 마친 뒤 명시적으로 시전한다. 원뿔·선처럼 방향이 규칙상 필요한 효과는 행동 토큰에서 커서 방향을 사용하고, 점 지정 효과는 커서를 중심점으로 삼는다. 대상 지정형 행동에는 정의가 요구하지 않는 방향을 붙이지 않는다. 지면으로부터의 높이는 비행·거리·효과 판정에서 필요한 경우에만 입력·표시한다.
+
+정의 자료에는 행동 종류, 사거리 표현(단일 거리 또는 일반·최대 거리), 대상 선택 방식, 시작점, 지원 형상과 치수, 직접 표적 경로의 차단 조건, 범위 효과의 차단·확산 조건을 출처와 함께 저장한다. 기본 룰북의 원뿔·정육면체·원기둥·선·구와 완전 엄폐·명확한 경로 규칙은 이 공통 자료형에 매핑한다. 효과 모양의 계산과 칸별 공개는 Combat Map의 기존 지형·벽·고도·가시성 권위를 사용한다. 정의가 현재 지원하는 자료형으로 표현되지 않으면 준비 과정에서 미지원과 이유를 보여주고 실행을 막는다. 경로 칸은 공개 가능한 정보만 색칠하며 숨겨진 벽의 위치나 형상을 드러내지 않는다.
 ### API contracts
 | 기존 및 추가 경로 | 계약 |
 |---|---|
-| `GET /api/v1/scenario-packages/{scenarioPackageId}/play-preparation` | 정의 원문 출처·특성·수치·조건·지원 상태와 사용자 검토/승인 상태 반환 |
-| `PUT /api/v1/scenario-packages/{scenarioPackageId}/play-preparation/spell-action-definitions/{definitionId}` | `expectedRevision`과 편집본 수신. 패키지 소유권·버전 검사, 원문/편집 출처 보존 |
-| `POST /api/v1/scenario-packages/{scenarioPackageId}/play-preparation/spell-action-definitions/{definitionId}/approve` | 모험 시작 전 사용자 승인; 현재 패키지/Bundle에만 고정 |
-| `POST /api/v1/adventures/{adventureId}/combat/actions/preview` | 일반 행동 및 주문의 선택과 위치/방향/높이, `commandId`, expected encounter/map/definition versions. 공개 투영만 반환하고 상태를 바꾸지 않음 |
-| `POST /api/v1/adventures/{adventureId}/combat/spells/preview` | 주문 `definitionId/version`, 슬롯·대상/배분·필요 시 위치/방향/높이, `commandId`, expected encounter/map/definition versions. 공개 투영만 반환하고 상태를 바꾸지 않음 |
+| `POST /api/v1/scenario-packages/{scenarioPackageId}/play-preparations` | 새 모험 준비용 `preparationId` 발급; 재시도 키가 같은 요청은 같은 ID 반환 |
+| `GET /api/v1/play-preparations/{preparationId}` | 정의 원문 출처·특성·수치·조건·지원 상태와 이 준비 ID의 검토/승인 상태 반환 |
+| `PUT /api/v1/play-preparations/{preparationId}/spell-action-definitions/{definitionId}` | `expectedRevision`과 편집본 수신. 소유권·패키지 연결·버전 검사, 원문/편집 출처 보존 |
+| `POST /api/v1/play-preparations/{preparationId}/spell-action-definitions/{definitionId}/approve` | 모험 시작 전 사용자 승인; 해당 준비 자료와 연결된 Session에만 고정 |
+| `POST /api/v1/adventures/{adventureId}/combat/actions/preview` | 주문·원거리 공격·투척의 정의 ID/버전, 선택 위치, `commandId`, 기대 encounter/map/definition 버전. 행동 토큰부터 커서 위치까지의 유효 경로 칸, 사거리 판정, 정의된 효과 칸과 차단 결과를 공개 지도 투영으로 반환하며 상태를 바꾸지 않음 |
+| `POST /api/v1/adventures/{adventureId}/combat/spells/preview` | 기존 주문 입력 경로. 주문 정의·슬롯·대상/배분·필요 시 위치/방향/높이를 공통 행동 미리보기 계약으로 전달하고 공개 결과만 반환 |
 | 기존 `POST /api/v1/adventures/{adventureId}/combat/actions` | 일반 행동 제출; `Idempotency-Key`, `If-Match-Version`과 최신 선택 정보를 기존 멱등 경로에서 검증 |
 | 기존 `POST /api/v1/adventures/{adventureId}/combat/spells` | 이름 대신 잠긴 `definitionId/version` 기반 선택; `Idempotency-Key`, `If-Match-Version`, 필요한 대상·배분·방향·높이 포함 |
 | 기존 `POST /api/v1/adventures/{adventureId}/combat-map/movement-preview` 및 이동 제출 경로 | 현재 속도·남은 이동량·지형 비용·고도·공개 가능한 장애물/도달 영역; 미리보기와 실행에 `commandId` 및 기대 지도/전투 버전을 적용 |
@@ -156,9 +163,10 @@ SpellActionRulesEngine.execute(authoritativeContext, definition, selection, comm
 현재 `CombatActionApplicationService.castSpell(..., spellName)`은 하드코딩된 마법 화살 한 종류를 처리하고 일반 행동/주문 정의 미리보기·선택 계약이 없다. 기존 이동 미리보기에는 이 제품의 고도·전 범위 주문 규칙 계약이 없다. `GmAgentRuntimePlanningAdapter`가 허용 작업을 얻어도 현재 `HttpTypedRuntimeGmAgentPort.plan(context, tools)`는 `tools`와 capability를 무시하고 `plan(context)`로 위임한다. 따라서 변경 목표는 HTTP 요청 본문과 local AI 계획 입력 모두에 허용 작업 이름·입력 스키마·제약을 넣고, 응답에서 타입이 있는 작업 호출을 해석하는 것이다. 기존 MCP 연동은 룰북 검색 전용 읽기 경로로 유지한다.
 | 경로 | 변경 제안 |
 |---|---|
-| 기존 `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatRulesEngine.java`; 같은 디렉터리에 추가할 자료형 | `SpellActionDefinition.java`, `SpellActionSelection.java`, `SpellActionPreview.java`, `SpellTrait.java`, `SpellActionTraitRegistry.java`, `SpellActionRulesEngine.java` 추가; 기존 규칙 판정 확장 |
-| 기존 `src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java` | 일반 행동·주문 미리보기/실행을 기존 Runtime Command/영속 operation 경로에 연결 |
-| 기존 `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPreparationApplicationService.java`, `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/ScenarioPackage.java`, `src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/persistence/PostgresScenarioPackageRepository.java` | 구조 확인·사용자 수정·승인, 현재 모험용 정의와 버전 저장 |
+| 기존 `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/combat/CombatRulesEngine.java`; 같은 디렉터리에 추가할 자료형 | 주문·원거리 공격·투척 공통 선택·미리보기 자료형, 기존 실행 규칙 확장; 효과 모양 계산은 공통으로 지원하는 기하 규칙에 한정 |
+| 기존 `src/adventure-service/src/main/java/com/dndmaster/adventure/application/combat/CombatActionApplicationService.java` | 행동 정의 ID/버전의 미리보기와 확정 요청을 기존 Runtime Command/영속 operation 경로에 연결 |
+| 기존 `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPreparationApplicationService.java`, `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/ScenarioPackage.java`, `src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/persistence/PostgresScenarioPackageRepository.java` | 불변 패키지와 분리된 준비 ID별 정의 추가·수정·비활성화·삭제·승인 및 수정 이력 저장 |
+| 기존 `src/combat-map-service/src/main/java/com/dndmaster/combatmap/domain/CombatMap.java`, `src/web-ui/src/features/combat-map/CombatMapView.tsx`, `src/web-ui/src/features/combat/CombatScreen.tsx` | 공개 가능한 경로/효과 칸을 권위 지도에서 계산하고 같은 화면 좌표 변환으로 붉은 경로와 효과 칸 표시 |
 | 기존 `src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/GmAgentRuntimePlanningAdapter.java` | 허용된 도구 목록/기능 제약을 계획·보정 단계에서 전달 |
 | 기존 `src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/OfficialGmToolRegistry.java`, `GmToolGatewayService.java` | 현재 도구 이름/스키마를 제공하고 실행 전 권한·입력 검증 |
 | 기존 `src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpTypedRuntimeGmAgentPort.java` | HTTP AI 요청에 도구와 제약을 실제 포함하고 typed tool call을 해석; repair에 실패 호출·구조화 오류·현재 허용 목록 전달 |
@@ -171,7 +179,7 @@ SpellActionRulesEngine.execute(authoritativeContext, definition, selection, comm
 
 - 동기 HTTP/기존 포트: adventure → map/character/dice; adventure → AI GM 계획; scenario preparation → document knowledge 참조. 새 서비스·브로커·MCP 없음.
 - 비동기 메시지 계약: 신규 메시지를 만들지 않는다. 기존 명령/operation 저장과 응답 계약을 재사용한다.
-- 원본 정의와 Source Span은 Document Knowledge가 불변으로 소유한다. `ScenarioPackage` JSON에는 기본 룰북 전체 정의 인벤토리, 선택 추가 자료 정의, 모험별 사용자 수정/승인, 원문·추출 버전 참조를 추가한다. Bundle Lock은 이 정확한 버전을 고정한다.
+- 원본 정의와 Source Span은 Document Knowledge가 불변으로 소유한다. `ScenarioPackage`는 기본 룰북 전체 정의 인벤토리, 선택 추가 자료 정의, 원문·추출 버전 참조만 보유한다. 사용자 수정·필수 여부·승인·이력·잠금은 `preparationId`와 ScenarioPackage ID에 연결된 모험 준비 검토 자료에 저장하고, Session이 그 ID를 참조한다. Bundle Lock은 불변 패키지 및 출처 버전을 고정한다.
 - 전투 operation 저장은 기존 commandId/operation persistence를 확장해 단계와 확정 결과를 보존한다. CombatEncounter와 지도 등 서비스별 저장소의 소유권은 유지한다.
 - 스키마 변경은 additive JSON/operation 필드로 진행한다. 기존 데이터에 지원 주문·특성·값을 조용히 기본값으로 채우지 않는다. 준비 중 package는 사용자 검토가 필요하다. 이미 시작된 모험은 잠긴 정의 버전을 유지하며 명시적 마이그레이션 전까지 호환 처리한다.
 # 6. Runtime Design
@@ -203,7 +211,7 @@ SpellActionRulesEngine.execute(authoritativeContext, definition, selection, comm
 - 내부 도구 오류는 보정에 필요한 범위만 GM에 제공하고, 숨겨진 사실·내부 판정·비밀 자격증명을 플레이어에게 노출하지 않는다. 로그에는 원문·비밀 지도 데이터·인증 토큰을 남기지 않는다.
 # 9. Observability
 
-- 구조화 로그: `adventureId`, `encounterId`, `commandId`, 정의/패키지/지도 버전, trait 식별자, operation 상태, 오류 코드. 사용자 원문과 비공개 사실은 기본 기록하지 않는다.
+- 구조화 로그: `adventureId`, `encounterId`, `commandId`, 정의/패키지/지도 버전, 행동 종류, 정의 ID, 선택한 모양, 시작/끝 칸, 경로·효과 칸 수, 차단 사유, operation 상태, 결과, 오류 코드, 소요 시간. 사용자 원문과 비공개 사실은 기본 기록하지 않는다. 새 조준 분기는 기존 `DevelopmentDiagnostics`와 `dev_` 로그 관례를 쓰며, 상세 기록은 `ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED`가 켜진 때만 남긴다.
 - 지표: 미리보기/실행/버전 충돌/미지원 거부 수, 단계별 operation 지연·복구·불명 결과, trait별 성공·거부, tool preflight/call/repair 결과, 준비 중 검토 대기/수정/승인 수.
 - trace: API → Adventure Runtime → trait evaluation → 기존 Map/Character/Dice/GM gateway 경계를 연결한다. commandId와 각 원격 operation ID를 상관관계 키로 사용한다.
 - 알림 기준은 운영 측정 뒤 정한다. 응답 지연 수치 SLA, 재시도 최대 횟수, 동시성 수치를 새로 만들지 않는다.
@@ -223,12 +231,12 @@ SpellActionRulesEngine.execute(authoritativeContext, definition, selection, comm
 아래는 구현 후 요구할 검증 계약이며, 이 문서 작성 시 실행 결과를 주장하지 않는다.
 | 범주 | 검증 |
 |---|---|
-| Domain | 공식 2014 Basic Rules 전체 spell inventory와 고유 ID/source 연결, 모든 주문의 실제 엔진 실행 결과; 비전투/의식/긴 시전/소환·조종/지속 발동/단계 상승; 추가 자료의 비활성/필수 차단 |
+| Domain | 공식 2014 Basic Rules 전체 spell inventory와 고유 ID/source 연결, 모든 주문의 실제 엔진 실행 결과; 원거리 공격·투척의 자료 기반 사거리와 실행; 원뿔·정육면체·원기둥·선·구의 칸 계산과 완전 엄폐/효과 확산; 비전투/의식/긴 시전/소환·조종/지속 발동/단계 상승; 추가 자료의 비활성/필수 차단 |
 | Program | `SpellTrait` 다중 구현과 결정적 조합, preview 순수성, source/evidence 보존, only-supported trait 결과, API DTO/오류, 의존성 경계 |
 | Technical | 기존 controller 계약·중첩 schema·expected versions·idempotency; JSON additive migration; public map projection |
 | Runtime | Action 전/사이/후 이동, 각 벽·문·모서리·지형·점유/상태 경로 비용, 실제 중단 비용, 고도·엄폐·시야·확산 별도 판정, 최신 버전 거부 무비용 |
 | Recovery | 기본 효과 확정 뒤 환경 도구 오류/보정/재시도에서 spell cost/base effect 중복 없음; timeout unknown은 commandId 조회; 지원 밖 작업은 호출 전 거부 |
-| Security/UI | 비공개 적/벽/함정 데이터가 preview, 확대, 오류, 로그를 통해 누출되지 않음; 단일 대상 클릭과 다중 대상 명시 시전, 확대 중 포인터/오버레이 정렬 |
+| Security/UI | 비공개 적/벽/함정 데이터가 preview, 확대, 오류, 로그를 통해 누출되지 않음; 토큰에서 커서까지 붉은 경로 칸과 별도 효과 칸의 정렬; 단일 대상 클릭과 다중 대상 명시 시전 |
 | Preparation | 원문·추출 버전·사용자 수정 diff/provenance, 사용자 승인 전 모험 시작 차단, 승인본만 현재 모험에 잠금, 다른 모험/게시 원본 불변 |
 ## 13.3 Architecture Topic Coverage
 

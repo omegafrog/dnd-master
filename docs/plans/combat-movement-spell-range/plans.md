@@ -2,7 +2,7 @@
 
 ## 구현 목적
 
-D&D 5판(2014) 기본 룰북 전체 주문과 이동·행동을 모험별로 검토한 정의에 따라 실행하고, 지도 미리보기·확대·안개 및 기존 GM 환경 응용 연결을 보강한다.
+D&D 5판(2014) 기본 룰북 전체 주문과 원거리·투척 행동을 모험별로 검토한 정의에 따라 실행하고, 이동·지도 미리보기·확대·안개 및 기존 GM 환경 응용 연결을 보강한다.
 
 ## 상위 계획과 실행 경로
 
@@ -41,8 +41,8 @@ D&D 5판(2014) 기본 룰북 전체 주문과 이동·행동을 모험별로 검
 | 2 | [#364](https://github.com/omegafrog/dnd-master/issues/364) · `combat-02` | 현재 모험의 정의 검토·수정·승인과 시작 잠금 | [#363](https://github.com/omegafrog/dnd-master/issues/363) |
 | 3 | [#365](https://github.com/omegafrog/dnd-master/issues/365) · `combat-03` | 전투 턴 이동량과 실제 경로 이동 | 없음 |
 | 4 | [#366](https://github.com/omegafrog/dnd-master/issues/366) · `combat-04` | 비행 높이·지도 확대·숨겨진 벽 공개 경계 | [#365](https://github.com/omegafrog/dnd-master/issues/365) |
-| 5 | [#367](https://github.com/omegafrog/dnd-master/issues/367) · `combat-05` | 주문·일반 행동의 공개 미리보기와 선택 입력 | [#364](https://github.com/omegafrog/dnd-master/issues/364), [#366](https://github.com/omegafrog/dnd-master/issues/366) |
-| 6 | [#368](https://github.com/omegafrog/dnd-master/issues/368) · `combat-06` | 단일 선택 주문의 권위 실행과 기본 효과 | [#367](https://github.com/omegafrog/dnd-master/issues/367) |
+| 5 | [#367](https://github.com/omegafrog/dnd-master/issues/367) · `combat-05` | 주문·원거리 공격·투척의 자료 기반 조준, 효과 모양·붉은 경로 미리보기와 선택 입력 | [#364](https://github.com/omegafrog/dnd-master/issues/364), [#366](https://github.com/omegafrog/dnd-master/issues/366) |
+| 6 | [#368](https://github.com/omegafrog/dnd-master/issues/368) · `combat-06` | 단일 선택 주문·원거리 공격·투척의 권위 실행과 기본 효과 | [#367](https://github.com/omegafrog/dnd-master/issues/367) |
 | 7 | [#369](https://github.com/omegafrog/dnd-master/issues/369) · `combat-07` | 복수 대상·투사체 배분과 공간 효과 | [#368](https://github.com/omegafrog/dnd-master/issues/368) |
 | 8 | [#370](https://github.com/omegafrog/dnd-master/issues/370) · `combat-08` | 시전 시점·지속·집중·발동과 높은 등급 슬롯 | [#368](https://github.com/omegafrog/dnd-master/issues/368) |
 | 9 | [#371](https://github.com/omegafrog/dnd-master/issues/371) · `combat-09` | 소환·조종과 이후 턴의 지속 주문 효과 | [#370](https://github.com/omegafrog/dnd-master/issues/370) |
