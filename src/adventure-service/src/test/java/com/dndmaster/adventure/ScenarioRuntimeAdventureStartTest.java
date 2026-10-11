@@ -162,7 +162,8 @@ class ScenarioRuntimeAdventureStartTest {
         try {
             assertThrows(IllegalStateException.class, () -> service.start(command(owner(), packageVersion)));
             assertTrue(appender.list.stream().map(event -> event.getFormattedMessage()).anyMatch(message ->
-                    message.contains("expected=all_approved actualPending=1")));
+                    message.contains("expected=active_approved_and_required_supported actualPending=1")
+                            && message.contains("reason=missing_preparation")));
         } finally {
             logger.detachAppender(appender);
             if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
@@ -170,8 +171,67 @@ class ScenarioRuntimeAdventureStartTest {
         }
     }
 
+    @Test
+    void starts_with_approved_session_preparation_and_locks_only_that_preparation() {
+        OwnerPlayerId owner = owner();
+        ScenarioPackage packageVersion = readyPackage();
+        SessionId sessionId = SessionId.generate();
+        var approved = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory
+                .load(new KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst().approve();
+        var preparation = new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
+                UUID.randomUUID(), packageVersion.packageId(), owner.value(), 2, false, List.of(approved), sessionId.value());
+        ReviewablePackageRepository packages = new ReviewablePackageRepository(packageVersion, preparation);
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository();
+        AdventureStartApplicationService service = new AdventureStartApplicationService(
+                packages, adventures, stagePreparation(packageVersion));
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AdventureStartApplicationService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+        Adventure started;
+        try {
+            started = service.start(command(owner, packageVersion, sessionId));
+            assertTrue(appender.list.stream().map(event -> event.getFormattedMessage()).anyMatch(message ->
+                    message.contains("preparationId=" + preparation.preparationId()) && message.contains("outcome=locked")
+                            && message.contains("expectedRevision=2 actualRevision=2") && message.contains("activeDefinitionCount=1")));
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+
+        assertEquals(com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE, started.status());
+        assertTrue(packages.locked);
+        assertEquals(preparation.preparationId(), packages.lockedPreparationId);
+        assertEquals(1, packages.lockCalls);
+    }
+
+    @Test
+    void blocks_pending_session_preparation_without_locking_it() {
+        OwnerPlayerId owner = owner();
+        ScenarioPackage packageVersion = readyPackage();
+        SessionId sessionId = SessionId.generate();
+        var pending = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory
+                .load(new KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst();
+        var preparation = new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
+                UUID.randomUUID(), packageVersion.packageId(), owner.value(), 0, false, List.of(pending), sessionId.value());
+        ReviewablePackageRepository packages = new ReviewablePackageRepository(packageVersion, preparation);
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository();
+        AdventureStartApplicationService service = new AdventureStartApplicationService(
+                packages, adventures, stagePreparation(packageVersion));
+
+        assertThrows(IllegalStateException.class, () -> service.start(command(owner, packageVersion, sessionId)));
+        assertEquals(0, packages.lockCalls);
+        assertEquals(0, adventures.saveCount);
+    }
+
     private static StartAdventureCommand command(OwnerPlayerId owner, ScenarioPackage packageVersion) {
-        return new StartAdventureCommand(AdventureId.generate(), SessionId.generate(), owner,
+        return command(owner, packageVersion, SessionId.generate());
+    }
+
+    private static StartAdventureCommand command(OwnerPlayerId owner, ScenarioPackage packageVersion, SessionId sessionId) {
+        return new StartAdventureCommand(AdventureId.generate(), sessionId, owner,
                 packageVersion.packageId(), packageVersion.bundleRevision(), new ScenarioId(packageVersion.packageId()),
                 new RuleSetId(UUID.randomUUID()), party(), new AdventureContext("opening", null, null, null), UUID.randomUUID());
     }
@@ -183,6 +243,33 @@ class ScenarioRuntimeAdventureStartTest {
             @Override public List<ScenarioPackage> findByBundleId(UUID bundleId) { return List.of(packageVersion); }
             @Override public void save(ScenarioPackage scenarioPackage) {}
         };
+    }
+
+    private static final class ReviewablePackageRepository implements ScenarioPackageRepository {
+        private final ScenarioPackage packageVersion;
+        private final com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation preparation;
+        private boolean locked;
+        private UUID lockedPreparationId;
+        private int lockCalls;
+        private ReviewablePackageRepository(ScenarioPackage packageVersion,
+                com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation preparation) {
+            this.packageVersion = packageVersion; this.preparation = preparation;
+        }
+        @Override public Optional<ScenarioPackage> findById(UUID id) { return id.equals(packageVersion.packageId()) ? Optional.of(packageVersion) : Optional.empty(); }
+        @Override public Optional<ScenarioPackage> findByInputFingerprint(String fingerprint) { return Optional.empty(); }
+        @Override public void save(ScenarioPackage scenarioPackage) { }
+        @Override public Optional<com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation> findSpellDefinitionPreparationBySession(UUID sessionId) {
+            return sessionId.equals(preparation.sessionId()) ? Optional.of(preparation) : Optional.empty();
+        }
+        @Override public void lockSpellDefinitionPreparationForStart(UUID preparationId, UUID packageId, UUID ownerId,
+                UUID sessionId, long expectedRevision) {
+            assertEquals(preparation.preparationId(), preparationId);
+            assertEquals(packageVersion.packageId(), packageId);
+            assertEquals(preparation.ownerId(), ownerId);
+            assertEquals(preparation.sessionId(), sessionId);
+            assertEquals(preparation.revision(), expectedRevision);
+            locked = true; lockedPreparationId = preparationId; lockCalls++;
+        }
     }
 
     private static StageArtifactPreparationApplicationService stagePreparation(ScenarioPackage packageVersion) {

@@ -215,11 +215,6 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     }
 
     @Override
-    public void lockSpellDefinitionsForStart(UUID packageId, long expectedRevision) {
-        throw new UnsupportedOperationException("spell review state requires a preparationId");
-    }
-
-    @Override
     public SpellDefinitionReviewPreparation createSpellDefinitionPreparation(UUID packageId, UUID ownerId,
             String requestKey, List<StructuredSpellDefinition> definitions) {
         UUID preparationId = UUID.randomUUID();
@@ -231,7 +226,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                 insert.executeUpdate();
             }
             try (PreparedStatement select = connection.prepareStatement(
-                    "SELECT preparation_id, package_id, owner_player_id, revision, locked, definitions_json FROM spell_definition_review_preparation WHERE owner_player_id = ? AND request_key = ?")) {
+                    "SELECT preparation_id, package_id, owner_player_id, session_id, revision, locked, definitions_json FROM spell_definition_review_preparation WHERE owner_player_id = ? AND request_key = ?")) {
                 select.setObject(1, ownerId); select.setString(2, requestKey);
                 try (ResultSet row = select.executeQuery()) {
                     if (!row.next()) throw new IllegalStateException("spell review preparation was not created");
@@ -241,7 +236,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                     }
                     return new SpellDefinitionReviewPreparation(row.getObject("preparation_id", UUID.class), actualPackageId,
                             row.getObject("owner_player_id", UUID.class), row.getLong("revision"), row.getBoolean("locked"),
-                            readSpellDefinitions(row.getString("definitions_json")));
+                            readSpellDefinitions(row.getString("definitions_json")), row.getObject("session_id", UUID.class));
                 }
             }
         } catch (SQLException exception) {
@@ -252,12 +247,13 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     @Override
     public Optional<SpellDefinitionReviewPreparation> findSpellDefinitionPreparation(UUID preparationId) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
-                "SELECT preparation_id, package_id, owner_player_id, revision, locked, definitions_json FROM spell_definition_review_preparation WHERE preparation_id = ?")) {
+                "SELECT preparation_id, package_id, owner_player_id, session_id, revision, locked, definitions_json FROM spell_definition_review_preparation WHERE preparation_id = ?")) {
             statement.setObject(1, preparationId);
             try (ResultSet row = statement.executeQuery()) {
                 return row.next() ? Optional.of(new SpellDefinitionReviewPreparation(row.getObject("preparation_id", UUID.class),
                         row.getObject("package_id", UUID.class), row.getObject("owner_player_id", UUID.class),
-                        row.getLong("revision"), row.getBoolean("locked"), readSpellDefinitions(row.getString("definitions_json"))))
+                        row.getLong("revision"), row.getBoolean("locked"), readSpellDefinitions(row.getString("definitions_json")),
+                        row.getObject("session_id", UUID.class)))
                         : Optional.empty();
             }
         } catch (SQLException exception) {
@@ -315,10 +311,10 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     }
 
     @Override
-    public void bindAndLockSpellDefinitionPreparation(UUID preparationId, UUID packageId, UUID ownerId,
+    public void bindSpellDefinitionPreparation(UUID preparationId, UUID packageId, UUID ownerId,
             UUID sessionId, long expectedRevision) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
-                "UPDATE spell_definition_review_preparation SET session_id = ?, locked = TRUE WHERE preparation_id = ? AND package_id = ? AND owner_player_id = ? AND revision = ? AND NOT locked AND (session_id IS NULL OR session_id = ?) AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(definitions_json) definition WHERE definition ->> 'active' <> 'false' AND definition ->> 'reviewStatus' <> 'APPROVED')")) {
+                "UPDATE spell_definition_review_preparation SET session_id = ? WHERE preparation_id = ? AND package_id = ? AND owner_player_id = ? AND revision = ? AND NOT locked AND (session_id IS NULL OR session_id = ?)")) {
             statement.setObject(1, sessionId); statement.setObject(2, preparationId); statement.setObject(3, packageId);
             statement.setObject(4, ownerId); statement.setLong(5, expectedRevision); statement.setObject(6, sessionId);
             if (statement.executeUpdate() != 1) {
@@ -326,22 +322,44 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                 if (actual.isEmpty() || !packageId.equals(actual.get().packageId()) || !ownerId.equals(actual.get().ownerId()))
                     throw new SecurityException("spell review preparation does not belong to this owner and package");
                 if (actual.get().revision() != expectedRevision) throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(expectedRevision, actual.get().revision());
-                throw new IllegalStateException("spell review preparation is not approved or is locked");
+                if (sessionId.equals(actual.get().sessionId())) return;
+                throw new IllegalStateException("spell review preparation is locked or bound to another session");
             }
         } catch (SQLException exception) {
-            throw new ScenarioPackagePersistenceException("could not bind and lock spell review preparation", exception);
+            throw new ScenarioPackagePersistenceException("could not bind spell review preparation", exception);
+        }
+    }
+
+    @Override
+    public void lockSpellDefinitionPreparationForStart(UUID preparationId, UUID packageId, UUID ownerId,
+            UUID sessionId, long expectedRevision) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+                "UPDATE spell_definition_review_preparation SET locked = TRUE WHERE preparation_id = ? AND package_id = ? AND owner_player_id = ? AND session_id = ? AND revision = ? AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(definitions_json) definition WHERE definition ->> 'active' <> 'false' AND definition ->> 'reviewStatus' <> 'APPROVED')")) {
+            statement.setObject(1, preparationId); statement.setObject(2, packageId); statement.setObject(3, ownerId);
+            statement.setObject(4, sessionId); statement.setLong(5, expectedRevision);
+            if (statement.executeUpdate() != 1) {
+                var actual = findSpellDefinitionPreparation(preparationId);
+                if (actual.isEmpty() || !packageId.equals(actual.get().packageId()) || !ownerId.equals(actual.get().ownerId()))
+                    throw new SecurityException("spell review preparation does not belong to this owner and package");
+                if (actual.get().revision() != expectedRevision) throw new com.dndmaster.adventure.domain.scenario.SpellDefinitionRevisionConflictException(expectedRevision, actual.get().revision());
+                if (actual.get().locked() && sessionId.equals(actual.get().sessionId())) return;
+                throw new IllegalStateException("spell review preparation is not approved or is not bound to this session");
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not lock spell review preparation for start", exception);
         }
     }
 
     @Override
     public Optional<SpellDefinitionReviewPreparation> findSpellDefinitionPreparationBySession(UUID sessionId) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
-                "SELECT preparation_id, package_id, owner_player_id, revision, locked, definitions_json FROM spell_definition_review_preparation WHERE session_id = ?")) {
+                "SELECT preparation_id, package_id, owner_player_id, session_id, revision, locked, definitions_json FROM spell_definition_review_preparation WHERE session_id = ?")) {
             statement.setObject(1, sessionId);
             try (ResultSet row = statement.executeQuery()) {
                 return row.next() ? Optional.of(new SpellDefinitionReviewPreparation(row.getObject("preparation_id", UUID.class),
                         row.getObject("package_id", UUID.class), row.getObject("owner_player_id", UUID.class),
-                        row.getLong("revision"), row.getBoolean("locked"), readSpellDefinitions(row.getString("definitions_json"))))
+                        row.getLong("revision"), row.getBoolean("locked"), readSpellDefinitions(row.getString("definitions_json")),
+                        row.getObject("session_id", UUID.class)))
                         : Optional.empty();
             }
         } catch (SQLException exception) {

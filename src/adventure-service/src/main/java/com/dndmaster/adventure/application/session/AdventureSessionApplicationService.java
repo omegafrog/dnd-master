@@ -140,7 +140,7 @@ public class AdventureSessionApplicationService {
                         pendingDefinitions > 0 ? "pending_review" : "required_unsupported");
                 throw new IllegalStateException("spell/action definitions require review or supported required definitions before session creation");
             }
-            packageRepository.bindAndLockSpellDefinitionPreparation(preparationId, scenarioPackageId, owner.value(),
+            packageRepository.bindSpellDefinitionPreparation(preparationId, scenarioPackageId, owner.value(),
                     sessionId.value(), review.revision());
         }
         AdventureSession session = AdventureSession.create(sessionId, owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), blueprintId, blueprintRevision, blueprint.provenance().edition(), partySize,

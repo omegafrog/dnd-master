@@ -36,7 +36,6 @@ public interface ScenarioPackageRepository {
         saveSpellDefinitions(packageId, definitions);
         return expectedRevision + 1;
     }
-    default void lockSpellDefinitionsForStart(UUID packageId, long expectedRevision) {}
     default SpellDefinitionReviewPreparation createSpellDefinitionPreparation(UUID packageId, UUID ownerId,
             String requestKey, List<StructuredSpellDefinition> definitions) {
         throw new UnsupportedOperationException("spell review preparations are not supported by this repository");
@@ -47,7 +46,11 @@ public interface ScenarioPackageRepository {
             List<StructuredSpellDefinition> definitions, SpellDefinitionEditHistory history) {
         throw new UnsupportedOperationException("spell review preparations are not supported by this repository");
     }
-    default void bindAndLockSpellDefinitionPreparation(UUID preparationId, UUID packageId, UUID ownerId,
+    default void bindSpellDefinitionPreparation(UUID preparationId, UUID packageId, UUID ownerId,
+            UUID sessionId, long expectedRevision) {
+        throw new UnsupportedOperationException("spell review preparations are not supported by this repository");
+    }
+    default void lockSpellDefinitionPreparationForStart(UUID preparationId, UUID packageId, UUID ownerId,
             UUID sessionId, long expectedRevision) {
         throw new UnsupportedOperationException("spell review preparations are not supported by this repository");
     }
