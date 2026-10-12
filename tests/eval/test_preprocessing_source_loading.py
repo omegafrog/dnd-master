@@ -82,3 +82,43 @@ def test_reconstruct_chunk_source_reports_true_character_mutation(tmp_path):
 
     assert reconstructed == "Original text"
     assert status == "SOURCE_MUTATION"
+
+
+def test_reconstruct_table_chunk_allows_generated_cell_separators(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("Label\nValue", encoding="utf-8")
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "chunks.jsonl").write_text("", encoding="utf-8")
+    tree = DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.TABLE))
+    (run / "document_tree.json").write_text(json.dumps(to_dict(tree)), encoding="utf-8")
+    (run / "manifest.json").write_text(json.dumps({"source": {"path": str(source)}}), encoding="utf-8")
+
+    loaded = load_exported_run(run)
+    chunk = Chunk("table", "table", ContentType.TABLE, " | Label |  | Value | ", " | Label |  | Value | ", 3,
+                  (SourceSpan(1, 0, 0, 5), SourceSpan(1, 1, 6, 11)))
+
+    reconstructed, status = reconstruct_chunk_source(chunk, loaded.source_text, loaded.source_pages)
+
+    assert reconstructed == "Label Value"
+    assert status == "OK"
+
+
+def test_reconstruct_table_chunk_still_detects_cell_text_mutation(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("Label\nValue", encoding="utf-8")
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "chunks.jsonl").write_text("", encoding="utf-8")
+    tree = DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.TABLE))
+    (run / "document_tree.json").write_text(json.dumps(to_dict(tree)), encoding="utf-8")
+    (run / "manifest.json").write_text(json.dumps({"source": {"path": str(source)}}), encoding="utf-8")
+
+    loaded = load_exported_run(run)
+    chunk = Chunk("table", "table", ContentType.TABLE, "Label | Vaule", "Label | Vaule", 3,
+                  (SourceSpan(1, 0, 0, 5), SourceSpan(1, 1, 6, 11)))
+
+    reconstructed, status = reconstruct_chunk_source(chunk, loaded.source_text, loaded.source_pages)
+
+    assert reconstructed == "Label Value"
+    assert status == "SOURCE_MUTATION"

@@ -119,6 +119,17 @@ def _normalize_layout(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _table_matches_source(chunk_text: str, source_segments: list[str]) -> bool:
+    pieces = [_normalize_layout(segment) for segment in source_segments]
+    pieces = [piece for piece in pieces if piece]
+    if not pieces:
+        return False
+    edge_separators = r"(?:\s*\|\s*)*"
+    between_segments = r"(?:(?:\s*\|\s*)+|\s+)"
+    pattern = edge_separators + between_segments.join(re.escape(piece) for piece in pieces) + edge_separators
+    return re.fullmatch(pattern, _normalize_layout(chunk_text)) is not None
+
+
 def reconstruct_chunk_source(chunk: Chunk, source_text: str | None, source_pages: tuple[str, ...] = ()) -> tuple[str | None, str]:
     if not source_pages or not chunk.source_spans:
         return None, "SOURCE_TRACE_ERROR"
@@ -132,7 +143,11 @@ def reconstruct_chunk_source(chunk: Chunk, source_text: str | None, source_pages
             return None, "SOURCE_TRACE_ERROR"
         candidates.append(source_pages[page_index][span.char_start:span.char_end])
     reconstructed = " ".join(candidates)
-    return reconstructed, "SOURCE_MUTATION" if _normalize_layout(reconstructed) != _normalize_layout(chunk.source_text) else "OK"
+    if chunk.content_type.value == "table":
+        matches_source = _table_matches_source(chunk.source_text, candidates)
+    else:
+        matches_source = _normalize_layout(reconstructed) == _normalize_layout(chunk.source_text)
+    return reconstructed, "OK" if matches_source else "SOURCE_MUTATION"
 
 
 def evaluate_intrinsic(run: ExportedRun, config: EvalConfig = EvalConfig()) -> tuple[dict[str, object], list[dict[str, object]]]:
