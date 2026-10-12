@@ -31,7 +31,7 @@ public final class HttpInitialSituationGmPort implements InitialSituationGmPort 
         try {
             String body = mapper.writeValueAsString(new GmRequest(request.ownerPlayerId(), request.endpointId(),
                     request.provider(), request.model(), request.reasoning(), request.operationKey(), request.prompt(),
-                    request.outputSchema()));
+                    request.outputSchema(), request.useSubagents(), request.stageTasks()));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/gm/initial-situation"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
@@ -53,5 +53,6 @@ public final class HttpInitialSituationGmPort implements InitialSituationGmPort 
     }
 
     private record GmRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId, String provider, String model,
-            String reasoning, String operationKey, String prompt, JsonNode outputSchema) {}
+            String reasoning, String operationKey, String prompt, JsonNode outputSchema, boolean useSubagents,
+            java.util.List<InitialSituationGmPort.StageTask> stageTasks) {}
 }

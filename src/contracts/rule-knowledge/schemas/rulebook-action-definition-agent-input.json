@@ -1,0 +1,640 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "documentId",
+    "extractionVersion",
+    "queryCoverage",
+    "evidence"
+  ],
+  "properties": {
+    "documentId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "extractionVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "queryCoverage": {
+      "type": "array",
+      "maxItems": 9,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "queryId",
+          "queryFingerprint",
+          "candidateCount"
+        ],
+        "properties": {
+          "queryId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "queryFingerprint": {
+            "type": "string",
+            "minLength": 1
+          },
+          "candidateCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "maxItems": 1024,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "locator",
+          "anchors"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "locator": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "anchors": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "text"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 6
+                },
+                "text": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "assignedActions": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "actionKind",
+          "sourceLocator",
+          "evidenceIds",
+          "knownFields",
+          "neededFields",
+          "sharedRules"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "actionKind": {
+            "enum": [
+              "SPELL",
+              "RANGED_ATTACK",
+              "THROWN"
+            ]
+          },
+          "sourceLocator": {
+            "type": "string",
+            "minLength": 1
+          },
+          "evidenceIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 65,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "knownFields": {
+            "type": "object",
+            "properties": {
+              "level": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "castingTime": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cost": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "range": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "rangeForm": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "SINGLE",
+                  "NORMAL_AND_LONG",
+                  "UNSUPPORTED",
+                  null
+                ]
+              },
+              "components": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "duration": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "school": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "conditions": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "attackSave": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "damageEffect": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "effect": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "targetMode": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "SINGLE_TARGET",
+                  "MULTIPLE_TARGETS",
+                  "POINT",
+                  "DIRECTION",
+                  "SELF",
+                  "UNSUPPORTED",
+                  null
+                ]
+              },
+              "originMode": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "ACTOR_TOKEN",
+                  "TARGET",
+                  "CURSOR_POINT",
+                  "CURSOR_DIRECTION",
+                  "UNSUPPORTED",
+                  null
+                ]
+              },
+              "effectShape": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "NONE",
+                  "CONE",
+                  "LINE",
+                  "CUBE",
+                  "SPHERE",
+                  "CYLINDER",
+                  "WALL",
+                  "UNSUPPORTED",
+                  null
+                ]
+              },
+              "pathBlocking": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "SOLID_BLOCKS",
+                  "CLEAR_PATH_REQUIRED",
+                  "NONE",
+                  "UNSUPPORTED",
+                  null
+                ]
+              },
+              "propagation": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "DIRECT",
+                  "AREA_FROM_POINT",
+                  "CONTIGUOUS",
+                  "NONE",
+                  "UNSUPPORTED",
+                  null
+                ]
+              },
+              "verticalDirection": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "UP",
+                  "DOWN",
+                  "UNSUPPORTED",
+                  null
+                ]
+              },
+              "normalRangeFeet": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "longRangeFeet": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "lengthFeet": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "widthFeet": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "heightFeet": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "radiusFeet": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            },
+            "additionalProperties": false
+          },
+          "neededFields": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "level",
+                "castingTime",
+                "cost",
+                "range",
+                "rangeForm",
+                "components",
+                "duration",
+                "school",
+                "conditions",
+                "attackSave",
+                "damageEffect",
+                "effect",
+                "targetMode",
+                "originMode",
+                "effectShape",
+                "pathBlocking",
+                "propagation",
+                "verticalDirection",
+                "normalRangeFeet",
+                "longRangeFeet",
+                "lengthFeet",
+                "widthFeet",
+                "heightFeet",
+                "radiusFeet"
+              ]
+            }
+          },
+          "sharedRules": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "id",
+                "conditions",
+                "sourceLocator",
+                "sourceEvidence",
+                "fields"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "conditions": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "sourceLocator": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "sourceEvidence": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 500
+                },
+                "fields": {
+                  "type": "object",
+                  "properties": {
+                    "level": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "castingTime": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "cost": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "range": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "rangeForm": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "SINGLE",
+                        "NORMAL_AND_LONG",
+                        "UNSUPPORTED",
+                        null
+                      ]
+                    },
+                    "components": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "duration": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "school": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "conditions": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "attackSave": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "damageEffect": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "effect": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "targetMode": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "SINGLE_TARGET",
+                        "MULTIPLE_TARGETS",
+                        "POINT",
+                        "DIRECTION",
+                        "SELF",
+                        "UNSUPPORTED",
+                        null
+                      ]
+                    },
+                    "originMode": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "ACTOR_TOKEN",
+                        "TARGET",
+                        "CURSOR_POINT",
+                        "CURSOR_DIRECTION",
+                        "UNSUPPORTED",
+                        null
+                      ]
+                    },
+                    "effectShape": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "NONE",
+                        "CONE",
+                        "LINE",
+                        "CUBE",
+                        "SPHERE",
+                        "CYLINDER",
+                        "WALL",
+                        "UNSUPPORTED",
+                        null
+                      ]
+                    },
+                    "pathBlocking": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "SOLID_BLOCKS",
+                        "CLEAR_PATH_REQUIRED",
+                        "NONE",
+                        "UNSUPPORTED",
+                        null
+                      ]
+                    },
+                    "propagation": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "DIRECT",
+                        "AREA_FROM_POINT",
+                        "CONTIGUOUS",
+                        "NONE",
+                        "UNSUPPORTED",
+                        null
+                      ]
+                    },
+                    "verticalDirection": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "enum": [
+                        "UP",
+                        "DOWN",
+                        "UNSUPPORTED",
+                        null
+                      ]
+                    },
+                    "normalRangeFeet": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "longRangeFeet": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "lengthFeet": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "widthFeet": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "heightFeet": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    },
+                    "radiusFeet": {
+                      "type": [
+                        "integer",
+                        "null"
+                      ],
+                      "minimum": 0
+                    }
+                  },
+                  "additionalProperties": false,
+                  "minProperties": 1
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

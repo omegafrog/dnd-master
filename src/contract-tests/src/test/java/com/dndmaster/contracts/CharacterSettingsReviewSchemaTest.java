@@ -3,9 +3,9 @@ package com.dndmaster.contracts;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.networknt.schema.JsonSchema;
-import com.networknt.schema.JsonSchemaFactory;
-import com.networknt.schema.SpecVersion;
+import com.networknt.schema.Schema;
+import com.networknt.schema.SchemaRegistry;
+import com.networknt.schema.SpecificationVersion;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -40,7 +40,7 @@ class CharacterSettingsReviewSchemaTest {
                    "decisionState":"USE","readinessState":"READY"}],
                  "storybookExtractionState":"UNKNOWN"}
                 """);
-        JsonSchema validator = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012).getSchema(schema);
+        Schema validator = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12).getSchema(schema);
         assertTrue(validator.validate(valid).isEmpty());
         assertFalse(validator.validate(invalid).isEmpty());
     }

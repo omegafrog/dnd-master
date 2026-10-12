@@ -48,18 +48,20 @@ class UnifiedEvidenceCandidateSearchControllerTest {
         when(hybrid.searchDenseOnly(any())).thenReturn(new EvidenceSearchResult(List.of(new EvidenceCandidate(
                 new KnowledgeDocumentId(documentId), new ChunkId(UUID.randomUUID()), 1, DocumentType.STORYBOOK,
                 "page:2", "A hidden passage", new SourceProvenance(2, List.of("Chapter 1"), List.of(), null, "page:2"),
-                1, 2, 0.032))));
+                1, 2, 0.032, 0.78))));
         MockMvc mockMvc = controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid);
 
         mockMvc.perform(post("/internal/v1/evidence-candidates/search")
                         .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
-                        .content(request(documentId, 5, 7)))
+                        .content(request(documentId, 5, 7).replace("\"denseLimit\":5", "\"denseLimit\":5,\"minimumDenseSimilarity\":0.6")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ownerId").value(OWNER.toString()))
                 .andExpect(jsonPath("$.candidates[0].documentId").value(documentId.toString()))
                 .andExpect(jsonPath("$.candidates[0].locator").value("page:2"))
                 .andExpect(jsonPath("$.candidates[0].provenance.pageNumber").value(2))
-                .andExpect(jsonPath("$.candidates[0].bm25Rank").value(2));
+                .andExpect(jsonPath("$.candidates[0].bm25Rank").value(2))
+                .andExpect(jsonPath("$.candidates[0].rrfScore").value(0.032))
+                .andExpect(jsonPath("$.candidates[0].denseSimilarity").value(0.78));
         verify(hybrid).searchDenseOnly(any());
         ArgumentCaptor<com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest> requestCaptor =
                 ArgumentCaptor.forClass(com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest.class);
@@ -71,6 +73,7 @@ class UnifiedEvidenceCandidateSearchControllerTest {
         assertEquals("opening", captured.stageKey());
         assertEquals("STORY", captured.actionIntent());
         assertEquals(0, captured.bm25Limit());
+        assertEquals(0.6, captured.minimumDenseSimilarity());
     }
 
     @Test
@@ -100,6 +103,20 @@ class UnifiedEvidenceCandidateSearchControllerTest {
         controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid).perform(post("/internal/v1/evidence-candidates/search")
                         .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
                         .content(request(documentId, 0, 7)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EVIDENCE_SEARCH_INVALID_REQUEST"));
+        org.mockito.Mockito.verifyNoInteractions(hybrid);
+    }
+
+    @Test
+    void rejects_minimum_dense_similarity_outside_cosine_range() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
+
+        controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid)
+                .perform(post("/internal/v1/evidence-candidates/search")
+                        .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
+                        .content(request(documentId, 5, 7).replace("\"denseLimit\":5", "\"denseLimit\":5,\"minimumDenseSimilarity\":1.1")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("EVIDENCE_SEARCH_INVALID_REQUEST"));
         org.mockito.Mockito.verifyNoInteractions(hybrid);

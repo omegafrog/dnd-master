@@ -38,7 +38,9 @@ class HttpInitialSituationGmPortTest {
             var port = new HttpInitialSituationGmPort(HttpClient.newHttpClient(), server.baseUri(),
                     Duration.ofSeconds(2), new ObjectMapper(), "internal-token");
             var request = new InitialSituationGmPort.Request(owner, UUID.randomUUID(), endpoint,
-                    "openai", "story-model", "high", "initial-situation:adventure:backbone", "source-grounded prompt", schema);
+                    "codex-cli", "story-model", "ultra", "initial-situation:adventure:backbone", "source-grounded prompt", schema, true,
+                    java.util.List.of(new InitialSituationGmPort.StageTask("arrival", "arrival prompt", schema),
+                            new InitialSituationGmPort.StageTask("climax", "climax prompt", schema)));
 
             var response = port.generate(request);
 
@@ -47,11 +49,15 @@ class HttpInitialSituationGmPortTest {
             var sent = new ObjectMapper().readTree(requestBody.get());
             assertThat(sent.path("soloPlayerId").asText()).isEqualTo(owner.toString());
             assertThat(sent.path("endpointId").asText()).isEqualTo(endpoint.toString());
-            assertThat(sent.path("provider").asText()).isEqualTo("openai");
+            assertThat(sent.path("provider").asText()).isEqualTo("codex-cli");
             assertThat(sent.path("model").asText()).isEqualTo("story-model");
-            assertThat(sent.path("reasoning").asText()).isEqualTo("high");
+            assertThat(sent.path("reasoning").asText()).isEqualTo("ultra");
             assertThat(sent.path("prompt").asText()).contains("source-grounded prompt");
             assertThat(sent.path("outputSchema")).isEqualTo(schema);
+            assertThat(sent.path("useSubagents").asBoolean()).isTrue();
+            assertThat(sent.path("stageTasks").get(0).path("stageId").asText()).isEqualTo("arrival");
+            assertThat(sent.path("stageTasks").get(0).path("prompt").asText()).isEqualTo("arrival prompt");
+            assertThat(sent.path("stageTasks").get(1).path("outputSchema")).isEqualTo(schema);
         }
     }
 

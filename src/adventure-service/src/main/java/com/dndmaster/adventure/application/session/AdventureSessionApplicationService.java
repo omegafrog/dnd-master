@@ -83,10 +83,10 @@ public class AdventureSessionApplicationService {
         var scenarioPackage = packageRepository.findById(scenarioPackageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
         var blueprint = scenarioPackage.characterCreationBlueprint();
         requirePublishedBlueprint(scenarioPackage, blueprintId, blueprintRevision);
-        boolean requires2014Inventory = "DND_5E_2014".equalsIgnoreCase(blueprint.provenance().edition());
-        boolean hasDeclaredActionDefinitions = requires2014Inventory || !scenarioPackage.spellDefinitions().isEmpty()
+        boolean hasDeclaredActionDefinitions = !scenarioPackage.spellDefinitions().isEmpty()
+                || blueprint.provenance().selectedRulebookId() != null
                 || scenarioPackage.documents().stream().anyMatch(document ->
-                        "DnD_BasicRules_2018.pdf".equalsIgnoreCase(document.originalFilename()));
+                        "RULEBOOK".equalsIgnoreCase(document.documentType()));
         if (hasDeclaredActionDefinitions && preparationId == null) {
             throw new IllegalStateException("spell/action review preparation is required before session creation");
         }
@@ -108,38 +108,19 @@ public class AdventureSessionApplicationService {
                             || !definition.rangeProfile().supported() || definition.targetingProfile() == null
                             || !definition.targetingProfile().supported())
                     .count();
-            var basicRulesSources = scenarioPackage.documents().stream()
-                    .filter(document -> "DnD_BasicRules_2018.pdf".equalsIgnoreCase(document.originalFilename()))
-                    .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
-                    .filter(document -> document.status() == com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED)
-                    .toList();
-            long missingCanonicalDefinitions = 0;
-            long expectedCanonicalDefinitions = -1;
-            if (requires2014Inventory && basicRulesSources.size() == 1) {
-                var source = basicRulesSources.getFirst();
-                var expectedInventory = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory.load(
-                        source.knowledgeDocumentId(), source.extractionVersion());
-                expectedCanonicalDefinitions = expectedInventory.size();
-                var actualById = review.definitions().stream().collect(java.util.stream.Collectors.toMap(
-                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition::id, definition -> definition, (first, ignored) -> first));
-                missingCanonicalDefinitions = Math.max(0, review.definitions().size() - actualById.size());
-                missingCanonicalDefinitions += expectedInventory.stream().filter(expected -> {
-                    var actual = actualById.get(expected.id());
-                    return actual == null || !actual.sourceDocumentId().equals(source.knowledgeDocumentId().value())
-                            || !actual.sourceVersion().equals(expected.sourceVersion())
-                            || actual.extractionVersion() != source.extractionVersion()
-                            || !actual.sourceLocator().equals(expected.sourceLocator());
-                }).count();
-            } else if (requires2014Inventory) {
-                missingCanonicalDefinitions = 1;
-            }
-            if (requires2014Inventory && (review.definitions().isEmpty() || missingCanonicalDefinitions > 0)) {
+            var selectedSource = selectedRulebookSource(scenarioPackage);
+            long mismatchedSourceDefinitions = selectedSource == null ? 0 : review.definitions().stream()
+                    .filter(definition -> !definition.userAdded())
+                    .filter(definition -> !definition.sourceDocumentId().equals(selectedSource.documentId())
+                            || definition.extractionVersion() != selectedSource.registrationVersion())
+                    .count();
+            if (mismatchedSourceDefinitions > 0) {
                 if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
-                    LOGGER.info("dev_flow operation=spell_definition_preparation outcome=blocked preparationId={} expectedSourceCount=1 actualSourceCount={} expectedCanonicalDefinitionCount={} actualDefinitionCount={} actualMissingOrInvalidCount={} reason=missing_or_invalid_inventory recovery=restore_verified_package_inventory",
-                            preparationId, basicRulesSources.size(), expectedCanonicalDefinitions,
-                            review.definitions().size(), missingCanonicalDefinitions);
+                    LOGGER.info("dev_flow operation=spell_definition_preparation outcome=blocked preparationId={} expectedSourceDocumentId={} expectedRegistrationVersion={} actualDefinitionCount={} actualMismatchedSourceCount={} reason=review_definitions_from_unselected_source recovery=reload_review_from_selected_rulebook",
+                            preparationId, selectedSource.documentId(), selectedSource.registrationVersion(),
+                            review.definitions().size(), mismatchedSourceDefinitions);
                 }
-                throw new IllegalStateException("required basic rulebook action definitions are unavailable");
+                throw new IllegalStateException("spell/action review definitions do not match the selected rulebook source");
             }
             if (pendingDefinitions > 0 || requiredUnsupported > 0) {
                 logPreparationGate(preparationId, pendingDefinitions, requiredUnsupported,
@@ -192,6 +173,21 @@ public class AdventureSessionApplicationService {
                     preparationId, pending, requiredUnsupported, reason);
         }
     }
+
+    private static SelectedRulebookSource selectedRulebookSource(com.dndmaster.adventure.domain.scenario.ScenarioPackage scenarioPackage) {
+        var blueprint = scenarioPackage.characterCreationBlueprint();
+        if (blueprint != null && blueprint.provenance().selectedRulebookId() != null)
+            return new SelectedRulebookSource(blueprint.provenance().selectedRulebookId(),
+                    blueprint.provenance().selectedRulebookExtractionVersion());
+        var sources = scenarioPackage.documents().stream()
+                .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType())
+                        && document.status() == com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED)
+                .toList();
+        return sources.size() == 1 ? new SelectedRulebookSource(sources.getFirst().knowledgeDocumentId().value(),
+                sources.getFirst().extractionVersion()) : null;
+    }
+
+    private record SelectedRulebookSource(UUID documentId, long registrationVersion) {}
 
     private static com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint requirePublishedBlueprint(
             com.dndmaster.adventure.domain.scenario.ScenarioPackage scenarioPackage, java.util.UUID blueprintId,

@@ -251,7 +251,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
                 request.reasoning(),
                 request.outputFormat(),
                 request.outputSchema(),
-                request.imageInputs().isEmpty() ? "" : request.imageInputs().get(0), request.ragSearchContext()));
+                request.imageInputs().isEmpty() ? "" : request.imageInputs().get(0), request.ragSearchContext(), request.subtasks()));
         if (result instanceof AiExecutionSuccess success) {
             return new AgentExecutionResponse(request.requestId(), success.finalText(), null, success.usage());
         }
@@ -263,6 +263,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             case REAUTH_REQUIRED -> "REAUTH_REQUIRED";
             case CONNECTION_LOST -> "CONNECTION_LOST";
             case TIMEOUT -> "TIMEOUT";
+            case OUTPUT_LIMIT -> "OUTPUT_LIMIT";
             default -> "REMOTE_FAILURE";
         };
         return new AgentExecutionResponse(request.requestId(), "", failureType, null);
@@ -418,9 +419,17 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             List<String> imageInputs,
             long deadlineEpochMillis,
             String connectionId,
-            JsonNode ragSearchContext) {
+            JsonNode ragSearchContext,
+            List<AiExecutionRequest.Subtask> subtasks) {
         AgentExecutionRequest {
             imageInputs = imageInputs == null ? List.of() : List.copyOf(imageInputs);
+            subtasks = subtasks == null ? List.of() : List.copyOf(subtasks);
+        }
+        AgentExecutionRequest(UUID soloPlayerId, String requestId, String operationId, String prompt, String model,
+                String reasoning, String outputFormat, JsonNode outputSchema, List<String> imageInputs,
+                long deadlineEpochMillis, String connectionId, JsonNode ragSearchContext) {
+            this(soloPlayerId, requestId, operationId, prompt, model, reasoning, outputFormat, outputSchema,
+                    imageInputs, deadlineEpochMillis, connectionId, ragSearchContext, List.of());
         }
     }
 

@@ -42,6 +42,19 @@ class HybridEvidenceSearchServiceTest {
     }
 
     @Test
+    void keeps_dense_similarity_when_rank_fusion_adds_rrf_scores() {
+        EvidenceCandidate dense = new EvidenceCandidate(SCOPE.documentId(), ChunkId.fromStableValue("scored"),
+                SCOPE.extractionVersion(), SCOPE.documentType(), "page:1", "scored",
+                new SourceProvenance(1, List.of(), List.of(), null, "page:1"), 1, null, 0d, 0.83);
+
+        EvidenceCandidate fused = new HybridEvidenceSearchService(request -> List.of(dense), request -> List.of(),
+                new RrfFusionPolicy()).search(request()).candidates().getFirst();
+
+        assertEquals(0.83, fused.denseSimilarity());
+        assertEquals(1d / 61, fused.rrfScore());
+    }
+
+    @Test
     void dense_only_batch_never_calls_bm25() {
         AtomicInteger bm25Calls = new AtomicInteger();
         DenseEvidenceCandidateSearchPort dense = new DenseEvidenceCandidateSearchPort() {

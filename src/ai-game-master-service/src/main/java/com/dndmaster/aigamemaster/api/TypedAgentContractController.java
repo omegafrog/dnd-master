@@ -33,9 +33,18 @@ import org.slf4j.LoggerFactory;
 @RestController
 public final class TypedAgentContractController {
     private static final Logger log = LoggerFactory.getLogger(TypedAgentContractController.class);
+    private static final org.springframework.ai.tokenizer.JTokkitTokenCountEstimator RULEBOOK_ACTION_TOKEN_ESTIMATOR =
+            new org.springframework.ai.tokenizer.JTokkitTokenCountEstimator(com.knuddels.jtokkit.api.EncodingType.O200K_BASE);
+    private static final JsonNode RUNTIME_TURN_OUTPUT_SCHEMA = loadRuntimeTurnOutputSchema();
     private static final String ACTION_LOOKUP_OUTPUT_SCHEMA = """
             {"type":"object","additionalProperties":false,"required":["status","answer","supportingElementIds"],"properties":{"status":{"enum":["FOUND","NOT_FOUND"]},"answer":{"type":"string"},"supportingElementIds":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}}}}
             """.trim();
+    private static final java.util.Set<String> RULEBOOK_ACTION_QUERY_IDS = java.util.Set.of("contents", "weapon-table", "spell-list",
+            "ranged-actions", "thrown-actions", "shared-range", "shared-target-area", "shared-blocking", "shared-cost-check-effect", "assigned-actions");
+    private static final java.util.Set<String> RULEBOOK_ACTION_FIELD_IDS = java.util.Set.of("level", "castingTime", "cost", "range", "rangeForm",
+            "components", "duration", "school", "conditions", "attackSave", "damageEffect", "effect", "targetMode", "originMode",
+            "effectShape", "pathBlocking", "propagation", "verticalDirection", "normalRangeFeet", "longRangeFeet", "lengthFeet",
+            "widthFeet", "heightFeet", "radiusFeet");
     private final GmCompletionAdapter adapter;
     private final ObjectMapper mapper;
     private final ApiRequestGuard requestGuard;
@@ -133,18 +142,435 @@ public final class TypedAgentContractController {
         requestGuard.internal(token);
         require(request);
         RequestedGmProviderSelection requested = new RequestedGmProviderSelection(
-                request.endpointId(), request.provider(), request.model(), request.reasoning());
+                request.endpointId(), request.provider(), request.model(), request.useSubagents() ? "medium" : request.reasoning());
         var resolution = selectionResolver.apply(requested);
-        return adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
-                json -> {
+        if (request.useSubagents() && resolution.endpoint().provider()
+                != com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint.Provider.CODEX_CLI) {
+            throw new IllegalArgumentException("subagent preparation requires the Codex provider");
+        }
+        var parser = (com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<JsonNode>) json -> {
                     try {
-                        JsonNode result = mapper.readTree(json);
+                        JsonNode result = mapper.reader()
+                                .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_READING_DUP_TREE_KEY)
+                                .readTree(json);
                         if (result == null || !result.isObject()) throw new IllegalArgumentException("initial situation response must be a JSON object");
                         return result;
                     } catch (java.io.IOException invalid) {
                         throw new IllegalArgumentException("initial situation response is invalid JSON", invalid);
                     }
-                }, requested, resolution, null, request.outputSchema()).response();
+                };
+        if (!request.useSubagents()) return adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
+                parser, requested, resolution, null, request.outputSchema()).response();
+        List<com.dndmaster.aigamemaster.application.ai.AiExecutionRequest.Subtask> subtasks = request.stageTasks().stream()
+                .map(task -> new com.dndmaster.aigamemaster.application.ai.AiExecutionRequest.Subtask(task.stageId(), task.prompt(), task.outputSchema())).toList();
+        return adapter.completeWithResolutionAndSubtasks(request.soloPlayerId(), request.operationKey(), request.prompt(),
+                parser, requested, resolution, request.outputSchema(), subtasks).response();
+    }
+
+    private String rulebookActionPrompt(String stage, RulebookActionExtractionInput input) {
+        return ("DISCOVERY".equals(stage)
+                ? "TASK=Discover only explicitly named spells, ranged attacks, and thrown actions shown by a contents list, weapon table, or section heading in the supplied retrieved evidence. Return every named candidate from the supplied list or table, including its kind and one sourceAnchorId for the name. Do not return definition fields or infer names from examples. "
+                : "ASSIGNED".equals(stage)
+                    ? "TASK=For every assigned action ID, return exactly one candidateResults entry. Use COMPLETED only with a grounded definition, INSUFFICIENT_EVIDENCE when the supplied source cannot support one, and FAILED only for an unprocessable assigned item. A non-completed result must have a short reason and no definition. Never omit or duplicate an assigned ID. "
+                    : "TASK=Structure only explicitly stated spells, ranged attacks, and thrown actions present in the supplied retrieved evidence. ")
+                + ("DISCOVERY".equals(stage) ? "Return an empty candidates array if no names are present. " : "ASSIGNED".equals(stage) ? "Use the supplied sourceAnchorId from that assigned action's evidence IDs. " : "Return an empty definitions array if evidence has no supported definition. ")
+                + "Never infer missing values. Use null for unknown values and UNSUPPORTED for values outside the allowed representation. For each assigned result, neededFields must list only fields materially relevant to this action but absent from its own evidence and necessary to complete its rule; an unknown/null value alone does not make a field needed. Do not request unrelated field categories. When assignedActions.neededFields is non-empty, those are the fields requested for this completion: fill only those values from supplied evidence, copy knownFields exactly, and leave all other values null unless already present in knownFields. When assignedActions.neededFields is empty and knownFields has no non-null values, perform the initial extraction from the action's own evidence, fill supported fields, and report materially relevant missing fields in the response neededFields. The response neededFields list means fields that remain missing after this completion. Return sharedRules only for concise rules found in the supplied evidence that can apply beyond this one named action. Include the explicit applicability conditions and one exact sourceAnchorId. For every input sharedRules id, return exactly one sharedRuleApplicability result with APPLIES, AMBIGUOUS, or NOT_APPLICABLE. Re-evaluate each rule for this action; never carry forward an earlier action's decision. Set APPLIES only when its conditions clearly include this action; otherwise use AMBIGUOUS or NOT_APPLICABLE. Only APPLIES shared-rule fields may fill requested fields that are currently null. Never infer that an ambiguous rule applies. "
+                + "When every assignedActions.neededFields list is empty, return sharedRules as an empty array. For every sourceAnchorId, copy the id exactly from extractionInput.evidence[].anchors[].id belonging to an evidence id listed in that assigned action's evidenceIds; do not use line numbers, distances, document IDs, or candidate IDs. Each definition must cite one sourceAnchorId from the supplied evidence spans. Never write or paraphrase a citation; the caller will attach the exact source span selected by that id. Do not claim that retrieved evidence proves the whole rulebook has no other entries.\n"
+                + "FIELD_MEANINGS=level is spell level; castingTime is stated activation time; cost is only a resource or action consumed to use the action, never a purchase price or market value (if the source gives only a price, cost is null); range and numeric range fields are stated distances; rangeForm is the stated distance form; components are stated requirements; duration is stated duration; school is stated spell school; conditions are stated use conditions; attackSave is the required attack or saving check; damageEffect is stated damage; effect is the stated outcome; targetMode is how a target is selected; originMode is where an area begins; effectShape is its geometry; pathBlocking is what blocks it; propagation is how it spreads; verticalDirection is its stated vertical direction; lengthFeet, widthFeet, heightFeet, radiusFeet and normalRangeFeet/longRangeFeet are only explicit measurements.\n"
+                + "VALIDATED_EXTRACTION_INPUT=" + write(input);
+    }
+
+    @PostMapping("/internal/gm/rulebook-action-definitions/estimate")
+    ResponseEntity<?> estimateRulebookActionInputTokens(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody JsonNode body) {
+        requestGuard.internal(token);
+        requireExactFields(body, java.util.Set.of("soloPlayerId", "endpointId", "provider", "model", "reasoning",
+                "operationKey", "extractionInput", "outputSchema"), "rulebook action token estimate request");
+        try {
+            RulebookActionExtractionRequest request = mapper.treeToValue(body, RulebookActionExtractionRequest.class);
+            RulebookActionExtractionInput input = validateRulebookActionInput(request.extractionInput(), request.outputSchema());
+            String stage = request.outputSchema().path("x-stage").asText("DEFINITIONS");
+            String rendered = "ROLE=RULEBOOK_ACTION_DEFINITION_EXTRACTION\n" + rulebookActionPrompt(stage, input)
+                    + "\nOUTPUT_SCHEMA=" + write(request.outputSchema());
+            int estimatedTokens = RULEBOOK_ACTION_TOKEN_ESTIMATOR.estimate(rendered);
+            if (runtimeDiagnosticsEnabled()) log.info("dev_rulebook_action_extraction stage=token_estimate tokenizer=o200k_base promptChars={} schemaChars={} estimatedInputTokens={} includesProviderSystemAndToolOverhead=false outcome=completed",
+                    rendered.length(), write(request.outputSchema()).length(), estimatedTokens);
+            return ResponseEntity.ok(java.util.Map.of("estimatedInputTokens", estimatedTokens, "tokenizer", "o200k_base",
+                    "includesProviderSystemAndToolOverhead", false));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            throw new IllegalArgumentException("rulebook action token estimate request does not match its schema", invalid);
+        }
+    }
+
+    @PostMapping("/internal/gm/rulebook-action-definitions")
+    ResponseEntity<?> rulebookActionDefinitions(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody JsonNode body) {
+        requestGuard.internal(token);
+        requireExactFields(body, java.util.Set.of("soloPlayerId", "endpointId", "provider", "model", "reasoning",
+                "operationKey", "extractionInput", "outputSchema"), "rulebook action extraction request");
+        RulebookActionExtractionRequest request;
+        try {
+            request = mapper.treeToValue(body, RulebookActionExtractionRequest.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            throw new IllegalArgumentException("rulebook action extraction request does not match its schema", invalid);
+        }
+        RulebookActionExtractionInput input;
+        try {
+            input = validateRulebookActionInput(request.extractionInput(), request.outputSchema());
+        } catch (IllegalArgumentException invalid) {
+            if (runtimeDiagnosticsEnabled()) log.warn("dev_rulebook_action_extraction stage=input_schema_validation expectedInputFields={} actualInputFields={} documentId={} extractionVersionLength={} queryCount={} evidenceCount={} expectedSourceIdsFromInput=true failureClass={} recoveryAction=repair_retrieval_dto outcome=failed",
+                    List.of("documentId", "extractionVersion", "queryCoverage", "evidence"), nodeFieldNames(request.extractionInput()),
+                    request.extractionInput().path("documentId").asText(""), request.extractionInput().path("extractionVersion").asText("").length(),
+                    request.extractionInput().path("queryCoverage").isArray() ? request.extractionInput().path("queryCoverage").size() : -1,
+                    request.extractionInput().path("evidence").isArray() ? request.extractionInput().path("evidence").size() : -1,
+                    invalid.getClass().getSimpleName());
+            throw invalid;
+        }
+        RequestedGmProviderSelection requested = new RequestedGmProviderSelection(
+                request.endpointId(), request.provider(), request.model(), request.reasoning());
+        var resolution = selectionResolver.apply(requested);
+        if (Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")))) {
+            var effective = resolution.effectiveSelection();
+            log.info("dev_rulebook_action_ai stage=model_selected operationKey={} requestedEndpointId={} requestedProvider={} requestedModel={} effectiveEndpointId={} effectiveProvider={} effectiveModel={} effectiveReasoning={} timeoutManagedByCaller=true outcome=selected",
+                    request.operationKey(), requested.endpointId(), requested.provider(), requested.model(), effective.endpointId(), effective.provider(), effective.model(), effective.reasoning());
+        }
+        var parser = (com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<JsonNode>) json -> readObject(json);
+        String stage = request.outputSchema().path("x-stage").asText("DEFINITIONS");
+        String prompt = rulebookActionPrompt(stage, input);
+        long aiStarted = System.nanoTime();
+        JsonNode response;
+        try {
+            response = adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(),
+                    "ROLE=RULEBOOK_ACTION_DEFINITION_EXTRACTION\n" + prompt, parser, requested,
+                    resolution, null, request.outputSchema()).response();
+        } catch (AiExecutionUnavailableException failure) {
+            if (failure.failure().reason() == com.dndmaster.aigamemaster.application.ai.AiExecutionFailure.Reason.OUTPUT_LIMIT) {
+                if (runtimeDiagnosticsEnabled()) log.warn("dev_rulebook_action_extraction stage=provider_failure operationKey={} failureCode=OUTPUT_LIMIT expectedOutcome=completed actualOutcome=failed recoveryAction=fail_assigned_batch outcome=failed",
+                        request.operationKey());
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(java.util.Map.of("code", "OUTPUT_LIMIT"));
+            }
+            throw failure;
+        }
+
+        var violations = com.networknt.schema.SchemaRegistry.withDefaultDialect(com.networknt.schema.SpecificationVersion.DRAFT_2020_12)
+                .getSchema(request.outputSchema()).validate(response);
+        if (!violations.isEmpty()) {
+            if (runtimeDiagnosticsEnabled()) log.warn("dev_rulebook_action_extraction stage=output_schema_validation expectedFields={} actualType={} actualFields={} violationCount={} violationPaths={} definitionCount={} sourceEvidenceIds={} elapsedMs={} failureKind=output_schema_mismatch recoveryAction=reject_agent_response outcome=failed",
+                    textValues(request.outputSchema().path("required")), response == null ? "null" : response.getNodeType(),
+                    nodeFieldNames(response), violations.size(), violations.stream().limit(20).map(item -> item.getInstanceLocation().toString()).toList(),
+                    response != null && response.path("definitions").isArray() ? response.path("definitions").size() : -1,
+                    response != null && response.path("definitions").isArray() ? sourceAnchorIds(response.path("definitions")) : List.of(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - aiStarted));
+            throw new IllegalArgumentException("rulebook action extraction response does not match its output schema");
+        }
+        if ("ASSIGNED".equals(stage)) {
+            try {
+                validateAssignedResponse(input, response);
+            } catch (IllegalArgumentException invalid) {
+                if (runtimeDiagnosticsEnabled()) log.warn("dev_rulebook_action_extraction stage=assigned_result_validation expectedCandidateIds={} actualCandidateIds={} expectedCount={} actualResultCount={} definitionIds={} statusCounts={} failureClass={} outcome=failed",
+                        input.assignedActions().stream().map(RulebookActionAssignedActionInput::id).toList(),
+                        nodeTextValues(response.path("candidateResults"), "candidateId"), input.assignedActions().size(),
+                        response.path("candidateResults").isArray() ? response.path("candidateResults").size() : -1,
+                        nodeTextValues(response.path("definitions"), "id"), assignedStatusCounts(response.path("candidateResults")), invalid.getClass().getSimpleName());
+                throw invalid;
+            }
+        }
+        if (runtimeDiagnosticsEnabled()) log.info("dev_rulebook_action_extraction stage=output_schema_validation expectedFields={} actualFields={} definitionCount={} elapsedMs={} outcome=completed",
+                textValues(request.outputSchema().path("required")), nodeFieldNames(response), response.path("definitions").size(),
+                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - aiStarted));
+        return ResponseEntity.ok(response);
+    }
+
+    private RulebookActionExtractionInput validateRulebookActionInput(JsonNode raw, JsonNode outputSchema) {
+        String stage = outputSchema.path("x-stage").asText("DEFINITIONS");
+        java.util.Set<String> expectedInputFields = new java.util.HashSet<>(java.util.Set.of("documentId", "extractionVersion", "queryCoverage", "evidence"));
+        if ("ASSIGNED".equals(stage)) expectedInputFields.add("assignedActions");
+        requireExactFields(raw, expectedInputFields, "rulebook action extraction input");
+        if (!raw.path("queryCoverage").isArray() || raw.path("queryCoverage").size() > 9
+                || !raw.path("evidence").isArray() || raw.path("evidence").size() > 1024)
+            throw new IllegalArgumentException("rulebook action extraction input exceeds its bounded schema");
+        for (JsonNode query : raw.path("queryCoverage"))
+            requireExactFields(query, java.util.Set.of("queryId", "queryFingerprint", "candidateCount"), "query coverage");
+        for (JsonNode action : raw.path("assignedActions")) {
+            requireExactFields(action, java.util.Set.of("id", "name", "actionKind", "sourceLocator", "evidenceIds", "knownFields", "neededFields", "sharedRules"), "assigned action");
+            for (JsonNode rule : action.path("sharedRules"))
+                requireExactFields(rule, java.util.Set.of("id", "conditions", "sourceLocator", "sourceEvidence", "fields"), "stored shared rule");
+        }
+        for (JsonNode evidence : raw.path("evidence")) {
+            requireExactFields(evidence, java.util.Set.of("id", "locator", "anchors"), "retrieved evidence");
+            if (!evidence.path("anchors").isArray() || evidence.path("anchors").isEmpty())
+                throw new IllegalArgumentException("retrieved evidence must contain source spans");
+            for (JsonNode anchor : evidence.path("anchors"))
+                requireExactFields(anchor, java.util.Set.of("id", "text"), "retrieved evidence span");
+        }
+        try {
+            RulebookActionExtractionInput input = mapper.treeToValue(raw, RulebookActionExtractionInput.class);
+            boolean discoverySchema = "DISCOVERY".equals(outputSchema.path("x-stage").asText());
+            long maxInputChars = "ASSIGNED".equals(outputSchema.path("x-stage").asText()) ? 1_000_000 : 24_000;
+            long actualInputChars = input.evidence().stream().flatMap(item -> item.anchors().stream())
+                    .mapToLong(item -> item.text().length()).sum();
+            if (actualInputChars > maxInputChars) {
+                if (runtimeDiagnosticsEnabled()) log.warn("dev_rulebook_action_extraction stage=input_size_validation stageName={} expectedInputCharsMax={} actualInputChars={} evidenceCount={} recoveryAction=reject_oversized_request outcome=failed",
+                        outputSchema.path("x-stage").asText("DEFINITIONS"), maxInputChars, actualInputChars, input.evidence().size());
+                throw new IllegalArgumentException("rulebook extraction input exceeds the stage text limit");
+            }
+            String resultField = discoverySchema ? "candidates" : "definitions";
+            if (outputSchema == null || !outputSchema.path("additionalProperties").isBoolean()
+                    || outputSchema.path("additionalProperties").booleanValue()
+                    || !outputSchema.path("required").isArray() || !containsText(outputSchema.path("required"), resultField)
+                    || !outputSchema.path("properties").path(resultField).path("items").path("additionalProperties").isBoolean()
+                    || outputSchema.path("properties").path(resultField).path("items").path("additionalProperties").booleanValue())
+                throw new IllegalArgumentException("rulebook action output schema must reject additional properties");
+            if (!providerCompatibleSchema(outputSchema))
+                throw new IllegalArgumentException("rulebook action output schema uses unsupported optional object fields or empty enums");
+            com.networknt.schema.SchemaRegistry.withDefaultDialect(com.networknt.schema.SpecificationVersion.DRAFT_2020_12).getSchema(outputSchema);
+            if ("DISCOVERY".equals(outputSchema.path("x-stage").asText())) {
+                java.util.Set<String> expectedCandidateFields = java.util.Set.of("name", "actionKind", "sourceAnchorId");
+                java.util.Set<String> actualCandidateFields = new java.util.HashSet<>();
+                outputSchema.path("properties").path("candidates").path("items").path("properties").fieldNames().forEachRemaining(actualCandidateFields::add);
+                if (!compactAnchorSchema(outputSchema.path("properties").path("candidates").path("items").path("properties").path("sourceAnchorId"))
+                        || !textSet(outputSchema.path("properties").path("candidates").path("items").path("properties").path("sourceAnchorId").path("enum"))
+                                .equals(anchorIds(input, null))
+                        || !actualCandidateFields.equals(expectedCandidateFields)
+                        || !textSet(outputSchema.path("properties").path("candidates").path("items").path("required")).equals(expectedCandidateFields))
+                    throw new IllegalArgumentException("discovery output schema does not match the source candidate contract");
+                return input;
+            }
+            if ("ASSIGNED".equals(stage)) {
+                validateAssignedContract(input, outputSchema);
+                return input;
+            }
+            java.util.Set<String> expectedItemFields = java.util.Set.of("id", "name", "actionKind", "sourceAnchorId", "unsupportedFields", "fields");
+            java.util.Set<String> actualItemFields = new java.util.HashSet<>();
+            outputSchema.path("properties").path("definitions").path("items").path("properties").fieldNames().forEachRemaining(actualItemFields::add);
+            JsonNode itemSchema = outputSchema.path("properties").path("definitions").path("items");
+            java.util.Set<String> fieldNames = new java.util.HashSet<>();
+            itemSchema.path("properties").path("fields").path("properties").fieldNames().forEachRemaining(fieldNames::add);
+            java.util.Set<String> requiredItemFields = textSet(itemSchema.path("required"));
+            java.util.Set<String> requiredFields = textSet(itemSchema.path("properties").path("fields").path("required"));
+            java.util.Set<String> expectedFields = java.util.Set.of("level", "castingTime", "cost", "range", "rangeForm", "components", "duration", "school",
+                    "conditions", "attackSave", "damageEffect", "effect", "targetMode", "originMode", "effectShape", "pathBlocking", "propagation", "verticalDirection",
+                    "normalRangeFeet", "longRangeFeet", "lengthFeet", "widthFeet", "heightFeet", "radiusFeet");
+            if (!actualItemFields.equals(expectedItemFields) || !requiredItemFields.equals(expectedItemFields)
+                    || !compactAnchorSchema(itemSchema.path("properties").path("sourceAnchorId"))
+                    || !textSet(itemSchema.path("properties").path("sourceAnchorId").path("enum")).equals(anchorIds(input, null))
+                    || !fieldNames.equals(expectedFields) || !requiredFields.equals(expectedFields)
+                    || !itemSchema.path("properties").path("fields").path("additionalProperties").isBoolean()
+                    || itemSchema.path("properties").path("fields").path("additionalProperties").booleanValue())
+                throw new IllegalArgumentException("output schema fields do not match the extraction contract");
+            return input;
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            throw new IllegalArgumentException("rulebook action extraction input does not match its schema", invalid);
+        }
+    }
+
+    private static java.util.Set<String> textSet(JsonNode array) {
+        java.util.Set<String> values = new java.util.HashSet<>();
+        if (array != null && array.isArray()) array.forEach(item -> { if (item.isTextual()) values.add(item.asText()); });
+        return values;
+    }
+
+    private static boolean compactAnchorSchema(JsonNode schema) {
+        return "string".equals(schema.path("type").asText())
+                && "^[0-9]{1,6}$".equals(schema.path("pattern").asText())
+                && schema.path("enum").isArray() && !schema.path("enum").isEmpty()
+                && textSet(schema.path("enum")).size() == schema.path("enum").size()
+                && textSet(schema.path("enum")).stream().allMatch(value -> value.matches("[0-9]{1,6}"));
+    }
+
+    private static java.util.Set<String> anchorIds(RulebookActionExtractionInput input, java.util.Set<String> evidenceIds) {
+        java.util.Set<String> allowed = new java.util.LinkedHashSet<>();
+        for (RulebookEvidenceInput evidence : input.evidence()) {
+            if (evidenceIds == null || evidenceIds.contains(evidence.id()))
+                evidence.anchors().forEach(anchor -> allowed.add(anchor.id()));
+        }
+        return allowed;
+    }
+
+    private void validateAssignedContract(RulebookActionExtractionInput input, JsonNode outputSchema) {
+        java.util.Set<String> expectedIds = input.assignedActions().stream().map(RulebookActionAssignedActionInput::id).collect(java.util.stream.Collectors.toSet());
+        java.util.Set<String> schemaIds = textSet(outputSchema.path("properties").path("candidateResults").path("items").path("properties").path("candidateId").path("enum"));
+        if (expectedIds.isEmpty() || expectedIds.size() != input.assignedActions().size() || !schemaIds.equals(expectedIds)
+                || outputSchema.path("properties").path("candidateResults").path("minItems").asInt(-1) != expectedIds.size()
+                || outputSchema.path("properties").path("candidateResults").path("maxItems").asInt(-1) != expectedIds.size())
+            throw new IllegalArgumentException("assigned result schema must require every assigned action exactly once");
+        java.util.Set<String> expectedResultFields = java.util.Set.of("candidateId", "status", "reason", "neededFields", "sharedRules", "sharedRuleApplicability");
+        JsonNode resultItem = outputSchema.path("properties").path("candidateResults").path("items");
+        if (!fieldNames(resultItem.path("properties")).equals(expectedResultFields)
+                || !textSet(resultItem.path("required")).equals(expectedResultFields)
+                || !resultItem.path("properties").path("neededFields").path("items").path("enum").isArray())
+            throw new IllegalArgumentException("assigned neededFields contract is invalid");
+        JsonNode applicability = resultItem.path("properties").path("sharedRuleApplicability");
+        JsonNode applicabilityItem = applicability.path("items");
+        java.util.Set<String> allowedSharedIds = input.assignedActions().stream().flatMap(action -> action.sharedRules().stream())
+                .map(RulebookActionSharedRuleInput::id).collect(java.util.stream.Collectors.toSet());
+        if (!"array".equals(applicability.path("type").asText())
+                || applicability.path("minItems").asInt(-1) != allowedSharedIds.size()
+                || applicability.path("maxItems").asInt(-1) != allowedSharedIds.size()
+                || (allowedSharedIds.isEmpty() ? applicabilityItem.path("properties").path("id").path("enum").isArray()
+                        : !textSet(applicabilityItem.path("properties").path("id").path("enum")).equals(allowedSharedIds))
+                || !textSet(applicabilityItem.path("properties").path("applicability").path("enum")).equals(java.util.Set.of("APPLIES", "AMBIGUOUS", "NOT_APPLICABLE")))
+            throw new IllegalArgumentException("shared rule applicability schema is invalid");
+        JsonNode sharedRules = resultItem.path("properties").path("sharedRules");
+        JsonNode sharedRuleItem = sharedRules.path("items");
+        boolean initialExtraction = input.assignedActions().stream().allMatch(action -> action.neededFields().isEmpty());
+        java.util.Set<String> allAssignedEvidence = input.assignedActions().stream().flatMap(action -> action.evidenceIds().stream())
+                .collect(java.util.stream.Collectors.toSet());
+        java.util.Set<String> sharedAnchorIds = anchorIds(input, allAssignedEvidence);
+        if (!"array".equals(sharedRules.path("type").asText()) || sharedRules.path("maxItems").asInt(-1) != (initialExtraction ? 0 : 8)
+                || !textSet(sharedRuleItem.path("required")).equals(java.util.Set.of("applicability", "conditions", "sourceAnchorId", "fields"))
+                || !compactAnchorSchema(sharedRuleItem.path("properties").path("sourceAnchorId"))
+                || !textSet(sharedRuleItem.path("properties").path("sourceAnchorId").path("enum")).equals(sharedAnchorIds)
+                || !fieldNames(sharedRuleItem.path("properties").path("fields").path("properties")).equals(RULEBOOK_ACTION_FIELD_IDS)
+                || !textSet(sharedRuleItem.path("properties").path("fields").path("required")).equals(RULEBOOK_ACTION_FIELD_IDS))
+            throw new IllegalArgumentException("shared rule response schema is invalid");
+        java.util.Set<String> sourceIds = input.evidence().stream().map(RulebookEvidenceInput::id).collect(java.util.stream.Collectors.toSet());
+        for (RulebookActionAssignedActionInput action : input.assignedActions()) {
+            if (!sourceIds.containsAll(action.evidenceIds())) throw new IllegalArgumentException("assigned action references evidence outside the supplied input");
+            if (!validRulebookActionFieldValues(action.knownFields())
+                    || !RULEBOOK_ACTION_FIELD_IDS.containsAll(action.neededFields()))
+                throw new IllegalArgumentException("assigned action contains an unknown field identifier");
+            for (RulebookActionSharedRuleInput rule : action.sharedRules())
+                if (!validRulebookActionFieldValues(rule.fields()) || rule.sourceEvidence().length() > 500)
+                    throw new IllegalArgumentException("stored shared rule contains unsupported fields or an oversized source excerpt");
+        }
+        java.util.Set<String> definitionIds = textSet(outputSchema.path("properties").path("definitions").path("items").path("properties").path("id").path("enum"));
+        java.util.Map<String, RulebookActionAssignedActionInput> expected = input.assignedActions().stream()
+                .collect(java.util.stream.Collectors.toMap(RulebookActionAssignedActionInput::id, item -> item));
+        java.util.Set<String> identityIds = new java.util.HashSet<>();
+        for (JsonNode identity : outputSchema.path("properties").path("definitions").path("items").path("anyOf")) {
+            String id = singletonEnumValue(identity.path("properties").path("id").path("enum"));
+            RulebookActionAssignedActionInput action = expected.get(id);
+            if (action == null || !action.name().equals(singletonEnumValue(identity.path("properties").path("name").path("enum")))
+                    || !action.actionKind().equals(singletonEnumValue(identity.path("properties").path("actionKind").path("enum")))
+                    || !textSet(identity.path("required")).equals(textSet(outputSchema.path("properties").path("definitions").path("items").path("required")))
+                    || !fieldNames(identity.path("properties")).equals(fieldNames(outputSchema.path("properties").path("definitions").path("items").path("properties")))
+                    || !compactAnchorSchema(identity.path("properties").path("sourceAnchorId"))
+                    || !textSet(identity.path("properties").path("sourceAnchorId").path("enum")).equals(anchorIds(input, action == null ? java.util.Set.of() : java.util.Set.copyOf(action.evidenceIds())))
+                    || !identity.path("additionalProperties").isBoolean() || identity.path("additionalProperties").booleanValue()
+                    || !identityIds.add(id)) throw new IllegalArgumentException("definition identity schema does not match assigned actions");
+        }
+        if (!definitionIds.equals(expectedIds) || !identityIds.equals(expectedIds))
+            throw new IllegalArgumentException("definition schema IDs do not match assigned actions");
+    }
+
+    private static boolean providerCompatibleSchema(JsonNode schema) {
+        if (schema == null) return false;
+        if (schema.path("enum").isArray() && schema.path("enum").isEmpty()) return false;
+        if ("object".equals(schema.path("type").asText())) {
+            java.util.Set<String> properties = fieldNames(schema.path("properties"));
+            if (!schema.path("properties").isObject() || !schema.path("required").isArray()
+                    || !properties.equals(textSet(schema.path("required")))
+                    || !schema.path("additionalProperties").isBoolean() || schema.path("additionalProperties").booleanValue()) return false;
+        }
+        var children = schema.elements();
+        while (children.hasNext()) if (!providerCompatibleSchema(children.next())) return false;
+        return true;
+    }
+
+    private static boolean validRulebookActionFieldValues(java.util.Map<String, Object> fields) {
+        for (var entry : fields.entrySet()) {
+            String key = entry.getKey(); Object value = entry.getValue();
+            if (!RULEBOOK_ACTION_FIELD_IDS.contains(key)) return false;
+            if (value == null) continue;
+            if (java.util.Set.of("normalRangeFeet", "longRangeFeet", "lengthFeet", "widthFeet", "heightFeet", "radiusFeet").contains(key)) {
+                if (!(value instanceof Number number) || number.doubleValue() < 0 || number.doubleValue() != Math.rint(number.doubleValue())) return false;
+                continue;
+            }
+            if (!(value instanceof String text)) return false;
+            java.util.Map<String, java.util.Set<String>> enums = java.util.Map.of(
+                    "rangeForm", java.util.Set.of("SINGLE", "NORMAL_AND_LONG", "UNSUPPORTED"),
+                    "targetMode", java.util.Set.of("SINGLE_TARGET", "MULTIPLE_TARGETS", "POINT", "DIRECTION", "SELF", "UNSUPPORTED"),
+                    "originMode", java.util.Set.of("ACTOR_TOKEN", "TARGET", "CURSOR_POINT", "CURSOR_DIRECTION", "UNSUPPORTED"),
+                    "effectShape", java.util.Set.of("NONE", "CONE", "LINE", "CUBE", "SPHERE", "CYLINDER", "WALL", "UNSUPPORTED"),
+                    "pathBlocking", java.util.Set.of("SOLID_BLOCKS", "CLEAR_PATH_REQUIRED", "NONE", "UNSUPPORTED"),
+                    "propagation", java.util.Set.of("DIRECT", "AREA_FROM_POINT", "CONTIGUOUS", "NONE", "UNSUPPORTED"),
+                    "verticalDirection", java.util.Set.of("UP", "DOWN", "UNSUPPORTED"));
+            if (enums.containsKey(key) && !enums.get(key).contains(text)) return false;
+        }
+        return true;
+    }
+
+    private static String singletonEnumValue(JsonNode values) {
+        return values != null && values.isArray() && values.size() == 1 && values.get(0).isTextual()
+                ? values.get(0).asText() : "";
+    }
+
+    private static java.util.Set<String> fieldNames(JsonNode object) {
+        java.util.Set<String> names = new java.util.HashSet<>();
+        if (object != null && object.isObject()) object.fieldNames().forEachRemaining(names::add);
+        return names;
+    }
+
+    private static List<String> nodeTextValues(JsonNode array, String field) {
+        List<String> values = new ArrayList<>();
+        if (array != null && array.isArray()) array.forEach(item -> { if (item.path(field).isTextual()) values.add(item.path(field).asText()); });
+        return List.copyOf(values);
+    }
+
+    private static java.util.Map<String, Long> assignedStatusCounts(JsonNode results) {
+        java.util.Map<String, Long> counts = new java.util.TreeMap<>();
+        if (results != null && results.isArray()) results.forEach(item -> counts.merge(item.path("status").asText("<missing>"), 1L, Long::sum));
+        return counts;
+    }
+
+    private void validateAssignedResponse(RulebookActionExtractionInput input, JsonNode response) {
+        java.util.Map<String, RulebookActionAssignedActionInput> expected = input.assignedActions().stream()
+                .collect(java.util.stream.Collectors.toMap(RulebookActionAssignedActionInput::id, item -> item));
+        java.util.Map<String, JsonNode> results = new java.util.HashMap<>();
+        JsonNode candidateResults = response.path("candidateResults");
+        for (JsonNode result : candidateResults) {
+            String id = result.path("candidateId").asText("");
+            if (!expected.containsKey(id) || results.putIfAbsent(id, result) != null)
+                throw new IllegalArgumentException("assigned response has a duplicate or unknown candidate ID");
+        }
+        if (!results.keySet().equals(expected.keySet())) throw new IllegalArgumentException("assigned response omitted an assigned candidate ID");
+        java.util.Map<String, JsonNode> definitions = new java.util.HashMap<>();
+        for (JsonNode definition : response.path("definitions")) {
+            String id = definition.path("id").asText("");
+            if (!expected.containsKey(id) || definitions.putIfAbsent(id, definition) != null)
+                throw new IllegalArgumentException("assigned definitions have a duplicate or unknown candidate ID");
+            RulebookActionAssignedActionInput action = expected.get(id);
+            if (!action.name().equals(definition.path("name").asText()) || !action.actionKind().equals(definition.path("actionKind").asText()))
+                throw new IllegalArgumentException("assigned definition identity does not match its candidate");
+            String anchor = definition.path("sourceAnchorId").asText("");
+            if (input.evidence().stream().filter(source -> action.evidenceIds().contains(source.id()))
+                    .flatMap(source -> source.anchors().stream()).noneMatch(source -> source.id().equals(anchor)))
+                throw new IllegalArgumentException("assigned definition cites evidence outside its candidate scope");
+        }
+        for (String id : expected.keySet()) {
+            String status = results.get(id).path("status").asText("");
+            boolean hasDefinition = definitions.containsKey(id);
+            if ("COMPLETED".equals(status) != hasDefinition
+                    || (!"COMPLETED".equals(status) && results.get(id).path("reason").asText("").isBlank()))
+                throw new IllegalArgumentException("assigned result status and definition do not agree");
+        }
+    }
+
+    private static boolean containsText(JsonNode array, String expected) {
+        for (JsonNode value : array) if (expected.equals(value.asText())) return true;
+        return false;
+    }
+
+    private static void requireExactFields(JsonNode node, java.util.Set<String> expected, String context) {
+        java.util.Set<String> actual = new java.util.HashSet<>();
+        if (node != null && node.isObject()) node.fieldNames().forEachRemaining(actual::add);
+        if (!actual.equals(expected)) throw new IllegalArgumentException(context + " does not match its JSON schema");
+    }
+
+    private static List<String> nodeFieldNames(JsonNode node) {
+        List<String> values = new ArrayList<>();
+        if (node != null && node.isObject()) node.fieldNames().forEachRemaining(values::add);
+        return List.copyOf(values);
+    }
+
+    private static List<String> sourceAnchorIds(JsonNode definitions) {
+        List<String> ids = new ArrayList<>();
+        for (JsonNode item : definitions) ids.add(item.path("sourceAnchorId").asText(""));
+        return List.copyOf(ids);
     }
 
     static String safeScenarioCompilationFailureReason(IllegalArgumentException failure) {
@@ -225,8 +651,9 @@ public final class TypedAgentContractController {
         if (body != null && body.isObject()) body.fieldNames().forEachRemaining(fields::add);
         java.util.Set<String> allowed = java.util.Set.of("soloPlayerId", "operationKey", "action", "endpointId", "provider",
                 "model", "reasoning", "effectiveEndpointId", "effectiveEndpointVersion", "effectiveProvider",
-                "effectiveModel", "prompt", "ragSearchContext");
-        if (!allowed.containsAll(fields) || !fields.containsAll(allowed.stream().filter(field -> !field.equals("ragSearchContext")).toList())) {
+                "effectiveModel", "prompt", "ragSearchContext", "allowedEvidenceKeys");
+        if (!allowed.containsAll(fields) || !fields.containsAll(allowed.stream()
+                .filter(field -> !field.equals("ragSearchContext") && !field.equals("allowedEvidenceKeys")).toList())) {
             throw new IllegalArgumentException("runtime turn request does not match its JSON schema");
         }
         RuntimeTurnRequest request;
@@ -251,18 +678,114 @@ public final class TypedAgentContractController {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "selected GM endpoint changed before execution");
         }
-        return adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
-                json -> {
-                    try {
-                        return parseRuntimeTurn(json);
-                    } catch (IllegalArgumentException invalid) {
-                        log.warn("gm_runtime_response_rejected operationKey={} action={} reason={}",
-                                request.operationKey(), request.action(), invalid.getMessage());
-                        throw invalid;
-                    }
-                },
-                requested, resolution, request.ragSearchContext()).response();
+        long startedAt = System.nanoTime();
+        JsonNode runtimeSchema = runtimeTurnOutputSchema(request.allowedEvidenceKeys());
+        if (runtimeDiagnosticsEnabled()) log.info("dev_gm_runtime_schema outcome=selected operationKey={} schemaId={} schemaChars={} schemaFingerprint={} model={} reasoning={} ragContextPresent={} allowedEvidenceKeyCount={} allowedEvidenceKeys={} evidenceConstraintApplied={} checkBranch={}",
+                request.operationKey(), runtimeSchema.path("$id").asText(), runtimeSchema.toString().length(),
+                fingerprint(runtimeSchema.toString()), request.model(), request.reasoning(), request.ragSearchContext() != null,
+                request.allowedEvidenceKeys().size(), request.allowedEvidenceKeys(), !request.allowedEvidenceKeys().isEmpty(),
+                request.allowedEvidenceKeys().isEmpty() ? "base_schema_no_supplied_evidence" : "supplied_evidence_keys_only");
+        try {
+            RuntimeTurnResponse response = adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), request.prompt(),
+                    json -> {
+                        try {
+                            return parseRuntimeTurn(json);
+                        } catch (IllegalArgumentException invalid) {
+                            RuntimeResponseShape shape = runtimeResponseShape(json);
+                            if (runtimeDiagnosticsEnabled()) log.warn("dev_gm_runtime_schema outcome=rejected operationKey={} expectedFields={} actualFields={} evidencePresent={} evidenceCount={} blankEvidenceCount={} parseFailureClass={} parseLine={} parseColumn={} expectedEvidenceKeys={} actualEvidenceKeys={} reason={} recoveryAction=return_contract_error",
+                                    request.operationKey(), textValues(RUNTIME_TURN_OUTPUT_SCHEMA.path("required")),
+                                    shape.fields(), shape.evidencePresent(), shape.evidenceCount(), shape.blankEvidenceCount(),
+                                    shape.parseFailureClass(), shape.parseLine(), shape.parseColumn(),
+                                    request.allowedEvidenceKeys(), runtimeEvidenceKeys(json), invalid.getMessage());
+                            throw invalid;
+                        }
+                    },
+                    requested, resolution, request.ragSearchContext(), runtimeSchema).response();
+            if (runtimeDiagnosticsEnabled()) log.info("dev_gm_runtime_schema outcome=completed operationKey={} elapsedMs={} checkRequired={} evidenceCount={}",
+                    request.operationKey(), java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt),
+                    response.checkProposal().required(), response.checkProposal().evidenceKeys().size());
+            return response;
+        } catch (RuntimeException failure) {
+            if (runtimeDiagnosticsEnabled()) log.warn("dev_gm_runtime_schema outcome=failed operationKey={} elapsedMs={} failureClass={} recoveryAction=propagate",
+                    request.operationKey(), java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt), failure.getClass().getSimpleName());
+            throw failure;
+        }
     }
+
+    private static JsonNode loadRuntimeTurnOutputSchema() {
+        try (var input = TypedAgentContractController.class.getResourceAsStream("/ai-game-master/schemas/runtime-turn-response.json")) {
+            if (input == null) throw new IllegalStateException("runtime turn response schema is missing");
+            return new ObjectMapper().readTree(input);
+        } catch (java.io.IOException failure) {
+            throw new ExceptionInInitializerError(failure);
+        }
+    }
+
+    private static JsonNode runtimeTurnOutputSchema(List<String> allowedEvidenceKeys) {
+        var schema = RUNTIME_TURN_OUTPUT_SCHEMA.deepCopy();
+        var proposal = (com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("판정제안");
+        var branches = (com.fasterxml.jackson.databind.node.ArrayNode) proposal.path("anyOf");
+        if (!allowedEvidenceKeys.isEmpty()) {
+            var evidenceItems = (com.fasterxml.jackson.databind.node.ObjectNode) branches.get(1).path("properties")
+                    .path("근거키").path("items");
+            var allowed = evidenceItems.putArray("enum");
+            allowedEvidenceKeys.stream().distinct().forEach(allowed::add);
+        }
+        return schema;
+    }
+
+    private List<String> runtimeEvidenceKeys(String json) {
+        try {
+            JsonNode evidence = mapper.readTree(json).path("판정제안").path("근거키");
+            if (!evidence.isArray()) return List.of();
+            List<String> result = new ArrayList<>();
+            evidence.forEach(value -> {
+                String key = value.isTextual() ? value.asText() : "";
+                result.add(key.length() <= 512 && key.matches("[A-Za-z0-9._:=/-]+") ? key : "<non-identifier>");
+            });
+            return List.copyOf(result);
+        } catch (java.io.IOException ignored) {
+            return List.of();
+        }
+    }
+
+    private static boolean runtimeDiagnosticsEnabled() {
+        return "true".equalsIgnoreCase(System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED"));
+    }
+
+    private static String fingerprint(String value) {
+        try { return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)), 0, 8); }
+        catch (java.security.NoSuchAlgorithmException impossible) { throw new IllegalStateException(impossible); }
+    }
+
+    private static List<String> textValues(JsonNode values) {
+        if (values == null || !values.isArray()) return List.of();
+        List<String> result = new ArrayList<>(); values.forEach(value -> result.add(value.asText())); return List.copyOf(result);
+    }
+
+    private static RuntimeResponseShape runtimeResponseShape(String json) {
+        try {
+            JsonNode root = new ObjectMapper().readTree(json);
+            if (root == null || !root.isObject()) return new RuntimeResponseShape(List.of("<non-object>"), false, 0, 0, "none", 0, 0);
+            List<String> fields = new ArrayList<>(); root.fieldNames().forEachRemaining(fields::add);
+            JsonNode evidence = root.path("판정제안").path("근거키");
+            int count = evidence.isArray() ? evidence.size() : 0;
+            int blankCount = 0;
+            if (evidence.isArray()) for (JsonNode key : evidence) if (!key.isTextual() || key.asText().isBlank()) blankCount++;
+            return new RuntimeResponseShape(List.copyOf(fields), !evidence.isMissingNode(), count, blankCount, "none", 0, 0);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalidJson) {
+            var location = invalidJson.getLocation();
+            return new RuntimeResponseShape(List.of("<unavailable>"), false, 0, 0,
+                    invalidJson.getClass().getSimpleName(), location == null ? 0 : location.getLineNr(),
+                    location == null ? 0 : location.getColumnNr());
+        } catch (Exception ignored) {
+            return new RuntimeResponseShape(List.of("<unavailable>"), false, 0, 0,
+                    ignored.getClass().getSimpleName(), 0, 0);
+        }
+    }
+
+    private record RuntimeResponseShape(List<String> fields, boolean evidencePresent, int evidenceCount,
+            int blankEvidenceCount, String parseFailureClass, int parseLine, int parseColumn) {}
 
     @PostMapping("/internal/gm/combat-turn-decision")
     CombatTurnDecisionResponse combatTurnDecision(
@@ -502,7 +1025,7 @@ public final class TypedAgentContractController {
                 situation.path("required").booleanValue());
         List<RuntimeFactResponse> runtimeFacts = new java.util.ArrayList<>();
         JsonNode runtimeFactsNode = root.path("runtimeFacts");
-        if (!runtimeFactsNode.isMissingNode()) {
+        if (!runtimeFactsNode.isMissingNode() && !runtimeFactsNode.isNull()) {
             if (!runtimeFactsNode.isArray()) throw new IllegalArgumentException("runtimeFacts must be an array when provided");
             for (JsonNode fact : runtimeFactsNode) {
                 if (!fact.isObject()) throw new IllegalArgumentException("runtimeFacts entries must be objects");
@@ -514,16 +1037,16 @@ public final class TypedAgentContractController {
         }
         CompletionResponse completion = CompletionResponse.continueAdventure();
         JsonNode completionNode = root.path("completion");
-        if (!completionNode.isMissingNode()) {
+        if (!completionNode.isMissingNode() && !completionNode.isNull()) {
             requireOnlyFields(completionNode, java.util.Set.of("complete", "resolvedObjectiveIds",
                     "satisfiedResolutionCriteriaIds", "concludingScene"), java.util.Set.of("complete"), "completion");
             if (!completionNode.isObject() || !completionNode.path("complete").isBoolean()) {
                 throw new IllegalArgumentException("completion must be an object with a boolean complete field");
             }
-            List<String> resolvedObjectives = completionNode.has("resolvedObjectiveIds")
+            List<String> resolvedObjectives = completionNode.hasNonNull("resolvedObjectiveIds")
                     ? mapper.convertValue(completionNode.path("resolvedObjectiveIds"), mapper.getTypeFactory()
                             .constructCollectionType(List.class, String.class)) : List.of();
-            List<String> satisfiedConditions = completionNode.has("satisfiedResolutionCriteriaIds")
+            List<String> satisfiedConditions = completionNode.hasNonNull("satisfiedResolutionCriteriaIds")
                     ? mapper.convertValue(completionNode.path("satisfiedResolutionCriteriaIds"), mapper.getTypeFactory()
                             .constructCollectionType(List.class, String.class)) : List.of();
             if (resolvedObjectives.stream().anyMatch(value -> value == null || value.isBlank())) {
@@ -545,7 +1068,7 @@ public final class TypedAgentContractController {
         }
         List<String> citedEvidence = new java.util.ArrayList<>();
         JsonNode citedEvidenceNode = root.path("citedEvidence");
-        if (!citedEvidenceNode.isMissingNode()) {
+        if (!citedEvidenceNode.isMissingNode() && !citedEvidenceNode.isNull()) {
             if (!citedEvidenceNode.isArray()) throw new IllegalArgumentException("citedEvidence must be an array when provided");
             for (JsonNode citation : citedEvidenceNode) {
                 if (!citation.isTextual() || citation.asText().isBlank()) {
@@ -642,7 +1165,7 @@ public final class TypedAgentContractController {
     }
 
     private static String optional(JsonNode root, String field) {
-        if (!root.has(field)) return null;
+        if (!root.hasNonNull(field)) return null;
         String value = root.path(field).asText("").trim();
         if (value.isBlank()) throw new IllegalArgumentException(field + " must not be blank when provided");
         return value;
@@ -690,7 +1213,17 @@ public final class TypedAgentContractController {
     }
 
     public record InitialSituationRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId,
-            String provider, String model, String reasoning, String operationKey, String prompt, JsonNode outputSchema) {
+            String provider, String model, String reasoning, String operationKey, String prompt, JsonNode outputSchema,
+            boolean useSubagents, List<InitialSituationStageTask> stageTasks) {
+        public InitialSituationRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId,
+                String provider, String model, String reasoning, String operationKey, String prompt, JsonNode outputSchema) {
+            this(soloPlayerId, endpointId, provider, model, reasoning, operationKey, prompt, outputSchema, false, List.of());
+        }
+        public InitialSituationRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId,
+                String provider, String model, String reasoning, String operationKey, String prompt, JsonNode outputSchema,
+                boolean useSubagents) {
+            this(soloPlayerId, endpointId, provider, model, reasoning, operationKey, prompt, outputSchema, useSubagents, List.of());
+        }
         public InitialSituationRequest {
             soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
             provider = required(provider, "provider");
@@ -698,6 +1231,9 @@ public final class TypedAgentContractController {
             reasoning = required(reasoning, "reasoning");
             operationKey = required(operationKey, "operationKey");
             prompt = required(prompt, "prompt");
+            stageTasks = stageTasks == null ? List.of() : List.copyOf(stageTasks);
+            if (useSubagents && (stageTasks.isEmpty() || stageTasks.stream().map(InitialSituationStageTask::stageId).distinct().count() != stageTasks.size()))
+                throw new IllegalArgumentException("delegated stage tasks must have unique stageIds");
             if (outputSchema == null || !outputSchema.isObject() || !"object".equals(outputSchema.path("type").asText())
                     || !outputSchema.path("properties").isObject() || !outputSchema.path("required").isArray()
                     || !outputSchema.path("additionalProperties").isBoolean()
@@ -705,6 +1241,120 @@ public final class TypedAgentContractController {
                 throw new IllegalArgumentException("outputSchema must be a strict object schema");
             }
         }
+    }
+
+    public record RulebookActionExtractionRequest(java.util.UUID soloPlayerId, java.util.UUID endpointId,
+            String provider, String model, String reasoning, String operationKey, JsonNode extractionInput, JsonNode outputSchema) {
+        public RulebookActionExtractionRequest {
+            soloPlayerId = Objects.requireNonNull(soloPlayerId, "soloPlayerId is required");
+            provider = required(provider, "provider"); model = required(model, "model"); reasoning = required(reasoning, "reasoning");
+            operationKey = required(operationKey, "operationKey");
+            if (extractionInput == null || outputSchema == null) throw new IllegalArgumentException("extractionInput and outputSchema are required");
+        }
+    }
+
+    public record RulebookActionExtractionInput(java.util.UUID documentId, String extractionVersion,
+            List<RulebookActionQueryInput> queryCoverage, List<RulebookEvidenceInput> evidence,
+            List<RulebookActionAssignedActionInput> assignedActions) {
+        public RulebookActionExtractionInput {
+            documentId = Objects.requireNonNull(documentId, "documentId is required");
+            extractionVersion = required(extractionVersion, "extractionVersion");
+            queryCoverage = List.copyOf(Objects.requireNonNull(queryCoverage, "queryCoverage is required"));
+            evidence = List.copyOf(Objects.requireNonNull(evidence, "evidence is required"));
+            assignedActions = assignedActions == null ? List.of() : List.copyOf(assignedActions);
+            if (queryCoverage.size() > 9 || evidence.size() > 1024 || assignedActions.size() > 5
+                    || queryCoverage.stream().map(RulebookActionQueryInput::queryId).distinct().count() != queryCoverage.size()
+                    || evidence.stream().map(RulebookEvidenceInput::id).distinct().count() != evidence.size())
+                throw new IllegalArgumentException("rulebook extraction input exceeds bounds or contains duplicate ids");
+            if (queryCoverage.stream().anyMatch(query -> !isRulebookActionQueryId(query.queryId()))
+                    || evidence.stream().flatMap(item -> item.anchors().stream()).mapToLong(item -> item.text().length()).sum() > 1_000_000)
+                throw new IllegalArgumentException("rulebook extraction input contains an unknown query or exceeds the text limit");
+        }
+
+        private static boolean isRulebookActionQueryId(String queryId) {
+            if (RULEBOOK_ACTION_QUERY_IDS.contains(queryId)) return true;
+            if (queryId == null || !queryId.startsWith("action:")) return false;
+            try {
+                java.util.UUID.fromString(queryId.substring("action:".length()));
+                return true;
+            } catch (IllegalArgumentException invalidId) {
+                return false;
+            }
+        }
+    }
+
+    public record RulebookActionAssignedActionInput(String id, String name, String actionKind,
+            String sourceLocator, List<String> evidenceIds, java.util.Map<String, Object> knownFields, List<String> neededFields,
+            List<RulebookActionSharedRuleInput> sharedRules) {
+        public RulebookActionAssignedActionInput(String id, String name, String actionKind, String sourceLocator,
+                List<String> evidenceIds, java.util.Map<String, Object> knownFields, List<String> neededFields) {
+            this(id, name, actionKind, sourceLocator, evidenceIds, knownFields, neededFields, List.of());
+        }
+        public RulebookActionAssignedActionInput {
+            id = required(id, "assigned action id"); name = required(name, "assigned action name");
+            actionKind = required(actionKind, "assigned action kind"); sourceLocator = required(sourceLocator, "assigned source locator");
+            evidenceIds = List.copyOf(Objects.requireNonNull(evidenceIds, "assigned evidence IDs are required"));
+            knownFields = knownFields == null ? java.util.Map.of() : java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(knownFields));
+            neededFields = neededFields == null ? List.of() : List.copyOf(neededFields);
+            sharedRules = sharedRules == null ? List.of() : List.copyOf(sharedRules);
+            if (!java.util.Set.of("SPELL", "RANGED_ATTACK", "THROWN").contains(actionKind) || evidenceIds.isEmpty()
+                    || evidenceIds.size() > 65
+                    || evidenceIds.stream().anyMatch(value -> value == null || value.isBlank())
+                    || evidenceIds.stream().distinct().count() != evidenceIds.size()
+                    || neededFields.stream().anyMatch(value -> value == null || value.isBlank())
+                    || neededFields.stream().distinct().count() != neededFields.size())
+                throw new IllegalArgumentException("assigned action input is invalid");
+        }
+    }
+
+    public record RulebookActionSharedRuleInput(String id, String conditions, String sourceLocator,
+            String sourceEvidence, java.util.Map<String, Object> fields) {
+        public RulebookActionSharedRuleInput {
+            id = required(id, "shared rule id"); conditions = required(conditions, "shared rule conditions");
+            sourceLocator = required(sourceLocator, "shared rule source locator"); sourceEvidence = required(sourceEvidence, "shared rule source evidence");
+            fields = fields == null ? java.util.Map.of() : java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(fields));
+            if (id.length() > 120 || conditions.length() > 500 || sourceLocator.length() > 500 || sourceEvidence.length() > 500 || fields.isEmpty())
+                throw new IllegalArgumentException("shared rule input exceeds its bounds");
+        }
+    }
+
+    public record RulebookActionQueryInput(String queryId, String queryFingerprint, int candidateCount) {
+        public RulebookActionQueryInput {
+            queryId = required(queryId, "queryId"); queryFingerprint = required(queryFingerprint, "queryFingerprint");
+            if (candidateCount < 0 || candidateCount > 64) throw new IllegalArgumentException("candidateCount is outside the allowed bound");
+        }
+    }
+
+    public record RulebookEvidenceInput(String id, String locator, List<RulebookActionAnchorInput> anchors) {
+        public RulebookEvidenceInput {
+            id = required(id, "evidence id"); locator = required(locator, "evidence locator");
+            try { java.util.UUID.fromString(id); } catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("evidence id must be a UUID", invalid); }
+            anchors = List.copyOf(Objects.requireNonNull(anchors, "evidence anchors are required"));
+            if (locator.length() > 500 || anchors.isEmpty() || anchors.size() > 100
+                    || anchors.stream().mapToInt(anchor -> anchor.text().length()).sum() > 6000
+                    || anchors.stream().map(RulebookActionAnchorInput::id).distinct().count() != anchors.size())
+                throw new IllegalArgumentException("retrieved evidence spans exceed their bounds or contain duplicate ids");
+        }
+    }
+
+    public record RulebookActionAnchorInput(String id, String text) {
+        public RulebookActionAnchorInput {
+            id = required(id, "source span id"); text = required(text, "source span text");
+            if (id.length() > 80 || text.length() > 500) throw new IllegalArgumentException("retrieved evidence span exceeds its size bound");
+        }
+    }
+
+    public record InitialSituationStageTask(String stageId, String prompt, JsonNode outputSchema) {
+        public InitialSituationStageTask {
+            stageId = required(stageId, "stageId");
+            prompt = required(prompt, "stage prompt");
+            if (outputSchema == null || !outputSchema.isObject() || !"object".equals(outputSchema.path("type").asText())
+                    || !outputSchema.path("properties").isObject() || !outputSchema.path("required").isArray()
+                    || !outputSchema.path("additionalProperties").isBoolean() || outputSchema.path("additionalProperties").booleanValue())
+                throw new IllegalArgumentException("stage outputSchema must be a strict object schema");
+            outputSchema = outputSchema.deepCopy();
+        }
+        @Override public JsonNode outputSchema() { return outputSchema.deepCopy(); }
     }
 
     public record ScenarioLookupRequest(java.util.UUID soloPlayerId, String query, String currentSituation,
@@ -796,7 +1446,17 @@ public final class TypedAgentContractController {
                                      java.util.UUID endpointId, String provider, String model, String reasoning,
                                      java.util.UUID effectiveEndpointId, String effectiveEndpointVersion,
                                      String effectiveProvider, String effectiveModel, String prompt,
-                                     com.fasterxml.jackson.databind.JsonNode ragSearchContext) {
+                                     com.fasterxml.jackson.databind.JsonNode ragSearchContext,
+                                     List<String> allowedEvidenceKeys) {
+        public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
+                java.util.UUID endpointId, String provider, String model, String reasoning,
+                java.util.UUID effectiveEndpointId, String effectiveEndpointVersion,
+                String effectiveProvider, String effectiveModel, String prompt,
+                com.fasterxml.jackson.databind.JsonNode ragSearchContext) {
+            this(soloPlayerId, operationKey, action, endpointId, provider, model, reasoning,
+                    effectiveEndpointId, effectiveEndpointVersion, effectiveProvider, effectiveModel, prompt,
+                    ragSearchContext, List.of());
+        }
         public RuntimeTurnRequest(java.util.UUID soloPlayerId, String operationKey, String action,
                 java.util.UUID endpointId, String provider, String model, String reasoning,
                 java.util.UUID effectiveEndpointId, String effectiveEndpointVersion,
@@ -833,6 +1493,11 @@ public final class TypedAgentContractController {
             effectiveProvider = required(effectiveProvider, "effectiveProvider");
             effectiveModel = required(effectiveModel, "effectiveModel");
             prompt = required(prompt, "prompt");
+            allowedEvidenceKeys = allowedEvidenceKeys == null ? List.of() : List.copyOf(allowedEvidenceKeys);
+            if (allowedEvidenceKeys.stream().anyMatch(value -> value == null || value.isBlank())
+                    || allowedEvidenceKeys.stream().distinct().count() != allowedEvidenceKeys.size()) {
+                throw new IllegalArgumentException("allowedEvidenceKeys must contain unique nonblank identifiers");
+            }
         }
     }
 

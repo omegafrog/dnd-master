@@ -32,7 +32,8 @@ public record StoredRulebookRegistration(
         String candidateExtractionVersion,
         String preprocessingPolicyVersion,
         String preprocessingManifestSha256,
-        List<PreprocessingPageState> preprocessingPages) {
+        List<PreprocessingPageState> preprocessingPages,
+        java.util.UUID extractionActorPlayerId) {
 
     public StoredRulebookRegistration(
             RulebookId rulebookId,
@@ -99,7 +100,7 @@ public record StoredRulebookRegistration(
                 null,
                 null,
                 null,
-                List.of());
+                List.of(), null);
     }
 
     public StoredRulebookRegistration(
@@ -128,7 +129,33 @@ public record StoredRulebookRegistration(
                 rulebookId, ownerPlayerId, operationKey, contentHash, format, fileSize, storageKey,
                 processingStatus, extractionStatus, extractedContent, missingLocations, failureCode,
                 version, createdAt, updatedAt, documentType, originalFilename, previewContent,
-                previewWarnings, previewSpans, previewAssets, null, null, null, null, List.of());
+                previewWarnings, previewSpans, previewAssets, null, null, null, null, List.of(), null);
+    }
+
+    public StoredRulebookRegistration(RulebookId rulebookId, OwnerPlayerId ownerPlayerId, String operationKey,
+            String contentHash, RulebookFormat format, long fileSize, String storageKey,
+            ProcessingStatus processingStatus, ExtractionStatus extractionStatus, String extractedContent,
+            List<String> missingLocations, String failureCode, long version, Instant createdAt, Instant updatedAt,
+            DocumentType documentType, String originalFilename, java.util.UUID extractionActorPlayerId) {
+        this(rulebookId, ownerPlayerId, operationKey, contentHash, format, fileSize, storageKey, processingStatus,
+                extractionStatus, extractedContent, missingLocations, failureCode, version, createdAt, updatedAt,
+                documentType, originalFilename, extractedContent == null ? "" : extractedContent, List.of(), List.of(),
+                List.of(), null, null, null, null, List.of(), extractionActorPlayerId);
+    }
+
+    public StoredRulebookRegistration(RulebookId rulebookId, OwnerPlayerId ownerPlayerId, String operationKey,
+            String contentHash, RulebookFormat format, long fileSize, String storageKey,
+            ProcessingStatus processingStatus, ExtractionStatus extractionStatus, String extractedContent,
+            List<String> missingLocations, String failureCode, long version, Instant createdAt, Instant updatedAt,
+            DocumentType documentType, String originalFilename, String previewContent, List<String> previewWarnings,
+            List<PreviewSpan> previewSpans, List<PreviewAsset> previewAssets, String preprocessingOperationId,
+            String candidateExtractionVersion, String preprocessingPolicyVersion, String preprocessingManifestSha256,
+            List<PreprocessingPageState> preprocessingPages) {
+        this(rulebookId, ownerPlayerId, operationKey, contentHash, format, fileSize, storageKey, processingStatus,
+                extractionStatus, extractedContent, missingLocations, failureCode, version, createdAt, updatedAt,
+                documentType, originalFilename, previewContent, previewWarnings, previewSpans, previewAssets,
+                preprocessingOperationId, candidateExtractionVersion, preprocessingPolicyVersion,
+                preprocessingManifestSha256, preprocessingPages, null);
     }
 
     public StoredRulebookRegistration {

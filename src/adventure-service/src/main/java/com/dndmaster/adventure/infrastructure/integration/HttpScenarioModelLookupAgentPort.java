@@ -43,6 +43,15 @@ public final class HttpScenarioModelLookupAgentPort implements ScenarioModelLook
                     request.currentSituation(), request.currentScene(), request.establishedGameState(),
                     request.runtimeAddedFacts(), request.evidence(), request.lockedScenarioModel(), request.preparedSituation(),
                     request.longTermFacts(), request.knownEvidenceIds()));
+            devLog("dev_agent_http operation=action_context_lookup stage=request playerId={} queryFingerprint={} currentSituationFingerprint={} currentSceneFingerprint={} gameStateKeys={} runtimeFactIds={} preparedSituationFingerprint={} longTermFactIds={} knownEvidenceIds={} scenarioElementCount={} evidence={}",
+                    soloPlayerId, com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.query()),
+                    com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.currentSituation()),
+                    com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.currentScene()),
+                    request.establishedGameState().keySet(), request.runtimeAddedFacts().stream()
+                            .map(com.dndmaster.adventure.domain.runtime.RuntimeAddedFact::factId).toList(),
+                    com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.preparedSituation()),
+                    request.longTermFacts().stream().map(com.dndmaster.adventure.application.runtime.LongTermAdventureFact::factId).toList(),
+                    request.knownEvidenceIds(), request.lockedScenarioModel().elementIds().size(), evidenceReferences(request.evidence()));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/gm/scenario-lookup"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
@@ -55,9 +64,10 @@ public final class HttpScenarioModelLookupAgentPort implements ScenarioModelLook
                 throw new IllegalStateException("scenario lookup returned " + response.statusCode());
             }
             LookupResponse result = mapper.readValue(response.body(), LookupResponse.class);
-            devLog("dev_agent_http operation=action_context_lookup outcome=success playerId={} queryFingerprint={} resultStatus={} supportingElementIds={}",
+            devLog("dev_agent_http operation=action_context_lookup stage=response playerId={} queryFingerprint={} resultStatus={} answerFingerprint={} supportingElementIds={}",
                     soloPlayerId, com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.query()),
-                    result.status(), result.supportingElementIds());
+                    result.status(), com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(result.answer()),
+                    result.supportingElementIds());
             if ("NOT_FOUND".equals(result.status())) return ScenarioLookupResult.notFound();
             if (!"FOUND".equals(result.status())) throw new IllegalStateException("invalid scenario lookup status");
             return ScenarioLookupResult.found(result.answer(), result.supportingElementIds());
@@ -76,6 +86,11 @@ public final class HttpScenarioModelLookupAgentPort implements ScenarioModelLook
 
     private static void devLog(String pattern, Object... args) {
         if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.warn(pattern, args);
+    }
+
+    private static List<String> evidenceReferences(List<com.dndmaster.adventure.application.runtime.RuntimeEvidence> evidence) {
+        return evidence.stream().map(item -> item.evidenceType() + ":" + item.knowledgeDocumentId().value()
+                + ":v" + item.extractionVersion() + ":" + item.locator()).toList();
     }
 
     record LookupRequest(UUID soloPlayerId, String query, String currentSituation, String currentScene,

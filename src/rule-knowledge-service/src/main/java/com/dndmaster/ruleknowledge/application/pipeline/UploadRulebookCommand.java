@@ -12,7 +12,8 @@ public record UploadRulebookCommand(
         DocumentType documentType,
         RulebookFormat format,
         byte[] fileContent,
-        String originalFilename) {
+        String originalFilename,
+        UUID extractionActorPlayerId) {
 
     public UploadRulebookCommand(
             String operationKey,
@@ -20,7 +21,12 @@ public record UploadRulebookCommand(
             DocumentType documentType,
             RulebookFormat format,
             byte[] fileContent) {
-        this(operationKey, ownerPlayerId, documentType, format, fileContent, "legacy-rulebook");
+        this(operationKey, ownerPlayerId, documentType, format, fileContent, "legacy-rulebook", null);
+    }
+
+    public UploadRulebookCommand(String operationKey, OwnerPlayerId ownerPlayerId, DocumentType documentType,
+            RulebookFormat format, byte[] fileContent, String originalFilename) {
+        this(operationKey, ownerPlayerId, documentType, format, fileContent, originalFilename, null);
     }
 
     public UploadRulebookCommand {

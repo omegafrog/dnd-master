@@ -58,13 +58,17 @@ public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoClo
         activeRequestId.set(requestId);
         try {
             var completion = client.completeWithUsage(request.requestId(), request.completedPrompt(), request.model(),
-                    request.reasoning(), request.outputSchema(), request.imageDataUri());
+                    request.reasoning(), request.outputSchema(), request.imageDataUri(), request.subtasks());
             return new AiExecutionSuccess(completion.finalText(), completion.usage());
         } catch (com.dndmaster.aigamemaster.infrastructure.ai.CodexAuthenticationRejectedException rejected) {
             return new AiExecutionFailure(AiExecutionFailure.Reason.REAUTH_REQUIRED,
                     "Codex 계정 인증을 다시 해야 합니다.");
         } catch (com.dndmaster.aigamemaster.infrastructure.ai.CodexTurnTimeoutException timeout) {
             return new AiExecutionFailure(AiExecutionFailure.Reason.TIMEOUT, timeout.getMessage());
+        } catch (com.dndmaster.aigamemaster.infrastructure.ai.CodexTurnFailedException failure) {
+            if ("OUTPUT_LIMIT".equals(failure.errorCategory()))
+                return new AiExecutionFailure(AiExecutionFailure.Reason.OUTPUT_LIMIT, "Codex response output limit reached");
+            return new AiExecutionFailure(AiExecutionFailure.Reason.LOCAL_EXECUTION_FAILED, "Codex app-server execution failed");
         } catch (RuntimeException failure) {
             return new AiExecutionFailure(AiExecutionFailure.Reason.LOCAL_EXECUTION_FAILED,
                     failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage());

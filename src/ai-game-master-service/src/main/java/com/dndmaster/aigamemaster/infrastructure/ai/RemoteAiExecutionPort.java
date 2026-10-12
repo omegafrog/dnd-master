@@ -59,6 +59,7 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
             var body = new RelayRequest(request.soloPlayerId(), request.requestId(), request.workId(), request.completedPrompt(),
                     request.model(), request.reasoning(), request.outputFormat(), request.outputSchema(),
                     request.imageDataUri().isBlank() ? List.of() : List.of(request.imageDataUri()),
+                    request.subtasks().stream().map(task -> new RelaySubtask(task.stageId(), task.prompt(), task.outputSchema())).toList(),
                     System.currentTimeMillis() + timeout.toMillis(), request.ragSearchContext());
             var httpRequest = HttpRequest.newBuilder(endpoint).timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken).POST(HttpRequest.BodyPublishers.ofByteArray(mapper.writeValueAsBytes(body))).build();
@@ -78,6 +79,7 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
                 case "REAUTH_REQUIRED" -> AiExecutionFailure.Reason.REAUTH_REQUIRED;
                 case "CONNECTION_LOST" -> AiExecutionFailure.Reason.CONNECTION_LOST;
                 case "TIMEOUT" -> AiExecutionFailure.Reason.TIMEOUT;
+                case "OUTPUT_LIMIT" -> AiExecutionFailure.Reason.OUTPUT_LIMIT;
                 default -> AiExecutionFailure.Reason.DELIVERY_FAILED;
             });
         } catch (java.net.http.HttpTimeoutException failure) {
@@ -89,6 +91,7 @@ public final class RemoteAiExecutionPort implements AiExecutionPort {
     private static AiExecutionFailure failure(AiExecutionFailure.Reason reason) { return new AiExecutionFailure(reason, reason.name()); }
     private record RelayRequest(java.util.UUID soloPlayerId, String requestId, String operationId, String prompt, String model,
                                 String reasoning, String outputFormat, JsonNode outputSchema, List<String> imageInputs,
-                                long deadlineEpochMillis, JsonNode ragSearchContext) {}
+                                List<RelaySubtask> subtasks, long deadlineEpochMillis, JsonNode ragSearchContext) {}
+    private record RelaySubtask(String stageId, String prompt, JsonNode outputSchema) {}
     private record RelayResult(String requestId, String content, String failureType, AiExecutionUsage usage) {}
 }

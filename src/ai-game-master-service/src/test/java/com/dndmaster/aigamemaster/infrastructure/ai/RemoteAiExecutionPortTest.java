@@ -112,11 +112,17 @@ class RemoteAiExecutionPortTest {
             var registry = new SimpleMeterRegistry();
             var port = new RemoteAiExecutionPort(HttpClient.newHttpClient(), new ObjectMapper(),
                     URI.create("http://localhost:" + server.getAddress().getPort()), "service-token", Duration.ofSeconds(2), registry);
+            var schema = new ObjectMapper().readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}");
             var result = port.execute(new AiExecutionRequest(UUID.randomUUID(), "request-323", "work-323", "completed prompt",
-                    "model", "medium", "TEXT", null, ""));
+                    "model", "medium", "JSON", schema, "", null,
+                    java.util.List.of(new AiExecutionRequest.Subtask("stage-a", "child prompt", schema))));
             assertEquals("final", result.requireFinalText());
             assertEquals("service-token", token.get());
             assertTrue(body.get().contains("\"prompt\":\"completed prompt\""));
+            var sent = new ObjectMapper().readTree(body.get());
+            assertThat(sent.path("subtasks").get(0).path("stageId").asText()).isEqualTo("stage-a");
+            assertThat(sent.path("subtasks").get(0).path("prompt").asText()).isEqualTo("child prompt");
+            assertThat(sent.path("subtasks").get(0).path("outputSchema")).isEqualTo(schema);
             assertEquals(1, registry.get("ai.execution.count").tag("implementation", "remote-relay").tag("result", "success").counter().count());
             assertEquals(1, registry.get("ai.execution.duration").tag("implementation", "remote-relay").tag("result", "success").timer().count());
         } finally { server.stop(0); }

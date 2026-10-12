@@ -20,6 +20,7 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     private final AgentEndpointRegistry endpointRegistry;
     private final AiExecutionPort aiExecutionPort;
     private final GmProviderSelectionResolver selectionResolver;
+    private final int schemaNumCtx;
 
     public GmCompletionRouter(SpringAiChatAdapter ollama, GmProviderProperties defaults) {
         this(ollama, defaults, null);
@@ -29,11 +30,16 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     }
     public GmCompletionRouter(SpringAiChatAdapter ollama, GmProviderProperties defaults, AgentEndpointRegistry endpointRegistry,
                               AiExecutionPort aiExecutionPort) {
+        this(ollama, defaults, endpointRegistry, aiExecutionPort, 32768);
+    }
+    public GmCompletionRouter(SpringAiChatAdapter ollama, GmProviderProperties defaults, AgentEndpointRegistry endpointRegistry,
+                              AiExecutionPort aiExecutionPort, int schemaNumCtx) {
         this.ollama = Objects.requireNonNull(ollama);
         this.defaults = Objects.requireNonNull(defaults);
         this.endpointRegistry = endpointRegistry;
         this.aiExecutionPort = Objects.requireNonNull(aiExecutionPort);
         this.selectionResolver = endpointRegistry == null ? null : new GmProviderSelectionResolver(endpointRegistry);
+        this.schemaNumCtx = schemaNumCtx > 0 ? schemaNumCtx : 32768;
     }
 
     @Override
@@ -148,7 +154,20 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
         T response = "codex-cli".equals(effective.provider())
                 ? parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId, operationId, operationId,
                         prompt, effective.model(), effective.reasoning(), "JSON", outputSchema, "", ragSearchContext)).requireFinalText())
-                : completeResolved(soloPlayerId, operationId, prompt, parser, resolution.endpoint(), effective);
+                : completeResolved(soloPlayerId, operationId, prompt, parser, resolution.endpoint(), effective, outputSchema);
+        return new GmCompletionResult<>(response, effective);
+    }
+
+    @Override
+    public <T> GmCompletionResult<T> completeWithResolutionAndSubtasks(UUID soloPlayerId, String operationId,
+            String prompt, StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+            GmProviderSelectionResolver.EndpointResolution resolution,
+            com.fasterxml.jackson.databind.JsonNode outputSchema,
+            java.util.List<com.dndmaster.aigamemaster.application.ai.AiExecutionRequest.Subtask> subtasks) {
+        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
+        if (!"codex-cli".equals(effective.provider())) throw new IllegalArgumentException("delegated stage tasks require Codex OAuth");
+        T response = parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId, operationId, operationId,
+                prompt, effective.model(), effective.reasoning(), "JSON", outputSchema, "", null, subtasks)).requireFinalText());
         return new GmCompletionResult<>(response, effective);
     }
 
@@ -228,6 +247,11 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
         if ("codex-cli".equals(effective.provider())) {
             return parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId, operationId, operationId,
                     prompt, effective.model(), effective.reasoning(), "JSON", schema, "")).requireFinalText());
+        }
+        if ("ollama".equals(effective.provider())) {
+            return new RemoteOllamaGmProvider(HttpClient.newHttpClient(), endpoint.baseUrl(), effective.model(),
+                    defaults.timeout(), schemaNumCtx)
+                    .complete(operationId + ":ollama:" + effective.model(), prompt, parser, schema);
         }
         return completeResolved(operationId, prompt, parser, endpoint, effective, schema);
     }

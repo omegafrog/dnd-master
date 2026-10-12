@@ -563,6 +563,15 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.knowledge.RulebookActionDefinitionLookupPort rulebookActionDefinitionLookupPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookActionDefinitionLookupGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(45), objectMapper, internalToken);
+    }
+
+    @Bean
     ScenarioPreparationApplicationService scenarioPreparationApplicationService(
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             ScenarioBundleRepository bundleRepository,
@@ -570,11 +579,12 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearch,
             com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterTagExtraction,
             GameSystemDefinitionPort gameSystemDefinitionPort,
-            KnowledgeDocumentLookupPort knowledgeDocumentLookupPort) {
+            KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
+            com.dndmaster.adventure.application.knowledge.RulebookActionDefinitionLookupPort actionDefinitionLookup) {
         return new ScenarioPreparationApplicationService(packageRepository, bundleRepository, runtimeOptionCatalogPort,
                 characterContextSearch, characterTagExtraction,
                 new com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler(),
-                gameSystemDefinitionPort, knowledgeDocumentLookupPort);
+                gameSystemDefinitionPort, knowledgeDocumentLookupPort, actionDefinitionLookup);
     }
 
     @Bean

@@ -23,7 +23,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    document_type, original_filename, preview_content, preview_warnings,
                    preview_spans, preview_assets, preprocessing_operation_id,
                    candidate_extraction_version, preprocessing_policy_version,
-                   preprocessing_manifest_sha256, preprocessing_pages
+                   preprocessing_manifest_sha256, preprocessing_pages, extraction_actor_player_id
               FROM rulebook_registration WHERE rulebook_id = ?
             """;
 
@@ -45,7 +45,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    document_type, original_filename, preview_content, preview_warnings,
                    preview_spans, preview_assets, preprocessing_operation_id,
                    candidate_extraction_version, preprocessing_policy_version,
-                   preprocessing_manifest_sha256, preprocessing_pages
+                   preprocessing_manifest_sha256, preprocessing_pages, extraction_actor_player_id
               FROM rulebook_registration WHERE operation_key = ?
             """;
     private static final String FIND_BY_OWNER_AND_CONTENT_HASH = """
@@ -55,7 +55,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    document_type, original_filename, preview_content, preview_warnings,
                    preview_spans, preview_assets, preprocessing_operation_id,
                    candidate_extraction_version, preprocessing_policy_version,
-                   preprocessing_manifest_sha256, preprocessing_pages
+                   preprocessing_manifest_sha256, preprocessing_pages, extraction_actor_player_id
               FROM rulebook_registration
              WHERE owner_player_id = ? AND content_hash = ?
             """;
@@ -66,7 +66,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    document_type, original_filename, preview_content, preview_warnings,
                    preview_spans, preview_assets, preprocessing_operation_id,
                    candidate_extraction_version, preprocessing_policy_version,
-                   preprocessing_manifest_sha256, preprocessing_pages
+                   preprocessing_manifest_sha256, preprocessing_pages, extraction_actor_player_id
               FROM rulebook_registration WHERE owner_player_id = ?
               ORDER BY created_at DESC
             """;
@@ -77,7 +77,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    document_type, original_filename, preview_content, preview_warnings,
                    preview_spans, preview_assets, preprocessing_operation_id,
                    candidate_extraction_version, preprocessing_policy_version,
-                   preprocessing_manifest_sha256, preprocessing_pages
+                   preprocessing_manifest_sha256, preprocessing_pages, extraction_actor_player_id
               FROM rulebook_registration WHERE processing_status IN (
             """;
     private static final String CLAIM_PENDING = """
@@ -108,7 +108,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                       registration.preview_spans, registration.preview_assets,
                       registration.preprocessing_operation_id, registration.candidate_extraction_version,
                       registration.preprocessing_policy_version, registration.preprocessing_manifest_sha256,
-                      registration.preprocessing_pages
+                      registration.preprocessing_pages, registration.extraction_actor_player_id
             """;
     private static final String UPSERT = """
             INSERT INTO rulebook_registration
@@ -118,8 +118,8 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                  document_type, original_filename, preview_content, preview_warnings,
                  preview_spans, preview_assets, preprocessing_operation_id,
                  candidate_extraction_version, preprocessing_policy_version,
-                 preprocessing_manifest_sha256, preprocessing_pages)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 preprocessing_manifest_sha256, preprocessing_pages, extraction_actor_player_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (rulebook_id) DO UPDATE SET
                 owner_player_id = EXCLUDED.owner_player_id,
                 content_hash = EXCLUDED.content_hash,
@@ -143,7 +143,8 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                 candidate_extraction_version = EXCLUDED.candidate_extraction_version,
                 preprocessing_policy_version = EXCLUDED.preprocessing_policy_version,
                 preprocessing_manifest_sha256 = EXCLUDED.preprocessing_manifest_sha256,
-                preprocessing_pages = EXCLUDED.preprocessing_pages
+                preprocessing_pages = EXCLUDED.preprocessing_pages,
+                extraction_actor_player_id = EXCLUDED.extraction_actor_player_id
             """;
 
     private final DataSource dataSource;
@@ -291,6 +292,8 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             setNullableString(ps, 24, registration.preprocessingPolicyVersion());
             setNullableString(ps, 25, registration.preprocessingManifestSha256());
             setJson(ps, 26, registration.preprocessingPages());
+            if (registration.extractionActorPlayerId() == null) ps.setNull(27, Types.OTHER);
+            else ps.setObject(27, registration.extractionActorPlayerId(), Types.OTHER);
             ps.executeUpdate();
         } catch (SQLException e) {
             if ("23505".equals(e.getSQLState())) {
@@ -346,7 +349,8 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                 rs.getString("candidate_extraction_version"),
                 rs.getString("preprocessing_policy_version"),
                 rs.getString("preprocessing_manifest_sha256"),
-                getJsonList(rs, "preprocessing_pages", new TypeReference<List<com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState>>() {}, objectMapper));
+                getJsonList(rs, "preprocessing_pages", new TypeReference<List<com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState>>() {}, objectMapper),
+                rs.getObject("extraction_actor_player_id", UUID.class));
     }
 
     private static <E extends Enum<E>> E getNullableEnum(ResultSet rs, String column, Class<E> type) throws SQLException {

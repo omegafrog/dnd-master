@@ -21,6 +21,7 @@ val localAiBenchmark by tasks.registering(Test::class) {
 
 sourceSets {
     main {
+        resources.srcDir("../contracts")
         java.exclude(
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexAppServerClient.java",
             "com/dndmaster/aigamemaster/infrastructure/ai/CodexCliCompletionAdapter.java",
@@ -43,6 +44,7 @@ sourceSets {
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-web")
+    implementation("com.networknt:json-schema-validator:2.0.0")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.ai:spring-ai-client-chat")
     implementation("org.springframework.ai:spring-ai-starter-model-ollama")

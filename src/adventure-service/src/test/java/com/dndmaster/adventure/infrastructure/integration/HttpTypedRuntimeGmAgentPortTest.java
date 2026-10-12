@@ -67,7 +67,9 @@ class HttpTypedRuntimeGmAgentPortTest {
                 .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.effectiveEndpointId",
                         com.github.tomakehurst.wiremock.client.WireMock.equalTo(endpointId.toString())))
                 .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.prompt",
-                        com.github.tomakehurst.wiremock.client.WireMock.containing("고정 지침·잠긴 자료"))));
+                        com.github.tomakehurst.wiremock.client.WireMock.containing("고정 지침·잠긴 자료")))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.allowedEvidenceKeys",
+                        com.github.tomakehurst.wiremock.client.WireMock.equalToJson("[]"))));
     }
 
     @Test
@@ -144,6 +146,9 @@ class HttpTypedRuntimeGmAgentPortTest {
         org.junit.jupiter.api.Assertions.assertEquals(characterId, plan.checkProposal().characterSheetId());
         org.junit.jupiter.api.Assertions.assertEquals(List.of(key), plan.checkProposal().evidenceKeys());
         org.junit.jupiter.api.Assertions.assertEquals(List.of(rule), plan.citedEvidence());
+        server.verify(postRequestedFor(urlEqualTo("/internal/gm/runtime-turn"))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.allowedEvidenceKeys[0]",
+                        com.github.tomakehurst.wiremock.client.WireMock.equalTo(key))));
     }
     @Test
     void required_input_overflow_stays_retryable_and_never_calls_runtime_ai() {

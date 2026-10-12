@@ -19,9 +19,13 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+@ExtendWith(OutputCaptureExtension.class)
 class TypedAgentContractControllerTest {
     private static final UUID SOLO_PLAYER_ID = UUID.fromString("00000000-0000-0000-0000-000000000321");
     private static final UUID SELECTED_ENDPOINT_ID = UUID.fromString("00000000-0000-0000-0000-000000000322");
@@ -105,6 +109,293 @@ class TypedAgentContractControllerTest {
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> controller.scenarioLookup("service-secret", new TypedAgentContractController.ScenarioLookupRequest(SOLO_PLAYER_ID, " ", Map.of())));
+    }
+
+    @Test
+    void rulebook_action_agent_input_rejects_unknown_fields_before_provider_access() throws Exception {
+        var controller = new TypedAgentContractController(emptyAdapter(), new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        var body = new ObjectMapper().readTree("""
+                {"soloPlayerId":"00000000-0000-0000-0000-000000000321","endpointId":null,"provider":"ollama",
+                 "model":"model","reasoning":"medium","operationKey":"rulebook-actions:source-anchor-v4:test",
+                 "extractionInput":{"documentId":"89ef62fc-b2dd-4b1b-91c9-04810d880f3a","extractionVersion":"ev-1",
+                   "queryCoverage":[],"evidence":[],"rawPrompt":"must not be accepted"},
+                 "outputSchema":{"type":"object","additionalProperties":false,"required":["definitions"],"properties":{"definitions":{"type":"array"}}}}
+                """);
+
+        assertThrows(IllegalArgumentException.class, () -> controller.rulebookActionDefinitions("service-secret", body));
+    }
+
+    @Test
+    void rulebook_action_agent_input_rejects_invalid_source_identity_and_empty_evidence_before_provider_access() throws Exception {
+        var controller = new TypedAgentContractController(emptyAdapter(), new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        String prefix = """
+                {"soloPlayerId":"00000000-0000-0000-0000-000000000321","endpointId":null,"provider":"ollama",
+                 "model":"model","reasoning":"medium","operationKey":"rulebook-actions:source-anchor-v4:test",
+                 "extractionInput":{"documentId":"89ef62fc-b2dd-4b1b-91c9-04810d880f3a","extractionVersion":"%s",
+                   "queryCoverage":[],"evidence":[{"id":"%s","locator":"page=1","anchors":[{"id":"%s","text":"%s"}]}]},
+                 "outputSchema":{"type":"object","additionalProperties":false,"required":["definitions"],"properties":{"definitions":{"type":"array","items":{"type":"object","properties":{"sourceAnchorId":{"enum":["%s"]}}}}}}}
+                """;
+        String validId = "82ad2366-a013-4d13-b922-9fa2c5970634";
+        for (String[] invalid : List.of(new String[] {"", validId, "quote"}, new String[] {"ev-1", "not-a-uuid", "quote"},
+                new String[] {"ev-1", validId, ""})) {
+            String anchorId = "0";
+            var body = new ObjectMapper().readTree(prefix.formatted(invalid[0], invalid[1], anchorId, invalid[2], anchorId));
+            assertThrows(IllegalArgumentException.class, () -> controller.rulebookActionDefinitions("service-secret", body));
+        }
+    }
+
+    @Test
+    void rulebook_action_agent_output_is_checked_against_dynamic_evidence_schema() throws Exception {
+        var controller = new TypedAgentContractController(selectedAdapter((operation, prompt, requested) -> "{}"),
+                new ObjectMapper(), new ApiRequestGuard("service-secret"), requested -> resolution("model", requested));
+        String id = "82ad2366-a013-4d13-b922-9fa2c5970634";
+        ObjectMapper mapper = new ObjectMapper();
+        var body = mapper.createObjectNode().put("soloPlayerId", SOLO_PLAYER_ID.toString()).putNull("endpointId")
+                .put("provider", "ollama").put("model", "model").put("reasoning", "medium")
+                .put("operationKey", "rulebook-actions:source-anchor-v4:test");
+        body.set("extractionInput", mapper.readTree("""
+                {"documentId":"89ef62fc-b2dd-4b1b-91c9-04810d880f3a","extractionVersion":"ev-1","queryCoverage":[],
+                 "evidence":[{"id":"82ad2366-a013-4d13-b922-9fa2c5970634","locator":"page=1","anchors":[{"id":"0","text":"A supported rule."}]}]}
+                """));
+        body.set("outputSchema", strictRulebookActionOutputSchema(mapper, id));
+
+        assertThrows(IllegalArgumentException.class, () -> controller.rulebookActionDefinitions("service-secret", body));
+    }
+
+    @Test
+    void assigned_action_response_requires_one_outcome_for_each_candidate_id() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        String valid = "{\"candidateResults\":[{\"candidateId\":\"candidate-a\",\"status\":\"INSUFFICIENT_EVIDENCE\",\"reason\":\"missing range\",\"neededFields\":[],\"sharedRules\":[],\"sharedRuleApplicability\":[]},{\"candidateId\":\"candidate-b\",\"status\":\"INSUFFICIENT_EVIDENCE\",\"reason\":\"missing range\",\"neededFields\":[],\"sharedRules\":[],\"sharedRuleApplicability\":[]}],\"definitions\":[]}";
+        var controller = new TypedAgentContractController(selectedAdapter((operation, prompt, requested) -> valid),
+                mapper, new ApiRequestGuard("service-secret"), requested -> resolution("model", requested));
+        var body = mapper.createObjectNode().put("soloPlayerId", SOLO_PLAYER_ID.toString()).putNull("endpointId")
+                .put("provider", "ollama").put("model", "model").put("reasoning", "medium").put("operationKey", "assigned-actions:test");
+        body.set("extractionInput", mapper.readTree("""
+                {"documentId":"89ef62fc-b2dd-4b1b-91c9-04810d880f3a","extractionVersion":"ev-1",
+                 "queryCoverage":[{"queryId":"assigned-actions","queryFingerprint":"fp","candidateCount":1}],
+                 "evidence":[{"id":"82ad2366-a013-4d13-b922-9fa2c5970634","locator":"page=1","anchors":[{"id":"0","text":"A listed action."}]}],
+                 "assignedActions":[{"id":"candidate-a","name":"Action A","actionKind":"SPELL","sourceLocator":"page=1","evidenceIds":["82ad2366-a013-4d13-b922-9fa2c5970634"],"knownFields":{},"neededFields":[],"sharedRules":[]},{"id":"candidate-b","name":"Action B","actionKind":"SPELL","sourceLocator":"page=1","evidenceIds":["82ad2366-a013-4d13-b922-9fa2c5970634"],"knownFields":{},"neededFields":[],"sharedRules":[]}]}
+                """));
+        body.set("outputSchema", assignedActionOutputSchema(mapper));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) body.path("outputSchema").path("properties").path("candidateResults").path("items")
+                .path("properties").path("sharedRules")).put("maxItems", 0);
+
+        var response = controller.rulebookActionDefinitions("service-secret", body);
+
+        org.junit.jupiter.api.Assertions.assertEquals(2, ((com.fasterxml.jackson.databind.JsonNode) response.getBody()).path("candidateResults").size());
+        var wrongAnchorScope = (com.fasterxml.jackson.databind.node.ObjectNode) assignedActionOutputSchema(mapper).deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) wrongAnchorScope.path("properties").path("candidateResults").path("items")
+                .path("properties").path("sharedRules")).put("maxItems", 0);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) wrongAnchorScope.path("properties").path("definitions").path("items")
+                .path("anyOf").get(0).path("properties").path("sourceAnchorId")).putArray("enum").add("999");
+        body.set("outputSchema", wrongAnchorScope);
+        body.put("operationKey", "assigned-actions:wrong-anchor-scope");
+        assertThrows(IllegalArgumentException.class, () -> controller.rulebookActionDefinitions("service-secret", body));
+        var unsupported = (com.fasterxml.jackson.databind.node.ObjectNode) assignedActionOutputSchema(mapper).deepCopy();
+        var requiredSharedFields = (com.fasterxml.jackson.databind.node.ArrayNode) unsupported.path("properties").path("candidateResults").path("items")
+                .path("properties").path("sharedRules").path("items").path("properties").path("fields").path("required");
+        for (int index = 0; index < requiredSharedFields.size(); index++) {
+            if ("cost".equals(requiredSharedFields.get(index).asText())) { requiredSharedFields.remove(index); break; }
+        }
+        body.set("outputSchema", unsupported);
+        body.put("operationKey", "assigned-actions:optional-output-field");
+        assertThrows(IllegalArgumentException.class, () -> controller.rulebookActionDefinitions("service-secret", body));
+        var omittedController = new TypedAgentContractController(selectedAdapter((operation, prompt, requested) ->
+                "{\"candidateResults\":[{\"candidateId\":\"candidate-a\",\"status\":\"INSUFFICIENT_EVIDENCE\",\"reason\":\"missing range\",\"neededFields\":[]}] ,\"definitions\":[]}"),
+                mapper, new ApiRequestGuard("service-secret"), requested -> resolution("model", requested));
+        body.put("operationKey", "assigned-actions:omitted");
+        assertThrows(IllegalArgumentException.class, () -> omittedController.rulebookActionDefinitions("service-secret", body));
+
+        var duplicateController = new TypedAgentContractController(selectedAdapter((operation, prompt, requested) ->
+                "{\"candidateResults\":[{\"candidateId\":\"candidate-a\",\"status\":\"INSUFFICIENT_EVIDENCE\",\"reason\":\"missing range\",\"neededFields\":[]},{\"candidateId\":\"candidate-a\",\"status\":\"INSUFFICIENT_EVIDENCE\",\"reason\":\"duplicate\",\"neededFields\":[]}],\"definitions\":[]}"),
+                mapper, new ApiRequestGuard("service-secret"), requested -> resolution("model", requested));
+        body.put("operationKey", "assigned-actions:duplicate");
+        assertThrows(IllegalArgumentException.class, () -> duplicateController.rulebookActionDefinitions("service-secret", body));
+
+        var foreignController = new TypedAgentContractController(selectedAdapter((operation, prompt, requested) ->
+                "{\"candidateResults\":[{\"candidateId\":\"foreign-id\",\"status\":\"INSUFFICIENT_EVIDENCE\",\"reason\":\"unknown\",\"neededFields\":[]},{\"candidateId\":\"candidate-b\",\"status\":\"INSUFFICIENT_EVIDENCE\",\"reason\":\"missing range\",\"neededFields\":[]}],\"definitions\":[]}"),
+                mapper, new ApiRequestGuard("service-secret"), requested -> resolution("model", requested));
+        body.put("operationKey", "assigned-actions:foreign");
+        assertThrows(IllegalArgumentException.class, () -> foreignController.rulebookActionDefinitions("service-secret", body));
+    }
+
+    @Test
+    void rulebook_action_token_estimate_usesValidatedPromptAndSchemaWithoutCallingProvider() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        var controller = new TypedAgentContractController(emptyAdapter(), mapper, new ApiRequestGuard("service-secret"));
+        var body = mapper.createObjectNode().put("soloPlayerId", SOLO_PLAYER_ID.toString()).putNull("endpointId")
+                .put("provider", "ollama").put("model", "model").put("reasoning", "medium").put("operationKey", "estimate-only");
+        body.set("extractionInput", mapper.readTree("""
+                {"documentId":"89ef62fc-b2dd-4b1b-91c9-04810d880f3a","extractionVersion":"ev-1",
+                 "queryCoverage":[{"queryId":"assigned-actions","queryFingerprint":"fp","candidateCount":2}],
+                 "evidence":[{"id":"82ad2366-a013-4d13-b922-9fa2c5970634","locator":"page=1","anchors":[{"id":"0","text":"short"}]}],
+                 "assignedActions":[{"id":"candidate-a","name":"Action A","actionKind":"SPELL","sourceLocator":"page=1","evidenceIds":["82ad2366-a013-4d13-b922-9fa2c5970634"],"knownFields":{},"neededFields":[],"sharedRules":[]},
+                                    {"id":"candidate-b","name":"Action B","actionKind":"SPELL","sourceLocator":"page=1","evidenceIds":["82ad2366-a013-4d13-b922-9fa2c5970634"],"knownFields":{},"neededFields":[],"sharedRules":[]}]}
+                """));
+        body.set("outputSchema", assignedActionOutputSchema(mapper));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) body.path("outputSchema").path("properties").path("candidateResults")
+                .path("items").path("properties").path("sharedRules")).put("maxItems", 0);
+
+        var first = controller.estimateRulebookActionInputTokens("service-secret", body);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) body.path("extractionInput").path("evidence").get(0).path("anchors").get(0))
+                .put("text", "火の矢。".repeat(100));
+        var second = controller.estimateRulebookActionInputTokens("service-secret", body);
+
+        long shortEstimate = ((Number) ((Map<?, ?>) first.getBody()).get("estimatedInputTokens")).longValue();
+        long expandedEstimate = ((Number) ((Map<?, ?>) second.getBody()).get("estimatedInputTokens")).longValue();
+        org.junit.jupiter.api.Assertions.assertTrue(shortEstimate > 0);
+        org.junit.jupiter.api.Assertions.assertTrue(expandedEstimate > shortEstimate);
+        org.junit.jupiter.api.Assertions.assertEquals(Boolean.FALSE, ((Map<?, ?>) first.getBody()).get("includesProviderSystemAndToolOverhead"));
+    }
+
+    @Test
+    void rulebook_action_input_preservesMoreThanFortyEightEvidenceItems() {
+        List<TypedAgentContractController.RulebookEvidenceInput> evidence = java.util.stream.IntStream.range(0, 65)
+                .mapToObj(index -> new TypedAgentContractController.RulebookEvidenceInput(
+                        UUID.nameUUIDFromBytes(("evidence-" + index).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString(),
+                        "page=" + index, List.of(new TypedAgentContractController.RulebookActionAnchorInput("0", "source " + index))))
+                .toList();
+
+        var input = new TypedAgentContractController.RulebookActionExtractionInput(UUID.randomUUID(), "version-1", List.of(), evidence, List.of());
+
+        org.junit.jupiter.api.Assertions.assertEquals(65, input.evidence().size());
+    }
+
+    @Test
+    void assigned_action_input_accepts_65_sources_over_24k_and_discovery_remains_capped_at_24k() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        String response = "{\"candidateResults\":[{\"candidateId\":\"candidate-a\",\"status\":\"INSUFFICIENT_EVIDENCE\",\"reason\":\"missing range\",\"neededFields\":[],\"sharedRules\":[],\"sharedRuleApplicability\":[]},{\"candidateId\":\"candidate-b\",\"status\":\"INSUFFICIENT_EVIDENCE\",\"reason\":\"missing range\",\"neededFields\":[],\"sharedRules\":[],\"sharedRuleApplicability\":[]}],\"definitions\":[]}";
+        var controller = new TypedAgentContractController(selectedAdapter((operation, prompt, requested) -> response),
+                mapper, new ApiRequestGuard("service-secret"), requested -> resolution("model", requested));
+        var body = mapper.createObjectNode().put("soloPlayerId", SOLO_PLAYER_ID.toString()).putNull("endpointId")
+                .put("provider", "ollama").put("model", "model").put("reasoning", "medium").put("operationKey", "assigned-actions:48k-test");
+        var extractionInput = mapper.createObjectNode().put("documentId", "89ef62fc-b2dd-4b1b-91c9-04810d880f3a").put("extractionVersion", "ev-1");
+        extractionInput.putArray("queryCoverage");
+        var evidence = extractionInput.putArray("evidence");
+        List<String> evidenceIds = new java.util.ArrayList<>();
+        for (int item = 0; item < 65; item++) {
+            String evidenceId = item == 0 ? "82ad2366-a013-4d13-b922-9fa2c5970634"
+                    : UUID.nameUUIDFromBytes(("oversized-assigned-evidence-" + item).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+            evidenceIds.add(evidenceId);
+            var source = evidence.addObject().put("id", evidenceId).put("locator", "page=" + (item + 1));
+            var anchors = source.putArray("anchors");
+            anchors.addObject().put("id", "0").put("text", "x".repeat(500));
+        }
+        var assigned = extractionInput.putArray("assignedActions");
+        var candidateA = assigned.addObject().put("id", "candidate-a").put("name", "Action A").put("actionKind", "SPELL").put("sourceLocator", "page=1");
+        evidenceIds.forEach(candidateA.putArray("evidenceIds")::add);
+        var known = candidateA.putObject("knownFields");
+        for (String field : List.of("level", "castingTime", "cost", "range", "rangeForm", "components", "duration", "school",
+                "conditions", "attackSave", "damageEffect", "effect", "targetMode", "originMode", "effectShape", "pathBlocking",
+                "propagation", "verticalDirection", "normalRangeFeet", "longRangeFeet", "lengthFeet", "widthFeet", "heightFeet", "radiusFeet"))
+            known.putNull(field);
+        candidateA.putArray("neededFields").add("cost"); candidateA.putArray("sharedRules");
+        var candidateB = assigned.addObject().put("id", "candidate-b").put("name", "Action B").put("actionKind", "SPELL").put("sourceLocator", "page=1");
+        evidenceIds.forEach(candidateB.putArray("evidenceIds")::add);
+        candidateB.putObject("knownFields"); candidateB.putArray("neededFields"); candidateB.putArray("sharedRules");
+        body.set("extractionInput", extractionInput);
+        var schema = (com.fasterxml.jackson.databind.node.ObjectNode) assignedActionOutputSchema(mapper).deepCopy();
+        schema.put("x-stage", "ASSIGNED");
+        ((com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties").path("candidateResults").path("items").path("properties").path("sharedRules")).put("maxItems", 8);
+        setAnchorEnum(schema.path("properties").path("candidateResults").path("items").path("properties").path("sharedRules").path("items").path("properties").path("sourceAnchorId"), 1);
+        setAnchorEnum(schema.path("properties").path("definitions").path("items").path("properties").path("sourceAnchorId"), 1);
+        for (var identity : schema.path("properties").path("definitions").path("items").path("anyOf"))
+            setAnchorEnum(identity.path("properties").path("sourceAnchorId"), 1);
+        body.set("outputSchema", schema);
+
+        var estimateController = new TypedAgentContractController(emptyAdapter(), mapper, new ApiRequestGuard("service-secret"));
+        var estimate = estimateController.estimateRulebookActionInputTokens("service-secret", body);
+        org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.OK, estimate.getStatusCode());
+        org.junit.jupiter.api.Assertions.assertTrue(mapper.writeValueAsBytes(body).length > 24_000);
+
+        var result = controller.rulebookActionDefinitions("service-secret", body);
+
+        org.junit.jupiter.api.Assertions.assertEquals(2, ((com.fasterxml.jackson.databind.JsonNode) result.getBody()).path("candidateResults").size());
+        org.junit.jupiter.api.Assertions.assertEquals(65, evidence.size());
+        org.junit.jupiter.api.Assertions.assertEquals(32_500, evidence.size() * 500);
+
+        var discoveryBody = body.deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) discoveryBody.path("extractionInput")).remove("assignedActions");
+        var discoverySchema = mapper.createObjectNode().put("type", "object").put("x-stage", "DISCOVERY");
+        discoveryBody.set("outputSchema", discoverySchema);
+        discoveryBody.put("operationKey", "discovery-actions:24k-test");
+        assertThrows(IllegalArgumentException.class, () -> controller.rulebookActionDefinitions("service-secret", discoveryBody));
+    }
+
+    private static com.fasterxml.jackson.databind.JsonNode assignedActionOutputSchema(ObjectMapper mapper) {
+        var schema = mapper.createObjectNode().put("type", "object").put("additionalProperties", false).put("x-stage", "ASSIGNED");
+        schema.putArray("required").add("candidateResults").add("definitions");
+        var properties = schema.putObject("properties");
+        var results = properties.putObject("candidateResults").put("type", "array").put("minItems", 2).put("maxItems", 2);
+        var result = results.putObject("items").put("type", "object").put("additionalProperties", false);
+        result.putArray("required").add("candidateId").add("status").add("reason").add("neededFields").add("sharedRules").add("sharedRuleApplicability");
+        var resultProperties = result.putObject("properties");
+        resultProperties.putObject("candidateId").put("type", "string").putArray("enum").add("candidate-a").add("candidate-b");
+        resultProperties.putObject("status").put("type", "string").putArray("enum").add("COMPLETED").add("INSUFFICIENT_EVIDENCE").add("FAILED");
+        resultProperties.putObject("reason").putArray("type").add("string").add("null");
+        resultProperties.putObject("neededFields").put("type", "array").putObject("items")
+                .put("type", "string").putArray("enum").add("range").add("cost");
+        var shared = resultProperties.putObject("sharedRules").put("type", "array").put("maxItems", 8).putObject("items");
+        shared.put("type", "object").put("additionalProperties", false);
+        shared.putArray("required").add("applicability").add("conditions").add("sourceAnchorId").add("fields");
+        var sharedProps = shared.putObject("properties");
+        sharedProps.putObject("applicability").put("type", "string").putArray("enum").add("APPLIES").add("AMBIGUOUS");
+        sharedProps.putObject("conditions").put("type", "string");
+        sharedProps.putObject("sourceAnchorId").put("type", "string").put("pattern", "^[0-9]{1,6}$").putArray("enum").add("0");
+        var sharedFields = strictRulebookActionOutputSchema(mapper, "0").path("properties").path("definitions").path("items")
+                .path("properties").path("fields").deepCopy();
+        sharedProps.set("fields", sharedFields);
+        var applicability = resultProperties.putObject("sharedRuleApplicability").put("type", "array").put("minItems", 0).put("maxItems", 0).putObject("items");
+        applicability.put("type", "object").put("additionalProperties", false);
+        applicability.putArray("required").add("id").add("applicability");
+        var applicabilityProps = applicability.putObject("properties");
+        applicabilityProps.putObject("id").put("type", "string");
+        applicabilityProps.putObject("applicability").put("type", "string").putArray("enum").add("APPLIES").add("AMBIGUOUS").add("NOT_APPLICABLE");
+        var definitions = (com.fasterxml.jackson.databind.node.ObjectNode) strictRulebookActionOutputSchema(mapper,
+                "82ad2366-a013-4d13-b922-9fa2c5970634:span-0").path("properties").path("definitions").deepCopy();
+        ((com.fasterxml.jackson.databind.node.ObjectNode) definitions.path("items").path("properties").path("id"))
+                .putArray("enum").add("candidate-a").add("candidate-b");
+        var anyOf = ((com.fasterxml.jackson.databind.node.ObjectNode) definitions.path("items")).putArray("anyOf");
+        for (String[] action : List.of(new String[] {"candidate-a", "Action A"}, new String[] {"candidate-b", "Action B"})) {
+            var variant = anyOf.addObject();
+            variant.set("properties", definitions.path("items").path("properties").deepCopy());
+            var identity = (com.fasterxml.jackson.databind.node.ObjectNode) variant.path("properties");
+            identity.putObject("id").put("type", "string").putArray("enum").add(action[0]);
+            identity.putObject("name").put("type", "string").putArray("enum").add(action[1]);
+            identity.putObject("actionKind").put("type", "string").putArray("enum").add("SPELL");
+            variant.set("required", definitions.path("items").path("required").deepCopy());
+            variant.put("additionalProperties", false);
+        }
+        properties.set("definitions", definitions);
+        return schema;
+    }
+
+    private static com.fasterxml.jackson.databind.JsonNode strictRulebookActionOutputSchema(ObjectMapper mapper, String anchorId) {
+        var schema = mapper.createObjectNode().put("type", "object").put("additionalProperties", false);
+        schema.putArray("required").add("definitions");
+        var definitions = schema.putObject("properties").putObject("definitions").put("type", "array");
+        var item = definitions.putObject("items").put("type", "object").put("additionalProperties", false);
+        var itemNames = List.of("id", "name", "actionKind", "sourceAnchorId", "unsupportedFields", "fields");
+        item.putArray("required").addAll(itemNames.stream().map(mapper.getNodeFactory()::textNode).toList());
+        var properties = item.putObject("properties");
+        itemNames.forEach(name -> properties.putObject(name).put("type", name.equals("fields") ? "object" : "string"));
+        properties.putObject("sourceAnchorId").put("type", "string").put("pattern", "^[0-9]{1,6}$").putArray("enum").add(anchorId.matches("[0-9]{1,6}") ? anchorId : "0");
+        var fields = (com.fasterxml.jackson.databind.node.ObjectNode) properties.path("fields");
+        fields.put("additionalProperties", false);
+        var fieldNames = List.of("level", "castingTime", "cost", "range", "rangeForm", "components", "duration", "school", "conditions",
+                "attackSave", "damageEffect", "effect", "targetMode", "originMode", "effectShape", "pathBlocking", "propagation", "verticalDirection",
+                "normalRangeFeet", "longRangeFeet", "lengthFeet", "widthFeet", "heightFeet", "radiusFeet");
+        var fieldProperties = fields.putObject("properties");
+        fieldNames.forEach(name -> fieldProperties.putObject(name).putArray("type").add("string").add("null"));
+        fields.putArray("required").addAll(fieldNames.stream().map(mapper.getNodeFactory()::textNode).toList());
+        return schema;
+    }
+
+    private static void setAnchorEnum(com.fasterxml.jackson.databind.JsonNode schema, int count) {
+        var object = (com.fasterxml.jackson.databind.node.ObjectNode) schema;
+        object.remove("enum");
+        var values = object.putArray("enum");
+        for (int index = 0; index < count; index++) values.add(Integer.toString(index));
     }
 
     @Test
@@ -295,6 +586,7 @@ class TypedAgentContractControllerTest {
     void initial_situation_generation_uses_the_selected_provider_and_internal_authentication() throws Exception {
         var seen = new AtomicReference<String>();
         var seenSchema = new AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        var generatedJson = new AtomicReference<>("{\"stages\":[{\"stageId\":\"opening\"}]}");
         var schema = new ObjectMapper().readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}");
         var endpointId = UUID.randomUUID();
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
@@ -312,7 +604,7 @@ class TypedAgentContractControllerTest {
                 org.junit.jupiter.api.Assertions.assertEquals("high", requested.reasoning());
                 seenSchema.set(outputSchema);
                 seen.set(prompt);
-                return new GmCompletionResult<>(parser.parse("{\"stages\":[{\"stageId\":\"opening\"}]}"), resolution.effectiveSelection());
+                return new GmCompletionResult<>(parser.parse(generatedJson.get()), resolution.effectiveSelection());
             }
         };
         var selection = new GmProviderSelectionResolver.EndpointResolution(
@@ -330,6 +622,8 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertTrue(response.path("stages").isArray());
         org.junit.jupiter.api.Assertions.assertTrue(seen.get().contains("source grounded prompt"));
         org.junit.jupiter.api.Assertions.assertEquals(schema, seenSchema.get());
+        generatedJson.set("{\"stages\":{\"opening\":{},\"opening\":{}}}");
+        assertThrows(IllegalArgumentException.class, () -> controller.initialSituation("service-secret", request));
         assertThrows(ApiRequestGuard.ApiContractException.class,
                 () -> controller.initialSituation("wrong-secret", request));
         assertThrows(IllegalArgumentException.class, () -> new TypedAgentContractController.InitialSituationRequest(
@@ -338,6 +632,42 @@ class TypedAgentContractControllerTest {
         assertThrows(IllegalArgumentException.class, () -> new TypedAgentContractController.InitialSituationRequest(
                 SOLO_PLAYER_ID, endpointId, "openai", "story-model", "high", "operation", "prompt",
                 new ObjectMapper().createObjectNode().put("type", "object")));
+    }
+
+    @Test
+    void initial_situation_subtasks_keep_the_selected_model_and_use_medium_reasoning() throws Exception {
+        var endpointId = UUID.randomUUID();
+        var schema = new ObjectMapper().readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}");
+        var seenReasoning = new AtomicReference<String>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new AssertionError("delegated completion must be used");
+            }
+            @Override public <T> GmCompletionResult<T> completeWithResolutionAndSubtasks(UUID owner, String operation,
+                    String prompt, StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+                    GmProviderSelectionResolver.EndpointResolution resolution,
+                    com.fasterxml.jackson.databind.JsonNode outputSchema,
+                    List<com.dndmaster.aigamemaster.application.ai.AiExecutionRequest.Subtask> subtasks) {
+                org.junit.jupiter.api.Assertions.assertEquals("gpt-5.6-luna", requested.model());
+                seenReasoning.set(requested.reasoning());
+                return new GmCompletionResult<>(parser.parse("{\"stages\":{\"opening\":{}}}"), resolution.effectiveSelection());
+            }
+        };
+        var endpoint = new com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint(endpointId, "test",
+                com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint.Provider.CODEX_CLI,
+                java.net.URI.create("http://localhost"), "gpt-5.6-luna", null, true, java.time.Instant.EPOCH);
+        var selection = new GmProviderSelectionResolver.EndpointResolution(endpoint,
+                new EffectiveGmProviderSelection(endpointId, java.time.Instant.EPOCH, "codex", "gpt-5.6-luna", "medium"));
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"),
+                ignored -> selection);
+        var stageTask = new TypedAgentContractController.InitialSituationStageTask("opening", "stage prompt", schema);
+        var request = new TypedAgentContractController.InitialSituationRequest(SOLO_PLAYER_ID, endpointId,
+                "codex", "gpt-5.6-luna", "medium", "initial-situation:delegated", "parent prompt", schema,
+                true, List.of(stageTask));
+
+        controller.initialSituation("service-secret", request);
+
+        org.junit.jupiter.api.Assertions.assertEquals("medium", seenReasoning.get());
     }
 
     @Test
@@ -478,6 +808,198 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertEquals(8, response.combatEnemies().get(0).count());
         org.junit.jupiter.api.Assertions.assertEquals(new RequestedGmProviderSelection(SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high"), selection.get());
         org.junit.jupiter.api.Assertions.assertEquals("ROLE=RUNTIME_GM", prompt.get());
+    }
+
+    @Test
+    void runtime_turn_passes_its_dedicated_schema_and_keeps_selection_and_rag_context() {
+        var seenSchema = new AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        var seenRag = new AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        var seenSelection = new AtomicReference<RequestedGmProviderSelection>();
+        var adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new AssertionError("resolved provider path must be used");
+            }
+            @Override public <T> GmCompletionResult<T> completeWithResolution(UUID owner, String operation,
+                    String prompt, StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+                    GmProviderSelectionResolver.EndpointResolution resolution,
+                    com.fasterxml.jackson.databind.JsonNode ragContext,
+                    com.fasterxml.jackson.databind.JsonNode outputSchema) {
+                seenSchema.set(outputSchema);
+                seenRag.set(ragContext);
+                seenSelection.set(requested);
+                return new GmCompletionResult<>(parser.parse(runtimeResponse("[\"RULEBOOK:rules:2:page=18\"]")), resolution.effectiveSelection());
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        var rag = new ObjectMapper().createObjectNode().put("query", "safe structured context");
+        String allowedKey = "RULEBOOK:rules:2:page=18";
+        var request = new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "schema-op", "look",
+                SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high", SELECTED_ENDPOINT_ID,
+                Instant.EPOCH.toString(), "openai", "gpt-5", "ROLE=RUNTIME_GM", rag, List.of(allowedKey));
+
+        controller.runtimeTurn("service-secret", request);
+
+        org.junit.jupiter.api.Assertions.assertEquals("gpt-5", seenSelection.get().model());
+        org.junit.jupiter.api.Assertions.assertEquals("high", seenSelection.get().reasoning());
+        org.junit.jupiter.api.Assertions.assertEquals(rag, seenRag.get());
+        org.junit.jupiter.api.Assertions.assertEquals("https://dnd-master.local/contracts/ai-game-master/v1/runtime-turn-response.json",
+                seenSchema.get().path("$id").asText());
+        var evidenceSchema = seenSchema.get().path("properties").path("판정제안").path("anyOf").get(1)
+                .path("properties").path("근거키");
+        org.junit.jupiter.api.Assertions.assertTrue(evidenceSchema.path("items").path("pattern").asText().contains("\\u3000"));
+        org.junit.jupiter.api.Assertions.assertEquals(1, evidenceSchema.path("minItems").asInt());
+        org.junit.jupiter.api.Assertions.assertEquals(allowedKey, evidenceSchema.path("items").path("enum").get(0).asText());
+        var checkBranches = seenSchema.get().path("properties").path("판정제안").path("anyOf");
+        for (var branch : checkBranches) {
+            org.junit.jupiter.api.Assertions.assertEquals("object", branch.path("type").asText());
+            org.junit.jupiter.api.Assertions.assertFalse(branch.path("additionalProperties").asBoolean());
+            org.junit.jupiter.api.Assertions.assertEquals(11, branch.path("required").size());
+            branch.path("properties").fields().forEachRemaining(field ->
+                    org.junit.jupiter.api.Assertions.assertTrue(field.getValue().has("type"),
+                            "provider strict schema branch property requires a type: " + field.getKey()));
+        }
+    }
+
+    @Test
+    void runtime_turn_rejects_missing_empty_and_blank_check_evidence_but_allows_no_check(CapturedOutput output) {
+        for (String evidence : List.of("MISSING", "[]", "[\" \"]")) {
+            String result = evidence;
+            var adapter = selectedAdapter((operation, prompt, requested) -> runtimeResponse(result));
+            var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> controller.runtimeTurn(
+                    "service-secret", new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "invalid-" + evidence,
+                            "look", List.of())));
+        }
+        var noCheck = selectedAdapter((operation, prompt, requested) -> runtimeResponse("null"));
+        var response = new TypedAgentContractController(noCheck, new ObjectMapper(), new ApiRequestGuard("service-secret"))
+                .runtimeTurn("service-secret", new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "no-check", "look", List.of()));
+        org.junit.jupiter.api.Assertions.assertFalse(response.checkProposal().required());
+        if ("true".equalsIgnoreCase(System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED"))) {
+            org.assertj.core.api.Assertions.assertThat(output).contains("dev_gm_runtime_schema outcome=rejected")
+                    .contains("expectedFields=").contains("actualFields=").contains("evidenceCount=0")
+                    .doesNotContain("look");
+        }
+    }
+
+    @Test
+    void runtime_turn_logs_safe_json_parse_location_for_malformed_provider_response(CapturedOutput output) {
+        String malformed = "{\"privatePlayerText\": ";
+        var adapter = selectedAdapter((operation, prompt, requested) -> malformed);
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> controller.runtimeTurn(
+                "service-secret", new TypedAgentContractController.RuntimeTurnRequest(
+                        SOLO_PLAYER_ID, "malformed-json", "private player input", List.of())));
+
+        if ("true".equalsIgnoreCase(System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED"))) {
+            org.assertj.core.api.Assertions.assertThat(output).contains("parseFailureClass=")
+                    .contains("parseLine=1").contains("parseColumn=")
+                    .doesNotContain(malformed).doesNotContain("private player input");
+        }
+    }
+
+    @Test
+    void runtime_turn_schema_matches_java_blank_whitespace_for_evidence_keys() throws Exception {
+        var mapper = new ObjectMapper();
+        var schemaJson = mapper.readTree(TypedAgentContractController.class
+                .getResourceAsStream("/ai-game-master/schemas/runtime-turn-response.json"));
+        var schema = com.networknt.schema.SchemaRegistry.withDefaultDialect(com.networknt.schema.SpecificationVersion.DRAFT_2020_12)
+                .getSchema(schemaJson);
+        var validCheck = providerCompatibleRuntimeResponse(mapper, "[\"valid-key\"]");
+        org.junit.jupiter.api.Assertions.assertTrue(schema.validate(validCheck).isEmpty());
+        var falseCheck = providerCompatibleRuntimeResponse(mapper, "null");
+        org.junit.jupiter.api.Assertions.assertTrue(schema.validate(falseCheck).isEmpty());
+        for (String evidence : List.of("MISSING", "[]", "[\"\u3000\"]")) {
+            var invalid = providerCompatibleRuntimeResponse(mapper, "[\"valid-key\"]");
+            if (evidence.equals("MISSING")) {
+                ((com.fasterxml.jackson.databind.node.ObjectNode) invalid.path("판정제안")).remove("근거키");
+            } else {
+                ((com.fasterxml.jackson.databind.node.ObjectNode) invalid.path("판정제안")).set("근거키", mapper.readTree(evidence));
+            }
+            org.junit.jupiter.api.Assertions.assertFalse(schema.validate(invalid).isEmpty());
+        }
+        var nonBreakingSpace = providerCompatibleRuntimeResponse(mapper, "[\"\u00a0\"]");
+        org.junit.jupiter.api.Assertions.assertTrue(schema.validate(nonBreakingSpace).isEmpty());
+    }
+
+    @Test
+    void runtime_turn_schema_limits_check_evidence_to_supplied_keys_when_available() throws Exception {
+        String allowedKey = "RULEBOOK:rules:2:page=18";
+        var adapter = new AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        GmCompletionAdapter capture = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new AssertionError("resolved provider path must be used");
+            }
+            @Override public <T> GmCompletionResult<T> completeWithResolution(UUID owner, String operation, String prompt,
+                    StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+                    GmProviderSelectionResolver.EndpointResolution resolution,
+                    com.fasterxml.jackson.databind.JsonNode ragContext, com.fasterxml.jackson.databind.JsonNode outputSchema) {
+                adapter.set(outputSchema);
+                String response = runtimeResponse("[\"" + allowedKey + "\"]");
+                return new GmCompletionResult<>(parser.parse(response), resolution.effectiveSelection());
+            }
+        };
+        var controller = new TypedAgentContractController(capture, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        controller.runtimeTurn("service-secret", new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID,
+                "allowed-key", "look", SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high", SELECTED_ENDPOINT_ID,
+                Instant.EPOCH.toString(), "openai", "gpt-5", "ROLE=RUNTIME_GM", null, List.of(allowedKey)));
+        var allowedSchema = adapter.get();
+        var schemaValidator = com.networknt.schema.SchemaRegistry.withDefaultDialect(com.networknt.schema.SpecificationVersion.DRAFT_2020_12)
+                .getSchema(allowedSchema);
+        var allowedResponse = providerCompatibleRuntimeResponse(new ObjectMapper(), "[\"" + allowedKey + "\"]");
+        var unknownResponse = providerCompatibleRuntimeResponse(new ObjectMapper(), "[\"RULEBOOK:other:page=1\"]");
+        org.junit.jupiter.api.Assertions.assertTrue(schemaValidator.validate(allowedResponse).isEmpty());
+        org.junit.jupiter.api.Assertions.assertFalse(schemaValidator.validate(unknownResponse).isEmpty());
+
+        var noEvidenceResponse = controller.runtimeTurn("service-secret", new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID,
+                "no-evidence", "look", SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high", SELECTED_ENDPOINT_ID,
+                Instant.EPOCH.toString(), "openai", "gpt-5", "ROLE=RUNTIME_GM", null, List.of()));
+        org.junit.jupiter.api.Assertions.assertTrue(noEvidenceResponse.checkProposal().required());
+        org.junit.jupiter.api.Assertions.assertEquals(2, adapter.get().path("properties").path("판정제안").path("anyOf").size());
+    }
+
+    @Test
+    void runtime_turn_parser_accepts_provider_required_nullable_unused_fields() throws Exception {
+        var mapper = new ObjectMapper();
+        String responseJson = mapper.writeValueAsString(providerCompatibleRuntimeResponse(mapper, "null"));
+        var controller = new TypedAgentContractController(
+                selectedAdapter((operation, prompt, requested) -> responseJson), mapper,
+                new ApiRequestGuard("service-secret"));
+
+        var response = controller.runtimeTurn("service-secret",
+                new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "provider-nullable", "살펴본다", List.of()));
+
+        org.junit.jupiter.api.Assertions.assertFalse(response.checkProposal().required());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(), response.runtimeFacts());
+        org.junit.jupiter.api.Assertions.assertFalse(response.completion().complete());
+        org.junit.jupiter.api.Assertions.assertNull(response.situation().location());
+    }
+
+    private static com.fasterxml.jackson.databind.JsonNode providerCompatibleRuntimeResponse(ObjectMapper mapper, String evidence) throws Exception {
+        var response = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(runtimeResponse(evidence));
+        var situation = (com.fasterxml.jackson.databind.node.ObjectNode) response.path("situation");
+        for (String field : List.of("location", "problem", "threat", "goal", "reference")) situation.putNull(field);
+        response.putArray("runtimeFacts");
+        var completion = response.putObject("completion").put("complete", false);
+        completion.putArray("resolvedObjectiveIds");
+        completion.putArray("satisfiedResolutionCriteriaIds");
+        completion.put("concludingScene", "");
+        response.putArray("citedEvidence");
+        var proposal = (com.fasterxml.jackson.databind.node.ObjectNode) response.path("판정제안");
+        if (evidence.equals("null")) {
+            for (String field : List.of("이유", "판정능력또는기술", "대상캐릭터ID", "굴림주체", "굴림식", "성공시결과", "실패시결과")) proposal.putNull(field);
+            proposal.putNull("보정치");
+            proposal.putNull("난이도");
+            proposal.putArray("근거키");
+        }
+        return response;
+    }
+
+    private static String runtimeResponse(String evidenceKeys) {
+        String proposal = "null".equals(evidenceKeys) ? "{\"필요\":false}" : "{\"필요\":true,\"이유\":\"단서를 확인합니다.\",\"판정능력또는기술\":\"지각\",\"대상캐릭터ID\":\"" + SOLO_PLAYER_ID + "\",\"굴림주체\":\"플레이어\",\"굴림식\":\"1d20\",\"보정치\":0,\"난이도\":10," +
+                ("MISSING".equals(evidenceKeys) ? "" : "\"근거키\":" + evidenceKeys + ",") + "\"성공시결과\":\"단서를 찾습니다.\",\"실패시결과\":\"단서를 찾지 못합니다.\"}";
+        return "{\"scene\":\"복도\",\"judgment\":\"판정\",\"narration\":\"복도가 조용합니다.\",\"situation\":" + situation("FALLBACK", "") +
+                ",\"combatStart\":false,\"mapEntryRequested\":false,\"combatEnemies\":[],\"판정제안\":" + proposal + "}";
     }
 
     @Test

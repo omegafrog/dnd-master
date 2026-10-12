@@ -573,7 +573,9 @@ public class RuleKnowledgeController {
         java.util.Set<String> fields = new java.util.HashSet<>();
         if (body != null && body.isObject()) body.fieldNames().forEachRemaining(fields::add);
         if (!fields.equals(java.util.Set.of("ownerId", "sessionId", "scenarioPackageId", "stageKey", "actionIntent",
-                "scope", "activeLocators", "excludedEvidenceIds", "query", "denseLimit"))) {
+                "scope", "activeLocators", "excludedEvidenceIds", "query", "denseLimit"))
+                && !fields.equals(java.util.Set.of("ownerId", "sessionId", "scenarioPackageId", "stageKey", "actionIntent",
+                        "scope", "activeLocators", "excludedEvidenceIds", "query", "denseLimit", "minimumDenseSimilarity"))) {
             return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
         }
         UnifiedEvidenceCandidateSearchRequest request;
@@ -596,6 +598,8 @@ public class RuleKnowledgeController {
                     || request.scope() == null || request.scope().isEmpty()
                     || request.excludedEvidenceIds() != null && request.excludedEvidenceIds().stream()
                             .anyMatch(id -> id == null || !id.startsWith("IMMUTABLE_DOCUMENT:"))
+                    || request.minimumDenseSimilarity() != null && (!Double.isFinite(request.minimumDenseSimilarity())
+                            || request.minimumDenseSimilarity() < -1 || request.minimumDenseSimilarity() > 1)
                     || request.denseLimit() < 1 || request.denseLimit() > 30) {
                 return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
             }
@@ -620,14 +624,26 @@ public class RuleKnowledgeController {
                 scope.add(new AuthorizedDocumentScope(new KnowledgeDocumentId(item.documentId()), item.extractionVersion(), item.documentType(),
                         new OwnerPlayerId(publishedCatalogRulebook ? CATALOG_OWNER : request.ownerId())));
             }
+            devLog("dev_player_action_search stage=request sessionId={} scenarioPackageId={} stageKey={} actionIntent={} queryFingerprint={} documentScope={} activeLocators={} excludedEvidenceIds={} denseLimit={} bm25Limit=0",
+                    request.sessionId(), request.scenarioPackageId(), request.stageKey(), request.actionIntent(),
+                    queryFingerprint(request.query()), scope.stream().map(item -> item.documentType() + ":"
+                            + item.documentId().value() + ":v" + item.extractionVersion()).toList(),
+                    request.activeLocators(),
+                    request.excludedEvidenceIds() == null ? List.of() : request.excludedEvidenceIds(), request.denseLimit());
             EvidenceSearchResult result = hybridEvidenceSearchService.searchDenseOnly(new com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest(
                     new OwnerPlayerId(request.ownerId()), request.sessionId(), request.scenarioPackageId(), request.stageKey(),
-                    request.actionIntent(), scope, request.activeLocators(), request.query(), request.denseLimit(), 0));
-            return ResponseEntity.ok(new UnifiedEvidenceCandidateSearchResponse(request.ownerId(), request.sessionId(),
-                    request.scenarioPackageId(), result.candidates().stream()
+                    request.actionIntent(), scope, request.activeLocators(), request.query(), request.denseLimit(), 0,
+                    List.of(), request.minimumDenseSimilarity()));
+            List<EvidenceCandidate> selected = result.candidates().stream()
                             .filter(candidate -> request.excludedEvidenceIds() == null || !request.excludedEvidenceIds().contains(
-                                    immutableEvidenceId(candidate)))
-                            .map(this::candidateResponse).toList()));
+                                    immutableEvidenceId(candidate))).toList();
+            devLog("dev_player_action_search stage=response sessionId={} scenarioPackageId={} denseCandidateCount={} excludedCount={} returnedCount={} returned={}",
+                    request.sessionId(), request.scenarioPackageId(), result.candidates().size(),
+                    result.candidates().size() - selected.size(), selected.size(),
+                    selected.stream().map(candidate -> candidate.chunkId().value() + ":" + candidate.documentType()
+                            + ":" + candidate.documentId().value() + ":" + candidate.locator()).toList());
+            return ResponseEntity.ok(new UnifiedEvidenceCandidateSearchResponse(request.ownerId(), request.sessionId(),
+                    request.scenarioPackageId(), selected.stream().map(this::candidateResponse).toList()));
         } catch (EvidenceSearchUnavailableException exception) {
             return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
         } catch (ResponseStatusException exception) {
@@ -834,7 +850,7 @@ public class RuleKnowledgeController {
     private UnifiedEvidenceCandidateResponse candidateResponse(EvidenceCandidate candidate) {
         return new UnifiedEvidenceCandidateResponse(candidate.chunkId().value(), candidate.documentId().value(),
                 candidate.extractionVersion(), candidate.documentType(), candidate.locator(), candidate.excerpt(), candidate.provenance(),
-                candidate.denseRank(), candidate.bm25Rank(), candidate.rrfScore());
+                candidate.denseRank(), candidate.bm25Rank(), candidate.rrfScore(), candidate.denseSimilarity());
     }
 
     @PostMapping("/internal/v1/rule-evidence/search")
@@ -1201,7 +1217,14 @@ public class RuleKnowledgeController {
     public record UnifiedEvidenceCandidateSearchRequest(
             UUID ownerId, UUID sessionId, UUID scenarioPackageId, String stageKey, String actionIntent,
             List<EvidenceCandidateScopeRequest> scope, List<String> activeLocators, List<String> excludedEvidenceIds,
-            String query, int denseLimit) {}
+            String query, int denseLimit, Double minimumDenseSimilarity) {
+        public UnifiedEvidenceCandidateSearchRequest(UUID ownerId, UUID sessionId, UUID scenarioPackageId, String stageKey,
+                String actionIntent, List<EvidenceCandidateScopeRequest> scope, List<String> activeLocators,
+                List<String> excludedEvidenceIds, String query, int denseLimit) {
+            this(ownerId, sessionId, scenarioPackageId, stageKey, actionIntent, scope, activeLocators, excludedEvidenceIds,
+                    query, denseLimit, null);
+        }
+    }
     public record EvidenceCandidateScopeRequest(UUID documentId, long extractionVersion, DocumentType documentType) {}
     public record UnifiedEvidenceCandidateSearchResponse(
             UUID ownerId, UUID sessionId, UUID scenarioPackageId, List<UnifiedEvidenceCandidateResponse> candidates) {}
@@ -1220,7 +1243,7 @@ public class RuleKnowledgeController {
             List<com.dndmaster.ruleknowledge.application.indexing.PublishedRagChunkPage.Chunk> chunks) {}
     public record UnifiedEvidenceCandidateResponse(
             UUID chunkId, UUID documentId, long extractionVersion, DocumentType documentType, String locator, String excerpt,
-            SourceProvenance provenance, Integer denseRank, Integer bm25Rank, double rrfScore) {}
+            SourceProvenance provenance, Integer denseRank, Integer bm25Rank, double rrfScore, Double denseSimilarity) {}
     public record EvidenceSearchErrorResponse(String code) {}
     public record StorySourceSearchRequest(
             UUID ownerId,

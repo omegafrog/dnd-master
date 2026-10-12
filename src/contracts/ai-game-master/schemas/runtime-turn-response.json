@@ -4,63 +4,565 @@
   "title": "턴 진행 응답",
   "type": "object",
   "additionalProperties": false,
-  "required": ["scene", "judgment", "narration", "combatStart", "combatEnemies", "situation", "mapEntryRequested", "판정제안"],
+  "required": [
+    "scene",
+    "judgment",
+    "narration",
+    "combatStart",
+    "combatEnemies",
+    "situation",
+    "mapEntryRequested",
+    "runtimeFacts",
+    "completion",
+    "citedEvidence",
+    "판정제안"
+  ],
   "properties": {
-    "scene": { "type": "string", "minLength": 1 },
-    "judgment": { "type": "string", "minLength": 1 },
-    "narration": { "type": "string", "minLength": 1 },
-    "combatStart": { "type": "boolean" },
+    "scene": {
+      "type": "string",
+      "minLength": 1
+    },
+    "judgment": {
+      "type": "string",
+      "minLength": 1
+    },
+    "narration": {
+      "type": "string",
+      "minLength": 1
+    },
+    "combatStart": {
+      "type": "boolean"
+    },
     "combatEnemies": {
       "type": "array",
       "items": {
-        "type": "object", "additionalProperties": false,
-        "required": ["enemyKey", "name", "count"],
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode",
+          "scenarioId",
+          "enemyKey",
+          "name",
+          "count",
+          "abilities",
+          "actions"
+        ],
         "properties": {
-          "mode": { "enum": ["SCENARIO", "SITUATION", "INSTANT"] },
-          "scenarioId": { "type": "string" }, "enemyKey": { "type": "string", "minLength": 1 },
-          "name": { "type": "string", "minLength": 1 }, "count": { "type": "integer", "minimum": 1 },
-          "abilities": { "type": "array", "items": { "type": "object", "additionalProperties": false,
-            "required": ["ability", "score", "citationKeys"], "properties": {
-              "ability": { "type": "string", "minLength": 1 }, "score": { "type": "integer", "minimum": 1, "maximum": 30 },
-              "citationKeys": { "type": "array", "items": { "type": "string" } } } } },
-          "actions": { "type": "array", "items": { "type": "object", "additionalProperties": false,
-            "required": ["name", "description", "citationKeys"], "properties": {
-              "name": { "type": "string", "minLength": 1 }, "description": { "type": "string", "minLength": 1 },
-              "citationKeys": { "type": "array", "items": { "type": "string" } } } } }
+          "mode": {
+            "enum": [
+              "SCENARIO",
+              "SITUATION",
+              "INSTANT",
+              null
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scenarioId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enemyKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "abilities": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "ability",
+                "score",
+                "citationKeys"
+              ],
+              "properties": {
+                "ability": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "score": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 30
+                },
+                "citationKeys": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                }
+              }
+            }
+          },
+          "actions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "description",
+                "citationKeys"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "citationKeys": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1
+                }
+              }
+            }
+          }
         }
       }
     },
     "situation": {
-      "type": "object", "additionalProperties": false,
-      "required": ["kind", "basis", "required"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "location",
+        "problem",
+        "threat",
+        "goal",
+        "basis",
+        "reference",
+        "required"
+      ],
       "properties": {
-        "kind": { "enum": ["CONTINUE", "TRANSITION"] }, "location": { "type": "string", "minLength": 1 },
-        "problem": { "type": "string", "minLength": 1 }, "threat": { "type": "string", "minLength": 1 },
-        "goal": { "type": "string", "minLength": 1 }, "basis": { "enum": ["SCENARIO", "RAG", "FALLBACK"] },
-        "reference": { "type": "string" }, "required": { "type": "boolean" }
+        "kind": {
+          "enum": [
+            "CONTINUE",
+            "TRANSITION"
+          ],
+          "type": "string"
+        },
+        "location": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "problem": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "threat": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "goal": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "basis": {
+          "enum": [
+            "SCENARIO",
+            "RAG",
+            "FALLBACK"
+          ],
+          "type": "string"
+        },
+        "reference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required": {
+          "type": "boolean"
+        }
       }
     },
-    "mapEntryRequested": { "type": "boolean" },
-    "runtimeFacts": { "type": "array", "items": { "type": "object", "additionalProperties": false,
-      "required": ["subject", "content"], "properties": {
-        "subject": { "type": "string", "minLength": 1 }, "content": { "type": "string", "minLength": 1 } } } },
-    "completion": { "type": "object", "additionalProperties": false,
-      "required": ["complete"], "properties": {
-        "complete": { "type": "boolean" }, "resolvedObjectiveIds": { "type": "array", "items": { "type": "string" } },
-        "satisfiedResolutionCriteriaIds": { "type": "array", "items": { "type": "string" } }, "concludingScene": { "type": "string" } } },
-    "citedEvidence": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-    "판정제안": { "type": "object", "additionalProperties": false, "required": ["필요"],
+    "mapEntryRequested": {
+      "type": "boolean"
+    },
+    "runtimeFacts": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subject",
+          "content"
+        ],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "completion": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "complete",
+        "resolvedObjectiveIds",
+        "satisfiedResolutionCriteriaIds",
+        "concludingScene"
+      ],
       "properties": {
-        "필요": { "type": "boolean" }, "이유": { "type": "string" }, "판정능력또는기술": { "type": "string" },
-        "대상캐릭터ID": { "type": "string", "format": "uuid" }, "굴림주체": { "enum": ["플레이어", "시스템"] },
-        "굴림식": { "type": "string" }, "보정치": { "type": "integer", "minimum": -10, "maximum": 20 },
-        "난이도": { "type": "integer", "minimum": 1, "maximum": 40 }, "근거키": { "type": "array", "items": { "type": "string" } },
-        "성공시결과": { "type": "string" }, "실패시결과": { "type": "string" }
+        "complete": {
+          "type": "boolean"
+        },
+        "resolvedObjectiveIds": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "satisfiedResolutionCriteriaIds": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "concludingScene": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "citedEvidence": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "판정제안": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "필요",
+        "이유",
+        "판정능력또는기술",
+        "대상캐릭터ID",
+        "굴림주체",
+        "굴림식",
+        "보정치",
+        "난이도",
+        "근거키",
+        "성공시결과",
+        "실패시결과"
+      ],
+      "properties": {
+        "필요": {
+          "type": "boolean"
+        },
+        "이유": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "판정능력또는기술": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "대상캐릭터ID": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "굴림주체": {
+          "enum": [
+            "플레이어",
+            "시스템",
+            null
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "굴림식": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "보정치": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": -10,
+          "maximum": 20
+        },
+        "난이도": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 40
+        },
+        "근거키": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string",
+            "pattern": "[^\\u0009-\\u000D\\u001C-\\u0020\\u1680\\u2000-\\u2006\\u2008-\\u200A\\u2028-\\u2029\\u205F\\u3000]"
+          }
+        },
+        "성공시결과": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "실패시결과": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
       },
-      "allOf": [{ "if": { "properties": { "필요": { "const": true } } },
-        "then": { "required": ["이유", "판정능력또는기술", "대상캐릭터ID", "굴림주체", "굴림식", "보정치", "난이도", "근거키", "성공시결과", "실패시결과"] } }]
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "필요",
+            "이유",
+            "판정능력또는기술",
+            "대상캐릭터ID",
+            "굴림주체",
+            "굴림식",
+            "보정치",
+            "난이도",
+            "근거키",
+            "성공시결과",
+            "실패시결과"
+          ],
+          "properties": {
+            "필요": {
+              "enum": [
+                false
+              ],
+              "type": "boolean"
+            },
+            "이유": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "판정능력또는기술": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "대상캐릭터ID": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            },
+            "굴림주체": {
+              "enum": [
+                "플레이어",
+                "시스템",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "굴림식": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "보정치": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": -10,
+              "maximum": 20
+            },
+            "난이도": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 40
+            },
+            "근거키": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string",
+                "pattern": "[^\\u0009-\\u000D\\u001C-\\u0020\\u1680\\u2000-\\u2006\\u2008-\\u200A\\u2028-\\u2029\\u205F\\u3000]"
+              }
+            },
+            "성공시결과": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "실패시결과": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "필요",
+            "이유",
+            "판정능력또는기술",
+            "대상캐릭터ID",
+            "굴림주체",
+            "굴림식",
+            "보정치",
+            "난이도",
+            "근거키",
+            "성공시결과",
+            "실패시결과"
+          ],
+          "properties": {
+            "필요": {
+              "enum": [
+                true
+              ],
+              "type": "boolean"
+            },
+            "이유": {
+              "type": "string",
+              "minLength": 1
+            },
+            "판정능력또는기술": {
+              "type": "string",
+              "minLength": 1
+            },
+            "대상캐릭터ID": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "굴림주체": {
+              "type": "string",
+              "enum": [
+                "플레이어",
+                "시스템"
+              ]
+            },
+            "굴림식": {
+              "type": "string",
+              "minLength": 1
+            },
+            "보정치": {
+              "type": "integer",
+              "minimum": -10,
+              "maximum": 20
+            },
+            "난이도": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 40
+            },
+            "근거키": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "[^\\u0009-\\u000D\\u001C-\\u0020\\u1680\\u2000-\\u2006\\u2008-\\u200A\\u2028-\\u2029\\u205F\\u3000]"
+              },
+              "minItems": 1
+            },
+            "성공시결과": {
+              "type": "string",
+              "minLength": 1
+            },
+            "실패시결과": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
     }
-  },
-  "allOf": [{ "if": { "properties": { "combatStart": { "const": true } } },
-    "then": { "properties": { "combatEnemies": { "minItems": 1 } } } }]
+  }
 }

@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 
 /** Retrieves one mixed-source dense result set for the isolated lookup agent. */
 public final class RuntimePlayerActionEvidenceAcquirer {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(RuntimePlayerActionEvidenceAcquirer.class);
     private static final int CANDIDATES_PER_SOURCE = 5;
     private final EvidenceCandidateSearchPort candidateSearch;
 
@@ -29,6 +30,14 @@ public final class RuntimePlayerActionEvidenceAcquirer {
     public List<RuntimeEvidence> acquire(EvidenceSearchScope scope, String action, String currentSituation) {
         Objects.requireNonNull(scope, "evidence search scope must not be null");
         String query = turnRulesQuery(action, currentSituation, scope.stageKey());
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_player_action_evidence stage=request sessionId={} scenarioPackageId={} stageKey={} actionIntent={} queryFingerprint={} queryChars={} documentScope={} activeLocators={} knownEvidenceIds={} additionalSearchLimit=0",
+                    scope.sessionId(), scope.scenarioPackageId(), scope.stageKey(),
+                    scope.actionIntent(),
+                    com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(query), query.length(),
+                    scope.documents().stream().map(document -> document.type() + ":" + document.id() + ":v" + document.extractionVersion()).toList(),
+                    scope.activeLocators(), scope.knownEvidenceIds());
+        }
         var acquisition = new EvidenceAcquisitionRequest("PLAYER_ACTION", query, List.of(), scope, 0);
         List<EvidenceCandidate> candidates = candidateSearch.search(new EvidenceCandidateSearchRequest(acquisition, query, 0));
         if (candidates == null || candidates.size() > 30
@@ -47,12 +56,22 @@ public final class RuntimePlayerActionEvidenceAcquirer {
             }
         }
         var seenEvidenceIds = new HashSet<String>(scope.knownEvidenceIds());
-        return candidates.stream()
+        List<EvidenceCandidate> freshCandidates = candidates.stream()
                 .filter(candidate -> seenEvidenceIds.add(immutableEvidenceId(candidate, documents)))
+                .toList();
+        List<RuntimeEvidence> selected = freshCandidates.stream()
                 .collect(Collectors.groupingBy(EvidenceCandidate::documentType, java.util.LinkedHashMap::new, Collectors.toList()))
                 .values().stream().flatMap(values -> values.stream().limit(CANDIDATES_PER_SOURCE))
                 .map(candidate -> runtimeEvidence(candidate, documents))
                 .toList();
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_player_action_evidence stage=selected sessionId={} scenarioPackageId={} candidateCount={} selectedCount={} selected={} excludedKnownCount={}",
+                    scope.sessionId(), scope.scenarioPackageId(), candidates.size(), selected.size(),
+                    selected.stream().map(evidence -> evidence.evidenceType() + ":" + evidence.knowledgeDocumentId().value()
+                            + ":v" + evidence.extractionVersion() + ":" + evidence.locator()).toList(),
+                    candidates.size() - freshCandidates.size());
+        }
+        return selected;
     }
 
     static String turnRulesQuery(String action, String situation, String stageKey) {

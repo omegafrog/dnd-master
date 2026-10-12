@@ -30,7 +30,8 @@ class CrossContextHttpRuntimeEvidenceSearchGatewayTest {
         UUID packageId = UUID.randomUUID();
         List<String> requests = new ArrayList<>();
         List<String> tokens = new ArrayList<>();
-        try (EvidenceServer server = new EvidenceServer(requests, tokens, storybookId, rulebookId, ownerId, sessionId, packageId)) {
+        List<String> bodies = new ArrayList<>();
+        try (EvidenceServer server = new EvidenceServer(requests, tokens, bodies, storybookId, rulebookId, ownerId, sessionId, packageId)) {
             var gateway = new CrossContextHttpRuntimeEvidenceSearchGateway(
                     HttpClient.newHttpClient(), server.baseUri(), Duration.ofSeconds(2), new ObjectMapper(), "internal-token");
 
@@ -49,6 +50,22 @@ class CrossContextHttpRuntimeEvidenceSearchGatewayTest {
             assertThat(requests).containsExactly(
                     "/internal/v1/evidence-candidates/search", "/internal/v1/evidence-candidates/search");
             assertThat(tokens).containsExactly("internal-token", "internal-token");
+            var payload = new ObjectMapper().readTree(bodies.getFirst());
+            var payloadFields = new java.util.TreeSet<String>();
+            payload.fieldNames().forEachRemaining(payloadFields::add);
+            assertThat(payloadFields)
+                    .containsExactly("actionIntent", "activeLocators", "denseLimit", "excludedEvidenceIds", "ownerId",
+                            "query", "scenarioPackageId", "scope", "sessionId", "stageKey");
+            assertThat(payload.path("ownerId").asText()).isEqualTo(ownerId.toString());
+            assertThat(payload.path("sessionId").asText()).isEqualTo(sessionId.toString());
+            assertThat(payload.path("scenarioPackageId").asText()).isEqualTo(packageId.toString());
+            assertThat(payload.path("stageKey").asText()).isEqualTo("stage-2");
+            assertThat(payload.path("actionIntent").asText()).isEqualTo("MIXED");
+            assertThat(payload.path("scope")).hasSize(2);
+            assertThat(payload.path("activeLocators")).isEmpty();
+            assertThat(payload.path("excludedEvidenceIds")).isEmpty();
+            assertThat(payload.path("denseLimit").asInt()).isEqualTo(30);
+            assertThat(payload.path("query").asText()).isEqualTo("open the cellar");
         }
     }
 
@@ -56,7 +73,7 @@ class CrossContextHttpRuntimeEvidenceSearchGatewayTest {
     void skips_search_when_a_rulebook_only_package_has_no_storybook_scope() throws Exception {
         List<String> requests = new ArrayList<>();
         List<String> tokens = new ArrayList<>();
-        try (EvidenceServer server = new EvidenceServer(requests, tokens, UUID.randomUUID(), UUID.randomUUID(),
+        try (EvidenceServer server = new EvidenceServer(requests, tokens, new ArrayList<>(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID())) {
             var gateway = new CrossContextHttpRuntimeEvidenceSearchGateway(
                     HttpClient.newHttpClient(), server.baseUri(), Duration.ofSeconds(2), new ObjectMapper(), "internal-token");
@@ -73,13 +90,14 @@ class CrossContextHttpRuntimeEvidenceSearchGatewayTest {
     private static final class EvidenceServer implements AutoCloseable {
         private final HttpServer server;
 
-        private EvidenceServer(List<String> requests, List<String> tokens, UUID storybookId, UUID rulebookId,
+        private EvidenceServer(List<String> requests, List<String> tokens, List<String> bodies, UUID storybookId, UUID rulebookId,
                                UUID ownerId, UUID sessionId, UUID packageId) throws Exception {
             server = HttpServer.create(new InetSocketAddress(0), 0);
             server.createContext("/", exchange -> {
                 String path = exchange.getRequestURI().getPath();
                 requests.add(path);
                 tokens.add(exchange.getRequestHeaders().getFirst("X-Internal-Token"));
+                bodies.add(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
                 boolean story = path.endsWith("evidence-candidates/search") && requests.size() == 1;
                 String body = story
                         ? "{\"ownerId\":\"" + ownerId + "\",\"sessionId\":\"" + sessionId + "\",\"scenarioPackageId\":\"" + packageId + "\",\"candidates\":[{\"chunkId\":\"" + UUID.randomUUID()

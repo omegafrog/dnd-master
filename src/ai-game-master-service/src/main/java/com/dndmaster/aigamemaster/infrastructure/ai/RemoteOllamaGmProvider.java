@@ -11,14 +11,31 @@ import java.util.List;
 
 /** Ollama HTTP adapter used for an endpoint selected at runtime by Backoffice. */
 public final class RemoteOllamaGmProvider implements GmCompletionAdapter {
-    private final HttpClient client; private final URI baseUrl; private final String model; private final Duration timeout; private final ObjectMapper mapper = new ObjectMapper();
-    public RemoteOllamaGmProvider(HttpClient client, URI baseUrl, String model, Duration timeout) { this.client = client; this.baseUrl = baseUrl; this.model = model; this.timeout = timeout; }
+    private final HttpClient client; private final URI baseUrl; private final String model; private final Duration timeout;
+    private final int schemaNumCtx; private final ObjectMapper mapper = new ObjectMapper();
+    public RemoteOllamaGmProvider(HttpClient client, URI baseUrl, String model, Duration timeout) {
+        this(client, baseUrl, model, timeout, 32768);
+    }
+    public RemoteOllamaGmProvider(HttpClient client, URI baseUrl, String model, Duration timeout, int schemaNumCtx) {
+        this.client = client; this.baseUrl = baseUrl; this.model = model; this.timeout = timeout;
+        this.schemaNumCtx = schemaNumCtx > 0 ? schemaNumCtx : 32768;
+    }
     @Override public <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser) {
         return complete(operationId, new GmPrompt(prompt), parser);
     }
     @Override public <T> T complete(String operationId, GmPrompt prompt, StructuredResponseParser<T> parser) {
+        return complete(operationId, prompt, parser, null);
+    }
+    public <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser,
+                          com.fasterxml.jackson.databind.JsonNode outputSchema) {
+        return complete(operationId, new GmPrompt(prompt), parser, outputSchema);
+    }
+    private <T> T complete(String operationId, GmPrompt prompt, StructuredResponseParser<T> parser,
+                           com.fasterxml.jackson.databind.JsonNode outputSchema) {
         try {
-            Map<String, Object> request = new java.util.HashMap<>(Map.of("model", model, "prompt", prompt.text(), "stream", false, "format", "json"));
+            Map<String, Object> request = new java.util.HashMap<>(Map.of("model", model, "prompt", prompt.text(), "stream", false,
+                    "format", outputSchema == null ? "json" : mapper.treeToValue(outputSchema, Object.class)));
+            if (outputSchema != null) request.put("options", Map.of("num_ctx", schemaNumCtx));
             if (prompt.hasImage()) {
                 String encoded = prompt.imageDataUri().substring(prompt.imageDataUri().indexOf(',') + 1);
                 request.put("images", List.of(encoded));

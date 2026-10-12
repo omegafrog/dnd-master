@@ -33,4 +33,19 @@ class AiExecutionRequestTest {
         assertThatIllegalArgumentException().isThrownBy(() -> new AiExecutionRequest(SOLO_PLAYER_ID, "request", "work", "prompt",
                 "model", "medium", "TEXT", null, "https://example.test/image.png"));
     }
+
+    @Test
+    void preserves_fixed_child_stageIds_prompts_and_schema_and_rejects_duplicate_ids() throws Exception {
+        var mapper = new ObjectMapper();
+        var schema = mapper.readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}");
+        var tasks = java.util.List.of(new AiExecutionRequest.Subtask("stage-a", "task A", schema),
+                new AiExecutionRequest.Subtask("stage-b", "task B", schema));
+        var request = new AiExecutionRequest(SOLO_PLAYER_ID, "request", "work", "parent", "model", "medium",
+                "JSON", schema, "", null, tasks);
+
+        assertThat(request.subtasks()).extracting(AiExecutionRequest.Subtask::stageId).containsExactly("stage-a", "stage-b");
+        assertThat(request.subtasks().getFirst().outputSchema()).isEqualTo(schema);
+        assertThatIllegalArgumentException().isThrownBy(() -> new AiExecutionRequest(SOLO_PLAYER_ID, "request", "work",
+                "parent", "model", "medium", "JSON", schema, "", null, java.util.List.of(tasks.getFirst(), tasks.getFirst())));
+    }
 }

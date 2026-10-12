@@ -14,5 +14,6 @@ dependencies {
     testImplementation("org.flywaydb:flyway-core")
     testImplementation("org.flywaydb:flyway-database-postgresql")
     testImplementation("org.testcontainers:postgresql")
+    testImplementation("com.networknt:json-schema-validator:2.0.0")
     testRuntimeOnly("com.h2database:h2")
 }

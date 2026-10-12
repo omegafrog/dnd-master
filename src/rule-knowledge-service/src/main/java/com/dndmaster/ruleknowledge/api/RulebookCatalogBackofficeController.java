@@ -56,6 +56,7 @@ public final class RulebookCatalogBackofficeController {
     private final PlayerSessionLookupPort playerSessionLookup;
     private final RulebookFileStorage fileStorage;
     private final Set<String> adminIds;
+    private final com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionRepository actionDefinitions;
 
     public RulebookCatalogBackofficeController(CatalogRulebookRepository repository, RulebookPipelineApplicationService pipeline, RulebookRegistrationRepository registrations,
             GameSystemDefinitionRepository definitions,
@@ -80,15 +81,25 @@ public final class RulebookCatalogBackofficeController {
         this(repository, pipeline, registrations, definitions, playerSessionLookup, null, adminPlayerIds);
     }
 
-    @Autowired
     public RulebookCatalogBackofficeController(CatalogRulebookRepository repository,
             RulebookPipelineApplicationService pipeline, RulebookRegistrationRepository registrations,
             GameSystemDefinitionRepository definitions, PlayerSessionLookupPort playerSessionLookup,
             RulebookFileStorage fileStorage,
             @Value("${rule-knowledge.backoffice.admin-player-ids:}") String adminPlayerIds) {
+        this(repository, pipeline, registrations, definitions, playerSessionLookup, fileStorage, null, adminPlayerIds);
+    }
+
+    @Autowired
+    public RulebookCatalogBackofficeController(CatalogRulebookRepository repository,
+            RulebookPipelineApplicationService pipeline, RulebookRegistrationRepository registrations,
+            GameSystemDefinitionRepository definitions, PlayerSessionLookupPort playerSessionLookup,
+            RulebookFileStorage fileStorage,
+            com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionRepository actionDefinitions,
+            @Value("${rule-knowledge.backoffice.admin-player-ids:}") String adminPlayerIds) {
         this.repository = repository; this.pipeline = pipeline; this.registrations = registrations; this.definitions = definitions;
         this.playerSessionLookup = playerSessionLookup;
         this.fileStorage = fileStorage;
+        this.actionDefinitions = actionDefinitions;
         this.adminIds = Arrays.stream((adminPlayerIds == null ? "" : adminPlayerIds).split(","))
                 .map(String::trim).filter(id -> !id.isBlank()).collect(Collectors.toUnmodifiableSet());
     }
@@ -137,6 +148,35 @@ public final class RulebookCatalogBackofficeController {
         }
     }
 
+    @GetMapping("/{catalogRevisionId}/action-definitions")
+    com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtraction actionDefinitions(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable UUID catalogRevisionId) {
+        requireAdmin(authorization);
+        StoredRulebookRegistration registration = catalogRegistration(catalogRevisionId);
+        String version = registration.candidateExtractionVersion();
+        if (actionDefinitions == null || version == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "action definitions not found");
+        return actionDefinitions.find(registration.rulebookId().value(), version)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "action definitions not found"));
+    }
+
+    @PostMapping("/{catalogRevisionId}/retry-action-definitions")
+    com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtraction retryActionDefinitions(
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @PathVariable UUID catalogRevisionId) {
+        UUID adminPlayerId = requireAdmin(authorization);
+        StoredRulebookRegistration registration = catalogRegistration(catalogRevisionId);
+        try {
+            pipeline.retryActionDefinitionExtraction(registration.rulebookId(), adminPlayerId);
+            return actionDefinitions.find(registration.rulebookId().value(), registration.candidateExtractionVersion())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "action extraction result is unavailable"));
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
+        }
+    }
+
     private StoredRulebookRegistration catalogRegistration(UUID catalogRevisionId) {
         CatalogRulebookRevision catalog = repository.findAll().stream()
                 .filter(item -> item.id().equals(catalogRevisionId)).findFirst()
@@ -160,10 +200,16 @@ public final class RulebookCatalogBackofficeController {
     @PostMapping("/{catalogRevisionId}/publish")
     CatalogRulebookRevision publish(@RequestHeader(value = "Authorization", required = false) String authorization,
             @org.springframework.web.bind.annotation.PathVariable UUID catalogRevisionId) {
-        requireAdmin(authorization);
+        UUID adminPlayerId = requireAdmin(authorization);
         CatalogRulebookRevision current = repository.findAll().stream().filter(item -> item.id().equals(catalogRevisionId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "catalog revision not found"));
-        if (current.rulebookId() == null || registrations.findById(new RulebookId(current.rulebookId()))
+        StoredRulebookRegistration publicationRegistration = current.rulebookId() == null ? null
+                : registrations.findById(new RulebookId(current.rulebookId())).orElse(null);
+        boolean actionDefinitionsReady = actionDefinitions == null || publicationRegistration != null
+                && publicationRegistration.candidateExtractionVersion() != null
+                && actionDefinitions.find(publicationRegistration.rulebookId().value(), publicationRegistration.candidateExtractionVersion())
+                        .map(item -> "COMPLETED".equals(item.status())).orElse(false);
+        if (current.rulebookId() == null || !actionDefinitionsReady || registrations.findById(new RulebookId(current.rulebookId()))
                 .map(item -> item.processingStatus() == ProcessingStatus.INDEXED
                         && item.documentType() == DocumentType.RULEBOOK
                         && item.ownerPlayerId().value().equals(CATALOG_OWNER) && item.version() > 0)
@@ -192,11 +238,12 @@ public final class RulebookCatalogBackofficeController {
     @PostMapping(consumes = "multipart/form-data")
     CatalogRulebookRevision upload(@RequestHeader(value = "Authorization", required = false) String authorization,
             @RequestParam RulebookEdition edition, @RequestPart MultipartFile file) throws IOException {
-        requireAdmin(authorization);
+        UUID adminPlayerId = requireAdmin(authorization);
         String filename = file.getOriginalFilename();
         if (filename == null || !filename.toLowerCase().endsWith(".pdf")) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "catalog rulebook must be a PDF");
         var result = pipeline.process(new UploadRulebookCommand("catalog:" + edition + ":" + UUID.randomUUID(),
-                new OwnerPlayerId(CATALOG_OWNER), DocumentType.RULEBOOK, RulebookFormat.PDF, file.getBytes(), filename));
+                new OwnerPlayerId(CATALOG_OWNER), DocumentType.RULEBOOK, RulebookFormat.PDF, file.getBytes(), filename,
+                adminPlayerId));
         Instant now = Instant.now();
         long revision = repository.findAll().stream().filter(item -> item.edition() == edition).mapToLong(CatalogRulebookRevision::revisionNumber).max().orElse(0) + 1;
         CatalogRulebookRevision catalog = new CatalogRulebookRevision(UUID.randomUUID(), edition,

@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.infrastructure.ai;
 
 import java.util.List;
 import java.util.UUID;
+import com.fasterxml.jackson.databind.JsonNode;
 
 @FunctionalInterface
 public interface GmCompletionAdapter {
@@ -31,6 +32,13 @@ public interface GmCompletionAdapter {
             String operationId, String prompt, StructuredResponseParser<T> parser,
             RequestedGmProviderSelection requested, GmProviderSelectionResolver.EndpointResolution resolution) {
         return completeWithSelection(soloPlayerId, operationId, prompt, parser, requested);
+    }
+
+    default <T> GmCompletionResult<T> completeWithResolutionAndSubtasks(UUID soloPlayerId, String operationId,
+            String prompt, StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+            GmProviderSelectionResolver.EndpointResolution resolution, JsonNode outputSchema,
+            java.util.List<com.dndmaster.aigamemaster.application.ai.AiExecutionRequest.Subtask> subtasks) {
+        return completeWithResolution(soloPlayerId, operationId, prompt, parser, requested, resolution, null, outputSchema);
     }
 
     default <T> GmCompletionResult<T> completeWithResolution(UUID soloPlayerId,

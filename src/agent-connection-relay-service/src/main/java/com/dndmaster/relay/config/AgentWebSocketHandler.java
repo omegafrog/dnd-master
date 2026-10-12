@@ -80,7 +80,7 @@ public class AgentWebSocketHandler implements WebSocketHandler {
         ignored -> registry.disconnect(soloPlayerId, connectionId).then());
   }
 
-  private Mono<Void> receiveMessage(String text, UUID soloPlayerId, String connectionId,
+  Mono<Void> receiveMessage(String text, UUID soloPlayerId, String connectionId,
       WebSocketConnectionTransport transport) {
     return Mono.fromCallable(() -> objectMapper.readTree(text)).flatMap(node -> {
       if ("CONNECTION_CONTROL_RESULT".equals(node.path("messageType").asText())) {
@@ -116,8 +116,7 @@ public class AgentWebSocketHandler implements WebSocketHandler {
       }
       try {
         RelayExecutionResult result = objectMapper.treeToValue(node, RelayExecutionResult.class);
-        if (result.success()) completionRegistry.complete(result);
-        else completionRegistry.fail(result.requestId(), new IllegalStateException(result.failureType().name()));
+        completionRegistry.complete(result);
         return Mono.empty();
       } catch (Exception failure) {
         String requestId = node.path("requestId").asText("");

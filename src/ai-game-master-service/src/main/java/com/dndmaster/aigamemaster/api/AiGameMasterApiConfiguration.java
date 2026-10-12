@@ -595,9 +595,10 @@ public class AiGameMasterApiConfiguration {
     @Bean
     @Primary
     GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties, AgentEndpointRegistry endpointRegistry,
-                                             AiExecutionPort aiExecutionPort) {
+                                             AiExecutionPort aiExecutionPort,
+                                             @Value("${ai.gm.schema-num-ctx:32768}") int schemaNumCtx) {
         properties.validate();
-        return new GmCompletionRouter(ollama, properties, endpointRegistry, aiExecutionPort);
+        return new GmCompletionRouter(ollama, properties, endpointRegistry, aiExecutionPort, schemaNumCtx);
     }
 
 }

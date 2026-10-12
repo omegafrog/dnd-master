@@ -28,6 +28,8 @@ import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.networknt.schema.SchemaRegistry;
+import com.networknt.schema.SpecificationVersion;
 
 /** Adapts the published Scenario Package into the minimum first-stage artifact request. */
 public final class ScenarioPackageStageArtifactAdapter implements StorybookEvidenceLookupPort,
@@ -101,6 +103,11 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
             List<RequiredSituation> required = extractRequiredSituations(request, scenarioPackage, request.storyPassages());
             List<List<String>> rules = lookupRules(scenarioPackage, request.sessionId(), required);
+            devLog("dev_initial_situation_input task=backbone adventureId={} sessionId={} packageId={} retrievedPassageCount={} retrievedPassageChars={} requiredSituationCount={} requiredSituations={} ruleEvidence={} sourceRefCount={} scenarioContextChars={}",
+                    request.adventureId().value(), request.sessionId().value(), request.scenarioPackageId(),
+                    request.storyPassages().size(), request.storyPassages().stream().mapToInt(p -> p.text().length()).sum(),
+                    required.size(), requiredSituationInventory(required), ruleEvidenceInventory(required, rules),
+                    request.evidence().size(), promptStoryContext(scenarioPackage).length());
             JsonNode generated = generate(request.sessionId(), request.adventureId().value(),
                     request.scenarioPackageId(), "backbone", backbonePrompt(scenarioPackage, request.evidence(), required, rules),
                     request.evidence());
@@ -123,24 +130,25 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         if (gm != null) {
             ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
             List<List<String>> rules = lookupRules(scenarioPackage, request.sessionId(), request.requiredSituations());
-            JsonNode generated = generate(request.sessionId(), request.adventureId().value(),
-                    request.scenarioPackageId(), "stage:" + request.stageId(),
-                    detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations(),
-                            request.alreadyAssignedRequiredSituationIds(), rules)
-                            + (request.openingSituationRequired() ? " The openingSituationIndex must select one situation because this is the first stage." : ""),
-                    request.evidence(), request.openingSituationRequired(), scenarioPackage.mapDefinitions().stream()
+            String prompt = detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations(),
+                    request.alreadyAssignedRequiredSituationIds(), rules)
+                    + (request.openingSituationRequired() ? " The openingSituationIndex must select one situation because this is the first stage. Include at least two optional intermediate candidate situations in addition to this stage's required situations." : "");
+            devLog("dev_initial_situation_input task=detailed adventureId={} sessionId={} packageId={} stageId={} openingSituationRequired={} requiredSituationCount={} requiredSituations={} alreadyAssignedRequiredSituationIds={} ruleEvidence={} sourceRefCount={} sourceRefs={} mapIds={} scenarioContextChars={} promptChars={} promptFingerprint={} retrievedPassageTextIncluded=false backboneStageSummaryIncluded=false",
+                    request.adventureId().value(), request.sessionId().value(), request.scenarioPackageId(), request.stageId(),
+                    request.openingSituationRequired(), request.requiredSituations().size(),
+                    requiredSituationInventory(request.requiredSituations()), request.alreadyAssignedRequiredSituationIds(),
+                    ruleEvidenceInventory(request.requiredSituations(), rules), request.evidence().size(),
+                    sourceReferenceInventory(request.evidence()), scenarioPackage.mapDefinitions().stream()
+                            .map(definition -> definition.id().toString()).toList(), promptStoryContext(scenarioPackage).length(),
+                    prompt.length(), com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(prompt));
+            String task = "stage:" + request.stageId();
+            Set<UUID> allowedMapIds = scenarioPackage.mapDefinitions().stream()
                             .map(com.dndmaster.adventure.domain.scenario.MapDefinition::id)
-                            .collect(java.util.stream.Collectors.toUnmodifiableSet()));
-            var content = generated.deepCopy();
-            resolveSituationTargetIndexes(content);
-            resolveSourceRefIndexes(content, request.evidence());
-            resolveOpeningSituationIndex(content, request.openingSituationRequired());
-            resolveSupplementedSituationIds(content, request.stageId(), request.requiredSituations());
-            ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("scenarioPackageId", request.scenarioPackageId().toString());
-            ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("backboneRevision", request.backboneRevision());
-            ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("stageId", request.stageId());
-            ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("revision", 1);
-            return mapper.convertValue(content, DetailedStage.class);
+                            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            JsonNode generated = generate(request.sessionId(), request.adventureId().value(),
+                    request.scenarioPackageId(), task, prompt, request.evidence(), request.openingSituationRequired(),
+                    allowedMapIds, null, false, null, request.requiredSituations());
+            return materializeDetailedStage(request, generated, prompt, allowedMapIds);
         }
         ScenarioPackage scenarioPackage = loadPackage(request.scenarioPackageId());
         String coreProblem = openingProblem(scenarioPackage);
@@ -156,6 +164,154 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                         List.of(), List.of(), List.of(), List.of(), true, evidence),
                         fallbackCandidate("candidate-a", revelationId, evidence),
                         fallbackCandidate("candidate-b", revelationId, evidence)), List.of(), evidence);
+    }
+
+    @Override
+    public List<DetailedStage> generateAll(List<StageDetailedGenerationPort.Request> requests) {
+        if (requests.isEmpty() || gm == null) return StageDetailedGenerationPort.super.generateAll(requests);
+        var binding = bindings.current(requests.getFirst().sessionId().value())
+                .orElseThrow(() -> new IllegalStateException("GM provider selection not found"));
+        if (!"codex-cli".equalsIgnoreCase(binding.selection().provider())) {
+            return StageDetailedGenerationPort.super.generateAll(requests);
+        }
+        long batchStartedAt = System.nanoTime();
+        ScenarioPackage scenarioPackage = loadPackage(requests.getFirst().scenarioPackageId());
+        Set<UUID> allowedMapIds = scenarioPackage.mapDefinitions().stream().map(definition -> definition.id())
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        List<JsonNode> stageSchemas = new ArrayList<>();
+        Map<String, String> promptsByStage = new LinkedHashMap<>();
+        for (var request : requests) {
+            var first = requests.getFirst();
+            if (!request.scenarioPackageId().equals(first.scenarioPackageId())
+                    || !request.sessionId().equals(first.sessionId())
+                    || !request.adventureId().equals(first.adventureId())
+                    || request.backboneRevision() != first.backboneRevision()
+                    || !request.evidence().equals(first.evidence()) || promptsByStage.containsKey(request.stageId())) {
+                throw new IllegalArgumentException("initial stage batch must belong to one adventure");
+            }
+            List<List<String>> rules = lookupRules(scenarioPackage, request.sessionId(), request.requiredSituations());
+            String prompt = detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations(),
+                    request.alreadyAssignedRequiredSituationIds(), rules)
+                    + (request.openingSituationRequired() ? " The openingSituationIndex must select one situation because this is the first stage." : "");
+            devLog("dev_initial_situation_batch_stage stageId={} openingSituationRequired={} requiredSituationCount={} requiredSituationIds={} ruleEvidence={} sourceRefCount={} mapCount={} promptChars={} promptFingerprint={}",
+                    request.stageId(), request.openingSituationRequired(), request.requiredSituations().size(),
+                    request.requiredSituations().stream().map(RequiredSituation::situationId).toList(),
+                    ruleEvidenceInventory(request.requiredSituations(), rules), request.evidence().size(), allowedMapIds.size(),
+                    prompt.length(), com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(prompt));
+            promptsByStage.put(request.stageId(), prompt);
+            JsonNode stageSchema = outputSchema("stage:" + request.stageId(), request.evidence(),
+                    request.openingSituationRequired(), allowedMapIds, null, request.requiredSituations());
+            stageSchemas.add(stageSchema);
+        }
+        Map<String, Object> stageProperties = new LinkedHashMap<>();
+        for (int i = 0; i < requests.size(); i++) {
+            stageProperties.put(requests.get(i).stageId(), stageSchemas.get(i));
+        }
+        JsonNode batchSchema = mapper.valueToTree(objectSchema(Map.of("stages", objectSchema(stageProperties))));
+        List<String> stageIds = requests.stream().map(StageDetailedGenerationPort.Request::stageId).toList();
+        String prompt = "Prepare the requested detailed adventure stages. Call delegate_stage_tasks exactly once for every supplied stage ID. Do not create or replace stage results yourself. Return each delegated result unchanged under stages[stageId], with exactly one entry for every supplied stageId and no other IDs. Do not combine stages, duplicate situations, invent maps, repair or rewrite delegated results, or add text outside JSON.\nREQUESTED_STAGE_IDS="
+                + json(stageIds);
+        var first = requests.getFirst();
+        devLog("dev_initial_situation_batch outcome=started adventureId={} sessionId={} packageId={} stageCount={} stageIds={} promptChars={} promptFingerprint={} schemaChars={} allowedMapCount={}",
+                first.adventureId().value(), first.sessionId().value(), first.scenarioPackageId(), requests.size(),
+                requests.stream().map(StageDetailedGenerationPort.Request::stageId).toList(), prompt.length(),
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(prompt),
+                batchSchema.toString().length(), allowedMapIds.size());
+        JsonNode generated = generate(first.sessionId(), first.adventureId().value(), first.scenarioPackageId(),
+                "stage-batch", prompt, first.evidence(), false, allowedMapIds, null, true, batchSchema,
+                List.of(),
+                java.util.stream.IntStream.range(0, requests.size()).mapToObj(index -> {
+                    var request = requests.get(index);
+                    return new InitialSituationGmPort.StageTask(request.stageId(), promptsByStage.get(request.stageId()),
+                            stageSchemas.get(index));
+                }).toList());
+        validateBatchResponse(generated, batchSchema, requests, batchStartedAt);
+        JsonNode stages = generated.path("stages");
+        List<String> returnedStageIds = new ArrayList<>();
+        List<String> stageDetails = new ArrayList<>();
+        if (stages.isObject()) {
+            stages.fieldNames().forEachRemaining(returnedStageIds::add);
+            stages.fields().forEachRemaining(entry -> stageDetails.add(entry.getKey() + ":detailObject=" + entry.getValue().isObject()));
+        }
+        List<String> expectedStageIds = requests.stream().map(StageDetailedGenerationPort.Request::stageId).toList();
+        devLog("dev_initial_situation_batch_response outcome=received requestId={} expectedStageCount={} stagesType={} actualStageCount={} expectedStageIds={} returnedStageIds={} stageDetails={} topLevelFields={} responseChars={} responseFingerprint={}",
+                "initial-situation:" + first.adventureId() + ":" + first.scenarioPackageId() + ":stage-batch",
+                requests.size(), stages.getNodeType(), stages.isObject() ? stages.size() : 0, expectedStageIds,
+                returnedStageIds, stageDetails, jsonFields(generated), generated.toString().length(),
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(generated.toString()));
+        Map<String, JsonNode> detailsByStage = new LinkedHashMap<>();
+        for (String stageId : expectedStageIds) {
+            JsonNode detail = stages.path(stageId);
+            detailsByStage.put(stageId, detail);
+        }
+        List<DetailedStage> result = new ArrayList<>(requests.size());
+        for (var request : requests) {
+            try {
+                result.add(materializeDetailedStage(request, detailsByStage.get(request.stageId()), promptsByStage.get(request.stageId()), allowedMapIds, false));
+            } catch (RuntimeException | Error failure) {
+                devLog("dev_initial_situation_batch outcome=failed reason=stage_materialization stageId={} stageCount={} failureClass={} failureDetail={}",
+                        request.stageId(), requests.size(), failure.getClass().getSimpleName(),
+                        com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.safeBody(failure.getMessage()));
+                throw failure;
+            }
+        }
+        devLog("dev_initial_situation_batch_response outcome=materialized stageCount={} situationCount={} stageSituationCounts={} elapsedMs={}",
+                result.size(), result.stream().mapToInt(stage -> stage.situations().size()).sum(),
+                result.stream().map(stage -> stage.stageId() + ":" + stage.situations().size()).toList(),
+                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - batchStartedAt));
+        return List.copyOf(result);
+    }
+
+    private void validateBatchResponse(JsonNode generated, JsonNode batchSchema,
+            List<StageDetailedGenerationPort.Request> requests, long startedAt) {
+        var validator = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12).getSchema(batchSchema);
+        var violations = validator.validate(generated);
+        if (!violations.isEmpty()) {
+            List<String> expectedIds = requests.stream().map(StageDetailedGenerationPort.Request::stageId).toList();
+            List<String> returnedIds = jsonFields(generated.path("stages"));
+            devLog("dev_initial_situation_batch_response outcome=failed requestId={} reason=schema_validation expectedStageIds={} returnedStageIds={} expectedStagesType=object actualStagesType={} violationCount={} violationPaths={} elapsedMs={} recoveryAction=reject_response",
+                    "initial-situation:" + requests.getFirst().adventureId() + ":" + requests.getFirst().scenarioPackageId() + ":stage-batch",
+                    expectedIds, returnedIds, generated.path("stages").getNodeType(), violations.size(),
+                    violations.stream().limit(20).map(v -> v.getInstanceLocation().toString()).toList(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            throw new IllegalStateException("Codex stage batch does not match the requested output schema");
+        }
+    }
+
+    private DetailedStage materializeDetailedStage(StageDetailedGenerationPort.Request request, JsonNode generated,
+            String prompt, Set<UUID> allowedMapIds) {
+        return materializeDetailedStage(request, generated, prompt, allowedMapIds, true);
+    }
+
+    private DetailedStage materializeDetailedStage(StageDetailedGenerationPort.Request request, JsonNode generated,
+            String prompt, Set<UUID> allowedMapIds, boolean repairInvalidIndexes) {
+        JsonNode detail = generated;
+        try {
+            resolveSituationTargetIndexes(detail.deepCopy());
+        } catch (IllegalStateException invalidIndexes) {
+            if (!invalidIndexes.getMessage().contains("field=funnel.requiredRevelationIndexes")) throw invalidIndexes;
+            if (!repairInvalidIndexes) throw invalidIndexes;
+            int revelationCount = detail.path("revelations").size();
+            String validIndexes = java.util.stream.IntStream.range(0, revelationCount).boxed().toList().toString();
+            String repairPrompt = prompt + "\nCORRECT_INVALID_INDEXES: The previous response had " + revelationCount
+                    + " revelations, so funnel.requiredRevelationIndexes may contain only these zero-based indexes: "
+                    + validIndexes + ". Return the corrected complete object, preserving its content.";
+            detail = generate(request.sessionId(), request.adventureId().value(), request.scenarioPackageId(),
+                    "stage:" + request.stageId() + ":index-repair", repairPrompt, request.evidence(),
+                    request.openingSituationRequired(), allowedMapIds, revelationCount, false, null,
+                    request.requiredSituations());
+        }
+        var content = detail.deepCopy();
+        resolveSituationTargetIndexes(content);
+        resolveSourceRefIndexes(content, request.evidence());
+        resolveOpeningSituationIndex(content, request.openingSituationRequired());
+        resolveRequiredSituationIndexes(content, request.requiredSituations());
+        resolveSupplementedSituationIds(content, request.stageId(), request.requiredSituations());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("scenarioPackageId", request.scenarioPackageId().toString());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("backboneRevision", request.backboneRevision());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("stageId", request.stageId());
+        ((com.fasterxml.jackson.databind.node.ObjectNode) content).put("revision", 1);
+        return mapper.convertValue(content, DetailedStage.class);
     }
 
     private SituationDefinition fallbackCandidate(String id, String revelationId, List<ScenarioSourceReference> evidence) {
@@ -178,14 +334,72 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
 
     private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
             List<ScenarioSourceReference> allowedRefs, boolean openingSituationRequired, Set<UUID> allowedMapIds) {
+        return generate(sessionId, adventureId, packageId, task, taskPrompt, allowedRefs, openingSituationRequired,
+                allowedMapIds, null);
+    }
+
+    private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
+            List<ScenarioSourceReference> allowedRefs, boolean openingSituationRequired, Set<UUID> allowedMapIds,
+            Integer revelationIndexLimit) {
+        return generate(sessionId, adventureId, packageId, task, taskPrompt, allowedRefs, openingSituationRequired,
+                allowedMapIds, revelationIndexLimit, false, null);
+    }
+
+    private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
+            List<ScenarioSourceReference> allowedRefs, boolean openingSituationRequired, Set<UUID> allowedMapIds,
+            Integer revelationIndexLimit, boolean useSubagents, JsonNode schemaOverride) {
+        return generate(sessionId, adventureId, packageId, task, taskPrompt, allowedRefs, openingSituationRequired,
+                allowedMapIds, revelationIndexLimit, useSubagents, schemaOverride, List.of());
+    }
+
+    private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
+            List<ScenarioSourceReference> allowedRefs, boolean openingSituationRequired, Set<UUID> allowedMapIds,
+            Integer revelationIndexLimit, boolean useSubagents, JsonNode schemaOverride,
+            List<RequiredSituation> requiredSituations) {
+        return generate(sessionId, adventureId, packageId, task, taskPrompt, allowedRefs, openingSituationRequired,
+                allowedMapIds, revelationIndexLimit, useSubagents, schemaOverride, requiredSituations, List.of());
+    }
+
+    private JsonNode generate(SessionId sessionId, UUID adventureId, UUID packageId, String task, String taskPrompt,
+            List<ScenarioSourceReference> allowedRefs, boolean openingSituationRequired, Set<UUID> allowedMapIds,
+            Integer revelationIndexLimit, boolean useSubagents, JsonNode schemaOverride,
+            List<RequiredSituation> requiredSituations, List<InitialSituationGmPort.StageTask> stageTasks) {
         var session = sessions.findById(sessionId).orElseThrow(() -> new IllegalStateException("adventure session not found"));
         var binding = bindings.current(sessionId.value()).orElseThrow(() -> new IllegalStateException("GM provider selection not found"));
         String prompt = "ROLE=INITIAL_SITUATION_PREPARATION\nTASK=" + task + "\n" + taskPrompt
                 + "\nOUTPUT_CONTRACT=Return exactly one JSON object matching the requested fields. No markdown.";
-        return gm.generate(new InitialSituationGmPort.Request(session.ownerPlayerId().value(), sessionId.value(),
-                binding.selection().endpointId(), binding.selection().provider(), binding.selection().model(),
-                binding.selection().reasoning(), "initial-situation:" + adventureId + ":" + packageId + ":" + task,
-                prompt, outputSchema(task, allowedRefs, openingSituationRequired, allowedMapIds)));
+        JsonNode schema = schemaOverride == null
+                ? outputSchema(task, allowedRefs, openingSituationRequired, allowedMapIds, revelationIndexLimit,
+                        requiredSituations) : schemaOverride;
+        devLog("dev_initial_situation_agent_request task={} requestId={} provider={} model={} useSubagents={} promptChars={} promptFingerprint={} schemaChars={} allowedSourceRefCount={} openingSituationRequired={} allowedMapCount={}",
+                task, "initial-situation:" + adventureId + ":" + packageId + ":" + task, binding.selection().provider(),
+                binding.selection().model(), useSubagents, prompt.length(),
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(prompt),
+                schema.toString().length(), allowedRefs.size(), openingSituationRequired, allowedMapIds.size());
+        String requestId = "initial-situation:" + adventureId + ":" + packageId + ":" + task;
+        long startedAt = System.nanoTime();
+        try {
+            JsonNode response = gm.generate(new InitialSituationGmPort.Request(session.ownerPlayerId().value(), sessionId.value(),
+                    binding.selection().endpointId(), binding.selection().provider(), binding.selection().model(),
+                    binding.selection().reasoning(), requestId, prompt, schema, useSubagents, stageTasks));
+            devLog("dev_initial_situation_agent_response outcome=completed task={} requestId={} responseType={} topLevelFields={} responseChars={} responseFingerprint={} elapsedMs={}",
+                    task, requestId, response.getNodeType(), jsonFields(response), response.toString().length(),
+                    com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(response.toString()),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            return response;
+        } catch (RuntimeException | Error failure) {
+            devLog("dev_initial_situation_agent_response outcome=failed task={} requestId={} failureClass={} elapsedMs={}",
+                    task, requestId, failure.getClass().getSimpleName(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+            throw failure;
+        }
+    }
+
+    private static List<String> jsonFields(JsonNode value) {
+        if (!value.isObject()) return List.of();
+        List<String> fields = new ArrayList<>();
+        value.fieldNames().forEachRemaining(fields::add);
+        return List.copyOf(fields);
     }
 
     private JsonNode outputSchema(String task, List<ScenarioSourceReference> allowedRefs) {
@@ -199,6 +413,17 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
 
     private JsonNode outputSchema(String task, List<ScenarioSourceReference> allowedRefs,
             boolean openingSituationRequired, Set<UUID> allowedMapIds) {
+        return outputSchema(task, allowedRefs, openingSituationRequired, allowedMapIds, null);
+    }
+
+    private JsonNode outputSchema(String task, List<ScenarioSourceReference> allowedRefs,
+            boolean openingSituationRequired, Set<UUID> allowedMapIds, Integer revelationIndexLimit) {
+        return outputSchema(task, allowedRefs, openingSituationRequired, allowedMapIds, revelationIndexLimit, List.of());
+    }
+
+    private JsonNode outputSchema(String task, List<ScenarioSourceReference> allowedRefs,
+            boolean openingSituationRequired, Set<UUID> allowedMapIds, Integer revelationIndexLimit,
+            List<RequiredSituation> requiredSituations) {
         Map<String, Object> properties;
         if (task.equals("required-extract")) {
             properties = Map.of("requiredSituations", arraySchema(requiredSituationSchema(allowedRefs)));
@@ -206,11 +431,17 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
             properties = Map.of("stages", arraySchema(objectSchema(Map.of(
                             "stageId", stringSchema(), "order", Map.of("type", "integer", "minimum", 1),
                             "role", stringSchema(), "coreProblem", stringSchema(), "funnelSummary", stringSchema(),
+                            "requiredSituationIds", arraySchema(stringSchema()),
                             "sourceRefIndexes", sourceRefIndexesSchema(allowedRefs))), 1),
                     "sourceRefIndexes", sourceRefIndexesSchema(allowedRefs));
         } else if (task.startsWith("stage:")) {
+            List<Object> requiredSituationIndexes = new ArrayList<>(
+                    java.util.stream.IntStream.range(0, requiredSituations.size()).boxed().toList());
+            requiredSituationIndexes.add(null);
             Map<String, Object> situationProperties = Map.ofEntries(
                     Map.entry("situationId", stringSchema()),
+                    Map.entry("requiredSituationIndex", Map.of("type", List.of("integer", "null"),
+                            "enum", requiredSituationIndexes)),
                     Map.entry("intents", arraySchema(enumSchema("REVELATION", "PRESSURE", "FUNNEL_OPPORTUNITY", "IMPORTANT_CONSEQUENCE"), 1)),
                     Map.entry("revelationIndexes", arraySchema(indexSchema())),
                     Map.entry("pressureIndexes", arraySchema(singleTargetIndexSchema())),
@@ -229,9 +460,10 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     "pressure", objectSchema(Map.of("pressureId", stringSchema(), "progressionMaterial", stringSchema(),
                             "sourceRefIndexes", sourceRefIndexesSchema(allowedRefs))),
                     "funnel", objectSchema(Map.of("funnelId", stringSchema(), "meaning", stringSchema(),
-                            "requiredRevelationIndexes", arraySchema(indexSchema()), "requiredPredicateIds", arraySchema(stringSchema()),
+                            "requiredRevelationIndexes", revelationIndexLimit == null ? arraySchema(indexSchema())
+                                    : boundedIndexArraySchema(revelationIndexLimit), "requiredPredicateIds", arraySchema(stringSchema()),
                             "sourceRefIndexes", sourceRefIndexesSchema(allowedRefs))),
-                    "situations", arraySchema(situation),
+                    "situations", arraySchema(situation, openingSituationRequired ? requiredSituations.size() + 2 : 0),
                     "openingSituationIndex", openingSituationRequired ? indexSchema()
                             : Map.of("type", List.of("integer", "null"), "minimum", 0),
                     "importantConsequenceIds", arraySchema(stringSchema()),
@@ -338,6 +570,12 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     }
 
     private static Map<String, Object> indexSchema() { return Map.of("type", "integer", "minimum", 0); }
+
+    private static Map<String, Object> boundedIndexArraySchema(int count) {
+        return count == 0 ? Map.of("type", "array", "items", indexSchema(), "maxItems", 0)
+                : Map.of("type", "array", "items", Map.of("type", "integer", "enum",
+                        java.util.stream.IntStream.range(0, count).boxed().toList()));
+    }
     private static Map<String, Object> singleTargetIndexSchema() {
         return Map.of("type", "integer", "minimum", 0, "maximum", 0);
     }
@@ -362,7 +600,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         return "Create the adventure story backbone from the reviewed story situations and retrieved rule evidence. "
                 + "Include every story-essential required situation and only prerequisites explicit in the source. "
                 + "Add as many intermediate candidate stages as the story needs; do not use a fixed count or impose unstated order. "
-                + "Each stage needs stageId, contiguous order, role, coreProblem, funnelSummary, and sourceRefIndexes. "
+                + "Each stage needs stageId, contiguous order, role, coreProblem, funnelSummary, requiredSituationIds, and sourceRefIndexes. "
+                + "Assign every REQUIRED_STORY_SITUATION exactly once across the stages. Keep every prerequisite in the same or an earlier stage. "
                 + "Return stages and sourceRefIndexes. Every sourceRefIndexes array contains only integer indexes from "
                 + "NUMBERED_ALLOWED_SOURCE_REFS and must not contain source reference objects.\nSCENARIO_CONTEXT="
                 + promptStoryContext(scenarioPackage) + "\nREQUIRED_STORY_SITUATIONS=" + json(required)
@@ -373,9 +612,10 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
     private String detailedPrompt(ScenarioPackage scenarioPackage, String stageId, List<ScenarioSourceReference> evidence,
             List<RequiredSituation> required, List<String> alreadyAssigned, List<List<String>> rules) {
         return "Prepare the situation definitions and supporting details for stage " + stageId + " from the extracted required story situations and retrieved rule evidence. "
-                + "Include required situations needed to preserve the source story and multiple intermediate candidates when supported by the story. "
-                + "Do not force a fixed candidate count, add unstated prerequisite relations, or make optional ingredients mandatory. "
-                + "For every situation include required, prerequisiteSituationIds, provenance (SOURCE_EXTRACTED or GM_SUPPLEMENTED), "
+                + "Include every required situation assigned to this stage. The first stage must include at least two optional intermediate candidates in addition to its required situations. "
+                + "Do not target a candidate count for other stages or generate candidates in every stage by default; add optional candidates only where the story supports a distinct choice or route. "
+                + "Do not add unstated prerequisite relations or make optional ingredients mandatory. "
+                + "For every situation include required, requiredSituationIndex, prerequisiteSituationIds, provenance (SOURCE_EXTRACTED or GM_SUPPLEMENTED), "
                 + "and use zero-based integer index arrays for dynamic references: requiredRevelationIndexes and revelationIndexes index this response's "
                 + "revelations[].revelationId values; pressureIndexes indexes the single pressure.pressureId; funnelIndexes indexes the single "
                 + "funnel.funnelId; funnelPredicateIndexes indexes this response's funnel.requiredPredicateIds; and importantConsequenceIndexes "
@@ -390,12 +630,39 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 + "and mapDefinitionId "
                 + "(one supplied map UUID or null). Return a complete DetailedStage JSON object except package/revision/stage identifiers. "
                 + "Use only these map IDs: " + json(scenarioPackage.mapDefinitions().stream().map(m -> m.id()).toList())
-                + "\nUse these exact situationId values for every extracted required situation and preserve each prerequisiteSituationIds list: "
+                + "\nFor every required situation, set requiredSituationIndex to its zero-based position in this stage's REQUIRED_STORY_SITUATIONS list; use null for every intermediate candidate. The server assigns the exact situationId for that index. Preserve each prerequisiteSituationIds list: "
                 + json(required) + "\nSCENARIO_CONTEXT=" + promptStoryContext(scenarioPackage)
                 + "\nCORE_RULEBOOK_EVIDENCE_BY_SITUATION=" + json(rulesBySituation(required, rules))
                 + "\nALREADY_ASSIGNED_REQUIRED_SITUATION_IDS=" + json(alreadyAssigned)
                 + "\nDo not emit any already assigned required situation ID in this stage; emit each remaining required situation at most once."
                 + "\nNUMBERED_ALLOWED_SOURCE_REFS=" + numberedSourceRefs(evidence);
+    }
+
+    private static void devLog(String pattern, Object... args) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            org.slf4j.LoggerFactory.getLogger(ScenarioPackageStageArtifactAdapter.class).info(pattern, args);
+        }
+    }
+
+    private static List<String> requiredSituationInventory(List<RequiredSituation> situations) {
+        return situations.stream().map(item -> item.situationId() + ":summaryChars=" + item.summary().length()
+                + ":prerequisites=" + item.prerequisiteSituationIds() + ":sourceRefs="
+                + sourceReferenceInventory(item.sourceRefs())).toList();
+    }
+
+    private static List<String> ruleEvidenceInventory(List<RequiredSituation> situations, List<List<String>> rules) {
+        if (situations.size() != rules.size()) throw new IllegalStateException("rule evidence does not match required situations");
+        List<String> inventory = new ArrayList<>();
+        for (int index = 0; index < situations.size(); index++) {
+            inventory.add(situations.get(index).situationId() + ":excerptCount=" + rules.get(index).size()
+                    + ":excerptChars=" + rules.get(index).stream().mapToInt(String::length).sum());
+        }
+        return List.copyOf(inventory);
+    }
+
+    private static List<String> sourceReferenceInventory(List<ScenarioSourceReference> refs) {
+        return refs.stream().map(ref -> ref.knowledgeDocumentId().value() + ":v" + ref.extractionVersion()
+                + ":" + ref.locator()).toList();
     }
 
     private List<List<String>> lookupRules(ScenarioPackage scenarioPackage, SessionId sessionId, List<RequiredSituation> required) {
@@ -533,6 +800,33 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 resolved.add(supplementedIds.getOrDefault(prerequisiteId, prerequisiteId));
             }
             object.set("prerequisiteSituationIds", resolved);
+        }
+    }
+
+    private void resolveRequiredSituationIndexes(JsonNode detailed, List<RequiredSituation> requiredSituations) {
+        JsonNode situations = detailed.path("situations");
+        if (!situations.isArray()) throw new IllegalStateException("detailed situation identities are invalid");
+        Set<Integer> assigned = new java.util.HashSet<>();
+        for (JsonNode situation : situations) {
+            if (!situation.isObject() || !situation.path("required").isBoolean()) {
+                throw new IllegalStateException("detailed situation identities are invalid");
+            }
+            var object = (com.fasterxml.jackson.databind.node.ObjectNode) situation;
+            JsonNode index = situation.path("requiredSituationIndex");
+            if (situation.path("required").booleanValue()) {
+                if (!index.isIntegralNumber() || !index.canConvertToInt() || index.intValue() < 0
+                        || index.intValue() >= requiredSituations.size() || !assigned.add(index.intValue())
+                        || !"SOURCE_EXTRACTED".equals(situation.path("provenance").asText())) {
+                    throw new IllegalStateException("required situation index is invalid");
+                }
+                RequiredSituation required = requiredSituations.get(index.intValue());
+                object.put("situationId", required.situationId());
+                object.set("prerequisiteSituationIds", mapper.valueToTree(required.prerequisiteSituationIds()));
+                object.set("sourceRefs", mapper.valueToTree(required.sourceRefs()));
+            } else if (!index.isNull()) {
+                throw new IllegalStateException("optional situation has a required situation index");
+            }
+            object.remove("requiredSituationIndex");
         }
     }
 

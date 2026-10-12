@@ -46,6 +46,7 @@ import java.util.UUID;
 import java.util.Map;
 
 public final class RulebookPipelineApplicationService implements RulebookUploadProcessor {
+    private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
     private static final Duration PROCESSING_LEASE = Duration.ofMinutes(10);
     private static final int PENDING_BATCH_SIZE = 10;
 
@@ -60,6 +61,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     private final RagExtractionPublicationService ragExtractionPublicationService;
     private final PreprocessingArtifactImporter preprocessingArtifactImporter;
     private final PreprocessingRetryLeaseRepository retryLeaseRepository;
+    private final com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionService actionDefinitionExtractionService;
+    private final com.dndmaster.ruleknowledge.application.definition.PublishedRulebookActionSourceRepository actionSourceRepository;
 
     public RulebookPipelineApplicationService(
             RulebookRegistrationApplicationService registrationService,
@@ -116,6 +119,25 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             RagExtractionPublicationService ragExtractionPublicationService,
             PreprocessingArtifactImporter preprocessingArtifactImporter,
             PreprocessingRetryLeaseRepository retryLeaseRepository) {
+        this(registrationService, registrationRepository, fileStorage, contentExtractor, sourcePreviewExtractor,
+                indexingService, embeddingDimension, preprocessingProcessPort, ragExtractionPublicationService,
+                preprocessingArtifactImporter, retryLeaseRepository, null, null);
+    }
+
+    public RulebookPipelineApplicationService(
+            RulebookRegistrationApplicationService registrationService,
+            RulebookRegistrationRepository registrationRepository,
+            RulebookFileStorage fileStorage,
+            RulebookContentExtractor contentExtractor,
+            SourcePreviewExtractor sourcePreviewExtractor,
+            RulebookIndexingApplicationService indexingService,
+            int embeddingDimension,
+            PreprocessingProcessPort preprocessingProcessPort,
+            RagExtractionPublicationService ragExtractionPublicationService,
+            PreprocessingArtifactImporter preprocessingArtifactImporter,
+            PreprocessingRetryLeaseRepository retryLeaseRepository,
+            com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionService actionDefinitionExtractionService,
+            com.dndmaster.ruleknowledge.application.definition.PublishedRulebookActionSourceRepository actionSourceRepository) {
         this.registrationService = Objects.requireNonNull(registrationService, "registrationService must not be null");
         this.registrationRepository = Objects.requireNonNull(registrationRepository, "registrationRepository must not be null");
         this.fileStorage = Objects.requireNonNull(fileStorage, "fileStorage must not be null");
@@ -130,6 +152,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         this.ragExtractionPublicationService = ragExtractionPublicationService;
         this.preprocessingArtifactImporter = Objects.requireNonNull(preprocessingArtifactImporter, "artifact importer must not be null");
         this.retryLeaseRepository = Objects.requireNonNull(retryLeaseRepository, "retry lease repository must not be null");
+        this.actionDefinitionExtractionService = actionDefinitionExtractionService;
+        this.actionSourceRepository = actionSourceRepository;
     }
 
     @Override
@@ -175,7 +199,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 Instant.now(),
                 Instant.now(),
                 command.documentType(),
-                command.originalFilename());
+                command.originalFilename(), command.extractionActorPlayerId());
         try {
             registrationRepository.save(queued);
         } catch (com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationConflictException collision) {
@@ -329,6 +353,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             }
             if (!"READY".equals(result.status())) throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
             publishPreprocessed(latest, result);
+            extractActionDefinitions(latest, result.versionId(), latest.version(), result.pages(),
+                    latest.extractionActorPlayerId());
             StoredRulebookRegistration indexed = withPreprocessing(latest, ProcessingStatus.INDEXED, null, result,
                     sourcePreviewExtractor.preview(registration.format(), fileStorage.read(new StoredRulebookFile(registration.storageKey()))));
             registrationRepository.save(indexed);
@@ -356,6 +382,36 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         }
         registrationRepository.deleteById(rulebookId);
         fileStorage.delete(new StoredRulebookFile(registration.storageKey()));
+    }
+
+    public RulebookProcessingResult retryActionDefinitionExtraction(RulebookId rulebookId,
+            java.util.UUID extractionActorPlayerId) {
+        StoredRulebookRegistration registration = registrationRepository.findById(rulebookId)
+                .orElseThrow(() -> new IllegalArgumentException("knowledge document not found"));
+        if (registration.documentType() != DocumentType.RULEBOOK || !registration.ownerPlayerId().value().equals(CATALOG_OWNER))
+            throw new SecurityException("action definition extraction is limited to shared rulebooks");
+        if (actionDefinitionExtractionService == null || actionSourceRepository == null)
+            throw new IllegalStateException("action definition extraction is not configured");
+        var source = actionSourceRepository.findCurrent(rulebookId.value())
+                .orElseThrow(() -> new IllegalStateException("published indexed source is unavailable"));
+        var extraction = actionDefinitionExtractionService.extract(source.documentId(), source.extractionVersion(),
+                source.scopeVersion(), source.preprocessedPages(), extractionActorPlayerId);
+        if (!"COMPLETED".equals(extraction.status())) throw new IllegalStateException("action definition extraction did not complete");
+        if (registration.processingStatus() != ProcessingStatus.INDEXED) {
+            registrationRepository.save(withStatus(registration, ProcessingStatus.INDEXED, null, null, null, null, null));
+        }
+        return new RulebookProcessingResult(rulebookId, ProcessingStatus.INDEXED, List.of());
+    }
+
+    private void extractActionDefinitions(StoredRulebookRegistration registration, String version, long scopeVersion,
+            List<PreprocessingPageState> pages, java.util.UUID extractionActorPlayerId) {
+        if (!registration.ownerPlayerId().value().equals(CATALOG_OWNER) || registration.documentType() != DocumentType.RULEBOOK) return;
+        if (actionDefinitionExtractionService == null) throw new IllegalStateException("action definition extraction is not configured");
+        if (extractionActorPlayerId == null)
+            throw new IllegalStateException("authenticated extraction actor was not stored for this registration");
+        var extraction = actionDefinitionExtractionService.extract(registration.rulebookId().value(), version,
+                scopeVersion, pages, extractionActorPlayerId);
+        if (!"COMPLETED".equals(extraction.status())) throw new IllegalStateException("action definition extraction did not complete");
     }
 
     private RulebookProcessingResult processClaimedRegistration(StoredRulebookRegistration registration) {
@@ -441,6 +497,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             }
             if ("READY".equals(result.status())) {
                 publishPreprocessed(registration, result);
+                extractActionDefinitions(registration, result.versionId(), registration.version(), result.pages(),
+                        registration.extractionActorPlayerId());
                 ProcessingStatus nextStatus = ragExtractionPublicationService == null
                         ? ProcessingStatus.VALIDATED : ProcessingStatus.INDEXED;
                 StoredRulebookRegistration validated = withPreprocessing(
@@ -583,7 +641,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 registration.createdAt(), Instant.now(), registration.documentType(), registration.originalFilename(),
                 registration.previewContent(), registration.previewWarnings(), registration.previewSpans(), registration.previewAssets(),
                 registration.preprocessingOperationId(), registration.candidateExtractionVersion(), registration.preprocessingPolicyVersion(),
-                registration.preprocessingManifestSha256(), registration.preprocessingPages());
+                registration.preprocessingManifestSha256(), registration.preprocessingPages(), registration.extractionActorPlayerId());
     }
 
     private void attemptIndexing(Rulebook rulebook, StoredRulebookRegistration registration) {
@@ -683,7 +741,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 registration.candidateExtractionVersion(),
                 registration.preprocessingPolicyVersion(),
                 registration.preprocessingManifestSha256(),
-                registration.preprocessingPages());
+                registration.preprocessingPages(), registration.extractionActorPlayerId());
     }
 
     private static StoredRulebookRegistration withPreprocessing(

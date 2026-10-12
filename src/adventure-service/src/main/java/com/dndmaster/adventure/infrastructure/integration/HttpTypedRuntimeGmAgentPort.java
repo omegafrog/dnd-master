@@ -184,7 +184,8 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         String body = mapper.writeValueAsString(new RuntimeRequest(context.ownerPlayerId().value(), context.operationKey(), context.action(),
                 selection.endpointId(), selection.provider(), selection.model(), selection.reasoning(),
                 endpoint.endpointId(), endpoint.endpointVersion(), endpoint.provider(), endpoint.model(), prompt,
-                context.ragSearchContext()));
+                context.ragSearchContext(), context.evidencePack().all().stream()
+                        .map(com.dndmaster.adventure.application.runtime.RuntimeEvidence::referenceKey).distinct().toList()));
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/gm/runtime-turn"))
                 .timeout(timeout)
                 .header("Content-Type", "application/json")
@@ -255,7 +256,7 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                           java.util.UUID endpointId, String provider, String model, String reasoning,
                           java.util.UUID effectiveEndpointId, String effectiveEndpointVersion,
                           String effectiveProvider, String effectiveModel, String prompt,
-                          java.util.Map<String, Object> ragSearchContext) { }
+                          java.util.Map<String, Object> ragSearchContext, List<String> allowedEvidenceKeys) { }
     record RuntimeResponse(String scene, String judgment, String narration, boolean combatStart,
                            List<CombatEnemyResponse> combatEnemies, SituationResponse situation,
                            boolean mapEntryRequested, List<RuntimeFactResponse> runtimeFacts,

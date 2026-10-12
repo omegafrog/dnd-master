@@ -302,6 +302,28 @@ class RulebookPgvectorIntegrationTest {
         assertEquals("page=2:current", candidate.locator());
         assertEquals(2, candidate.provenance().pageNumber());
         assertEquals(List.of("Chapter", "selected-current"), candidate.provenance().sectionPath());
+        assertEquals(1d, candidate.denseSimilarity());
+    }
+
+    @Test
+    void denseCandidateSearchFiltersByMinimumCosineSimilarityAfterBoundedRetrieval() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+        RagExtractionPublicationRequest publication = publicationRequest(documentId, owner, "minimum-score", 1);
+        publicationRepository.beginCandidate(publication);
+        publicationRepository.publish(publication, List.of(new EmbeddedPublishedRagChunk(
+                publication.chunks().getFirst(), new float[] {0, 1, 0})));
+        var request = evidenceRequest(owner, List.of(new AuthorizedDocumentScope(
+                KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK)), List.of(), "orthogonal query");
+        request = new EvidenceSearchRequest(request.ownerPlayerId(), request.sessionId(), request.scenarioPackageId(),
+                request.stageKey(), request.actionIntent(), request.scope(), request.activeLocators(), request.query(),
+                64, 0, List.of(), 0.1);
+
+        var candidates = new PostgreSQLDenseEvidenceCandidateSearchAdapter(
+                dataSource, new RecordingQueryEmbeddingPort(), "mock-embedding", 3).search(request);
+
+        assertEquals(List.of(), candidates);
     }
 
     @Test
@@ -361,6 +383,30 @@ class RulebookPgvectorIntegrationTest {
     }
 
     @Test
+    void denseCandidateSearchSupportsTheIndexed1024Dimension() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+        RagExtractionPublicationRequest publication = publicationRequest(documentId, owner, "dimension-1024", 1);
+        float[] vector = new float[1024];
+        vector[0] = 1;
+        publicationRepository.beginCandidate(publication);
+        publicationRepository.publish(publication,
+                List.of(new EmbeddedPublishedRagChunk(publication.chunks().getFirst(), vector)));
+
+        var adapter = new PostgreSQLDenseEvidenceCandidateSearchAdapter(
+                dataSource, new RecordingQueryEmbeddingPort(1024), "mock-embedding", 1024);
+        var scope = List.of(new AuthorizedDocumentScope(
+                KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK));
+        var candidates = adapter.search(evidenceRequest(owner, scope, List.of(), "dimension check"));
+        var activeCandidates = adapter.search(evidenceRequest(owner, scope, List.of("page=1"), "dimension check"));
+
+        assertEquals(1, candidates.size());
+        assertEquals("page=1", candidates.getFirst().locator());
+        assertEquals("page=1", activeCandidates.getFirst().locator());
+    }
+
+    @Test
     void activeSourceLocatorsRankFirstInBothCandidateRetrieversWithoutEscapingAuthorizedScope() throws SQLException {
         OwnerPlayerId owner = owner();
         RulebookId documentId = RulebookId.generate();
@@ -414,7 +460,7 @@ class RulebookPgvectorIntegrationTest {
     }
 
     @Test
-    void excludesIndexedExtractionWithoutBm25StatisticsUntilItIsReindexed() throws SQLException {
+    void denseSearchDoesNotDependOnBm25Statistics() throws SQLException {
         OwnerPlayerId owner = owner();
         RulebookId documentId = RulebookId.generate();
         register(documentId, owner);
@@ -427,9 +473,28 @@ class RulebookPgvectorIntegrationTest {
                 KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK));
 
         assertEquals(List.of(), bm25EvidenceRepository.search(evidenceRequest(owner, scope, List.of(), "clockwork")));
-        assertEquals(List.of(), new PostgreSQLDenseEvidenceCandidateSearchAdapter(
+        assertEquals(List.of("clockwork legacy evidence"), new PostgreSQLDenseEvidenceCandidateSearchAdapter(
                 dataSource, new RecordingQueryEmbeddingPort(), "mock-embedding", 3)
-                .search(evidenceRequest(owner, scope, List.of(), "clockwork")));
+                .search(evidenceRequest(owner, scope, List.of(), "clockwork")).stream()
+                .map(candidate -> candidate.excerpt()).toList());
+    }
+
+    @Test
+    void createsPublishedRagEmbeddingHnswIndexForConfiguredDefaultDimension() throws SQLException {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("""
+                SELECT indexdef FROM pg_indexes
+                 WHERE schemaname = current_schema()
+                   AND tablename = 'published_rag_chunk'
+                   AND indexname = 'published_rag_chunk_embedding_1024_hnsw_idx'
+                """)) {
+            try (ResultSet rows = statement.executeQuery()) {
+                assertEquals(true, rows.next());
+                String indexDefinition = rows.getString(1);
+                assertEquals(true, indexDefinition.contains("USING hnsw"));
+                assertEquals(true, indexDefinition.contains("vector_cosine_ops"));
+                assertEquals(true, indexDefinition.contains("embedding_dimension = 1024"));
+            }
+        }
     }
 
     @Test
@@ -523,11 +588,18 @@ class RulebookPgvectorIntegrationTest {
 
     private static final class RecordingQueryEmbeddingPort implements EmbeddingPort {
         private final java.util.ArrayList<String> embeddedContents = new java.util.ArrayList<>();
+        private final int dimension;
+
+        private RecordingQueryEmbeddingPort() { this(3); }
+
+        private RecordingQueryEmbeddingPort(int dimension) { this.dimension = dimension; }
 
         @Override
         public List<ChunkEmbedding> embed(List<RulebookChunk> chunks, String embeddingModel, int expectedDimension) {
             embeddedContents.addAll(chunks.stream().map(RulebookChunk::content).toList());
-            return chunks.stream().map(chunk -> new ChunkEmbedding(chunk.chunkId(), new float[] {1, 0, 0})).toList();
+            float[] vector = new float[dimension];
+            vector[0] = 1;
+            return chunks.stream().map(chunk -> new ChunkEmbedding(chunk.chunkId(), vector)).toList();
         }
     }
 

@@ -9,6 +9,7 @@ import java.util.UUID;
 
 /** Resolves established facts first, then searches the locked adventure context and retrieved evidence. */
 public final class RuntimeFactLookupService {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(RuntimeFactLookupService.class);
     private final ScenarioModelLookupAgentPort scenarioModelLookup;
 
     public RuntimeFactLookupService(ScenarioModelLookupAgentPort scenarioModelLookup) {
@@ -30,8 +31,22 @@ public final class RuntimeFactLookupService {
         if (contextualEvidence.isEmpty()) contextualEvidence = request.evidence();
         String query = request.query();
 
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_runtime_fact_lookup stage=request playerId={} queryFingerprint={} queryChars={} currentSituationFingerprint={} currentSceneFingerprint={} gameStateKeys={} runtimeFactIds={} preparedSituationFingerprint={} preparedSituationChars={} longTermFactIds={} knownEvidenceIds={} scenarioElementCount={} evidence={}",
+                    soloPlayerId, com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(query), query.length(),
+                    com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.currentSituation()),
+                    com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.currentScene()),
+                    request.gameState().values().keySet(), request.runtimeAddedFacts().stream().map(RuntimeAddedFact::factId).toList(),
+                    com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.preparedSituation()),
+                    request.preparedSituation().length(), request.longTermFacts().stream().map(LongTermAdventureFact::factId).toList(),
+                    request.knownEvidenceIds(), request.lockedScenarioModel().elementIds().size(), evidenceReferences(contextualEvidence));
+        }
+
         Optional<RuntimeFactLookupResult> established = findEstablished(request, query);
-        if (established.isPresent()) return established.get();
+        if (established.isPresent()) {
+            logResult(established.get());
+            return established.get();
+        }
 
         ScenarioModelLookupRequest lookupRequest = new ScenarioModelLookupRequest(request.query(),
                 request.lockedScenarioModel(), request.currentSituation(), request.currentScene(),
@@ -42,12 +57,28 @@ public final class RuntimeFactLookupService {
                         ? scenarioModelLookup.lookup(lookupRequest)
                         : scenarioModelLookup.lookup(soloPlayerId, lookupRequest),
                 "scenario lookup result must not be null");
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_runtime_fact_lookup stage=response status={} source=LOCKED_SCENARIO_MODEL supportingElementIds={}",
+                    modelResult.status(), modelResult.supportingElementIds());
+        }
         if (modelResult.status() == ScenarioLookupResult.Status.FOUND) {
             validateSupportingElementIds(modelResult, request);
             return RuntimeFactLookupResult.foundScenario(modelResult.answer(), modelResult.supportingElementIds());
         }
 
         return RuntimeFactLookupResult.notFound();
+    }
+
+    private static void logResult(RuntimeFactLookupResult result) {
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_runtime_fact_lookup stage=response status={} source={} supportingElementIds={}",
+                    result.status(), result.source(), result.supportingElementIds());
+        }
+    }
+
+    private static List<String> evidenceReferences(List<RuntimeEvidence> evidence) {
+        return evidence.stream().map(item -> item.evidenceType() + ":" + item.knowledgeDocumentId().value()
+                + ":v" + item.extractionVersion() + ":" + item.locator()).toList();
     }
 
     /**

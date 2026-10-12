@@ -27,6 +27,7 @@ sourceSets {
 
 dependencies {
     implementation(project(":ai-game-master-service"))
+    implementation("com.networknt:json-schema-validator:2.0.0")
     implementation("org.springframework.boot:spring-boot-autoconfigure")
     implementation("com.fasterxml.jackson.core:jackson-databind")
     implementation("org.slf4j:slf4j-api")

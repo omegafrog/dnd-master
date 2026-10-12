@@ -2,7 +2,7 @@ package com.dndmaster.aigamemaster.application.ai;
 
 public record AiExecutionFailure(Reason reason, String message) implements AiExecutionResult {
     public enum Reason {
-        CONNECTION_UNAVAILABLE, CONNECTION_REQUIRED, REAUTH_REQUIRED, CONNECTION_LOST, TIMEOUT, DELIVERY_FAILED, LOCAL_EXECUTION_FAILED
+        CONNECTION_UNAVAILABLE, CONNECTION_REQUIRED, REAUTH_REQUIRED, CONNECTION_LOST, TIMEOUT, OUTPUT_LIMIT, DELIVERY_FAILED, LOCAL_EXECUTION_FAILED
     }
 
     public AiExecutionFailure {

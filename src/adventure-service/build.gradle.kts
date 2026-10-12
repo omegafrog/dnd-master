@@ -6,6 +6,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework:spring-jdbc")
     implementation("org.springframework:spring-tx")
+    implementation("com.networknt:json-schema-validator:2.0.0")
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.14")
     runtimeOnly("org.postgresql:postgresql")
     testImplementation("org.flywaydb:flyway-core")

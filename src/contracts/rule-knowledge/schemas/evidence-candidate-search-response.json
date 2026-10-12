@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dnd-master.local/contracts/rule-knowledge/v1/evidence-candidate-search-response.json",
+  "type": "object",
+  "required": ["ownerId", "sessionId", "scenarioPackageId", "candidates"],
+  "properties": {
+    "ownerId": { "type": "string", "format": "uuid" },
+    "sessionId": { "type": "string", "format": "uuid" },
+    "scenarioPackageId": { "type": "string", "format": "uuid" },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["chunkId", "documentId", "extractionVersion", "documentType", "locator", "excerpt", "provenance", "denseRank", "bm25Rank", "rrfScore", "denseSimilarity"],
+        "properties": {
+          "chunkId": { "type": "string", "format": "uuid" },
+          "documentId": { "type": "string", "format": "uuid" },
+          "extractionVersion": { "type": "integer", "minimum": 1 },
+          "documentType": { "enum": ["RULEBOOK", "STORYBOOK"] },
+          "locator": { "type": "string", "minLength": 1 },
+          "excerpt": { "type": "string", "minLength": 1 },
+          "provenance": { "$ref": "published-evidence-provenance.json" },
+          "denseRank": { "type": ["integer", "null"], "minimum": 1 },
+          "bm25Rank": { "type": ["integer", "null"], "minimum": 1 },
+          "rrfScore": { "type": "number", "minimum": 0 },
+          "denseSimilarity": { "type": ["number", "null"], "minimum": -1, "maximum": 1 }
+        }
+      }
+    }
+  }
+}

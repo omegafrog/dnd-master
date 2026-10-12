@@ -239,7 +239,7 @@ public final class HybridEvidenceSearchService {
     private static EvidenceCandidate withRanks(EvidenceCandidate candidate, RrfFusionPolicy.RankedChunk rank) {
         return new EvidenceCandidate(candidate.documentId(), candidate.chunkId(), candidate.extractionVersion(),
                 candidate.documentType(), candidate.locator(), candidate.excerpt(), candidate.provenance(),
-                rank.denseRank(), rank.bm25Rank(), rank.rrfScore());
+                rank.denseRank(), rank.bm25Rank(), rank.rrfScore(), candidate.denseSimilarity());
     }
 
     private record RetrievalCandidates(List<EvidenceCandidate> denseCandidates, List<EvidenceCandidate> bm25Candidates) {}

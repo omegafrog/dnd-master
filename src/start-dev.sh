@@ -105,9 +105,22 @@ require_env BACKEND_E2E_EMAIL
 require_env BACKEND_E2E_PASSWORD
 require_env BACKEND_E2E_STORYBOOKS_JSON
 
-for port in "$BACKEND_SERVER_PORT" "$FRONTEND_DEV_PORT" "$POSTGRES_PORT" "$REDIS_PORT" "$LOCAL_AGENT_CONNECTION_RELAY_PORT"; do
+REUSE_EXISTING_INFRA=false
+if [ "$(docker compose -f "$INFRA/compose.yaml" ps --status running --services 2>/dev/null | sort | tr '\n' ' ')" = "postgres redis " ] \
+    && docker compose -f "$INFRA/compose.yaml" exec -T postgres pg_isready -U postgres -d postgres >/dev/null 2>&1 \
+    && docker compose -f "$INFRA/compose.yaml" exec -T redis redis-cli ping 2>/dev/null | tr -d '\r' | grep -qx PONG; then
+    REUSE_EXISTING_INFRA=true
+    echo "==> Reusing healthy PostgreSQL and Redis for project $COMPOSE_PROJECT_NAME."
+fi
+
+for port in "$BACKEND_SERVER_PORT" "$FRONTEND_DEV_PORT" "$LOCAL_AGENT_CONNECTION_RELAY_PORT"; do
     require_available_port "$port"
 done
+if [ "$REUSE_EXISTING_INFRA" != true ]; then
+    for port in "$POSTGRES_PORT" "$REDIS_PORT"; do
+        require_available_port "$port"
+    done
+fi
 
 if [ ! -d "$RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT" ]; then
     echo "ERROR: RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT directory was not found: $RULE_KNOWLEDGE_ASSET_FALLBACK_ROOT" >&2
@@ -172,8 +185,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "==> Starting infra (PostgreSQL and Redis)..."
-docker compose -f "$INFRA/compose.yaml" up -d --wait
+if [ "$REUSE_EXISTING_INFRA" != true ]; then
+    echo "==> Starting infra (PostgreSQL and Redis)..."
+    docker compose -f "$INFRA/compose.yaml" up -d --wait
+else
+    echo "==> Existing infrastructure remains running; no container startup requested."
+fi
 
 echo "==> Applying demo user init SQL..."
 docker compose -f "$INFRA/compose.yaml" exec -T postgres \

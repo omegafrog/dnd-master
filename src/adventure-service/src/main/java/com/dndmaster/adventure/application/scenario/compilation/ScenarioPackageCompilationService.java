@@ -277,7 +277,8 @@ public final class ScenarioPackageCompilationService {
                 .distinct().toList();
         return blueprint.withProvenance(new BlueprintProvenance(
                 definitionVersion, bundle.currentRevision().revision(), sourceTypes,
-                "DND_5E_2014"));
+                "DND_5E_2014", blueprint.provenance().selectedRulebookId(),
+                blueprint.provenance().selectedRulebookExtractionVersion()));
     }
 
     private static List<CharacterCreationBlueprintCompiler.FieldCandidate> blueprintCandidates(

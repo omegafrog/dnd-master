@@ -76,12 +76,35 @@ class StageArtifactPreparationApplicationServiceTest {
     }
 
     @Test
+    void sends_all_stage_detail_requests_in_backbone_order() {
+        var received = new java.util.concurrent.atomic.AtomicReference<List<StageDetailedGenerationPort.Request>>();
+        StageDetailedGenerationPort generation = new StageDetailedGenerationPort() {
+            @Override public DetailedStage generate(Request request) { throw new AssertionError("batch generation expected"); }
+            @Override public List<DetailedStage> generateAll(List<Request> requests) {
+                received.set(List.copyOf(requests));
+                return requests.stream().map(request -> request.stageId().equals("stage-1")
+                        ? detailed(true) : secondDetailed()).toList();
+            }
+        };
+        var service = new StageArtifactPreparationApplicationService(new StageArtifactRepository.InMemory(),
+                request -> List.of(evidence), request -> backbone(), generation);
+
+        var result = service.prepare(adventureId, sessionId, packageId);
+
+        assertEquals(List.of("stage-1", "stage-2"), received.get().stream().map(StageDetailedGenerationPort.Request::stageId).toList());
+        assertEquals(List.of("stage-1", "stage-2"), result.detailedStages().stream().map(DetailedStage::stageId).toList());
+    }
+
+    @Test
     void passes_previously_assigned_required_ids_to_each_later_stage_without_changing_reviewed_list() {
         var repository = new StageArtifactRepository.InMemory();
         var required = List.of(
                 new RequiredSituation("opening", "The bell disappears", List.of(), List.of(evidence)),
                 new RequiredSituation("tower", "The bell is found", List.of("opening"), List.of(evidence)));
-        var backbone = new StageBackbone(packageId, 1, backbone().stages(), List.of(evidence), required);
+        var backbone = new StageBackbone(packageId, 1, List.of(
+                new StageBackboneEntry("stage-1", 1, "opening", "Find the heir", "Learn the truth", List.of(evidence), List.of("opening")),
+                new StageBackboneEntry("stage-2", 2, "confrontation", "Face the threat", "Reach the lair", List.of(evidence), List.of("tower"))),
+                List.of(evidence), required);
         var first = detailedWithSituations(List.of(extractedRequired("opening", List.of()),
                 extractedCandidate("candidate-a"), extractedCandidate("candidate-b")));
         var second = new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
@@ -109,9 +132,9 @@ class StageArtifactPreparationApplicationServiceTest {
         service.prepare(adventureId, sessionId, packageId);
 
         assertEquals(List.of(), requests.get(0).alreadyAssignedRequiredSituationIds());
-        assertEquals(List.of("opening"), requests.get(1).alreadyAssignedRequiredSituationIds());
-        assertEquals(required, requests.get(0).requiredSituations());
-        assertEquals(required, requests.get(1).requiredSituations());
+        assertEquals(List.of(), requests.get(1).alreadyAssignedRequiredSituationIds());
+        assertEquals(List.of(required.getFirst()), requests.get(0).requiredSituations());
+        assertEquals(List.of(required.getLast()), requests.get(1).requiredSituations());
     }
 
     @Test
@@ -145,7 +168,10 @@ class StageArtifactPreparationApplicationServiceTest {
                 new RequiredSituation("opening", "The bell disappears", List.of(), List.of(evidence)),
                 new RequiredSituation("dependent", "The bell is found", List.of("prerequisite"), List.of(evidence)),
                 new RequiredSituation("prerequisite", "The tower is opened", List.of(), List.of(evidence)));
-        var backbone = new StageBackbone(packageId, 1, backbone().stages(), List.of(evidence), required);
+        var backbone = new StageBackbone(packageId, 1, List.of(
+                new StageBackboneEntry("stage-1", 1, "opening", "Find the heir", "Learn the truth", List.of(evidence), List.of("opening", "dependent")),
+                new StageBackboneEntry("stage-2", 2, "confrontation", "Face the threat", "Reach the lair", List.of(evidence), List.of("prerequisite"))),
+                List.of(evidence), required);
         var first = detailedWithSituations(List.of(extractedRequired("opening", List.of()),
                 extractedRequired("dependent", List.of("prerequisite")), extractedCandidate("candidate-a"),
                 extractedCandidate("candidate-b")));
@@ -174,7 +200,8 @@ class StageArtifactPreparationApplicationServiceTest {
         var required = List.of(
                 new RequiredSituation("opening", "The bell disappears", List.of(), List.of(evidence)),
                 new RequiredSituation("prerequisite", "The tower is opened", List.of("opening"), List.of(evidence)));
-        var backbone = new StageBackbone(packageId, 1, singleStageBackbone().stages(), List.of(evidence), required);
+        var backbone = new StageBackbone(packageId, 1, List.of(new StageBackboneEntry("stage-1", 1, "opening",
+                "Find the heir", "Learn the truth", List.of(evidence), List.of("opening", "prerequisite"))), List.of(evidence), required);
         var stage = detailedWithSituations(List.of(extractedRequired("opening", List.of()),
                 extractedRequired("prerequisite", List.of("opening")), extractedCandidate("candidate-a"),
                 extractedCandidate("candidate-b")));
@@ -347,7 +374,8 @@ class StageArtifactPreparationApplicationServiceTest {
         var required = List.of(
                 new RequiredSituation("opening", "The bell disappears", List.of(), List.of(evidence)),
                 new RequiredSituation("tower", "The bell is found", List.of("opening"), List.of(evidence)));
-        var backbone = new StageBackbone(packageId, 1, singleStageBackbone().stages(), List.of(evidence), required);
+        var backbone = new StageBackbone(packageId, 1, List.of(new StageBackboneEntry("stage-1", 1, "opening",
+                "Find the heir", "Learn the truth", List.of(evidence), List.of("opening", "tower"))), List.of(evidence), required);
         for (List<SituationDefinition> situations : List.of(
                 List.of(extractedRequired("opening", List.of()), extractedCandidate("candidate-a"),
                         extractedCandidate("candidate-b")),

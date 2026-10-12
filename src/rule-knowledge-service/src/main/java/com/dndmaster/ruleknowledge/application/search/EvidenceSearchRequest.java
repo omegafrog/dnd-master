@@ -17,7 +17,20 @@ public record EvidenceSearchRequest(
         List<String> activeLocators,
         String query,
         int denseLimit,
-        int bm25Limit) {
+        int bm25Limit,
+        List<UUID> excludedChunkIds,
+        Double minimumDenseSimilarity) {
+    public EvidenceSearchRequest(OwnerPlayerId ownerPlayerId, UUID sessionId, UUID scenarioPackageId, String stageKey,
+            String actionIntent, List<AuthorizedDocumentScope> scope, List<String> activeLocators, String query,
+            int denseLimit, int bm25Limit) {
+        this(ownerPlayerId, sessionId, scenarioPackageId, stageKey, actionIntent, scope, activeLocators, query, denseLimit, bm25Limit, List.of(), null);
+    }
+    public EvidenceSearchRequest(OwnerPlayerId ownerPlayerId, UUID sessionId, UUID scenarioPackageId, String stageKey,
+            String actionIntent, List<AuthorizedDocumentScope> scope, List<String> activeLocators, String query,
+            int denseLimit, int bm25Limit, List<UUID> excludedChunkIds) {
+        this(ownerPlayerId, sessionId, scenarioPackageId, stageKey, actionIntent, scope, activeLocators, query,
+                denseLimit, bm25Limit, excludedChunkIds, null);
+    }
     public EvidenceSearchRequest {
         Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
         if ((sessionId == null) != (scenarioPackageId == null)) {
@@ -30,6 +43,10 @@ public record EvidenceSearchRequest(
             throw new IllegalArgumentException("scope must contain authorized documents");
         }
         activeLocators = activeLocators == null ? List.of() : List.copyOf(activeLocators);
+        excludedChunkIds = excludedChunkIds == null ? List.of() : List.copyOf(excludedChunkIds);
+        if (excludedChunkIds.stream().anyMatch(Objects::isNull) || excludedChunkIds.size() > 500
+                || new HashSet<>(excludedChunkIds).size() != excludedChunkIds.size())
+            throw new IllegalArgumentException("excluded chunk IDs must be unique and bounded");
         if (activeLocators.stream().anyMatch(locator -> locator == null || locator.isBlank())
                 || new HashSet<>(activeLocators).size() != activeLocators.size()) {
             throw new IllegalArgumentException("active locators must be nonblank and unique");
@@ -39,11 +56,15 @@ public record EvidenceSearchRequest(
         if (bm25Limit < 0 || bm25Limit > RrfFusionPolicy.MAX_RESULTS_PER_RETRIEVER) {
             throw new IllegalArgumentException("BM25 limit must be between 0 and 30");
         }
+        if (minimumDenseSimilarity != null && (!Double.isFinite(minimumDenseSimilarity)
+                || minimumDenseSimilarity < -1 || minimumDenseSimilarity > 1)) {
+            throw new IllegalArgumentException("minimum dense similarity must be finite and between -1 and 1");
+        }
     }
 
     private static void validateLimit(int value, String name) {
-        if (value < 1 || value > RrfFusionPolicy.MAX_RESULTS_PER_RETRIEVER) {
-            throw new IllegalArgumentException(name + " must be between 1 and 30");
+        if (value < 1 || value > 64) {
+            throw new IllegalArgumentException(name + " must be between 1 and 64");
         }
     }
 }

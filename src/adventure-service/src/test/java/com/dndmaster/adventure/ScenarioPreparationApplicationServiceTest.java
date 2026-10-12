@@ -389,15 +389,13 @@ class ScenarioPreparationApplicationServiceTest {
     }
 
     @Test
-    void blocksRequired2014InventoryWhenBasicRulesSourceIsUnavailable() {
+    void doesNotRequireAStaticActionInventoryWhenNoRulebookWasSelected() {
         TestFixture fixture = bundle(withoutRulebookPackage(), bundleWithoutRulebook());
         ScenarioPreparationApplicationService service = service(fixture);
 
         var preparation = service.read(fixture.packageId(), owner());
 
-        assertEquals(PlayPreparationStatus.BLOCKED, preparation.status());
-        assertTrue(preparation.blockers().stream().anyMatch(blocker -> blocker.contains("기본 룰북 주문 정의")));
-        assertFalse(preparation.characterCreationBlueprint().available());
+        assertFalse(preparation.blockers().stream().anyMatch(blocker -> blocker.contains("기본 룰북 주문 정의")));
     }
 
     @Test
@@ -429,6 +427,43 @@ class ScenarioPreparationApplicationServiceTest {
         assertTrue(preparation.spellDefinitions().stream().allMatch(spell ->
                 spell.sourceDocumentId().equals(rulebookDocumentId()) && spell.extractionVersion() == 1
                         && spell.sourceLocator().matches("page=\\d+;node=node-\\d+")));
+    }
+
+    @Test
+    void loadsDefinitionsFromTheSelectedPublishedSharedRulebookEvenWhenPackageDoesNotContainIt() {
+        var base = withoutRulebookPackage();
+        var selectedDocumentId = rulebookDocumentId();
+        var provenance = new BlueprintProvenance(1, base.bundleRevision(), List.of("RULEBOOK"), "DND_5E_2014",
+                selectedDocumentId, 1);
+        var blueprint = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.READY,
+                List.of(), List.of(), provenance);
+        var scenarioPackage = ScenarioPackage.rehydrate(base.packageId(), base.bundleId(), base.bundleRevision(),
+                base.inputFingerprint(), base.documents(), base.units(), base.report(), base.characterLimit(), blueprint);
+        var fixture = bundle(scenarioPackage, bundleWithRulebook());
+        var lookup = new KnowledgeDocumentLookupPort() {
+            @Override public List<KnowledgeDocumentRecord> findOwnedDocuments(UUID ownerId) { return List.of(); }
+            @Override public List<KnowledgeDocumentRecord> findPublishedSharedCatalogDocuments() {
+                return List.of(new KnowledgeDocumentRecord(new KnowledgeDocumentId(selectedDocumentId),
+                        KnowledgeDocumentStatus.INDEXED, "dnd5th.pdf", "RULEBOOK", 1,
+                        BasicRulebookSpellInventory.SOURCE_VERSION.substring("sha256:".length())));
+            }
+        };
+        var service = new ScenarioPreparationApplicationService(fixture.packages(), fixture.bundles(),
+                fixture.runtimeOptions(), request -> List.of(), request -> List.of(),
+                new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort(), lookup,
+                (documentId, version) -> List.of(new StructuredSpellDefinition("selected-source:spell-1", "Magic Missile",
+                        selectedDocumentId, "page=89:chunk=selected-source", "ev-selected", version,
+                        "level 1", "1 action", "120 feet", "V, S", "Instantaneous", "Evocation",
+                        "none", "3 darts", List.of(), "source quote", false,
+                        StructuredSpellDefinition.ReviewStatus.PENDING)));
+
+        var preparation = service.read(fixture.packageId(), owner());
+
+        assertEquals(1, preparation.spellDefinitions().size());
+        assertEquals("selected-source:spell-1", preparation.spellDefinitions().getFirst().id());
+        assertEquals(selectedDocumentId, preparation.spellDefinitions().getFirst().sourceDocumentId());
+        assertEquals("ev-selected", preparation.spellDefinitions().getFirst().sourceVersion());
+        assertEquals(1, preparation.spellDefinitions().getFirst().extractionVersion());
     }
 
     @Test
@@ -494,15 +529,16 @@ class ScenarioPreparationApplicationServiceTest {
     }
 
     @Test
-    void doesNotSeedPdfInventoryWhenSelectedDocumentHashDiffers() {
+    void usesSelectedDocumentIdentityInsteadOfMatchingAContentHash() {
         ScenarioPackage packageWithUnverifiedInventory = withRulebookPackage().withSpellDefinitions(
                 BasicRulebookSpellInventory.load(new KnowledgeDocumentId(rulebookDocumentId()), 1));
         TestFixture fixture = bundle(packageWithUnverifiedInventory, bundleWithRulebook());
 
         var preparation = service(fixture, "another-pdf").read(fixture.packageId(), owner());
 
-        assertTrue(preparation.spellDefinitions().isEmpty());
-        assertTrue(preparation.sourceSpellDefinitions().isEmpty());
+        assertEquals(126, preparation.spellDefinitions().size());
+        assertTrue(preparation.spellDefinitions().stream().allMatch(spell ->
+                spell.sourceDocumentId().equals(rulebookDocumentId())));
     }
 
     @Test
@@ -556,7 +592,8 @@ class ScenarioPreparationApplicationServiceTest {
         };
         var service = new ScenarioPreparationApplicationService(packages,
                 bundle(withRulebookPackage(), bundleWithRulebook()).bundles(), fixtureRuntimeOptions(), request -> List.of(),
-                request -> List.of(), new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort(), lookup);
+                request -> List.of(), new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort(), lookup,
+                (documentId, registrationVersion) -> canonical);
         var original = canonical.getFirst();
 
         var initial = service.createPlayPreparation(currentPackage[0].packageId(), owner(), "review-1");
@@ -664,7 +701,7 @@ class ScenarioPreparationApplicationServiceTest {
         RuntimeOptionsView options = service.runtimeOptions(owner());
 
         assertEquals(PlayPreparationStatus.BLOCKED, preparation.status());
-        assertTrue(preparation.blockers().stream().anyMatch(blocker -> blocker.contains("기본 룰북 주문 정의")));
+        assertTrue(preparation.blockers().stream().anyMatch(blocker -> blocker.contains("주문·행동 정의")));
         CharacterCreationBlueprintView blueprint = preparation.characterCreationBlueprint();
         assertFalse(blueprint.available());
         assertEquals(6, preparation.characterLimit().maximumCharacters());
@@ -846,7 +883,7 @@ class ScenarioPreparationApplicationServiceTest {
                 .read(scenarioPackage.packageId(), owner());
 
         assertEquals(PlayPreparationStatus.BLOCKED, preparation.status());
-        assertTrue(preparation.blockers().stream().anyMatch(blocker -> blocker.contains("기본 룰북 주문 정의")));
+        assertTrue(preparation.blockers().stream().anyMatch(blocker -> blocker.contains("주문·행동 정의")));
         assertTrue(preparation.characterCreationBlueprint().available());
     }
 
@@ -882,7 +919,9 @@ class ScenarioPreparationApplicationServiceTest {
         };
         return new ScenarioPreparationApplicationService(
                 fixture.packages(), fixture.bundles(), fixture.runtimeOptions(), request -> List.of(),
-                request -> List.of(), new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort(), lookup);
+                request -> List.of(), new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort(), lookup,
+                (documentId, registrationVersion) -> documentId.value().equals(rulebookDocumentId())
+                        ? BasicRulebookSpellInventory.load(documentId, registrationVersion) : List.of());
     }
 
     private static RuntimeOptionCatalogPort fixtureRuntimeOptions() {

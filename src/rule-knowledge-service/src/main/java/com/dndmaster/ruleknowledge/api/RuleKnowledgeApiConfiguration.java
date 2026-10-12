@@ -148,6 +148,46 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionRepository rulebookActionDefinitionRepository(
+            DataSource dataSource, ObjectMapper objectMapper) {
+        return new com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookActionDefinitionRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.ruleknowledge.application.definition.PublishedRulebookActionSourceRepository publishedRulebookActionSourceRepository(
+            DataSource dataSource, ObjectMapper objectMapper) {
+        return new com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresPublishedRulebookActionSourceRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionPort rulebookActionDefinitionExtractionPort(
+            ObjectMapper objectMapper,
+            @Value("${ai-game-master.base-url:http://127.0.0.1:8080/}") String aiBaseUrl,
+            @Value("${rule-knowledge.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            @Value("${rule-knowledge.action-extraction.endpoint-id:}") String endpointId,
+            @Value("${rule-knowledge.action-extraction.provider:ollama}") String provider,
+            @Value("${rule-knowledge.action-extraction.model:exaone3.5:7.8b}") String model,
+            @Value("${rule-knowledge.action-extraction.reasoning:medium}") String reasoning,
+            @Value("${rule-knowledge.action-extraction.timeout:180s}") Duration timeout) {
+        return new com.dndmaster.ruleknowledge.infrastructure.definition.HttpRulebookActionDefinitionExtractor(
+                java.net.URI.create(aiBaseUrl), internalToken, endpointId == null || endpointId.isBlank() ? null : java.util.UUID.fromString(endpointId),
+                provider, model, reasoning, timeout, objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionService rulebookActionDefinitionExtractionService(
+            com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionRepository repository,
+            DenseEvidenceCandidateSearchPort denseSearch,
+            com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionPort extractor,
+            @Value("${rule-knowledge.action-extraction.minimum-dense-similarity:0.45}") String minimumDenseSimilarity,
+            @Value("${rule-knowledge.action-extraction.targeted-input-token-limit:128000}") long targetedInputTokenLimit,
+            @Value("${rule-knowledge.action-extraction.targeted-external-token-reserve:24000}") long targetedExternalTokenReserve) {
+        Double threshold = minimumDenseSimilarity.isBlank() ? null : Double.valueOf(minimumDenseSimilarity);
+        return new com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionService(
+                repository, denseSearch, extractor, threshold, targetedInputTokenLimit, targetedExternalTokenReserve);
+    }
+
+    @Bean
     RulebookRegistrationApplicationService rulebookRegistrationApplicationService(
             RulebookFileStorage fileStorage, RulebookContentExtractor contentExtractor) {
         return new RulebookRegistrationApplicationService(fileStorage, contentExtractor);
@@ -211,6 +251,8 @@ public class RuleKnowledgeApiConfiguration {
             PreprocessingProcessPort preprocessingProcessPort,
             RagExtractionPublicationService ragExtractionPublicationService,
             PreprocessingRetryLeaseRepository preprocessingRetryLeaseRepository,
+            com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionService actionDefinitionExtractionService,
+            com.dndmaster.ruleknowledge.application.definition.PublishedRulebookActionSourceRepository actionSourceRepository,
             ObjectMapper objectMapper,
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
         return new RulebookPipelineApplicationService(
@@ -224,7 +266,7 @@ public class RuleKnowledgeApiConfiguration {
                 preprocessingProcessPort,
                 ragExtractionPublicationService,
                 new com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingArtifactImporter(objectMapper),
-                preprocessingRetryLeaseRepository);
+                preprocessingRetryLeaseRepository, actionDefinitionExtractionService, actionSourceRepository);
     }
 
     @Bean
