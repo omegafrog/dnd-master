@@ -46,3 +46,24 @@ def test_table_words_and_die_notation_in_prose_are_not_table_evidence():
 
     assert classifier.classify(section("Ability Checks"), prose).label is not ContentType.TABLE
     assert classifier.classify(section("Soldier Specialty"), table).label is ContentType.TABLE
+
+
+def test_table_embedded_in_long_prose_does_not_classify_the_whole_section_as_table(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    prose = "\n\n".join(f"An item description paragraph explains property {index}." for index in range(30))
+    text = f"Item Descriptions\n\n{prose}\n\nd6 Damage Type\n1 Acid\n2 Cold\n3 Fire"
+
+    result = DeterministicContentClassifier().classify(section("Item Descriptions"), text)
+
+    assert result.label is not ContentType.TABLE
+    assert "dev_content_classifier stage=table_detection branch=reject_mixed_section" in caplog.text
+    assert "expectedMinimumRowRatio=0.5" in caplog.text
+
+
+def test_magic_item_section_takes_precedence_over_spell_terms_in_its_descriptions():
+    text = "Wondrous item, rare (requires attunement). The identify spell reveals its properties."
+
+    result = DeterministicContentClassifier().classify(section("Item Descriptions"), text)
+
+    assert result.label is ContentType.MAGIC_ITEM

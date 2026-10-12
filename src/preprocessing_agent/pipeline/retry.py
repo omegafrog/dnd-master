@@ -33,6 +33,7 @@ class PageRetryPolicy:
     MAX_ADDITIONAL_ATTEMPTS = 2
     _MAPPING = {
         "AMBIGUOUS_COLUMNS": "alternate-column-hypothesis",
+        "AMBIGUOUS_COLUMN": "alternate-column-hypothesis",
         "LOW_CONFIDENCE_COLUMNS": "alternate-column-hypothesis",
         "IRREGULAR_TABLE": "table-region-resplit",
         "TABLE_STRUCTURE_UNCERTAIN": "table-region-resplit",
@@ -51,6 +52,21 @@ class PageRetryPolicy:
                     break
             if strategy != "diagnostic-recheck":
                 break
+        if strategy == "alternate-column-hypothesis":
+            review = page.get("layout_review", {})
+            profiles = review.get("profiles", ()) if isinstance(review, Mapping) else ()
+            distinguishable = False
+            for profile in profiles:
+                if not isinstance(profile, Mapping):
+                    continue
+                scores = sorted((float(candidate["score"]) for candidate in profile.get("candidates", ())
+                                 if isinstance(candidate, Mapping) and isinstance(candidate.get("score"), (int, float))),
+                                reverse=True)
+                if len(scores) >= 2 and scores[0] - scores[1] >= .08:
+                    distinguishable = True
+                    break
+            if not distinguishable:
+                strategy = "diagnostic-recheck"
         normalized = []
         for region in regions or ():
             if isinstance(region, (list, tuple)) and len(region) == 4:

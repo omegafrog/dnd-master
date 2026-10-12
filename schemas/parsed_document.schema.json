@@ -14,11 +14,13 @@
   "$defs": {
     "span": {
       "type": "object", "additionalProperties": false,
-      "required": ["page_number", "block_index", "char_start", "char_end", "token_start", "token_end"],
+      "required": ["page_number", "block_index", "char_start", "char_end", "token_start", "token_end", "bbox", "table_id", "table_cell"],
       "properties": {
         "page_number": {"type": "integer", "minimum": 1}, "block_index": {"type": ["integer", "null"]},
         "char_start": {"type": ["integer", "null"]}, "char_end": {"type": ["integer", "null"]},
-        "token_start": {"type": ["integer", "null"]}, "token_end": {"type": ["integer", "null"]}
+        "token_start": {"type": ["integer", "null"]}, "token_end": {"type": ["integer", "null"]},
+        "bbox": {"type": ["array", "null"], "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+        "table_id": {"type": ["string", "null"]}, "table_cell": {"type": ["string", "null"]}
       }
     },
     "block": {

@@ -17,7 +17,7 @@ class ChunkAssembler:
         for candidate in candidates:
             for piece in self.splitter.split(candidate):
                 chunks.append(Chunk(
-                    chunk_id=chunk_id(piece.source_text), canonical_key=piece.canonical_key,
+                    chunk_id=chunk_id(piece.source_text, piece.canonical_key), canonical_key=piece.canonical_key,
                     content_type=candidate.content_type, source_text=piece.source_text,
                     embedding_text=piece.source_text, token_count=count_tokens(piece.source_text),
                     source_spans=piece.source_spans, section_path=candidate.section_path,

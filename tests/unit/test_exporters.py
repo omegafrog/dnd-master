@@ -4,6 +4,7 @@ from preprocessing_agent.chunking import ChunkAssembler, ChunkPolicy, ChunkSplit
 from preprocessing_agent.domain import Chunk, ChunkCandidate, ContentType, DocumentTree, SectionNode, SourceSegment, SourceSpan, ValidationIssue
 from preprocessing_agent.exporters import ArtifactExporter
 from preprocessing_agent.domain import schema_path, validate_json
+from preprocessing_agent.validation import ValidationPolicy, validate_chunks
 
 
 def test_exporter_writes_four_artifacts_and_excludes_invalid_spans(tmp_path):
@@ -88,6 +89,27 @@ def test_exporter_deduplicates_final_chunks_and_records_exclusion_reasons(tmp_pa
         "duplicate_chunk_id": 1,
         "numeric_separator_only_unknown": 1,
     }
+
+
+def test_exporter_keeps_same_content_from_distinct_locations_and_reports_quality_issue(tmp_path):
+    candidates = (
+        ChunkCandidate("first", "rules.p0001.b0001", ContentType.RULE, "Repeated rule.",
+                       (SourceSpan(1, 1, 0, 14),), ("rules",)),
+        ChunkCandidate("second", "rules.p0002.b0001", ContentType.RULE, "Repeated rule.",
+                       (SourceSpan(2, 1, 0, 14),), ("rules",)),
+    )
+    chunks = ChunkAssembler(ChunkSplitter(ChunkPolicy())).assemble(candidates)
+    issues = validate_chunks(chunks, page_count=2, policy=ValidationPolicy(min_tokens=1)).issues
+    tree = DocumentTree("doc", SectionNode("root", "Rules", 0, ContentType.RULE))
+
+    manifest = ArtifactExporter().export(tmp_path, "doc.pdf", "source", chunks, issues, tree, page_count=2)
+
+    exported = [json.loads(line) for line in (tmp_path / "chunks.jsonl").read_text().splitlines()]
+    exported_issues = [json.loads(line) for line in (tmp_path / "issues.jsonl").read_text().splitlines()]
+    assert len(exported) == 2
+    assert len({item["chunk_id"] for item in exported}) == 2
+    assert any(item["issue_type"] == "duplicate" for item in exported_issues)
+    assert manifest["statistics"]["chunks"]["excluded_by_reason"] == {}
 
 
 def test_exporter_issues_follow_the_final_chunk_set(tmp_path):

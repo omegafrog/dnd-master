@@ -13,6 +13,8 @@ import math
 import contextlib
 import sys
 import os
+import logging
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -29,6 +31,76 @@ from preprocessing_agent.ports.extraction import ExtractionCapabilityError, Page
 from preprocessing_agent.adapters.ocr import PyMuPdfPageRenderAdapter, TesseractOcrAdapter
 from preprocessing_agent.validation import LayoutValidationService
 from preprocessing_agent.pipeline.retry import PageRetryPolicy
+
+_LOGGER = logging.getLogger(__name__)
+_LAYOUT_ANALYSIS_VERSION = "reading-order-v1"
+
+
+def _page_layout_fingerprint(page: Mapping[str, Any]) -> str:
+    geometry = page.get("geometry", {})
+    blocks = [{"block_id": str(block.get("block_id", "")), "kind": block.get("kind", "text"),
+               "extraction_method": block.get("extraction_method", "native"),
+               "text_sha256": hashlib.sha256(str(block.get("text", "")).encode()).hexdigest(),
+               "bbox": [float(value) for value in block.get("bbox", ())]}
+              for block in page.get("blocks", ()) if isinstance(block, Mapping)]
+    normalized_geometry = {key: float(geometry[key]) for key in ("width", "height")}
+    payload = json.dumps({"geometry": normalized_geometry, "blocks": blocks}, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _layout_approval_key(source_sha256: str, page_number: int, page: Mapping[str, Any]) -> str:
+    return hashlib.sha256(f"{source_sha256}:{page_number}:{_page_layout_fingerprint(page)}:{_LAYOUT_ANALYSIS_VERSION}".encode()).hexdigest()
+
+
+def _layout_approval_root(output: Path) -> Path:
+    parent_name = output.parent.name
+    return output.parent.parent if re.fullmatch(r"[0-9a-fA-F-]{36}", parent_name) else output.parent
+
+
+def _load_layout_approval(output: Path, source_sha256: str, page_number: int,
+                          page: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    common_root = _layout_approval_root(output)
+    key = _layout_approval_key(source_sha256, page_number, page)
+    lock_path = common_root / ".layout-approvals.lock"
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_SH)
+        try:
+            registry_path = common_root / "layout-approvals.json"
+            registry = json.loads(registry_path.read_text()) if registry_path.exists() else {}
+            value = registry.get(key) if isinstance(registry, Mapping) else None
+            if (not isinstance(value, Mapping) or not isinstance(value.get("admin_id"), str)
+                    or not value["admin_id"] or not isinstance(value.get("candidate_version"), str)
+                    or not value["candidate_version"] or not isinstance(value.get("selections"), Mapping)
+                    or not value["selections"] or value.get("source_sha256") != source_sha256
+                    or value.get("page_layout_fingerprint") != _page_layout_fingerprint(page)
+                    or value.get("layout_analysis_version") != _LAYOUT_ANALYSIS_VERSION):
+                return None
+            return value
+        except (OSError, json.JSONDecodeError):
+            return None
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def _save_layout_approval(output: Path, source_sha256: str, page_number: int,
+                          page: Mapping[str, Any], confirmation: Mapping[str, Any]) -> None:
+    common_root = _layout_approval_root(output)
+    common_root.mkdir(parents=True, exist_ok=True)
+    key = _layout_approval_key(source_sha256, page_number, page)
+    lock_path = common_root / ".layout-approvals.lock"
+    with lock_path.open("a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        try:
+            registry_path = common_root / "layout-approvals.json"
+            registry = json.loads(registry_path.read_text()) if registry_path.exists() else {}
+            if not isinstance(registry, dict):
+                registry = {}
+            registry[key] = dict(confirmation)
+            staged = registry_path.with_suffix(".json.tmp")
+            staged.write_text(json.dumps(registry, sort_keys=True) + "\n")
+            os.replace(staged, registry_path)
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
 class _RenderEvidenceSecondaryValidator:
@@ -383,6 +455,16 @@ class ExtractionApplicationService:
                     LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), extraction_method, float(block.get("confidence", 1.0)), document_id, number, geometry)
                     blocks.append({**block, "extraction_method": extraction_method, "text_confidence": float(block.get("text_confidence", block.get("confidence", 1.0))), "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
                 raw = {**raw, "blocks": blocks}
+                cached_approval = None
+                if not isinstance(raw.get("layout_confirmation"), Mapping):
+                    cached_approval = _load_layout_approval(output, source_hash, number, raw)
+                    if cached_approval:
+                        raw["layout_confirmation"] = {**cached_approval, "_approval_cache_hit": True}
+                        _dev_log("dev_preprocessing_layout_approval stage=cache_lookup pageNumber=%d sourceHashMatched=true fingerprintMatched=true analysisVersionMatched=true outcome=hit",
+                                 number)
+                    else:
+                        _dev_log("dev_preprocessing_layout_approval stage=cache_lookup pageNumber=%d outcome=miss",
+                                 number)
                 layout_value = raw.get("layout")
                 layout_name = layout_value if isinstance(layout_value, str) else str(layout_value.get("name", layout_value.get("strategy", ""))) if isinstance(layout_value, Mapping) else ""
                 declared_multi = raw.get("column_count", 1) != 1 or layout_name in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, [])
@@ -396,13 +478,18 @@ class ExtractionApplicationService:
                 confirmed_columns = bool(
                     isinstance(confirmed_by, str) and confirmed_by
                     and isinstance(confirmed_candidate, str) and confirmed_candidate
-                    and confirmed_candidate == retry_candidate
+                    and (confirmed_candidate == retry_candidate or confirmation.get("_approval_cache_hit") is True)
                     and isinstance(confirmed_selections, Mapping) and confirmed_selections
                 )
                 layout_plan = ReadingOrderPlanner().plan(
                     blocks, geometry, dict(confirmed_selections) if confirmed_columns else None)
                 if confirmed_columns and any(profile.selected is None for profile in layout_plan.profiles):
                     raise ValueError("INVALID_LAYOUT_CANDIDATE")
+                if cached_approval:
+                    raw["layout_confirmation"] = {key: value for key, value in cached_approval.items()
+                                                   if key in {"admin_id", "candidate_version", "selections",
+                                                              "source_sha256", "page_layout_fingerprint",
+                                                              "layout_analysis_version"}}
                 if layout_plan.ambiguous:
                     raise ValueError("AMBIGUOUS_COLUMN_HYPOTHESIS")
                 layout_evidence = to_dict(layout_plan)
@@ -700,6 +787,7 @@ class ExtractionApplicationService:
         retry is persisted through a temp file replacement so an interrupted
         caller can safely resume from the last complete checkpoint.
         """
+        started = time.monotonic()
         root = _canonical_path(str(artifact_root)); _enforce_root(root, "PREPROCESS_ARTIFACT_ROOT")
         lock_path = root / ".preprocess.lock"
         with lock_path.open("a+") as lock:
@@ -708,6 +796,8 @@ class ExtractionApplicationService:
             if current["status"] == "READY":
                 raise ValueError("PUBLISHED_VERSION_IMMUTABLE")
             wanted = sorted(set(int(p) for p in pages))
+            _dev_log("dev_preprocessing_retry stage=started versionId=%s requestId=%s selectedPageCount=%d confirmedLayoutPageCount=%d outcome=started",
+                     version_id, request_id, len(wanted), len(layout_selections or {}))
             layout_selections = layout_selections or {}
             by_number = {int(p["page_number"]): p for p in current["pages"]}
             if not wanted or any(p not in by_number for p in wanted):
@@ -743,6 +833,7 @@ class ExtractionApplicationService:
             updated = []
             recovered_pages: dict[str, Mapping[str, Any]] = dict(persisted_recovered)
             source_path = Path(str(current.get("manifest", {}).get("source", {}).get("path", "")))
+            raw_pages: list[Mapping[str, Any]] | None = None
             for page in (() if resume_promotion else current["pages"]):
                 item = dict(page)
                 if item["page_number"] in wanted:
@@ -759,10 +850,24 @@ class ExtractionApplicationService:
                             confirmation.get("admin_id") == confirmed_by
                             and confirmation.get("candidate_version") == version_id
                             and confirmation.get("selections") == selected_regions
+                            and confirmation.get("source_sha256") == current.get("manifest", {}).get("source", {}).get("sha256")
+                            and confirmation.get("page_layout_fingerprint") == _page_layout_fingerprint(persisted_page)
+                            and confirmation.get("layout_analysis_version") == _LAYOUT_ANALYSIS_VERSION
                         )
                         if persisted_page and (not selected_regions or same_confirmation):
-                            updated.append(item)
-                            continue
+                            if not selected_regions:
+                                updated.append(item)
+                                continue
+                            if same_confirmation:
+                                _dev_log("dev_preprocessing_retry stage=confirmed_layout_reuse pageNumber=%d sourceHashMatched=true layoutFingerprintMatched=true analysisVersion=%s outcome=reused",
+                                         item["page_number"], _LAYOUT_ANALYSIS_VERSION)
+                                updated.append(item)
+                                continue
+                            _dev_log("dev_preprocessing_retry stage=confirmed_layout_reuse pageNumber=%d sourceHashMatched=%s layoutFingerprintMatched=%s analysisVersionMatched=%s outcome=recompute",
+                                     item["page_number"],
+                                     confirmation.get("source_sha256") == current.get("manifest", {}).get("source", {}).get("sha256"),
+                                     confirmation.get("page_layout_fingerprint") == _page_layout_fingerprint(persisted_page),
+                                     confirmation.get("layout_analysis_version") == _LAYOUT_ANALYSIS_VERSION)
                         if not persisted_page:
                             raise ValueError("VALIDATED_PAGE_IMMUTABLE")
                     if selected_regions:
@@ -778,7 +883,18 @@ class ExtractionApplicationService:
                     # into READY.
                     try:
                         if not source_path.is_file(): raise ValueError("SOURCE_NOT_FOUND")
-                        raw_pages = self.native_pdf.extract(source_path)
+                        if raw_pages is None:
+                            extraction_started = time.monotonic()
+                            try:
+                                raw_pages = self.native_pdf.extract(source_path)
+                            except Exception as exc:
+                                _dev_log("dev_preprocessing_retry stage=source_extraction_failed versionId=%s requestId=%s selectedPageCount=%d failureType=%s elapsedMs=%d outcome=failed",
+                                         version_id, request_id, len(wanted), type(exc).__name__,
+                                         round((time.monotonic() - extraction_started) * 1000))
+                                raise
+                            _dev_log("dev_preprocessing_retry stage=source_extraction_complete versionId=%s requestId=%s selectedPageCount=%d extractedPageCount=%d elapsedMs=%d outcome=completed",
+                                     version_id, request_id, len(wanted), len(raw_pages),
+                                     round((time.monotonic() - extraction_started) * 1000))
                         raw = next((p for p in raw_pages if isinstance(p, Mapping) and p.get("page_number") == item["page_number"]), None)
                         geometry = raw.get("geometry", {}) if isinstance(raw, Mapping) else {}
                         # Retry must use the same OCR-capable extraction path
@@ -802,8 +918,23 @@ class ExtractionApplicationService:
                                     for region, candidate in selected_regions.items()
                                 ):
                                     raise ValueError("INVALID_LAYOUT_CANDIDATE")
-                            layout_plan = ReadingOrderPlanner().plan(boxes, page_geometry,
-                                                                     selected_regions)
+                            planner = ReadingOrderPlanner()
+                            layout_plan = planner.plan(boxes, page_geometry, selected_regions)
+                            if not selected_regions and attempt.strategy == "alternate-column-hypothesis":
+                                alternate = {}
+                                for profile in layout_plan.profiles:
+                                    ranked = sorted(enumerate(profile.candidates),
+                                                    key=lambda pair: pair[1].score, reverse=True)
+                                    if len(ranked) >= 2 and ranked[0][1].score - ranked[1][1].score >= .08:
+                                        alternate[profile.region_id] = ranked[0][0]
+                                if alternate:
+                                    _dev_log("dev_preprocessing_retry stage=alternate_layout_candidate pageNumber=%d candidateRegionCount=%d minimumScoreGap=0.08 outcome=attempted",
+                                             item["page_number"], len(alternate))
+                                    layout_plan = planner.plan(boxes, page_geometry, alternate)
+                                else:
+                                    _dev_log("dev_preprocessing_retry stage=alternate_layout_candidate pageNumber=%d candidateRegionCount=0 minimumScoreGap=0.08 outcome=needs_review",
+                                             item["page_number"])
+                                    valid = False
                             if confirmed_by and selected_regions:
                                 previous = item.get("layout_review") or {}
                                 old_layout = persisted_page.get("layout", {}) if was_validated else {}
@@ -817,7 +948,10 @@ class ExtractionApplicationService:
                                 ):
                                     raise ValueError("INVALID_LAYOUT_CANDIDATE")
                                 item["layout_confirmation"] = {"admin_id": confirmed_by,
-                                    "candidate_version": version_id, "selections": selected_regions}
+                                    "candidate_version": version_id, "selections": selected_regions,
+                                    "source_sha256": current.get("manifest", {}).get("source", {}).get("sha256"),
+                                    "page_layout_fingerprint": _page_layout_fingerprint(raw),
+                                    "layout_analysis_version": _LAYOUT_ANALYSIS_VERSION}
                                 raw["layout_confirmation"] = item["layout_confirmation"]
                             if layout_plan.ambiguous:
                                 valid = False
@@ -832,6 +966,12 @@ class ExtractionApplicationService:
                                 item["findings"] = [finding.code for finding in validation.findings
                                     if finding.severity == "error"]
                         if valid:
+                            if confirmed_by and selected_regions and isinstance(item.get("layout_confirmation"), Mapping):
+                                _save_layout_approval(root,
+                                    str(current.get("manifest", {}).get("source", {}).get("sha256", "")),
+                                    item["page_number"], raw, item["layout_confirmation"])
+                                _dev_log("dev_preprocessing_layout_approval stage=registry_write pageNumber=%d confirmerPresent=true outcome=saved",
+                                         item["page_number"])
                             item["status"] = "VALIDATED"; item["findings"] = []
                             history[-1] = {**history[-1], "status": "VALIDATED", "findings": []}
                             raw["_retry_attempts"] = item["attempts"]
@@ -857,6 +997,9 @@ class ExtractionApplicationService:
             response = {**current, "operation": "retry_pages", "request_id": request_id, "pages": updated}
             statuses = [p["status"] for p in updated]
             response["page_summary"] = {**current["page_summary"], "validated": statuses.count("VALIDATED"), "needs_review": statuses.count("NEEDS_REVIEW"), "ready": statuses.count("VALIDATED")}
+            _dev_log("dev_preprocessing_retry stage=page_checkpoint_complete versionId=%s requestId=%s expectedSelectedPageCount=%d actualValidatedPageCount=%d actualNeedsReviewPageCount=%d elapsedMs=%d outcome=checkpointed",
+                     version_id, request_id, len(wanted), statuses.count("VALIDATED"),
+                     statuses.count("NEEDS_REVIEW"), round((time.monotonic() - started) * 1000))
             version_dir = root / "versions" / version_id
             response_path = version_dir / "response.json"
             if response_path.is_symlink() or not response_path.exists():
@@ -974,3 +1117,8 @@ class ExtractionApplicationService:
         text = source.read_text(encoding="utf-8")
         blocks = [{"block_id": f"p1-b{i}", "text": line.strip(), "bbox": (0, i * 12, 500, i * 12 + 10)} for i, line in enumerate(text.splitlines()) if line.strip()]
         return [{"page_number": 1, "geometry": {"width": 612, "height": max(792, len(blocks) * 12 + 20)}, "blocks": blocks}]
+
+
+def _dev_log(message: str, *args: Any) -> None:
+    if os.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "").lower() in {"1", "true", "yes", "on"}:
+        _LOGGER.info(message, *args)

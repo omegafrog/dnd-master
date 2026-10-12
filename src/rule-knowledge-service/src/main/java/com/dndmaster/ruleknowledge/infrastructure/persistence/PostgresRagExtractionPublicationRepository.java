@@ -58,8 +58,9 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
             INSERT INTO published_rag_chunk
                 (document_id, owner_player_id, extraction_version, processor_chunk_id, chunk_id,
                  sequence, content, embedding_text, embedding, embedding_model, embedding_dimension,
-                 section_path, page_number, bbox, table_cell, original_locator, source_spans, parent_key, document_length)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?)
+                 section_path, page_number, bbox, table_cell, original_locator, source_spans, parent_key,
+                 content_type, token_count, canonical_key, document_length)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?)
             ON CONFLICT (document_id, extraction_version, processor_chunk_id) DO UPDATE SET
                 chunk_id = EXCLUDED.chunk_id, sequence = EXCLUDED.sequence, content = EXCLUDED.content,
                 embedding_text = EXCLUDED.embedding_text, embedding = EXCLUDED.embedding,
@@ -67,6 +68,7 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
                 section_path = EXCLUDED.section_path, page_number = EXCLUDED.page_number,
                 bbox = EXCLUDED.bbox, table_cell = EXCLUDED.table_cell,
                 original_locator = EXCLUDED.original_locator, source_spans = EXCLUDED.source_spans, parent_key = EXCLUDED.parent_key,
+                content_type = EXCLUDED.content_type, token_count = EXCLUDED.token_count, canonical_key = EXCLUDED.canonical_key,
                 document_length = EXCLUDED.document_length
             """;
     private static final String DELETE_TERM_FREQUENCIES = "DELETE FROM chunk_term_frequency WHERE chunk_id = ?";
@@ -165,7 +167,10 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
                     insert.setString(17, sourceSpansJson(provenance.sourceSpans()));
                     if (chunk.parentKey() == null) insert.setNull(18, Types.VARCHAR);
                     else insert.setString(18, chunk.parentKey());
-                    insert.setInt(19, bm25TermFrequencies(chunk.embeddingText()).values().stream()
+                    insert.setString(19, chunk.contentType());
+                    insert.setInt(20, chunk.tokenCount());
+                    insert.setString(21, chunk.canonicalKey());
+                    insert.setInt(22, bm25TermFrequencies(chunk.embeddingText()).values().stream()
                             .mapToInt(Integer::intValue).sum());
                     insert.addBatch();
 

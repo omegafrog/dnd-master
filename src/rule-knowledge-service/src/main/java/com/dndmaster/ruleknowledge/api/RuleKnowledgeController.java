@@ -68,6 +68,7 @@ public class RuleKnowledgeController {
     private final CatalogRulebookRepository catalogRepository;
     private final PlayerSessionLookupPort playerSessionLookup;
     private final HybridEvidenceSearchService hybridEvidenceSearchService;
+    private Set<String> backofficeAdminPlayerIds = Set.of();
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
@@ -171,6 +172,12 @@ public class RuleKnowledgeController {
         this.catalogRepository = catalogRepository;
         this.playerSessionLookup = playerSessionLookup;
         this.hybridEvidenceSearchService = hybridEvidenceSearchService;
+    }
+
+    @org.springframework.beans.factory.annotation.Value("${rule-knowledge.backoffice.admin-player-ids:}")
+    void setBackofficeAdminPlayerIds(String playerIds) {
+        this.backofficeAdminPlayerIds = java.util.Arrays.stream((playerIds == null ? "" : playerIds).split(","))
+                .map(String::trim).filter(value -> !value.isBlank()).collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     public RuleKnowledgeController(
@@ -426,15 +433,51 @@ public class RuleKnowledgeController {
             @RequestBody RetryPagesRequest request) {
         StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(rulebookId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found"));
-        requireOwner(authenticatedPlayerId(authorization), registration.ownerPlayerId().value());
+        UUID authenticatedPlayer = authenticatedPlayerId(authorization);
+        Map<Integer, Map<String, Integer>> selections = request == null ? Map.of() : request.layoutSelections();
+        boolean manual = !selections.isEmpty();
+        if (!selections.isEmpty()) devLog("dev_manual_layout_confirmation stage=started rulebookId={} pageCount={} selectionCount={} candidateVersionPresent={} outcome=started",
+                rulebookId, request == null || request.pages() == null ? 0 : request.pages().size(), selections.size(),
+                request != null && request.candidateExtractionVersion() != null);
         try {
-            pipelineService.retryPages(new RulebookId(rulebookId), request == null ? null : request.requestId(),
-                    request == null ? null : request.pages(), request == null ? java.util.Map.of() : request.layoutSelections());
+            if (manual && !backofficeAdminPlayerIds.contains(authenticatedPlayer.toString())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "backoffice administrator is required");
+            }
+            if (!manual) requireOwner(authenticatedPlayer, registration.ownerPlayerId().value());
+            if (request == null || !java.util.Objects.equals(request.candidateExtractionVersion(), registration.candidateExtractionVersion())) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "review candidate version changed");
+            }
+            if (manual && !request.confirmedAgainstSource()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "source confirmation is required");
+            }
+            pipelineService.retryPages(new RulebookId(rulebookId), request.requestId(), request.pages(), selections,
+                    request.candidateExtractionVersion(), manual ? authenticatedPlayer : null);
+            if (!selections.isEmpty()) devLog("dev_manual_layout_confirmation stage=completed rulebookId={} pageCount={} selectionCount={} outcome=completed",
+                    rulebookId, request.pages() == null ? 0 : request.pages().size(), selections.size());
             return rulebookStatus(rulebookId);
+        } catch (ResponseStatusException exception) {
+            if (!selections.isEmpty()) devLog("dev_manual_layout_confirmation stage=failed rulebookId={} pageCount={} selectionCount={} status={} failureClass={} outcome=failed",
+                    rulebookId, request == null || request.pages() == null ? 0 : request.pages().size(), selections.size(),
+                    exception.getStatusCode().value(), exception.getClass().getSimpleName());
+            throw exception;
+        } catch (com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingProcessException exception) {
+            HttpStatus status = "INVALID_LAYOUT_CANDIDATE".equals(exception.code()) ? HttpStatus.CONFLICT : HttpStatus.BAD_REQUEST;
+            if (!selections.isEmpty()) devLog("dev_manual_layout_confirmation stage=failed rulebookId={} pageCount={} selectionCount={} status={} failureCode={} outcome=failed",
+                    rulebookId, request == null || request.pages() == null ? 0 : request.pages().size(), selections.size(),
+                    status.value(), exception.code());
+            throw new ResponseStatusException(status, exception.code(), exception);
         } catch (IllegalArgumentException exception) {
+            if (!selections.isEmpty()) devLog("dev_manual_layout_confirmation stage=failed rulebookId={} pageCount={} selectionCount={} status=400 failureClass={} outcome=failed",
+                    rulebookId, request == null || request.pages() == null ? 0 : request.pages().size(), selections.size(), exception.getClass().getSimpleName());
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IllegalStateException exception) {
+            if (!selections.isEmpty()) devLog("dev_manual_layout_confirmation stage=failed rulebookId={} pageCount={} selectionCount={} status=409 failureClass={} outcome=failed",
+                    rulebookId, request == null || request.pages() == null ? 0 : request.pages().size(), selections.size(), exception.getClass().getSimpleName());
             throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
+        } catch (RuntimeException exception) {
+            if (!selections.isEmpty()) devLog("dev_manual_layout_confirmation stage=failed rulebookId={} pageCount={} selectionCount={} status=500 failureClass={} outcome=failed",
+                    rulebookId, request == null || request.pages() == null ? 0 : request.pages().size(), selections.size(), exception.getClass().getSimpleName());
+            throw exception;
         }
     }
 
@@ -500,7 +543,7 @@ public class RuleKnowledgeController {
                 .map(r -> new RulebookSummary(
                         r.rulebookId().value(), r.knowledgeDocumentId().value(), r.processingStatus().name(),
                         r.format().name(), r.documentType(), r.originalFilename(), r.failureCode(),
-                        r.version(), warningsFor(r), progressFor(r), reviewQuestionsFor(r), r.preprocessingPages(), r.contentHash()))
+                        r.version(), r.candidateExtractionVersion(), warningsFor(r), progressFor(r), reviewQuestionsFor(r), r.preprocessingPages(), r.contentHash()))
                 .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
         return ResponseEntity.ok(new OwnedRulebooksResponse(ownerId, summaries));
     }
@@ -532,7 +575,7 @@ public class RuleKnowledgeController {
                                         registration.rulebookId().value(), registration.rulebookId().value(),
                                         registration.processingStatus().name(), registration.format().name(),
                                         registration.documentType(), registration.originalFilename(), registration.failureCode(),
-                                        registration.version(), warningsFor(registration), progressFor(registration),
+                                        registration.version(), registration.candidateExtractionVersion(), warningsFor(registration), progressFor(registration),
                                         reviewQuestionsFor(registration), registration.preprocessingPages(), registration.contentHash()))
                                 .orElse(null))
                         .filter(java.util.Objects::nonNull)
@@ -1181,9 +1224,17 @@ public class RuleKnowledgeController {
             List<PreprocessingReviewQuestion> reviewQuestions) {}
     public record RetryabilityView(boolean retryable, List<Integer> pages, List<String> diagnostics) {}
     public record RetryPagesRequest(String requestId, List<Integer> pages,
-                                    java.util.Map<Integer, java.util.Map<String, Integer>> layoutSelections) {
+                                    java.util.Map<Integer, java.util.Map<String, Integer>> layoutSelections,
+                                    String candidateExtractionVersion, boolean confirmedAgainstSource) {
+        public RetryPagesRequest {
+            layoutSelections = layoutSelections == null ? java.util.Map.of() : java.util.Map.copyOf(layoutSelections);
+        }
         public RetryPagesRequest(String requestId, List<Integer> pages) {
-            this(requestId, pages, java.util.Map.of());
+            this(requestId, pages, java.util.Map.of(), null, false);
+        }
+        public RetryPagesRequest(String requestId, List<Integer> pages,
+                java.util.Map<Integer, java.util.Map<String, Integer>> layoutSelections) {
+            this(requestId, pages, layoutSelections, null, false);
         }
     }
     public record DocumentProgressView(
@@ -1194,7 +1245,8 @@ public class RuleKnowledgeController {
             List<PreviewSpanView> spans, List<PreviewAssetView> assets) {}
     public record RulebookSummary(
             UUID rulebookId, UUID knowledgeDocumentId, String status, String format,
-            DocumentType documentType, String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
+            DocumentType documentType, String originalFilename, String failureReason, long extractionVersion,
+            String candidateExtractionVersion, List<String> warnings,
             DocumentProgressView progress, List<PreprocessingReviewQuestion> reviewQuestions,
             List<PreprocessingPageState> preprocessingPages, String contentHash) {}
     public record PreprocessingReviewQuestion(int pageNumber, String question, List<ReviewChoice> choices) {}

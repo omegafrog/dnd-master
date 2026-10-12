@@ -7,6 +7,7 @@ import hashlib
 import pytest
 
 from preprocessing_agent.pipeline.extraction_service import ExtractionApplicationService
+import preprocessing_agent.pipeline.extraction_service as extraction_module
 from preprocessing_agent.ports.extraction import RenderedPage
 
 
@@ -23,6 +24,24 @@ class _NativeTwoPages(_NativeColumns):
     def extract(self, source):
         page = super().extract(source)[0]
         return [{**page, "page_number": number} for number in (1, 2)]
+
+
+class _CountingNativeTwoPages(_NativeTwoPages):
+    def __init__(self):
+        self.calls = 0
+
+    def extract(self, source):
+        self.calls += 1
+        return super().extract(source)
+
+
+class _CountingNativeColumns(_NativeColumns):
+    def __init__(self):
+        self.calls = 0
+
+    def extract(self, source):
+        self.calls += 1
+        return super().extract(source)
 
 
 class _Render:
@@ -88,8 +107,123 @@ def test_fresh_review_replaces_stale_recovered_confirmation_before_promotion(tmp
 
     assert promoted["status"] == "READY"
     assert promoted["pages"][0]["attempts"] == 3
-    assert promoted["pages"][0]["layout_confirmation"] == {
+    confirmation = promoted["pages"][0]["layout_confirmation"]
+    assert {key: confirmation[key] for key in ("admin_id", "candidate_version", "selections")} == {
         "admin_id": "admin-2", "candidate_version": "candidate-1", "selections": selection}
+    assert confirmation["source_sha256"] == hashlib.sha256(b"pdf").hexdigest()
+    assert confirmation["page_layout_fingerprint"]
+    assert confirmation["layout_analysis_version"] == "reading-order-v1"
+
+
+def test_confirmed_layout_is_recomputed_when_analysis_version_changes(tmp_path):
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"pdf")
+    output = tmp_path / "artifacts"
+    native = _CountingNativeColumns()
+    service = ExtractionApplicationService(native, _Render(), None)
+    first = service.preprocess({"request_id": "initial", "source_path": str(source),
+        "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
+        "output_dir": str(output), "version_id": "candidate-1"})
+    profile = first["pages"][0]["layout_review"]["profiles"][0]
+    candidate = next(index for index, value in enumerate(profile["candidates"])
+                     if value["column_count"] == 2)
+    selection = {profile["region_id"]: candidate}
+    service.retry_pages("candidate-1", output, [1], request_id="retry-1",
+        layout_selections={1: selection}, confirmed_by="admin-1")
+    calls_after_confirmation = native.calls
+
+    snapshot_path = output / "versions" / "candidate-1" / "retry-state.json"
+    snapshot = json.loads(snapshot_path.read_text())
+    snapshot["recovered_pages"]["1"]["layout_confirmation"]["layout_analysis_version"] = "older"
+    snapshot_path.write_text(json.dumps(snapshot))
+    replay = service.retry_pages("candidate-1", output, [1], request_id="retry-2",
+        layout_selections={1: selection}, confirmed_by="admin-1")
+
+    assert replay["status"] == "READY", replay["pages"][0]
+    assert native.calls == calls_after_confirmation + 2
+    assert replay["pages"][0]["layout_confirmation"]["layout_analysis_version"] == "reading-order-v1"
+
+
+def test_matching_approval_is_reused_across_artifact_roots_with_original_admin(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"pdf")
+    common = tmp_path / "common"
+    first_root = common / "00000000-0000-0000-0000-000000000001" / "artifacts"
+    second_root = common / "00000000-0000-0000-0000-000000000002" / "artifacts"
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    first = service.preprocess({"request_id": "initial", "source_path": str(source),
+        "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
+        "output_dir": str(first_root), "version_id": "candidate-one"})
+    profile = first["pages"][0]["layout_review"]["profiles"][0]
+    candidate = next(index for index, value in enumerate(profile["candidates"])
+                     if value["column_count"] == 2)
+    service.retry_pages("candidate-one", first_root, [1], request_id="retry-1",
+        layout_selections={1: {profile["region_id"]: candidate}}, confirmed_by="admin-original")
+
+    repeated = service.preprocess({"request_id": "new-upload", "source_path": str(source),
+        "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
+        "output_dir": str(second_root), "version_id": "candidate-two"})
+
+    assert repeated["status"] == "READY"
+    assert repeated["pages"][0]["layout_confirmation"]["admin_id"] == "admin-original"
+    assert "dev_preprocessing_layout_approval stage=cache_lookup pageNumber=1" in caplog.text
+    assert "outcome=hit" in caplog.text
+
+
+@pytest.mark.parametrize("mismatch", ["source", "coordinates", "text", "analysis_version", "missing_confirmer"])
+def test_approval_mismatch_does_not_validate_new_artifact(tmp_path, monkeypatch, mismatch):
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"pdf")
+    common = tmp_path / "common"
+    first_root = common / "00000000-0000-0000-0000-000000000001" / "artifacts"
+    second_root = common / "00000000-0000-0000-0000-000000000002" / "artifacts"
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    first = service.preprocess({"request_id": "initial", "source_path": str(source),
+        "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
+        "output_dir": str(first_root), "version_id": "candidate-one"})
+    profile = first["pages"][0]["layout_review"]["profiles"][0]
+    candidate = next(index for index, value in enumerate(profile["candidates"])
+                     if value["column_count"] == 2)
+    service.retry_pages("candidate-one", first_root, [1], request_id="retry-1",
+        layout_selections={1: {profile["region_id"]: candidate}}, confirmed_by="admin-original")
+
+    native = _NativeColumns()
+    if mismatch == "coordinates":
+        original = native.extract
+        def changed_coordinates(path):
+            page = original(path)[0]
+            return [{**page, "blocks": [{**block, "bbox": [block["bbox"][0] + 1, *block["bbox"][1:]]}
+                                          for block in page["blocks"]]}]
+        native.extract = changed_coordinates
+    elif mismatch == "text":
+        original = native.extract
+        def changed_text(path):
+            page = original(path)[0]
+            return [{**page, "blocks": [{**block, "text": block["text"] + " changed"} if index == 0 else block
+                                          for index, block in enumerate(page["blocks"])]}]
+        native.extract = changed_text
+    elif mismatch == "analysis_version":
+        monkeypatch.setattr(extraction_module, "_LAYOUT_ANALYSIS_VERSION", "new-version")
+    elif mismatch == "missing_confirmer":
+        registry_path = common / "layout-approvals.json"
+        registry = json.loads(registry_path.read_text())
+        next(iter(registry.values())).pop("admin_id")
+        registry_path.write_text(json.dumps(registry))
+    second_source = source
+    expected_hash = hashlib.sha256(b"pdf").hexdigest()
+    if mismatch == "source":
+        second_source = tmp_path / "different.pdf"
+        second_source.write_bytes(b"different")
+        expected_hash = hashlib.sha256(b"different").hexdigest()
+    repeated = ExtractionApplicationService(native, _Render(), None).preprocess({
+        "request_id": "new-upload", "source_path": str(second_source),
+        "source_sha256": expected_hash, "policy_version": "p1",
+        "output_dir": str(second_root), "version_id": "candidate-two"})
+
+    assert repeated["status"] == "NEEDS_REVIEW"
+    assert repeated["pages"][0].get("layout_confirmation") is None
 
 
 def test_unselected_review_state_survives_final_page_promotion(tmp_path):
@@ -133,6 +267,35 @@ def test_unselected_review_state_survives_final_page_promotion(tmp_path):
     assert selected_page["layout_confirmation"]["admin_id"] == "admin-2"
 
 
+def test_retry_extracts_source_once_for_multiple_review_pages_and_logs_counts(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"pdf")
+    output = tmp_path / "artifacts"
+    native = _CountingNativeTwoPages()
+    service = ExtractionApplicationService(native, _Render(), None)
+    first = service.preprocess({"request_id": "initial", "source_path": str(source),
+        "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
+        "output_dir": str(output), "version_id": "candidate-1"})
+    assert native.calls == 1
+    profiles = [page["layout_review"]["profiles"][0] for page in first["pages"]]
+    selections = {page["page_number"]: {profile["region_id"]: 0}
+                  for page, profile in zip(first["pages"], profiles)}
+
+    promoted = service.retry_pages("candidate-1", output, [1, 2], request_id="retry-both",
+        layout_selections=selections, confirmed_by="admin-1")
+
+    assert promoted["status"] == "READY"
+    # One initial extraction, one retry extraction shared across both pages,
+    # and one extraction to publish the promoted complete version.
+    assert native.calls == 3
+    assert "dev_preprocessing_retry stage=source_extraction_complete" in caplog.text
+    assert "selectedPageCount=2 extractedPageCount=2" in caplog.text
+    assert "actualValidatedPageCount=2 actualNeedsReviewPageCount=0" in caplog.text
+    assert "stage=page_checkpoint_complete" in caplog.text
+
+
 def test_failed_fresh_review_invalidates_validated_page_and_recovered_result(tmp_path):
     source = tmp_path / "source.pdf"
     source.write_bytes(b"pdf")
@@ -160,6 +323,26 @@ def test_failed_fresh_review_invalidates_validated_page_and_recovered_result(tmp
     assert failed["pages"][0].get("layout_confirmation") is None
     snapshot = json.loads((output / "versions" / "candidate-1" / "retry-state.json").read_text())
     assert "1" not in snapshot["recovered_pages"]
+
+
+def test_distinguishable_alternate_is_tried_without_overriding_low_confidence(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    source = tmp_path / "source.pdf"
+    source.write_bytes(b"pdf")
+    output = tmp_path / "artifacts"
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    service.preprocess({"request_id": "initial", "source_path": str(source),
+        "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
+        "output_dir": str(output), "version_id": "candidate-1"})
+
+    retried = service.retry_pages("candidate-1", output, [1], request_id="alternate-1")
+
+    page = retried["pages"][0]
+    assert page["status"] == "NEEDS_REVIEW"
+    assert page["diagnostics"]["strategy"] == "alternate-column-hypothesis"
+    assert page.get("layout_confirmation") is None
+    assert "stage=alternate_layout_candidate pageNumber=1 candidateRegionCount=1" in caplog.text
 
 
 def test_retry_rejects_candidate_index_outside_recomputed_profile(tmp_path):
@@ -193,6 +376,26 @@ def test_pdf_confirmed_column_choice_preserves_other_hard_errors():
     assert accepted.confidence.columns == 0.769
     broken = {**page, "blocks": [{"block_id": "a", "bbox": [5, 5, 120, 20], "text": "hello"}]}
     assert not validator.validate(broken, {"page_number": 1, "sha256": "abc"}, confirmed_columns=True).valid
+
+
+def test_order_coverage_includes_furniture_and_rejects_overlap_and_duplicates():
+    page = {"page_number": 1, "geometry": {"width": 100, "height": 100}, "blocks": [
+        {"block_id": "body", "bbox": [1, 1, 10, 10]},
+        {"block_id": "footer", "bbox": [1, 90, 10, 99]},
+    ], "layout": {"ordered_block_ids": ["body"], "furniture_block_ids": ["footer"]}}
+    evidence = {"page_number": 1, "sha256": "abc"}
+    validator = LayoutValidationService()
+    assert validator.validate(page, evidence).valid
+    for layout in (
+        {"ordered_block_ids": ["body"], "furniture_block_ids": []},
+        {"ordered_block_ids": ["body", "body"], "furniture_block_ids": ["footer"]},
+        {"ordered_block_ids": ["body", "footer"], "furniture_block_ids": ["footer"]},
+        {"ordered_block_ids": ["body", "ghost"], "furniture_block_ids": ["footer"]},
+    ):
+        assert not validator.validate({**page, "layout": layout}, evidence).valid
+    duplicate_blocks = {**page, "blocks": [page["blocks"][0], {**page["blocks"][1], "block_id": "body"}],
+                        "layout": {"ordered_block_ids": ["body", "body"], "furniture_block_ids": []}}
+    assert not validator.validate(duplicate_blocks, evidence).valid
 
 
 def test_retry_cli_forwards_page_number_and_admin_confirmation():

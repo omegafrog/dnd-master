@@ -83,7 +83,7 @@ class RepairEngine:
     @staticmethod
     def _merge(left: Chunk, right: Chunk) -> Chunk:
         text = f"{left.source_text.rstrip()} {right.source_text.lstrip()}"
-        return Chunk(chunk_id(text), left.canonical_key, left.content_type, text, text,
+        return Chunk(chunk_id(text, left.canonical_key), left.canonical_key, left.content_type, text, text,
                      count_tokens(text), left.source_spans + right.source_spans,
                      left.section_path or right.section_path, left.parent_key)
 
@@ -92,7 +92,7 @@ class RepairEngine:
         words = chunk.source_text.split()
         midpoint = max(1, len(words) // 2)
         pieces = (" ".join(words[:midpoint]), " ".join(words[midpoint:]))
-        return tuple(Chunk(chunk_id(text), f"{chunk.canonical_key}.part-{i:03d}",
+        return tuple(Chunk(chunk_id(text, f"{chunk.canonical_key}.part-{i:03d}"), f"{chunk.canonical_key}.part-{i:03d}",
                            chunk.content_type, text, text, count_tokens(text), chunk.source_spans,
                            chunk.section_path, chunk.canonical_key) for i, text in enumerate(pieces, 1) if text)
 

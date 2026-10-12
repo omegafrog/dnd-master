@@ -22,6 +22,20 @@ def test_table_is_preserved_even_when_over_max():
     assert [piece.source_text for piece in pieces] == [text]
 
 
+def test_long_character_sections_split_even_when_whitespace_token_count_is_low(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    text = "first............. entry\nsecond............. entry\nthird............. entry"
+    policy = ChunkPolicy(target_tokens=10, max_tokens=100, max_characters=32, min_tokens=1, overlap_tokens=0)
+
+    pieces = ChunkSplitter(policy).split(candidate(ContentType.RULE, text))
+
+    assert len(pieces) > 1
+    assert max(len(piece.source_text) for piece in pieces) <= policy.max_characters
+    assert "dev_chunk_splitter stage=complete canonicalKey=spell.fireball" in caplog.text
+    assert "expectedMaxCharacters=32" in caplog.text
+
+
 def test_semantic_split_keeps_only_page_local_spans_covering_piece():
     text = "Header\n\nMedium Armor\n\nUnrelated section"
     spans = (

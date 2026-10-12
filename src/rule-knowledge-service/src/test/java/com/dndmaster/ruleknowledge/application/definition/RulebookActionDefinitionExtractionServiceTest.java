@@ -263,10 +263,10 @@ class RulebookActionDefinitionExtractionServiceTest {
     @Test
     void retrievesOnlyExplicitlyNeededMissingFieldsAndPreservesKnownFacts(CapturedOutput output) {
         EvidenceCandidate source = new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID), new ChunkId(UUID.nameUUIDFromBytes(
-                "own-source".getBytes(java.nio.charset.StandardCharsets.UTF_8))), 7, DocumentType.RULEBOOK, "page=2:section=staff",
+                "own-source".getBytes(java.nio.charset.StandardCharsets.UTF_8))), 7, DocumentType.RULEBOOK, "page=1:section=staff",
                 "Signal Staff description.", CANDIDATE.provenance(), 1, null, 0.02);
         EvidenceCandidate supplement = new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID), new ChunkId(UUID.nameUUIDFromBytes(
-                "needed-cost".getBytes(java.nio.charset.StandardCharsets.UTF_8))), 7, DocumentType.RULEBOOK, source.locator(),
+                "needed-cost".getBytes(java.nio.charset.StandardCharsets.UTF_8))), 7, DocumentType.RULEBOOK, "page=1:chunk=page-one-neighbor",
                 "Using the staff costs one action.", CANDIDATE.provenance(), 1, null, 0.02);
         var requests = new ArrayList<EvidenceSearchRequest>();
         RulebookActionDefinitionExtractionPort extractor = new RulebookActionDefinitionExtractionPort() {
@@ -427,7 +427,7 @@ class RulebookActionDefinitionExtractionServiceTest {
     }
 
     @Test
-    void rejectsExactLookupResultsOutsideTheRequestedLocator(CapturedOutput output) {
+    void rejectsExactLookupResultsOutsideTheRequestedDocumentOrPage(CapturedOutput output) {
         var repository = new MemoryRepository();
         var action = new RulebookActionCandidate("action-id", "Named Action", "SPELL", CANDIDATE.locator(),
                 EVIDENCE_ID.toString(), CANDIDATE.excerpt());
@@ -467,7 +467,7 @@ class RulebookActionDefinitionExtractionServiceTest {
         assertEquals(5, denseRequests.size());
         assertEquals("FAILED", repository.find(DOCUMENT_ID, VERSION).orElseThrow().status());
         assertTrue(output.toString().contains("stage=targeted_source_scope_validation actionId=action-id expectedDocumentId=" + DOCUMENT_ID
-                + " expectedScopeVersion=7 expectedDocumentType=RULEBOOK expectedPageNumber=1 expectedLocatorFingerprint="));
+                + " expectedScopeVersion=7 expectedDocumentType=RULEBOOK expectedPageNumber=1 lookupAnchorLocatorFingerprint="));
     }
 
     @Test

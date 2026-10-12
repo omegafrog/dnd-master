@@ -6,6 +6,17 @@ afterEach(() => {
 })
 
 describe('HttpSetupApi', () => {
+  it('sends the candidate version and source confirmation with a layout selection', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(new Response(
+      JSON.stringify({ rulebookId: 'doc-1', status: 'PROCESSING' }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ))
+    await new HttpSetupApi(() => 'owner-token').retryReviewedPages('doc-1', [2], 'candidate-1', { 2: { region1: 0 } })
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toMatchObject({
+      candidateExtractionVersion: 'candidate-1', confirmedAgainstSource: true,
+    })
+    fetchMock.mockRestore()
+  })
   it('allows a configured Codex endpoint to request preparation without probing server-local OAuth', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'endpoint-1', provider: 'CODEX_CLI', active: true }]), { status: 200 }))

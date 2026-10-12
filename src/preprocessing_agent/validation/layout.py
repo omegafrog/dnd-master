@@ -128,8 +128,11 @@ class LayoutValidationService:
                 values.append(value)
             axes["columns"] = min(values, default=1.0)
         ordered = layout.get("ordered_block_ids", ()) if isinstance(layout, Mapping) else ()
+        furniture = layout.get("furniture_block_ids", ()) if isinstance(layout, Mapping) else ()
         ids = [block_id for block_id, _ in boxes]
-        if ordered and (set(ordered) != set(ids) or len(ordered) != len(ids)):
+        covered = [*ordered, *furniture]
+        if (len(ids) != len(blocks) or len(set(ids)) != len(ids) or set(covered) != set(ids)
+                or len(covered) != len(ids) or set(ordered) & set(furniture)):
             axes["order"] = 0.0; findings.append(ValidationFinding("ORDER_COVERAGE", "reading order does not cover blocks exactly once"))
         headings = page.get("heading_associations", ())
         if any((item.get("ambiguous") or item.get("findings")) for item in headings if isinstance(item, Mapping)):

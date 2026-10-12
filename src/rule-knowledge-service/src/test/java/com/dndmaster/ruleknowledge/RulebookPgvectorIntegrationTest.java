@@ -278,6 +278,33 @@ class RulebookPgvectorIntegrationTest {
     }
 
     @Test
+    void publicationPersistsPreprocessingChunkMetadata() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+        RagExtractionPublicationRequest request = publicationRequest(documentId, owner, "metadata", 1);
+        publicationRepository.beginCandidate(request);
+        publicationRepository.publish(request, List.of(publicationChunk(request, 1)));
+
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement("""
+                        SELECT content_type, token_count, canonical_key, parent_key
+                          FROM published_rag_chunk
+                         WHERE document_id = ? AND extraction_version = ?
+                        """)) {
+            statement.setObject(1, documentId.value());
+            statement.setString(2, request.extractionVersion());
+            try (ResultSet rows = statement.executeQuery()) {
+                assertEquals(true, rows.next());
+                assertEquals("rule", rows.getString("content_type"));
+                assertEquals(2, rows.getInt("token_count"));
+                assertEquals("chapter.version.anchor", rows.getString("canonical_key"));
+                assertEquals(false, rows.next());
+            }
+        }
+    }
+
+    @Test
     void bm25CandidateSearchRestrictsResultsToOwnerScopeAndActivePublishedExtraction() throws SQLException {
         OwnerPlayerId owner = owner();
         OwnerPlayerId otherOwner = owner();
@@ -545,10 +572,11 @@ class RulebookPgvectorIntegrationTest {
                 documentId, owner, "operation-" + version, version, "a".repeat(64), "policy-1", "b".repeat(64),
                 List.of(new RagExtractionPage(pageNumber, "VALIDATED", 1, List.of())),
                 List.of(new PublishedRagChunk(
-                        processorChunkId, 0, "published content", "published content",
+                        processorChunkId, 0, "published content", "published content", "rule", 2,
+                        "chapter.version.anchor",
                         new SourceProvenance(pageNumber, List.of("Chapter", version), List.of(1d, 2d, 3d, 4d), "r1:c1", "page=" + pageNumber,
                                 List.of(new SourceProvenance.SourceSpan(pageNumber, 2, 42, 58, null, null,
-                                        List.of(1d, 2d, 3d, 4d), "p" + pageNumber + "-table-0", "r1:c1"))))),
+                                        List.of(1d, 2d, 3d, 4d), "p" + pageNumber + "-table-0", "r1:c1"))), null)),
                 "mock-embedding");
     }
 
@@ -557,8 +585,10 @@ class RulebookPgvectorIntegrationTest {
         PublishedRagChunk source = request.chunks().getFirst();
         PublishedRagChunk withPage = new PublishedRagChunk(
                 source.processorChunkId(), source.sequence(), source.content(), source.embeddingText(),
+                source.contentType(), source.tokenCount(), source.canonicalKey(),
                 new SourceProvenance(pageNumber, source.provenance().sectionPath(), source.provenance().bbox(),
-                        source.provenance().tableCell(), source.provenance().originalLocator(), source.provenance().sourceSpans()));
+                        source.provenance().tableCell(), source.provenance().originalLocator(), source.provenance().sourceSpans()),
+                source.parentKey());
         return new EmbeddedPublishedRagChunk(withPage, new float[] {1, 0, 0});
     }
 

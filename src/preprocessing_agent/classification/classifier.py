@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import re
+import logging
+import os
 from dataclasses import dataclass
 
 from preprocessing_agent.domain import ContentType, SectionNode
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +35,9 @@ class DeterministicContentClassifier:
         structural_title = bool(re.match(r"\s*(?:part|chapter|section|appendix|book)\b", section.title, re.I))
         if _has_table_layout(source_text):
             return ClassificationDecision(ContentType.TABLE, 0.88, "deterministic table layout", False, source_text)
+        if re.search(r"\b(?:magic items?|item descriptions?)\b", section.title, re.I) and re.search(
+                r"\b(?:wondrous item|requires attunement)\b", source_text, re.I):
+            return ClassificationDecision(ContentType.MAGIC_ITEM, 0.9, "magic item section and entry markers", False, source_text)
         rules: tuple[tuple[ContentType, tuple[str, ...], float], ...] = (
             (ContentType.SPELL, (r"\b(?:spell|cantrip)\b", r"\bcasting time\b", r"\brange\b", r"\bduration\b"), 0.92),
             (ContentType.MONSTER_STAT_BLOCK, (r"\barmor class\b", r"\bhit points\b", r"\b(?:challenge|saving throws)\b", r"\bactions\b"), 0.95),
@@ -55,7 +62,12 @@ class DeterministicContentClassifier:
 def _has_table_layout(text: str) -> bool:
     if "|" in text:
         return True
+    nonempty_lines = [line for line in text.splitlines() if line.strip()]
     rows = re.findall(r"(?m)^\s*\d+\s+\S+", text)
     if len(rows) >= 2 and re.search(r"(?m)^\s*d(?:4|6|8|10|12|20|100)\b", text, re.I):
-        return True
+        row_ratio = len(rows) / max(1, len(nonempty_lines))
+        if row_ratio >= 0.5:
+            return True
+        if os.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "").lower() in {"1", "true", "yes", "on"}:
+            _LOGGER.info("dev_content_classifier stage=table_detection branch=reject_mixed_section rowCount=%d nonemptyLineCount=%d expectedMinimumRowRatio=0.5 actualRowRatio=%.4f outcome=not_table", len(rows), len(nonempty_lines), row_ratio)
     return False

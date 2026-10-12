@@ -48,6 +48,7 @@ export type KnowledgeDocumentView = {
   status: KnowledgeDocumentStatus
   format: 'PDF' | 'DOCX' | 'TXT' | 'IMAGE'
   extractionVersion?: number
+  candidateExtractionVersion?: string | null
   warnings?: string[]
   failureReason?: string | null
   progress?: DocumentPreparationProgress
@@ -530,7 +531,8 @@ export interface SetupApi {
   uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string): Promise<BatchRulebookView[]>
   getRulebookStatus(rulebookId: string): Promise<RulebookView>
   retryKnowledgeDocument(knowledgeDocumentId: string): Promise<RulebookView>
-  retryReviewedPages?(knowledgeDocumentId: string, pages: number[], layoutSelections?: Record<number, Record<string, number>>): Promise<unknown>
+  retryReviewedPages?(knowledgeDocumentId: string, pages: number[], candidateExtractionVersion: string,
+    layoutSelections?: Record<number, Record<string, number>>): Promise<unknown>
   deleteKnowledgeDocument?(knowledgeDocumentId: string): Promise<void>
   getSourcePreview(knowledgeDocumentId: string): Promise<SourcePreviewView>
   uploadScenario?(file: File): Promise<{
@@ -646,11 +648,13 @@ export class HttpSetupApi implements SetupApi {
     })
   }
 
-  retryReviewedPages(knowledgeDocumentId: string, pages: number[], layoutSelections: Record<number, Record<string, number>> = {}) {
+  retryReviewedPages(knowledgeDocumentId: string, pages: number[], candidateExtractionVersion: string,
+    layoutSelections: Record<number, Record<string, number>> = {}) {
     return request<RulebookView>(`/api/v1/rulebooks/${knowledgeDocumentId}/retry-pages`, {
       method: 'POST',
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requestId: globalThis.crypto?.randomUUID?.() ?? `review-${Date.now()}`, pages, layoutSelections }),
+      body: JSON.stringify({ requestId: globalThis.crypto?.randomUUID?.() ?? `review-${Date.now()}`, pages,
+        layoutSelections, candidateExtractionVersion, confirmedAgainstSource: Object.keys(layoutSelections).length > 0 }),
     }, '선택한 자료를 다시 읽지 못했습니다.')
   }
 

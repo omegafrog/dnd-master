@@ -227,7 +227,8 @@ export function RulebookSetup({
     if (choice !== 'RETRY' || !api.retryReviewedPages) return
     setReviewingDocumentId(document.knowledgeDocumentId)
     try {
-      await api.retryReviewedPages(document.knowledgeDocumentId, [pageNumber])
+      if (!document.candidateExtractionVersion) throw new Error('현재 검토 버전을 확인할 수 없습니다.')
+      await api.retryReviewedPages(document.knowledgeDocumentId, [pageNumber], document.candidateExtractionVersion)
       await refreshDocuments()
       setMessage(`${pageNumber}페이지를 다시 읽고 있습니다.`)
     } catch (error) {
@@ -238,10 +239,11 @@ export function RulebookSetup({
   }
 
   async function selectReadingOrder(document: KnowledgeDocumentView, page: PreprocessingPageView, regionId: string, candidateIndex: number) {
-    if (!api.retryReviewedPages) return
+    if (!api.retryReviewedPages || !window.confirm('원본 자료를 확인했고 이 읽기 순서를 적용할까요?')) return
     setReviewingDocumentId(document.knowledgeDocumentId)
     try {
-      await api.retryReviewedPages(document.knowledgeDocumentId, [page.pageNumber], {
+      if (!document.candidateExtractionVersion) throw new Error('현재 검토 버전을 확인할 수 없습니다.')
+      await api.retryReviewedPages(document.knowledgeDocumentId, [page.pageNumber], document.candidateExtractionVersion, {
         [page.pageNumber]: { [regionId]: candidateIndex },
       })
       await refreshDocuments()

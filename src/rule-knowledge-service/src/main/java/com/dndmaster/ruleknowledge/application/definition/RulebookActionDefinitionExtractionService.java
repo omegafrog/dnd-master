@@ -628,13 +628,12 @@ public final class RulebookActionDefinitionExtractionService {
                 for (EvidenceCandidate match : found) {
                     if (!match.documentId().value().equals(documentId) || match.extractionVersion() != scopeVersion
                             || match.documentType() != DocumentType.RULEBOOK
-                            || !match.locator().equals(task.sourceLocator())
                             || match.provenance().pageNumber() != sourceEvidence.pageNumber()) {
-                        log("dev_rulebook_action_extraction stage=targeted_source_scope_validation actionId={} expectedDocumentId={} expectedScopeVersion={} expectedDocumentType=RULEBOOK expectedPageNumber={} expectedLocatorFingerprint={} actualDocumentId={} actualScopeVersion={} actualDocumentType={} actualPageNumber={} actualLocatorFingerprint={} failureKind=candidate_outside_source_locator_or_page recoveryAction=reject_page_lookup_result outcome=failed",
+                        log("dev_rulebook_action_extraction stage=targeted_source_scope_validation actionId={} expectedDocumentId={} expectedScopeVersion={} expectedDocumentType=RULEBOOK expectedPageNumber={} lookupAnchorLocatorFingerprint={} actualDocumentId={} actualScopeVersion={} actualDocumentType={} actualPageNumber={} actualLocatorFingerprint={} failureKind=candidate_outside_authorized_document_or_page recoveryAction=reject_page_lookup_result outcome=failed",
                                 task.assignment().candidate().id(), documentId, scopeVersion, sourceEvidence.pageNumber(), fingerprint(task.sourceLocator()),
                                 match.documentId().value(), match.extractionVersion(), match.documentType(),
                                 match.provenance().pageNumber(), fingerprint(match.locator()));
-                        throw new InvalidEvidenceLookupResultException("source page lookup returned evidence outside the requested source locator or page");
+                        throw new InvalidEvidenceLookupResultException("source page lookup returned evidence outside the authorized document or page");
                     }
                     String id = match.chunkId().value().toString();
                     if (ownIds.contains(id)) continue;

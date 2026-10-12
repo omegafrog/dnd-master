@@ -38,29 +38,39 @@ public final class PreprocessingArtifactImporter {
             Set<String> ids = new HashSet<>();
             int sequence = 0;
             int sourceSpanCount = 0;
+            int maxTokenCount = 0;
+            int maxContentCharacters = 0;
             for (String line : Files.readAllLines(path)) {
                 if (line.isBlank()) continue;
                 JsonNode chunk = objectMapper.readTree(line);
                 String processorId = text(chunk, "chunk_id");
                 String content = text(chunk, "source_text");
                 String embeddingText = text(chunk, "embedding_text");
+                String contentType = text(chunk, "content_type");
+                String canonicalKey = text(chunk, "canonical_key");
+                int tokenCount = requiredPositiveInt(chunk, "token_count");
                 if (!ids.add(processorId)) throw new IllegalArgumentException("DUPLICATE_PROCESSOR_CHUNK_ID");
                 JsonNode spans = chunk.path("source_spans");
                 if (!spans.isArray() || spans.isEmpty()) throw new IllegalArgumentException("CHUNK_SOURCE_SPAN_MISSING");
                 List<SourceSpan> sourceSpans = new ArrayList<>(spans.size());
                 for (JsonNode span : spans) sourceSpans.add(readSourceSpan(span));
                 sourceSpanCount += sourceSpans.size();
+                maxTokenCount = Math.max(maxTokenCount, tokenCount);
+                maxContentCharacters = Math.max(maxContentCharacters, content.length());
                 SourceSpan firstSpan = sourceSpans.getFirst();
                 List<String> sectionPath = new ArrayList<>();
                 JsonNode sections = chunk.path("section_path");
                 if (sections.isArray()) sections.forEach(item -> { if (item.isTextual() && !item.asText().isBlank()) sectionPath.add(item.asText()); });
                 String locator = "page=" + firstSpan.pageNumber() + ":chunk=" + processorId;
                 chunks.add(new PublishedRagChunk(processorId, sequence++, content, embeddingText,
+                        contentType, tokenCount, canonicalKey,
                         new SourceProvenance(firstSpan.pageNumber(), sectionPath, firstSpan.bbox(), firstSpan.tableCell(), locator, sourceSpans), optionalText(chunk, "parent_key")));
             }
             if (chunks.isEmpty()) throw new IllegalArgumentException("CHUNK_ARTIFACT_EMPTY");
             log("dev_preprocessing_artifact_import stage=complete chunkCount=" + chunks.size()
-                    + " sourceSpanCount=" + sourceSpanCount + " elapsedMs=" + elapsedMs(started) + " outcome=completed");
+                    + " sourceSpanCount=" + sourceSpanCount + " maxTokenCount=" + maxTokenCount
+                    + " maxContentCharacters=" + maxContentCharacters + " metadataFields=content_type,token_count,canonical_key"
+                    + " elapsedMs=" + elapsedMs(started) + " outcome=completed");
             return List.copyOf(chunks);
         } catch (IOException | RuntimeException exception) {
             log("dev_preprocessing_artifact_import stage=failed failureType=" + exception.getClass().getSimpleName()
@@ -98,6 +108,12 @@ public final class PreprocessingArtifactImporter {
         if (value.isMissingNode() || value.isNull()) return null;
         if (!value.isIntegralNumber() || !value.canConvertToInt()) throw new IllegalArgumentException("CHUNK_SOURCE_SPAN_INVALID");
         return value.intValue();
+    }
+
+    private static int requiredPositiveInt(JsonNode node, String name) {
+        Integer value = optionalInt(node, name);
+        if (value == null || value <= 0) throw new IllegalArgumentException("CHUNK_METADATA_INVALID");
+        return value;
     }
 
     private static String text(JsonNode node, String name) {

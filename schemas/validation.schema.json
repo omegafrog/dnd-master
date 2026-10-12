@@ -8,7 +8,7 @@
     "issues": {"type": "array", "items": {"$ref": "#/$defs/issue"}}
   },
   "$defs": {
-    "span": {"type": "object", "additionalProperties": false, "required": ["page_number", "block_index", "char_start", "char_end", "token_start", "token_end"], "properties": {"page_number": {"type": "integer", "minimum": 1}, "block_index": {"type": ["integer", "null"]}, "char_start": {"type": ["integer", "null"]}, "char_end": {"type": ["integer", "null"]}, "token_start": {"type": ["integer", "null"]}, "token_end": {"type": ["integer", "null"]}}},
+    "span": {"type": "object", "additionalProperties": false, "required": ["page_number", "block_index", "char_start", "char_end", "token_start", "token_end", "bbox", "table_id", "table_cell"], "properties": {"page_number": {"type": "integer", "minimum": 1}, "block_index": {"type": ["integer", "null"]}, "char_start": {"type": ["integer", "null"]}, "char_end": {"type": ["integer", "null"]}, "token_start": {"type": ["integer", "null"]}, "token_end": {"type": ["integer", "null"]}, "bbox": {"type": ["array", "null"], "minItems": 4, "maxItems": 4, "items": {"type": "number"}}, "table_id": {"type": ["string", "null"]}, "table_cell": {"type": ["string", "null"]}}},
     "issue": {"type": "object", "additionalProperties": false, "required": ["issue_type", "message", "severity", "path", "source_span"], "properties": {"issue_type": {"type": "string", "minLength": 1}, "message": {"type": "string", "minLength": 1}, "severity": {"type": "string", "enum": ["error", "warning", "info"]}, "path": {"type": ["string", "null"]}, "source_span": {"anyOf": [{"$ref": "#/$defs/span"}, {"type": "null"}]}}}
   }
 }

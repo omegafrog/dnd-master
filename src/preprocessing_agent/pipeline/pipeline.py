@@ -44,6 +44,7 @@ class PreprocessingPipeline:
         values = dict(config.chunking)
         self.policy = ChunkPolicy(
             target_tokens=int(values.get("target_tokens", 350)), max_tokens=int(values.get("max_tokens", 500)),
+            max_characters=int(values.get("max_characters", 6000)),
             min_tokens=int(values.get("min_tokens", 100)), overlap_tokens=int(values.get("overlap_tokens", 30)),
         )
         self.validation_policy = ValidationPolicy(self.policy.min_tokens, self.policy.max_tokens)
