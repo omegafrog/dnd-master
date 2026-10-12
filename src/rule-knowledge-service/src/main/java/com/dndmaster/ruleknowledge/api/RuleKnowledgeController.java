@@ -1291,11 +1291,12 @@ public class RuleKnowledgeController {
     public record PreviewAssetView(String kind, String locator, String contentType, Integer pageNumber) {}
 
     public record ProvenanceView(UUID documentId, long extractionVersion, int pageNumber, List<String> sectionPath,
-            List<Double> bbox, String tableCell, String locator) {}
+            List<Double> bbox, String tableCell, String locator,
+            List<com.dndmaster.ruleknowledge.application.publication.SourceProvenance.SourceSpan> sourceSpans) {}
 
     private static ProvenanceView provenanceView(UUID documentId, long extractionVersion, SourceProvenance provenance) {
         return new ProvenanceView(documentId, extractionVersion, provenance.pageNumber(), provenance.sectionPath(),
-                provenance.bbox(), provenance.tableCell(), provenance.originalLocator());
+                provenance.bbox(), provenance.tableCell(), provenance.originalLocator(), provenance.sourceSpans());
     }
 
     private static String runtimeCitationKey(String documentType, UUID documentId, long extractionVersion, String locator) {

@@ -41,10 +41,15 @@ class SourceSpan:
     char_end: int | None = None
     token_start: int | None = None
     token_end: int | None = None
+    bbox: tuple[float, float, float, float] | None = None
+    table_id: str | None = None
+    table_cell: str | None = None
 
     def __post_init__(self) -> None:
         if self.page_number < 1:
             raise ValueError("page_number must be positive")
+        if self.bbox is not None and len(self.bbox) != 4:
+            raise ValueError("bbox must contain four coordinates")
         if self.block_index is not None and self.block_index < 0:
             raise ValueError("block_index must be non-negative")
         for start, end, label in (

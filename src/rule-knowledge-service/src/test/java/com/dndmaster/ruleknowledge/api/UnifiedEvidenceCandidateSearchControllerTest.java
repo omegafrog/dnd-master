@@ -47,7 +47,8 @@ class UnifiedEvidenceCandidateSearchControllerTest {
         HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
         when(hybrid.searchDenseOnly(any())).thenReturn(new EvidenceSearchResult(List.of(new EvidenceCandidate(
                 new KnowledgeDocumentId(documentId), new ChunkId(UUID.randomUUID()), 1, DocumentType.STORYBOOK,
-                "page:2", "A hidden passage", new SourceProvenance(2, List.of("Chapter 1"), List.of(), null, "page:2"),
+                "page:2", "A hidden passage", new SourceProvenance(2, List.of("Chapter 1"), List.of(), null, "page:2",
+                        List.of(new SourceProvenance.SourceSpan(2, 7, 40, 55, null, null, List.of(1d, 2d, 3d, 4d), "p2-table-0", "r1:c2"))),
                 1, 2, 0.032, 0.78))));
         MockMvc mockMvc = controllerWithInternalToken(registration(documentId, ProcessingStatus.INDEXED), hybrid);
 
@@ -59,6 +60,9 @@ class UnifiedEvidenceCandidateSearchControllerTest {
                 .andExpect(jsonPath("$.candidates[0].documentId").value(documentId.toString()))
                 .andExpect(jsonPath("$.candidates[0].locator").value("page:2"))
                 .andExpect(jsonPath("$.candidates[0].provenance.pageNumber").value(2))
+                .andExpect(jsonPath("$.candidates[0].provenance.sourceSpans[0].charStart").value(40))
+                .andExpect(jsonPath("$.candidates[0].provenance.sourceSpans[0].tableId").value("p2-table-0"))
+                .andExpect(jsonPath("$.candidates[0].provenance.sourceSpans[0].tableCell").value("r1:c2"))
                 .andExpect(jsonPath("$.candidates[0].bm25Rank").value(2))
                 .andExpect(jsonPath("$.candidates[0].rrfScore").value(0.032))
                 .andExpect(jsonPath("$.candidates[0].denseSimilarity").value(0.78));

@@ -25,7 +25,7 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
                             ELSE GREATEST(r.version, 1) END AS extraction_version,
                        c.original_locator AS locator, c.content, c.sequence,
                        COALESCE(c.parent_key, c.processor_chunk_id) AS parent_key,
-                       c.page_number, c.bbox, c.table_cell, c.section_path,
+                       c.page_number, c.bbox, c.table_cell, c.section_path, c.source_spans,
                        0.75 * (1 - (c.embedding <=> CAST(? AS vector)))
                            + 0.25 * ts_rank_cd(to_tsvector('simple', c.content), plainto_tsquery('simple', ?))
                            + CASE WHEN c.content ~* '(DC|saving|check|attack|damage|roll|recharge)' THEN 0.20 ELSE 0 END AS score
@@ -53,14 +53,14 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
                 SELECT DISTINCT ON (candidate.rulebook_id, candidate.locator)
                        candidate.rulebook_id, candidate.extraction_version, candidate.locator,
                        candidate.content, candidate.score, candidate.sequence, candidate.page_number,
-                       candidate.bbox, candidate.table_cell, candidate.section_path
+                       candidate.bbox, candidate.table_cell, candidate.section_path, candidate.source_spans
                   FROM ranked candidate
                    JOIN seeds seed ON seed.rulebook_id = candidate.rulebook_id
                                  AND seed.parent_key = candidate.parent_key
                                  AND candidate.sequence BETWEEN seed.sequence - 1 AND seed.sequence + 1
                  ORDER BY candidate.rulebook_id, candidate.locator, candidate.score DESC
             )
-                SELECT rulebook_id, extraction_version, locator, content, score, page_number, bbox, table_cell, section_path
+                SELECT rulebook_id, extraction_version, locator, content, score, page_number, bbox, table_cell, section_path, source_spans
               FROM deduplicated
              ORDER BY score DESC, sequence
              LIMIT ?
@@ -105,7 +105,8 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
                             rows.getString("content"),
                             Math.max(0d, rows.getDouble("score")),
                             new SourceProvenance(rows.getInt("page_number"), textArray(rows, "section_path"),
-                                    doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("locator"))));
+                                    doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("locator"),
+                                    SourceProvenance.sourceSpansFromJson(rows.getString("source_spans")))));
                 }
                 return List.copyOf(evidence);
             }

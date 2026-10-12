@@ -3,7 +3,11 @@ package com.dndmaster.ruleknowledge.application.definition;
 import com.dndmaster.ruleknowledge.application.search.AuthorizedDocumentScope;
 import com.dndmaster.ruleknowledge.application.search.DenseEvidenceCandidateSearchPort;
 import com.dndmaster.ruleknowledge.application.search.EvidenceCandidate;
+import com.dndmaster.ruleknowledge.application.search.EvidenceLocationLookupPort;
+import com.dndmaster.ruleknowledge.application.search.EvidenceSearchResult;
 import com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest;
+import com.dndmaster.ruleknowledge.application.search.HybridEvidenceSearchService;
+import com.dndmaster.ruleknowledge.application.search.RrfFusionPolicy;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
@@ -41,7 +45,8 @@ public final class RulebookActionDefinitionExtractionService {
             new Query("thrown-actions", "thrown weapons and thrown attack rules", CANDIDATES_PER_QUERY));
 
     private final RulebookActionDefinitionRepository repository;
-    private final DenseEvidenceCandidateSearchPort denseSearch;
+    private final HybridEvidenceSearchService evidenceSearch;
+    private final EvidenceLocationLookupPort locationLookup;
     private final RulebookActionDefinitionExtractionPort extractor;
     private final Double minimumDenseSimilarity;
     private final long targetedInputTokenLimit;
@@ -49,26 +54,46 @@ public final class RulebookActionDefinitionExtractionService {
 
     public RulebookActionDefinitionExtractionService(RulebookActionDefinitionRepository repository,
             DenseEvidenceCandidateSearchPort denseSearch, RulebookActionDefinitionExtractionPort extractor) {
-        this(repository, denseSearch, extractor, null, 128_000, 24_000);
+        this(repository, denseOnlySearch(denseSearch), (owner, scope, locators, limit) -> Map.of(),
+                extractor, null, 128_000, 24_000);
     }
 
     public RulebookActionDefinitionExtractionService(RulebookActionDefinitionRepository repository,
             DenseEvidenceCandidateSearchPort denseSearch, RulebookActionDefinitionExtractionPort extractor,
             Double minimumDenseSimilarity) {
-        this(repository, denseSearch, extractor, minimumDenseSimilarity, 128_000, 24_000);
+        this(repository, denseOnlySearch(denseSearch), (owner, scope, locators, limit) -> Map.of(),
+                extractor, minimumDenseSimilarity, 128_000, 24_000);
     }
 
     public RulebookActionDefinitionExtractionService(RulebookActionDefinitionRepository repository,
             DenseEvidenceCandidateSearchPort denseSearch, RulebookActionDefinitionExtractionPort extractor,
             Double minimumDenseSimilarity, long targetedInputTokenLimit) {
-        this(repository, denseSearch, extractor, minimumDenseSimilarity, targetedInputTokenLimit, 24_000);
+        this(repository, denseOnlySearch(denseSearch), (owner, scope, locators, limit) -> Map.of(), extractor,
+                minimumDenseSimilarity, targetedInputTokenLimit, 24_000);
     }
 
     public RulebookActionDefinitionExtractionService(RulebookActionDefinitionRepository repository,
             DenseEvidenceCandidateSearchPort denseSearch, RulebookActionDefinitionExtractionPort extractor,
             Double minimumDenseSimilarity, long targetedInputTokenLimit, long targetedExternalTokenReserve) {
+        this(repository, denseOnlySearch(denseSearch), (owner, scope, locators, limit) -> Map.of(), extractor,
+                minimumDenseSimilarity, targetedInputTokenLimit, targetedExternalTokenReserve);
+    }
+
+    public RulebookActionDefinitionExtractionService(RulebookActionDefinitionRepository repository,
+            DenseEvidenceCandidateSearchPort denseSearch, EvidenceLocationLookupPort locationLookup,
+            RulebookActionDefinitionExtractionPort extractor, Double minimumDenseSimilarity,
+            long targetedInputTokenLimit, long targetedExternalTokenReserve) {
+        this(repository, denseOnlySearch(denseSearch), locationLookup, extractor, minimumDenseSimilarity,
+                targetedInputTokenLimit, targetedExternalTokenReserve);
+    }
+
+    public RulebookActionDefinitionExtractionService(RulebookActionDefinitionRepository repository,
+            HybridEvidenceSearchService evidenceSearch, EvidenceLocationLookupPort locationLookup,
+            RulebookActionDefinitionExtractionPort extractor, Double minimumDenseSimilarity,
+            long targetedInputTokenLimit, long targetedExternalTokenReserve) {
         this.repository = Objects.requireNonNull(repository);
-        this.denseSearch = Objects.requireNonNull(denseSearch);
+        this.evidenceSearch = Objects.requireNonNull(evidenceSearch);
+        this.locationLookup = Objects.requireNonNull(locationLookup);
         this.extractor = Objects.requireNonNull(extractor);
         if (minimumDenseSimilarity != null && (!Double.isFinite(minimumDenseSimilarity)
                 || minimumDenseSimilarity < -1 || minimumDenseSimilarity > 1)) {
@@ -80,6 +105,11 @@ public final class RulebookActionDefinitionExtractionService {
             throw new IllegalArgumentException("targeted input token budget and reserve are invalid");
         this.targetedInputTokenLimit = targetedInputTokenLimit;
         this.targetedExternalTokenReserve = targetedExternalTokenReserve;
+    }
+
+    private static HybridEvidenceSearchService denseOnlySearch(DenseEvidenceCandidateSearchPort denseSearch) {
+        return new HybridEvidenceSearchService(Objects.requireNonNull(denseSearch), request -> List.of(),
+                new RrfFusionPolicy(), false);
     }
 
     public RulebookActionDefinitionExtraction extract(UUID documentId, String extractionVersion, long scopeVersion,
@@ -110,12 +140,18 @@ public final class RulebookActionDefinitionExtractionService {
                     List.of(new AuthorizedDocumentScope(new KnowledgeDocumentId(documentId), scopeVersion,
                             DocumentType.RULEBOOK, new OwnerPlayerId(CATALOG_OWNER))), List.of(), query.text(),
                     query.candidateLimit(), 0)).toList();
-            List<List<EvidenceCandidate>> results = denseSearch.searchBatch(requests);
+            log("dev_rulebook_action_extraction stage=dense_discovery_search_started expectedRequestCount={} searchBoundary=hybrid_dense_only bm25Enabled=false outcome=started",
+                    requests.size());
+            List<EvidenceSearchResult> searchResults = evidenceSearch.searchDenseBatch(requests);
+            List<List<EvidenceCandidate>> results = searchResults == null ? null
+                    : searchResults.stream().map(EvidenceSearchResult::candidates).toList();
             if (results == null || results.size() != requests.size()) {
                 log("dev_rulebook_action_extraction stage=query_result_validation expectedQueryCount={} actualQueryCount={} failureKind=query_count_mismatch recoveryAction=retry_dense_queries outcome=failed",
                         requests.size(), results == null ? -1 : results.size());
                 throw new IllegalStateException("dense RAG query result count mismatch");
             }
+            log("dev_rulebook_action_extraction stage=dense_discovery_search_completed expectedRequestCount={} actualRequestCount={} searchBoundary=hybrid_dense_only bm25Enabled=false outcome=completed",
+                    requests.size(), results.size());
             List<List<EvidenceCandidate>> candidatesByQuery = new ArrayList<>();
             for (int index = 0; index < results.size(); index++) {
                 Query query = QUERIES.get(index);
@@ -152,7 +188,7 @@ public final class RulebookActionDefinitionExtractionService {
             }
             collectedEvidenceCount = unique.size();
             List<RulebookActionEvidence> evidence = unique.values().stream().map(candidate -> new RulebookActionEvidence(
-                    candidate.chunkId().value().toString(), candidate.locator(), candidate.excerpt())).toList();
+                    candidate.chunkId().value().toString(), candidate.locator(), candidate.excerpt(), candidate.provenance().pageNumber())).toList();
             Set<String> discoveryIds = candidatesByQuery.subList(0, DISCOVERY_QUERY_COUNT).stream().flatMap(List::stream)
                     .map(candidate -> candidate.chunkId().value().toString()).collect(java.util.stream.Collectors.toSet());
             List<RulebookActionEvidence> discoveryEvidence = evidence.stream().filter(item -> discoveryIds.contains(item.id())).toList();
@@ -542,61 +578,60 @@ public final class RulebookActionDefinitionExtractionService {
             RulebookActionAssignment retry = new RulebookActionAssignment(original.candidate(), ownEvidenceIds,
                     fingerprint(query), 0, known == null ? Map.of() : known.fields(), missing,
                     followupRules);
-            EvidenceSearchRequest request = new EvidenceSearchRequest(new OwnerPlayerId(CATALOG_OWNER), null, null,
-                    "rulebook-action-needed-fields", "action:" + original.candidate().id(),
-                    List.of(new AuthorizedDocumentScope(new KnowledgeDocumentId(documentId), scopeVersion,
-                            DocumentType.RULEBOOK, new OwnerPlayerId(CATALOG_OWNER))), List.of(), query,
-                    TARGETED_CANDIDATES_PER_QUERY, 0, ownEvidenceIds.stream().map(UUID::fromString).toList(), minimumDenseSimilarity);
-            pendingFollowups.add(new TargetedFollowup(retry, known, List.copyOf(missing), request, lookupStarted));
-            log("dev_rulebook_action_extraction stage=targeted_lookup_started documentId={} actionId={} requestedFields={} seenEvidenceCount={} candidateLimit={} minimumDenseSimilarity={} queryFingerprint={} outcome=started",
-                    documentId, original.candidate().id(), missing, ownEvidenceIds.size(), TARGETED_CANDIDATES_PER_QUERY,
-                    minimumDenseSimilarity, fingerprint(query));
+            String sourceLocator = original.candidate().sourceLocator();
+            pendingFollowups.add(new TargetedFollowup(retry, known, List.copyOf(missing), sourceLocator, lookupStarted));
+            log("dev_rulebook_action_extraction stage=targeted_lookup_started documentId={} actionId={} requestedFields={} seenEvidenceCount={} sourceLocatorFingerprint={} candidateLimit={} lookupKind=exact_locator outcome=started",
+                    documentId, original.candidate().id(), missing, ownEvidenceIds.size(), fingerprint(sourceLocator), TARGETED_CANDIDATES_PER_QUERY);
         }
         List<TargetedFollowup> readyFollowups = new ArrayList<>();
         for (int start = 0; start < pendingFollowups.size(); start += TARGETED_SEARCH_BATCH_SIZE) {
             List<TargetedFollowup> searchBatch = pendingFollowups.subList(start,
                     Math.min(start + TARGETED_SEARCH_BATCH_SIZE, pendingFollowups.size()));
-            List<EvidenceSearchRequest> requests = searchBatch.stream().map(TargetedFollowup::request).toList();
+            List<String> locators = searchBatch.stream().map(TargetedFollowup::sourceLocator).distinct().toList();
             long searchStarted = System.nanoTime();
-            log("dev_rulebook_action_extraction stage=targeted_lookup_batch_started documentId={} expectedActionIds={} expectedRequestCount={} outcome=started",
-                    documentId, searchBatch.stream().map(item -> item.assignment().candidate().id()).toList(), requests.size());
-            List<List<EvidenceCandidate>> results;
+            int candidateLimit = TARGETED_CANDIDATES_PER_QUERY;
+            log("dev_rulebook_action_extraction stage=targeted_lookup_batch_started documentId={} expectedActionIds={} expectedLocatorCount={} lookupKind=exact_locator outcome=started",
+                    documentId, searchBatch.stream().map(item -> item.assignment().candidate().id()).toList(), locators.size());
+            Map<String, List<EvidenceCandidate>> results;
             try {
-                results = denseSearch.searchBatch(requests);
+                results = locationLookup.findByLocators(new OwnerPlayerId(CATALOG_OWNER),
+                        List.of(new AuthorizedDocumentScope(new KnowledgeDocumentId(documentId), scopeVersion,
+                                DocumentType.RULEBOOK, new OwnerPlayerId(CATALOG_OWNER))), locators, candidateLimit);
             } catch (RuntimeException failure) {
-                log("dev_rulebook_action_extraction stage=targeted_lookup_batch_failed documentId={} actionIds={} expectedRequestCount={} failureClass={} elapsedMs={} recoveryAction=retry_targeted_search_batch outcome=failed",
-                        documentId, searchBatch.stream().map(item -> item.assignment().candidate().id()).toList(), requests.size(),
+                log("dev_rulebook_action_extraction stage=targeted_lookup_batch_failed documentId={} actionIds={} expectedLocatorCount={} failureClass={} elapsedMs={} recoveryAction=propagate_exact_lookup_failure outcome=failed",
+                        documentId, searchBatch.stream().map(item -> item.assignment().candidate().id()).toList(), locators.size(),
                         failure.getClass().getSimpleName(), (System.nanoTime() - searchStarted) / 1_000_000);
                 throw failure;
             }
-            if (results == null || results.size() != requests.size()) {
-                log("dev_rulebook_action_extraction stage=targeted_lookup_batch_validation expectedActionIds={} expectedResultCount={} actualResultCount={} failureKind=result_count_mismatch recoveryAction=reject_search_batch outcome=failed",
-                        searchBatch.stream().map(item -> item.assignment().candidate().id()).toList(), requests.size(), results == null ? -1 : results.size());
-                throw new IllegalStateException("targeted dense RAG batch result count mismatch");
+            if (results == null || !results.keySet().equals(Set.copyOf(locators))
+                    || results.values().stream().anyMatch(excerpts -> excerpts == null || excerpts.size() > candidateLimit
+                            || excerpts.stream().anyMatch(Objects::isNull))) {
+                log("dev_rulebook_action_extraction stage=targeted_lookup_result_validation expectedLocatorCount={} actualLocatorCount={} expectedCandidateCountPerLocator=0..{} actualCandidateCounts={} failureKind=lookup_shape_mismatch recoveryAction=reject_page_lookup_result outcome=failed",
+                        locators.size(), results == null ? -1 : results.size(), candidateLimit,
+                        results == null ? Map.of() : results.entrySet().stream().collect(java.util.stream.Collectors.toMap(
+                                Map.Entry::getKey, entry -> entry.getValue() == null ? -1 : entry.getValue().size())));
+                throw new IllegalStateException("source page lookup returned an invalid result shape");
             }
-            for (int index = 0; index < results.size(); index++) {
-                TargetedFollowup task = searchBatch.get(index);
-                List<EvidenceCandidate> found = results.get(index);
-                if (found == null || found.size() > TARGETED_CANDIDATES_PER_QUERY) {
-                    log("dev_rulebook_action_extraction stage=targeted_lookup_result_validation actionId={} expectedCandidateCount=0..{} actualCandidateCount={} failureKind=candidate_count_out_of_bounds recoveryAction=reject_search_result outcome=failed",
-                            task.assignment().candidate().id(), TARGETED_CANDIDATES_PER_QUERY, found == null ? -1 : found.size());
-                    throw new IllegalStateException("targeted dense RAG query returned an invalid result count");
-                }
+            for (TargetedFollowup task : searchBatch) {
+                List<EvidenceCandidate> found = results.get(task.sourceLocator());
                 List<String> ownIds = task.assignment().evidenceIds();
+                RulebookActionEvidence sourceEvidence = evidenceById.get(task.assignment().candidate().sourceChunkId());
+                if (sourceEvidence == null) throw new IllegalStateException("action source evidence is missing from its assignment");
                 LinkedHashMap<String, RulebookActionEvidence> added = new LinkedHashMap<>();
                 for (EvidenceCandidate match : found) {
                     if (!match.documentId().value().equals(documentId) || match.extractionVersion() != scopeVersion
-                            || match.documentType() != DocumentType.RULEBOOK) {
-                        log("dev_rulebook_action_extraction stage=targeted_source_scope_validation actionId={} expectedDocumentId={} expectedScopeVersion={} expectedDocumentType=RULEBOOK actualDocumentId={} actualScopeVersion={} actualDocumentType={} failureKind=candidate_outside_published_scope recoveryAction=reject_search_result outcome=failed",
-                                task.assignment().candidate().id(), documentId, scopeVersion, match.documentId().value(),
-                                match.extractionVersion(), match.documentType());
-                        throw new IllegalStateException("targeted dense RAG returned evidence outside the published source scope");
+                            || match.documentType() != DocumentType.RULEBOOK
+                            || !match.locator().equals(task.sourceLocator())
+                            || match.provenance().pageNumber() != sourceEvidence.pageNumber()) {
+                        log("dev_rulebook_action_extraction stage=targeted_source_scope_validation actionId={} expectedDocumentId={} expectedScopeVersion={} expectedDocumentType=RULEBOOK expectedPageNumber={} expectedLocatorFingerprint={} actualDocumentId={} actualScopeVersion={} actualDocumentType={} actualPageNumber={} actualLocatorFingerprint={} failureKind=candidate_outside_source_locator_or_page recoveryAction=reject_page_lookup_result outcome=failed",
+                                task.assignment().candidate().id(), documentId, scopeVersion, sourceEvidence.pageNumber(), fingerprint(task.sourceLocator()),
+                                match.documentId().value(), match.extractionVersion(), match.documentType(),
+                                match.provenance().pageNumber(), fingerprint(match.locator()));
+                        throw new IllegalStateException("source page lookup returned evidence outside the requested source locator or page");
                     }
-                    if (minimumDenseSimilarity != null && match.denseSimilarity() != null
-                            && match.denseSimilarity() < minimumDenseSimilarity) continue;
                     String id = match.chunkId().value().toString();
                     if (ownIds.contains(id)) continue;
-                    RulebookActionEvidence evidence = new RulebookActionEvidence(id, match.locator(), match.excerpt());
+                    RulebookActionEvidence evidence = new RulebookActionEvidence(id, match.locator(), match.excerpt(), match.provenance().pageNumber());
                     RulebookActionEvidence previous = evidenceById.putIfAbsent(id, evidence);
                     if (previous != null && (!previous.locator().equals(evidence.locator()) || !previous.text().equals(evidence.text()))) {
                         log("dev_rulebook_action_extraction stage=targeted_evidence_id_conflict actionId={} evidenceId={} expectedTextLength={} actualTextLength={} expectedLocatorFingerprint={} actualLocatorFingerprint={} failureKind=conflicting_chunk_identity recoveryAction=reject_search_result outcome=failed",
@@ -606,9 +641,9 @@ public final class RulebookActionDefinitionExtractionService {
                     }
                     added.putIfAbsent(id, previous == null ? evidence : previous);
                 }
-                log("dev_rulebook_action_extraction stage=targeted_lookup_candidates documentId={} actionId={} expectedCandidateCount=0..{} actualCandidateCount={} actualNewEvidenceCount={} addedEvidenceIds={} returnedChars={} minimumDenseSimilarity={} elapsedMs={} outcome={}",
-                        documentId, task.assignment().candidate().id(), TARGETED_CANDIDATES_PER_QUERY, found.size(), added.size(),
-                        added.keySet(), added.values().stream().mapToInt(item -> item.text().length()).sum(), minimumDenseSimilarity,
+                log("dev_rulebook_action_extraction stage=targeted_lookup_candidates documentId={} actionId={} sourceLocatorFingerprint={} expectedCandidateCount=0..{} actualCandidateCount={} actualNewEvidenceCount={} addedEvidenceIds={} returnedChars={} lookupKind=exact_locator elapsedMs={} outcome={}",
+                        documentId, task.assignment().candidate().id(), fingerprint(task.sourceLocator()), TARGETED_CANDIDATES_PER_QUERY,
+                        found.size(), added.size(), added.keySet(), added.values().stream().mapToInt(item -> item.text().length()).sum(),
                         (System.nanoTime() - task.lookupStarted()) / 1_000_000, added.isEmpty() ? "partial" : "completed");
                 if (added.isEmpty()) continue;
                 List<String> ids = new ArrayList<>(ownIds);
@@ -618,11 +653,12 @@ public final class RulebookActionDefinitionExtractionService {
                         task.assignment().queryFingerprint(), found.size(), task.known() == null ? Map.of() : task.known().fields(),
                         task.requestedFields(), task.assignment().availableSharedRules());
                 List<RulebookActionEvidence> combined = ids.stream().map(evidenceById::get).toList();
-                readyFollowups.add(new TargetedFollowup(retry, task.known(), task.requestedFields(), task.request(),
+                readyFollowups.add(new TargetedFollowup(retry, task.known(), task.requestedFields(), task.sourceLocator(),
                         combined, added.size(), task.lookupStarted()));
             }
-            log("dev_rulebook_action_extraction stage=targeted_lookup_batch_completed documentId={} expectedRequestCount={} actualResultCount={} actionIds={} collectedEvidenceCount={} elapsedMs={} outcome=completed",
-                    documentId, requests.size(), results.size(), searchBatch.stream().map(item -> item.assignment().candidate().id()).toList(),
+            log("dev_rulebook_action_extraction stage=targeted_lookup_batch_completed documentId={} expectedLocatorCount={} actualLocatorCount={} actualCandidateCount={} actionIds={} collectedEvidenceCount={} elapsedMs={} outcome=completed",
+                    documentId, locators.size(), results.size(), results.values().stream().mapToInt(List::size).sum(),
+                    searchBatch.stream().map(item -> item.assignment().candidate().id()).toList(),
                     readyFollowups.size(), (System.nanoTime() - searchStarted) / 1_000_000);
         }
         for (List<TargetedFollowup> batch : targetedFollowupBatches(readyFollowups, documentId, extractionVersion, actor)) {
@@ -887,11 +923,11 @@ public final class RulebookActionDefinitionExtractionService {
 
     private record Query(String id, String text, int candidateLimit) { }
     private record TargetedFollowup(RulebookActionAssignment assignment, RulebookActionDefinition known,
-            List<String> requestedFields, EvidenceSearchRequest request, List<RulebookActionEvidence> evidence,
+            List<String> requestedFields, String sourceLocator, List<RulebookActionEvidence> evidence,
             int addedEvidenceCount, long lookupStarted) {
         private TargetedFollowup(RulebookActionAssignment assignment, RulebookActionDefinition known,
-                List<String> requestedFields, EvidenceSearchRequest request, long lookupStarted) {
-            this(assignment, known, requestedFields, request, List.of(), 0, lookupStarted);
+                List<String> requestedFields, String sourceLocator, long lookupStarted) {
+            this(assignment, known, requestedFields, sourceLocator, List.of(), 0, lookupStarted);
         }
     }
     private record AssignmentEvidenceMetrics(int evidenceCount, int inputChars, int sharedEvidenceCount, int sharedInputChars,

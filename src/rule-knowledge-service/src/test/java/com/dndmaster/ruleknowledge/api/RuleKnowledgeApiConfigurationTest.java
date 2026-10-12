@@ -10,6 +10,7 @@ import com.dndmaster.ruleknowledge.application.ocr.OcrResult;
 import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
 import com.dndmaster.ruleknowledge.application.search.HybridEvidenceSearchService;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLDenseEvidenceCandidateSearchAdapter;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLEvidenceLocationLookupAdapter;
 import com.dndmaster.ruleknowledge.domain.rulebook.BoundingBox;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 import java.awt.image.BufferedImage;
@@ -28,8 +29,10 @@ class RuleKnowledgeApiConfigurationTest {
         DataSource dataSource = mock(DataSource.class);
         var dense = configuration.denseEvidenceCandidateSearchPort(dataSource, embeddings, "mock-embedding", 3);
         var bm25 = configuration.bm25EvidenceCandidateSearchPort(dataSource);
+        var exact = configuration.evidenceLocationLookupPort(dataSource);
 
         assertEquals(PostgreSQLDenseEvidenceCandidateSearchAdapter.class, dense.getClass());
+        assertEquals(PostgreSQLEvidenceLocationLookupAdapter.class, exact.getClass());
         assertEquals(HybridEvidenceSearchService.class,
                 configuration.hybridEvidenceSearchService(dense, bm25, true).getClass());
     }

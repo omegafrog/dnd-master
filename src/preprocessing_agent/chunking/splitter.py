@@ -156,5 +156,6 @@ class ChunkSplitter:
             page_number=span.page_number, block_index=span.block_index,
             char_start=span.char_start + start - segment_start,
             char_end=span.char_start + end - segment_start,
-            token_start=span.token_start, token_end=span.token_end,
+            token_start=span.token_start, token_end=span.token_end, bbox=span.bbox,
+            table_id=span.table_id, table_cell=span.table_cell,
         )

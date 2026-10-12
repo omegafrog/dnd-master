@@ -20,6 +20,7 @@ import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEviden
 import com.dndmaster.ruleknowledge.application.search.QueryIntent;
 import com.dndmaster.ruleknowledge.application.search.AuthorizedDocumentScope;
 import com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest;
+import com.dndmaster.ruleknowledge.application.search.EvidenceCandidate;
 import com.dndmaster.ruleknowledge.application.publication.EmbeddedPublishedRagChunk;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPage;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRequest;
@@ -31,6 +32,7 @@ import com.dndmaster.ruleknowledge.infrastructure.persistence.RuleVectorPersiste
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLBm25EvidenceCandidateSearchAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLDenseEvidenceCandidateSearchAdapter;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLEvidenceLocationLookupAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
 import com.dndmaster.ruleknowledge.application.indexing.ChunkEmbedding;
 import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
@@ -118,6 +120,9 @@ class RulebookPgvectorIntegrationTest {
         assertEquals(1, publishedEvidence.provenance().pageNumber());
         assertEquals(List.of("Chapter", "version-1"), publishedEvidence.provenance().sectionPath());
         assertEquals("r1:c1", publishedEvidence.provenance().tableCell());
+        assertEquals(1, publishedEvidence.provenance().sourceSpans().size());
+        assertEquals(42, publishedEvidence.provenance().sourceSpans().getFirst().charStart());
+        assertEquals("p1-table-0", publishedEvidence.provenance().sourceSpans().getFirst().tableId());
 
         RagExtractionPublicationRequest second = publicationRequest(documentId, owner, "version-2", 2);
         publicationRepository.beginCandidate(second);
@@ -541,7 +546,9 @@ class RulebookPgvectorIntegrationTest {
                 List.of(new RagExtractionPage(pageNumber, "VALIDATED", 1, List.of())),
                 List.of(new PublishedRagChunk(
                         processorChunkId, 0, "published content", "published content",
-                        new SourceProvenance(pageNumber, List.of("Chapter", version), List.of(1d, 2d, 3d, 4d), "r1:c1", "page=" + pageNumber))),
+                        new SourceProvenance(pageNumber, List.of("Chapter", version), List.of(1d, 2d, 3d, 4d), "r1:c1", "page=" + pageNumber,
+                                List.of(new SourceProvenance.SourceSpan(pageNumber, 2, 42, 58, null, null,
+                                        List.of(1d, 2d, 3d, 4d), "p" + pageNumber + "-table-0", "r1:c1"))))),
                 "mock-embedding");
     }
 
@@ -551,7 +558,7 @@ class RulebookPgvectorIntegrationTest {
         PublishedRagChunk withPage = new PublishedRagChunk(
                 source.processorChunkId(), source.sequence(), source.content(), source.embeddingText(),
                 new SourceProvenance(pageNumber, source.provenance().sectionPath(), source.provenance().bbox(),
-                        source.provenance().tableCell(), source.provenance().originalLocator()));
+                        source.provenance().tableCell(), source.provenance().originalLocator(), source.provenance().sourceSpans()));
         return new EmbeddedPublishedRagChunk(withPage, new float[] {1, 0, 0});
     }
 
@@ -670,6 +677,37 @@ class RulebookPgvectorIntegrationTest {
 
         assertEquals(List.of("page=1:chunk=target", "page=1:chunk=before"),
                 hits.stream().map(item -> item.sourceSpanLocator()).toList());
+    }
+
+    @Test
+    void exactSourceLocatorRetrievesOnlyNeighborChunksFromItsPublishedPage() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+        String sourceLocator = "page=1:chunk=action-anchor";
+        RagExtractionPublicationRequest request = new RagExtractionPublicationRequest(
+                documentId, owner, "operation-source-page", "source-page-version", "a".repeat(64), "policy-1", "b".repeat(64),
+                List.of(new RagExtractionPage(1, "VALIDATED", 2, List.of()),
+                        new RagExtractionPage(2, "VALIDATED", 1, List.of())),
+                List.of(
+                        new PublishedRagChunk("action-anchor", 0, "Action list entry", "Action list entry",
+                                new SourceProvenance(1, List.of("Actions"), List.of(), null, sourceLocator)),
+                        new PublishedRagChunk("page-one-neighbor", 1, "Nearby action detail", "Nearby action detail",
+                                new SourceProvenance(1, List.of("Actions"), List.of(), null, "page=1:chunk=page-one-neighbor")),
+                        new PublishedRagChunk("page-two-unrelated", 2, "Different page detail", "Different page detail",
+                                new SourceProvenance(2, List.of("Actions"), List.of(), null, "page=2:chunk=page-two-unrelated"))),
+                "mock-embedding");
+        publicationRepository.beginCandidate(request);
+        publicationRepository.publish(request, request.chunks().stream()
+                .map(chunk -> new EmbeddedPublishedRagChunk(chunk, new float[] {1, 0, 0})).toList());
+
+        var results = new PostgreSQLEvidenceLocationLookupAdapter(dataSource).findByLocators(owner,
+                List.of(new AuthorizedDocumentScope(KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK)),
+                List.of(sourceLocator), 64);
+
+        assertEquals(List.of("page=1:chunk=action-anchor", "page=1:chunk=page-one-neighbor"),
+                results.get(sourceLocator).stream().map(EvidenceCandidate::locator).toList());
+        assertEquals(List.of(1, 1), results.get(sourceLocator).stream().map(candidate -> candidate.provenance().pageNumber()).toList());
     }
 
     private static PublishedRagChunk publishedChunk(String id, int sequence, String content, String parentKey) {

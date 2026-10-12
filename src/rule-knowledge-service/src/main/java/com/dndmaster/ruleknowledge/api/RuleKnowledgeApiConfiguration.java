@@ -177,14 +177,15 @@ public class RuleKnowledgeApiConfiguration {
     @Bean
     com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionService rulebookActionDefinitionExtractionService(
             com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionRepository repository,
-            DenseEvidenceCandidateSearchPort denseSearch,
+            HybridEvidenceSearchService evidenceSearch,
+            com.dndmaster.ruleknowledge.application.search.EvidenceLocationLookupPort locationLookup,
             com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionPort extractor,
             @Value("${rule-knowledge.action-extraction.minimum-dense-similarity:0.45}") String minimumDenseSimilarity,
             @Value("${rule-knowledge.action-extraction.targeted-input-token-limit:128000}") long targetedInputTokenLimit,
             @Value("${rule-knowledge.action-extraction.targeted-external-token-reserve:24000}") long targetedExternalTokenReserve) {
         Double threshold = minimumDenseSimilarity.isBlank() ? null : Double.valueOf(minimumDenseSimilarity);
         return new com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionService(
-                repository, denseSearch, extractor, threshold, targetedInputTokenLimit, targetedExternalTokenReserve);
+                repository, evidenceSearch, locationLookup, extractor, threshold, targetedInputTokenLimit, targetedExternalTokenReserve);
     }
 
     @Bean
@@ -206,6 +207,11 @@ public class RuleKnowledgeApiConfiguration {
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
         return new PostgreSQLDenseEvidenceCandidateSearchAdapter(
                 dataSource, embeddingPort, embeddingModel, embeddingDimension);
+    }
+
+    @Bean
+    com.dndmaster.ruleknowledge.application.search.EvidenceLocationLookupPort evidenceLocationLookupPort(DataSource dataSource) {
+        return new com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLEvidenceLocationLookupAdapter(dataSource);
     }
 
     @Bean

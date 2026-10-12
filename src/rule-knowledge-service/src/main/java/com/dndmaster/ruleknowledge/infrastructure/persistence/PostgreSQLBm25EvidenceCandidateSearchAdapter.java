@@ -67,7 +67,8 @@ public final class PostgreSQLBm25EvidenceCandidateSearchAdapter implements Bm25E
                             rows.getString("original_locator"),
                             rows.getString("content"),
                             new SourceProvenance(rows.getInt("page_number"), textArray(rows, "section_path"),
-                                    doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("original_locator")),
+                                    doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("original_locator"),
+                                    SourceProvenance.sourceSpansFromJson(rows.getString("source_spans"))),
                             null, rank++, 0d));
                 }
                 return List.copyOf(candidates);
@@ -124,7 +125,7 @@ public final class PostgreSQLBm25EvidenceCandidateSearchAdapter implements Bm25E
                 SELECT chunk.document_id, chunk.chunk_id,
                        chunk.numeric_extraction_version AS extraction_version, chunk.document_type,
                        chunk.original_locator, chunk.content, chunk.page_number, chunk.section_path,
-                       chunk.bbox, chunk.table_cell
+                       chunk.bbox, chunk.table_cell, chunk.source_spans
                   FROM scoped_chunks chunk
                   JOIN scored ON scored.chunk_id = chunk.chunk_id
                  ORDER BY CASE WHEN chunk.original_locator = ANY (?) THEN 0 ELSE 1 END,

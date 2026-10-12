@@ -45,6 +45,21 @@ def test_semantic_split_keeps_only_page_local_spans_covering_piece():
     assert all(span.block_index == 1 for span in medium.source_spans)
 
 
+def test_semantic_split_retains_source_geometry_and_table_cell_identity():
+    text = "Name\n\nValue"
+    span = SourceSpan(2, 4, 10, 14, bbox=(1, 2, 3, 4), table_id="p2-table-0", table_cell="r1:c0")
+    candidate_value = ChunkCandidate(
+        "c", "rule.table", ContentType.RULE, text, (span,),
+        source_segments=(SourceSegment("Name", span), SourceSegment("Value", span)),
+    )
+
+    pieces = ChunkSplitter(ChunkPolicy(target_tokens=1, max_tokens=1, min_tokens=1, overlap_tokens=0)).split(candidate_value)
+
+    assert pieces[0].source_spans[0].bbox == (1, 2, 3, 4)
+    assert pieces[0].source_spans[0].table_id == "p2-table-0"
+    assert pieces[0].source_spans[0].table_cell == "r1:c0"
+
+
 def test_atomic_split_does_not_inherit_unrelated_source_spans():
     text = "one two three\n\nfour five six"
     spans = (SourceSpan(47, 0, 10, 23), SourceSpan(47, 1, 24, 37))

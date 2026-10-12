@@ -1,5 +1,7 @@
-from preprocessing_agent.chunking import ChunkPlanner
+from preprocessing_agent.chunking import ChunkAssembler, ChunkPlanner, ChunkPolicy, ChunkSplitter
 from preprocessing_agent.domain import ContentType, ParsedBlock, ParsedDocument, ParsedPage, SectionNode, SourceSpan, DocumentTree
+from preprocessing_agent.domain.layout import BoundingBox
+from preprocessing_agent.structure import TableCell, TableRow, TableStructure
 
 
 def test_planner_creates_semantic_candidates_before_token_splitting():
@@ -46,3 +48,56 @@ def test_planner_bounds_long_canonical_keys_with_stable_semantic_suffix():
     assert key.startswith("chapter_very_long_semantic_heading")
     assert key.endswith("_" + __import__("hashlib").sha256(("chapter_" + "very_long_semantic_heading_" * 30).strip("_").encode()).hexdigest()[:12])
     assert ".p0001.b0000" in key
+
+
+def test_planner_preserves_table_row_and_column_relationships(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    blocks = tuple(ParsedBlock(f"b{i}", text, SourceSpan(1, i)) for i, text in enumerate(("Name", "Value", "Dex", "12")))
+    cells = tuple(TableCell(f"b{i}", i // 2, i % 2, block.source_text, BoundingBox(i % 2 * 20, i // 2 * 20, i % 2 * 20 + 10, i // 2 * 20 + 10), source_block_ids=(block.block_id,)) for i, block in enumerate(blocks))
+    header = TableRow(0, cells[:2], True)
+    data = TableRow(1, cells[2:])
+    table = TableStructure("t1", BoundingBox(0, 0, 40, 40), (header,), (data,), cells)
+    page = ParsedPage(1, blocks, "Name\nValue\nDex\n12", tables=(table,))
+    section = SectionNode("s1", "Attributes", 1, ContentType.RULE, block_ids=tuple(block.block_id for block in blocks))
+
+    candidates = ChunkPlanner().plan(DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.NARRATIVE, children=(section,))), ParsedDocument("doc", "rules.pdf", page.source_text, (page,)))
+
+    assert len(candidates) == 1
+    assert candidates[0].source_text == "Name | Value\nDex | 12"
+    assert candidates[0].source_spans == tuple(block.source_span for block in blocks)
+    chunk = ChunkAssembler(ChunkSplitter(ChunkPolicy())).assemble(candidates)[0]
+    assert chunk.source_text == "Name | Value\nDex | 12"
+    assert chunk.source_spans == candidates[0].source_spans
+    assert "dev_chunk_planner stage=complete documentId=doc" in caplog.text
+    assert "tableCount=1 candidateCount=1" in caplog.text
+
+
+def test_table_intersecting_multiple_sections_is_emitted_once():
+    blocks = (ParsedBlock("b1", "Name", SourceSpan(1, 0)), ParsedBlock("b2", "Value", SourceSpan(1, 1)))
+    cells = tuple(TableCell(block.block_id, 0, index, block.source_text, BoundingBox(index * 20, 0, index * 20 + 10, 10), source_block_ids=(block.block_id,)) for index, block in enumerate(blocks))
+    table = TableStructure("t1", BoundingBox(0, 0, 40, 10), (TableRow(0, cells, True),), (), cells)
+    page = ParsedPage(1, blocks, "Name\nValue", tables=(table,))
+    sections = tuple(SectionNode(f"s{index}", f"Section {index}", 1, ContentType.RULE, block_ids=(block.block_id,)) for index, block in enumerate(blocks))
+
+    candidates = ChunkPlanner().plan(DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.NARRATIVE, children=sections)), ParsedDocument("doc", "rules.pdf", page.source_text, (page,)))
+
+    assert len(candidates) == 1
+    assert candidates[0].content_type is ContentType.TABLE
+    assert candidates[0].source_text == "Name | Value"
+
+
+def test_planner_logs_table_skip_when_source_spans_are_missing(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    cell = TableCell("missing", 0, 0, "Name", BoundingBox(0, 0, 10, 10), source_block_ids=("missing",))
+    table = TableStructure("t-missing", BoundingBox(0, 0, 10, 10), (TableRow(0, (cell,), True),), (), (cell,))
+    page = ParsedPage(1, (), "", tables=(table,))
+    section = SectionNode("s1", "Attributes", 1, ContentType.RULE, block_ids=("missing",))
+
+    candidates = ChunkPlanner().plan(DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.NARRATIVE, children=(section,))), ParsedDocument("doc", "rules.pdf", "", (page,)))
+
+    assert candidates == ()
+    assert "stage=skip_table documentId=doc pageNumber=1 tableId=t-missing" in caplog.text
+    assert "expectedCellCount=1 actualSerializedCellCount=1 actualSourceSpanCount=0" in caplog.text
+    assert "skipReason=no_source_spans recoveryAction=skip_table outcome=skipped" in caplog.text

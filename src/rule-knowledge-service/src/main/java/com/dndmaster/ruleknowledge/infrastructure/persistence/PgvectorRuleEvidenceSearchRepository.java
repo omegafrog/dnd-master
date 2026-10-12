@@ -25,7 +25,7 @@ public final class PgvectorRuleEvidenceSearchRepository implements RuleEvidenceS
                    c.embedding <=> CAST(? AS vector) AS distance,
                    array_to_string(c.section_path, ' / ') AS section,
                    CASE WHEN cardinality(c.section_path) > 0 THEN c.section_path[1] ELSE NULL END AS chapter,
-                   c.page_number, c.bbox, c.table_cell, c.section_path
+                   c.page_number, c.bbox, c.table_cell, c.section_path, c.source_spans
               FROM published_rag_chunk c
               JOIN rulebook_registration r
                 ON r.rulebook_id = c.document_id
@@ -89,7 +89,8 @@ public final class PgvectorRuleEvidenceSearchRepository implements RuleEvidenceS
                             rows.getString("chapter"),
                             rows.getString("section"),
                             new SourceProvenance(rows.getInt("page_number"), textArray(rows, "section_path"),
-                                    doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("locator"))));
+                                    doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("locator"),
+                                    SourceProvenance.sourceSpansFromJson(rows.getString("source_spans")))));
                 }
                 return List.copyOf(hits);
             }

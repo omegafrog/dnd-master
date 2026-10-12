@@ -257,7 +257,7 @@ class HttpRulebookActionDefinitionExtractorTest {
         return new HttpRulebookActionDefinitionExtractor(URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
                 "internal-token", null, "ollama", "exaone3.5:7.8b", "medium", Duration.ofSeconds(5), new ObjectMapper());
     }
-    private static List<RulebookActionEvidence> evidence() { return List.of(new RulebookActionEvidence(EVIDENCE.toString(), "page=1:section=Spells", QUOTE)); }
+    private static List<RulebookActionEvidence> evidence() { return List.of(new RulebookActionEvidence(EVIDENCE.toString(), "page=1:section=Spells", QUOTE, 1)); }
     private static String anchorId() { return "0"; }
     private static List<RulebookActionQueryCoverage> coverage() { return List.of(new RulebookActionQueryCoverage("spells", "abc123", 1)); }
 

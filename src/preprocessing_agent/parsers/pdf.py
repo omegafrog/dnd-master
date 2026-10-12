@@ -71,12 +71,18 @@ class PdfDocumentParser:
                 # Sort only when the extractor explicitly supplies reading order;
                 # otherwise its block order is authoritative and deterministic.
                 block_id = str(raw_block["block_id"])
-                span = SourceSpan(page_number, block_position, char_cursor, char_cursor + len(text))
+                table_id = str(raw_block["table_id"]) if raw_block.get("table_id") else None
+                row = raw_block.get("row")
+                column = raw_block.get("column")
+                table_cell = f"r{row}:c{column}" if table_id and row is not None and column is not None else None
+                bbox = _bbox(raw_block.get("bbox"))
+                span = SourceSpan(page_number, block_position, char_cursor, char_cursor + len(text),
+                                  bbox=bbox, table_id=table_id, table_cell=table_cell)
                 block = ParsedBlock(
                     block_id=block_id,
                     source_text=text,
                     source_span=span,
-                    bbox=_bbox(raw_block.get("bbox")),
+                    bbox=bbox,
                     font_size=_number(raw_block.get("font_size", raw_block.get("size"))),
                     font_weight=_font_weight(raw_block),
                     extraction_method=str(raw_block.get("extraction_method", "native")),

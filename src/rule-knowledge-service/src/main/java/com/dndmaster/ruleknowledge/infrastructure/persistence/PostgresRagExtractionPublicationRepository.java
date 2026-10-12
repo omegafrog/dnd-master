@@ -5,6 +5,7 @@ import com.dndmaster.ruleknowledge.application.publication.ExtractionPublication
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPage;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRepository;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRequest;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -21,6 +22,7 @@ import javax.sql.DataSource;
 /** PostgreSQL boundary for immutable extraction candidates and their public pointer. */
 public final class PostgresRagExtractionPublicationRepository implements RagExtractionPublicationRepository {
     private static final Pattern BM25_TOKEN = Pattern.compile("[\\p{L}\\p{N}_]+");
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final String INSERT_VERSION = """
             INSERT INTO rag_extraction_version
                 (document_id, extraction_version, owner_player_id, operation_id, source_hash,
@@ -56,15 +58,15 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
             INSERT INTO published_rag_chunk
                 (document_id, owner_player_id, extraction_version, processor_chunk_id, chunk_id,
                  sequence, content, embedding_text, embedding, embedding_model, embedding_dimension,
-                 section_path, page_number, bbox, table_cell, original_locator, parent_key, document_length)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 section_path, page_number, bbox, table_cell, original_locator, source_spans, parent_key, document_length)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?)
             ON CONFLICT (document_id, extraction_version, processor_chunk_id) DO UPDATE SET
                 chunk_id = EXCLUDED.chunk_id, sequence = EXCLUDED.sequence, content = EXCLUDED.content,
                 embedding_text = EXCLUDED.embedding_text, embedding = EXCLUDED.embedding,
                 embedding_model = EXCLUDED.embedding_model, embedding_dimension = EXCLUDED.embedding_dimension,
                 section_path = EXCLUDED.section_path, page_number = EXCLUDED.page_number,
                 bbox = EXCLUDED.bbox, table_cell = EXCLUDED.table_cell,
-                original_locator = EXCLUDED.original_locator, parent_key = EXCLUDED.parent_key,
+                original_locator = EXCLUDED.original_locator, source_spans = EXCLUDED.source_spans, parent_key = EXCLUDED.parent_key,
                 document_length = EXCLUDED.document_length
             """;
     private static final String DELETE_TERM_FREQUENCIES = "DELETE FROM chunk_term_frequency WHERE chunk_id = ?";
@@ -160,9 +162,10 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
                     if (provenance.tableCell() == null) insert.setNull(15, Types.VARCHAR);
                     else insert.setString(15, provenance.tableCell());
                     insert.setString(16, provenance.originalLocator());
-                    if (chunk.parentKey() == null) insert.setNull(17, Types.VARCHAR);
-                    else insert.setString(17, chunk.parentKey());
-                    insert.setInt(18, bm25TermFrequencies(chunk.embeddingText()).values().stream()
+                    insert.setString(17, sourceSpansJson(provenance.sourceSpans()));
+                    if (chunk.parentKey() == null) insert.setNull(18, Types.VARCHAR);
+                    else insert.setString(18, chunk.parentKey());
+                    insert.setInt(19, bm25TermFrequencies(chunk.embeddingText()).values().stream()
                             .mapToInt(Integer::intValue).sum());
                     insert.addBatch();
 
@@ -312,6 +315,14 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
             result.append(values[index]);
         }
         return result.append(']').toString();
+    }
+
+    private static String sourceSpansJson(List<com.dndmaster.ruleknowledge.application.publication.SourceProvenance.SourceSpan> spans) {
+        try {
+            return JSON.writeValueAsString(spans);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+            throw new IllegalArgumentException("could not serialize published source spans", exception);
+        }
     }
 
     private static Map<String, Integer> bm25TermFrequencies(String text) {

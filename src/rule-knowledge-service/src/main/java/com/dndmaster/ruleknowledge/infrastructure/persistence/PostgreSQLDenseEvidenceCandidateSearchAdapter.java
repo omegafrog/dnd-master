@@ -134,7 +134,8 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
                                     rows.getString("original_locator"),
                                     rows.getString("content"),
                                     new SourceProvenance(rows.getInt("page_number"), textArray(rows, "section_path"),
-                                            doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("original_locator")),
+                                            doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("original_locator"),
+                                            SourceProvenance.sourceSpansFromJson(rows.getString("source_spans"))),
                                     rank++, null, 0d, similarity));
                         }
                         if (ownsTransaction) connection.commit();
@@ -221,7 +222,7 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
                 c.document_id, c.chunk_id,
                        CASE WHEN c.extraction_version ~ '^[0-9]+$' THEN c.extraction_version::bigint
                             ELSE GREATEST(r.version, 1) END AS extraction_version,
-                       r.document_type, c.original_locator, c.content, c.page_number, c.section_path, c.bbox, c.table_cell,
+                       r.document_type, c.original_locator, c.content, c.page_number, c.section_path, c.bbox, c.table_cell, c.source_spans,
                        %s <=> %s AS distance
                 """.formatted(embedding, queryVector);
         String joins = """
@@ -249,7 +250,7 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
                         LIMIT ?
                     )
                     SELECT document_id, chunk_id, extraction_version, document_type, original_locator,
-                           content, page_number, section_path, bbox, table_cell, distance
+                           content, page_number, section_path, bbox, table_cell, source_spans, distance
                       FROM nearest_candidates
                     ORDER BY distance, chunk_id
                     """.formatted(placeholders, columns, joins, embedding, queryVector);
@@ -270,7 +271,7 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
                     SELECT * FROM active_candidates UNION ALL SELECT * FROM other_candidates
                 )
                 SELECT document_id, chunk_id, extraction_version, document_type, original_locator, content,
-                       page_number, section_path, bbox, table_cell, distance
+                       page_number, section_path, bbox, table_cell, source_spans, distance
                   FROM candidates
                  ORDER BY active_locator DESC, distance, chunk_id
                  LIMIT ?

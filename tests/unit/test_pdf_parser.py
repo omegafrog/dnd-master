@@ -52,6 +52,20 @@ def test_pdf_parser_preserves_order_layout_and_source_spans():
     assert parsed.source_text == "Part I\nA rule."
 
 
+def test_pdf_parser_carries_exact_table_cell_location_on_source_span():
+    parser = PdfDocumentParser(lambda _: [{"page_number": 3, "blocks": [
+        {"block_id": "p3-table-0-r1-c2", "text": "12", "bbox": [10, 20, 30, 40],
+         "kind": "table_cell", "table_id": "p3-table-0", "row": 1, "column": 2},
+    ]}])
+
+    span = parser.parse(Path("fixture.pdf")).pages[0].blocks[0].source_span
+
+    assert span.bbox == (10.0, 20.0, 30.0, 40.0)
+    assert span.table_id == "p3-table-0"
+    assert span.table_cell == "r1:c2"
+    assert (span.char_start, span.char_end) == (0, 2)
+
+
 def test_pdf_parser_orders_strong_two_column_page_left_to_right():
     parser = PdfDocumentParser(lambda _: [{"page_number": 4, "blocks": [
         {"block_id": "right-top", "text": "Right top", "bbox": [309, 100, 535, 140]},
