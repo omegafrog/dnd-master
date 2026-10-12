@@ -50,6 +50,7 @@ class PageStatus(str, Enum):
     STRUCTURED = "STRUCTURED"
     VALIDATING = "VALIDATING"
     VALIDATED = "VALIDATED"
+    EXCLUDED_FORM = "EXCLUDED_FORM"
     RETRYING = "RETRYING"
     NEEDS_REVIEW = "NEEDS_REVIEW"
 
@@ -123,6 +124,7 @@ class ColumnProfile:
     confidence: float
     ambiguous: bool = False
     findings: tuple[str, ...] = ()
+    evidence: dict[str, int] | None = None
 
     def __post_init__(self) -> None:
         if not self.candidates:

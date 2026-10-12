@@ -8,7 +8,7 @@ import os
 import time
 from typing import Any
 
-from preprocessing_agent.domain.layout import BoundingBox, LayoutRegion, ReadingOrderPlan, TableZone
+from preprocessing_agent.domain.layout import BoundingBox, LayoutRegion, PageGeometry, ReadingOrderPlan, TableZone
 from .analyzer import LayoutAnalyzer, _box, _id
 
 _LOGGER = logging.getLogger(__name__)
@@ -142,6 +142,39 @@ class ReadingOrderPlanner:
                     len(regions), len(profiles), round((time.monotonic() - started) * 1000),
                     "review" if plan.ambiguous else "success")
         return plan
+
+    def form_plan(self, blocks: Sequence[Any], page_geometry: PageGeometry | None = None) -> ReadingOrderPlan:
+        """Preserve geometry order for forms without interpreting them as prose columns."""
+        entries = [(_id(block, index), _box(block), block, _table_key(block))
+                   for index, block in enumerate(blocks)]
+        groups: dict[str, list[tuple[str, BoundingBox, Any, str | None]]] = defaultdict(list)
+        prose = []
+        for entry in entries:
+            (groups[entry[3]] if entry[3] else prose).append(entry)
+        zones = []
+        for key, members in groups.items():
+            members.sort(key=lambda item: (
+                _value(item[2], "row") is None,
+                _value(item[2], "row") if _value(item[2], "row") is not None else item[1].y0,
+                _value(item[2], "column") is None,
+                _value(item[2], "column") if _value(item[2], "column") is not None else item[1].x0,
+                item[0],
+            ))
+            zones.append(TableZone(key.removeprefix("table:"),
+                BoundingBox(min(item[1].x0 for item in members), min(item[1].y0 for item in members),
+                            max(item[1].x1 for item in members), max(item[1].y1 for item in members)),
+                tuple(item[0] for item in members)))
+        if prose:
+            bounds = page_geometry and BoundingBox(0, 0, page_geometry.width, page_geometry.height)
+            if bounds is None:
+                bounds = BoundingBox(min(item[1].x0 for item in prose), min(item[1].y0 for item in prose),
+                                     max(item[1].x1 for item in prose), max(item[1].y1 for item in prose))
+            regions = (LayoutRegion("region-1", bounds, tuple(item[0] for item in prose)),)
+        else:
+            regions = ()
+        ordered = sorted(entries, key=lambda item: (item[1].y0, item[1].x0, item[0]))
+        return ReadingOrderPlan(tuple(item[0] for item in ordered), regions, (), table_zones=tuple(zones),
+                                findings=("FORM_STRUCTURE_UNSUPPORTED",))
 
 def _diagnostic(message: str, *args: Any) -> None:
     if os.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "").lower() in {"1", "true", "yes", "on"}:

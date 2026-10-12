@@ -24,6 +24,7 @@ from preprocessing_agent.domain import PageStatus, ParsedDocument, ParsedPage, P
 from preprocessing_agent.domain.layout import BoundingBox, PageGeometry, LayoutBlock
 from preprocessing_agent.domain.serialization import to_dict
 from preprocessing_agent.layout import ReadingOrderPlanner
+from preprocessing_agent.layout.page_classification import form_geometry_counts, is_form_like
 from preprocessing_agent.parsers.pdf import PdfDocumentParser, _classify_text_detection_hypothesis, _find_native_tables, _native_table_candidate_diagnostic, _reconcile_native_table_candidates, _reconstruct_native_table, _without_consumed_header_blocks
 from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
 from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector
@@ -170,7 +171,10 @@ class ExtractionVersion:
             self.status = ExtractionStatus.NEEDS_REVIEW
 
     def publish(self) -> None:
-        if len(self.pages) != self.page_count or any(page.status != PageStatus.VALIDATED for page in self.pages.values()):
+        if len(self.pages) != self.page_count or any(
+            page.status not in {PageStatus.VALIDATED, PageStatus.EXCLUDED_FORM}
+            for page in self.pages.values()
+        ):
             self.status = ExtractionStatus.NEEDS_REVIEW
             raise ValueError("cannot publish extraction version with unvalidated pages")
         self.status = ExtractionStatus.READY
@@ -194,17 +198,21 @@ class PyMuPdfNativePdfAdapter:
                 blocks = []
                 font_metadata = _font_metadata_by_block(page)
                 text_spans = {}
+                text_lines = {}
                 for text_block in page.get_text("dict").get("blocks", ()):
                     key = tuple(float(value) for value in text_block.get("bbox", ()))
                     text_spans[key] = [{"text": span.get("text", ""), "bbox": span.get("bbox")}
                                        for line in text_block.get("lines", ()) for span in line.get("spans", ())]
+                    text_lines[key] = [{"bbox": line.get("bbox")} for line in text_block.get("lines", ())
+                                       if line.get("bbox") is not None]
                 for index, raw in enumerate(page.get_text("blocks")):
                     text = str(raw[4]).strip()
                     if not text:
                         continue
                     size, font = font_metadata.get(tuple(float(value) for value in raw[:4]), (None, None))
                     block = {"block_id": f"p{number}-b{index}", "text": text, "bbox": raw[:4],
-                             "spans": text_spans.get(tuple(float(value) for value in raw[:4]), [])}
+                             "spans": text_spans.get(tuple(float(value) for value in raw[:4]), []),
+                             "lines": text_lines.get(tuple(float(value) for value in raw[:4]), [])}
                     # Keep typography useful for heading confidence without
                     # turning page numbers and running headers (normally 8-9pt)
                     # into furniture merely because metadata is present.
@@ -262,8 +270,16 @@ class PyMuPdfNativePdfAdapter:
                 if table_regions:
                     blocks = [block for block in blocks if block.get("kind") == "table_cell" or not _inside_table_region(block.get("bbox"), table_regions)]
                 blocks = list(_deduplicate_blocks(blocks))
+                form_diagnostics = _page_form_diagnostics(page, blocks)
+                page_classification = "form" if is_form_like(**form_diagnostics) else "text-native"
+                _dev_log("dev_preprocessing_layout stage=page_classification pageNumber=%d drawingCount=%d alignedLineCount=%d longHorizontalLineCount=%d textLineCount=%d expectedFormEvidence=repeated_writing_rules actualForm=%s route=%s outcome=%s",
+                         number, form_diagnostics["drawing_count"], form_diagnostics["aligned_line_count"],
+                         form_diagnostics["long_horizontal_line_count"], form_diagnostics["text_line_count"], page_classification == "form",
+                         "form_review" if page_classification == "form" else "prose_layout", page_classification)
                 pages.append({"page_number": number, "geometry": {"width": rect.width, "height": rect.height},
-                              "blocks": blocks, "native_table_candidate_count": len(found_tables),
+                              "blocks": blocks, "page_classification": page_classification,
+                              "form_diagnostics": form_diagnostics,
+                              "native_table_candidate_count": len(found_tables),
                               "native_table_diagnostics": table_diagnostics})
         return pages
 
@@ -283,6 +299,11 @@ def _font_metadata_by_block(page: Any) -> dict[tuple[float, float, float, float]
         key = tuple(float(value) for value in raw["bbox"])
         metadata[key] = (float(first.get("size")) if first.get("size") is not None else None, str(first.get("font")) if first.get("font") else None)
     return metadata
+
+
+def _page_form_diagnostics(page: Any, blocks: list[Mapping[str, Any]]) -> dict[str, int]:
+    return form_geometry_counts(page.get_drawings(),
+                                sum(len(block.get("lines", ())) for block in blocks))
 
 
 def _inside_table_region(bbox: object, regions: list[tuple[float, float, float, float]]) -> bool:
@@ -477,6 +498,41 @@ class ExtractionApplicationService:
                     LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), extraction_method, float(block.get("confidence", 1.0)), document_id, number, geometry)
                     blocks.append({**block, "extraction_method": extraction_method, "text_confidence": float(block.get("text_confidence", block.get("confidence", 1.0))), "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
                 raw = {**raw, "blocks": blocks}
+                is_form = raw.get("page_classification") == "form"
+                form_diagnostics = raw.get("form_diagnostics")
+                expected_form_fields = {"drawing_count", "aligned_line_count", "long_horizontal_line_count", "text_line_count"}
+                verified_form = bool(
+                    is_form and isinstance(form_diagnostics, Mapping)
+                    and expected_form_fields <= form_diagnostics.keys()
+                    and all(type(form_diagnostics[key]) is int and form_diagnostics[key] >= 0
+                            for key in expected_form_fields)
+                    and is_form_like(**{key: form_diagnostics[key] for key in expected_form_fields})
+                )
+                if is_form and not verified_form:
+                    pending_findings.append("FORM_CLASSIFICATION_UNVERIFIED")
+                    _dev_log("dev_preprocessing_form stage=classification pageNumber=%d expectedEvidenceFields=4 actualEvidenceFields=%d route=needs_review outcome=unverified",
+                             number, len(form_diagnostics.keys()) if isinstance(form_diagnostics, Mapping) else 0)
+                elif verified_form:
+                    evidence = {"page_number": number, "page_classification": "form",
+                                "form_diagnostics": {key: form_diagnostics[key] for key in sorted(expected_form_fields)},
+                                "exclusion_evidence": {"classifier": "form_geometry", "decision": "EXCLUDED_FORM"},
+                                "geometry": {"width": geometry.width, "height": geometry.height,
+                                             "unit": geometry.unit, "origin": geometry.origin},
+                                "blocks": blocks}
+                    version.record_page(PageExtraction(number, PageStatus.EXCLUDED_FORM))
+                    page_artifacts.append({**evidence, "status": PageStatus.EXCLUDED_FORM.value,
+                                           "attempts": raw.get("_retry_attempts", 1),
+                                           "attempt_history": raw.get("_retry_attempt_history", [{
+                                               "attempt": 1, "status": PageStatus.EXCLUDED_FORM.value,
+                                               "findings": []}]),
+                                           "evidence_sha256": hashlib.sha256(
+                                               json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
+                    _dev_log("dev_preprocessing_form stage=excluded pageNumber=%d drawingCount=%d alignedLineCount=%d longHorizontalLineCount=%d textLineCount=%d expectedPageCount=%d actualExcludedFormCount=%d recoveryAction=preserve_source_skip_parser outcome=excluded",
+                             number, form_diagnostics["drawing_count"], form_diagnostics["aligned_line_count"],
+                             form_diagnostics["long_horizontal_line_count"], form_diagnostics["text_line_count"],
+                             version.page_count,
+                             sum(item.status == PageStatus.EXCLUDED_FORM for item in version.pages.values()))
+                    continue
                 table_classification_started = time.monotonic()
                 native_table_candidate_count = raw.get("native_table_candidate_count")
                 candidate_values = raw.get("native_table_diagnostics", ())
@@ -523,8 +579,14 @@ class ExtractionApplicationService:
                     and (confirmed_candidate == retry_candidate or confirmation.get("_approval_cache_hit") is True)
                     and isinstance(confirmed_selections, Mapping) and confirmed_selections
                 )
-                layout_plan = ReadingOrderPlanner().plan(
-                    blocks, geometry, dict(confirmed_selections) if confirmed_columns else None)
+                form_review_started = time.monotonic()
+                layout_plan = (ReadingOrderPlanner().form_plan(blocks, geometry) if is_form else
+                    ReadingOrderPlanner().plan(blocks, geometry,
+                        dict(confirmed_selections) if confirmed_columns else None))
+                if is_form:
+                    _dev_log("dev_preprocessing_layout stage=form_review pageNumber=%d expectedProseProfileCount=0 actualProfileCount=%d blockCount=%d elapsedMs=%d recoveryAction=retain_source_and_require_form_review outcome=needs_review",
+                             number, len(layout_plan.profiles), len(blocks),
+                             round((time.monotonic() - form_review_started) * 1000))
                 if confirmed_columns and any(profile.selected is None for profile in layout_plan.profiles):
                     raise ValueError("INVALID_LAYOUT_CANDIDATE")
                 if cached_approval:
@@ -556,7 +618,7 @@ class ExtractionApplicationService:
                     raise ValueError(",".join(pending_findings))
                 version.record_page(PageExtraction.validated(number))
                 parser_pages.append(raw)
-                evidence = {"page_number": number, "page_classification": raw.get("page_classification", "text-native"), "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence, "heading_associations": heading_evidence, "tables": table_evidence, "render_evidence": render_evidence, "layout_validation": validation.as_dict()}
+                evidence = {"page_number": number, "page_classification": raw.get("page_classification", "text-native"), "form_diagnostics": raw.get("form_diagnostics", {}), "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence, "heading_associations": heading_evidence, "tables": table_evidence, "render_evidence": render_evidence, "layout_validation": validation.as_dict()}
                 page_artifacts.append({**evidence, "status": PageStatus.VALIDATED.value,
                     "attempts": raw.get("_retry_attempts", 1),
                     "attempt_history": raw.get("_retry_attempt_history", [{"attempt": 1,
@@ -574,6 +636,8 @@ class ExtractionApplicationService:
                 page_artifacts[:] = [item for item in page_artifacts if item.get("page_number") != safe_number]
                 evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value,
                             "findings": version.pages[safe_number].findings,
+                            "page_classification": raw.get("page_classification", "text-native") if isinstance(raw, Mapping) else "text-native",
+                            "form_diagnostics": raw.get("form_diagnostics", {}) if isinstance(raw, Mapping) else {},
                             "blocks": raw.get("blocks", []) if isinstance(raw, Mapping) else [],
                             "geometry": raw.get("geometry", {}) if isinstance(raw, Mapping) else {},
                             "layout": to_dict(layout_plan) if "layout_plan" in locals() and layout_plan is not None else {},
@@ -595,7 +659,10 @@ class ExtractionApplicationService:
         versions.mkdir(exist_ok=True)
         temp_dir = Path(tempfile.mkdtemp(prefix=f".{version_id}-", dir=str(versions)))
         try:
-            if len(version.pages) == version.page_count and all(page.status == PageStatus.VALIDATED for page in version.pages.values()) and version.pages:
+            if len(version.pages) == version.page_count and all(
+                page.status in {PageStatus.VALIDATED, PageStatus.EXCLUDED_FORM}
+                for page in version.pages.values()
+            ) and version.pages:
                 version.publish()
                 parser = PdfDocumentParser(extractor=lambda _source: parser_pages)
                 result = PreprocessingPipeline.from_config({"name": "extraction-version", "pipeline_version": policy}, parser=parser, output_dir=temp_dir).run(source=source)
@@ -604,16 +671,49 @@ class ExtractionApplicationService:
                 manifest_data = json.loads(manifest_path.read_text())
                 manifest_data["source_sha256"] = source_hash
                 manifest_data.setdefault("source", {})["sha256"] = source_hash
+                excluded_form_pages = sorted(number for number, page in version.pages.items()
+                                             if page.status == PageStatus.EXCLUDED_FORM)
+                manifest_data.setdefault("statistics", {})["pages"] = version.page_count
+                manifest_data["page_statistics"] = {"count": version.page_count,
+                                                     "excluded_form_pages": excluded_form_pages}
                 manifest_path.write_text(json.dumps(manifest_data, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
                 manifest = manifest_data
                 ready = True
             else:
                 version.status = ExtractionStatus.NEEDS_REVIEW
-                manifest = {"source": {"path": str(source), "sha256": source_hash}, "source_sha256": source_hash, "pipeline_version": policy, "schema_version": "1", "profile": "extraction-version", "policy": {"version": policy}, "statistics": {"pages": version.page_count}}
+                excluded_form_pages = sorted(number for number, page in version.pages.items()
+                                             if page.status == PageStatus.EXCLUDED_FORM)
+                manifest = {"source": {"path": str(source), "sha256": source_hash}, "source_sha256": source_hash,
+                            "pipeline_version": policy, "schema_version": "1", "profile": "extraction-version",
+                            "policy": {"version": policy}, "statistics": {"pages": version.page_count},
+                            "page_statistics": {"count": version.page_count,
+                                                "excluded_form_pages": excluded_form_pages}}
                 (temp_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
-            version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "page_count": version.page_count, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
+            excluded_form_pages = sorted(number for number, page in version.pages.items()
+                                         if page.status == PageStatus.EXCLUDED_FORM)
+            version_artifact = {"version_id": version.version_id, "document_id": document_id,
+                                "policy_version": policy, "page_count": version.page_count,
+                                "excluded_form_pages": excluded_form_pages,
+                                "status": version.status.value, "source_sha256": source_hash,
+                                "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
-            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": item.get("attempts", 1), "findings": item.get("findings", []), "layout_review": item.get("layout_review") or (_layout_review_payload(item) if item["status"] == "NEEDS_REVIEW" else None), "layout_confirmation": item.get("layout_confirmation"), "attempt_history": item.get("attempt_history", [{"attempt": 1, "status": item["status"], "findings": item.get("findings", [])}])} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
+            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id,
+                        "version_id": version.version_id, "status": version.status.value,
+                        "pages": [{"page_number": item["page_number"], "status": item["status"],
+                                   "attempts": item.get("attempts", 1), "findings": item.get("findings", []),
+                                   "page_classification": item.get("page_classification"),
+                                   "form_diagnostics": item.get("form_diagnostics"),
+                                   "layout_review": item.get("layout_review") or (_layout_review_payload(item) if item["status"] == "NEEDS_REVIEW" else None),
+                                   "layout_confirmation": item.get("layout_confirmation"),
+                                   "attempt_history": item.get("attempt_history", [{"attempt": 1,
+                                       "status": item["status"], "findings": item.get("findings", [])}])}
+                                  for item in page_artifacts],
+                        "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts),
+                                         "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts),
+                                         "excluded_forms": sum(item["status"] == "EXCLUDED_FORM" for item in page_artifacts),
+                                         "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts),
+                                         "ready": sum(item["status"] in {"VALIDATED", "EXCLUDED_FORM"} for item in page_artifacts)},
+                        "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
             (temp_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             version_dir = versions / version_id
             if version_dir.exists():
@@ -659,6 +759,8 @@ class ExtractionApplicationService:
         """Classify a page and OCR only declared image regions or image-only pages."""
         # Regional/multi-column analysis belongs to RAG-009; do not reinterpret
         # an explicitly declared layout as an OCR target here.
+        if raw.get("page_classification") == "form":
+            return raw
         layout_value = raw.get("layout")
         layout_name = layout_value if isinstance(layout_value, str) else str(layout_value.get("name", layout_value.get("strategy", ""))) if isinstance(layout_value, Mapping) else ""
         if raw.get("column_count", 1) != 1 or layout_name in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []):
@@ -762,10 +864,13 @@ class ExtractionApplicationService:
                 if response["schema_version"] != "1" or response["operation"] not in {"preprocess", "status", "retry_pages"} or not isinstance(response["request_id"], str) or not response["request_id"] or response["version_id"] != version_id or response["status"] not in {"QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"}:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 summary = response.get("page_summary", {})
-                if not isinstance(summary, dict) or any(type(summary.get(key)) is not int for key in ("count", "processed", "validated", "needs_review", "ready")) or summary.get("count") != len(response["pages"]) or summary.get("processed") != len(response["pages"]):
+                if not isinstance(summary, dict) or any(type(summary.get(key)) is not int for key in ("count", "processed", "validated", "excluded_forms", "needs_review", "ready")) or summary.get("count") != len(response["pages"]) or summary.get("processed") != len(response["pages"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 statuses = [page.get("status") for page in response["pages"] if isinstance(page, dict)]
-                if summary.get("validated") != statuses.count("VALIDATED") or summary.get("needs_review") != statuses.count("NEEDS_REVIEW") or summary.get("ready") != statuses.count("VALIDATED"):
+                if (summary.get("validated") != statuses.count("VALIDATED")
+                        or summary.get("excluded_forms") != statuses.count("EXCLUDED_FORM")
+                        or summary.get("needs_review") != statuses.count("NEEDS_REVIEW")
+                        or summary.get("ready") != statuses.count("VALIDATED") + statuses.count("EXCLUDED_FORM")):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 if response["status"] == "READY" and any(page.get("status") == "NEEDS_REVIEW" for page in response["pages"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
@@ -773,8 +878,16 @@ class ExtractionApplicationService:
                 if len(set(page_numbers)) != len(page_numbers) or any(type(number) is not int or number < 1 for number in page_numbers) or page_numbers != sorted(page_numbers) or page_numbers != list(range(1, len(page_numbers) + 1)):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for page in response["pages"]:
-                    if not isinstance(page, dict) or type(page.get("page_number")) is not int or page.get("status") not in {"VALIDATED", "NEEDS_REVIEW"} or type(page.get("attempts")) is not int or page.get("attempts") < 1 or not isinstance(page.get("findings"), list) or any(not isinstance(item, str) for item in page.get("findings", [])):
+                    if not isinstance(page, dict) or type(page.get("page_number")) is not int or page.get("status") not in {"VALIDATED", "EXCLUDED_FORM", "NEEDS_REVIEW"} or type(page.get("attempts")) is not int or page.get("attempts") < 1 or not isinstance(page.get("findings"), list) or any(not isinstance(item, str) for item in page.get("findings", [])):
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                    if page.get("status") == "EXCLUDED_FORM":
+                        diagnostics = page.get("form_diagnostics")
+                        expected = {"drawing_count", "aligned_line_count", "long_horizontal_line_count", "text_line_count"}
+                        if (page.get("page_classification") != "form" or not isinstance(diagnostics, Mapping)
+                                or expected - diagnostics.keys()
+                                or any(type(diagnostics[key]) is not int or diagnostics[key] < 0 for key in expected)
+                                or not is_form_like(**{key: diagnostics[key] for key in expected})):
+                            raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 if not isinstance(response["artifacts"].get("manifest_sha256"), (str, type(None))):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 manifest_ref = response["artifacts"].get("manifest")
@@ -811,7 +924,15 @@ class ExtractionApplicationService:
                     if response.get("manifest") != manifest_data:
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                     expected_pages = version_data.get("page_count")
-                    if type(expected_pages) is not int or expected_pages != len(response["pages"]) or response["page_summary"].get("count") != expected_pages:
+                    excluded_form_pages = [page["page_number"] for page in response["pages"]
+                                           if page.get("status") == "EXCLUDED_FORM"]
+                    page_stats = manifest_data.get("page_statistics", {})
+                    if (type(expected_pages) is not int or expected_pages != len(response["pages"])
+                            or response["page_summary"].get("count") != expected_pages
+                            or version_data.get("excluded_form_pages") != excluded_form_pages
+                            or manifest_data.get("statistics", {}).get("pages") != expected_pages
+                            or page_stats.get("count") != expected_pages
+                            or page_stats.get("excluded_form_pages") != excluded_form_pages):
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 return {**response, "operation": "status"}
         except VersionNotFoundError:
@@ -874,13 +995,19 @@ class ExtractionApplicationService:
                         retry_index[idem] = {"version_id": version_id, "pages": wanted, "state": "promotion_pending"}
                 except (OSError, json.JSONDecodeError, TypeError):
                     pass
-            resume_promotion = isinstance(retry_index.get(idem), dict) and retry_index[idem].get("state") == "promotion_pending" and all(p.get("status") == "VALIDATED" for p in current["pages"])
+            resume_promotion = isinstance(retry_index.get(idem), dict) and retry_index[idem].get("state") == "promotion_pending" and all(
+                p.get("status") in {"VALIDATED", "EXCLUDED_FORM"} for p in current["pages"])
             updated = []
             recovered_pages: dict[str, Mapping[str, Any]] = dict(persisted_recovered)
             source_path = Path(str(current.get("manifest", {}).get("source", {}).get("path", "")))
             raw_pages: list[Mapping[str, Any]] | None = None
             for page in (() if resume_promotion else current["pages"]):
                 item = dict(page)
+                if item.get("status") == "EXCLUDED_FORM":
+                    if item["page_number"] in wanted:
+                        raise ValueError("EXCLUDED_FORM_PAGE_IMMUTABLE")
+                    updated.append(item)
+                    continue
                 if item["page_number"] in wanted:
                     selected_regions = layout_selections.get(item["page_number"], {})
                     page_key = str(item["page_number"])
@@ -1041,7 +1168,11 @@ class ExtractionApplicationService:
                 updated = [dict(p) for p in current["pages"]]
             response = {**current, "operation": "retry_pages", "request_id": request_id, "pages": updated}
             statuses = [p["status"] for p in updated]
-            response["page_summary"] = {**current["page_summary"], "validated": statuses.count("VALIDATED"), "needs_review": statuses.count("NEEDS_REVIEW"), "ready": statuses.count("VALIDATED")}
+            response["page_summary"] = {**current["page_summary"],
+                                        "validated": statuses.count("VALIDATED"),
+                                        "excluded_forms": statuses.count("EXCLUDED_FORM"),
+                                        "needs_review": statuses.count("NEEDS_REVIEW"),
+                                        "ready": statuses.count("VALIDATED") + statuses.count("EXCLUDED_FORM")}
             _dev_log("dev_preprocessing_retry stage=page_checkpoint_complete versionId=%s requestId=%s expectedSelectedPageCount=%d actualValidatedPageCount=%d actualNeedsReviewPageCount=%d elapsedMs=%d outcome=checkpointed",
                      version_id, request_id, len(wanted), statuses.count("VALIDATED"),
                      statuses.count("NEEDS_REVIEW"), round((time.monotonic() - started) * 1000))
@@ -1104,7 +1235,7 @@ class ExtractionApplicationService:
             # version through the normal full pipeline.  The quarantined
             # source version is never mutated into READY and remains an audit
             # checkpoint; generation/current publication is publish-last.
-            if all(item.get("status") == "VALIDATED" for item in updated):
+            if all(item.get("status") in {"VALIDATED", "EXCLUDED_FORM"} for item in updated):
                 manifest_source = current.get("manifest", {}).get("source", {})
                 promoted_id = f"{version_id}-retry-{hashlib.sha256(idem.encode()).hexdigest()[:8]}"
                 promoted_pages = {int(item["page_number"]): item for item in updated}

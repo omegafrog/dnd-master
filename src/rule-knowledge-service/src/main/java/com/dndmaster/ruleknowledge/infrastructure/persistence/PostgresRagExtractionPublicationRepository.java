@@ -43,14 +43,17 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
             """;
     private static final String INSERT_PAGE = """
             INSERT INTO rag_extraction_page
-                (document_id, extraction_version, page_number, status, attempts, findings)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (document_id, extraction_version, page_number, status, attempts, findings,
+                 page_classification, classification_evidence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb))
             ON CONFLICT (document_id, extraction_version, page_number) DO UPDATE SET
-                status = EXCLUDED.status, attempts = EXCLUDED.attempts, findings = EXCLUDED.findings
+                status = EXCLUDED.status, attempts = EXCLUDED.attempts, findings = EXCLUDED.findings,
+                page_classification = EXCLUDED.page_classification,
+                classification_evidence = EXCLUDED.classification_evidence
             """;
     private static final String SELECT_PAGE_COUNTS = """
             SELECT COUNT(*) AS total_pages,
-                   COUNT(*) FILTER (WHERE status = 'VALIDATED') AS validated_pages
+                   COUNT(*) FILTER (WHERE status IN ('VALIDATED', 'EXCLUDED_FORM')) AS publishable_pages
               FROM rag_extraction_page
              WHERE document_id = ? AND extraction_version = ?
             """;
@@ -123,6 +126,13 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
                     insertPage.setString(4, page.status());
                     insertPage.setInt(5, page.attempts());
                     setTextArray(insertPage, 6, connection, page.findings());
+                    if (page.pageClassification() == null) insertPage.setNull(7, Types.VARCHAR);
+                    else insertPage.setString(7, page.pageClassification());
+                    try {
+                        insertPage.setString(8, JSON.writeValueAsString(page.classificationEvidence()));
+                    } catch (java.io.IOException exception) {
+                        throw new IllegalArgumentException("could not serialize page classification evidence", exception);
+                    }
                     insertPage.addBatch();
                 }
                 insertPage.executeBatch();
@@ -259,7 +269,7 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 if (row.getInt("total_pages") != request.pages().size()
-                        || row.getInt("validated_pages") != request.pages().size()) {
+                        || row.getInt("publishable_pages") != request.pages().size()) {
                     throw new IllegalStateException("extraction version contains an unvalidated or missing page");
                 }
             }

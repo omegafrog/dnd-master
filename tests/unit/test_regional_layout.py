@@ -65,6 +65,84 @@ def test_ambiguous_candidate_is_retained_without_selection():
     assert "AMBIGUOUS_COLUMN_HYPOTHESIS" in profile.findings
 
 
+def test_line_boxes_support_two_columns_without_changing_block_ownership():
+    blocks = []
+    for column, left in (("left", 54), ("right", 310)):
+        line_boxes = [[left, y, left + 205, y + 11] for y in range(100, 340, 12)]
+        blocks.append({"block_id": column, "text": f"{column} paragraph", "bbox":
+                       [left, 100, left + 205, 340], "lines": [{"bbox": box} for box in line_boxes]})
+
+    plan = ReadingOrderPlanner().plan(blocks)
+
+    assert plan.profiles[0].selected is not None
+    assert plan.profiles[0].selected.column_count == 2
+    assert plan.profiles[0].ambiguous is False
+    assert set(plan.ordered_block_ids) == {"left", "right"}
+    assert len(plan.ordered_block_ids) == len(set(plan.ordered_block_ids))
+    assert plan.profiles[0].evidence["support_band_count"] >= 2
+
+
+def test_line_band_balance_replaces_unrepresentative_block_count_balance():
+    left_lines = [[54, y, 270, y + 11] for y in (100, 112, 124, 136, 160, 172, 184, 196)]
+    right_lines = [[312, y + 2, 530, y + 13] for y in (100, 112, 124, 136, 160, 172, 184, 196)]
+    blocks = [
+        {"block_id": "left-paragraph", "text": "left", "bbox": [54, 100, 270, 207],
+         "lines": [{"bbox": box} for box in left_lines]},
+        {"block_id": "right-first-paragraph", "text": "right one", "bbox": [312, 102, 530, 150],
+         "lines": [{"bbox": box} for box in right_lines[:4]]},
+        {"block_id": "right-second-paragraph", "text": "right two", "bbox": [312, 162, 530, 209],
+         "lines": [{"bbox": box} for box in right_lines[4:]]},
+    ]
+
+    profile = LayoutAnalyzer().page_plan(blocks).profiles[0]
+
+    assert profile.selected is not None
+    assert profile.selected.column_count == 2
+    assert profile.ambiguous is False
+    assert profile.evidence["support_band_count"] >= 2
+    assert profile.confidence >= 0.8
+
+
+def test_line_support_diagnostic_records_band_count_without_text(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    blocks = [
+        {"block_id": name, "text": "private source", "bbox": [x, 100, x + 180, 220],
+         "lines": [{"bbox": [x, y, x + 180, y + 10]} for y in range(100, 220, 12)]}
+        for name, x in (("left", 50), ("right", 310))
+    ]
+
+    ReadingOrderPlanner().plan(blocks)
+
+    assert "stage=column_profile" in caplog.text
+    assert "expectedSupportBands=2" in caplog.text
+    assert "selectedColumns=2" in caplog.text
+    assert "private source" not in caplog.text
+
+
+def test_multiline_support_is_bounded_by_independent_vertical_bands():
+    from preprocessing_agent.layout.analyzer import _repeated_row_support
+
+    left = [BoundingBox(50, y, 250, y + 10) for y in range(100, 500, 12)]
+    right = [BoundingBox(310, y + 2, 510, y + 12) for y in range(100, 500, 12)]
+
+    support = _repeated_row_support(left, right, line_level=True)
+
+    assert 2 <= support <= 6
+
+
+def test_weak_single_column_evidence_remains_ambiguous():
+    blocks = [
+        block("main", "A long paragraph", (54, 100, 280, 180)),
+        block("aside", "Short note", (330, 190, 510, 205)),
+        block("tail", "Another line", (54, 220, 280, 235)),
+    ]
+
+    profile = LayoutAnalyzer().page_plan(blocks).profiles[0]
+
+    assert profile.ambiguous or profile.selected is None or profile.selected.column_count == 1
+
+
 def test_user_selected_layout_candidate_resolves_ambiguous_page_deterministically():
     blocks = [
         block("a", "A", (0, 0, 10, 20)), block("b", "B", (20, 0, 30, 20)),

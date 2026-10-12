@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+import logging
+import os
 from statistics import median
+import time
 from typing import Any
 
 from preprocessing_agent.domain.layout import (
     BoundingBox, ColumnHypothesis, ColumnProfile, LayoutRegion, ReadingOrderPlan,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _box(block: Any) -> BoundingBox:
@@ -67,6 +72,7 @@ class LayoutAnalyzer:
 
     def profile(self, region: LayoutRegion, blocks: Sequence[Any], *, ambiguity_margin: float = .08,
                 selected_candidate: int | None = None) -> ColumnProfile:
+        started = time.monotonic()
         by_id = {_id(block, i): block for i, block in enumerate(blocks)}
         members = [by_id[block_id] for block_id in region.block_ids if block_id in by_id]
         entries = [(_box(block), block) for block in members]
@@ -95,8 +101,16 @@ class LayoutAnalyzer:
                 # An isolated header/sidebar must not turn a single-column
                 # body into a page-wide two-column hypothesis.
                 continue
-            repeated_rows = _repeated_row_support(left_items, right_items)
+            left_blocks = [block for box, block in entries if box.x1 <= b]
+            right_blocks = [block for box, block in entries if box.x0 >= b]
+            left_observations = [observation for block in left_blocks for observation in _observations(block)]
+            right_observations = [observation for block in right_blocks for observation in _observations(block)]
+            line_level = any(_line_boxes(block) for block in (*left_blocks, *right_blocks))
             item_balance = min(len(left_items), len(right_items)) / max(max(len(left_items), len(right_items)), 1)
+            if line_level:
+                repeated_rows, item_balance = _line_band_metrics(left_observations, right_observations)
+            else:
+                repeated_rows = _repeated_row_support(left_observations, right_observations)
             left_width = max(box.x1 for box in left_items) - min(box.x0 for box in left_items)
             right_width = max(box.x1 for box in right_items) - min(box.x0 for box in right_items)
             width_balance = min(left_width, right_width) / max(max(left_width, right_width), 1.0)
@@ -107,7 +121,8 @@ class LayoutAnalyzer:
             if width_balance < .45 or item_balance < .45:
                 continue
             separation = max(0.0, min(box.x0 for box in right_items) - max(box.x1 for box in left_items))
-            score = _partition_score(item_balance, width_balance, repeated_rows, separation, overall_right - overall_left)
+            score = _partition_score(item_balance, width_balance, repeated_rows, separation,
+                                     overall_right - overall_left)
             scored_candidates.append((ColumnHypothesis(2, (BoundingBox(overall_left, overall_top, max(box.x1 for box in left_items), overall_bottom), BoundingBox(min(box.x0 for box in right_items), overall_top, overall_right, overall_bottom)), score, "gutter"), repeated_rows))
         # N-column candidates are formed from the strongest x gutters. This is
         # intentionally geometry-only; semantic table interpretation belongs
@@ -174,10 +189,22 @@ class LayoutAnalyzer:
             if selected_candidate < 0 or selected_candidate >= len(candidates):
                 raise ValueError("INVALID_LAYOUT_CANDIDATE")
             best = candidates[selected_candidate]
+            best_support = scored_candidates[selected_candidate][1]
             ambiguous = False
-        return ColumnProfile(region.region_id, tuple(candidates), best if not ambiguous else None,
-                             best.score if not ambiguous else best.score - (ambiguity_margin / 2), ambiguous,
-                             ("AMBIGUOUS_COLUMN_HYPOTHESIS",) if ambiguous else ())
+        support = best_support
+        line_count = sum(len(_observations(block)) for block in members)
+        profile = ColumnProfile(region.region_id, tuple(candidates), best if not ambiguous else None,
+                                best.score if not ambiguous else best.score - (ambiguity_margin / 2), ambiguous,
+                                ("AMBIGUOUS_COLUMN_HYPOTHESIS",) if ambiguous else (),
+                                {"block_count": len(members), "line_count": line_count,
+                                 "support_band_count": support})
+        if os.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "").lower() in {"1", "true", "yes", "on"}:
+            page_number = next((block.get("page_number") for block in members
+                                if isinstance(block, Mapping) and block.get("page_number") is not None), "unknown")
+            _LOGGER.info("dev_preprocessing_layout stage=column_profile pageNumber=%s regionId=%s blockCount=%d lineCount=%d expectedSupportBands=2 actualSupportBands=%d selectedColumns=%d selectedScore=%.3f ambiguous=%s elapsedMs=%d outcome=%s",
+                         page_number, region.region_id, len(members), line_count, support, best.column_count, best.score,
+                         ambiguous, round((time.monotonic() - started) * 1000), "review" if ambiguous else "selected")
+        return profile
 
     def page_plan(self, blocks: Sequence[Any], page_geometry: Any | None = None) -> ReadingOrderPlan:
         regions = self.analyze(blocks, page_geometry)
@@ -185,24 +212,66 @@ class LayoutAnalyzer:
         return ReadingOrderPlan((), regions, profiles, ambiguous=any(profile.ambiguous for profile in profiles), findings=tuple(finding for profile in profiles for finding in profile.findings))
 
 
-def _repeated_row_support(left: Sequence[BoundingBox], right: Sequence[BoundingBox]) -> int:
-    overlaps = [
-        (max(left_box.y0, right_box.y0) + min(left_box.y1, right_box.y1)) / 2
-        for left_box in left
-        for right_box in right
-        if min(left_box.y1, right_box.y1) > max(left_box.y0, right_box.y0)
-    ]
-    if not overlaps:
+def _observations(block: Any) -> list[BoundingBox]:
+    """Use text-line geometry as evidence while retaining the source block."""
+    raw_lines = _line_boxes(block)
+    boxes = []
+    for value in raw_lines:
+        boxes.append(value if isinstance(value, BoundingBox) else BoundingBox(*(float(item) for item in value)))
+    return boxes or [_box(block)]
+
+
+def _line_boxes(block: Any) -> list[Any]:
+    raw_lines = block.get("lines", ()) if isinstance(block, Mapping) else ()
+    boxes = []
+    for line in raw_lines:
+        value = line.get("bbox") if isinstance(line, Mapping) else None
+        if value is not None and len(value) == 4:
+            boxes.append(value)
+    return boxes
+
+
+def _repeated_row_support(left: Sequence[BoundingBox], right: Sequence[BoundingBox], *,
+                          line_level: bool = False) -> int:
+    """Count independent occupied vertical bands, not every overlapping line pair."""
+    if not left or not right:
         return 0
-    heights = [box.y1 - box.y0 for box in (*left, *right)]
+    if line_level:
+        return _line_band_metrics(left, right)[0]
+    heights = [box.y1 - box.y0 for box in (*left, *right) if box.y1 > box.y0]
+    overlap_centers = sorted(
+        (max(left_box.y0, right_box.y0) + min(left_box.y1, right_box.y1)) / 2
+        for left_box in left for right_box in right
+        if min(left_box.y1, right_box.y1) > max(left_box.y0, right_box.y0)
+    )
+    if not overlap_centers:
+        return 0
     tolerance = max(2.0, median(heights) * .10)
-    rows = 0
+    bands = 0
     previous = None
-    for center in sorted(overlaps):
+    for center in overlap_centers:
         if previous is None or center - previous > tolerance:
-            rows += 1
+            bands += 1
         previous = center
-    return rows
+    return min(6, bands)
+
+
+def _line_band_metrics(left: Sequence[BoundingBox], right: Sequence[BoundingBox]) -> tuple[int, float]:
+    """Return shared band support and balance using one vote per vertical band."""
+    if not left or not right:
+        return 0, 0.0
+    heights = [box.y1 - box.y0 for box in (*left, *right) if box.y1 > box.y0]
+    band_height = max(24.0, median(heights) * 4 if heights else 24.0)
+    origin = min(box.y0 for box in (*left, *right))
+    options = []
+    for offset in (0.0, band_height / 2):
+        left_bands = {int(((box.y0 + box.y1) / 2 - origin + offset) // band_height) for box in left}
+        right_bands = {int(((box.y0 + box.y1) / 2 - origin + offset) // band_height) for box in right}
+        shared = len(left_bands & right_bands)
+        balance = min(len(left_bands), len(right_bands)) / max(len(left_bands), len(right_bands), 1)
+        options.append((shared, balance))
+    shared, balance = max(options, key=lambda item: (item[0], item[1]))
+    return min(6, shared), balance
 
 
 def _same_partition(
@@ -221,7 +290,9 @@ def _same_partition(
     )
 
 
-def _partition_score(item_balance: float, width_balance: float, repeated_rows: int, separation: float, content_width: float) -> float:
+def _partition_score(item_balance: float, width_balance: float, repeated_rows: int, separation: float,
+                     content_width: float) -> float:
     repetition = min(repeated_rows, 4) / 4
     gutter = min(separation / max(content_width, 1.0), .12) / .12
-    return min(1.0, .25 + item_balance * .20 + width_balance * .25 + repetition * .40 + gutter * .05)
+    return min(1.0, .25 + item_balance * .20 + width_balance * .25
+               + repetition * .40 + gutter * .05)

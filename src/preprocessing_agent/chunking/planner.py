@@ -73,11 +73,14 @@ class ChunkPlanner:
                 cells = tuple(_value(table, "cells", ()))
                 if not node_ids.intersection(block_id for cell in cells for block_id in _value(cell, "source_block_ids", ())):
                     continue
-                table_text, table_spans, serialized_cell_count = _table_text(table, blocks)
-                if not table_text or not table_spans:
+                table_text, table_spans, serialized_cell_count, table_segments = _table_text(table, blocks)
+                if _diagnostics_enabled():
+                    _LOGGER.info("dev_chunk_planner stage=table_source_mapping documentId=%s pageNumber=%d tableId=%s expectedMappedCellCount=%d actualMappedCellCount=%d actualSourceSpanCount=%d outcome=%s", document.document_id, page_number, table_id, serialized_cell_count, len(table_segments), len(table_spans), "success" if len(table_segments) == serialized_cell_count and bool(table_spans) else "incomplete")
+                if not table_text or not table_spans or len(table_segments) != serialized_cell_count:
                     if _diagnostics_enabled():
-                        reason = "empty_serialized_cells" if not table_text else "no_source_spans"
-                        _LOGGER.info("dev_chunk_planner stage=skip_table documentId=%s pageNumber=%d tableId=%s expectedCellCount=%d actualSerializedCellCount=%d actualSourceSpanCount=%d skipReason=%s recoveryAction=skip_table outcome=skipped", document.document_id, page_number, table_id, len(cells), serialized_cell_count, len(table_spans), reason)
+                        reason = ("empty_serialized_cells" if not table_text else "no_source_spans" if not table_spans
+                                  else "unmapped_cell_source_text")
+                        _LOGGER.info("dev_chunk_planner stage=skip_table documentId=%s pageNumber=%d tableId=%s expectedCellCount=%d actualSerializedCellCount=%d expectedMappedCellCount=%d actualMappedCellCount=%d actualSourceSpanCount=%d skipReason=%s recoveryAction=skip_table outcome=skipped", document.document_id, page_number, table_id, len(cells), serialized_cell_count, serialized_cell_count, len(table_segments), len(table_spans), reason)
                     continue
                 emitted_table_ids.add(table_key)
                 anchor = table_spans[0]
@@ -86,6 +89,7 @@ class ChunkPlanner:
                 output.append(ChunkCandidate(
                     "cand_" + content_hash(canonical + "\n" + table_text)[:16], canonical,
                     ContentType.TABLE, table_text, table_spans, current_path,
+                    source_segments=table_segments,
                 ))
             for child in node.children:
                 visit(child, current_path)
@@ -104,10 +108,11 @@ def _diagnostics_enabled() -> bool:
     return os.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "").lower() in {"1", "true", "yes", "on"}
 
 
-def _table_text(table: object, blocks: dict) -> tuple[str, tuple, int]:
+def _table_text(table: object, blocks: dict) -> tuple[str, tuple, int, tuple[SourceSegment, ...]]:
     rows = (*tuple(_value(table, "header_rows", ())), *tuple(_value(table, "rows", ())))
     parts: list[str] = []
     spans = []
+    segments = []
     serialized_cell_count = 0
     for row in rows:
         cells = tuple(_value(row, "cells", ()))
@@ -117,7 +122,11 @@ def _table_text(table: object, blocks: dict) -> tuple[str, tuple, int]:
             if value:
                 serialized_cell_count += 1
                 values.append(value)
+                source_blocks = [blocks[item] for item in _value(cell, "source_block_ids", ()) if item in blocks]
+                matching_block = next((block for block in source_blocks if block.source_text == value), None)
+                if matching_block is not None:
+                    segments.append(SourceSegment(value, matching_block.source_span))
             spans.extend(blocks[item].source_span for item in _value(cell, "source_block_ids", ()) if item in blocks)
         if values:
             parts.append(" | ".join(values))
-    return "\n".join(parts), tuple(dict.fromkeys(spans)), serialized_cell_count
+    return "\n".join(parts), tuple(dict.fromkeys(spans)), serialized_cell_count, tuple(segments)

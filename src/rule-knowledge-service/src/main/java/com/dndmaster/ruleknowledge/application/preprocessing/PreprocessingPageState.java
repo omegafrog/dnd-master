@@ -11,7 +11,9 @@ public record PreprocessingPageState(
         int attempts,
         List<String> findings,
         LayoutReview layoutReview,
-        LayoutConfirmation layoutConfirmation) {
+        LayoutConfirmation layoutConfirmation,
+        String pageClassification,
+        java.util.Map<String, Integer> formDiagnostics) {
     private static final Pattern ABSOLUTE_PATH = Pattern.compile(
             "(?i)(?:^|[\\s(\\[=:])(?:/|\\\\\\\\|[A-Za-z]:[\\\\/])");
 
@@ -29,15 +31,28 @@ public record PreprocessingPageState(
                 .filter(Objects::nonNull)
                 .map(PreprocessingPageState::sanitize)
                 .toList();
+        pageClassification = pageClassification == null || pageClassification.isBlank() ? null : pageClassification;
+        formDiagnostics = formDiagnostics == null ? java.util.Map.of() : java.util.Map.copyOf(formDiagnostics);
+        if ("EXCLUDED_FORM".equals(status)
+                && (!"form".equals(pageClassification)
+                    || !formDiagnostics.keySet().containsAll(List.of("drawing_count", "aligned_line_count",
+                            "long_horizontal_line_count", "text_line_count")))) {
+            throw new IllegalArgumentException("excluded form requires classification evidence");
+        }
     }
 
     public PreprocessingPageState(int pageNumber, String status, int attempts, List<String> findings) {
-        this(pageNumber, status, attempts, findings, null, null);
+        this(pageNumber, status, attempts, findings, null, null, null, java.util.Map.of());
     }
 
     public PreprocessingPageState(int pageNumber, String status, int attempts, List<String> findings,
             LayoutReview layoutReview) {
-        this(pageNumber, status, attempts, findings, layoutReview, null);
+        this(pageNumber, status, attempts, findings, layoutReview, null, null, java.util.Map.of());
+    }
+
+    public PreprocessingPageState(int pageNumber, String status, int attempts, List<String> findings,
+            LayoutReview layoutReview, LayoutConfirmation layoutConfirmation) {
+        this(pageNumber, status, attempts, findings, layoutReview, layoutConfirmation, null, java.util.Map.of());
     }
 
     public record LayoutConfirmation(String adminId, String candidateVersion, java.util.Map<String, Integer> selections) {

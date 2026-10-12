@@ -81,6 +81,58 @@ def test_mixed_page_keeps_native_and_adds_targeted_ocr(tmp_path):
     assert next(block["text_confidence"] for block in page["blocks"] if block["extraction_method"] == "ocr") == .91
 
 
+def test_confirmed_form_is_preserved_but_excluded_from_chunks(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    class NativePages:
+        def extract(self, _source):
+            return [
+                {"page_number": 1, "geometry": {"width": 100, "height": 100},
+                 "blocks": [
+                     {"block_id": "label", "text": "Strength", "bbox": (10, 10, 40, 20)},
+                     {"block_id": "field", "text": "Field", "bbox": (50, 10, 90, 20)},
+                 ], "page_classification": "form", "form_diagnostics": {
+                     "drawing_count": 180, "aligned_line_count": 466,
+                     "long_horizontal_line_count": 154, "text_line_count": 15}},
+                {"page_number": 2, "geometry": {"width": 100, "height": 100},
+                 "blocks": [{"block_id": "rule", "text": "A validated rule. " * 120, "bbox": (10, 70, 90, 80)}]},
+            ]
+
+    result = ExtractionApplicationService(NativePages(), Render(), None).preprocess(request(tmp_path, "form"))
+
+    form_page = result["pages"][0]
+    assert result["status"] == "READY"
+    assert form_page["status"] == "EXCLUDED_FORM"
+    assert form_page["page_classification"] == "form"
+    assert form_page["form_diagnostics"]["drawing_count"] == 180
+    assert "chunks" in result["artifacts"]
+    version = json.loads((tmp_path / "form" / "versions" / result["version_id"] / "version.json").read_text())
+    assert version["page_count"] == 2
+    assert version["excluded_form_pages"] == [1]
+    assert version["pages"][0]["blocks"][0]["block_id"] == "label"
+    manifest = json.loads(Path(result["artifacts"]["manifest"]["path"]).read_text())
+    assert manifest["statistics"]["pages"] == 2
+    assert manifest["page_statistics"] == {"count": 2, "excluded_form_pages": [1]}
+    chunks = [json.loads(line) for line in Path(result["artifacts"]["chunks"]["path"]).read_text().splitlines()]
+    assert chunks and all(span["page_number"] == 2 for chunk in chunks for span in chunk["source_spans"])
+    assert "dev_preprocessing_form stage=excluded pageNumber=1" in caplog.text
+    assert "actualExcludedFormCount=1 recoveryAction=preserve_source_skip_parser outcome=excluded" in caplog.text
+    assert "A validated rule" not in caplog.text
+
+
+def test_unverified_form_classification_stays_needs_review(tmp_path):
+    result = ExtractionApplicationService(Native([
+        {"block_id": "label", "text": "Strength", "bbox": (10, 10, 40, 20)},
+    ], page_classification="form", form_diagnostics={"drawing_count": 180,
+       "aligned_line_count": 466, "long_horizontal_line_count": 5, "text_line_count": 15}), Render(), None).preprocess(
+           request(tmp_path, "uncertain-form"))
+
+    assert result["status"] == "NEEDS_REVIEW"
+    assert result["pages"][0]["status"] == "NEEDS_REVIEW"
+    assert "FORM_CLASSIFICATION_UNVERIFIED" in result["pages"][0]["findings"]
+    assert "chunks" not in result["artifacts"]
+
+
 def test_weak_native_table_candidate_logs_counts_and_continues_layout(tmp_path, monkeypatch, caplog):
     monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
     caplog.set_level("INFO")

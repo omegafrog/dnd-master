@@ -189,11 +189,13 @@ class ProcessCliPreprocessingAdapterTest {
                 "source_sha256", sourceHash,
                 "source", Map.of("sha256", sourceHash),
                 "pipeline_version", "p1",
-                "policy", Map.of("version", "p1"));
+                "policy", Map.of("version", "p1"),
+                "statistics", Map.of("pages", 1),
+                "page_statistics", Map.of("count", 1, "excluded_form_pages", List.of()));
         Path manifestPath = work.resolve("manifest.json");
         Files.writeString(manifestPath, new ObjectMapper().writeValueAsString(manifest), StandardCharsets.UTF_8);
         files.put("manifest", Map.of("path", manifestPath.toString(), "sha256", sha256(manifestPath)));
-        Map<String, Object> version = Map.of("version_id", versionId, "source_sha256", sourceHash, "status", "READY", "page_count", 1);
+        Map<String, Object> version = Map.of("version_id", versionId, "source_sha256", sourceHash, "status", "READY", "page_count", 1, "excluded_form_pages", List.of());
         Path versionPath = work.resolve("version.json");
         Files.writeString(versionPath, new ObjectMapper().writeValueAsString(version), StandardCharsets.UTF_8);
         files.put("version", Map.of("path", versionPath.toString(), "sha256", sha256(versionPath)));
@@ -201,7 +203,7 @@ class ProcessCliPreprocessingAdapterTest {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("schema_version", "1"); response.put("operation", operation); response.put("request_id", requestId);
         response.put("version_id", versionId); response.put("status", "READY"); response.put("pages", List.of(page));
-        response.put("page_summary", Map.of("count", 1, "processed", 1, "validated", 1, "needs_review", 0, "ready", 1));
+        response.put("page_summary", Map.of("count", 1, "processed", 1, "validated", 1, "excluded_forms", 0, "needs_review", 0, "ready", 1));
         response.put("artifacts", files); response.put("manifest_sha256", files.get("manifest"));
         Map<String, Object> refs = new LinkedHashMap<>((Map<String, Object>) files);
         refs.put("manifest_sha256", ((Map<String, Object>) files.get("manifest")).get("sha256"));

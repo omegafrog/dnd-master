@@ -11,12 +11,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.logging.Logger;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public final class RagExtractionPublicationService {
     private static final int EMBEDDING_BATCH_SIZE = 32;
     private static final int MAX_CHUNK_CHARACTERS = 6000;
+    private static final Logger LOGGER = Logger.getLogger(RagExtractionPublicationService.class.getName());
     private final RagExtractionPublicationRepository repository;
     private final EmbeddingPort embeddingPort;
     private final String embeddingModel;
@@ -37,9 +39,15 @@ public final class RagExtractionPublicationService {
     public RagExtractionVersion publish(RagExtractionPublicationRequest request) {
         Objects.requireNonNull(request, "request must not be null");
         final RagExtractionPublicationRequest effectiveRequest = request.withEmbeddingModel(embeddingModel);
+        log("dev_rag_extraction_publication stage=start pageCount=" + effectiveRequest.pages().size()
+                + " chunkCount=" + effectiveRequest.chunks().size() + " outcome=started");
         repository.beginCandidate(effectiveRequest);
         try {
             validatePages(effectiveRequest);
+            log("dev_rag_extraction_publication stage=page_validation pageCount=" + effectiveRequest.pages().size()
+                    + " excludedFormPageCount=" + effectiveRequest.pages().stream()
+                        .filter(page -> "EXCLUDED_FORM".equals(page.status())).count()
+                    + " chunkCount=" + effectiveRequest.chunks().size() + " outcome=accepted");
             List<RulebookChunk> embeddingInputs = effectiveRequest.chunks().stream()
                     .map(chunk -> toRulebookChunk(effectiveRequest.documentId(), effectiveRequest.extractionVersion(), chunk))
                     .toList();
@@ -72,11 +80,20 @@ public final class RagExtractionPublicationService {
                 throw new IllegalStateException("embedding result references unknown chunk");
             }
             repository.publish(effectiveRequest, publishedChunks);
+            log("dev_rag_extraction_publication stage=complete pageCount=" + effectiveRequest.pages().size()
+                    + " excludedFormPageCount=" + effectiveRequest.pages().stream()
+                        .filter(page -> "EXCLUDED_FORM".equals(page.status())).count()
+                    + " chunkCount=" + publishedChunks.size() + " outcome=published");
             return new RagExtractionVersion(effectiveRequest.documentId(), effectiveRequest.extractionVersion(), ExtractionPublicationStatus.INDEXED);
         } catch (PublicationBlockedException exception) {
+            log("dev_rag_extraction_publication stage=page_validation failureCode=PUBLICATION_BLOCKED"
+                    + " expectedAllowedStatuses=VALIDATED,EXCLUDED_FORM actualPageCount=" + effectiveRequest.pages().size()
+                    + " recoveryAction=retain_candidate_and_require_review outcome=blocked");
             repository.fail(effectiveRequest, ExtractionPublicationStatus.NEEDS_REVIEW, "PUBLICATION_BLOCKED");
             throw exception;
         } catch (RuntimeException exception) {
+            log("dev_rag_extraction_publication stage=failed failureType=" + exception.getClass().getSimpleName()
+                    + " recoveryAction=mark_candidate_failed outcome=failed");
             repository.fail(effectiveRequest, ExtractionPublicationStatus.FAILED, "VECTOR_PUBLICATION_FAILED");
             throw new PublicationFailedException(exception);
         }
@@ -84,9 +101,16 @@ public final class RagExtractionPublicationService {
 
     private static void validatePages(RagExtractionPublicationRequest request) {
         Set<Integer> pageNumbers = new HashSet<>();
+        Map<Integer, String> statusByPage = new java.util.HashMap<>();
         for (RagExtractionPage page : request.pages()) {
             if (!pageNumbers.add(page.pageNumber())) throw new PublicationBlockedException("duplicate extraction page");
-            if (!"VALIDATED".equals(page.status())) throw new PublicationBlockedException("extraction version has an unvalidated page");
+            statusByPage.put(page.pageNumber(), page.status());
+            if (!"VALIDATED".equals(page.status()) && !"EXCLUDED_FORM".equals(page.status())) {
+                throw new PublicationBlockedException("extraction version has an unvalidated page");
+            }
+        }
+        for (int page = 1; page <= pageNumbers.size(); page++) {
+            if (!pageNumbers.contains(page)) throw new PublicationBlockedException("extraction page manifest is incomplete");
         }
         for (PublishedRagChunk chunk : request.chunks()) {
             if (chunk.content().codePointCount(0, chunk.content().length()) > MAX_CHUNK_CHARACTERS
@@ -94,7 +118,17 @@ public final class RagExtractionPublicationService {
                 throw new PublicationBlockedException("chunk exceeds maximum character length");
             }
             if (!pageNumbers.contains(chunk.provenance().pageNumber())) throw new PublicationBlockedException("chunk page is not in extraction manifest");
+            if ("EXCLUDED_FORM".equals(statusByPage.get(chunk.provenance().pageNumber()))
+                    || chunk.provenance().sourceSpans().stream()
+                        .anyMatch(span -> "EXCLUDED_FORM".equals(statusByPage.get(span.pageNumber())))) {
+                throw new PublicationBlockedException("chunk references an excluded form page");
+            }
         }
+    }
+
+    private static void log(String message) {
+        if (Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")))) LOGGER.info(message);
     }
 
     private static RulebookChunk toRulebookChunk(com.dndmaster.ruleknowledge.domain.rulebook.RulebookId documentId,

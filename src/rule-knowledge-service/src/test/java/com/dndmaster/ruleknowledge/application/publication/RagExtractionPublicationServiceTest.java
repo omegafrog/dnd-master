@@ -32,6 +32,35 @@ class RagExtractionPublicationServiceTest {
     }
 
     @Test
+    void publishesValidatedPagesAndExplicitlyExcludedForms() {
+        RecordingRepository repository = new RecordingRepository();
+        RagExtractionPublicationService service = service(repository, (chunks, model, dimension) -> embeddings(chunks));
+
+        RagExtractionVersion published = service.publish(request(List.of(
+                new RagExtractionPage(1, "VALIDATED", 1, List.of()),
+                new RagExtractionPage(2, "EXCLUDED_FORM", 1, List.of(), "form", formEvidence()))));
+
+        assertEquals(ExtractionPublicationStatus.INDEXED, published.status());
+        assertEquals(1, repository.publishCalls);
+    }
+
+    @Test
+    void rejectsChunksWithAnySourceSpanOnAnExcludedForm() {
+        RecordingRepository repository = new RecordingRepository();
+        RagExtractionPublicationService service = service(repository, (chunks, model, dimension) -> {
+            throw new AssertionError("embedding must not be called for a chunk sourced from an excluded form");
+        });
+        PublishedRagChunk formChunk = new PublishedRagChunk("processor-chunk-1", 0, "Form text", "Form text",
+                new SourceProvenance(1, List.of(), List.of(), null, "page=1", List.of(
+                        new SourceProvenance.SourceSpan(1, null, null, null, null, null, List.of(), null, null))));
+
+        assertThrows(PublicationBlockedException.class, () -> service.publish(request(List.of(
+                new RagExtractionPage(1, "EXCLUDED_FORM", 1, List.of(), "form", formEvidence()),
+                new RagExtractionPage(2, "VALIDATED", 1, List.of())), List.of(formChunk))));
+        assertEquals(0, repository.publishCalls);
+    }
+
+    @Test
     void oversizedChunkIsRejectedBeforeEmbeddingOrPublication() {
         RecordingRepository repository = new RecordingRepository();
         RagExtractionPublicationService service = service(repository, (chunks, model, dimension) -> {
@@ -130,6 +159,11 @@ class RagExtractionPublicationServiceTest {
         return chunks.stream()
                 .map(chunk -> new ChunkEmbedding(chunk.chunkId(), new float[] {1f, 0f, 0f}))
                 .toList();
+    }
+
+    private static java.util.Map<String, Integer> formEvidence() {
+        return java.util.Map.of("drawing_count", 180, "aligned_line_count", 466,
+                "long_horizontal_line_count", 154, "text_line_count", 15);
     }
 
     private static final class RecordingRepository implements RagExtractionPublicationRepository {

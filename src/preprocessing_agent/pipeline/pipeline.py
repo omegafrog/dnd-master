@@ -80,9 +80,14 @@ class PreprocessingPipeline:
         chunks, _ = prepare_export_chunks(chunks, invalid_chunk_ids=invalid_chunk_ids)
         validation = validate_chunks(chunks, document=document, policy=self.validation_policy)
         issues = validation.issues
+        source_page_count = document.metadata.get("source_page_count", len(document.pages))
+        if type(source_page_count) is not int or source_page_count < len(document.pages):
+            raise ValueError("invalid source page count")
+        excluded_form_pages = document.metadata.get("excluded_form_pages", ())
         manifest = ArtifactExporter().export(
             self.output_dir, source_path, document.source_text, chunks, issues, tree,
-            page_count=len(document.pages), profile=self.config.name, policy=self.policy,
+            page_count=source_page_count, excluded_form_pages=excluded_form_pages,
+            profile=self.config.name, policy=self.policy,
             pipeline_version=self.config.pipeline_version, invalid_chunk_ids=invalid_chunk_ids,
         )
         return PipelineResult(source_path, document, tree, chunks, validation, issues, manifest)

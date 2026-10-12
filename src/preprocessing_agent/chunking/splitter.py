@@ -204,14 +204,21 @@ class ChunkSplitter:
         ranges: list[tuple[SourceSegment, int, int]] = []
         cursor = 0
         for segment in segments:
-            if not candidate.source_text.startswith(segment.source_text, cursor):
-                return (), "source segment mapping unavailable"
-            segment_start = cursor
-            cursor += len(segment.source_text)
+            if candidate.content_type is ContentType.TABLE:
+                # Table serialization inserts cell and row separators that are
+                # not part of any source cell's text.
+                segment_start = candidate.source_text.find(segment.source_text, cursor)
+                if segment_start < 0:
+                    return (), "source segment mapping unavailable"
+            else:
+                if not candidate.source_text.startswith(segment.source_text, cursor):
+                    return (), "source segment mapping unavailable"
+                segment_start = cursor
+            cursor = segment_start + len(segment.source_text)
             ranges.append((segment, segment_start, cursor))
-            if cursor < len(candidate.source_text) and candidate.source_text.startswith("\n\n", cursor):
+            if candidate.content_type is not ContentType.TABLE and cursor < len(candidate.source_text) and candidate.source_text.startswith("\n\n", cursor):
                 cursor += 2
-        if cursor != len(candidate.source_text):
+        if candidate.content_type is not ContentType.TABLE and cursor != len(candidate.source_text):
             return (), "source segment mapping unavailable"
 
         spans = tuple(self._clip_span(segment.source_span, max(start, left), min(end, right), left)

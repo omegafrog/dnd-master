@@ -88,6 +88,7 @@ class ParsedBlock:
     font_weight: str | None = None
     extraction_method: str = "native"
     text_confidence: float = 1.0
+    line_boxes: tuple[tuple[float, float, float, float], ...] = ()
 
     def __post_init__(self) -> None:
         if not self.block_id:
@@ -96,6 +97,8 @@ class ParsedBlock:
             raise ValueError("source_text is required")
         if self.bbox is not None and len(self.bbox) != 4:
             raise ValueError("bbox must contain four coordinates")
+        if any(len(box) != 4 for box in self.line_boxes):
+            raise ValueError("line boxes must contain four coordinates")
         if self.extraction_method not in {"native", "ocr", "hybrid"}:
             raise ValueError("unsupported extraction method")
         if not 0 <= self.text_confidence <= 1:
@@ -115,7 +118,7 @@ class ParsedPage:
     def __post_init__(self) -> None:
         if self.page_number < 1:
             raise ValueError("page_number must be positive")
-        if self.page_classification not in {"text-native", "image-only", "mixed", "ambiguous"}:
+        if self.page_classification not in {"text-native", "image-only", "mixed", "ambiguous", "form"}:
             raise ValueError("unsupported page classification")
 
 

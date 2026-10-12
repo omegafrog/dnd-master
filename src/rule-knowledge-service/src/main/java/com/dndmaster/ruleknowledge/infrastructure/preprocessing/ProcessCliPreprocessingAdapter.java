@@ -230,6 +230,16 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
                 || versionArtifact.path("page_count").asInt(-1) != pages.size()) {
             throw new PreprocessingProcessException("VERSION_MANIFEST_MISMATCH");
         }
+        List<Integer> excludedFormPages = pages.stream().filter(page -> "EXCLUDED_FORM".equals(page.status()))
+                .map(PreprocessingPageState::pageNumber).toList();
+        JsonNode artifactExcludedPages = versionArtifact.path("excluded_form_pages");
+        JsonNode manifestPageStatistics = manifest.path("page_statistics");
+        if (!matchesPageNumbers(artifactExcludedPages, excludedFormPages)
+                || !matchesPageNumbers(manifestPageStatistics.path("excluded_form_pages"), excludedFormPages)
+                || manifestPageStatistics.path("count").asInt(-1) != pages.size()
+                || manifest.path("statistics").path("pages").asInt(-1) != pages.size()) {
+            throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
+        }
         if (!response.path("manifest").equals(manifest)) {
             throw new PreprocessingProcessException("ARTIFACT_MANIFEST_MISMATCH");
         }
@@ -266,11 +276,38 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
                 }
                 findings.add(item.asText());
             });
-            pages.add(new PreprocessingPageState(number, page.path("status").asText(""), attempts, findings,
-                    parseLayoutReview(page.path("layout_review")), parseLayoutConfirmation(page.path("layout_confirmation"))));
+            String status = page.path("status").asText("");
+            if (!List.of("VALIDATED", "EXCLUDED_FORM", "NEEDS_REVIEW").contains(status)) {
+                throw new PreprocessingProcessException("PAGE_DIAGNOSTIC_MISMATCH");
+            }
+            pages.add(new PreprocessingPageState(number, status, attempts, findings,
+                    parseLayoutReview(page.path("layout_review")), parseLayoutConfirmation(page.path("layout_confirmation")),
+                    page.path("page_classification").isTextual() ? page.path("page_classification").asText() : null,
+                    parseFormDiagnostics(page.path("form_diagnostics"))));
             expectedNumber++;
         }
         return List.copyOf(pages);
+    }
+
+    private static java.util.Map<String, Integer> parseFormDiagnostics(JsonNode node) {
+        if (!node.isObject()) return java.util.Map.of();
+        java.util.Map<String, Integer> diagnostics = new java.util.HashMap<>();
+        for (String name : List.of("drawing_count", "aligned_line_count", "long_horizontal_line_count", "text_line_count")) {
+            JsonNode value = node.path(name);
+            if (!value.isIntegralNumber() || !value.canConvertToInt() || value.asInt() < 0) {
+                throw new PreprocessingProcessException("PAGE_DIAGNOSTIC_MISMATCH");
+            }
+            diagnostics.put(name, value.asInt());
+        }
+        return java.util.Map.copyOf(diagnostics);
+    }
+
+    private static boolean matchesPageNumbers(JsonNode node, List<Integer> expected) {
+        if (!node.isArray() || node.size() != expected.size()) return false;
+        for (int index = 0; index < expected.size(); index++) {
+            if (!node.get(index).isIntegralNumber() || node.get(index).asInt() != expected.get(index)) return false;
+        }
+        return true;
     }
 
     private PreprocessingPageState.LayoutConfirmation parseLayoutConfirmation(JsonNode node) {
@@ -332,10 +369,12 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
             throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
         }
         long validated = pages.stream().filter(page -> "VALIDATED".equals(page.status())).count();
+        long excludedForms = pages.stream().filter(page -> "EXCLUDED_FORM".equals(page.status())).count();
         long review = pages.stream().filter(page -> "NEEDS_REVIEW".equals(page.status())).count();
         if (summary.path("validated").asLong(-1) != validated
+                || summary.path("excluded_forms").asLong(-1) != excludedForms
                 || summary.path("needs_review").asLong(-1) != review
-                || summary.path("ready").asLong(-1) != validated) {
+                || summary.path("ready").asLong(-1) != validated + excludedForms) {
             throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
         }
     }

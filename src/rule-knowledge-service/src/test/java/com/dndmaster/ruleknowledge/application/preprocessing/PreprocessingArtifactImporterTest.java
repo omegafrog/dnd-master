@@ -86,7 +86,26 @@ class PreprocessingArtifactImporterTest {
         assertEquals("p3-table-0", imported.getFirst().provenance().sourceSpans().get(1).tableId());
         assertEquals("r1:c2", imported.getFirst().provenance().sourceSpans().get(1).tableCell());
         assertTrue(logMessages.stream().anyMatch(message -> message.contains(
-                "stage=complete chunkCount=1 sourceSpanCount=2 maxTokenCount=2 maxContentCharacters=6 metadataFields=content_type,token_count,canonical_key")));
+                "stage=complete chunkCount=1 excludedFormPageCount=0 sourceSpanCount=2 maxTokenCount=2 maxContentCharacters=6 metadataFields=content_type,token_count,canonical_key")));
+    }
+
+    @Test
+    void rejectsChunkWhoseSourceSpanPointsToAnExcludedFormPage() throws Exception {
+        Path root = Files.createTempDirectory("rag-form-import-");
+        Path chunks = root.resolve("chunks.jsonl");
+        Files.writeString(chunks,
+                "{\"chunk_id\":\"chunk-1\",\"canonical_key\":\"form.field\",\"content_type\":\"rule\",\"token_count\":1,\"source_text\":\"Strength\",\"embedding_text\":\"Strength\",\"source_spans\":[{\"page_number\":1}]}\n");
+        PreprocessingPageState excluded = new PreprocessingPageState(1, "EXCLUDED_FORM", 1, List.of(), null, null,
+                "form", Map.of("drawing_count", 180, "aligned_line_count", 466,
+                        "long_horizontal_line_count", 154, "text_line_count", 15));
+        PreprocessingRunResult result = new PreprocessingRunResult("retry-1", "candidate-2", "READY",
+                "a".repeat(64), "rag-preprocessing-v1", List.of(excluded),
+                new PreprocessingArtifactManifest("b".repeat(64), Map.of("chunks", java.util.HexFormat.of()
+                        .formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(chunks)))),
+                        Map.of("chunks", chunks)));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new PreprocessingArtifactImporter(new ObjectMapper()).readChunks(result));
     }
 
     @Test

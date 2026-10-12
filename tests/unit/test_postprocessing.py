@@ -77,3 +77,23 @@ def test_actual_basic_rules_footer_with_photocopy_is_removed():
     assert "Permission granted to print and photocopy this document" not in processed.embedding_text
     assert "before the page artifact" in processed.embedding_text
     assert "after the page artifact" in processed.embedding_text
+
+
+def test_postprocessing_preserves_table_rows_matching_repeated_page_boundaries(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    table_source = "1 | +1 |\n2 | +2 |\n3 | +3 |"
+    table = make_chunk(table_source, "ability-table", ContentType.TABLE)
+    boundary_chunks = (
+        make_chunk("1 | +1 |\nRule A", "rule-a"),
+        make_chunk("Rule B\n1 | +1 |", "rule-b"),
+    )
+
+    processed = postprocess_chunks((*boundary_chunks, table))[-1]
+
+    assert processed.source_text == table_source
+    assert processed.embedding_text == table_source
+    assert processed.token_count == len(table_source.split())
+    assert processed.token_count > 0
+    assert processed.source_spans == table.source_spans
+    assert "dev_chunk_postprocess stage=preserve_table_embedding chunkId=chk-ability-table sourceCharacters=26 embeddingCharacters=26 tokenCount=12 repeatedBoundaryCleanup=skipped outcome=success" in caplog.text

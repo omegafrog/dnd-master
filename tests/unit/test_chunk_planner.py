@@ -53,7 +53,7 @@ def test_planner_bounds_long_canonical_keys_with_stable_semantic_suffix():
 def test_planner_preserves_table_row_and_column_relationships(monkeypatch, caplog):
     monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
     caplog.set_level("INFO")
-    blocks = tuple(ParsedBlock(f"b{i}", text, SourceSpan(1, i)) for i, text in enumerate(("Name", "Value", "Dex", "12")))
+    blocks = tuple(ParsedBlock(f"b{i}", text, SourceSpan(1, i, bbox=(i % 2 * 20, i // 2 * 20, i % 2 * 20 + 10, i // 2 * 20 + 10), table_id="t1", table_cell=f"r{i // 2}:c{i % 2}")) for i, text in enumerate(("Name", "Value", "Dex", "12")))
     cells = tuple(TableCell(f"b{i}", i // 2, i % 2, block.source_text, BoundingBox(i % 2 * 20, i // 2 * 20, i % 2 * 20 + 10, i // 2 * 20 + 10), source_block_ids=(block.block_id,)) for i, block in enumerate(blocks))
     header = TableRow(0, cells[:2], True)
     data = TableRow(1, cells[2:])
@@ -69,6 +69,8 @@ def test_planner_preserves_table_row_and_column_relationships(monkeypatch, caplo
     chunk = ChunkAssembler(ChunkSplitter(ChunkPolicy())).assemble(candidates)[0]
     assert chunk.source_text == "Name | Value\nDex | 12"
     assert chunk.source_spans == candidates[0].source_spans
+    assert tuple(span.table_cell for span in chunk.source_spans) == tuple(f"r{i // 2}:c{i % 2}" for i in range(4))
+    assert "stage=table_source_mapping documentId=doc pageNumber=1 tableId=t1 expectedMappedCellCount=4 actualMappedCellCount=4 actualSourceSpanCount=4 outcome=success" in caplog.text
     assert "dev_chunk_planner stage=complete documentId=doc" in caplog.text
     assert "tableCount=1 candidateCount=1" in caplog.text
 
@@ -99,5 +101,21 @@ def test_planner_logs_table_skip_when_source_spans_are_missing(monkeypatch, capl
 
     assert candidates == ()
     assert "stage=skip_table documentId=doc pageNumber=1 tableId=t-missing" in caplog.text
-    assert "expectedCellCount=1 actualSerializedCellCount=1 actualSourceSpanCount=0" in caplog.text
+    assert "expectedCellCount=1 actualSerializedCellCount=1 expectedMappedCellCount=1 actualMappedCellCount=0 actualSourceSpanCount=0" in caplog.text
     assert "skipReason=no_source_spans recoveryAction=skip_table outcome=skipped" in caplog.text
+
+
+def test_planner_skips_table_when_cell_text_cannot_be_mapped_to_its_source(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    block = ParsedBlock("b1", "Other", SourceSpan(1, 0, table_id="t1", table_cell="r0:c0"))
+    cell = TableCell("b1", 0, 0, "Name", BoundingBox(0, 0, 10, 10), source_block_ids=("b1",))
+    table = TableStructure("t1", BoundingBox(0, 0, 10, 10), (TableRow(0, (cell,), True),), (), (cell,))
+    page = ParsedPage(1, (block,), "Other", tables=(table,))
+    section = SectionNode("s1", "Attributes", 1, ContentType.RULE, block_ids=("b1",))
+
+    candidates = ChunkPlanner().plan(DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.NARRATIVE, children=(section,))), ParsedDocument("doc", "rules.pdf", page.source_text, (page,)))
+
+    assert candidates == ()
+    assert "expectedMappedCellCount=1 actualMappedCellCount=0" in caplog.text
+    assert "skipReason=unmapped_cell_source_text recoveryAction=skip_table outcome=skipped" in caplog.text

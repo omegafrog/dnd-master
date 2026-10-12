@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 from preprocessing_agent.domain import ParsedBlock, ParsedDocument, ParsedPage, SourceSpan, ReadingOrderPlan, from_dict, schema_path, validate_json
 from preprocessing_agent.layout import ReadingOrderPlanner
+from preprocessing_agent.layout.page_classification import form_geometry_counts, is_form_like
 from preprocessing_agent.domain.serialization import to_dict
 from .base import ParserError
 from .normalize import normalize_text
@@ -43,9 +44,25 @@ class PdfDocumentParser:
         pages: list[ParsedPage] = []
         layout_diagnostics: list[dict[str, Any]] = []
         document_parts: list[str] = []
+        excluded_form_pages: list[int] = []
+        excluded_form_evidence: list[dict[str, Any]] = []
         for page_position, raw_page in enumerate(raw_pages, start=1):
             page_started = time.monotonic()
             page_number = int(raw_page.get("page_number", page_position))
+            form_diagnostics = raw_page.get("form_diagnostics")
+            required_form_counts = {"drawing_count", "aligned_line_count", "long_horizontal_line_count", "text_line_count"}
+            if (raw_page.get("page_classification") == "form" and isinstance(form_diagnostics, Mapping)
+                    and required_form_counts <= form_diagnostics.keys()
+                    and all(type(form_diagnostics[key]) is int and form_diagnostics[key] >= 0
+                            for key in required_form_counts)
+                    and is_form_like(**{key: form_diagnostics[key] for key in required_form_counts})):
+                excluded_form_pages.append(page_number)
+                excluded_form_evidence.append({"page_number": page_number, "page_classification": "form",
+                                               "form_diagnostics": {key: form_diagnostics[key]
+                                                                    for key in sorted(required_form_counts)}})
+                _layout_log("dev_preprocessing_form stage=parser_exclusion pageNumber=%d expectedFormEvidenceFields=4 actualFormEvidenceFields=%d route=skip_page_chunks outcome=excluded",
+                            page_number, len(form_diagnostics.keys()))
+                continue
             # Keep source identity stable across geometric projection. The
             # ordinal is provenance, not a reading-order signal.
             source_blocks = _deduplicate_blocks(tuple(
@@ -63,8 +80,10 @@ class PdfDocumentParser:
                              len(plan.ordered_block_ids), len(plan.furniture_block_ids),
                              round((time.monotonic() - page_started) * 1000))
             else:
-                plan = None if missing_geometry else ReadingOrderPlanner().plan(
-                    source_blocks, selections=self._layout_selections.get(page_number, {}))
+                plan = None if missing_geometry else (
+                    ReadingOrderPlanner().form_plan(source_blocks)
+                    if raw_page.get("page_classification") == "form" else
+                    ReadingOrderPlanner().plan(source_blocks, selections=self._layout_selections.get(page_number, {})))
                 _layout_log("dev_preprocessing_layout stage=plan_complete pageNumber=%d blockCount=%d tableSourceBlockCount=%d route=%s elapsedMs=%d outcome=%s",
                              page_number, len(source_blocks), sum(_is_table_block(block) for block in source_blocks),
                              "recomputed" if plan is not None else "missing_geometry",
@@ -111,6 +130,9 @@ class PdfDocumentParser:
                     font_weight=_font_weight(raw_block),
                     extraction_method=str(raw_block.get("extraction_method", "native")),
                     text_confidence=float(raw_block.get("text_confidence", raw_block.get("confidence", 1.0))),
+                    line_boxes=tuple(tuple(float(value) for value in line["bbox"])
+                                     for line in raw_block.get("lines", ())
+                                     if isinstance(line, Mapping) and len(line.get("bbox", ())) == 4),
                 )
                 blocks.append(block)
                 page_parts.append(text)
@@ -126,7 +148,9 @@ class PdfDocumentParser:
             document_parts.append(page_text)
         source_text = normalize_text("\n".join(document_parts))
         document_id = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
-        metadata = {"format": "pdf"}
+        metadata = {"format": "pdf", "source_page_count": len(raw_pages),
+                    "excluded_form_pages": excluded_form_pages,
+                    "excluded_form_evidence": excluded_form_evidence}
         if layout_diagnostics:
             metadata["layout_diagnostics"] = layout_diagnostics
         return ParsedDocument(document_id, str(source), source_text, tuple(pages), metadata)
@@ -258,7 +282,11 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
                     continue
                 first = spans[0] if spans else {}
                 blocks.append({"text": text, "bbox": block.get("bbox"), "font_size": first.get("size"), "font": first.get("font"),
-                               "spans": [{"text": span.get("text", ""), "bbox": span.get("bbox")} for span in spans]})
+                               "spans": [{"text": span.get("text", ""), "bbox": span.get("bbox")} for span in spans],
+                               "lines": [{"bbox": line.get("bbox")} for line in lines if line.get("bbox") is not None]})
+            text_line_count = sum(len(block.get("lines", ())) for block in blocks)
+            form_diagnostics = form_geometry_counts(page.get_drawings(), text_line_count)
+            page_classification = "form" if is_form_like(**form_diagnostics) else "text-native"
             # Preserve native table structure when the installed PyMuPDF
             # exposes find_tables(); unsupported versions simply yield no
             # table cells and retain the normal text extraction path.
@@ -285,7 +313,9 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
                                    "table_id": table_id})
             if table_regions:
                 blocks = [block for block in blocks if block.get("kind") == "table_cell" or not _inside_table_region(block.get("bbox"), table_regions)]
-            yield {"page_number": page_number, "blocks": blocks}
+            yield {"page_number": page_number, "blocks": blocks,
+                   "page_classification": page_classification,
+                   "form_diagnostics": form_diagnostics}
 
 
 def _find_native_tables(page: Any, page_number: int) -> list[tuple[Any, str]]:

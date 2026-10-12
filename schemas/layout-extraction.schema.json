@@ -38,7 +38,7 @@
     "profile": {
       "type": "object", "additionalProperties": false,
       "required": ["region_id", "candidates", "selected", "confidence", "ambiguous", "findings"],
-      "properties": {"region_id": {"type": "string"}, "candidates": {"type": "array", "items": {"$ref": "#/$defs/hypothesis"}}, "selected": {"anyOf": [{"$ref": "#/$defs/hypothesis"}, {"type": "null"}]}, "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "ambiguous": {"type": "boolean"}, "findings": {"type": "array", "items": {"type": "string"}}}
+      "properties": {"region_id": {"type": "string"}, "candidates": {"type": "array", "items": {"$ref": "#/$defs/hypothesis"}}, "selected": {"anyOf": [{"$ref": "#/$defs/hypothesis"}, {"type": "null"}]}, "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "ambiguous": {"type": "boolean"}, "findings": {"type": "array", "items": {"type": "string"}}, "evidence": {"type": ["object", "null"], "additionalProperties": false, "properties": {"block_count": {"type": "integer", "minimum": 0}, "line_count": {"type": "integer", "minimum": 0}, "support_band_count": {"type": "integer", "minimum": 0}}}}
     }
   }
 }

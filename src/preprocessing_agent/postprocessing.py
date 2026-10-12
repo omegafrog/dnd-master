@@ -7,11 +7,13 @@ authoritative provenance contract.
 from __future__ import annotations
 
 import re
+import logging
+import os
 from collections import Counter
 from dataclasses import replace
 from typing import Iterable
 
-from preprocessing_agent.domain import Chunk
+from preprocessing_agent.domain import Chunk, ContentType
 from preprocessing_agent.utils.tokens import count_tokens
 
 
@@ -26,6 +28,7 @@ _BASIC_RULES_FOOTER = re.compile(
     r"this\s+document\s+for\s+personal\s+use\s+only\s*\.?",
     re.IGNORECASE,
 )
+_LOGGER = logging.getLogger(__name__)
 
 
 def _normalize_embedding_text(text: str) -> str:
@@ -46,6 +49,8 @@ def _boundary_signature(line: str) -> str:
 def _repeated_boundary_lines(chunks: tuple[Chunk, ...]) -> frozenset[str]:
     counts: Counter[str] = Counter()
     for chunk in chunks:
+        if chunk.content_type is ContentType.TABLE:
+            continue
         lines = [line.strip() for line in chunk.source_text.splitlines() if line.strip()]
         for line in {lines[0], lines[-1]} if lines else ():
             counts[_boundary_signature(line)] += 1
@@ -70,8 +75,18 @@ def postprocess_chunks(chunks: Iterable[Chunk]) -> tuple[Chunk, ...]:
     repeated = _repeated_boundary_lines(items)
     result = []
     for chunk in items:
+        cleanup_source = chunk.source_text if chunk.content_type is ContentType.TABLE else _remove_repeated_noise(chunk.source_text, repeated)
         embedding_text = _normalize_embedding_text(
-            _remove_repeated_noise(chunk.source_text, repeated)
+            cleanup_source
         )
-        result.append(replace(chunk, embedding_text=embedding_text, token_count=count_tokens(embedding_text)))
+        token_count = count_tokens(embedding_text)
+        result.append(replace(chunk, embedding_text=embedding_text, token_count=token_count))
+        if chunk.content_type is ContentType.TABLE and _diagnostics_enabled():
+            _LOGGER.info("dev_chunk_postprocess stage=preserve_table_embedding chunkId=%s sourceCharacters=%d embeddingCharacters=%d tokenCount=%d repeatedBoundaryCleanup=skipped outcome=%s",
+                         chunk.chunk_id, len(chunk.source_text), len(embedding_text), token_count,
+                         "success" if embedding_text.strip() and token_count > 0 else "empty")
     return tuple(result)
+
+
+def _diagnostics_enabled() -> bool:
+    return os.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "").lower() in {"1", "true", "yes", "on"}

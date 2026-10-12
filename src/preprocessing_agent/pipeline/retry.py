@@ -33,6 +33,7 @@ class PageRetryPolicy:
     MAX_ADDITIONAL_ATTEMPTS = 2
     _MAPPING = {
         "AMBIGUOUS_COLUMNS": "alternate-column-hypothesis",
+        "INSUFFICIENT_COLUMN_SUPPORT": "alternate-column-hypothesis",
         "AMBIGUOUS_COLUMN": "alternate-column-hypothesis",
         "LOW_CONFIDENCE_COLUMNS": "alternate-column-hypothesis",
         "IRREGULAR_TABLE": "table-region-resplit",

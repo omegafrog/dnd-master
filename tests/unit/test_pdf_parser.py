@@ -5,6 +5,24 @@ from preprocessing_agent.parsers.pdf import PdfDocumentParser, _classify_text_de
 from preprocessing_agent.structure import TableStructureDetector
 
 
+def test_parser_excludes_only_geometry_confirmed_forms_and_records_original_page_numbers(tmp_path):
+    pages = [
+        {"page_number": 1, "page_classification": "form", "form_diagnostics": {
+            "drawing_count": 180, "aligned_line_count": 466,
+            "long_horizontal_line_count": 154, "text_line_count": 15},
+         "blocks": [{"block_id": "field", "text": "Strength", "bbox": (10, 10, 40, 20)}]},
+        {"page_number": 2, "blocks": [{"block_id": "rule", "text": "Rule text", "bbox": (10, 10, 90, 20)}]},
+    ]
+
+    document = PdfDocumentParser(extractor=lambda _source: pages).parse(tmp_path / "source.pdf")
+
+    assert [page.page_number for page in document.pages] == [2]
+    assert document.source_text == "Rule text"
+    assert document.metadata["source_page_count"] == 2
+    assert document.metadata["excluded_form_pages"] == (1,)
+    assert document.metadata["excluded_form_evidence"][0]["form_diagnostics"]["drawing_count"] == 180
+
+
 def test_pymupdf_native_table_cells_are_projected_when_supported(tmp_path):
     fitz = __import__("pytest").importorskip("fitz")
     document = fitz.open()
@@ -369,6 +387,31 @@ def test_pdf_parser_orders_strong_two_column_page_left_to_right():
     assert [block.source_span.block_index for block in page.blocks] == [0, 1, 2, 3, 4]
     assert page.blocks[0].bbox == (54.0, 100.0, 280.0, 140.0)
     assert parsed.source_text == "Left top\nLeft bottom\nRight top\nRight bottom\nFooter"
+
+
+def test_pdf_parser_preserves_line_boxes_as_analysis_metadata():
+    source_lines = [{"bbox": [10, y, 40, y + 8]} for y in (10, 20, 30)]
+    parsed = PdfDocumentParser(lambda _: [{"page_number": 1, "blocks": [{
+        "block_id": "paragraph", "text": "Original paragraph text", "bbox": [10, 10, 40, 38],
+        "lines": source_lines,
+    }]}]).parse(Path("fixture.pdf"))
+
+    block = parsed.pages[0].blocks[0]
+    assert block.source_text == "Original paragraph text"
+    assert block.line_boxes == ((10.0, 10.0, 40.0, 18.0), (10.0, 20.0, 40.0, 28.0),
+                                (10.0, 30.0, 40.0, 38.0))
+
+
+def test_form_page_uses_geometric_order_without_prose_column_profiles():
+    parsed = PdfDocumentParser(lambda _: [{"page_number": 1, "page_classification": "form", "blocks": [
+        {"block_id": "right", "text": "Field", "bbox": [60, 10, 90, 20]},
+        {"block_id": "left", "text": "Label", "bbox": [10, 10, 40, 20]},
+    ]}]).parse(Path("fixture.pdf"))
+
+    page = parsed.pages[0]
+    assert page.page_classification == "form"
+    assert page.layout_plan.profiles == ()
+    assert [block.block_id for block in page.blocks] == ["left", "right"]
 
 
 def test_pdf_parser_keeps_single_column_table_like_page_order():

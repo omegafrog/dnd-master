@@ -36,6 +36,9 @@ public final class PreprocessingArtifactImporter {
                 throw new IllegalArgumentException("CHUNK_ARTIFACT_MISSING");
             }
             List<PublishedRagChunk> chunks = new ArrayList<>();
+            Set<Integer> excludedFormPages = result.pages().stream()
+                    .filter(page -> "EXCLUDED_FORM".equals(page.status()))
+                    .map(PreprocessingPageState::pageNumber).collect(java.util.stream.Collectors.toSet());
             Set<String> ids = new HashSet<>();
             int sequence = 0;
             int sourceSpanCount = 0;
@@ -59,6 +62,9 @@ public final class PreprocessingArtifactImporter {
                 if (!spans.isArray() || spans.isEmpty()) throw new IllegalArgumentException("CHUNK_SOURCE_SPAN_MISSING");
                 List<SourceSpan> sourceSpans = new ArrayList<>(spans.size());
                 for (JsonNode span : spans) sourceSpans.add(readSourceSpan(span));
+                if (sourceSpans.stream().anyMatch(span -> excludedFormPages.contains(span.pageNumber()))) {
+                    throw new IllegalArgumentException("CHUNK_FROM_EXCLUDED_FORM");
+                }
                 sourceSpanCount += sourceSpans.size();
                 maxTokenCount = Math.max(maxTokenCount, tokenCount);
                 maxContentCharacters = Math.max(maxContentCharacters, content.length());
@@ -73,6 +79,7 @@ public final class PreprocessingArtifactImporter {
             }
             if (chunks.isEmpty()) throw new IllegalArgumentException("CHUNK_ARTIFACT_EMPTY");
             log("dev_preprocessing_artifact_import stage=complete chunkCount=" + chunks.size()
+                    + " excludedFormPageCount=" + excludedFormPages.size()
                     + " sourceSpanCount=" + sourceSpanCount + " maxTokenCount=" + maxTokenCount
                     + " maxContentCharacters=" + maxContentCharacters + " metadataFields=content_type,token_count,canonical_key"
                     + " elapsedMs=" + elapsedMs(started) + " outcome=completed");

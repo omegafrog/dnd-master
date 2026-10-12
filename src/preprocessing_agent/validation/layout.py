@@ -110,11 +110,21 @@ class LayoutValidationService:
             axes["text"] = min(axes["text"], max(0.0, min(1.0, confidence)))
         layout = page.get("layout", {})
         profiles = layout.get("profiles", ()) if isinstance(layout, Mapping) else ()
-        if layout.get("ambiguous", False) if isinstance(layout, Mapping) else False:
-            axes["columns"] = 0.0; findings.append(ValidationFinding("AMBIGUOUS_COLUMNS", "column hypothesis is ambiguous"))
-        if any(isinstance(profile, Mapping) and profile.get("ambiguous") for profile in profiles):
-            axes["columns"] = 0.0; findings.append(ValidationFinding("AMBIGUOUS_COLUMNS", "column profile is ambiguous"))
-        if profiles:
+        page_class = str(page.get("page_classification", "text-native"))
+        is_form = page_class == "form"
+        ambiguous_profiles = [profile for profile in profiles
+                              if isinstance(profile, Mapping) and profile.get("ambiguous")]
+        ambiguous_columns = bool((layout.get("ambiguous", False) if isinstance(layout, Mapping) else False)
+                                 or ambiguous_profiles)
+        if is_form:
+            findings.append(ValidationFinding("FORM_STRUCTURE_UNSUPPORTED", "form field structure is not supported; prose column checks were skipped"))
+        elif ambiguous_columns:
+            band_counts = [profile.get("evidence", {}).get("support_band_count")
+                           for profile in ambiguous_profiles if isinstance(profile.get("evidence"), Mapping)]
+            findings.append(ValidationFinding("INSUFFICIENT_COLUMN_SUPPORT",
+                f"column hypothesis requires independent vertical support bands; actual={band_counts or 'unavailable'} expected_at_least=2"))
+            axes["columns"] = 0.0
+        if profiles and not is_form:
             values = []
             for profile in profiles:
                 if not isinstance(profile, Mapping):
@@ -146,7 +156,6 @@ class LayoutValidationService:
             axes["table"] = min((float(item.get("confidence", 1.0)) for item in tables if isinstance(item, Mapping)), default=1.0)
         if any(str(block.get("kind", "text")).lower() not in {"text", "heading", "table_cell", "table", "cell"} for block in blocks if isinstance(block, Mapping)):
             axes["block_type"] = 0.0; findings.append(ValidationFinding("UNKNOWN_BLOCK_TYPE", "block type is not recognized"))
-        page_class = str(page.get("page_classification", "text-native"))
         high_risk = page_class in self.policy.high_risk_classes or any(str(block.get("extraction_method", "native")) != "native" for block in blocks if isinstance(block, Mapping))
         secondary_validated = False
         if high_risk:
@@ -160,7 +169,7 @@ class LayoutValidationService:
         confidence = ConfidenceVector(**axes)
         findings.extend(ValidationFinding(f"LOW_CONFIDENCE_{axis.upper()}", f"{axis} confidence is below policy")
                         for axis in self.policy.critical_axes if confidence.as_dict()[axis] < self.policy.thresholds.get(axis, .8)
-                        and not (axis == "columns" and confirmed_columns))
+                        and not (axis == "columns" and (confirmed_columns or ambiguous_columns or is_form)))
         for axis in self.policy.critical_axes:
             threshold = self.policy.thresholds.get(axis, .8)
             value = confidence.as_dict()[axis]
@@ -168,6 +177,6 @@ class LayoutValidationService:
                 findings.append(ValidationFinding(f"NEAR_THRESHOLD_{axis.upper()}", f"{axis} confidence is near policy threshold", severity="warning", action="review"))
         valid = not any(item.severity == "error" for item in findings) and all(
             confidence.as_dict()[axis] >= self.policy.thresholds.get(axis, .8)
-            or (axis == "columns" and confirmed_columns)
+            or (axis == "columns" and (confirmed_columns or is_form))
             for axis in self.policy.critical_axes)
         return LayoutValidationResult(valid, high_risk, confidence, tuple(findings), evidence, secondary_validated)

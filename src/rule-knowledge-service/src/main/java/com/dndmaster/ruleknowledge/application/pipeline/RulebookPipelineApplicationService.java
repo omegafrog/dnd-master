@@ -44,6 +44,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.Map;
+import java.util.Set;
 
 public final class RulebookPipelineApplicationService implements RulebookUploadProcessor {
     private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
@@ -549,7 +550,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             }
         }
         if ("READY".equals(result.status())
-                && result.pages().stream().anyMatch(page -> !"VALIDATED".equals(page.status()))) {
+                && result.pages().stream().anyMatch(page -> !Set.of("VALIDATED", "EXCLUDED_FORM").contains(page.status()))) {
             throw new PreprocessingProcessException("UNVALIDATED_PAGE");
         }
         if ("NEEDS_REVIEW".equals(result.status())
@@ -573,7 +574,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         if (ragExtractionPublicationService == null) return;
         List<PublishedRagChunk> chunks = preprocessingArtifactImporter.readChunks(result);
         List<RagExtractionPage> pages = result.pages().stream()
-                .map(page -> new RagExtractionPage(page.pageNumber(), page.status(), page.attempts(), page.findings()))
+                .map(page -> new RagExtractionPage(page.pageNumber(), page.status(), page.attempts(), page.findings(),
+                        page.pageClassification(), page.formDiagnostics()))
                 .toList();
         RagExtractionPublicationRequest request = new RagExtractionPublicationRequest(
                 registration.rulebookId(), registration.ownerPlayerId(), result.requestId(), result.versionId(),
@@ -627,7 +629,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         if (!"READY".equals(result.status()) && !"NEEDS_REVIEW".equals(result.status())) {
             throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
         }
-        if ("READY".equals(result.status()) && result.pages().stream().anyMatch(page -> !"VALIDATED".equals(page.status()))) {
+        if ("READY".equals(result.status()) && result.pages().stream()
+                .anyMatch(page -> !Set.of("VALIDATED", "EXCLUDED_FORM").contains(page.status()))) {
             throw new PreprocessingProcessException("UNVALIDATED_PAGE");
         }
     }

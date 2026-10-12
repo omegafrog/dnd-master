@@ -52,6 +52,7 @@ class ArtifactExporter:
                chunks: Iterable[Chunk], issues: Iterable[ValidationIssue], tree: DocumentTree,
                *, page_count: int = 0, profile: str = "default", policy: object | None = None,
                agent_stats: dict[str, int] | None = None, invalid_chunk_ids: set[str] | None = None,
+               excluded_form_pages: Iterable[int] = (),
                pipeline_version: str = PIPELINE_VERSION, schema_version: str = SCHEMA_VERSION) -> dict[str, object]:
         output = Path(output_dir); output.mkdir(parents=True, exist_ok=True)
         all_chunks = tuple(chunks); all_issues = tuple(issues)
@@ -81,7 +82,8 @@ class ArtifactExporter:
                 "agent": agent_stats or {"calls": 0, "accepted": 0, "rejected": 0},
             },
         }
-        manifest["page_statistics"] = {"count": page_count}
+        manifest["page_statistics"] = {"count": page_count,
+                                        "excluded_form_pages": sorted(set(excluded_form_pages))}
         manifest["chunk_statistics"] = manifest["statistics"]["chunks"]
         manifest["agent_statistics"] = manifest["statistics"]["agent"]
         manifest["validation_statistics"] = manifest["statistics"]["validation"]
