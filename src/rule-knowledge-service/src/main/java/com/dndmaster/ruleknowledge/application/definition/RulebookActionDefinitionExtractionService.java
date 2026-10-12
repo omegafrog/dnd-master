@@ -54,28 +54,28 @@ public final class RulebookActionDefinitionExtractionService {
 
     public RulebookActionDefinitionExtractionService(RulebookActionDefinitionRepository repository,
             DenseEvidenceCandidateSearchPort denseSearch, RulebookActionDefinitionExtractionPort extractor) {
-        this(repository, denseOnlySearch(denseSearch), (owner, scope, locators, limit) -> Map.of(),
+        this(repository, denseOnlySearch(denseSearch), emptyLocationLookup(),
                 extractor, null, 128_000, 24_000);
     }
 
     public RulebookActionDefinitionExtractionService(RulebookActionDefinitionRepository repository,
             DenseEvidenceCandidateSearchPort denseSearch, RulebookActionDefinitionExtractionPort extractor,
             Double minimumDenseSimilarity) {
-        this(repository, denseOnlySearch(denseSearch), (owner, scope, locators, limit) -> Map.of(),
+        this(repository, denseOnlySearch(denseSearch), emptyLocationLookup(),
                 extractor, minimumDenseSimilarity, 128_000, 24_000);
     }
 
     public RulebookActionDefinitionExtractionService(RulebookActionDefinitionRepository repository,
             DenseEvidenceCandidateSearchPort denseSearch, RulebookActionDefinitionExtractionPort extractor,
             Double minimumDenseSimilarity, long targetedInputTokenLimit) {
-        this(repository, denseOnlySearch(denseSearch), (owner, scope, locators, limit) -> Map.of(), extractor,
+        this(repository, denseOnlySearch(denseSearch), emptyLocationLookup(), extractor,
                 minimumDenseSimilarity, targetedInputTokenLimit, 24_000);
     }
 
     public RulebookActionDefinitionExtractionService(RulebookActionDefinitionRepository repository,
             DenseEvidenceCandidateSearchPort denseSearch, RulebookActionDefinitionExtractionPort extractor,
             Double minimumDenseSimilarity, long targetedInputTokenLimit, long targetedExternalTokenReserve) {
-        this(repository, denseOnlySearch(denseSearch), (owner, scope, locators, limit) -> Map.of(), extractor,
+        this(repository, denseOnlySearch(denseSearch), emptyLocationLookup(), extractor,
                 minimumDenseSimilarity, targetedInputTokenLimit, targetedExternalTokenReserve);
     }
 
@@ -110,6 +110,12 @@ public final class RulebookActionDefinitionExtractionService {
     private static HybridEvidenceSearchService denseOnlySearch(DenseEvidenceCandidateSearchPort denseSearch) {
         return new HybridEvidenceSearchService(Objects.requireNonNull(denseSearch), request -> List.of(),
                 new RrfFusionPolicy(), false);
+    }
+
+    private static EvidenceLocationLookupPort emptyLocationLookup() {
+        return (owner, scope, locators, limit) -> locators.stream().distinct().collect(
+                java.util.stream.Collectors.toMap(locator -> locator, locator -> List.of(),
+                        (first, ignored) -> first, LinkedHashMap::new));
     }
 
     public RulebookActionDefinitionExtraction extract(UUID documentId, String extractionVersion, long scopeVersion,
@@ -332,7 +338,8 @@ public final class RulebookActionDefinitionExtractionService {
                                 assignedOutcomes.stream().filter(item -> "INSUFFICIENT_EVIDENCE".equals(item.status())).count(), assignedOutcomes.stream().filter(item -> "FAILED".equals(item.status())).count(),
                                 (System.nanoTime() - batchStarted) / 1_000_000);
                     } catch (RuntimeException failure) {
-                        if (failure instanceof TargetedInputBudgetExceededException) throw failure;
+                        if (failure instanceof TargetedInputBudgetExceededException
+                                || failure instanceof InvalidEvidenceLookupResultException) throw failure;
                         assignedOutcomes = failure instanceof RulebookActionOutputLimitException
                                 ? splitOutputLimitBatch(documentId, extractionVersion, assignments, assignedEvidence,
                                         assignedCoverage, executionActorPlayerId, 1)
@@ -610,7 +617,7 @@ public final class RulebookActionDefinitionExtractionService {
                         locators.size(), results == null ? -1 : results.size(), candidateLimit,
                         results == null ? Map.of() : results.entrySet().stream().collect(java.util.stream.Collectors.toMap(
                                 Map.Entry::getKey, entry -> entry.getValue() == null ? -1 : entry.getValue().size())));
-                throw new IllegalStateException("source page lookup returned an invalid result shape");
+                throw new InvalidEvidenceLookupResultException("source page lookup returned an invalid result shape");
             }
             for (TargetedFollowup task : searchBatch) {
                 List<EvidenceCandidate> found = results.get(task.sourceLocator());
@@ -627,7 +634,7 @@ public final class RulebookActionDefinitionExtractionService {
                                 task.assignment().candidate().id(), documentId, scopeVersion, sourceEvidence.pageNumber(), fingerprint(task.sourceLocator()),
                                 match.documentId().value(), match.extractionVersion(), match.documentType(),
                                 match.provenance().pageNumber(), fingerprint(match.locator()));
-                        throw new IllegalStateException("source page lookup returned evidence outside the requested source locator or page");
+                        throw new InvalidEvidenceLookupResultException("source page lookup returned evidence outside the requested source locator or page");
                     }
                     String id = match.chunkId().value().toString();
                     if (ownIds.contains(id)) continue;
@@ -934,5 +941,8 @@ public final class RulebookActionDefinitionExtractionService {
             int candidateEvidenceCount, int candidateInputChars) { }
     private static final class TargetedInputBudgetExceededException extends IllegalArgumentException {
         private TargetedInputBudgetExceededException(String message) { super(message); }
+    }
+    private static final class InvalidEvidenceLookupResultException extends IllegalStateException {
+        private InvalidEvidenceLookupResultException(String message) { super(message); }
     }
 }
