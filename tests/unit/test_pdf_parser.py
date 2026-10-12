@@ -1,7 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from preprocessing_agent.parsers.pdf import PdfDocumentParser, _is_reliable_native_table, _native_table_candidate_diagnostic
+from preprocessing_agent.parsers.pdf import PdfDocumentParser, _classify_text_detection_hypothesis, _find_native_tables, _is_reliable_native_table, _native_table_candidate_diagnostic, _reconcile_native_table_candidates, _reconstruct_native_table, _without_consumed_header_blocks
+from preprocessing_agent.structure import TableStructureDetector
 
 
 def test_pymupdf_native_table_cells_are_projected_when_supported(tmp_path):
@@ -36,7 +37,92 @@ def test_weak_native_table_detection_is_rejected_before_cell_projection():
     ))
 
     assert _is_reliable_native_table(weak_one_row) is False
-    assert _is_reliable_native_table(weak_missing_cell) is False
+    assert _is_reliable_native_table(weak_missing_cell) is True
+    weak_missing_cell.bbox = (0, 0, 40, 20)
+    _, missing_diagnostic = _reconstruct_native_table(weak_missing_cell, [])
+    assert missing_diagnostic["decision"] == "strong_unresolved"
+
+
+def test_partial_native_grid_geometry_reaches_reconstruction_but_stays_unresolved():
+    table = SimpleNamespace(bbox=(0, 0, 100, 30), rows=(
+        SimpleNamespace(cells=((0, 0, 50, 10), (50, 0, 100, 10))),
+        SimpleNamespace(cells=((0, 10, 50, 20), None)),
+        SimpleNamespace(cells=((0, 20, 50, 30), (50, 20, 100, 30))),
+    ), extract=lambda: [["A", "B"], ["C", None], ["D", "E"]])
+    projected, diagnostic = _reconstruct_native_table(table, [])
+    assert projected == []
+    assert diagnostic["decision"] == "strong_unresolved"
+    assert diagnostic["rejection_reason"] == "GRID_RECONSTRUCTION_AMBIGUOUS"
+
+
+def test_native_detection_compares_strategies_before_candidate_reconstruction(monkeypatch, caplog):
+    def table(boxes):
+        rows = tuple(SimpleNamespace(cells=(box, (box[0] + 50, box[1], box[2] + 50, box[3])))
+                     for box in boxes)
+        return SimpleNamespace(bbox=(0, 0, 100, 40), rows=rows)
+
+    default_candidate = table(((0, 0, 50, 20), (0, 20, 50, 40)))
+    text_candidate = table(((0, 0, 50, 20), (0, 20, 50, 40), (0, 40, 50, 60)))
+    class Page:
+        def find_tables(self, **kwargs):
+            return SimpleNamespace(tables=(text_candidate,) if kwargs else (default_candidate,))
+
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    candidates = _find_native_tables(Page(), 7)
+    assert candidates == [(default_candidate, "lines"), (text_candidate, "text")]
+    reconstructed = []
+    for candidate, strategy in candidates:
+        cells, diagnostic = _reconstruct_native_table(candidate, [])
+        diagnostic.update(detection_strategies=[strategy], detection_deduplicated=False)
+        _classify_text_detection_hypothesis(diagnostic, strategy)
+        reconstructed.append((cells, diagnostic))
+    selected, diagnostics = _reconcile_native_table_candidates(candidates, reconstructed, 7)
+    assert len(selected) == 1
+    assert selected[0][1] == "lines+text"
+    assert selected[0][3]["decision"] == "strong_unresolved"
+    assert len(diagnostics) == 2
+    assert diagnostics[1]["decision"] == "weak_candidate"
+    logs = " ".join(record.getMessage() for record in caplog.records)
+    assert "strategy=lines" in logs and "strategy=text" in logs
+    assert "overlap_deduplicated" in logs and "keep_best_reconstruction" in logs
+
+
+def test_contained_text_candidate_does_not_replace_precise_line_candidate():
+    def table(bbox, rows):
+        return SimpleNamespace(bbox=bbox, rows=tuple(SimpleNamespace(cells=cells) for cells in rows),
+                               extract=lambda: [["A", "B"], ["C", "D"]])
+
+    precise = table((10, 40, 90, 60), (((10, 40, 50, 50), (50, 40, 90, 50)),
+                                       ((10, 50, 50, 60), (50, 50, 90, 60))))
+    broad = table((0, 0, 100, 100), (((0, 0, 50, 50), (50, 0, 100, 50)),
+                                     ((0, 50, 50, 100), (50, 50, 100, 100))))
+    class Page:
+        def find_tables(self, **kwargs):
+            return SimpleNamespace(tables=(broad,) if kwargs else (precise,))
+
+    candidates = _find_native_tables(Page(), 23)
+    assert candidates == [(precise, "lines"), (broad, "text")]
+
+
+def test_unresolved_text_candidate_remains_diagnostic_without_becoming_confirmed():
+    candidate = SimpleNamespace(bbox=(0, 0, 100, 100), rows=(
+        SimpleNamespace(cells=((0, 0, 50, 50), (50, 0, 100, 50))),
+        SimpleNamespace(cells=((0, 50, 50, 100), (50, 50, 100, 100))),
+    ), extract=lambda: [["A", "B"], ["C", "D"]])
+    _, diagnostic = _reconstruct_native_table(candidate, [])
+    assert diagnostic["decision"] == "strong_unresolved"
+    _classify_text_detection_hypothesis(diagnostic, "text")
+    assert diagnostic["decision"] == "weak_candidate"
+    assert diagnostic["candidate_kind"] == "unresolved_text_detection"
+    assert diagnostic["reconstruction_decision"] == "strong_unresolved"
+    assert diagnostic["reconstruction_rejection_reason"] == "TABLE_TEXT_MISMATCH"
+    assert "TEXT_DETECTION_RECONSTRUCTION_UNRESOLVED" in diagnostic["signals"]
+
+    unresolved = {"decision": "strong_unresolved", "rejection_reason": "GRID_RECONSTRUCTION_AMBIGUOUS",
+                  "signals": []}
+    _classify_text_detection_hypothesis(unresolved, "lines")
+    assert unresolved["decision"] == "strong_unresolved"
 
 
 def test_reported_partial_native_grid_shapes_are_strong_but_not_reconstructed():
@@ -69,6 +155,151 @@ def test_reported_partial_native_grid_shapes_are_strong_but_not_reconstructed():
                    for signal in diagnostic["signals"])
 
 
+def test_native_grid_reconstructs_merged_full_row_and_standard_row():
+    table = SimpleNamespace(bbox=(0, 0, 100, 40), rows=(
+        SimpleNamespace(cells=((0, 0, 100, 20), None)),
+        SimpleNamespace(cells=((0, 20, 50, 40), (50, 20, 100, 40))),
+    ), extract=lambda: [["Title", None], ["A", "B"]])
+    projected, diagnostic = _reconstruct_native_table(table, [
+        {"text": "Title", "bbox": (10, 5, 40, 15)},
+        {"text": "A", "bbox": (10, 25, 20, 35)},
+        {"text": "B", "bbox": (60, 25, 70, 35)},
+    ])
+    assert diagnostic["decision"] == "confirmed_structured"
+    assert [(cell["row"], cell["column"], cell["column_span"], cell["merged"]) for cell in projected] == [
+        (0, 0, 2, True), (1, 0, 1, False), (1, 1, 1, False),
+    ]
+
+
+def test_native_grid_text_mismatch_stays_unresolved():
+    table = SimpleNamespace(bbox=(0, 0, 100, 40), rows=(
+        SimpleNamespace(cells=((0, 0, 50, 20), (50, 0, 100, 20))),
+        SimpleNamespace(cells=((0, 20, 50, 40), (50, 20, 100, 40))),
+    ), extract=lambda: [["A", "B"], ["C", "D"]])
+    projected, diagnostic = _reconstruct_native_table(table, [
+        {"text": "A", "bbox": (2, 2, 10, 10)}, {"text": "B", "bbox": (52, 2, 60, 10)},
+        {"text": "C", "bbox": (2, 22, 10, 30)}, {"text": "wrong", "bbox": (52, 22, 70, 30)},
+    ])
+    assert projected == []
+    assert diagnostic["decision"] == "strong_unresolved"
+    assert diagnostic["rejection_reason"] == "TABLE_TEXT_MISMATCH"
+
+
+def test_native_wide_box_splits_only_when_source_spans_map_to_columns():
+    table = SimpleNamespace(bbox=(0, 0, 100, 40), rows=(
+        SimpleNamespace(cells=((0, 0, 100, 20), None)),
+        SimpleNamespace(cells=((0, 20, 50, 40), (50, 20, 100, 40))),
+    ), extract=lambda: [["Name Value", None], ["A", "B"]])
+    source = [
+        {"text": "Name Value", "bbox": (0, 0, 100, 20), "spans": [
+            {"text": "Name", "bbox": (10, 5, 25, 15)},
+            {"text": "Value", "bbox": (60, 5, 80, 15)},
+        ]},
+        {"text": "A", "bbox": (0, 20, 50, 40), "spans": [{"text": "A", "bbox": (10, 25, 20, 35)}]},
+        {"text": "B", "bbox": (50, 20, 100, 40), "spans": [{"text": "B", "bbox": (60, 25, 70, 35)}]},
+    ]
+    projected, diagnostic = _reconstruct_native_table(table, source)
+    assert diagnostic["decision"] == "confirmed_structured"
+    assert [(cell["row"], cell["column"], cell["text"]) for cell in projected] == [
+        (0, 0, "Name"), (0, 1, "Value"), (1, 0, "A"), (1, 1, "B"),
+    ]
+
+
+def test_native_header_spans_map_to_columns_and_shift_data_rows():
+    table = SimpleNamespace(bbox=(0, 20, 200, 60), rows=(
+        SimpleNamespace(cells=tuple((column * 50, 20, column * 50 + 50, 40) for column in range(4))),
+        SimpleNamespace(cells=tuple((column * 50, 40, column * 50 + 50, 60) for column in range(4))),
+    ), extract=lambda: [["1", "2", "3", "4"], ["5", "6", "7", "8"]])
+    labels = ("Level", "Proficiency Bonus", "Features", "Cantrips Known")
+    label_lines = ((0, "Level", 5, 15), (1, "Proficiency", 3, 9), (1, "Bonus", 11, 17),
+                   (2, "Features", 5, 15), (3, "Cantrips", 3, 9), (3, "Known", 11, 17))
+    source = [{"text": label, "bbox": (column * 50 + 5, y0, column * 50 + 40, y1),
+               "spans": [{"text": label, "bbox": (column * 50 + 5, y0, column * 50 + 40, y1)}]}
+              for column, label, y0, y1 in label_lines]
+    source += [{"text": value, "bbox": (column * 50 + 5, row * 20 + 5, column * 50 + 15, row * 20 + 15)}
+               for row, values in enumerate((("1", "2", "3", "4"), ("5", "6", "7", "8")), start=1)
+               for column, value in enumerate(values)]
+    projected, diagnostic = _reconstruct_native_table(table, source)
+    assert diagnostic["decision"] == "confirmed_structured"
+    headers = [cell for cell in projected if cell["is_header"]]
+    assert [(cell["column"], cell["text"]) for cell in headers] == list(enumerate(labels))
+    assert all(cell["row"] == 0 for cell in headers)
+    assert {cell["row"] for cell in projected if not cell["is_header"]} == {1, 2}
+    structures = TableStructureDetector().detect(
+        [{**cell, "table_id": "p31-table-0", "block_id": f"c{index}"}
+         for index, cell in enumerate(projected)])
+    assert [cell.text for cell in structures[0].header_rows[0].cells] == list(labels)
+    remaining = _without_consumed_header_blocks(source, projected)
+    assert len(remaining) == 8
+    assert all(block["text"] not in labels for block in remaining)
+
+
+def test_native_table_geometry_scales_with_text_and_row_heights():
+    for scale in (0.5, 2.0):
+        table = SimpleNamespace(bbox=(0, 20 * scale, 100 * scale, 60 * scale), rows=(
+            SimpleNamespace(cells=((0, 20 * scale, 50 * scale, 40 * scale),
+                                   (50 * scale, 20 * scale, 100 * scale, 40 * scale))),
+            SimpleNamespace(cells=((0, 40 * scale, 50 * scale, 60 * scale),
+                                   (50 * scale, 40 * scale, 100 * scale, 60 * scale))),
+        ), extract=lambda: [["A", "B"], ["C", "D"]])
+        source = []
+        for column, text, y0, y1 in ((0, "Left", 5, 9), (1, "Right", 5, 9)):
+            box = (column * 50 * scale + 5 * scale, y0 * scale,
+                   column * 50 * scale + 20 * scale, y1 * scale)
+            source.append({"text": text, "bbox": box, "spans": [{"text": text, "bbox": box}]})
+        source.extend({"text": text, "bbox": (column * 50 * scale + 5 * scale, y * scale,
+                                                  column * 50 * scale + 15 * scale, (y + 4) * scale)}
+                      for y, row in ((22, ("A", "B")), (42, ("C", "D")))
+                      for column, text in enumerate(row))
+        projected, diagnostic = _reconstruct_native_table(table, source)
+        assert diagnostic["decision"] == "confirmed_structured"
+        assert diagnostic["mapping_tolerance"] > 0
+        assert [(cell["row"], cell["column"], cell["text"]) for cell in projected] == [
+            (0, 0, "Left"), (0, 1, "Right"), (1, 0, "A"), (1, 1, "B"),
+            (2, 0, "C"), (2, 1, "D"),
+        ]
+
+
+def test_p57_style_neighboring_tables_stay_independent_without_header_evidence():
+    tables = [SimpleNamespace(bbox=(x, 20, x + 100, 60), rows=(
+        SimpleNamespace(cells=((x, 20, x + 50, 40), (x + 50, 20, x + 100, 40))),
+        SimpleNamespace(cells=((x, 40, x + 50, 60), (x + 50, 40, x + 100, 60))),
+    ), extract=lambda: [["A", "B"], ["C", "D"]]) for x in (0, 150)]
+    structures = []
+    for index, table in enumerate(tables):
+        x = table.bbox[0]
+        source = [{"text": value, "bbox": (left + 5, top + 5, left + 15, top + 15)}
+                  for top, values in ((20, ("A", "B")), (40, ("C", "D")))
+                  for left, value in zip((x, x + 50), values)]
+        projected, diagnostic = _reconstruct_native_table(table, source)
+        assert diagnostic["decision"] == "confirmed_structured"
+        assert not any(cell["is_header"] for cell in projected)
+        structures.extend({**cell, "table_id": f"p57-table-{index}", "block_id": f"t{index}-{cell['row']}-{cell['column']}"}
+                          for cell in projected)
+    detected = TableStructureDetector().detect(structures)
+    assert [table.table_id for table in detected] == ["p57-table-0", "p57-table-1"]
+    assert all(not table.header_rows and len(table.rows) == 2 for table in detected)
+
+
+def test_external_header_keeps_unlabeled_inferred_columns_structural():
+    table = SimpleNamespace(bbox=(0, 20, 150, 60), rows=(
+        SimpleNamespace(cells=((0, 20, 50, 40), (50, 20, 100, 40), (100, 20, 150, 40))),
+        SimpleNamespace(cells=((0, 40, 50, 60), (50, 40, 100, 60), (100, 40, 150, 60))),
+    ), extract=lambda: [["A", "B", "C"], ["D", "E", "F"]])
+    source = [{"text": value, "bbox": (x, 5, x + 15, 15),
+               "spans": [{"text": value, "bbox": (x, 5, x + 15, 15)}]}
+              for x, value in ((5, "Name"), (55, "Cost"))]
+    source += [{"text": value, "bbox": (x + 5, y + 5, x + 15, y + 15)}
+               for y, values in ((20, ("A", "B", "C")), (40, ("D", "E", "F")))
+               for x, value in zip((0, 50, 100), values)]
+    projected, diagnostic = _reconstruct_native_table(table, source)
+    assert diagnostic["decision"] == "confirmed_structured"
+    structures = TableStructureDetector().detect(
+        [{**cell, "table_id": "p48-table-0", "block_id": f"c{index}"}
+         for index, cell in enumerate(projected)])
+    assert len(structures[0].header_rows[0].cells) == 3
+    assert not structures[0].header_rows[0].cells[2].text.strip()
+    assert "IRREGULAR_TABLE" not in structures[0].findings
 def test_one_row_or_invalid_bbox_native_candidates_are_weak():
     one_row = SimpleNamespace(bbox=(0, 0, 100, 20), rows=(SimpleNamespace(cells=((0, 0, 50, 20), (50, 0, 100, 20))),))
     invalid_bbox = SimpleNamespace(bbox=None, rows=tuple(

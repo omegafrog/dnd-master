@@ -198,7 +198,7 @@ class TableStructureDetector:
         row_values: list[TableRow] = []
         for row_index in sorted(rows):
             cells = tuple(sorted(rows[row_index], key=lambda cell: (cell.column_index, cell.bbox.x0, cell.cell_id)))
-            header = any(bool(_get(value, "is_header", False)) for value in values if _row(value) == row_index) or row_index == min(rows)
+            header = any(bool(_get(value, "is_header", False)) for value in values if _row(value) == row_index)
             covered = sum(cell.column_span for cell in cells)
             positions = [position for cell in cells for position in range(cell.column_index, cell.column_index + cell.column_span)]
             if covered != columns or len(positions) != len(set(positions)) or set(positions) != set(range(columns)):

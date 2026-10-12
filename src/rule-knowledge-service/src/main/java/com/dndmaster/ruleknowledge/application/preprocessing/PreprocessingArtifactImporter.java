@@ -16,6 +16,7 @@ import com.dndmaster.ruleknowledge.application.publication.SourceProvenance.Sour
 
 /** Imports only the validated, process-owned chunk artifact into the publication boundary. */
 public final class PreprocessingArtifactImporter {
+    private static final int MAX_CHUNK_CHARACTERS = 6000;
     private static final Logger LOGGER = Logger.getLogger(PreprocessingArtifactImporter.class.getName());
     private final ObjectMapper objectMapper;
 
@@ -46,6 +47,10 @@ public final class PreprocessingArtifactImporter {
                 String processorId = text(chunk, "chunk_id");
                 String content = text(chunk, "source_text");
                 String embeddingText = text(chunk, "embedding_text");
+                if (content.codePointCount(0, content.length()) > MAX_CHUNK_CHARACTERS
+                        || embeddingText.codePointCount(0, embeddingText.length()) > MAX_CHUNK_CHARACTERS) {
+                    throw new IllegalArgumentException("CHUNK_CHARACTER_LIMIT_EXCEEDED");
+                }
                 String contentType = text(chunk, "content_type");
                 String canonicalKey = text(chunk, "canonical_key");
                 int tokenCount = requiredPositiveInt(chunk, "token_count");

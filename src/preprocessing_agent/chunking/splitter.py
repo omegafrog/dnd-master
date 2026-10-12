@@ -36,25 +36,52 @@ class ChunkSplitter:
     def split(self, candidate: ChunkCandidate) -> tuple[SplitPiece, ...]:
         tokens = tokenize(candidate.source_text)
         strategy = self.policy.strategy_for(candidate.content_type)
-        if strategy == "table" or (len(tokens) <= self.policy.max_tokens and len(candidate.source_text) <= self.policy.max_characters):
+        if strategy == "table":
+            return self._table(candidate)
+        if len(tokens) <= self.policy.max_tokens and len(candidate.source_text) <= self.policy.max_characters:
             return (SplitPiece(candidate.source_text, candidate.source_spans, candidate.canonical_key),)
         if strategy == "atomic":
-            return self._atomic(candidate, tokens)
+            return self._atomic(candidate)
         parts = self._semantic_parts(candidate.source_text)
         return self._window(candidate, parts)
 
-    def _atomic(self, candidate: ChunkCandidate, tokens: list[str]) -> tuple[SplitPiece, ...]:
+    def _atomic(self, candidate: ChunkCandidate) -> tuple[SplitPiece, ...]:
         pieces = []
         token_ranges = [match.span() for match in re.finditer(r"\S+", candidate.source_text)]
-        step = self.policy.max_tokens - self.policy.overlap_tokens
-        for start in range(0, len(tokens), step):
-            end = min(start + self.policy.max_tokens, len(tokens))
+        start = 0
+        while start < len(token_ranges):
+            end = start
+            while end < len(token_ranges) and end - start < self.policy.max_tokens and token_ranges[end][1] - token_ranges[start][0] <= self.policy.max_characters:
+                end += 1
+            if end == start:  # A single oversized token is divided at the character limit.
+                for left, right in self._bounded_ranges(candidate.source_text[token_ranges[start][0]:token_ranges[start][1]]):
+                    pieces.append(self._piece(candidate, token_ranges[start][0] + left, token_ranges[start][0] + right,
+                                              f"{candidate.canonical_key}.part-{len(pieces) + 1:03d}", candidate.canonical_key))
+                start += 1
+                continue
             pieces.append(self._piece(
                 candidate, token_ranges[start][0], token_ranges[end - 1][1],
                 f"{candidate.canonical_key}.part-{len(pieces) + 1:03d}", candidate.canonical_key,
             ))
-            if end == len(tokens):
-                break
+            start = end if end == len(token_ranges) or end - start < self.policy.max_tokens else max(start + 1, end - self.policy.overlap_tokens)
+        return tuple(pieces)
+
+    def _table(self, candidate: ChunkCandidate) -> tuple[SplitPiece, ...]:
+        # shortcut: rows above the limit stay intact and are rejected at publication; split by cell boundaries if valid sources contain them
+        rows = [(match.start(), match.end()) for match in re.finditer(r"[^\n]+", candidate.source_text)]
+        pieces: list[SplitPiece] = []
+        current: list[tuple[int, int]] = []
+        for row in rows:
+            start, end = row
+            proposed = candidate.source_text[current[0][0]:end] if current else candidate.source_text[start:end]
+            if current and (len(proposed) > self.policy.max_characters or count_tokens(proposed) > self.policy.max_tokens):
+                pieces.append(self._piece(candidate, current[0][0], current[-1][1],
+                                          f"{candidate.canonical_key}.part-{len(pieces) + 1:03d}"))
+                current = []
+            current.append(row)
+        if current:
+            pieces.append(self._piece(candidate, current[0][0], current[-1][1],
+                                      f"{candidate.canonical_key}.part-{len(pieces) + 1:03d}" if pieces else candidate.canonical_key))
         return tuple(pieces)
 
     def _semantic_parts(self, text: str) -> list[_TextRange]:

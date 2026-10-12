@@ -1,5 +1,6 @@
 from preprocessing_agent.chunking import ChunkPolicy, ChunkSplitter
 from preprocessing_agent.domain import ChunkCandidate, ContentType, SourceSegment, SourceSpan
+from preprocessing_agent.utils.tokens import count_tokens
 
 
 def candidate(kind: ContentType, text: str) -> ChunkCandidate:
@@ -16,10 +17,36 @@ def test_atomic_overflow_uses_parent_child_identity():
 
 
 def test_table_is_preserved_even_when_over_max():
-    policy = ChunkPolicy(target_tokens=3, max_tokens=5, min_tokens=1, overlap_tokens=1)
+    policy = ChunkPolicy(target_tokens=3, max_tokens=20, max_characters=25, min_tokens=1, overlap_tokens=1)
     text = "| d6 | result |\n| 1 | long result |\n| 2 | another |"
     pieces = ChunkSplitter(policy).split(candidate(ContentType.TABLE, text))
-    assert [piece.source_text for piece in pieces] == [text]
+    assert [line for piece in pieces for line in piece.source_text.splitlines()] == text.splitlines()
+    assert all(len(piece.source_text) <= policy.max_characters for piece in pieces)
+
+
+def test_atomic_chunk_splits_by_characters_below_token_limit():
+    policy = ChunkPolicy(target_tokens=350, max_tokens=500, max_characters=6000, min_tokens=1, overlap_tokens=30)
+    text = "first " + "a" * 3500 + " second " + "b" * 3500
+    assert count_tokens(text) <= 500
+    assert len(text) > 6000
+
+    pieces = ChunkSplitter(policy).split(candidate(ContentType.MAGIC_ITEM, text))
+
+    assert len(pieces) == 2
+    assert all(len(piece.source_text) <= 6000 for piece in pieces)
+    assert all(piece.parent_key == "spell.fireball" for piece in pieces)
+
+
+def test_oversized_table_splits_only_between_rows():
+    policy = ChunkPolicy(target_tokens=350, max_tokens=500, max_characters=6000, min_tokens=1, overlap_tokens=30)
+    rows = [f"row-{index} | {'x' * 900}" for index in range(8)]
+    text = "\n".join(rows)
+
+    pieces = ChunkSplitter(policy).split(candidate(ContentType.TABLE, text))
+
+    assert len(pieces) > 1
+    assert all(piece.source_text.splitlines() == [row for row in rows if row in piece.source_text] for piece in pieces)
+    assert "\n".join(row for piece in pieces for row in piece.source_text.splitlines()) == text
 
 
 def test_long_character_sections_split_even_when_whitespace_token_count_is_low(monkeypatch, caplog):

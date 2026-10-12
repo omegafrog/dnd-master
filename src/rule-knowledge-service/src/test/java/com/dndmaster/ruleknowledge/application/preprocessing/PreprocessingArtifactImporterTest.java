@@ -2,6 +2,7 @@ package com.dndmaster.ruleknowledge.application.preprocessing;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
@@ -15,6 +16,28 @@ import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
 
 class PreprocessingArtifactImporterTest {
+    @Test
+    void rejectsChunkArtifactWithContentOverCharacterLimit() throws Exception {
+        Path root = Files.createTempDirectory("rag-oversized-import-");
+        Path chunks = root.resolve("chunks.jsonl");
+        Files.writeString(chunks, "{\"chunk_id\":\"chunk-1\",\"canonical_key\":\"combat.attack\",\"content_type\":\"rule\",\"token_count\":2,\"source_text\":\"" + "x".repeat(6001)
+                + "\",\"embedding_text\":\"short\",\"source_spans\":[{\"page_number\":1}]}\n");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new PreprocessingArtifactImporter(new ObjectMapper()).readChunks(resultFor(chunks)));
+    }
+
+    @Test
+    void countsSupplementaryCharactersLikePythonCharacterLength() throws Exception {
+        Path root = Files.createTempDirectory("rag-unicode-import-");
+        Path chunks = root.resolve("chunks.jsonl");
+        String text = "😀".repeat(3001);
+        Files.writeString(chunks, "{\"chunk_id\":\"chunk-1\",\"canonical_key\":\"combat.attack\",\"content_type\":\"rule\",\"token_count\":2,\"source_text\":\"" + text
+                + "\",\"embedding_text\":\"" + text + "\",\"source_spans\":[{\"page_number\":1}]}\n");
+
+        assertEquals(1, new PreprocessingArtifactImporter(new ObjectMapper()).readChunks(resultFor(chunks)).size());
+    }
+
     @Test
     void importsAllChunkMetadataAndLogsCounts() throws Exception {
         Path root = Files.createTempDirectory("rag-017-import-");

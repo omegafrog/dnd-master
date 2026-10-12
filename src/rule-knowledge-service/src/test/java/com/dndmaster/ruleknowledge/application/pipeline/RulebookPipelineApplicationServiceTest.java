@@ -52,6 +52,7 @@ import org.junit.jupiter.api.Test;
 
 class RulebookPipelineApplicationServiceTest {
     private static final OwnerPlayerId OWNER = new OwnerPlayerId(UUID.fromString("36c6b6fd-2f36-4b79-9a91-614f9e35bd91"));
+    private static final UUID EXTRACTION_ACTOR = UUID.fromString("e32d6ae7-aea0-4b11-b830-44272ce3bd88");
 
     @Test
     void uploadQueuesFirstAndWorkerProcessesLater() {
@@ -206,7 +207,7 @@ class RulebookPipelineApplicationServiceTest {
         TestHarness harness = new TestHarness(preprocessing);
         UploadRulebookCommand command = new UploadRulebookCommand(
                 "pdf-review", OWNER, DocumentType.STORYBOOK, RulebookFormat.PDF,
-                "pdf bytes".getBytes(StandardCharsets.UTF_8), "story.pdf");
+                "pdf bytes".getBytes(StandardCharsets.UTF_8), "story.pdf", EXTRACTION_ACTOR);
 
         harness.service.process(command);
         List<RulebookProcessingResult> results = harness.service.processPending();
@@ -218,6 +219,7 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals("candidate-1", stored.candidateExtractionVersion());
         assertEquals("pdf-review", stored.preprocessingOperationId());
         assertEquals(List.of("LAYOUT_VALIDATION_FAILED"), stored.preprocessingPages().get(0).findings());
+        assertEquals(EXTRACTION_ACTOR, stored.extractionActorPlayerId());
         assertEquals(0, harness.extractor.calls);
         assertEquals(0, harness.embeddingPort.calls);
     }
@@ -228,7 +230,7 @@ class RulebookPipelineApplicationServiceTest {
         TestHarness harness = new TestHarness(preprocessing);
         UploadRulebookCommand command = new UploadRulebookCommand(
                 "pdf-ready", OWNER, DocumentType.RULEBOOK, RulebookFormat.PDF,
-                "pdf bytes".getBytes(StandardCharsets.UTF_8), "rules.pdf");
+                "pdf bytes".getBytes(StandardCharsets.UTF_8), "rules.pdf", EXTRACTION_ACTOR);
 
         harness.service.process(command);
         List<RulebookProcessingResult> results = harness.service.processPending();
@@ -237,6 +239,7 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals(ProcessingStatus.VALIDATED, results.get(0).status());
         assertEquals(ProcessingStatus.VALIDATED, stored.processingStatus());
         assertEquals("candidate-1", stored.candidateExtractionVersion());
+        assertEquals(EXTRACTION_ACTOR, stored.extractionActorPlayerId());
         assertEquals("preview-pdf bytes", stored.previewContent());
         assertEquals(1, stored.previewAssets().size());
         assertEquals(0, harness.extractor.calls);
@@ -556,7 +559,13 @@ class RulebookPipelineApplicationServiceTest {
                             registration.previewContent(),
                             registration.previewWarnings(),
                             registration.previewSpans(),
-                            registration.previewAssets()))
+                            registration.previewAssets(),
+                            registration.preprocessingOperationId(),
+                            registration.candidateExtractionVersion(),
+                            registration.preprocessingPolicyVersion(),
+                            registration.preprocessingManifestSha256(),
+                            registration.preprocessingPages(),
+                            registration.extractionActorPlayerId()))
                     .toList();
             eligible.forEach(this::save);
             return eligible;

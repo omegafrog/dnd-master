@@ -776,6 +776,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 result.versionId(),
                 result.policyVersion(),
                 result.artifacts().manifestSha256(),
-                result.pages());
+                result.pages(),
+                registration.extractionActorPlayerId());
     }
 }

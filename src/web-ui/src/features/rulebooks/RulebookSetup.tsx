@@ -86,6 +86,7 @@ export function RulebookSetup({
   const [uploading, setUploading] = useState(false)
   const [creatingBundle, setCreatingBundle] = useState(false)
   const [reviewingDocumentId, setReviewingDocumentId] = useState<string | null>(null)
+  const [layoutSelections, setLayoutSelections] = useState<Record<string, Record<string, number>>>({})
   const [preparationBundle, setPreparationBundle] = useState<ScenarioBundleView | null>(null)
   const [createdSession, setCreatedSession] = useState<AdventureSessionView | null>(null)
 
@@ -238,13 +239,20 @@ export function RulebookSetup({
     }
   }
 
-  async function selectReadingOrder(document: KnowledgeDocumentView, page: PreprocessingPageView, regionId: string, candidateIndex: number) {
+  async function applyReadingOrder(document: KnowledgeDocumentView, page: PreprocessingPageView) {
+    const key = `${document.knowledgeDocumentId}:${page.pageNumber}:${document.candidateExtractionVersion ?? ''}`
+    const selections = layoutSelections[key] ?? {}
     if (!api.retryReviewedPages || !window.confirm('원본 자료를 확인했고 이 읽기 순서를 적용할까요?')) return
     setReviewingDocumentId(document.knowledgeDocumentId)
     try {
       if (!document.candidateExtractionVersion) throw new Error('현재 검토 버전을 확인할 수 없습니다.')
       await api.retryReviewedPages(document.knowledgeDocumentId, [page.pageNumber], document.candidateExtractionVersion, {
-        [page.pageNumber]: { [regionId]: candidateIndex },
+        [page.pageNumber]: selections,
+      })
+      setLayoutSelections(current => {
+        const next = { ...current }
+        delete next[key]
+        return next
       })
       await refreshDocuments()
       setMessage(`${page.pageNumber}페이지의 선택한 읽기 순서로 본문을 다시 구성하고 있습니다.`)
@@ -402,15 +410,24 @@ export function RulebookSetup({
           <span className="setup-review-actions">{question.choices.map(choice => <Button key={choice.id} variant={choice.id === 'RETRY' ? 'default' : 'ghost'} disabled={reviewingDocumentId === document.knowledgeDocumentId} onClick={() => void answerReview(document, question.pageNumber, choice.id)}>{choice.label}</Button>)}</span>
           {document.preprocessingPages?.filter(page => page.pageNumber === question.pageNumber && page.layoutReview?.regions.length).map(page => <div className="setup-layout-review" key={`${document.knowledgeDocumentId}-${page.pageNumber}-layout`}>
             <strong>읽기 순서를 선택하세요</strong>
+            {(() => {
+              const key = `${document.knowledgeDocumentId}:${page.pageNumber}:${document.candidateExtractionVersion ?? ''}`
+              const selections = layoutSelections[key] ?? {}
+              const regions = page.layoutReview?.regions ?? []
+              const complete = regions.length > 0 && regions.every(region => selections[region.regionId] !== undefined)
+              return <>
             {page.layoutReview?.regions.map(region => <div className="setup-layout-region" key={region.regionId}>
               <span>{region.regionId}</span>
-              {region.candidates.map(candidate => <Button key={`${region.regionId}-${candidate.candidateIndex}`} variant="outline" disabled={reviewingDocumentId === document.knowledgeDocumentId} onClick={() => void selectReadingOrder(document, page, region.regionId, candidate.candidateIndex)}>
+              {region.candidates.map(candidate => <Button key={`${region.regionId}-${candidate.candidateIndex}`} variant={selections[region.regionId] === candidate.candidateIndex ? 'default' : 'outline'} aria-pressed={selections[region.regionId] === candidate.candidateIndex} disabled={reviewingDocumentId === document.knowledgeDocumentId} onClick={() => setLayoutSelections(current => ({ ...current, [key]: { ...(current[key] ?? {}), [region.regionId]: candidate.candidateIndex } }))}>
                 {candidate.columnCount === 1 ? '한 단' : `${candidate.columnCount}단`} · 후보 {candidate.candidateIndex + 1} · 근거 {Math.round(candidate.score * 100)}%
               </Button>)}
               {region.candidates.map(candidate => <small key={`${region.regionId}-${candidate.candidateIndex}-preview`} className="setup-layout-candidate-preview">
                 후보 {candidate.candidateIndex + 1} 읽기 예: {candidateBlockPreview(page, candidate).join(' → ') || '본문 블록 없음'}
               </small>)}
             </div>)}
+            <Button disabled={!complete || reviewingDocumentId === document.knowledgeDocumentId} onClick={() => void applyReadingOrder(document, page)}>선택한 읽기 순서 적용</Button>
+              </>
+            })()}
           </div>)}
         </div>)}
       </div> : null}

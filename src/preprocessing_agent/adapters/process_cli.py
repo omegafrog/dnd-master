@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import sys
 import re
+import logging
+import os
 from typing import Any
 
 from preprocessing_agent.pipeline.extraction_service import ExtractionApplicationService
@@ -12,7 +14,20 @@ from preprocessing_agent.pipeline.extraction_service import ExtractionApplicatio
 SUPPORTED_SCHEMA = "1"
 
 
+def _configure_diagnostics() -> None:
+    if os.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "").lower() not in {"1", "true", "yes", "on"}:
+        return
+    root = logging.getLogger()
+    if not any(getattr(handler, "_preprocessing_dev_diagnostics", False) for handler in root.handlers):
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        handler._preprocessing_dev_diagnostics = True  # type: ignore[attr-defined]
+        root.addHandler(handler)
+    root.setLevel(min(root.level, logging.INFO))
+
+
 def main() -> int:
+    _configure_diagnostics()
     request: dict = {}
     try:
         request = json.loads(sys.stdin.read())

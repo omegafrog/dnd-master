@@ -32,6 +32,40 @@ class RagExtractionPublicationServiceTest {
     }
 
     @Test
+    void oversizedChunkIsRejectedBeforeEmbeddingOrPublication() {
+        RecordingRepository repository = new RecordingRepository();
+        RagExtractionPublicationService service = service(repository, (chunks, model, dimension) -> {
+            throw new AssertionError("embedding must not be called for an oversized chunk");
+        });
+        PublishedRagChunk oversized = new PublishedRagChunk(
+                "processor-chunk-1", 0, "x".repeat(6001), "x".repeat(6001),
+                new SourceProvenance(1, List.of("Chapter 1"), List.of(), null, "page=1"));
+
+        assertThrows(PublicationBlockedException.class, () -> service.publish(request(
+                List.of(new RagExtractionPage(1, "VALIDATED", 1, List.of())), List.of(oversized))));
+
+        assertEquals(0, repository.publishCalls);
+        assertEquals(1, repository.failedCalls);
+        assertEquals(ExtractionPublicationStatus.NEEDS_REVIEW, repository.failedStatus);
+    }
+
+    @Test
+    void publicationCountsSupplementaryCharactersLikePythonCharacterLength() {
+        RecordingRepository repository = new RecordingRepository();
+        RagExtractionPublicationService service = service(repository, (chunks, model, dimension) -> embeddings(chunks));
+        String text = "😀".repeat(3001);
+        PublishedRagChunk chunk = new PublishedRagChunk(
+                "processor-chunk-1", 0, text, text,
+                new SourceProvenance(1, List.of("Chapter 1"), List.of(), null, "page=1"));
+
+        RagExtractionVersion version = service.publish(request(
+                List.of(new RagExtractionPage(1, "VALIDATED", 1, List.of())), List.of(chunk)));
+
+        assertEquals(ExtractionPublicationStatus.INDEXED, version.status());
+        assertEquals(1, repository.publishCalls);
+    }
+
+    @Test
     void successfulPublicationPassesAllProvenanceToOneAtomicRepositoryCall() {
         RecordingRepository repository = new RecordingRepository();
         List<PublishedRagChunk> chunks = List.of(new PublishedRagChunk(

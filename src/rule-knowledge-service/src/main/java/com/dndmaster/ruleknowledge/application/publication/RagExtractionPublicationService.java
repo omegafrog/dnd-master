@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 
 public final class RagExtractionPublicationService {
     private static final int EMBEDDING_BATCH_SIZE = 32;
+    private static final int MAX_CHUNK_CHARACTERS = 6000;
     private final RagExtractionPublicationRepository repository;
     private final EmbeddingPort embeddingPort;
     private final String embeddingModel;
@@ -88,6 +89,10 @@ public final class RagExtractionPublicationService {
             if (!"VALIDATED".equals(page.status())) throw new PublicationBlockedException("extraction version has an unvalidated page");
         }
         for (PublishedRagChunk chunk : request.chunks()) {
+            if (chunk.content().codePointCount(0, chunk.content().length()) > MAX_CHUNK_CHARACTERS
+                    || chunk.embeddingText().codePointCount(0, chunk.embeddingText().length()) > MAX_CHUNK_CHARACTERS) {
+                throw new PublicationBlockedException("chunk exceeds maximum character length");
+            }
             if (!pageNumbers.contains(chunk.provenance().pageNumber())) throw new PublicationBlockedException("chunk page is not in extraction manifest");
         }
     }

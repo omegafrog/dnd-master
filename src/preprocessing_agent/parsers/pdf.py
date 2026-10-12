@@ -12,7 +12,9 @@ import json
 import logging
 import math
 import os
+import re
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
@@ -255,42 +257,123 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
                 if not text:
                     continue
                 first = spans[0] if spans else {}
-                blocks.append({"text": text, "bbox": block.get("bbox"), "font_size": first.get("size"), "font": first.get("font")})
+                blocks.append({"text": text, "bbox": block.get("bbox"), "font_size": first.get("size"), "font": first.get("font"),
+                               "spans": [{"text": span.get("text", ""), "bbox": span.get("bbox")} for span in spans]})
             # Preserve native table structure when the installed PyMuPDF
             # exposes find_tables(); unsupported versions simply yield no
             # table cells and retain the normal text extraction path.
-            try:
-                import contextlib
-                import sys
-                with contextlib.redirect_stdout(sys.stderr):
-                    finder = page.find_tables()
-                found_tables = getattr(finder, "tables", finder or ())
-            except (AttributeError, RuntimeError, TypeError):
-                found_tables = ()
+            found_tables = _find_native_tables(page, page_number)
+            reconstructed = []
+            for table, strategy in found_tables:
+                projected, diagnostic = _reconstruct_native_table(table, blocks)
+                diagnostic.update(detection_strategies=strategy.split("+"), detection_deduplicated=False)
+                _classify_text_detection_hypothesis(diagnostic, strategy)
+                reconstructed.append((projected, diagnostic))
+            selected, _ = _reconcile_native_table_candidates(found_tables, reconstructed, page_number)
             table_regions = []
-            for table_index, table in enumerate(table for table in found_tables if _is_reliable_native_table(table)):
+            for table_index, (table, strategy, projected, diagnostic) in enumerate(selected):
+                if diagnostic["decision"] != "confirmed_structured":
+                    continue
+                table_bbox = tuple(float(value) for value in getattr(table, "bbox", ()))
+                if len(table_bbox) != 4:
+                    continue
+                blocks = _without_consumed_header_blocks(blocks, projected)
                 table_id = f"p{page_number}-table-{table_index}"
-                table_bbox = getattr(table, "bbox", None)
-                if table_bbox is not None and len(table_bbox) == 4:
-                    table_regions.append(tuple(float(value) for value in table_bbox))
-                rows = getattr(table, "rows", ()) or ()
-                try:
-                    extracted_rows = table.extract()
-                except (AttributeError, RuntimeError, TypeError):
-                    extracted_rows = ()
-                for row_index, row in enumerate(rows):
-                    cells = getattr(row, "cells", row if isinstance(row, (list, tuple)) else ()) or ()
-                    extracted = extracted_rows[row_index] if row_index < len(extracted_rows) else ()
-                    for column_index, cell_bbox in enumerate(cells):
-                        if cell_bbox is None or len(cell_bbox) != 4:
-                            continue
-                        text = str(extracted[column_index]).strip() if column_index < len(extracted) else ""
-                        blocks.append({"block_id": f"{table_id}-r{row_index}-c{column_index}", "text": text or " ",
-                                           "bbox": tuple(cell_bbox), "kind": "table_cell", "table_id": table_id,
-                                           "row": row_index, "column": column_index, "is_header": row_index == 0})
+                table_regions.append(table_bbox)
+                for cell in projected:
+                    blocks.append({**cell, "block_id": f"{table_id}-r{cell['row']}-c{cell['column']}",
+                                   "table_id": table_id})
             if table_regions:
                 blocks = [block for block in blocks if block.get("kind") == "table_cell" or not _inside_table_region(block.get("bbox"), table_regions)]
             yield {"page_number": page_number, "blocks": blocks}
+
+
+def _find_native_tables(page: Any, page_number: int) -> list[tuple[Any, str]]:
+    """Collect candidates from native line and text detection for reconstruction."""
+    import contextlib
+    import sys
+
+    found: list[tuple[Any, str]] = []
+    for strategy in ("lines", "text"):
+        started = time.monotonic()
+        try:
+            with contextlib.redirect_stdout(sys.stderr):
+                finder = page.find_tables() if strategy == "lines" else page.find_tables(strategy="text")
+            candidates = tuple(getattr(finder, "tables", finder or ()))
+        except (AttributeError, RuntimeError, TypeError) as exc:
+            _layout_log("dev_preprocessing_layout stage=native_table_detection pageNumber=%d strategy=%s candidateCount=0 elapsedMs=%d failureType=%s recoveryAction=try_next_strategy outcome=failed",
+                         page_number, strategy, round((time.monotonic() - started) * 1000), type(exc).__name__)
+            continue
+        _layout_log("dev_preprocessing_layout stage=native_table_detection pageNumber=%d strategy=%s candidateCount=%d elapsedMs=%d failureType=none recoveryAction=compare_candidates outcome=%s",
+                     page_number, strategy, len(candidates), round((time.monotonic() - started) * 1000),
+                     "candidates_found" if candidates else "no_candidates")
+        found.extend((candidate, strategy) for candidate in candidates)
+    return found
+
+
+def _native_bbox(table: Any) -> tuple[float, float, float, float]:
+    bbox = getattr(table, "bbox", ())
+    return tuple(float(value) for value in bbox) if isinstance(bbox, (tuple, list)) and len(bbox) == 4 else ()
+
+
+def _same_native_table_region(left: tuple[float, ...], right: tuple[float, ...]) -> bool:
+    if len(left) != 4 or len(right) != 4:
+        return False
+    intersection = max(0.0, min(left[2], right[2]) - max(left[0], right[0])) * max(
+        0.0, min(left[3], right[3]) - max(left[1], right[1]))
+    left_area = max(0.0, left[2] - left[0]) * max(0.0, left[3] - left[1])
+    right_area = max(0.0, right[2] - right[0]) * max(0.0, right[3] - right[1])
+    union = left_area + right_area - intersection
+    return union > 0 and intersection / union >= 0.9
+
+
+def _reconcile_native_table_candidates(candidates: list[tuple[Any, str]],
+                                       reconstructed: list[tuple[list[dict[str, Any]], dict[str, Any]]],
+                                       page_number: int) -> tuple[list[tuple[Any, str, list[dict[str, Any]], dict[str, Any]]], list[dict[str, Any]]]:
+    """Deduplicate near-equal regions after reconstruction outcomes are known."""
+    selected: list[tuple[Any, str, list[dict[str, Any]], dict[str, Any]]] = []
+    diagnostics: list[dict[str, Any]] = []
+    for index, ((table, strategy), (cells, diagnostic)) in enumerate(zip(candidates, reconstructed)):
+        diagnostics.append(diagnostic)
+        duplicate = next((position for position, (prior, _, _, _) in enumerate(selected)
+                          if _same_native_table_region(_native_bbox(table), _native_bbox(prior))), None)
+        if duplicate is None:
+            selected.append((table, strategy, cells, diagnostic))
+            continue
+        prior_table, prior_strategy, prior_cells, prior_diagnostic = selected[duplicate]
+        rank = {"confirmed_structured": 2, "strong_unresolved": 1, "weak_candidate": 0}
+        quality = lambda item: (rank.get(item["decision"], -1),
+                                item["observed_cell_geometry_count"] / max(1, item["expected_cell_count"]))
+        if quality(diagnostic) > quality(prior_diagnostic):
+            loser = prior_diagnostic
+            strategies = "+".join(dict.fromkeys((*prior_strategy.split("+"), strategy)))
+            selected[duplicate] = (table, strategies, cells, diagnostic)
+        else:
+            loser = diagnostic
+            strategies = "+".join(dict.fromkeys((*prior_strategy.split("+"), strategy)))
+            selected[duplicate] = (prior_table, strategies, prior_cells, prior_diagnostic)
+            prior_diagnostic.update(detection_strategies=strategies, detection_deduplicated=True)
+        loser.update(candidate_kind="overlapping_detection_duplicate",
+                     reconstruction_decision=loser.get("decision"),
+                     reconstruction_rejection_reason=loser.get("rejection_reason"),
+                     decision="weak_candidate", rejection_reason="NEAR_IDENTICAL_REGION_RECONCILED",
+                     deduplicated_into_candidate_index=duplicate)
+        _layout_log("dev_preprocessing_layout stage=native_table_candidate pageNumber=%d candidateIndex=%d priorCandidateIndex=%d priorStrategy=%s candidateStrategy=%s retainedDecision=%s recoveryAction=keep_best_reconstruction_and_preserve_diagnostic outcome=overlap_deduplicated",
+                    page_number, index, duplicate, prior_strategy, strategy,
+                    selected[duplicate][3]["decision"])
+    for table, strategy, _, diagnostic in selected:
+        diagnostic.update(detection_strategies=strategy.split("+"), detection_deduplicated="+" in strategy)
+    return selected, diagnostics
+
+
+def _classify_text_detection_hypothesis(diagnostic: dict[str, Any], strategy: str) -> None:
+    """Keep failed text-only detections visible without treating them as table evidence."""
+    if strategy == "text" and diagnostic["decision"] == "strong_unresolved":
+        diagnostic.update(decision="weak_candidate", candidate_kind="unresolved_text_detection",
+                          reconstruction_decision="strong_unresolved",
+                          reconstruction_rejection_reason=diagnostic["rejection_reason"],
+                          rejection_reason="TEXT_DETECTION_NOT_CONFIRMED",
+                          signals=[*diagnostic["signals"], "TEXT_DETECTION_RECONSTRUCTION_UNRESOLVED"])
 
 
 def _inside_table_region(bbox: object, regions: list[tuple[float, float, float, float]]) -> bool:
@@ -302,18 +385,235 @@ def _inside_table_region(bbox: object, regions: list[tuple[float, float, float, 
 
 
 def _is_reliable_native_table(table: Any) -> bool:
-    """Accept only repeated, rectangular native grids for cell projection."""
+    """Recognize repeated grid evidence without requiring every cell box."""
     rows = tuple(getattr(table, "rows", ()) or ())
     if len(rows) < 2:
         return False
     row_cells = tuple(tuple(getattr(row, "cells", row if isinstance(row, (list, tuple)) else ()) or ()) for row in rows)
-    widths = {len(cells) for cells in row_cells}
-    if len(widths) != 1 or not widths or next(iter(widths)) < 2:
-        return False
-    if any(cell is None or len(cell) != 4 for cells in row_cells for cell in cells):
-        return False
-    row_centers = {round((float(cells[0][1]) + float(cells[0][3])) / 2, 3) for cells in row_cells}
-    return len(row_centers) >= 2
+    column_count = max((len(cells) for cells in row_cells), default=0)
+    valid = [(row_index, cell) for row_index, cells in enumerate(row_cells) for cell in cells
+             if isinstance(cell, (list, tuple)) and len(cell) == 4
+             and all(isinstance(value, (int, float)) and math.isfinite(value) for value in cell)
+             and cell[0] < cell[2] and cell[1] < cell[3]]
+    row_centers = {round((float(box[1]) + float(box[3])) / 2, 3) for _, box in valid}
+    edge_rows: dict[float, set[int]] = {}
+    for row_index, box in valid:
+        for edge in (box[0], box[2]):
+            edge_rows.setdefault(round(float(edge), 1), set()).add(row_index)
+    repeated_edges = sum(len(support) >= 2 for support in edge_rows.values())
+    return column_count >= 2 and len(row_centers) >= 2 and len(valid) >= 2 and repeated_edges >= 2
+
+
+def _reconstruct_native_table(table: Any, source_blocks: list[dict[str, Any]] | tuple[Mapping[str, Any], ...]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Project native cells only when geometry and candidate-region text agree."""
+    diagnostic = _native_table_candidate_diagnostic(table)
+    if diagnostic["decision"] == "weak_candidate" and (
+        not diagnostic["bbox"] or diagnostic["row_count"] < 2 or diagnostic["column_count"] < 2
+    ):
+        return [], diagnostic
+    if diagnostic["decision"] == "weak_candidate":
+        diagnostic.update(decision="strong_unresolved", rejection_reason="UNCONFIRMED_GRID")
+    rows = tuple(getattr(table, "rows", ()) or ())
+    row_cells = tuple(tuple(getattr(row, "cells", row if isinstance(row, (list, tuple)) else ()) or ()) for row in rows)
+    table_bbox = diagnostic.get("bbox")
+    row_heights = [float(box[3]) - float(box[1]) for cells in row_cells for box in cells
+                   if isinstance(box, (list, tuple)) and len(box) == 4 and float(box[3]) > float(box[1])]
+    span_heights = [float(span["bbox"][3]) - float(span["bbox"][1]) for block in source_blocks
+                    for span in block.get("spans", ()) if isinstance(span, Mapping)
+                    and isinstance(span.get("bbox"), (list, tuple)) and len(span["bbox"]) == 4
+                    and float(span["bbox"][3]) > float(span["bbox"][1])]
+    edges = sorted({round(float(edge), 1) for cells in row_cells for box in cells
+                    if isinstance(box, (list, tuple)) and len(box) == 4
+                    for edge in (box[0], box[2])})
+    bbox_height = float(table_bbox[3]) - float(table_bbox[1]) if table_bbox else 0
+    geometry = (_median_positive(span_heights) or _median_positive(row_heights)
+                or (bbox_height / len(rows) if bbox_height > 0 and rows else None))
+    edge_spacing = _median_positive([right - left for left, right in zip(edges, edges[1:])])
+    edge_tolerance = min(geometry * 0.11, edge_spacing * 0.02) if geometry and edge_spacing else geometry * 0.11 if geometry else 0.0
+    diagnostic["mapping_tolerance"] = edge_tolerance
+    if len(edges) < 3:
+        diagnostic.update(decision="strong_unresolved", rejection_reason="GRID_RECONSTRUCTION_AMBIGUOUS")
+        return [], diagnostic
+    try:
+        extracted_rows = tuple(table.extract())
+    except (AttributeError, RuntimeError, TypeError):
+        extracted_rows = ()
+    result: list[dict[str, Any]] = []
+    for row_index, cells in enumerate(row_cells):
+        occupied: set[int] = set()
+        for column_index, box in enumerate(cells):
+            if box is None:
+                continue
+            if not isinstance(box, (list, tuple)) or len(box) != 4:
+                diagnostic.update(decision="strong_unresolved", rejection_reason="GRID_RECONSTRUCTION_AMBIGUOUS")
+                return [], diagnostic
+            x0, y0, x1, y1 = map(float, box)
+            starts = [index for index, edge in enumerate(edges[:-1]) if abs(edge - x0) <= edge_tolerance]
+            ends = [index + 1 for index, edge in enumerate(edges[1:]) if abs(edge - x1) <= edge_tolerance]
+            if len(starts) != 1 or len(ends) != 1 or ends[0] <= starts[0]:
+                diagnostic.update(decision="strong_unresolved", rejection_reason="GRID_RECONSTRUCTION_AMBIGUOUS")
+                return [], diagnostic
+            start, end = starts[0], ends[0]
+            slots = set(range(start, end))
+            if start != column_index or occupied & slots:
+                diagnostic.update(decision="strong_unresolved", rejection_reason="GRID_RECONSTRUCTION_AMBIGUOUS")
+                return [], diagnostic
+            occupied.update(slots)
+            extracted = extracted_rows[row_index] if row_index < len(extracted_rows) else ()
+            text = str(extracted[column_index]).strip() if column_index < len(extracted) and extracted[column_index] is not None else ""
+            region_spans = [span for block in source_blocks
+                            for span in block.get("spans", ()) if isinstance(span, Mapping)
+                            and isinstance(span.get("bbox"), (list, tuple)) and len(span["bbox"]) == 4
+                            and table_bbox[0] <= (float(span["bbox"][0]) + float(span["bbox"][2])) / 2 <= table_bbox[2]
+                            and table_bbox[1] <= (float(span["bbox"][1]) + float(span["bbox"][3])) / 2 <= table_bbox[3]
+                            and y0 - edge_tolerance <= (float(span["bbox"][1]) + float(span["bbox"][3])) / 2 <= y1 + edge_tolerance]
+            mapped_spans = [(span, next((index for index, (left, right) in enumerate(zip(edges, edges[1:]))
+                                         if float(span["bbox"][0]) >= left - edge_tolerance and float(span["bbox"][2]) <= right + edge_tolerance), None))
+                            for span in region_spans]
+            split_spans = [(span, col) for span, col in mapped_spans if col is not None and start <= col < end]
+            if end - start > 1 and len({col for _, col in split_spans}) > 1:
+                if len(split_spans) != len(region_spans):
+                    diagnostic.update(decision="strong_unresolved", rejection_reason="GRID_RECONSTRUCTION_AMBIGUOUS")
+                    return [], diagnostic
+                for col in range(start, end):
+                    col_spans = sorted((span for span, span_col in split_spans if span_col == col),
+                                       key=lambda span: (float(span["bbox"][1]), float(span["bbox"][0])))
+                    result.append({"text": " ".join(str(span.get("text", "")).strip() for span in col_spans).strip() or " ",
+                                   "bbox": (edges[col], y0, edges[col + 1], y1), "kind": "table_cell",
+                                   "row": row_index, "column": col, "column_span": 1,
+                                   "row_span": 1, "merged": False})
+            else:
+                cell_spans = sorted((span for span, col in mapped_spans if col is not None and start <= col < end),
+                                    key=lambda span: (float(span["bbox"][1]), float(span["bbox"][0])))
+                cell_text = " ".join(str(span.get("text", "")).strip() for span in cell_spans).strip() if cell_spans else text
+                result.append({"text": cell_text or " ", "bbox": tuple(box), "kind": "table_cell",
+                               "row": row_index, "column": start, "column_span": end - start,
+                               "row_span": 1, "merged": end - start > 1})
+        if occupied != set(range(len(cells))):
+            diagnostic.update(decision="strong_unresolved", rejection_reason="GRID_RECONSTRUCTION_AMBIGUOUS")
+            return [], diagnostic
+    bbox = diagnostic.get("bbox")
+    candidate_spans = [span for block in source_blocks for span in block.get("spans", ())
+                       if bbox and isinstance(span, Mapping) and isinstance(span.get("bbox"), (list, tuple))
+                       and len(span["bbox"]) == 4
+                       and bbox[0] <= (float(span["bbox"][0]) + float(span["bbox"][2])) / 2 <= bbox[2]
+                       and bbox[1] <= (float(span["bbox"][1]) + float(span["bbox"][3])) / 2 <= bbox[3]]
+    source_text = " ".join(str(span.get("text", "")) for span in candidate_spans)
+    if not source_text:
+        source_text = " ".join(str(block.get("text", "")) for block in sorted(
+        (block for block in source_blocks if _inside_table_region(block.get("bbox"), [tuple(bbox)])),
+        key=lambda block: (_bbox(block.get("bbox"))[1], _bbox(block.get("bbox"))[0]))) if bbox else ""
+    table_text = " ".join(str(cell["text"]) for cell in result if cell["text"].strip())
+    for span in candidate_spans:
+        span_box = _bbox(span.get("bbox"))
+        center_x, center_y = (span_box[0] + span_box[2]) / 2, (span_box[1] + span_box[3]) / 2
+        if sum(cell["bbox"][0] - edge_tolerance <= center_x <= cell["bbox"][2] + edge_tolerance
+               and cell["bbox"][1] - edge_tolerance <= center_y <= cell["bbox"][3] + edge_tolerance for cell in result) != 1:
+            diagnostic.update(decision="strong_unresolved", rejection_reason="GRID_RECONSTRUCTION_AMBIGUOUS")
+            return [], diagnostic
+    if not candidate_spans:
+        table_text = " ".join(str(value) for row in extracted_rows for value in row if value)
+    tokenize = lambda text: Counter(re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE))
+    if not source_text or tokenize(source_text) != tokenize(table_text):
+        diagnostic.update(decision="strong_unresolved", rejection_reason="TABLE_TEXT_MISMATCH")
+        return [], diagnostic
+    headers, header_error = _native_table_header(rows, edges, result, source_blocks, edge_tolerance)
+    if header_error:
+        diagnostic.update(decision="strong_unresolved", rejection_reason=header_error)
+        return [], diagnostic
+    if headers:
+        for cell in result:
+            cell["row"] += 1
+        result = headers + result
+    for cell in result:
+        cell["is_header"] = bool(headers) and cell["row"] == 0
+    diagnostic.update(decision="confirmed_structured", rejection_reason=None)
+    return result, diagnostic
+
+
+def _median_positive(values: list[float]) -> float | None:
+    positive = sorted(value for value in values if math.isfinite(value) and value > 0)
+    return positive[len(positive) // 2] if positive else None
+
+
+def _native_table_header(rows: tuple[Any, ...], edges: list[float], cells: list[dict[str, Any]],
+                         source_blocks: list[dict[str, Any]] | tuple[Mapping[str, Any], ...],
+                         geometry_tolerance: float) -> tuple[list[dict[str, Any]], str | None]:
+    first_row = [cell for cell in cells if cell["row"] == 0]
+    top = min(cell["bbox"][1] for cell in first_row)
+    heights = [float(cell[3]) - float(cell[1]) for box in
+               (getattr(rows[0], "cells", rows[0] if isinstance(rows[0], (list, tuple)) else ()) or ())
+               if isinstance(box, (list, tuple)) and len(box) == 4 for cell in [box]]
+    span_heights = [float(span["bbox"][3]) - float(span["bbox"][1]) for block in source_blocks
+                    for span in block.get("spans", ()) if isinstance(span, Mapping)
+                    and isinstance(span.get("bbox"), (list, tuple)) and len(span["bbox"]) == 4
+                    and float(span["bbox"][3]) > float(span["bbox"][1])]
+    text_height = _median_positive(span_heights) or geometry_tolerance / 0.11
+    row_height = _median_positive(heights)
+    max_gap = max(row_height or 0, text_height or 0) * 1.5
+    candidates = []
+    for block in source_blocks:
+        for span_index, span in enumerate(block.get("spans", ())):
+            box = span.get("bbox") if isinstance(span, Mapping) else None
+            if not isinstance(box, (list, tuple)) or len(box) != 4:
+                continue
+            x0, y0, x1, y1 = map(float, box)
+            gap = top - y1
+            column = next((index for index, (left, right) in enumerate(zip(edges, edges[1:]))
+                           if x0 >= left - geometry_tolerance and x1 <= right + geometry_tolerance), None)
+            if 0 <= gap <= max_gap and column is not None and str(span.get("text", "")).strip():
+                candidates.append((span, column, (y0 + y1) / 2, gap, (id(block), span_index)))
+    candidates.sort(key=lambda item: item[2])
+    groups: list[list[tuple[Mapping[str, Any], int, float, float]]] = []
+    for candidate in candidates:
+        if not groups or candidate[2] - groups[-1][-1][2] > text_height * 0.3:
+            groups.append([candidate])
+        else:
+            groups[-1].append(candidate)
+    aligned = [group for group in groups if len({item[1] for item in group}) >= 2]
+    if not aligned:
+        return [], None
+    aligned.sort(key=lambda group: min(item[3] for item in group))
+    closest_y = sum(item[2] for item in aligned[0]) / len(aligned[0])
+    selected = [item for group in aligned
+                if abs(sum(item[2] for item in group) / len(group) - closest_y) <= text_height * 1.5
+                for item in group]
+    for index, (left, left_column, _, _, _) in enumerate(selected):
+        left_box = left["bbox"]
+        for right, right_column, _, _, _ in selected[index + 1:]:
+            right_box = right["bbox"]
+            if (left_column == right_column and min(float(left_box[2]), float(right_box[2])) > max(float(left_box[0]), float(right_box[0]))
+                    and min(float(left_box[3]), float(right_box[3])) > max(float(left_box[1]), float(right_box[1]))
+                    and str(left.get("text", "")).strip() != str(right.get("text", "")).strip()):
+                return [], "CONFLICTING_HEADER_EVIDENCE"
+    headers = []
+    header_top = min(float(item[0]["bbox"][1]) for item in selected)
+    header_bottom = max(float(item[0]["bbox"][3]) for item in selected)
+    for column in range(len(edges) - 1):
+        spans = sorted((item[0] for item in selected if item[1] == column),
+                       key=lambda span: (float(span["bbox"][1]), float(span["bbox"][0])))
+        refs = [item[4] for item in selected if item[1] == column]
+        headers.append({"text": " ".join(str(span.get("text", "")).strip() for span in spans).strip() or " ",
+                        "bbox": ((min(float(span["bbox"][0]) for span in spans) if spans else edges[column]),
+                                 (min(float(span["bbox"][1]) for span in spans) if spans else header_top),
+                                 (max(float(span["bbox"][2]) for span in spans) if spans else edges[column + 1]),
+                                 (max(float(span["bbox"][3]) for span in spans) if spans else header_bottom)),
+                        "kind": "table_cell", "row": 0, "column": column,
+                        "column_span": 1, "row_span": 1, "merged": False, "is_header": True,
+                        "source_span_refs": refs})
+    return headers, None
+
+
+def _without_consumed_header_blocks(blocks: list[dict[str, Any]], cells: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    consumed = {tuple(ref) for cell in cells for ref in cell.pop("source_span_refs", ())}
+    result = []
+    for block_index, block in enumerate(blocks):
+        text_spans = [(span_index, span) for span_index, span in enumerate(block.get("spans", ()))
+                      if str(span.get("text", "")).strip()]
+        if text_spans and all((id(block), span_index) in consumed for span_index, _ in text_spans):
+            continue
+        result.append(block)
+    return result
 
 
 def _native_table_candidate_diagnostic(table: Any) -> dict[str, Any]:
@@ -357,7 +657,7 @@ def _native_table_candidate_diagnostic(table: Any) -> dict[str, Any]:
     ]
     if missing:
         signals.append("MISSING_CELL_BBOXES")
-    if _is_reliable_native_table(table):
+    if _is_reliable_native_table(table) and missing == 0 and rectangular:
         decision, reason = "confirmed_structured", None
     elif (bbox_valid and len(rows) >= 3 and column_count >= 2 and coverage >= .25
           and repeated_row_geometry and repeated_column_geometry):

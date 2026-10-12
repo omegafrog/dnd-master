@@ -24,7 +24,7 @@ from preprocessing_agent.domain import PageStatus, ParsedDocument, ParsedPage, P
 from preprocessing_agent.domain.layout import BoundingBox, PageGeometry, LayoutBlock
 from preprocessing_agent.domain.serialization import to_dict
 from preprocessing_agent.layout import ReadingOrderPlanner
-from preprocessing_agent.parsers.pdf import PdfDocumentParser, _native_table_candidate_diagnostic
+from preprocessing_agent.parsers.pdf import PdfDocumentParser, _classify_text_detection_hypothesis, _find_native_tables, _native_table_candidate_diagnostic, _reconcile_native_table_candidates, _reconstruct_native_table, _without_consumed_header_blocks
 from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
 from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector
 from preprocessing_agent.ports.extraction import ExtractionCapabilityError, PageRenderPort, OcrPort, normalize_ocr_blocks
@@ -193,12 +193,18 @@ class PyMuPdfNativePdfAdapter:
                 rect = page.rect
                 blocks = []
                 font_metadata = _font_metadata_by_block(page)
+                text_spans = {}
+                for text_block in page.get_text("dict").get("blocks", ()):
+                    key = tuple(float(value) for value in text_block.get("bbox", ()))
+                    text_spans[key] = [{"text": span.get("text", ""), "bbox": span.get("bbox")}
+                                       for line in text_block.get("lines", ()) for span in line.get("spans", ())]
                 for index, raw in enumerate(page.get_text("blocks")):
                     text = str(raw[4]).strip()
                     if not text:
                         continue
                     size, font = font_metadata.get(tuple(float(value) for value in raw[:4]), (None, None))
-                    block = {"block_id": f"p{number}-b{index}", "text": text, "bbox": raw[:4]}
+                    block = {"block_id": f"p{number}-b{index}", "text": text, "bbox": raw[:4],
+                             "spans": text_spans.get(tuple(float(value) for value in raw[:4]), [])}
                     # Keep typography useful for heading confidence without
                     # turning page numbers and running headers (normally 8-9pt)
                     # into furniture merely because metadata is present.
@@ -210,42 +216,49 @@ class PyMuPdfNativePdfAdapter:
                 # PyMuPDF's table finder is the native structured extraction
                 # seam. Keep cells as geometry-bearing blocks so downstream
                 # structure detection receives real row/column provenance.
-                try:
-                    with contextlib.redirect_stdout(sys.stderr):
-                        finder = page.find_tables()
-                    found_tables = tuple(getattr(finder, "tables", finder or ()))
-                except (AttributeError, RuntimeError, TypeError):
-                    found_tables = ()
-                table_diagnostics = [_native_table_candidate_diagnostic(table) for table in found_tables]
+                found_tables = _find_native_tables(page, number)
+                reconstructed = []
+                reconstruction_elapsed = []
+                for table, strategy in found_tables:
+                    reconstruction_started = time.monotonic()
+                    projected, diagnostic = _reconstruct_native_table(table, blocks)
+                    diagnostic.update(detection_strategies=strategy.split("+"),
+                                      detection_deduplicated="+" in strategy)
+                    _classify_text_detection_hypothesis(diagnostic, strategy)
+                    reconstructed.append((projected, diagnostic))
+                    reconstruction_elapsed.append(round((time.monotonic() - reconstruction_started) * 1000))
+                selected_tables, table_diagnostics = _reconcile_native_table_candidates(found_tables, reconstructed, number)
+                for index, diagnostic in enumerate(table_diagnostics):
+                    table_bbox = diagnostic["bbox"]
+                    source_spans = [span for block in blocks for span in block.get("spans", ())
+                                    if isinstance(span, Mapping) and isinstance(span.get("bbox"), (list, tuple))
+                                    and len(span["bbox"]) == 4 and table_bbox
+                                    and table_bbox[0] <= (float(span["bbox"][0]) + float(span["bbox"][2])) / 2 <= table_bbox[2]
+                                    and table_bbox[1] <= (float(span["bbox"][1]) + float(span["bbox"][3])) / 2 <= table_bbox[3]]
+                    projected = reconstructed[index][0]
+                    mapping_tolerance = diagnostic.get("mapping_tolerance", 0.0)
+                    mapped_count = sum(sum(cell["bbox"][0] - mapping_tolerance <= (float(span["bbox"][0]) + float(span["bbox"][2])) / 2 <= cell["bbox"][2] + mapping_tolerance
+                                           and cell["bbox"][1] - mapping_tolerance <= (float(span["bbox"][1]) + float(span["bbox"][3])) / 2 <= cell["bbox"][3] + mapping_tolerance
+                                           for cell in projected) == 1 for span in source_spans)
+                    _dev_log("dev_preprocessing_layout stage=native_table_reconstruction pageNumber=%d candidateIndex=%d strategies=%s detectionDeduplicated=%s rowCount=%d columnCount=%d expectedCellCount=%d actualProjectedCellCount=%d sourceSpanCount=%d mappedSpanCount=%d elapsedMs=%d decision=%s rejectionReason=%s recoveryAction=%s outcome=%s",
+                             number, index, "+".join(diagnostic["detection_strategies"]), diagnostic["detection_deduplicated"], diagnostic["row_count"], diagnostic["column_count"],
+                             diagnostic["expected_cell_count"], len(projected), len(source_spans), mapped_count,
+                             reconstruction_elapsed[index],
+                             diagnostic["decision"], diagnostic["rejection_reason"] or "none",
+                             "needs_review" if diagnostic["decision"] == "strong_unresolved" else "continue_layout_analysis",
+                             "accepted" if diagnostic["decision"] == "confirmed_structured" else diagnostic["decision"])
                 table_regions = []
-                for table_index, table in enumerate(found_tables):
-                    diagnostic = table_diagnostics[table_index]
+                for table_index, (table, _, projected, diagnostic) in enumerate(selected_tables):
                     if diagnostic["decision"] != "confirmed_structured":
                         continue
-                    rows = getattr(table, "rows", ()) or ()
+                    blocks = _without_consumed_header_blocks(blocks, projected)
                     table_id = f"p{number}-table-{table_index}"
                     table_bbox = getattr(table, "bbox", None)
                     if table_bbox is not None and len(table_bbox) == 4:
                         table_regions.append(tuple(float(value) for value in table_bbox))
-                    for row_index, row in enumerate(rows):
-                        cells = getattr(row, "cells", row if isinstance(row, (list, tuple)) else ()) or ()
-                        extracted = ()
-                        try:
-                            extracted = tuple(table.extract()[row_index])
-                        except (AttributeError, IndexError, TypeError):
-                            pass
-                        for column_index, cell_bbox in enumerate(cells):
-                            if cell_bbox is None or len(cell_bbox) != 4:
-                                continue
-                            text = str(extracted[column_index]).strip() if column_index < len(extracted) else ""
-                            # A blank cell is still structural evidence; a
-                            # single space satisfies the block value object
-                            # while remaining absent from normalized prose.
-                            text = text or " "
-                            blocks.append({"block_id": f"{table_id}-r{row_index}-c{column_index}", "text": text,
-                                           "bbox": tuple(cell_bbox), "kind": "table_cell", "table_id": table_id,
-                                           "row": row_index, "column": column_index,
-                                           "is_header": row_index == 0})
+                    for cell in projected:
+                        blocks.append({**cell, "block_id": f"{table_id}-r{cell['row']}-c{cell['column']}",
+                                       "table_id": table_id})
                 if table_regions:
                     blocks = [block for block in blocks if block.get("kind") == "table_cell" or not _inside_table_region(block.get("bbox"), table_regions)]
                 blocks = list(_deduplicate_blocks(blocks))
