@@ -46,10 +46,27 @@ public record PreprocessingPageState(
         }
     }
 
-    public record LayoutReview(List<LayoutRegionReview> regions, List<LayoutBlockReview> blocks) {
+    public record LayoutReview(List<LayoutRegionReview> regions, List<LayoutBlockReview> blocks,
+            List<TableCandidateDiagnostic> tableDiagnostics) {
         public LayoutReview {
             regions = regions == null ? List.of() : List.copyOf(regions);
             blocks = blocks == null ? List.of() : List.copyOf(blocks);
+            tableDiagnostics = tableDiagnostics == null ? List.of() : List.copyOf(tableDiagnostics);
+        }
+
+        public LayoutReview(List<LayoutRegionReview> regions, List<LayoutBlockReview> blocks) {
+            this(regions, blocks, List.of());
+        }
+    }
+
+    public record TableCandidateDiagnostic(List<Double> bbox, int rowCount, int columnCount,
+            int missingCellCount, int observedCellGeometryCount, int expectedCellCount,
+            List<String> signals, String decision, String rejectionReason) {
+        public TableCandidateDiagnostic {
+            bbox = bbox == null ? null : List.copyOf(bbox);
+            signals = signals == null ? List.of() : List.copyOf(signals);
+            decision = decision == null ? "" : decision;
+            rejectionReason = rejectionReason == null ? "" : rejectionReason;
         }
     }
 

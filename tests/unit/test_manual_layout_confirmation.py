@@ -112,7 +112,7 @@ def test_fresh_review_replaces_stale_recovered_confirmation_before_promotion(tmp
         "admin_id": "admin-2", "candidate_version": "candidate-1", "selections": selection}
     assert confirmation["source_sha256"] == hashlib.sha256(b"pdf").hexdigest()
     assert confirmation["page_layout_fingerprint"]
-    assert confirmation["layout_analysis_version"] == "reading-order-v1"
+    assert confirmation["layout_analysis_version"] == "reading-order-v2"
 
 
 def test_confirmed_layout_is_recomputed_when_analysis_version_changes(tmp_path):
@@ -141,7 +141,7 @@ def test_confirmed_layout_is_recomputed_when_analysis_version_changes(tmp_path):
 
     assert replay["status"] == "READY", replay["pages"][0]
     assert native.calls == calls_after_confirmation + 2
-    assert replay["pages"][0]["layout_confirmation"]["layout_analysis_version"] == "reading-order-v1"
+    assert replay["pages"][0]["layout_confirmation"]["layout_analysis_version"] == "reading-order-v2"
 
 
 def test_matching_approval_is_reused_across_artifact_roots_with_original_admin(tmp_path, monkeypatch, caplog):

@@ -24,7 +24,7 @@ from preprocessing_agent.domain import PageStatus, ParsedDocument, ParsedPage, P
 from preprocessing_agent.domain.layout import BoundingBox, PageGeometry, LayoutBlock
 from preprocessing_agent.domain.serialization import to_dict
 from preprocessing_agent.layout import ReadingOrderPlanner
-from preprocessing_agent.parsers.pdf import PdfDocumentParser, _is_reliable_native_table
+from preprocessing_agent.parsers.pdf import PdfDocumentParser, _native_table_candidate_diagnostic
 from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
 from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector
 from preprocessing_agent.ports.extraction import ExtractionCapabilityError, PageRenderPort, OcrPort, normalize_ocr_blocks
@@ -33,7 +33,7 @@ from preprocessing_agent.validation import LayoutValidationService
 from preprocessing_agent.pipeline.retry import PageRetryPolicy
 
 _LOGGER = logging.getLogger(__name__)
-_LAYOUT_ANALYSIS_VERSION = "reading-order-v1"
+_LAYOUT_ANALYSIS_VERSION = "reading-order-v2"
 
 
 def _page_layout_fingerprint(page: Mapping[str, Any]) -> str:
@@ -213,11 +213,15 @@ class PyMuPdfNativePdfAdapter:
                 try:
                     with contextlib.redirect_stdout(sys.stderr):
                         finder = page.find_tables()
-                    found_tables = getattr(finder, "tables", finder or ())
+                    found_tables = tuple(getattr(finder, "tables", finder or ()))
                 except (AttributeError, RuntimeError, TypeError):
                     found_tables = ()
+                table_diagnostics = [_native_table_candidate_diagnostic(table) for table in found_tables]
                 table_regions = []
-                for table_index, table in enumerate(table for table in found_tables if _is_reliable_native_table(table)):
+                for table_index, table in enumerate(found_tables):
+                    diagnostic = table_diagnostics[table_index]
+                    if diagnostic["decision"] != "confirmed_structured":
+                        continue
                     rows = getattr(table, "rows", ()) or ()
                     table_id = f"p{number}-table-{table_index}"
                     table_bbox = getattr(table, "bbox", None)
@@ -245,7 +249,9 @@ class PyMuPdfNativePdfAdapter:
                 if table_regions:
                     blocks = [block for block in blocks if block.get("kind") == "table_cell" or not _inside_table_region(block.get("bbox"), table_regions)]
                 blocks = list(_deduplicate_blocks(blocks))
-                pages.append({"page_number": number, "geometry": {"width": rect.width, "height": rect.height}, "blocks": blocks})
+                pages.append({"page_number": number, "geometry": {"width": rect.width, "height": rect.height},
+                              "blocks": blocks, "native_table_candidate_count": len(found_tables),
+                              "native_table_diagnostics": table_diagnostics})
         return pages
 
 
@@ -322,7 +328,8 @@ def _enforce_root(path: Path, env_name: str) -> None:
 
 def _layout_review_payload(page: Mapping[str, Any]) -> dict[str, Any]:
     layout = page.get("layout") if isinstance(page.get("layout"), Mapping) else {}
-    return {**layout, "blocks": page.get("blocks", [])}
+    return {**layout, "blocks": page.get("blocks", []),
+            "table_diagnostics": page.get("table_diagnostics", [])}
 
 
 class ExtractionApplicationService:
@@ -421,6 +428,8 @@ class ExtractionApplicationService:
             render_evidence: dict[str, Any] = {"page_number": position, "status": "UNAVAILABLE"}
             layout_validation: Mapping[str, Any] = {}
             layout_plan = None
+            table_diagnostics: list[Mapping[str, Any]] = []
+            pending_findings: list[str] = []
             try:
                 if not isinstance(raw, Mapping):
                     raise ValueError("MALFORMED_EXTRACTION_PAYLOAD")
@@ -455,6 +464,26 @@ class ExtractionApplicationService:
                     LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), extraction_method, float(block.get("confidence", 1.0)), document_id, number, geometry)
                     blocks.append({**block, "extraction_method": extraction_method, "text_confidence": float(block.get("text_confidence", block.get("confidence", 1.0))), "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
                 raw = {**raw, "blocks": blocks}
+                table_classification_started = time.monotonic()
+                native_table_candidate_count = raw.get("native_table_candidate_count")
+                candidate_values = raw.get("native_table_diagnostics", ())
+                table_diagnostics = [item for item in candidate_values if isinstance(item, Mapping)] if isinstance(candidate_values, (list, tuple)) else []
+                unresolved_count = sum(item.get("decision") == "strong_unresolved" for item in table_diagnostics)
+                confirmed_count = sum(item.get("decision") == "confirmed_structured" for item in table_diagnostics)
+                weak_count = sum(item.get("decision") == "weak_candidate" for item in table_diagnostics)
+                if unresolved_count:
+                    pending_findings.append("TABLE_STRUCTURE_UNRESOLVED")
+                explicit_table_ids = {str(block.get("table_id")) for block in blocks if block.get("table_id")}
+                explicit_table_ids.update(str(block.get("block_id")) for block in blocks
+                                           if str(block.get("kind", "")).casefold() in {"table", "table_cell", "cell"}
+                                           and not block.get("table_id"))
+                raw["table_diagnostics"] = table_diagnostics
+                _dev_log("dev_preprocessing_layout stage=table_classification pageNumber=%d expectedNativeCandidateCount=%d actualExplicitTableZoneCount=%d confirmedStructuredCount=%d strongUnresolvedCount=%d weakCandidateCount=%d route=%s elapsedMs=%d outcome=%s",
+                         number, native_table_candidate_count if type(native_table_candidate_count) is int else len(table_diagnostics),
+                         len(explicit_table_ids), confirmed_count, unresolved_count, weak_count,
+                         "review_unresolved_table" if unresolved_count else "continue_layout_analysis",
+                         round((time.monotonic() - table_classification_started) * 1000),
+                         "needs_review" if unresolved_count else "continue")
                 cached_approval = None
                 if not isinstance(raw.get("layout_confirmation"), Mapping):
                     cached_approval = _load_layout_approval(output, source_hash, number, raw)
@@ -490,8 +519,6 @@ class ExtractionApplicationService:
                                                    if key in {"admin_id", "candidate_version", "selections",
                                                               "source_sha256", "page_layout_fingerprint",
                                                               "layout_analysis_version"}}
-                if layout_plan.ambiguous:
-                    raise ValueError("AMBIGUOUS_COLUMN_HYPOTHESIS")
                 layout_evidence = to_dict(layout_plan)
                 raw["layout"] = layout_evidence
                 # Structure is page evidence, not flattened prose. An
@@ -512,6 +539,8 @@ class ExtractionApplicationService:
                 layout_validation = validation.as_dict()
                 if not validation.valid:
                     raise ValueError("LAYOUT_VALIDATION_FAILED: " + ",".join(item.code for item in validation.findings))
+                if pending_findings:
+                    raise ValueError(",".join(pending_findings))
                 version.record_page(PageExtraction.validated(number))
                 parser_pages.append(raw)
                 evidence = {"page_number": number, "page_classification": raw.get("page_classification", "text-native"), "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence, "heading_associations": heading_evidence, "tables": table_evidence, "render_evidence": render_evidence, "layout_validation": validation.as_dict()}
@@ -521,11 +550,13 @@ class ExtractionApplicationService:
                         "status": PageStatus.VALIDATED.value, "findings": []}]),
                     "layout_review": raw.get("layout_review"),
                     "layout_confirmation": raw.get("layout_confirmation"),
+                    "table_diagnostics": table_diagnostics,
                     "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
             except (KeyError, TypeError, ValueError) as exc:
                 safe_number = number if "number" in locals() and 1 <= number <= version.page_count else position
                 finding = str(exc) or "INVALID_GEOMETRY"
-                findings = [item.strip() for item in finding.split(":") if item.strip()]
+                findings = list(dict.fromkeys([*pending_findings,
+                    *(item.strip() for item in finding.replace(":", ",").split(",") if item.strip())]))
                 version.record_page(PageExtraction(safe_number, PageStatus.NEEDS_REVIEW, findings))
                 page_artifacts[:] = [item for item in page_artifacts if item.get("page_number") != safe_number]
                 evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value,
@@ -533,6 +564,7 @@ class ExtractionApplicationService:
                             "blocks": raw.get("blocks", []) if isinstance(raw, Mapping) else [],
                             "geometry": raw.get("geometry", {}) if isinstance(raw, Mapping) else {},
                             "layout": to_dict(layout_plan) if "layout_plan" in locals() and layout_plan is not None else {},
+                            "table_diagnostics": table_diagnostics,
                             "heading_associations": heading_evidence, "tables": table_evidence,
                             "render_evidence": render_evidence, "layout_validation": layout_validation}
                 page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})

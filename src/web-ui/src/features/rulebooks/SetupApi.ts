@@ -58,7 +58,8 @@ export type KnowledgeDocumentView = {
 
 export type LayoutCandidateView = { candidateIndex: number; columnCount: number; score: number; columns: number[][] }
 export type LayoutRegionReviewView = { regionId: string; candidates: LayoutCandidateView[] }
-export type LayoutReviewView = { regions: LayoutRegionReviewView[]; blocks: Array<{ blockId: string; text: string; bbox: number[] }> }
+export type TableCandidateDiagnosticView = { bbox: number[] | null; rowCount: number; columnCount: number; missingCellCount: number; observedCellGeometryCount: number; expectedCellCount: number; signals: string[]; decision: string; rejectionReason: string }
+export type LayoutReviewView = { regions: LayoutRegionReviewView[]; blocks: Array<{ blockId: string; text: string; bbox: number[] }>; tableDiagnostics?: TableCandidateDiagnosticView[] }
 export type PreprocessingPageView = { pageNumber: number; status: string; attempts: number; findings: string[]; layoutReview?: LayoutReviewView | null }
 
 export type PreprocessingReviewQuestion = {

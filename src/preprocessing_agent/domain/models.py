@@ -7,6 +7,8 @@ from enum import Enum
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from .layout import ReadingOrderPlan
+
 
 class ContentType(str, Enum):
     NARRATIVE = "narrative"
@@ -108,6 +110,7 @@ class ParsedPage:
     heading_associations: tuple[Any, ...] = ()
     tables: tuple[Any, ...] = ()
     page_classification: str = "text-native"
+    layout_plan: ReadingOrderPlan | None = None
 
     def __post_init__(self) -> None:
         if self.page_number < 1:

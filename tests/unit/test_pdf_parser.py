@@ -1,7 +1,7 @@
 from pathlib import Path
 from types import SimpleNamespace
 
-from preprocessing_agent.parsers.pdf import PdfDocumentParser, _is_reliable_native_table
+from preprocessing_agent.parsers.pdf import PdfDocumentParser, _is_reliable_native_table, _native_table_candidate_diagnostic
 
 
 def test_pymupdf_native_table_cells_are_projected_when_supported(tmp_path):
@@ -39,6 +39,51 @@ def test_weak_native_table_detection_is_rejected_before_cell_projection():
     assert _is_reliable_native_table(weak_missing_cell) is False
 
 
+def test_reported_partial_native_grid_shapes_are_strong_but_not_reconstructed():
+    def candidate(rows, columns, missing):
+        cells = []
+        index = 0
+        for row in range(rows):
+            row_cells = []
+            for column in range(columns):
+                if index < missing:
+                    row_cells.append(None)
+                else:
+                    x0, y0 = 10 + column * 5, 10 + row * 3
+                    row_cells.append((x0, y0, x0 + 4, y0 + 2))
+                index += 1
+            cells.append(SimpleNamespace(cells=tuple(row_cells)))
+        return SimpleNamespace(bbox=(10, 10, 200, 300), rows=tuple(cells))
+
+    for rows, columns, missing in ((19, 13, 108), (5, 5, 8), (41, 7, 132), (33, 2, 16), (27, 2, 13)):
+        diagnostic = _native_table_candidate_diagnostic(candidate(rows, columns, missing))
+        assert diagnostic["decision"] == "strong_unresolved"
+        assert diagnostic["row_count"] == rows and diagnostic["column_count"] == columns
+        assert diagnostic["missing_cell_count"] == missing
+        assert diagnostic["bbox"] == [10, 10, 200, 300]
+        assert diagnostic["rejection_reason"] == "MISSING_CELL_BBOXES"
+        assert any(signal.startswith("DISTINCT_ROW_CENTER_COUNT_") and int(signal.rsplit("_", 1)[1]) >= 3
+                   for signal in diagnostic["signals"])
+        assert any(signal.startswith("X_EDGE_SUPPORT_ACROSS_ROWS_COUNT_")
+                   and int(signal.rsplit("_", 1)[1]) >= min(columns + 1, 3)
+                   for signal in diagnostic["signals"])
+
+
+def test_one_row_or_invalid_bbox_native_candidates_are_weak():
+    one_row = SimpleNamespace(bbox=(0, 0, 100, 20), rows=(SimpleNamespace(cells=((0, 0, 50, 20), (50, 0, 100, 20))),))
+    invalid_bbox = SimpleNamespace(bbox=None, rows=tuple(
+        SimpleNamespace(cells=(None, None))
+        for row in range(4)))
+    assert _native_table_candidate_diagnostic(one_row)["decision"] == "weak_candidate"
+    assert _native_table_candidate_diagnostic(invalid_bbox)["decision"] == "weak_candidate"
+    no_repeated_columns = SimpleNamespace(bbox=(0, 0, 100, 100), rows=tuple(
+        SimpleNamespace(cells=((row * 20, row * 20, row * 20 + 8, row * 20 + 8), None))
+        for row in range(3)))
+    diagnostic = _native_table_candidate_diagnostic(no_repeated_columns)
+    assert diagnostic["decision"] == "weak_candidate"
+    assert "X_EDGE_SUPPORT_ACROSS_ROWS_COUNT_0" in diagnostic["signals"]
+
+
 def test_pdf_parser_preserves_order_layout_and_source_spans():
     parser = PdfDocumentParser(lambda _: [{"page_number": 1, "blocks": [
         {"text": "Part I", "bbox": [1, 2, 3, 4], "font_size": 18, "font": "Bold"},
@@ -64,6 +109,15 @@ def test_pdf_parser_carries_exact_table_cell_location_on_source_span():
     assert span.table_id == "p3-table-0"
     assert span.table_cell == "r1:c2"
     assert (span.char_start, span.char_end) == (0, 2)
+
+
+def test_pdf_parser_assigns_detector_default_table_id_to_unlabeled_table_cells():
+    parsed = PdfDocumentParser(lambda _: [{"blocks": [
+        {"block_id": "cell-a", "text": "A", "bbox": [10, 20, 30, 30], "kind": "table_cell"},
+        {"block_id": "cell-b", "text": "B", "bbox": [30, 20, 50, 30], "kind": "cell"},
+    ]}]).parse(Path("fixture.pdf"))
+    assert {block.source_span.table_id for block in parsed.pages[0].blocks} == {"table-1"}
+    assert parsed.pages[0].layout_plan.table_zones[0].zone_id == "table-1"
 
 
 def test_pdf_parser_orders_strong_two_column_page_left_to_right():

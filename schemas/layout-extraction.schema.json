@@ -10,6 +10,7 @@
     "ordered_block_ids": {"type": "array", "items": {"type": "string"}},
     "spanning_block_ids": {"type": "array", "items": {"type": "string"}},
     "furniture_block_ids": {"type": "array", "items": {"type": "string"}},
+    "table_zones": {"type": "array", "items": {"$ref": "#/$defs/table_zone"}},
     "ambiguous": {"type": "boolean"},
     "findings": {"type": "array", "items": {"type": "string"}}
   },
@@ -23,6 +24,11 @@
       "type": "object", "additionalProperties": false,
       "required": ["region_id", "bbox", "block_ids"],
       "properties": {"region_id": {"type": "string", "minLength": 1}, "bbox": {"$ref": "#/$defs/bbox"}, "block_ids": {"type": "array", "items": {"type": "string"}}}
+    },
+    "table_zone": {
+      "type": "object", "additionalProperties": false,
+      "required": ["zone_id", "bbox", "block_ids"],
+      "properties": {"zone_id": {"type": "string", "minLength": 1}, "bbox": {"$ref": "#/$defs/bbox"}, "block_ids": {"type": "array", "items": {"type": "string"}}}
     },
     "hypothesis": {
       "type": "object", "additionalProperties": false,

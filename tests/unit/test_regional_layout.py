@@ -2,6 +2,7 @@ from preprocessing_agent.layout import LayoutAnalyzer, ReadingOrderPlanner
 from preprocessing_agent.domain.layout import BoundingBox, LayoutBlock, PageGeometry
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from pathlib import Path
+from dataclasses import replace
 import json
 from preprocessing_agent.domain.serialization import to_dict
 
@@ -199,3 +200,95 @@ def test_ambiguous_parser_projection_is_geometry_order_and_diagnostic():
     ]}]).parse(Path("ambiguous.pdf"))
     assert [item.block_id for item in parsed.pages[0].blocks] == ["left", "middle", "right"]
     assert parsed.metadata["layout_diagnostics"][0]["layout"]["ambiguous"] is True
+
+
+def test_explicit_table_cells_do_not_affect_prose_columns_and_keep_cell_order():
+    blocks = [
+        block("table-r2c2", "22", (60, 40, 90, 55), "table_cell") | {"table_id": "t", "row": 2, "column": 2},
+        block("prose-r", "R", (60, 100, 95, 120)),
+        block("table-r1c1", "11", (5, 20, 40, 35), "cell") | {"table_id": "t", "row": 1, "column": 1},
+        block("prose-l", "L", (5, 100, 40, 120)),
+        block("table-r1c2", "12", (60, 20, 90, 35), "table_cell") | {"table_id": "t", "row": 1, "column": 2},
+        block("table-r2c1", "21", (5, 40, 40, 55), "table_cell") | {"table_id": "t", "row": 2, "column": 1},
+    ]
+    plan = ReadingOrderPlanner().plan(blocks)
+    assert all(set(region.block_ids).isdisjoint({"table-r1c1", "table-r1c2", "table-r2c1", "table-r2c2"}) for region in plan.regions)
+    assert plan.ordered_block_ids == ("table-r1c1", "table-r1c2", "table-r2c1", "table-r2c2", "prose-l", "prose-r")
+    assert len(plan.profiles) == 1 and plan.profiles[0].selected.column_count == 2
+
+
+def test_all_table_page_has_ordered_table_zone_and_no_prose_profiles():
+    blocks = [
+        block("b", "B", (30, 20, 50, 30), "table_cell") | {"table_id": "t", "row": 1, "column": 1},
+        block("a", "A", (0, 20, 20, 30), "table_cell") | {"table_id": "t", "row": 0, "column": 0},
+    ]
+    plan = ReadingOrderPlanner().plan(blocks)
+    assert plan.profiles == ()
+    assert plan.ordered_block_ids == ("a", "b")
+    assert plan.table_zones[0].block_ids == ("a", "b")
+
+
+def test_parser_consumes_extraction_layout_plan_without_reordering_or_losing_ids(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    blocks = [block("z", "Z", (60, 10, 90, 20)), block("a", "A", (0, 10, 30, 20))]
+    plan = ReadingOrderPlanner().plan(blocks)
+    plan = replace(plan, ordered_block_ids=tuple(reversed(plan.ordered_block_ids)))
+    page = {"blocks": blocks, "layout": to_dict(plan)}
+    parsed = PdfDocumentParser(lambda _: [page]).parse(Path("fixture.pdf"))
+    assert [item.block_id for item in parsed.pages[0].blocks] == list(plan.ordered_block_ids)
+    assert sorted(item.block_id for item in parsed.pages[0].blocks) == ["a", "z"]
+    assert parsed.pages[0].layout_plan == plan
+    assert "dev_preprocessing_layout stage=plan_consumed" in caplog.text
+    assert "route=serialized_plan" in caplog.text and "outcome=accepted" in caplog.text
+
+
+def test_table_zone_inside_right_column_is_interleaved_by_vertical_position():
+    blocks = [
+        block("left-1", "L1", (0, 10, 30, 20)), block("right-1", "R1", (70, 10, 100, 20)),
+        block("left-2", "L2", (0, 40, 30, 50)), block("right-2", "R2", (70, 40, 100, 50)),
+        block("table", "T", (70, 25, 100, 35), "table_cell") | {"table_id": "t", "row": 0, "column": 0},
+        block("left-3", "L3", (0, 70, 30, 80)), block("right-3", "R3", (70, 70, 100, 80)),
+    ]
+    plan = ReadingOrderPlanner().plan(blocks)
+    assert plan.profiles[0].selected.column_count == 2
+    assert plan.ordered_block_ids == ("left-1", "left-2", "left-3", "right-1", "table", "right-2", "right-3")
+
+
+def test_parser_rejects_serialized_plan_with_missing_source_owner(monkeypatch, caplog):
+    from preprocessing_agent.parsers.base import ParserError
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    blocks = [block("a", "A", (0, 0, 30, 20)), block("b", "B", (40, 0, 70, 20))]
+    plan = ReadingOrderPlanner().plan(blocks)
+    invalid = to_dict(replace(plan, ordered_block_ids=plan.ordered_block_ids[:-1]))
+    import pytest
+    with pytest.raises(ParserError, match="INVALID_SERIALIZED_LAYOUT_PLAN"):
+        PdfDocumentParser(lambda _: [{"blocks": blocks, "layout": invalid}]).parse(Path("fixture.pdf"))
+    assert "stage=plan_validation" in caplog.text
+    assert "expectedBlockCount=2 actualProjectedCount=1" in caplog.text
+
+
+def test_default_table_cell_group_id_matches_table_structure_detector():
+    from preprocessing_agent.structure import TableStructureDetector
+    blocks = [
+        block("cell-a", "A", (0, 0, 20, 10), "table_cell"),
+        block("cell-b", "B", (20, 0, 40, 10), "table_cell"),
+    ]
+    plan = ReadingOrderPlanner().plan(blocks)
+    detected = TableStructureDetector().detect(blocks)
+    assert len(plan.table_zones) == 1 and plan.table_zones[0].zone_id == "table-1"
+    assert len(detected) == 1 and detected[0].table_id == plan.table_zones[0].zone_id
+
+
+def test_plan_complete_diagnostic_reports_counts_route_and_duration(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    ReadingOrderPlanner().plan([
+        block("prose", "hidden text", (0, 0, 30, 20)),
+        block("cell", "hidden cell", (40, 0, 60, 20), "table_cell") | {"table_id": "t"},
+    ])
+    assert "stage=plan_complete" in caplog.text
+    assert "sourceBlockCount=2 proseBlockCount=1 tableSourceBlockCount=1 tableZoneCount=1" in caplog.text
+    assert "route=explicit_tables_then_prose_columns" in caplog.text and "elapsedMs=" in caplog.text
+    assert "hidden text" not in caplog.text and "hidden cell" not in caplog.text

@@ -14,7 +14,7 @@ from .models import (
 )
 from .serialization import from_dict, from_json, schema_path, to_dict, to_json, validate_json
 from .layout import (
-    BoundingBox, ColumnHypothesis, ColumnProfile, LayoutBlock, LayoutRegion,
+    BoundingBox, ColumnHypothesis, ColumnProfile, LayoutBlock, LayoutRegion, TableZone,
     PageGeometry, PageStatus, ReadingOrderPlan,
 )
 
@@ -23,5 +23,5 @@ __all__ = [
     "ParsedDocument", "ParsedPage", "SectionNode", "SourceSegment", "SourceSpan", "ValidationIssue",
     "ValidationResult", "from_dict", "from_json", "schema_path", "to_dict", "to_json",
     "validate_json", "BoundingBox", "LayoutBlock", "PageGeometry", "PageStatus",
-    "LayoutRegion", "ColumnHypothesis", "ColumnProfile", "ReadingOrderPlan",
+    "LayoutRegion", "TableZone", "ColumnHypothesis", "ColumnProfile", "ReadingOrderPlan",
 ]

@@ -1,5 +1,7 @@
 import hashlib
 import json
+import re
+from pathlib import Path
 
 from preprocessing_agent.pipeline.extraction_service import ExtractionApplicationService
 from preprocessing_agent.adapters.ocr import TesseractOcrAdapter
@@ -77,6 +79,53 @@ def test_mixed_page_keeps_native_and_adds_targeted_ocr(tmp_path):
     assert {block["extraction_method"] for block in page["blocks"]} == {"native", "ocr"}
     assert next(block["bbox"] for block in page["blocks"] if block["extraction_method"] == "ocr") == [45.0, 6.0, 80.0, 16.0]
     assert next(block["text_confidence"] for block in page["blocks"] if block["extraction_method"] == "ocr") == .91
+
+
+def test_weak_native_table_candidate_logs_counts_and_continues_layout(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    result = ExtractionApplicationService(
+        Native([{"block_id": "body", "text": "source words", "bbox": (1, 1, 30, 10)}],
+               native_table_candidate_count=1, native_table_diagnostics=[{
+                   "bbox": None, "row_count": 1, "column_count": 1, "missing_cell_count": 1,
+                   "observed_cell_geometry_count": 0, "expected_cell_count": 1,
+                   "signals": ["INVALID_TABLE_BBOX"], "decision": "weak_candidate",
+                   "rejection_reason": "INSUFFICIENT_GEOMETRIC_EVIDENCE"}]), Render(), None,
+    ).preprocess(request(tmp_path, "table-gap"))
+    assert result["status"] == "READY"
+    assert "expectedNativeCandidateCount=1 actualExplicitTableZoneCount=0" in caplog.text
+    assert re.search(r"weakCandidateCount=1 route=continue_layout_analysis elapsedMs=\d+ outcome=continue", caplog.text)
+    assert "source words" not in caplog.text
+
+
+def test_strong_unresolved_candidate_keeps_layout_and_full_diagnostic_for_review(tmp_path):
+    diagnostic = {"bbox": [10, 10, 90, 90], "row_count": 5, "column_count": 5,
+                  "missing_cell_count": 8, "observed_cell_geometry_count": 17,
+                  "expected_cell_count": 25,
+                  "signals": ["VALID_TABLE_BBOX", "ROW_COUNT_5", "COLUMN_COUNT_5",
+                              "CELL_GEOMETRY_COVERAGE_0.680", "IRREGULAR_GRID", "MISSING_CELL_BBOXES"],
+                  "decision": "strong_unresolved", "rejection_reason": "MISSING_CELL_BBOXES"}
+    blocks = [
+        {"block_id": "a", "text": "A", "bbox": (0, 0, 10, 10)},
+        {"block_id": "b", "text": "B", "bbox": (20, 0, 30, 10)},
+        {"block_id": "c", "text": "C", "bbox": (70, 0, 80, 10)},
+        {"block_id": "d", "text": "D", "bbox": (90, 0, 100, 10)},
+    ]
+    result = ExtractionApplicationService(
+        Native(blocks, native_table_candidate_count=1, native_table_diagnostics=[diagnostic]), Render(), None,
+    ).preprocess(request(tmp_path, "unresolved-table"))
+    page = result["pages"][0]
+    assert result["status"] == "NEEDS_REVIEW"
+    assert "TABLE_STRUCTURE_UNRESOLVED" in page["findings"]
+    assert page["layout_review"]["ambiguous"] is True
+    assert page["layout_review"]["table_diagnostics"] == [diagnostic]
+    schema = json.loads((Path(__file__).parents[2] / "schemas" / "extraction-response.schema.json").read_text())
+    jsonschema = __import__("pytest").importorskip("jsonschema")
+    layout_schema = {"$schema": schema["$schema"], "$defs": schema["$defs"], **schema["$defs"]["layout_review"]}
+    jsonschema.Draft202012Validator(layout_schema).validate(page["layout_review"])
+    version = json.loads((tmp_path / "unresolved-table" / "versions" / result["version_id"] / "version.json").read_text())
+    assert version["pages"][0]["layout"]["ambiguous"] is True
+    assert version["pages"][0]["table_diagnostics"] == [diagnostic]
 
 
 def test_service_wires_optional_tesseract_adapter_by_default():

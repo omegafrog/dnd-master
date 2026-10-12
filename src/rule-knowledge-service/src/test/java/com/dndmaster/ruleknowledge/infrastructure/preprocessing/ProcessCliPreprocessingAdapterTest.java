@@ -143,7 +143,12 @@ class ProcessCliPreprocessingAdapterTest {
                 "candidates", List.of(Map.of("column_count", 2, "score", 0.769,
                         "columns", List.of(List.of(0, 50), List.of(50, 100)))))),
                 "blocks", List.of(Map.of("block_id", "block-1", "text", "verified text",
-                        "bbox", List.of(1, 2, 3, 4)))));
+                        "bbox", List.of(1, 2, 3, 4))),
+                "table_diagnostics", List.of(Map.of("bbox", List.of(10, 20, 90, 100),
+                        "row_count", 5, "column_count", 5, "missing_cell_count", 8,
+                        "observed_cell_geometry_count", 17, "expected_cell_count", 25,
+                        "signals", List.of("VALID_TABLE_BBOX", "MISSING_CELL_BBOXES"),
+                        "decision", "strong_unresolved", "rejection_reason", "MISSING_CELL_BBOXES"))));
         page.put("layout_confirmation", Map.of("admin_id", "admin-1",
                 "candidate_version", "candidate-1", "selections", Map.of("region-1", 0)));
         fixture.put("pages", List.of(page));
@@ -161,6 +166,8 @@ class ProcessCliPreprocessingAdapterTest {
         assertEquals(0.769, result.pages().getFirst().layoutReview().regions().getFirst()
                 .candidates().getFirst().score());
         assertEquals("verified text", result.pages().getFirst().layoutReview().blocks().getFirst().text());
+        assertEquals("strong_unresolved", result.pages().getFirst().layoutReview().tableDiagnostics().getFirst().decision());
+        assertEquals(8, result.pages().getFirst().layoutReview().tableDiagnostics().getFirst().missingCellCount());
         assertEquals("admin-1", result.pages().getFirst().layoutConfirmation().adminId());
         assertEquals("candidate-1", result.pages().getFirst().layoutConfirmation().candidateVersion());
     }

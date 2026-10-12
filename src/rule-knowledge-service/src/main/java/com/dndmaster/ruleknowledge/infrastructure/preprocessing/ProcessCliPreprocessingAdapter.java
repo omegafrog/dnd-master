@@ -309,7 +309,21 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
             block.path("bbox").forEach(value -> bbox.add(value.asDouble()));
             blocks.add(new PreprocessingPageState.LayoutBlockReview(block.path("block_id").asText(""), block.path("text").asText(""), bbox));
         });
-        return new PreprocessingPageState.LayoutReview(regions, blocks);
+        List<PreprocessingPageState.TableCandidateDiagnostic> tableDiagnostics = new ArrayList<>();
+        node.path("table_diagnostics").forEach(candidate -> {
+            JsonNode bboxNode = candidate.path("bbox");
+            List<Double> bbox = bboxNode.isArray() ? new ArrayList<>() : null;
+            if (bbox != null) bboxNode.forEach(value -> bbox.add(value.asDouble()));
+            List<String> signals = new ArrayList<>();
+            candidate.path("signals").forEach(value -> signals.add(value.asText()));
+            tableDiagnostics.add(new PreprocessingPageState.TableCandidateDiagnostic(bbox,
+                    candidate.path("row_count").asInt(), candidate.path("column_count").asInt(),
+                    candidate.path("missing_cell_count").asInt(),
+                    candidate.path("observed_cell_geometry_count").asInt(),
+                    candidate.path("expected_cell_count").asInt(), signals,
+                    candidate.path("decision").asText(""), candidate.path("rejection_reason").asText("")));
+        });
+        return new PreprocessingPageState.LayoutReview(regions, blocks, tableDiagnostics);
     }
 
     private static void validatePageSummary(JsonNode summary, List<PreprocessingPageState> pages) {

@@ -8,10 +8,15 @@ installing a particular PDF implementation.
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
+import math
+import os
+import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
-from preprocessing_agent.domain import ParsedBlock, ParsedDocument, ParsedPage, SourceSpan
+from preprocessing_agent.domain import ParsedBlock, ParsedDocument, ParsedPage, SourceSpan, ReadingOrderPlan, from_dict, schema_path, validate_json
 from preprocessing_agent.layout import ReadingOrderPlanner
 from preprocessing_agent.domain.serialization import to_dict
 from .base import ParserError
@@ -19,6 +24,7 @@ from .normalize import normalize_text
 
 
 Extractor = Callable[[Path], Iterable[Mapping[str, Any]]]
+_LOGGER = logging.getLogger(__name__)
 
 
 class PdfDocumentParser:
@@ -36,6 +42,7 @@ class PdfDocumentParser:
         layout_diagnostics: list[dict[str, Any]] = []
         document_parts: list[str] = []
         for page_position, raw_page in enumerate(raw_pages, start=1):
+            page_started = time.monotonic()
             page_number = int(raw_page.get("page_number", page_position))
             # Keep source identity stable across geometric projection. The
             # ordinal is provenance, not a reading-order signal.
@@ -44,9 +51,23 @@ class PdfDocumentParser:
                 for index, raw_block in enumerate(raw_page.get("blocks", ()))
             ))
             missing_geometry = any(raw_block.get("bbox") is None for raw_block in source_blocks)
-            plan = None if missing_geometry else ReadingOrderPlanner().plan(
-                source_blocks, selections=self._layout_selections.get(page_number, {}))
-            if missing_geometry:
+            layout_value = raw_page.get("layout")
+            serialized_plan = layout_value if isinstance(layout_value, Mapping) and any(
+                key in layout_value for key in ("ordered_block_ids", "regions", "profiles", "table_zones")) else None
+            if serialized_plan is not None:
+                plan = _validated_plan(serialized_plan, source_blocks)
+                _layout_log("dev_preprocessing_layout stage=plan_consumed pageNumber=%d blockCount=%d tableSourceBlockCount=%d orderedBlockCount=%d furnitureBlockCount=%d route=serialized_plan elapsedMs=%d outcome=accepted",
+                             page_number, len(source_blocks), sum(_is_table_block(block) for block in source_blocks),
+                             len(plan.ordered_block_ids), len(plan.furniture_block_ids),
+                             round((time.monotonic() - page_started) * 1000))
+            else:
+                plan = None if missing_geometry else ReadingOrderPlanner().plan(
+                    source_blocks, selections=self._layout_selections.get(page_number, {}))
+                _layout_log("dev_preprocessing_layout stage=plan_complete pageNumber=%d blockCount=%d tableSourceBlockCount=%d route=%s elapsedMs=%d outcome=%s",
+                             page_number, len(source_blocks), sum(_is_table_block(block) for block in source_blocks),
+                             "recomputed" if plan is not None else "missing_geometry",
+                             round((time.monotonic() - page_started) * 1000), "success" if plan is not None else "review")
+            if missing_geometry and plan is None:
                 # Text-only callers remain compatible, but the missing
                 # geometry is explicit evidence and cannot be READY-published.
                 raw_blocks = source_blocks
@@ -56,7 +77,7 @@ class PdfDocumentParser:
                 # never the extractor/source order. The application gate still
                 # blocks this page from READY publication.
                 by_id = {str(block["block_id"]): block for block in source_blocks}
-                raw_blocks = tuple(by_id[block_id] for block_id in plan.ordered_block_ids if block_id in by_id)
+                raw_blocks = tuple(by_id[block_id] for block_id in (*plan.ordered_block_ids, *plan.furniture_block_ids))
                 layout_diagnostics.append({"page_number": page_number, "layout": to_dict(plan)})
             else:
                 by_id = {str(block["block_id"]): block for block in source_blocks}
@@ -71,7 +92,8 @@ class PdfDocumentParser:
                 # Sort only when the extractor explicitly supplies reading order;
                 # otherwise its block order is authoritative and deterministic.
                 block_id = str(raw_block["block_id"])
-                table_id = str(raw_block["table_id"]) if raw_block.get("table_id") else None
+                table_id = (str(raw_block["table_id"]) if raw_block.get("table_id") else
+                            "table-1" if _is_table_block(raw_block) else None)
                 row = raw_block.get("row")
                 column = raw_block.get("column")
                 table_cell = f"r{row}:c{column}" if table_id and row is not None and column is not None else None
@@ -97,7 +119,8 @@ class PdfDocumentParser:
             page_structure = tuple({**raw_block, "source_text": blocks_by_id[str(raw_block["block_id"])].source_text} for raw_block in raw_blocks if str(raw_block["block_id"]) in blocks_by_id)
             headings = HeadingAssociator().associate(page_structure, plan) if plan is not None else ()
             tables = TableStructureDetector().detect(page_structure) if plan is not None else ()
-            pages.append(ParsedPage(page_number, tuple(blocks), page_text, headings, tables, str(raw_page.get("page_classification", "text-native"))))
+            pages.append(ParsedPage(page_number, tuple(blocks), page_text, headings, tables,
+                                   str(raw_page.get("page_classification", "text-native")), layout_plan=plan))
             document_parts.append(page_text)
         source_text = normalize_text("\n".join(document_parts))
         document_id = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
@@ -114,6 +137,40 @@ def _bbox(value: Any) -> tuple[float, float, float, float] | None:
     if len(result) != 4:
         raise ParserError("PDF block bbox must contain four coordinates")
     return result  # type: ignore[return-value]
+
+
+def _is_table_block(block: Mapping[str, Any]) -> bool:
+    return bool(block.get("table_id")) or str(block.get("kind", "")).casefold() in {"table", "table_cell", "cell"}
+
+
+def _validated_plan(value: Any, blocks: tuple[Mapping[str, Any], ...]) -> ReadingOrderPlan:
+    started = time.monotonic()
+    ids = [str(block["block_id"]) for block in blocks]
+    try:
+        if not isinstance(value, Mapping):
+            raise ValueError("serialized layout plan must be an object")
+        validate_json(dict(value), json.loads(schema_path("layout-extraction.schema.json").read_text()))
+        plan = from_dict(ReadingOrderPlan, dict(value))
+        projected = [*plan.ordered_block_ids, *plan.furniture_block_ids]
+        table_ids = [block_id for zone in plan.table_zones for block_id in zone.block_ids]
+        explicit_table_ids = [str(block["block_id"]) for block in blocks if _is_table_block(block)]
+        if (len(ids) != len(set(ids)) or len(projected) != len(ids) or set(projected) != set(ids)
+                or len(table_ids) != len(set(table_ids)) or set(table_ids) != set(explicit_table_ids)):
+            raise ValueError(f"layout source ownership mismatch expectedBlockCount={len(ids)} actualProjectedCount={len(projected)} expectedTableSourceCount={len(explicit_table_ids)} actualTableZoneCount={len(table_ids)}")
+        region_ids = [block_id for region in plan.regions for block_id in region.block_ids]
+        if len(region_ids) != len(set(region_ids)) or set(region_ids) != set(ids) - set(explicit_table_ids):
+            raise ValueError(f"layout prose ownership mismatch expectedProseBlockCount={len(ids) - len(explicit_table_ids)} actualRegionBlockCount={len(region_ids)}")
+        return plan
+    except (TypeError, KeyError, ValueError) as exc:
+        _layout_log("dev_preprocessing_layout stage=plan_validation pageBlockCount=%d tableSourceBlockCount=%d elapsedMs=%d failureType=%s failure=%s recoveryAction=needs_review outcome=failed",
+                    len(blocks), sum(_is_table_block(block) for block in blocks),
+                    round((time.monotonic() - started) * 1000), type(exc).__name__, str(exc))
+        raise ParserError("INVALID_SERIALIZED_LAYOUT_PLAN") from exc
+
+
+def _layout_log(message: str, *args: Any) -> None:
+    if os.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "").lower() in {"1", "true", "yes", "on"}:
+        _LOGGER.info(message, *args)
 
 
 def _deduplicate_blocks(blocks: tuple[Mapping[str, Any], ...]) -> tuple[Mapping[str, Any], ...]:
@@ -257,3 +314,59 @@ def _is_reliable_native_table(table: Any) -> bool:
         return False
     row_centers = {round((float(cells[0][1]) + float(cells[0][3])) / 2, 3) for cells in row_cells}
     return len(row_centers) >= 2
+
+
+def _native_table_candidate_diagnostic(table: Any) -> dict[str, Any]:
+    rows = tuple(getattr(table, "rows", ()) or ())
+    row_cells = tuple(tuple(getattr(row, "cells", row if isinstance(row, (list, tuple)) else ()) or ()) for row in rows)
+    column_count = max((len(cells) for cells in row_cells), default=0)
+    expected = sum(len(cells) for cells in row_cells)
+    valid_boxes = sum(1 for cells in row_cells for cell in cells
+                      if isinstance(cell, (list, tuple)) and len(cell) == 4
+                      and all(isinstance(value, (int, float)) and math.isfinite(value) for value in cell)
+                      and cell[0] <= cell[2] and cell[1] <= cell[3])
+    missing = expected - valid_boxes
+    raw_bbox = getattr(table, "bbox", None)
+    bbox_valid = (isinstance(raw_bbox, (list, tuple)) and len(raw_bbox) == 4
+                  and all(isinstance(value, (int, float)) and math.isfinite(value) for value in raw_bbox)
+                  and raw_bbox[0] <= raw_bbox[2] and raw_bbox[1] <= raw_bbox[3])
+    widths = {len(cells) for cells in row_cells}
+    rectangular = bool(widths) and len(widths) == 1 and column_count >= 2
+    coverage = valid_boxes / expected if expected else 0.0
+    row_centers: set[float] = set()
+    x_edge_rows: dict[float, set[int]] = {}
+    for row_index, cells in enumerate(row_cells):
+        boxes = [cell for cell in cells if isinstance(cell, (list, tuple)) and len(cell) == 4
+                 and all(isinstance(value, (int, float)) and math.isfinite(value) for value in cell)
+                 and cell[0] <= cell[2] and cell[1] <= cell[3]]
+        if boxes:
+            row_centers.add(round((min(box[1] for box in boxes) + max(box[3] for box in boxes)) / 2, 1))
+        for box in boxes:
+            for edge in (box[0], box[2]):
+                x_edge_rows.setdefault(round(float(edge), 1), set()).add(row_index)
+    repeated_x_edge_count = sum(len(rows_with_edge) >= 2 for rows_with_edge in x_edge_rows.values())
+    repeated_row_geometry = len(row_centers) >= 3
+    repeated_column_geometry = repeated_x_edge_count >= min(column_count + 1, 3)
+    signals = [
+        "VALID_TABLE_BBOX" if bbox_valid else "INVALID_TABLE_BBOX",
+        f"ROW_COUNT_{len(rows)}", f"COLUMN_COUNT_{column_count}",
+        f"CELL_GEOMETRY_COVERAGE_{coverage:.3f}",
+        f"DISTINCT_ROW_CENTER_COUNT_{len(row_centers)}",
+        f"X_EDGE_SUPPORT_ACROSS_ROWS_COUNT_{repeated_x_edge_count}",
+        "RECTANGULAR_GRID" if rectangular else "IRREGULAR_GRID",
+    ]
+    if missing:
+        signals.append("MISSING_CELL_BBOXES")
+    if _is_reliable_native_table(table):
+        decision, reason = "confirmed_structured", None
+    elif (bbox_valid and len(rows) >= 3 and column_count >= 2 and coverage >= .25
+          and repeated_row_geometry and repeated_column_geometry):
+        decision, reason = "strong_unresolved", "MISSING_CELL_BBOXES" if missing else "UNCONFIRMED_GRID"
+    else:
+        decision, reason = "weak_candidate", (
+            "INVALID_TABLE_BBOX" if not bbox_valid else "INSUFFICIENT_GEOMETRIC_EVIDENCE"
+        )
+    return {"bbox": list(raw_bbox) if bbox_valid else None, "row_count": len(rows),
+            "column_count": column_count, "missing_cell_count": missing,
+            "observed_cell_geometry_count": valid_boxes, "expected_cell_count": expected,
+            "signals": signals, "decision": decision, "rejection_reason": reason}

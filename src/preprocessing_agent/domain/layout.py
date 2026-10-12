@@ -89,6 +89,17 @@ class LayoutRegion:
 
 
 @dataclass(frozen=True, slots=True)
+class TableZone:
+    zone_id: str
+    bbox: BoundingBox
+    block_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.zone_id or not self.block_ids:
+            raise ValueError("table zone identity and membership are required")
+
+
+@dataclass(frozen=True, slots=True)
 class ColumnHypothesis:
     """One candidate column partition for a region."""
 
@@ -133,6 +144,7 @@ class ReadingOrderPlan:
     furniture_block_ids: tuple[str, ...] = ()
     ambiguous: bool = False
     findings: tuple[str, ...] = ()
+    table_zones: tuple[TableZone, ...] = ()
 
     def __post_init__(self) -> None:
         if len(set(self.ordered_block_ids)) != len(self.ordered_block_ids):
