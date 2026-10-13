@@ -122,6 +122,12 @@ public final class TypedAgentContractController {
                     .body(new ScenarioCompilationAgentError(code, request.operationKey(), failure.getClass().getSimpleName(), false));
         } catch (IllegalArgumentException failure) {
             String code = "SCENARIO_COMPILATION_RESPONSE_INVALID";
+            ScenarioCompilationFieldValidationException fieldFailure =
+                    failure instanceof ScenarioCompilationFieldValidationException diagnostic ? diagnostic : null;
+            if (runtimeDiagnosticsEnabled() && fieldFailure != null) {
+                log.warn("dev_scenario_compilation stage=output_validation operationKey={} code={} path={} expected={} actual={} recoveryAction=reject_response outcome=failed",
+                        request.operationKey(), fieldFailure.code(), fieldFailure.path(), fieldFailure.expected(), fieldFailure.actualShape());
+            }
             log.warn("scenario compilation agent returned invalid response operationKey={} failureType={} validationReason={}",
                     request.operationKey(), failure.getClass().getSimpleName(), safeScenarioCompilationFailureReason(failure));
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
@@ -574,6 +580,9 @@ public final class TypedAgentContractController {
     }
 
     static String safeScenarioCompilationFailureReason(IllegalArgumentException failure) {
+        if (failure instanceof ScenarioCompilationFieldValidationException diagnostic) {
+            return "scenarioModel field validation failed";
+        }
         String message = failure.getMessage();
         if ("status is required".equals(message)
                 || "invalid scenario compilation status".equals(message)
@@ -583,6 +592,94 @@ public final class TypedAgentContractController {
             return message;
         }
         return "unclassified invalid response";
+    }
+
+    private static void validateScenarioModel(JsonNode model) {
+        requireJsonShape(model, "scenarioModel", "MODEL_INVALID", "object", nodeShape(model), model.isObject());
+        JsonNode schemaVersion = model.path("schemaVersion");
+        requireJsonShape(schemaVersion, "scenarioModel.schemaVersion", "SCHEMA_VERSION_INVALID",
+                "positive_integer", nodeShape(schemaVersion), schemaVersion.isIntegralNumber()
+                        && schemaVersion.canConvertToInt() && schemaVersion.asInt() > 0);
+        for (String field : List.of("actors", "locations", "objectives", "revelations", "encounters",
+                "relationships", "resolutionCriteria")) {
+            String path = "scenarioModel." + field;
+            JsonNode elements = model.path(field);
+            requireJsonShape(elements, path, "ELEMENTS_INVALID", "array", nodeShape(elements), elements.isArray());
+            for (int index = 0; index < elements.size(); index++) {
+                JsonNode element = elements.get(index);
+                String elementPath = path + "[" + index + "]";
+                requireJsonShape(element, elementPath, "ELEMENT_INVALID", "object", nodeShape(element), element.isObject());
+                requireNonblankText(element, "elementId", elementPath);
+                requireNonblankText(element, "type", elementPath);
+                JsonNode attributes = element.path("attributes");
+                requireJsonShape(attributes, elementPath + ".attributes", "ATTRIBUTES_INVALID",
+                        "object", nodeShape(attributes), attributes.isObject());
+                JsonNode sourceRefs = element.path("sourceRefs");
+                String sourceRefsPath = elementPath + ".sourceRefs";
+                requireJsonShape(sourceRefs, sourceRefsPath, "SOURCE_REFS_INVALID", "array",
+                        nodeShape(sourceRefs), sourceRefs.isArray());
+                for (int sourceIndex = 0; sourceIndex < sourceRefs.size(); sourceIndex++) {
+                    JsonNode source = sourceRefs.get(sourceIndex);
+                    String sourcePath = sourceRefsPath + "[" + sourceIndex + "]";
+                    requireJsonShape(source, sourcePath, "SOURCE_REF_INVALID", "object", nodeShape(source), source.isObject());
+                    JsonNode documentId = source.path("knowledgeDocumentId");
+                    requireJsonShape(documentId, sourcePath + ".knowledgeDocumentId", "SOURCE_DOCUMENT_ID_INVALID",
+                            "object", nodeShape(documentId), documentId.isObject());
+                    requireNonblankText(documentId, "value", sourcePath + ".knowledgeDocumentId");
+                    JsonNode version = source.path("extractionVersion");
+                    requireJsonShape(version, sourcePath + ".extractionVersion", "SOURCE_VERSION_INVALID",
+                            "nonnegative_integer", nodeShape(version), version.isIntegralNumber()
+                                    && version.canConvertToLong() && version.asLong() >= 0);
+                    requireNonblankText(source, "locator", sourcePath);
+                }
+            }
+        }
+        JsonNode startingSituation = model.path("startingSituation");
+        requireJsonShape(startingSituation, "scenarioModel.startingSituation", "STARTING_SITUATION_INVALID",
+                "string", nodeShape(startingSituation), startingSituation.isTextual());
+    }
+
+    private static void requireNonblankText(JsonNode object, String field, String parentPath) {
+        JsonNode value = object.path(field);
+        requireJsonShape(value, parentPath + "." + field, "TEXT_FIELD_INVALID", "nonblank_string",
+                nodeShape(value), value.isTextual() && !value.asText().isBlank());
+    }
+
+    private static void requireJsonShape(JsonNode value, String path, String code, String expected,
+            String actual, boolean valid) {
+        if (!valid) throw new ScenarioCompilationFieldValidationException(code, path, expected, actual);
+    }
+
+    private static String nodeShape(JsonNode value) {
+        if (value == null || value.isMissingNode()) return "missing";
+        if (value.isNull()) return "null";
+        if (value.isObject()) return "object";
+        if (value.isArray()) return "array(size=" + value.size() + ")";
+        if (value.isTextual()) return "string(length=" + value.asText().length() + ")";
+        if (value.isIntegralNumber()) return "integer";
+        if (value.isNumber()) return "number";
+        if (value.isBoolean()) return "boolean";
+        return "other";
+    }
+
+    private static final class ScenarioCompilationFieldValidationException extends IllegalArgumentException {
+        private final String code;
+        private final String path;
+        private final String expected;
+        private final String actualShape;
+
+        private ScenarioCompilationFieldValidationException(String code, String path, String expected, String actualShape) {
+            super("scenarioModel field validation failed");
+            this.code = code;
+            this.path = path;
+            this.expected = expected;
+            this.actualShape = actualShape;
+        }
+
+        private String code() { return code; }
+        private String path() { return path; }
+        private String expected() { return expected; }
+        private String actualShape() { return actualShape; }
     }
 
     record ScenarioCompilationAgentError(String code, String correlationId, String rootCauseClass, boolean retryable) {}
@@ -750,7 +847,8 @@ public final class TypedAgentContractController {
     }
 
     private static boolean runtimeDiagnosticsEnabled() {
-        return "true".equalsIgnoreCase(System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED"));
+        return "true".equalsIgnoreCase(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
     }
 
     private static String fingerprint(String value) {
@@ -876,6 +974,7 @@ public final class TypedAgentContractController {
         Map<String, Object> model = root.path("scenarioModel").isObject()
                 ? mapper.convertValue(root.path("scenarioModel"), new TypeReference<Map<String, Object>>() { })
                 : Map.of();
+        if (status.equals("READY")) validateScenarioModel(root.path("scenarioModel"));
         if (status.equals("READY") && model.isEmpty()) {
             throw new IllegalArgumentException("READY scenario compilation requires a scenario model");
         }

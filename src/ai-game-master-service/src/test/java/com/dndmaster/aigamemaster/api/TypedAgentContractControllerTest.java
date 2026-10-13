@@ -41,6 +41,35 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void scenario_compilation_rejects_wrong_model_field_type_with_safe_path_diagnostic(CapturedOutput output) {
+        String privateValue = "PRIVATE_SCENARIO_MODEL_VALUE";
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                return parser.parse("{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":\""
+                        + privateValue + "\"}} ");
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            ResponseEntity<?> response = controller.scenarioCompilation("service-secret",
+                    new TypedAgentContractController.ScenarioCompilationRequest(
+                            SOLO_PLAYER_ID, "scenario-compilation:invalid-model", "private Storybook excerpt"));
+
+            org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+            org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("scenarioModel.schemaVersion"));
+            org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("expected=positive_integer"));
+            org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("actual=string"));
+            org.junit.jupiter.api.Assertions.assertFalse(output.getAll().contains(privateValue));
+            org.junit.jupiter.api.Assertions.assertFalse(output.getAll().contains("private Storybook excerpt"));
+        } finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
+    }
+
+    @Test
     void changed_endpoint_snapshot_is_rejected_before_ai_execution() {
         AtomicReference<String> sent = new AtomicReference<>();
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> {
@@ -567,7 +596,7 @@ class TypedAgentContractControllerTest {
             @Override public <T> T complete(UUID owner, String operation, String prompt,
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 seen.add(owner);
-                String response = operation.startsWith("scenario-compilation") ? "{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1}}"
+                String response = operation.startsWith("scenario-compilation") ? validScenarioCompilationResponse()
                         : operation.startsWith("action-context-lookup") ? "{\"status\":\"NOT_FOUND\",\"answer\":\"\",\"supportingElementIds\":[]}"
                         : "{\"approved\":true}";
                 return parser.parse(response);
@@ -728,7 +757,7 @@ class TypedAgentContractControllerTest {
             @Override public <T> T complete(String operation, String value,
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 prompt.set(value);
-                return parser.parse("{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1}}");
+                return parser.parse(validScenarioCompilationResponse());
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -1277,5 +1306,11 @@ class TypedAgentContractControllerTest {
         return "{\"kind\":\"TRANSITION\",\"location\":\"지하 저장고\",\"problem\":\"위협을 찾기\","
                 + "\"threat\":\"적대적인 생물\",\"goal\":\"안전 확보\",\"basis\":\"" + basis
                 + "\",\"reference\":\"" + reference + "\",\"required\":true}";
+    }
+
+    private static String validScenarioCompilationResponse() {
+        return "{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1,\"actors\":[],"
+                + "\"locations\":[],\"objectives\":[],\"revelations\":[],\"encounters\":[],"
+                + "\"relationships\":[],\"resolutionCriteria\":[],\"startingSituation\":\"\"}}";
     }
 }
