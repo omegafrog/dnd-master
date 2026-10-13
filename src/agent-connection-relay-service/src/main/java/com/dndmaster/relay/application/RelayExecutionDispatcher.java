@@ -35,8 +35,10 @@ public final class RelayExecutionDispatcher implements ExecutionService {
         final RelayExecutionRequest routedRequest = request.deadlineEpochMillis() == 0
                 ? request.withDeadline(System.currentTimeMillis() + timeout.toMillis()) : request;
         long started = System.nanoTime();
+        devLog("started", routedRequest.requestId(), "none", null, started);
         var requestBytes = new AtomicLong(utf8Bytes(routedRequest));
         var owningInstance = new AtomicReference<>("none");
+        var dispatchStage = new AtomicReference<>("location_lookup");
         Duration remaining = Duration.ofMillis(routedRequest.deadlineEpochMillis() - System.currentTimeMillis());
         if (remaining.isZero() || remaining.isNegative()) {
             var result = RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.TIMEOUT);
@@ -44,6 +46,7 @@ public final class RelayExecutionDispatcher implements ExecutionService {
             metrics.finished(requestBytes.get(), responseBytes, Duration.ZERO, RelayFailureType.TIMEOUT);
             log.warn("relay execution failed requestId={} fromInstance={} owningInstance=none requestBytes={} responseBytes={} durationMs=0 failureType=TIMEOUT",
                     routedRequest.requestId(), instanceId, requestBytes, responseBytes);
+            devLog("deadline_expired", routedRequest.requestId(), "none", "TIMEOUT", started);
             return Mono.just(result);
         }
         return locations.find(routedRequest.soloPlayerId())
@@ -51,12 +54,24 @@ public final class RelayExecutionDispatcher implements ExecutionService {
                     owningInstance.set(lease.instanceId());
                     var targetedRequest = routedRequest.withConnectionId(lease.connectionId());
                     requestBytes.set(utf8Bytes(targetedRequest));
+                    dispatchStage.set(instanceId.equals(lease.instanceId()) ? "local_dispatch" : "remote_dispatch");
+                    devLog(dispatchStage.get(),
+                            routedRequest.requestId(), lease.instanceId(), null, started);
                     return instanceId.equals(lease.instanceId()) ? local.execute(targetedRequest) : remote.execute(lease.internalAddress(), targetedRequest);
                 })
-                        .orElseGet(() -> Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.NO_CONNECTION))))
+                        .orElseGet(() -> {
+                            devLog("connection_not_found", routedRequest.requestId(), "none", "NO_CONNECTION", started);
+                            return Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.NO_CONNECTION));
+                        }))
                 .timeout(remaining.compareTo(timeout) < 0 ? remaining : timeout)
-                .onErrorResume(TimeoutException.class, ignored -> Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.TIMEOUT)))
-                .onErrorResume(ignored -> Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.REMOTE_FAILURE)))
+                .onErrorResume(TimeoutException.class, failure -> {
+                    devLog("dispatch_timeout_" + dispatchStage.get(), routedRequest.requestId(), owningInstance.get(), "TIMEOUT", started);
+                    return Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.TIMEOUT));
+                })
+                .onErrorResume(failure -> {
+                    devLog("dispatch_exception_" + dispatchStage.get(), routedRequest.requestId(), owningInstance.get(), failure.getClass().getSimpleName(), started);
+                    return Mono.just(RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.REMOTE_FAILURE));
+                })
                 .map(result -> routedRequest.requestId().equals(result.requestId()) ? result
                         : RelayExecutionResult.failure(routedRequest.requestId(), RelayFailureType.REMOTE_FAILURE))
                 .doOnNext(result -> {
@@ -67,7 +82,21 @@ public final class RelayExecutionDispatcher implements ExecutionService {
                             routedRequest.requestId(), instanceId, owningInstance.get(), requestBytes.get(), responseBytes, durationMillis);
                     else log.warn("relay execution failed requestId={} fromInstance={} owningInstance={} requestBytes={} responseBytes={} durationMs={} failureType={}",
                             routedRequest.requestId(), instanceId, owningInstance.get(), requestBytes.get(), responseBytes, durationMillis, result.failureType());
+                    devLog("response_ready", routedRequest.requestId(), owningInstance.get(),
+                            result.failureType() == null ? "success" : result.failureType().name(), started);
                 });
+    }
+
+    private static boolean diagnosticsEnabled() {
+        return "true".equalsIgnoreCase(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+    }
+
+    private void devLog(String stage, String requestId, String owningInstance, String result, long started) {
+        if (!diagnosticsEnabled()) return;
+        log.info("dev_relay_execution requestId={} stage={} fromInstance={} owningInstance={} result={} elapsedMs={}",
+                requestId, stage, instanceId, owningInstance, result == null ? "none" : result,
+                Duration.ofNanos(System.nanoTime() - started).toMillis());
     }
 
     private long utf8Bytes(RelayExecutionRequest request) {

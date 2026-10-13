@@ -20,6 +20,27 @@ import org.springframework.ai.chat.model.ChatModel;
 
 class GmCompletionRouterAiExecutionPortTest {
     @Test
+    void scenario_compilation_schema_is_forwarded_to_codex_structured_output() throws Exception {
+        AtomicReference<AiExecutionRequest> captured = new AtomicReference<>();
+        var router = new GmCompletionRouter(new SpringAiChatAdapter(mock(ChatModel.class), 1,
+                new SafeAiAuditLogger(message -> { })),
+                new GmProviderProperties("codex-cli", "gpt-5.6-luna", "medium", URI.create("https://api.openai.com/"), "", Duration.ofSeconds(5)),
+                null, request -> { captured.set(request); return new AiExecutionSuccess("{\"status\":\"BLOCKED\",\"scenarioModel\":null,\"diagnostics\":[]}"); });
+        var schema = new ObjectMapper().readTree("""
+                {"type":"object","additionalProperties":false,"required":["status","scenarioModel","diagnostics"],
+                 "properties":{"status":{"type":"string","enum":["READY","BLOCKED"]},
+                 "scenarioModel":{"type":["object","null"],"additionalProperties":true},
+                 "diagnostics":{"type":"array","items":{"type":"string"}}}}
+                """);
+
+        String parsed = router.complete(UUID.randomUUID(), "scenario-compilation", "prompt", value -> value, schema);
+
+        assertThat(parsed).contains("\"diagnostics\":[]");
+        assertThat(captured.get().outputFormat()).isEqualTo("JSON");
+        assertThat(captured.get().outputSchema()).isEqualTo(schema);
+    }
+
+    @Test
     void initial_situation_schema_is_forwarded_to_the_codex_execution_request() throws Exception {
         AtomicReference<AiExecutionRequest> captured = new AtomicReference<>();
         UUID endpointId = UUID.randomUUID();

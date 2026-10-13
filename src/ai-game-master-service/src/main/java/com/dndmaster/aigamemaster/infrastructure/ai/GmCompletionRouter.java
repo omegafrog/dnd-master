@@ -116,6 +116,34 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     }
 
     @Override
+    public <T> T complete(UUID soloPlayerId, String operationId, String prompt,
+                           StructuredResponseParser<T> parser,
+                           com.fasterxml.jackson.databind.JsonNode outputSchema) {
+        AgentEndpoint endpoint = endpointRegistry == null ? null : endpointRegistry.active();
+        String provider = endpoint == null ? defaults.provider() : switch (endpoint.provider()) {
+            case OLLAMA -> "ollama";
+            case OPENAI_COMPATIBLE -> "openai";
+            case CODEX_CLI -> "codex-cli";
+        };
+        String model = endpoint == null ? defaults.model() : endpoint.model();
+        String routedOperation = operationId + ":" + provider + ":" + model;
+        return switch (provider) {
+            case "ollama" -> new RemoteOllamaGmProvider(HttpClient.newHttpClient(),
+                    endpoint == null ? defaults.baseUrl() : endpoint.baseUrl(), model, defaults.timeout(), schemaNumCtx)
+                    .complete(routedOperation, prompt, parser, outputSchema);
+            case "openai" -> new OpenAiGmProvider(HttpClient.newHttpClient(),
+                    endpoint == null ? defaults.baseUrl() : endpoint.baseUrl(),
+                    endpoint == null ? defaults.apiKey() : endpoint.secretEnvironmentVariable() == null
+                            ? defaults.apiKey() : System.getenv(endpoint.secretEnvironmentVariable()),
+                    model, defaults.reasoning(), defaults.timeout()).complete(routedOperation, prompt, parser, outputSchema);
+            case "codex-cli" -> parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId,
+                    operationId, operationId, prompt, model, defaults.reasoning(), "JSON", outputSchema, ""))
+                    .requireFinalText());
+            default -> throw new IllegalArgumentException("unsupported GM provider: " + provider);
+        };
+    }
+
+    @Override
     public <T> GmCompletionResult<T> completeWithSelection(UUID soloPlayerId,
             String operationId, String prompt, StructuredResponseParser<T> parser,
             RequestedGmProviderSelection requested) {

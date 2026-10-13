@@ -14,7 +14,11 @@ import com.sun.net.httpserver.HttpServer;
 import static org.junit.jupiter.api.Assertions.*;
 import org.junit.jupiter.api.Test;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
+@ExtendWith(OutputCaptureExtension.class)
 class RemoteAiExecutionPortTest {
     @Test void preservesReportedUsageAndUnknownValuesFromRelay() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
@@ -53,7 +57,7 @@ class RemoteAiExecutionPortTest {
     }
 
     @Test
-    void maps_a_relay_http_failure_to_delivery_failed() throws Exception {
+    void maps_a_relay_http_failure_to_delivery_failed_and_logs_safe_stage_diagnostics(CapturedOutput output) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         server.createContext("/internal/executions", exchange -> {
             exchange.sendResponseHeaders(503, -1);
@@ -63,18 +67,21 @@ class RemoteAiExecutionPortTest {
         try {
             var port = new RemoteAiExecutionPort(HttpClient.newHttpClient(), new ObjectMapper(),
                     URI.create("http://localhost:" + server.getAddress().getPort()), "token", Duration.ofSeconds(2));
-            var result = port.execute(new AiExecutionRequest(UUID.randomUUID(), "request-503", "work-503", "prompt",
-                    "model", "medium", "TEXT", null, ""));
+            var result = withDiagnostics(() -> port.execute(new AiExecutionRequest(UUID.randomUUID(), "request-503", "work-503", "prompt secret-marker",
+                    "model", "medium", "TEXT", null, "")));
 
             assertThat(result).isInstanceOf(AiExecutionFailure.class);
             assertThat(((AiExecutionFailure) result).reason()).isEqualTo(AiExecutionFailure.Reason.DELIVERY_FAILED);
+            assertThat(output.getAll()).contains("requestId=request-503", "stage=relay_http_response", "httpStatus=503",
+                    "dispatchState=http_response_received", "dispatched=true", "relayHttpResponseReceived=true", "retrySafety=unknown");
+            assertThat(output.getAll()).doesNotContain("secret-marker", "token");
         } finally {
             server.stop(0);
         }
     }
 
     @Test
-    void preservesTheReauthenticationRequiredResultFromTheLocalAgent() throws Exception {
+    void preservesTheReauthenticationRequiredResultFromTheLocalAgent(CapturedOutput output) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         server.createContext("/internal/executions", exchange -> {
             byte[] response = "{\"requestId\":\"request-reauth\",\"content\":\"\",\"failureType\":\"REAUTH_REQUIRED\"}"
@@ -87,12 +94,87 @@ class RemoteAiExecutionPortTest {
         try {
             var port = new RemoteAiExecutionPort(HttpClient.newHttpClient(), new ObjectMapper(),
                     URI.create("http://localhost:" + server.getAddress().getPort()), "token", Duration.ofSeconds(2));
-            var result = (AiExecutionFailure) port.execute(new AiExecutionRequest(UUID.randomUUID(), "request-reauth",
-                    "work", "prompt", "model", "medium", "TEXT", null, ""));
+            var result = (AiExecutionFailure) withDiagnostics(() -> port.execute(new AiExecutionRequest(UUID.randomUUID(), "request-reauth",
+                    "work", "prompt", "model", "medium", "TEXT", null, "")));
 
             assertThat(result.reason()).isEqualTo(AiExecutionFailure.Reason.REAUTH_REQUIRED);
+            assertThat(output.getAll()).contains("stage=relay_result", "relayFailureType=REAUTH_REQUIRED", "relayHttpResponseReceived=true");
         } finally {
             server.stop(0);
+        }
+    }
+
+    @Test
+    void logsRequestIdMismatchWithoutLoggingRelayPayload(CapturedOutput output) throws Exception {
+        HttpServer server = serverWithBody("{\"requestId\":\"other-request\",\"content\":\"private response\"}");
+        try {
+            var port = port(server, Duration.ofSeconds(2));
+            var result = withDiagnostics(() -> port.execute(request("request-mismatch", "private prompt")));
+            assertThat(((AiExecutionFailure) result).reason()).isEqualTo(AiExecutionFailure.Reason.DELIVERY_FAILED);
+            assertThat(output.getAll()).contains("requestId=request-mismatch", "stage=request_id_mismatch", "httpStatus=200",
+                    "dispatchState=http_response_received", "dispatched=true", "relayHttpResponseReceived=true", "retrySafety=unknown");
+            assertThat(output.getAll()).doesNotContain("private response", "private prompt", "other-request");
+        } finally { server.stop(0); }
+    }
+
+    @Test
+    void timeoutLogsExecutionAndRetryAsUnknown(CapturedOutput output) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/internal/executions", exchange -> {
+            try { Thread.sleep(250); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+            try { exchange.sendResponseHeaders(200, -1); } catch (java.io.IOException ignored) { /* client timed out */ }
+            exchange.close();
+        });
+        server.start();
+        try {
+            var port = port(server, Duration.ofMillis(50));
+            var result = withDiagnostics(() -> port.execute(request("request-timeout", "prompt")));
+            assertThat(((AiExecutionFailure) result).reason()).isEqualTo(AiExecutionFailure.Reason.TIMEOUT);
+            assertThat(output.getAll()).contains("stage=timeout", "exceptionClass=HttpTimeoutException", "dispatchState=dispatched_outcome_unknown", "dispatched=true",
+                    "relayHttpResponseReceived=false", "retrySafety=unknown");
+        } finally { server.stop(0); }
+    }
+
+    @Test
+    void parseExceptionLogsClassAndWhetherResponseArrived(CapturedOutput output) throws Exception {
+        HttpServer server = serverWithBody("not-json");
+        try {
+            var result = withDiagnostics(() -> port(server, Duration.ofSeconds(2)).execute(request("request-invalid-json", "private")));
+            assertThat(((AiExecutionFailure) result).reason()).isEqualTo(AiExecutionFailure.Reason.DELIVERY_FAILED);
+            assertThat(output.getAll()).contains("stage=exception", "exceptionClass=JsonParseException", "dispatchState=http_response_received", "dispatched=true",
+                    "relayHttpResponseReceived=true", "retrySafety=unknown");
+            assertThat(output.getAll()).doesNotContain("not-json", "private");
+        } finally { server.stop(0); }
+    }
+
+    private static HttpServer serverWithBody(String body) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
+        server.createContext("/internal/executions", exchange -> {
+            byte[] response = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.close();
+        });
+        server.start();
+        return server;
+    }
+
+    private static RemoteAiExecutionPort port(HttpServer server, Duration timeout) {
+        return new RemoteAiExecutionPort(HttpClient.newHttpClient(), new ObjectMapper(),
+                URI.create("http://localhost:" + server.getAddress().getPort()), "token", timeout);
+    }
+
+    private static AiExecutionRequest request(String requestId, String prompt) {
+        return new AiExecutionRequest(UUID.randomUUID(), requestId, "work", prompt, "model", "medium", "TEXT", null, "");
+    }
+
+    private static <T> T withDiagnostics(java.util.concurrent.Callable<T> action) throws Exception {
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try { return action.call(); }
+        finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
         }
     }
 

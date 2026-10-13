@@ -11,6 +11,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser;
 import com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException;
 import com.dndmaster.aigamemaster.application.ai.AiExecutionFailure;
 import com.dndmaster.aigamemaster.application.ai.AiExecutionUnavailableException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import org.springframework.web.server.ResponseStatusException;
@@ -45,7 +46,7 @@ class TypedAgentContractControllerTest {
         String sentinel = "PRIVATE_DIAGNOSTICS_SENTINEL";
         var controller = new TypedAgentContractController(new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
-                return parser.parse("{\"status\":\"BLOCKED\",\"diagnostics\":\"" + sentinel + "\"}");
+                return parser.parse("{\"status\":\"READY\",\"scenarioModel\":null,\"diagnostics\":\"" + sentinel + "\"}");
             }
         }, new ObjectMapper(), new ApiRequestGuard("service-secret"));
         String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
@@ -59,6 +60,8 @@ class TypedAgentContractControllerTest {
             org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("path=diagnostics"));
             org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("expected=array"));
             org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("actual=string"));
+            org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("violationCount=2"));
+            org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("path=scenarioModel"));
             org.junit.jupiter.api.Assertions.assertFalse(output.getAll().contains(sentinel));
             org.junit.jupiter.api.Assertions.assertFalse(output.getAll().contains("PRIVATE_STORYBOOK_SENTINEL"));
         } finally {
@@ -71,7 +74,7 @@ class TypedAgentContractControllerTest {
     void scenario_compilation_accepts_valid_model_and_diagnostics() {
         var controller = new TypedAgentContractController(new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
-                return parser.parse("{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1},\"diagnostics\":[]}");
+                return parser.parse("{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1,\"actors\":[],\"locations\":[],\"objectives\":[],\"revelations\":[],\"encounters\":[],\"relationships\":[],\"resolutionCriteria\":[],\"startingSituation\":\"Opening\"},\"diagnostics\":[]}");
             }
         }, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
@@ -612,7 +615,7 @@ class TypedAgentContractControllerTest {
             @Override public <T> T complete(UUID owner, String operation, String prompt,
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 seen.add(owner);
-                String response = operation.startsWith("scenario-compilation") ? "{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1}}"
+                String response = operation.startsWith("scenario-compilation") ? "{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1,\"actors\":[],\"locations\":[],\"objectives\":[],\"revelations\":[],\"encounters\":[],\"relationships\":[],\"resolutionCriteria\":[],\"startingSituation\":\"Opening\"},\"diagnostics\":[]}"
                         : operation.startsWith("action-context-lookup") ? "{\"status\":\"NOT_FOUND\",\"answer\":\"\",\"supportingElementIds\":[]}"
                         : "{\"approved\":true}";
                 return parser.parse(response);
@@ -769,11 +772,17 @@ class TypedAgentContractControllerTest {
     @Test
     void scenario_compilation_prompt_requires_storybook_grounded_encounters_and_exact_sources() {
         AtomicReference<String> prompt = new AtomicReference<>();
+        AtomicReference<JsonNode> outputSchema = new AtomicReference<>();
         GmCompletionAdapter adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String value,
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 prompt.set(value);
-                return parser.parse("{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1}}");
+                return parser.parse("{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":1,\"actors\":[],\"locations\":[],\"objectives\":[],\"revelations\":[],\"encounters\":[],\"relationships\":[],\"resolutionCriteria\":[],\"startingSituation\":\"Opening\"},\"diagnostics\":[]}");
+            }
+            @Override public <T> T complete(UUID owner, String operation, String value,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser, JsonNode schema) {
+                outputSchema.set(schema);
+                return complete(operation, value, parser);
             }
         };
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -785,6 +794,91 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Find essential combat encounters"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Never invent or rewrite a source reference"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scenarioModel.encounters"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("diagnostics (an array of strings; use an empty array when there are no diagnostics)"));
+        org.junit.jupiter.api.Assertions.assertTrue(outputSchema.get().path("required").toString().contains("diagnostics"));
+        org.junit.jupiter.api.Assertions.assertEquals("array", outputSchema.get().path("properties").path("diagnostics").path("type").asText());
+        org.junit.jupiter.api.Assertions.assertEquals("string", outputSchema.get().path("properties").path("diagnostics").path("items").path("type").asText());
+        JsonNode modelSchema = outputSchema.get().path("properties").path("scenarioModel");
+        org.junit.jupiter.api.Assertions.assertEquals(9, modelSchema.path("required").size());
+        org.junit.jupiter.api.Assertions.assertEquals("#/$defs/elements", modelSchema.path("properties").path("encounters").path("$ref").asText());
+        JsonNode elementSchema = outputSchema.get().path("$defs").path("elements").path("items");
+        org.junit.jupiter.api.Assertions.assertEquals("object", elementSchema.path("properties").path("attributes").path("type").asText());
+        org.junit.jupiter.api.Assertions.assertTrue(elementSchema.path("properties").path("attributes").path("additionalProperties").asBoolean());
+        JsonNode validEnvelope;
+        try {
+            validEnvelope = new ObjectMapper().readTree("""
+                    {"status":"READY","scenarioModel":{"schemaVersion":1,"actors":[{"elementId":"guard","type":"npc",
+                    "attributes":{"role":"watcher","customRule":7},"sourceRefs":[{"knowledgeDocumentId":{"value":"doc-1"},
+                    "extractionVersion":1,"locator":"page:1"}]}],"locations":[],"objectives":[],"revelations":[],
+                    "encounters":[],"relationships":[],"resolutionCriteria":[],"startingSituation":"At the gate."},"diagnostics":[]}
+                    """);
+        } catch (java.io.IOException failure) {
+            throw new AssertionError(failure);
+        }
+        var validationErrors = com.networknt.schema.SchemaRegistry.withDefaultDialect(
+                com.networknt.schema.SpecificationVersion.DRAFT_2020_12).getSchema(outputSchema.get()).validate(validEnvelope);
+        org.junit.jupiter.api.Assertions.assertTrue(validationErrors.isEmpty(), validationErrors.toString());
+    }
+
+    @Test
+    void scenario_compilation_rejects_diagnostics_object_after_passing_schema_to_adapter() {
+        AtomicReference<JsonNode> outputSchema = new AtomicReference<>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                throw new AssertionError("schema-aware completion should be used");
+            }
+            @Override public <T> T complete(UUID owner, String operation, String prompt,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser, JsonNode schema) {
+                outputSchema.set(schema);
+                return parser.parse("{\"status\":\"BLOCKED\",\"scenarioModel\":null,\"diagnostics\":{\"reason\":\"unavailable\"}}");
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        ResponseEntity<?> response = controller.scenarioCompilation("service-secret",
+                new TypedAgentContractController.ScenarioCompilationRequest(SOLO_PLAYER_ID,
+                        "scenario-compilation:diagnostics-object", "source"));
+
+        org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+        org.junit.jupiter.api.Assertions.assertEquals("array", outputSchema.get().path("properties").path("diagnostics").path("type").asText());
+        org.junit.jupiter.api.Assertions.assertTrue(outputSchema.get().path("$defs").path("elements").path("items").path("required").toString().contains("sourceRefs"));
+    }
+
+    @Test
+    void scenario_compilation_aggregates_model_envelope_and_diagnostics_violations(org.springframework.boot.test.system.CapturedOutput output) {
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            GmCompletionAdapter adapter = new GmCompletionAdapter() {
+                @Override public <T> T complete(String operation, String prompt,
+                        com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                    return parser.parse("""
+                            {"status":"READY","scenarioModel":{"actors":[{"elementId":"","type":7,"attributes":[],"sourceRefs":[{"knowledgeDocumentId":{},"extractionVersion":0}]}],"startingSituation":""},"diagnostics":{"reason":"bad-shape"}}
+                            """);
+                }
+            };
+            var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+            ResponseEntity<?> response = controller.scenarioCompilation("service-secret",
+                    new TypedAgentContractController.ScenarioCompilationRequest(SOLO_PLAYER_ID,
+                            "scenario-compilation:aggregate-shapes", "source"));
+            String logs = output.getAll();
+
+            org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
+            org.junit.jupiter.api.Assertions.assertTrue(logs.contains("violationCount=14"), logs);
+            for (String path : List.of("scenarioModel.schemaVersion", "scenarioModel.locations", "scenarioModel.objectives",
+                    "scenarioModel.revelations", "scenarioModel.encounters", "scenarioModel.relationships",
+                    "scenarioModel.resolutionCriteria", "scenarioModel.actors[0].elementId", "scenarioModel.actors[0].type",
+                    "scenarioModel.actors[0].attributes", "scenarioModel.actors[0].sourceRefs[0].knowledgeDocumentId.value",
+                    "scenarioModel.actors[0].sourceRefs[0].extractionVersion", "scenarioModel.actors[0].sourceRefs[0].locator", "diagnostics")) {
+                org.junit.jupiter.api.Assertions.assertTrue(logs.contains("path=" + path), path + " not reported: " + logs);
+            }
+            org.junit.jupiter.api.Assertions.assertFalse(logs.contains("bad-shape"));
+        } finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
     }
 
     @Test

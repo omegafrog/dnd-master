@@ -5,9 +5,13 @@ import java.time.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+@ExtendWith(OutputCaptureExtension.class)
 class RelayExecutionDispatcherTest {
     private static final RelayExecutionRequest REQUEST = new RelayExecutionRequest(
             UUID.randomUUID(), "request-1", "work-1", "sensitive prompt", "model", "medium", "text", null, List.of());
@@ -21,6 +25,26 @@ class RelayExecutionDispatcherTest {
 
         StepVerifier.create(dispatcher.execute(REQUEST)).expectNextMatches(result -> result.success() && result.content().equals("done")).verifyComplete();
         assertEquals(0, remoteCalls.get());
+    }
+
+    @Test void logsRouteAndResultWithoutLoggingPromptWhenDiagnosticsAreEnabled(CapturedOutput output) {
+        var lease = new ConnectionLocationLease(REQUEST.soloPlayerId(), "a", "http://a", "session", "connection", Instant.now().plusSeconds(30));
+        var dispatcher = new RelayExecutionDispatcher("a", id -> Mono.just(Optional.of(lease)),
+                request -> Mono.just(RelayExecutionResult.success(request.requestId(), "private response")),
+                (address, request) -> Mono.error(new AssertionError()), RelayMetrics.noop(), Duration.ofSeconds(2));
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            StepVerifier.create(dispatcher.execute(REQUEST)).expectNextMatches(RelayExecutionResult::success).verifyComplete();
+            assertTrue(output.getAll().contains("dev_relay_execution requestId=request-1 stage=local_dispatch"));
+            assertTrue(output.getAll().contains("dev_relay_execution requestId=request-1 stage=response_ready"));
+            assertTrue(output.getAll().contains("result=success"));
+            assertFalse(output.getAll().contains("sensitive prompt"));
+            assertFalse(output.getAll().contains("private response"));
+        } finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
     }
 
     @Test void dispatchesDirectlyToOwningInstance() {

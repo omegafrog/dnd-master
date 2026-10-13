@@ -143,22 +143,63 @@ public final class CodexWebSocketAgent implements AutoCloseable {
 
     private CompletableFuture<Void> executeAndReply(String message) {
         var stage = new AtomicReference<>("decode");
+        RequestContext receivedContext = requestContext(message);
+        var context = new AtomicReference<>(receivedContext);
+        long started = System.nanoTime();
+        devLog("request_received", receivedContext, "received", message.length(), started);
         return CompletableFuture.supplyAsync(() -> parseMessage(message), executionExecutor)
                 .thenApply(decoded -> {
+                    RequestContext decodedContext = requestContext(decoded);
+                    context.set(decodedContext);
+                    devLog("request_decoded", decodedContext, "decoded", null, started);
                     stage.set("dispatch");
+                    devLog(decoded instanceof AgentExecutionRequest ? "codex_execution_started" : "control_request_started",
+                            decodedContext, "started", null, started);
                     return dispatch(decoded);
                 })
                 .thenCompose(response -> {
                     stage.set("send_response");
-                    return sendResponse(response);
+                    RequestContext responseContext = context.get();
+                    devLog("response_ready", responseContext, responseStatus(response), responseSize(response), started);
+                    return sendResponse(response).whenComplete((ignored, failure) ->
+                            devLog(failure == null ? "response_sent" : "response_send_failed", responseContext,
+                                    failure == null ? "sent" : failure.getClass().getSimpleName(), null, started));
                 })
                 .exceptionally(failure -> {
                     Throwable cause = unwrap(failure);
-                    RequestContext context = requestContext(message);
+                    RequestContext failedContext = context.get();
+                    if ("unknown".equals(failedContext.requestId())) failedContext = requestContext(message);
+                    devLog("request_failed", failedContext, stage.get() + ":" + cause.getClass().getSimpleName(), null, started);
                     LOGGER.warn("user-PC agent request failed requestId={} operationId={} stage={} causes={}",
-                            context.requestId(), context.operationId(), stage.get(), causeSummary(cause));
+                            failedContext.requestId(), failedContext.operationId(), stage.get(), causeSummary(cause));
                     return null;
                 });
+    }
+
+    private static boolean diagnosticsEnabled() {
+        return "true".equalsIgnoreCase(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+    }
+
+    private static String responseStatus(Object response) {
+        if (response instanceof AgentExecutionResponse execution)
+            return execution.failureType() == null ? "success" : execution.failureType();
+        if (response instanceof AgentConnectionControlResponse control) return control.status();
+        return response.getClass().getSimpleName();
+    }
+
+    private static int responseSize(Object response) {
+        if (response instanceof AgentExecutionResponse execution)
+            return execution.content() == null ? 0 : execution.content().length();
+        return 0;
+    }
+
+    private static void devLog(String stage, RequestContext context, String outcome, Integer contentLength, long started) {
+        if (!diagnosticsEnabled()) return;
+        LOGGER.info("dev_user_pc_ai_execution requestId={} operationId={} stage={} outcome={} contentLength={} elapsedMs={}",
+                context.requestId(), context.operationId(), stage, outcome,
+                contentLength == null ? "none" : contentLength,
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
     }
 
     private RequestContext requestContext(String message) {
@@ -215,6 +256,14 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         return execute((AgentExecutionRequest) message);
     }
 
+    private static RequestContext requestContext(Object value) {
+        if (value instanceof AgentExecutionRequest request) return new RequestContext(request.requestId(), request.operationId());
+        if (value instanceof AgentExecutionResponse response) return new RequestContext(response.requestId(), "unknown");
+        if (value instanceof AgentConnectionControlCommand command) return new RequestContext(command.requestId(), command.operationId());
+        if (value instanceof AgentConnectionControlResponse response) return new RequestContext(response.requestId(), response.operationId());
+        return new RequestContext("unknown", "unknown");
+    }
+
     private AgentConnectionControlResponse control(AgentConnectionControlCommand command) {
         if (connectionService == null) {
             return new AgentConnectionControlResponse("CONNECTION_CONTROL_RESULT", command.requestId(),
@@ -242,6 +291,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
     }
 
     AgentExecutionResponse execute(AgentExecutionRequest request) {
+        long started = System.nanoTime();
         AiExecutionResult result = executionPort.execute(new AiExecutionRequest(
                 request.soloPlayerId(),
                 request.requestId(),
@@ -253,9 +303,13 @@ public final class CodexWebSocketAgent implements AutoCloseable {
                 request.outputSchema(),
                 request.imageInputs().isEmpty() ? "" : request.imageInputs().get(0), request.ragSearchContext(), request.subtasks()));
         if (result instanceof AiExecutionSuccess success) {
+            devLog("codex_execution_complete", new RequestContext(request.requestId(), request.operationId()),
+                    "success", success.finalText() == null ? 0 : success.finalText().length(), started);
             return new AgentExecutionResponse(request.requestId(), success.finalText(), null, success.usage());
         }
         AiExecutionFailure failure = (AiExecutionFailure) result;
+        devLog("codex_execution_complete", new RequestContext(request.requestId(), request.operationId()),
+                failure.reason().name(), null, started);
         LOGGER.warn("Codex execution failed requestId={} reason={}", request.requestId(), failure.reason());
         String failureType = switch (failure.reason()) {
             case CONNECTION_UNAVAILABLE -> "NO_CONNECTION";

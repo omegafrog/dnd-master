@@ -22,6 +22,11 @@ public interface GmCompletionAdapter {
         return complete(soloPlayerId, operationId, new GmPrompt(prompt), parser);
     }
 
+    default <T> T complete(UUID soloPlayerId, String operationId, String prompt,
+                           StructuredResponseParser<T> parser, JsonNode outputSchema) {
+        return complete(soloPlayerId, operationId, prompt, parser);
+    }
+
     default <T> GmCompletionResult<T> completeWithSelection(UUID soloPlayerId,
             String operationId, String prompt, StructuredResponseParser<T> parser,
             RequestedGmProviderSelection requested) {

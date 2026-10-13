@@ -32,6 +32,27 @@ class OpenAiGmProviderTest {
                 .withRequestBody(matchingJsonPath("$.text.format.type", equalTo("json_object"))));
     }
 
+    @Test void sends_supplied_json_schema_with_dynamic_model_and_array_diagnostics() throws Exception {
+        server.stubFor(post("/v1/responses").willReturn(okJson(
+                "{\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"{}\"}]}]}")));
+        var schema = new com.fasterxml.jackson.databind.ObjectMapper().readTree("""
+                {"type":"object","additionalProperties":false,"required":["status","scenarioModel","diagnostics"],
+                 "properties":{"status":{"type":"string","enum":["READY","BLOCKED"]},
+                 "scenarioModel":{"type":["object","null"],"additionalProperties":true},
+                 "diagnostics":{"type":"array","items":{"type":"string"}}}}
+                """);
+        var provider = (OpenAiGmProvider) provider(Duration.ofSeconds(1));
+
+        provider.complete("scenario-compilation", "grounded context", value -> value, schema);
+
+        server.verify(postRequestedFor(urlEqualTo("/v1/responses"))
+                .withRequestBody(matchingJsonPath("$.text.format.type", equalTo("json_schema")))
+                .withRequestBody(matchingJsonPath("$.text.format.strict", equalTo("false")))
+                .withRequestBody(matchingJsonPath("$.text.format.schema.properties.diagnostics.type", equalTo("array")))
+                .withRequestBody(matchingJsonPath("$.text.format.schema.properties.diagnostics.items.type", equalTo("string")))
+                .withRequestBody(matchingJsonPath("$.text.format.schema.properties.scenarioModel.additionalProperties", equalTo("true"))));
+    }
+
     @Test void reads_cached_input_usage_reported_by_responses_api() throws Exception {
         var usage = new com.fasterxml.jackson.databind.ObjectMapper().readTree(
                 "{\"input_tokens\":2048,\"input_tokens_details\":{\"cached_tokens\":1536},\"output_tokens\":128}");

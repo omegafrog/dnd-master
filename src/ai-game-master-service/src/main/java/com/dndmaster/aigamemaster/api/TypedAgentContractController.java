@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -36,9 +37,12 @@ public final class TypedAgentContractController {
     private static final org.springframework.ai.tokenizer.JTokkitTokenCountEstimator RULEBOOK_ACTION_TOKEN_ESTIMATOR =
             new org.springframework.ai.tokenizer.JTokkitTokenCountEstimator(com.knuddels.jtokkit.api.EncodingType.O200K_BASE);
     private static final JsonNode RUNTIME_TURN_OUTPUT_SCHEMA = loadRuntimeTurnOutputSchema();
+    private static final JsonNode SCENARIO_COMPILATION_OUTPUT_SCHEMA = loadScenarioCompilationOutputSchema();
     private static final String ACTION_LOOKUP_OUTPUT_SCHEMA = """
             {"type":"object","additionalProperties":false,"required":["status","answer","supportingElementIds"],"properties":{"status":{"enum":["FOUND","NOT_FOUND"]},"answer":{"type":"string"},"supportingElementIds":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}}}}
             """.trim();
+    private static final List<String> SCENARIO_MODEL_ARRAY_FIELDS = List.of("actors", "locations", "objectives", "revelations",
+            "encounters", "relationships", "resolutionCriteria");
     private static final java.util.Set<String> RULEBOOK_ACTION_QUERY_IDS = java.util.Set.of("contents", "weapon-table", "spell-list",
             "ranged-actions", "thrown-actions", "shared-range", "shared-target-area", "shared-blocking", "shared-cost-check-effect", "assigned-actions");
     private static final java.util.Set<String> RULEBOOK_ACTION_FIELD_IDS = java.util.Set.of("level", "castingTime", "cost", "range", "rangeForm",
@@ -96,8 +100,7 @@ public final class TypedAgentContractController {
         requestGuard.internal(token);
         require(request);
         try {
-            return ResponseEntity.ok(adapter.complete(request.soloPlayerId(), request.operationKey(),
-                "ROLE=SCENARIO_COMPILATION\nSTORYBOOK_CONTEXT=" + request.storybookContext()
+            String prompt = "ROLE=SCENARIO_COMPILATION\nSTORYBOOK_CONTEXT=" + request.storybookContext()
                         + "\nTASK=Compile the source-backed hidden ScenarioModel from the supplied Storybook excerpts. "
                         + "Find essential combat encounters: named or identifiable hostile groups that the Storybook makes part of the objective, a required obstacle, or an explicit triggered fight. Do not include every passing mention of a creature, non-hostile NPCs, or invented encounters. "
                         + "For each encounter, preserve enemy identity, count, and location only when the Storybook states or clearly supports them. "
@@ -105,8 +108,15 @@ public final class TypedAgentContractController {
                         + "Every encounter must be an object in scenarioModel.encounters with type combat-scenario, elementId, attributes.enemyKey, attributes.displayName, attributes.count, attributes.location, and sourceRefs. "
                         + "Each sourceRefs item must exactly cite a supplied DOCUMENT_ID, EXTRACTION_VERSION, and LOCATOR using {knowledgeDocumentId:{value:DOCUMENT_ID},extractionVersion:EXTRACTION_VERSION,locator:LOCATOR}. Never invent or rewrite a source reference. "
                         + "Also provide the ScenarioModel schema fields schemaVersion, actors, locations, objectives, revelations, encounters, relationships, resolutionCriteria, and startingSituation. schemaVersion must be an integer JSON number and startingSituation must be a plain text string. "
-                        + "OUTPUT_CONTRACT=Return exactly one JSON object with status (READY or BLOCKED), scenarioModel when READY, and diagnostics. Do not use markdown or add text outside JSON.",
-                this::parseCompilation));
+                        + "OUTPUT_CONTRACT=Return exactly one JSON object with status (READY or BLOCKED), scenarioModel (an object when READY and null when BLOCKED), and diagnostics (an array of strings; use an empty array when there are no diagnostics). Keep scenarioModel fields dynamic and source-grounded. Do not use markdown or add text outside JSON.";
+            if (runtimeDiagnosticsEnabled()) log.info("dev_scenario_compilation stage=request operationKey={} promptChars={} schemaChars={} schemaFingerprint={} expectedDiagnostics=array outcome=started",
+                    request.operationKey(), prompt.length(), SCENARIO_COMPILATION_OUTPUT_SCHEMA.toString().length(),
+                    schemaFingerprint(SCENARIO_COMPILATION_OUTPUT_SCHEMA));
+            ScenarioCompilationResponse response = adapter.complete(request.soloPlayerId(), request.operationKey(),
+                    prompt, this::parseCompilation, SCENARIO_COMPILATION_OUTPUT_SCHEMA);
+            if (runtimeDiagnosticsEnabled()) log.info("dev_scenario_compilation stage=output_validation operationKey={} status={} diagnosticsCount={} scenarioModelType=object outcome=completed",
+                    request.operationKey(), response.status(), response.diagnostics().size());
+            return ResponseEntity.ok(response);
         } catch (AiExecutionUnavailableException failure) {
             String code = "AI_EXECUTION_" + failure.failure().reason().name();
             log.warn("scenario compilation agent failed operationKey={} code={}", request.operationKey(), code);
@@ -123,8 +133,8 @@ public final class TypedAgentContractController {
         } catch (IllegalArgumentException failure) {
             String code = "SCENARIO_COMPILATION_RESPONSE_INVALID";
             if (runtimeDiagnosticsEnabled() && failure instanceof ScenarioCompilationShapeException shapeFailure) {
-                log.warn("dev_scenario_compilation stage=output_validation operationKey={} code={} path={} expected={} actual={} recoveryAction=reject_response outcome=failed",
-                        request.operationKey(), shapeFailure.code(), shapeFailure.path(), shapeFailure.expected(), shapeFailure.actual());
+                log.warn("dev_scenario_compilation stage=output_validation operationKey={} code={} violationCount={} violations={} recoveryAction=reject_response outcome=failed",
+                        request.operationKey(), shapeFailure.code(), shapeFailure.violations.size(), shapeFailure.safeViolations());
             }
             log.warn("scenario compilation agent returned invalid response operationKey={} failureType={} validationReason={}",
                     request.operationKey(), failure.getClass().getSimpleName(), safeScenarioCompilationFailureReason(failure));
@@ -591,23 +601,22 @@ public final class TypedAgentContractController {
     }
 
     private static final class ScenarioCompilationShapeException extends IllegalArgumentException {
-        private final String path;
-        private final String expected;
-        private final String actual;
+        private final List<ShapeViolation> violations;
 
-        private ScenarioCompilationShapeException(String path, String expected, String actual) {
-            super("scenario compilation diagnostics must be an array");
-            this.path = path;
-            this.expected = expected;
-            this.actual = actual;
+        private ScenarioCompilationShapeException(List<ShapeViolation> violations) {
+            super("scenario compilation response shape is invalid");
+            this.violations = List.copyOf(violations);
         }
 
-        private String code() { return "DIAGNOSTICS_SHAPE_INVALID"; }
-        private String path() { return path; }
-        private String expected() { return expected; }
-        private String actual() { return actual; }
-        private String reason() { return "scenario compilation diagnostics must be an array"; }
+        private String code() { return "OUTPUT_SHAPE_INVALID"; }
+        private String reason() { return "scenario compilation response shape is invalid"; }
+        private String safeViolations() {
+            return violations.stream().map(item -> "path=" + item.path() + ":expected=" + item.expected() + ":actual=" + item.actual())
+                    .collect(java.util.stream.Collectors.joining(","));
+        }
     }
+
+    private record ShapeViolation(String path, String expected, String actual) { }
 
     record ScenarioCompilationAgentError(String code, String correlationId, String rootCauseClass, boolean retryable) {}
 
@@ -894,25 +903,161 @@ public final class TypedAgentContractController {
 
     private ScenarioCompilationResponse parseCompilation(String json) {
         JsonNode root = readObject(json);
-        String status = required(root, "status").toUpperCase(java.util.Locale.ROOT);
+        List<ShapeViolation> violations = new ArrayList<>();
+        validateAllowedFields(root, "", Set.of("status", "scenarioModel", "diagnostics"), violations);
+        JsonNode statusNode = root.get("status");
+        String status = statusNode != null && statusNode.isTextual() ? statusNode.asText().toUpperCase(java.util.Locale.ROOT) : "";
+        if (statusNode == null || !statusNode.isTextual()) violations.add(new ShapeViolation("status", "string", statusNode == null ? "missing" : jsonShape(statusNode)));
+        else if (!status.equals("READY") && !status.equals("BLOCKED")) violations.add(new ShapeViolation("status", "READY|BLOCKED", "string"));
         if (!status.equals("READY") && !status.equals("BLOCKED")) {
-            throw new IllegalArgumentException("invalid scenario compilation status");
+            status = "BLOCKED";
         }
-        Map<String, Object> model = root.path("scenarioModel").isObject()
-                ? mapper.convertValue(root.path("scenarioModel"), new TypeReference<Map<String, Object>>() { })
-                : Map.of();
-        if (status.equals("READY") && model.isEmpty()) {
-            throw new IllegalArgumentException("READY scenario compilation requires a scenario model");
+        JsonNode modelNode = root.get("scenarioModel");
+        boolean modelObject = modelNode != null && modelNode.isObject();
+        Map<String, Object> model = modelObject
+                ? mapper.convertValue(modelNode, new TypeReference<Map<String, Object>>() { }) : Map.of();
+        if (modelNode == null || (!modelObject && !modelNode.isNull()) || (status.equals("READY") && !modelObject)) {
+            violations.add(new ShapeViolation("scenarioModel", status.equals("READY") ? "object" : "object|null",
+                    modelNode == null ? "missing" : jsonShape(modelNode)));
         }
+        if (modelObject) validateScenarioModel(modelNode, violations);
         JsonNode diagnosticsNode = root.get("diagnostics");
-        if (diagnosticsNode != null && !diagnosticsNode.isNull() && !diagnosticsNode.isArray()) {
-            throw new ScenarioCompilationShapeException("diagnostics", "array", jsonShape(diagnosticsNode));
+        List<String> diagnostics = new ArrayList<>();
+        if (diagnosticsNode == null || !diagnosticsNode.isArray()) {
+            violations.add(new ShapeViolation("diagnostics", "array<string>", diagnosticsNode == null ? "missing" : jsonShape(diagnosticsNode)));
+        } else {
+            for (int i = 0; i < diagnosticsNode.size(); i++) {
+                JsonNode item = diagnosticsNode.get(i);
+                if (!item.isTextual()) violations.add(new ShapeViolation("diagnostics[" + i + "]", "string", jsonShape(item)));
+                else diagnostics.add(item.asText());
+            }
         }
-        List<String> diagnostics = diagnosticsNode != null && !diagnosticsNode.isNull()
-                ? mapper.convertValue(diagnosticsNode, mapper.getTypeFactory()
-                        .constructCollectionType(List.class, String.class)) : List.of();
+        if (!violations.isEmpty()) throw new ScenarioCompilationShapeException(violations);
         return new ScenarioCompilationResponse(status,
                 model, diagnostics);
+    }
+
+    private static void validateScenarioModel(JsonNode model, List<ShapeViolation> violations) {
+        validateAllowedFields(model, "scenarioModel", Set.of("schemaVersion", "actors", "locations", "objectives", "revelations",
+                "encounters", "relationships", "resolutionCriteria", "startingSituation"), violations);
+        JsonNode schemaVersion = model.get("schemaVersion");
+        if (schemaVersion == null || !schemaVersion.isIntegralNumber() || !schemaVersion.canConvertToInt() || schemaVersion.intValue() <= 0) {
+            violations.add(new ShapeViolation("scenarioModel.schemaVersion", "positive integer", schemaVersion == null ? "missing" : jsonShape(schemaVersion)));
+        }
+        for (String field : SCENARIO_MODEL_ARRAY_FIELDS) {
+            JsonNode elements = model.get(field);
+            String path = "scenarioModel." + field;
+            if (elements == null || !elements.isArray()) {
+                violations.add(new ShapeViolation(path, "array<ScenarioModelElement>", elements == null ? "missing" : jsonShape(elements)));
+                continue;
+            }
+            for (int index = 0; index < elements.size(); index++) validateScenarioElement(elements.get(index), path + "[" + index + "]", violations);
+        }
+        JsonNode startingSituation = model.get("startingSituation");
+        if (startingSituation == null || !startingSituation.isTextual()) {
+            violations.add(new ShapeViolation("scenarioModel.startingSituation", "string", startingSituation == null ? "missing" : jsonShape(startingSituation)));
+        }
+    }
+
+    private static void validateScenarioElement(JsonNode element, String path, List<ShapeViolation> violations) {
+        if (element == null || !element.isObject()) {
+            violations.add(new ShapeViolation(path, "object", element == null ? "missing" : jsonShape(element)));
+            return;
+        }
+        validateAllowedFields(element, path, Set.of("elementId", "type", "attributes", "sourceRefs"), violations);
+        requireNonBlankText(element, "elementId", path, violations);
+        requireNonBlankText(element, "type", path, violations);
+        JsonNode attributes = element.get("attributes");
+        if (attributes == null || !attributes.isObject()) {
+            violations.add(new ShapeViolation(path + ".attributes", "object", attributes == null ? "missing" : jsonShape(attributes)));
+        }
+        JsonNode refs = element.get("sourceRefs");
+        if (refs == null || !refs.isArray()) {
+            violations.add(new ShapeViolation(path + ".sourceRefs", "array<ScenarioSourceReference>", refs == null ? "missing" : jsonShape(refs)));
+            return;
+        }
+        for (int index = 0; index < refs.size(); index++) {
+            JsonNode ref = refs.get(index);
+            String refPath = path + ".sourceRefs[" + index + "]";
+            if (!ref.isObject()) {
+                violations.add(new ShapeViolation(refPath, "object", jsonShape(ref)));
+                continue;
+            }
+            validateAllowedFields(ref, refPath, Set.of("knowledgeDocumentId", "extractionVersion", "locator"), violations);
+            JsonNode knowledgeDocumentId = ref.get("knowledgeDocumentId");
+            if (knowledgeDocumentId != null && knowledgeDocumentId.isObject()) {
+                validateAllowedFields(knowledgeDocumentId, refPath + ".knowledgeDocumentId", Set.of("value"), violations);
+            }
+            JsonNode documentIdNode = ref.get("knowledgeDocumentId");
+            if (documentIdNode == null || !documentIdNode.isObject()) {
+                violations.add(new ShapeViolation(refPath + ".knowledgeDocumentId", "object", documentIdNode == null ? "missing" : jsonShape(documentIdNode)));
+            } else {
+                validateAllowedFields(documentIdNode, refPath + ".knowledgeDocumentId", Set.of("value"), violations);
+                requireNonBlankText(documentIdNode, "value", refPath + ".knowledgeDocumentId", violations);
+            }
+            JsonNode version = ref.get("extractionVersion");
+            if (version == null || !version.isIntegralNumber() || !version.canConvertToLong() || version.longValue() <= 0) {
+                violations.add(new ShapeViolation(refPath + ".extractionVersion", "positive integer", version == null ? "missing" : jsonShape(version)));
+            }
+            JsonNode locator = ref.get("locator");
+            if (locator == null || !locator.isTextual() || locator.asText().isBlank()) {
+                violations.add(new ShapeViolation(refPath + ".locator", "non-blank string", locator == null ? "missing" : jsonShape(locator)));
+            }
+        }
+    }
+
+    private static void requireNonBlankText(JsonNode object, String field, String path, List<ShapeViolation> violations) {
+        JsonNode value = object.get(field);
+        if (value == null || !value.isTextual() || value.asText().isBlank()) {
+            violations.add(new ShapeViolation(path + "." + field, "non-blank string", value == null ? "missing" : value.isTextual() ? "blank string" : jsonShape(value)));
+        }
+    }
+
+    private static void validateAllowedFields(JsonNode object, String path, Set<String> allowed, List<ShapeViolation> violations) {
+        if (!object.isObject()) return;
+        long unexpectedCount = object.properties().stream().filter(entry -> !allowed.contains(entry.getKey())).count();
+        if (unexpectedCount > 0) {
+            violations.add(new ShapeViolation(path.isBlank() ? "additionalProperties" : path + ".additionalProperties",
+                    "no additional fields", "unexpected field count=" + unexpectedCount));
+        }
+    }
+
+    private static JsonNode loadScenarioCompilationOutputSchema() {
+        try {
+            return new ObjectMapper().readTree("""
+                    {"type":"object","additionalProperties":false,"required":["status","scenarioModel","diagnostics"],
+                     "properties":{"status":{"type":"string","enum":["READY","BLOCKED"]},
+                     "scenarioModel":{"type":["object","null"],"additionalProperties":false,
+                     "required":["schemaVersion","actors","locations","objectives","revelations","encounters","relationships","resolutionCriteria","startingSituation"],
+                     "properties":{"schemaVersion":{"type":"integer","minimum":1},
+                     "actors":{"$ref":"#/$defs/elements"},"locations":{"$ref":"#/$defs/elements"},
+                     "objectives":{"$ref":"#/$defs/elements"},"revelations":{"$ref":"#/$defs/elements"},
+                     "encounters":{"$ref":"#/$defs/elements"},"relationships":{"$ref":"#/$defs/elements"},
+                     "resolutionCriteria":{"$ref":"#/$defs/elements"},"startingSituation":{"type":"string"}}},
+                     "diagnostics":{"type":"array","items":{"type":"string"}}},
+                     "$defs":{"elements":{"type":"array","items":{"type":"object","additionalProperties":false,
+                     "required":["elementId","type","attributes","sourceRefs"],"properties":{
+                     "elementId":{"type":"string","minLength":1},"type":{"type":"string","minLength":1},
+                     "attributes":{"type":"object","additionalProperties":true},
+                     "sourceRefs":{"type":"array","items":{"type":"object","additionalProperties":false,
+                     "required":["knowledgeDocumentId","extractionVersion","locator"],"properties":{
+                     "knowledgeDocumentId":{"type":"object","additionalProperties":false,"required":["value"],"properties":{"value":{"type":"string","minLength":1}}},
+                     "extractionVersion":{"type":"integer","minimum":1},"locator":{"type":"string","minLength":1}}}}}}}},
+                     "additionalProperties":false}
+                    """);
+        } catch (java.io.IOException failure) {
+            throw new ExceptionInInitializerError(failure);
+        }
+    }
+
+    private static String schemaFingerprint(JsonNode schema) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(schema.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest, 0, 8);
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
     }
 
     private static String jsonShape(JsonNode node) {
