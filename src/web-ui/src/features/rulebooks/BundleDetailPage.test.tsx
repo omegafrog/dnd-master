@@ -48,6 +48,24 @@ describe('BundleDetailPage session cleanup', () => {
     await waitFor(() => expect(screen.getByText('이 자료로 생성된 모험 세션이 없습니다.')).toBeInTheDocument())
   })
 
+  it('shows the review-needed label for documents indexed with warnings', async () => {
+    const bundle = { ...makeBundle(), documents: [{ ...makeBundle().documents[0], status: 'INDEXED_WITH_WARNINGS' as const }] }
+    const setupApi = {
+      getScenarioBundle: vi.fn().mockResolvedValue(bundle),
+      listKnowledgeDocuments: vi.fn().mockResolvedValue(bundle.documents),
+      listScenarioPackages: vi.fn().mockResolvedValue([]),
+    } as unknown as SetupApi
+    const sessionApi = {
+      create: vi.fn(),
+      listByScenarioPackage: vi.fn().mockResolvedValue([]),
+      delete: vi.fn(),
+    } as unknown as Pick<AdventureSessionApi, 'create' | 'listByScenarioPackage' | 'delete'>
+
+    render(<BundleDetailPage bundleId={bundle.bundleId} api={setupApi} playerId="p1" sessionApi={sessionApi} />)
+
+    expect(await screen.findByText('일부 자료 확인 필요')).toBeInTheDocument()
+  })
+
   it('lists sessions connected to every saved package revision', async () => {
     const bundle = { ...makeBundle(), currentRevision: 2 }
     const currentPackage = { ...makePackage(), bundleRevision: 2 }

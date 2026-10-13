@@ -140,6 +140,85 @@ class AdventureAiRequestControllerTest {
     }
 
     @Test
+    void rejected_ranged_attacks_never_reach_combat_action_submission() {
+        assertRangedAttackRejectedBeforeSubmit(
+                com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.PENDING,
+                0, 0, 4, java.util.List.of(), "ACTION_DEFINITION_UNAVAILABLE");
+        assertRangedAttackRejectedBeforeSubmit(
+                com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.APPROVED,
+                1, 0, 4, java.util.List.of(), "MAP_VERSION_CHANGED");
+        assertRangedAttackRejectedBeforeSubmit(
+                com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.APPROVED,
+                0, 0, 8, java.util.List.of(), "AIM_OUT_OF_RANGE");
+        assertRangedAttackRejectedBeforeSubmit(
+                com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.APPROVED,
+                0, 0, 4, java.util.List.of(new com.dndmaster.adventure.application.combat.CombatMapViewPort.Obstacle(2, 1)),
+                "AIM_PATH_BLOCKED");
+    }
+
+    @Test
+    void ranged_attack_discards_client_supplied_combat_calculations() {
+        Fixture fixture = fixture();
+        UUID actorId = fixture.adventure().party().getFirst().characterSheetId().value();
+        UUID enemyId = UUID.randomUUID();
+        var actor = new com.dndmaster.adventure.domain.combat.CombatParticipant(actorId, "영웅",
+                com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER, 15, null,
+                com.dndmaster.adventure.domain.combat.TurnResources.initial());
+        var enemy = new com.dndmaster.adventure.domain.combat.CombatParticipant(enemyId, "적",
+                com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI, 10, null,
+                com.dndmaster.adventure.domain.combat.TurnResources.initial(),
+                new com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock(12, 10, 2, "1d6",
+                        new com.dndmaster.adventure.domain.combat.CombatStatBlockSource(UUID.randomUUID(), 1, "p1")));
+        var encounter = new com.dndmaster.adventure.domain.combat.CombatEncounter(UUID.randomUUID(),
+                fixture.adventure().id().value(), com.dndmaster.adventure.domain.combat.CombatEncounter.Status.ACTIVE,
+                5, actorId, java.util.List.of(actor, enemy), 5, 0);
+        when(fixture.encounters().findActive(fixture.adventure().id().value())).thenReturn(Optional.of(encounter));
+
+        var definition = new com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition("bow", "활",
+                UUID.randomUUID(), "p1", "v1", 1, null, null, "30/120 ft", null, null, null, null, null,
+                java.util.List.of(368), "룰북 근거", true,
+                com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.APPROVED, false,
+                com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ActionKind.RANGED_ATTACK,
+                new com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.RangeProfile(
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.RangeForm.NORMAL_AND_LONG, 10, 20),
+                new com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.TargetingProfile(
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.TargetMode.SINGLE_TARGET,
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.OriginMode.ACTOR_TOKEN,
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.EffectShape.NONE,
+                        null, null, null, null,
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.PathBlockingRule.SOLID_BLOCKS,
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.PropagationRule.DIRECT), true);
+        when(fixture.packages().findSpellDefinitionPreparationBySession(fixture.adventure().sessionId().value()))
+                .thenReturn(Optional.of(new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
+                        UUID.randomUUID(), UUID.randomUUID(), fixture.adventure().ownerPlayerId().value(), 2, true,
+                        java.util.List.of(definition), fixture.adventure().sessionId().value())));
+        int gridSize = 10;
+        var visible = java.util.stream.IntStream.range(0, gridSize).boxed()
+                .flatMap(y -> java.util.stream.IntStream.range(0, gridSize).mapToObj(x ->
+                        new com.dndmaster.adventure.application.combat.CombatMapViewPort.Position(x, y))).toList();
+        var view = new com.dndmaster.adventure.application.combat.CombatMapViewPort.View(UUID.randomUUID(),
+                new com.dndmaster.adventure.application.combat.CombatMapViewPort.Grid(gridSize, gridSize, 5, 5),
+                java.util.List.of(new com.dndmaster.adventure.application.combat.CombatMapViewPort.Token(actorId, "PLAYER", 1, 1),
+                        new com.dndmaster.adventure.application.combat.CombatMapViewPort.Token(enemyId, "ENEMY", 4, 1)),
+                java.util.List.of(), java.util.List.of(), java.util.List.of(), visible, visible, 0);
+        when(fixture.maps().playerView(fixture.adventure().id().value(), fixture.adventure().ownerPlayerId().value()))
+                .thenReturn(Optional.of(view));
+
+        fixture.combatController().action(fixture.adventure().id().value(), UUID.randomUUID().toString(), 5,
+                new CombatController.CombatActionRequest(actorId, "RANGED_ATTACK", 999, 999, enemyId, 999,
+                        null, null, null, null, null, null, "bow", 2L, actorId, 4, 1, enemyId, 5L, 0L));
+
+        var command = org.mockito.ArgumentCaptor.forClass(
+                com.dndmaster.adventure.application.combat.CombatActionCommand.class);
+        verify(fixture.combatActions()).submit(command.capture());
+        assertEquals(null, command.getValue().targetArmorClass());
+        assertEquals(null, command.getValue().attackModifier());
+        assertEquals(null, command.getValue().damageAmount());
+        assertEquals("bow", command.getValue().aimSelection().definitionId());
+        assertEquals(2L, command.getValue().aimSelection().definitionVersion());
+    }
+
+    @Test
     void competing_combat_turn_end_is_rejected_before_it_can_schedule_an_ai_follow_up() {
         Fixture fixture = fixture();
         UUID requestId = UUID.randomUUID();
@@ -399,16 +478,78 @@ class AdventureAiRequestControllerTest {
                 mock(com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository.class),
                 combatLifecycle,
                 mock(com.dndmaster.adventure.application.ruleset.AppliedRuleSetApplicationService.class), aiRequests);
+        var packages = mock(com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository.class);
+        var maps = mock(com.dndmaster.adventure.application.combat.CombatMapViewPort.class);
         CombatController combatController = new CombatController(
                 encounters, playerResolver,
                 adventures, mock(com.dndmaster.adventure.application.combat.CombatEventRepository.class), combatActions,
                 mock(com.dndmaster.adventure.application.combat.CombatReactionApplicationService.class),
                 workItems, scheduler,
                 mock(com.dndmaster.adventure.application.combat.CharacterCombatPort.class), aiRequests,
-                mock(com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository.class),
-                mock(com.dndmaster.adventure.application.combat.CombatMapViewPort.class));
+                packages, maps);
         return new Fixture(adventure, adventureController, combatController, aiRequests, gmTurns, runtimeTurns, runtimeTurnRepository,
-                combatActions, encounters, workItems, scheduler, gmTurnFailures, sessionEvents, combatLifecycle);
+                combatActions, encounters, workItems, scheduler, gmTurnFailures, sessionEvents, combatLifecycle, packages, maps);
+    }
+
+    private static void assertRangedAttackRejectedBeforeSubmit(
+            com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus reviewStatus,
+            long mapVersion, long expectedMapVersion, int targetX,
+            java.util.List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Obstacle> obstacles,
+            String expectedReason) {
+        Fixture fixture = fixture();
+        UUID actorId = fixture.adventure().party().getFirst().characterSheetId().value();
+        UUID enemyId = UUID.randomUUID();
+        var actor = new com.dndmaster.adventure.domain.combat.CombatParticipant(actorId, "영웅",
+                com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER, 15, null,
+                com.dndmaster.adventure.domain.combat.TurnResources.initial());
+        var enemy = new com.dndmaster.adventure.domain.combat.CombatParticipant(enemyId, "적",
+                com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI, 10, null,
+                com.dndmaster.adventure.domain.combat.TurnResources.initial(),
+                new com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock(12, 10, 2, "1d6",
+                        new com.dndmaster.adventure.domain.combat.CombatStatBlockSource(UUID.randomUUID(), 1, "p1")));
+        var encounter = new com.dndmaster.adventure.domain.combat.CombatEncounter(UUID.randomUUID(),
+                fixture.adventure().id().value(), com.dndmaster.adventure.domain.combat.CombatEncounter.Status.ACTIVE,
+                5, actorId, java.util.List.of(actor, enemy), 5, 0);
+        when(fixture.encounters().findActive(fixture.adventure().id().value())).thenReturn(Optional.of(encounter));
+
+        var definition = new com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition("bow", "활",
+                UUID.randomUUID(), "p1", "v1", 1, null, null, "30/120 ft", null, null, null, null, null,
+                java.util.List.of(368), "룰북 근거", true, reviewStatus, false,
+                com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ActionKind.RANGED_ATTACK,
+                new com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.RangeProfile(
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.RangeForm.NORMAL_AND_LONG, 10, 20),
+                new com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.TargetingProfile(
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.TargetMode.SINGLE_TARGET,
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.OriginMode.ACTOR_TOKEN,
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.EffectShape.NONE,
+                        null, null, null, null,
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.PathBlockingRule.SOLID_BLOCKS,
+                        com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.PropagationRule.DIRECT), true);
+        when(fixture.packages().findSpellDefinitionPreparationBySession(fixture.adventure().sessionId().value()))
+                .thenReturn(Optional.of(new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
+                        UUID.randomUUID(), UUID.randomUUID(), fixture.adventure().ownerPlayerId().value(), 1, true,
+                        java.util.List.of(definition), fixture.adventure().sessionId().value())));
+
+        int gridSize = 10;
+        var visible = java.util.stream.IntStream.range(0, gridSize).boxed()
+                .flatMap(y -> java.util.stream.IntStream.range(0, gridSize).mapToObj(x ->
+                        new com.dndmaster.adventure.application.combat.CombatMapViewPort.Position(x, y))).toList();
+        var view = new com.dndmaster.adventure.application.combat.CombatMapViewPort.View(UUID.randomUUID(),
+                new com.dndmaster.adventure.application.combat.CombatMapViewPort.Grid(gridSize, gridSize, 5, 5),
+                java.util.List.of(new com.dndmaster.adventure.application.combat.CombatMapViewPort.Token(actorId, "PLAYER", 1, 1),
+                        new com.dndmaster.adventure.application.combat.CombatMapViewPort.Token(enemyId, "ENEMY", targetX, 1)),
+                obstacles, java.util.List.of(), java.util.List.of(), visible, visible, mapVersion);
+        when(fixture.maps().playerView(fixture.adventure().id().value(), fixture.adventure().ownerPlayerId().value()))
+                .thenReturn(Optional.of(view));
+
+        var request = new CombatController.CombatActionRequest(actorId, "RANGED_ATTACK", null, null, null, null,
+                null, null, null, null, null, null, "bow", 1L, actorId, targetX, 1, enemyId, 5L, expectedMapVersion);
+        var failure = assertThrows(org.springframework.web.server.ResponseStatusException.class, () ->
+                fixture.combatController().action(fixture.adventure().id().value(), UUID.randomUUID().toString(), 5, request));
+
+        org.junit.jupiter.api.Assertions.assertTrue(failure.getReason().startsWith(expectedReason), failure.getReason());
+        verifyNoInteractions(fixture.combatActions());
+        verify(fixture.aiRequests(), never()).begin(any(), any(), any());
     }
 
     private static <T> ObjectProvider<T> provider(T value) {
@@ -434,5 +575,7 @@ class AdventureAiRequestControllerTest {
             CombatWorkItemRepository workItems, CombatWorkItemScheduler scheduler,
             com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder gmTurnFailures,
             com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEvents,
-            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycle) { }
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycle,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages,
+            com.dndmaster.adventure.application.combat.CombatMapViewPort maps) { }
 }

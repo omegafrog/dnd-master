@@ -100,6 +100,12 @@ class CombatRangedAttackValidatorTest {
         assertRejected("TARGET_CELL_PARTICIPANT_MISMATCH", 5, 0, 2);
     }
 
+    @Test void actual_validation_matches_preview_for_range_and_path_decisions() {
+        assertActualValidationMatchesPreview(view(5, 0, List.of()), 4, 1);
+        assertActualValidationMatchesPreview(view(5, 0, List.of(), 8, 1), 8, 1);
+        assertActualValidationMatchesPreview(view(5, 0, List.of(new CombatMapViewPort.Obstacle(2, 1))), 4, 1);
+    }
+
     @Test void accepts_current_approved_definition_and_forwards_validated_selection() {
         assertDoesNotThrow(() -> validator.validate(adventure, ownerId, actorId, 5, actorId, enemyId,
                 4, 1, "bow", 2, 0));
@@ -120,6 +126,28 @@ class CombatRangedAttackValidatorTest {
         when(packages.findSpellDefinitionPreparationBySession(adventure.sessionId().value())).thenReturn(Optional.of(
                 new SpellDefinitionReviewPreparation(UUID.randomUUID(), UUID.randomUUID(), ownerId, 2, true,
                         List.of(definition), adventure.sessionId().value())));
+    }
+
+    private void assertActualValidationMatchesPreview(CombatMapViewPort.View currentMap, int targetX, int targetY) {
+        map = currentMap;
+        when(maps.playerView(adventureId, ownerId)).thenReturn(Optional.of(currentMap));
+        var actorToken = currentMap.tokens().stream().filter(token -> token.id().equals(actorId)).findFirst().orElseThrow();
+        var targetToken = currentMap.tokens().stream().filter(token -> token.id().equals(targetTokenId)).findFirst().orElseThrow();
+        var preview = com.dndmaster.adventure.domain.combat.CombatAimPreviewPolicy.preview(definition,
+                new com.dndmaster.adventure.domain.combat.CombatAimPreviewPolicy.Cell(actorToken.x(), actorToken.y()),
+                actorToken.elevationFeet(), new com.dndmaster.adventure.domain.combat.CombatAimPreviewPolicy.Cell(targetX, targetY),
+                targetToken.elevationFeet(), currentMap.grid().distanceUnit(), currentMap.grid().width(), currentMap.grid().height(),
+                currentMap.obstacles().stream().map(value -> new com.dndmaster.adventure.domain.combat.CombatAimPreviewPolicy.Cell(
+                        value.x(), value.y())).toList());
+
+        if (!preview.inRange()) {
+            assertRejected("AIM_OUT_OF_RANGE", 5, currentMap.version(), 2, targetX, targetY);
+        } else if (!preview.clearPath()) {
+            assertRejected("AIM_PATH_BLOCKED", 5, currentMap.version(), 2, targetX, targetY);
+        } else {
+            assertDoesNotThrow(() -> validator.validate(adventure, ownerId, actorId, 5, actorId, enemyId,
+                    targetX, targetY, "bow", 2, currentMap.version()));
+        }
     }
 
     private CombatMapViewPort.View view(long distanceUnit, long version, List<CombatMapViewPort.Obstacle> obstacles) {

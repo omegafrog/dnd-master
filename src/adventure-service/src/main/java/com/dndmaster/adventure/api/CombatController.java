@@ -143,9 +143,9 @@ public final class CombatController {
                     new CharacterSheetId(request.characterSheetId()), request.combatMapId(), CombatActorRole.PLAYER,
                     rangedAttack ? "attack" : request.action(), path(request.movementPath()), playerResolver.playerId(), rangedAttack
                             ? request.aimTokenId() : request.tokenId() == null ? request.characterSheetId() : request.tokenId(), expectedVersion,
-                    request.targetArmorClass(), request.attackModifier(), request.targetCharacterSheetId() == null
+                    rangedAttack ? null : request.targetArmorClass(), rangedAttack ? null : request.attackModifier(), request.targetCharacterSheetId() == null
                             ? rangedAttack ? new CharacterSheetId(request.aimTargetParticipantId()) : null
-                            : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), false,
+                            : new CharacterSheetId(request.targetCharacterSheetId()), rangedAttack ? null : request.damageAmount(), false,
                     request.narrativePosition() == null ? null : request.narrativePosition().toDomain(), request.movementDistance(),
                     rangedAttack ? request.aimExpectedMapVersion() : request.mapVersion(), aimSelection);
             CombatActionResponse response = actionService.submit(command);
