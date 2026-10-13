@@ -496,6 +496,41 @@ describe('PackageBlueprintReviewPage', () => {
     await waitFor(() => expect(onSessionCreated).toHaveBeenCalledWith('session-created-1'))
   })
 
+  it('allows starting with pending optional definitions and warns that they become unavailable', async () => {
+    const create = vi.fn().mockResolvedValue({ sessionId: 'session-created-optional' })
+    const published = preparation({ status: 'PUBLISHED' })
+    published.spellDefinitions = [
+      { id: 'optional-active', name: '선택 행동', sourceDocumentId: 'source', sourceLocator: 'p1', sourceVersion: 'v1',
+        extractionVersion: 1, level: '', castingTime: '', rangeArea: '30 ft.', components: '', duration: '', school: '',
+        attackSave: '', damageEffect: '', ownerPlanNumbers: [], ownerEvidence: '근거', executable: true,
+        reviewStatus: 'PENDING', required: false, active: true },
+      { id: 'inactive-required', name: '비활성 행동', sourceDocumentId: 'source', sourceLocator: 'p2', sourceVersion: 'v1',
+        extractionVersion: 1, level: '', castingTime: '', rangeArea: '30 ft.', components: '', duration: '', school: '',
+        attackSave: '', damageEffect: '', ownerPlanNumbers: [], ownerEvidence: '근거', executable: false,
+        reviewStatus: 'PENDING', required: true, active: false },
+    ]
+    renderReview(async () => published, { create })
+
+    expect(await screen.findByRole('note')).toHaveTextContent('승인하지 않은 선택 행동 정의 1개')
+    expect(screen.getByRole('note')).toHaveTextContent('모험 시작 후 잠기며, 이 모험에서는 사용할 수 없습니다')
+    await userEvent.setup().click(await screen.findByRole('button', { name: '캐릭터 생성 시작' }))
+
+    await waitFor(() => expect(create).toHaveBeenCalled())
+  })
+
+  it('blocks session creation when an active required definition is pending', async () => {
+    const create = vi.fn()
+    const published = preparation({ status: 'PUBLISHED' })
+    published.spellDefinitions = [{ id: 'required-pending', name: '필수 행동', sourceDocumentId: 'source', sourceLocator: 'p1',
+      sourceVersion: 'v1', extractionVersion: 1, level: '', castingTime: '', rangeArea: '30 ft.', components: '',
+      duration: '', school: '', attackSave: '', damageEffect: '', ownerPlanNumbers: [], ownerEvidence: '근거',
+      executable: true, reviewStatus: 'PENDING', required: true, active: true }]
+    renderReview(async () => published, { create })
+
+    expect(await screen.findByRole('button', { name: '캐릭터 생성 시작' })).toBeDisabled()
+    expect(create).not.toHaveBeenCalled()
+  })
+
   it('uses the source-mandated party size without offering a conflicting choice', async () => {
     const create = vi.fn().mockResolvedValue({ sessionId: 'session-created-2' })
     const published = preparation({ status: 'PUBLISHED' })

@@ -183,8 +183,8 @@ export function PackageBlueprintReviewPage({
       setMessage('필수 행동 정의의 사거리나 대상 방식이 아직 지원되지 않아 모험을 시작할 수 없습니다.')
       return
     }
-    if ((preparation?.spellDefinitions ?? []).some(spell => spell.reviewStatus !== 'APPROVED')) {
-      setMessage('주문 정의를 검토하고 승인한 뒤 모험을 시작할 수 있습니다.')
+    if ((preparation?.spellDefinitions ?? []).some(spell => spell.active !== false && spell.required === true && spell.reviewStatus !== 'APPROVED')) {
+      setMessage('활성 필수 행동 정의를 검토하고 승인한 뒤 모험을 시작할 수 있습니다.')
       return
     }
     setCreatingSession(true)
@@ -225,6 +225,8 @@ export function PackageBlueprintReviewPage({
   }
 
   const spellDefinitions = preparation.spellDefinitions ?? []
+  const pendingRequiredDefinitions = spellDefinitions.filter(spell => spell.active !== false && spell.required === true && spell.reviewStatus !== 'APPROVED').length
+  const pendingOptionalDefinitions = spellDefinitions.filter(spell => spell.active !== false && spell.required !== true && spell.reviewStatus !== 'APPROVED').length
   const unsupportedRequired = spellDefinitions.some(spell => spell.active !== false && spell.required
     && (!rangeProfileSupported(spell.rangeProfile) || !targetingProfileSupported(spell.targetingProfile) || !spell.executable))
   const sourceSpells = new Map((preparation.sourceSpellDefinitions ?? []).map(spell => [spell.id, spell]))
@@ -332,6 +334,9 @@ export function PackageBlueprintReviewPage({
         <h2>기본 룰북 주문 목록</h2>
         <p>2014 기본 룰북 원문과 구조를 확인한 주문입니다. 실행하지 못하거나 담당 기제가 준비되지 않은 주문은 전체 지원으로 계산하지 않습니다.</p>
         <p>{spellDefinitions.length}개 확인 · 전체 실행 지원 미확인</p>
+        {pendingOptionalDefinitions > 0 && (
+          <p role="note">승인하지 않은 선택 행동 정의 {pendingOptionalDefinitions}개는 모험 시작 후 잠기며, 이 모험에서는 사용할 수 없습니다. 사용하려면 시작 전에 승인하세요.</p>
+        )}
         <details>
           <summary>{spellDefinitions.length}개 주문과 출처 보기</summary>
           <ol>
@@ -562,7 +567,7 @@ export function PackageBlueprintReviewPage({
               <p>{preparation.characterLimit.exactPartySize
                 ? `룰북의 인원 조건에 따라 ${preparation.characterLimit.maximumCharacters}명으로 고정됩니다.`
                 : `룰북이 고정 인원을 요구하지 않아 1~${preparation.characterLimit.maximumCharacters}명 중 선택할 수 있습니다.`}</p>
-                  <button type="button" onClick={() => void createSession()} disabled={creatingSession || unsupportedRequired || spellDefinitions.some(spell => spell.active !== false && spell.reviewStatus !== 'APPROVED')}>
+                  <button type="button" onClick={() => void createSession()} disabled={creatingSession || unsupportedRequired || pendingRequiredDefinitions > 0}>
                 {creatingSession ? '캐릭터 생성 준비 중…' : '캐릭터 생성 시작'}
               </button>
               {retrySession && <button type="button" onClick={() => void createSession()} disabled={creatingSession}>다시 시도</button>}

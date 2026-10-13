@@ -12,7 +12,7 @@ public record CombatActionCommand(
         UUID operationId, AdventureId adventureId, UUID sessionId, RuleSetId ruleSetId, CharacterSheetId characterSheetId, UUID combatMapId,
         CombatActorRole role, String action, String movementPath, UUID ownerPlayerId, UUID tokenId, long expectedVersion,
         Integer targetArmorClass, Integer attackModifier, CharacterSheetId targetCharacterSheetId, Integer damageAmount, boolean endCombat,
-        NarrativeCombatPosition narrativePosition, Integer movementDistance, Long mapVersion) {
+        NarrativeCombatPosition narrativePosition, Integer movementDistance, Long mapVersion, AimSelection aimSelection) {
     public CombatActionCommand {
         Objects.requireNonNull(operationId, "operation id must not be null");
         Objects.requireNonNull(adventureId, "adventure id must not be null");
@@ -27,6 +27,25 @@ public record CombatActionCommand(
         if (damageAmount != null && (damageAmount < 1 || damageAmount > 1000)) throw new IllegalArgumentException("damage amount must be between 1 and 1000");
         if (movementDistance != null && movementDistance <= 0) throw new IllegalArgumentException("movement distance must be positive");
         if (mapVersion != null && mapVersion < 0) throw new IllegalArgumentException("expected map version must be non-negative");
+    }
+
+    public CombatActionCommand(UUID operationId, AdventureId adventureId, UUID sessionId, RuleSetId ruleSetId,
+            CharacterSheetId characterSheetId, UUID combatMapId, CombatActorRole role, String action, String movementPath,
+            UUID ownerPlayerId, UUID tokenId, long expectedVersion, Integer targetArmorClass, Integer attackModifier,
+            CharacterSheetId targetCharacterSheetId, Integer damageAmount, boolean endCombat,
+            NarrativeCombatPosition narrativePosition, Integer movementDistance, Long mapVersion) {
+        this(operationId, adventureId, sessionId, ruleSetId, characterSheetId, combatMapId, role, action, movementPath,
+                ownerPlayerId, tokenId, expectedVersion, targetArmorClass, attackModifier, targetCharacterSheetId,
+                damageAmount, endCombat, narrativePosition, movementDistance, mapVersion, null);
+    }
+
+    public record AimSelection(String definitionId, long definitionVersion, UUID tokenId, int targetX, int targetY,
+            UUID targetParticipantId, long expectedEncounterVersion, long expectedMapVersion) {
+        public AimSelection {
+            if (definitionId == null || definitionId.isBlank() || tokenId == null || targetParticipantId == null
+                    || definitionVersion < 0 || expectedEncounterVersion < 0 || expectedMapVersion < 0
+                    || targetX < 0 || targetY < 0) throw new IllegalArgumentException("invalid ranged aim selection");
+        }
     }
 
     public CombatActionCommand(UUID operationId, AdventureId adventureId, UUID sessionId, RuleSetId ruleSetId,
@@ -68,7 +87,7 @@ public record CombatActionCommand(
     public String fingerprint() {
         return adventureId + "|" + sessionId + "|" + ruleSetId + "|" + characterSheetId + "|" + combatMapId + "|" + role + "|" + action
                 + "|" + movementPath + "|" + ownerPlayerId + "|" + tokenId + "|" + expectedVersion + "|" + targetArmorClass + "|" + attackModifier + "|" + targetCharacterSheetId + "|" + damageAmount + "|" + endCombat
-                + "|" + narrativePosition + "|" + movementDistance + "|" + mapVersion;
+                + "|" + narrativePosition + "|" + movementDistance + "|" + mapVersion + "|" + aimSelection;
     }
 
     @JsonIgnore

@@ -336,7 +336,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     public void lockSpellDefinitionPreparationForStart(UUID preparationId, UUID packageId, UUID ownerId,
             UUID sessionId, long expectedRevision) {
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
-                "UPDATE spell_definition_review_preparation SET locked = TRUE WHERE preparation_id = ? AND package_id = ? AND owner_player_id = ? AND session_id = ? AND revision = ? AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(definitions_json) definition WHERE definition ->> 'active' <> 'false' AND definition ->> 'reviewStatus' <> 'APPROVED')")) {
+                "UPDATE spell_definition_review_preparation SET locked = TRUE WHERE preparation_id = ? AND package_id = ? AND owner_player_id = ? AND session_id = ? AND revision = ? AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(definitions_json) definition WHERE COALESCE(definition ->> 'active', 'true') = 'true' AND COALESCE(definition ->> 'required', 'false') = 'true' AND definition ->> 'reviewStatus' <> 'APPROVED')")) {
             statement.setObject(1, preparationId); statement.setObject(2, packageId); statement.setObject(3, ownerId);
             statement.setObject(4, sessionId); statement.setLong(5, expectedRevision);
             if (statement.executeUpdate() != 1) {

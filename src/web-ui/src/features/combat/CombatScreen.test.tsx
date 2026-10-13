@@ -6,7 +6,7 @@ import { CombatScreen } from './CombatScreen'
 import type { CombatAimMapInteraction } from '../combat-map/CombatMapView'
 
 describe('CombatScreen', () => {
-  it('previews a selected definition and keeps map click in the read-only selection seam', async () => {
+  it('forwards the approved definition, selected map target and current versions to ranged attack', async () => {
     const user = userEvent.setup()
     const submitAction = vi.fn(async () => ({ status: 'COMMITTED' }))
     const castSpell = vi.fn(async () => ({ status: 'COMMITTED' }))
@@ -20,7 +20,8 @@ describe('CombatScreen', () => {
     render(<CombatScreen api={api} map={<AimMapHarness />} snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE',
       round: 1, currentParticipantId: 'p1', version: 3, eventCursor: 2,
       resources: { movement: 30, actionAvailable: true, bonusActionAvailable: true, reactionAvailable: true },
-      initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
+      initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' },
+        { participantId: 'enemy-1', displayName: '적', controller: 'AI', initiative: 10, publicCondition: 'enemy' }] }} />)
 
     await user.hover(await screen.findByRole('button', { name: '조준 미리보기 위치' }))
     expect(await screen.findByText(/거리 10ft · 사거리 안/)).toBeInTheDocument()
@@ -29,7 +30,12 @@ describe('CombatScreen', () => {
     expect(screen.getByText('선택 위치: (2,3)')).toBeInTheDocument()
     expect(previewAim).toHaveBeenCalledWith('a1', expect.objectContaining({ definitionId: 'action-1', targetX: 2, targetY: 3,
       tokenId: 'p1', expectedEncounterVersion: 3, expectedMapVersion: 5 }))
-    expect(submitAction).not.toHaveBeenCalled()
+    await user.selectOptions(screen.getByRole('combobox', { name: '공격 대상' }), 'enemy-1')
+    await user.click(screen.getByRole('button', { name: '공격' }))
+    expect(submitAction).toHaveBeenCalledWith('a1', expect.objectContaining({ characterSheetId: 'p1', action: 'RANGED_ATTACK',
+      targetCharacterSheetId: 'enemy-1', aimDefinitionId: 'action-1', aimDefinitionVersion: 2, aimTokenId: 'p1',
+      aimTargetX: 2, aimTargetY: 3, aimTargetParticipantId: 'enemy-1', aimExpectedEncounterVersion: 3,
+      aimExpectedMapVersion: 5 }), 3)
     expect(castSpell).not.toHaveBeenCalled()
   })
 

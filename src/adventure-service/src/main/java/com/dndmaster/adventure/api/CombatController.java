@@ -3,6 +3,9 @@ package com.dndmaster.adventure.api;
 import com.dndmaster.adventure.application.combat.CombatEncounterRepository;
 import com.dndmaster.adventure.application.combat.CombatActionApplicationService;
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
+import com.dndmaster.adventure.application.combat.CombatRangedAttackValidator;
+import com.dndmaster.adventure.application.combat.CombatMapViewPort;
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.combat.CombatActionResponse;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatReactionApplicationService;
@@ -21,6 +24,9 @@ import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.time.Instant;
+import com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -28,6 +34,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 public final class CombatController {
+    private static final Logger LOGGER = LoggerFactory.getLogger(CombatController.class);
     private final CombatEncounterRepository repository;
     private final AuthenticatedPlayerResolver playerResolver;
     private final com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository;
@@ -38,6 +45,7 @@ public final class CombatController {
     private final com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler;
     private final com.dndmaster.adventure.application.combat.CharacterCombatPort characterCombatPort;
     private final AdventureAiRequestApplicationService aiRequestService;
+    private final CombatRangedAttackValidator rangedAttackValidator;
     public CombatController(CombatEncounterRepository repository, AuthenticatedPlayerResolver playerResolver,
                             com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository,
                             com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository,
@@ -46,10 +54,12 @@ public final class CombatController {
                             com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems,
                             com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler,
                             com.dndmaster.adventure.application.combat.CharacterCombatPort characterCombatPort,
-                            AdventureAiRequestApplicationService aiRequestService) {
+                            AdventureAiRequestApplicationService aiRequestService,
+                            ScenarioPackageRepository packages, CombatMapViewPort maps) {
         this.repository = repository; this.playerResolver = playerResolver; this.adventureRepository = adventureRepository; this.eventRepository = eventRepository;
         this.actionService = actionService; this.reactionService = reactionService; this.workItems = workItems; this.workItemScheduler = workItemScheduler; this.characterCombatPort = characterCombatPort;
         this.aiRequestService = java.util.Objects.requireNonNull(aiRequestService, "AI request service must not be null");
+        this.rangedAttackValidator = new CombatRangedAttackValidator(repository, packages, maps);
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/reactions/{reactionId}")
@@ -79,16 +89,65 @@ public final class CombatController {
             @RequestBody CombatActionRequest request) {
         var adventure = assertOwnerAndLoad(adventureId);
         UUID commandId = uuidHeader(idempotencyKey, "Idempotency-Key");
+        boolean rangedAttack = "RANGED_ATTACK".equalsIgnoreCase(request.action());
+        CombatActionCommand.AimSelection aimSelection = null;
+        if (rangedAttack) {
+            if (request.aimDefinitionId() == null || request.aimTokenId() == null || request.aimTargetX() == null
+                    || request.aimTargetY() == null || request.aimTargetParticipantId() == null
+                    || request.aimDefinitionVersion() == null || request.aimExpectedMapVersion() == null
+                    || request.aimExpectedEncounterVersion() == null) {
+                throw new ApiRequestGuard.ApiContractException(400, "AIM_SELECTION_REQUIRED");
+            }
+            long validationStarted = DevelopmentDiagnostics.begin(LOGGER, "combat_ranged_attack_validation",
+                    "adventureId=" + adventureId + " operationId=" + commandId + " definitionId=" + safeId(request.aimDefinitionId())
+                            + " expectedEncounterVersion=" + request.aimExpectedEncounterVersion()
+                            + " expectedMapVersion=" + request.aimExpectedMapVersion());
+            try {
+                if (request.characterSheetId() == null
+                        || request.targetCharacterSheetId() != null
+                                && !request.targetCharacterSheetId().equals(request.aimTargetParticipantId())) {
+                    throw new ApiRequestGuard.ApiContractException(400, "AIM_SELECTION_TARGET_MISMATCH");
+                }
+                if (expectedVersion != request.aimExpectedEncounterVersion()) {
+                    throw new org.springframework.web.server.ResponseStatusException(
+                            org.springframework.http.HttpStatus.CONFLICT, "ENCOUNTER_VERSION_CHANGED");
+                }
+                rangedAttackValidator.validate(adventure, playerResolver.playerId(), request.characterSheetId(), expectedVersion,
+                        request.aimTokenId(), request.aimTargetParticipantId(), request.aimTargetX(), request.aimTargetY(),
+                        request.aimDefinitionId(), request.aimDefinitionVersion(), request.aimExpectedMapVersion());
+                aimSelection = new CombatActionCommand.AimSelection(request.aimDefinitionId(), request.aimDefinitionVersion(),
+                        request.aimTokenId(), request.aimTargetX(), request.aimTargetY(), request.aimTargetParticipantId(),
+                        request.aimExpectedEncounterVersion(), request.aimExpectedMapVersion());
+                DevelopmentDiagnostics.complete(LOGGER, "combat_ranged_attack_validation",
+                        "operationId=" + commandId + " definitionId=" + safeId(request.aimDefinitionId())
+                                + " expectedEncounterVersion=" + request.aimExpectedEncounterVersion()
+                                + " expectedMapVersion=" + request.aimExpectedMapVersion() + " outcome=ACCEPTED", validationStarted);
+            } catch (RuntimeException | Error failure) {
+                DevelopmentDiagnostics.fail(LOGGER, "combat_ranged_attack_validation",
+                        "operationId=" + commandId + " definitionId=" + safeId(request.aimDefinitionId())
+                                + " expectedEncounterVersion=" + request.aimExpectedEncounterVersion()
+                                + " expectedMapVersion=" + request.aimExpectedMapVersion()
+                                + " failureReason=" + safeId(failure instanceof org.springframework.web.server.ResponseStatusException response
+                                        ? response.getReason() : failure.getClass().getSimpleName())
+                                + " outcome=REJECTED", validationStarted, failure);
+                throw failure;
+            }
+        } else if (request.aimDefinitionId() != null || request.aimTokenId() != null || request.aimTargetX() != null
+                || request.aimTargetY() != null || request.aimTargetParticipantId() != null) {
+            throw new ApiRequestGuard.ApiContractException(400, "AIM_SELECTION_ACTION_MISMATCH");
+        }
         try (AdventureAiRequestApplicationService.Permit permit = aiRequestService.begin(
                 adventure.sessionId(), adventure.ownerPlayerId(), commandId)) {
             CombatActionCommand command = new CombatActionCommand(commandId,
                     adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(),
                     new CharacterSheetId(request.characterSheetId()), request.combatMapId(), CombatActorRole.PLAYER,
-                    request.action(), path(request.movementPath()), playerResolver.playerId(), request.tokenId() == null
-                            ? request.characterSheetId() : request.tokenId(), expectedVersion,
+                    rangedAttack ? "attack" : request.action(), path(request.movementPath()), playerResolver.playerId(), rangedAttack
+                            ? request.aimTokenId() : request.tokenId() == null ? request.characterSheetId() : request.tokenId(), expectedVersion,
                     request.targetArmorClass(), request.attackModifier(), request.targetCharacterSheetId() == null
-                            ? null : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), false,
-                    request.narrativePosition() == null ? null : request.narrativePosition().toDomain(), request.movementDistance(), request.mapVersion());
+                            ? rangedAttack ? new CharacterSheetId(request.aimTargetParticipantId()) : null
+                            : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), false,
+                    request.narrativePosition() == null ? null : request.narrativePosition().toDomain(), request.movementDistance(),
+                    rangedAttack ? request.aimExpectedMapVersion() : request.mapVersion(), aimSelection);
             CombatActionResponse response = actionService.submit(command);
             handOffToScheduledAiFollowUp(adventure, command, permit);
             return ResponseEntity.accepted().body(response);
@@ -309,11 +368,20 @@ public final class CombatController {
     public record CombatActionRequest(UUID characterSheetId, String action, Integer targetArmorClass,
                                       Integer attackModifier, UUID targetCharacterSheetId, Integer damageAmount,
                                       UUID combatMapId, UUID tokenId, List<PositionRequest> movementPath,
-                                      NarrativePositionRequest narrativePosition, Integer movementDistance, Long mapVersion) {
+                                      NarrativePositionRequest narrativePosition, Integer movementDistance, Long mapVersion,
+                                      String aimDefinitionId, Long aimDefinitionVersion, UUID aimTokenId, Integer aimTargetX,
+                                      Integer aimTargetY, UUID aimTargetParticipantId, Long aimExpectedEncounterVersion,
+                                      Long aimExpectedMapVersion) {
+        public CombatActionRequest(UUID characterSheetId, String action, Integer targetArmorClass,
+                Integer attackModifier, UUID targetCharacterSheetId, Integer damageAmount, UUID combatMapId, UUID tokenId,
+                List<PositionRequest> movementPath, NarrativePositionRequest narrativePosition, Integer movementDistance, Long mapVersion) {
+            this(characterSheetId, action, targetArmorClass, attackModifier, targetCharacterSheetId, damageAmount, combatMapId,
+                    tokenId, movementPath, narrativePosition, movementDistance, mapVersion, null, null, null, null, null, null, null, null);
+        }
         public CombatActionRequest(UUID characterSheetId, String action, Integer targetArmorClass,
                                     Integer attackModifier, UUID targetCharacterSheetId, Integer damageAmount) {
             this(characterSheetId, action, targetArmorClass, attackModifier, targetCharacterSheetId, damageAmount,
-                    null, null, null, null, null, null);
+                    null, null, null, null, null, null, null, null, null, null, null, null, null, null);
         }
     }
 
@@ -329,6 +397,8 @@ public final class CombatController {
         return positions.stream().map(position -> position.x() + "," + position.y())
                 .reduce((left, right) -> left + ";" + right).orElse(null);
     }
+
+    private static String safeId(String value) { return value == null ? "none" : value.replaceAll("[^A-Za-z0-9_-]", "_"); }
 
     public record TurnEndRequest(UUID characterSheetId) {}
     public record RetryRequest(UUID operationId) {}

@@ -133,16 +133,87 @@ class ScenarioRuntimeAdventureStartTest {
     }
 
     @Test
-    void rejects_adventure_start_until_all_spell_definitions_are_approved() {
-        var pendingSpell = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory
-                .load(new KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst();
-        ScenarioPackage packageVersion = readyPackage().withSpellDefinitions(List.of(pendingSpell));
+    void starts_with_pending_optional_action_and_locks_it_for_the_adventure() {
+        OwnerPlayerId owner = owner();
+        ScenarioPackage packageVersion = readyPackage();
+        SessionId sessionId = SessionId.generate();
+        var pendingOptional = actionDefinition(false, true, false, false);
+        var preparation = new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
+                UUID.randomUUID(), packageVersion.packageId(), owner.value(), 0, false, List.of(pendingOptional), sessionId.value());
+        var packages = new ReviewablePackageRepository(packageVersion, preparation);
         InMemoryAdventureRepository adventures = new InMemoryAdventureRepository();
         AdventureStartApplicationService service = new AdventureStartApplicationService(
-                packageRepository(packageVersion), adventures, stagePreparation(packageVersion));
+                packages, adventures, stagePreparation(packageVersion));
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AdventureStartApplicationService.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start(); logger.addAppender(appender);
+        String previous = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
 
-        assertThrows(IllegalStateException.class, () -> service.start(command(owner(), packageVersion)));
+        Adventure started;
+        try {
+            started = service.start(command(owner, packageVersion, sessionId));
+            assertTrue(appender.list.stream().map(event -> event.getFormattedMessage()).anyMatch(message ->
+                    message.contains("outcome=locked") && message.contains("actualPendingOptionalDefinitionCount=1")));
+        } finally {
+            logger.detachAppender(appender);
+            if (previous == null) System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+            else System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previous);
+        }
+
+        assertEquals(com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE, started.status());
+        assertTrue(packages.locked, "pending optional definitions are locked at start and remain unavailable to execution");
+    }
+
+    @Test
+    void blocks_pending_required_action_before_adventure_start() {
+        OwnerPlayerId owner = owner();
+        ScenarioPackage packageVersion = readyPackage();
+        SessionId sessionId = SessionId.generate();
+        var pendingRequired = actionDefinition(true, true, false, false);
+        var preparation = new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
+                UUID.randomUUID(), packageVersion.packageId(), owner.value(), 0, false, List.of(pendingRequired), sessionId.value());
+        var packages = new ReviewablePackageRepository(packageVersion, preparation);
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository();
+        AdventureStartApplicationService service = new AdventureStartApplicationService(
+                packages, adventures, stagePreparation(packageVersion));
+
+        assertThrows(IllegalStateException.class, () -> service.start(command(owner, packageVersion, sessionId)));
         assertEquals(0, adventures.saveCount);
+        assertEquals(0, packages.lockCalls);
+    }
+
+    @Test
+    void inactive_pending_unsupported_required_definition_does_not_gate_start() {
+        OwnerPlayerId owner = owner();
+        ScenarioPackage packageVersion = readyPackage();
+        SessionId sessionId = SessionId.generate();
+        var inactiveRequired = actionDefinition(true, false, false, false);
+        var preparation = new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
+                UUID.randomUUID(), packageVersion.packageId(), owner.value(), 0, false, List.of(inactiveRequired), sessionId.value());
+        var packages = new ReviewablePackageRepository(packageVersion, preparation);
+        AdventureStartApplicationService service = new AdventureStartApplicationService(
+                packages, new InMemoryAdventureRepository(), stagePreparation(packageVersion));
+
+        assertEquals(com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE,
+                service.start(command(owner, packageVersion, sessionId)).status());
+        assertTrue(packages.locked);
+    }
+
+    @Test
+    void active_unsupported_required_definition_blocks_even_when_approved() {
+        OwnerPlayerId owner = owner();
+        ScenarioPackage packageVersion = readyPackage();
+        SessionId sessionId = SessionId.generate();
+        var unsupportedRequired = actionDefinition(true, true, false, true);
+        var preparation = new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
+                UUID.randomUUID(), packageVersion.packageId(), owner.value(), 0, false, List.of(unsupportedRequired), sessionId.value());
+        var packages = new ReviewablePackageRepository(packageVersion, preparation);
+        AdventureStartApplicationService service = new AdventureStartApplicationService(
+                packages, new InMemoryAdventureRepository(), stagePreparation(packageVersion));
+
+        assertThrows(IllegalStateException.class, () -> service.start(command(owner, packageVersion, sessionId)));
+        assertEquals(0, packages.lockCalls);
     }
 
     @Test
@@ -162,7 +233,7 @@ class ScenarioRuntimeAdventureStartTest {
         try {
             assertThrows(IllegalStateException.class, () -> service.start(command(owner(), packageVersion)));
             assertTrue(appender.list.stream().map(event -> event.getFormattedMessage()).anyMatch(message ->
-                    message.contains("expected=active_approved_and_required_supported actualPending=1")
+                    message.contains("expected=active_required_approved_and_supported actualPendingRequired=1")
                             && message.contains("reason=missing_preparation")));
         } finally {
             logger.detachAppender(appender);
@@ -213,7 +284,7 @@ class ScenarioRuntimeAdventureStartTest {
         ScenarioPackage packageVersion = readyPackage();
         SessionId sessionId = SessionId.generate();
         var pending = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory
-                .load(new KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst();
+                .load(new KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst().withRequired(true);
         var preparation = new com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation(
                 UUID.randomUUID(), packageVersion.packageId(), owner.value(), 0, false, List.of(pending), sessionId.value());
         ReviewablePackageRepository packages = new ReviewablePackageRepository(packageVersion, preparation);
@@ -346,6 +417,20 @@ class ScenarioRuntimeAdventureStartTest {
         return ScenarioPackage.publishWithScenarioModel(ScenarioBundleId.generate(), 7, "ready",
                 List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
                 CharacterLimit.defaultLimit(), null, List.of(), List.of(), model);
+    }
+
+    private static com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition actionDefinition(
+            boolean required, boolean active, boolean executable, boolean approved) {
+        var source = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory
+                .load(new KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst();
+        return new com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition(source.id(), source.name(),
+                source.sourceDocumentId(), source.sourceLocator(), source.sourceVersion(), source.extractionVersion(),
+                source.level(), source.castingTime(), source.rangeArea(), source.components(), source.duration(),
+                source.school(), source.attackSave(), source.damageEffect(), source.ownerPlanNumbers(), source.ownerEvidence(),
+                executable, approved
+                        ? com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.APPROVED
+                        : com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.PENDING,
+                required, source.actionKind(), source.rangeProfile(), source.targetingProfile(), active);
     }
 
     private static List<AdventurePartyMember> party() {

@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -36,6 +37,57 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class AdventureSessionPreparationBindingTest {
+    private static com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition actionDefinition(boolean required, boolean active) {
+        var source = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory.load(
+                new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst();
+        return new com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition(source.id(), source.name(),
+                source.sourceDocumentId(), source.sourceLocator(), source.sourceVersion(), source.extractionVersion(),
+                source.level(), source.castingTime(), source.rangeArea(), source.components(), source.duration(),
+                source.school(), source.attackSave(), source.damageEffect(), source.ownerPlanNumbers(), source.ownerEvidence(),
+                false, com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.PENDING,
+                required, source.actionKind(), source.rangeProfile(), source.targetingProfile(), active);
+    }
+
+    @Test
+    void session_gate_requires_approval_only_for_active_required_definitions() {
+        for (var scenario : List.of(new boolean[] { false, true, true },
+                new boolean[] { true, false, true }, new boolean[] { true, true, false })) {
+            boolean required = scenario[0];
+            boolean active = scenario[1];
+            boolean shouldCreate = scenario[2];
+            UUID packageId = UUID.randomUUID();
+            UUID preparationId = UUID.randomUUID();
+            OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+            var pending = actionDefinition(required, active);
+            var blueprint = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.PUBLISHED,
+                    List.of(new CharacterCreationBlueprint.Field("class", List.of(), true, "RULEBOOK", List.of(), "EXTRACTED", List.of())),
+                    List.of(), new BlueprintProvenance(1, 1, List.of("RULEBOOK"), "OTHER_SYSTEM"));
+            ScenarioPackage scenarioPackage = ScenarioPackage.rehydrate(packageId, ScenarioBundleId.generate(), 1,
+                    "selective-action-review", List.of(), List.of(),
+                    new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of(), CompilationOutcome.COMPLETE),
+                    CharacterLimit.defaultLimit(), blueprint).withSpellDefinitions(List.of(pending));
+            var review = new SpellDefinitionReviewPreparation(preparationId, packageId, owner.value(), 0, false, List.of(pending));
+            ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+            when(packages.findById(packageId)).thenReturn(Optional.of(scenarioPackage));
+            when(packages.findSpellDefinitionPreparation(preparationId)).thenReturn(Optional.of(review));
+            AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
+            AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions, packages,
+                    mock(AdventureRepository.class), mock(RuntimeBindingApplicationService.class),
+                    mock(AdventureSessionStartCoordinator.class));
+
+            if (!shouldCreate) {
+                assertThrows(IllegalStateException.class, () -> service.create(owner, packageId, packageId, 1,
+                        null, null, preparationId));
+                verify(sessions, never()).save(any(), eq(0L));
+                verify(packages, never()).bindSpellDefinitionPreparation(eq(preparationId), eq(packageId), eq(owner.value()), any(), eq(0L));
+            } else {
+                service.create(owner, packageId, packageId, 1, null, null, preparationId);
+                verify(sessions).save(any(), eq(0L));
+                verify(packages).bindSpellDefinitionPreparation(eq(preparationId), eq(packageId), eq(owner.value()), any(), eq(0L));
+            }
+        }
+    }
+
     @Test
     void logs_binding_failure_context_and_preserves_exception() {
         UUID packageId = UUID.randomUUID();

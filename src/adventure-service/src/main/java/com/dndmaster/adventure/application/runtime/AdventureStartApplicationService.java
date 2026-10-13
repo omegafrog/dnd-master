@@ -62,7 +62,7 @@ public final class AdventureStartApplicationService {
                 || scenarioPackage.documents().stream().anyMatch(document ->
                         "RULEBOOK".equalsIgnoreCase(document.documentType()));
         if (preparation.isEmpty() && requiresPreparation) {
-            logSpellReviewGate(command, 1, 0, "missing_preparation");
+            logSpellReviewGate(command, 1, 0, 0, "missing_preparation");
             throw new IllegalStateException("spell/action review preparation is required before adventure start");
         }
         if (preparation.isPresent()) {
@@ -72,14 +72,22 @@ public final class AdventureStartApplicationService {
             }
             long pendingDefinitions = review.definitions().stream()
                     .filter(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition::active)
+                    .filter(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition::required)
                     .filter(definition -> definition.reviewStatus()
                             != com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.APPROVED)
                     .count();
             long requiredUnsupported = review.definitions().stream()
+                    .filter(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition::active)
                     .filter(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition::required)
                     .filter(definition -> !definition.executable() || definition.rangeProfile() == null
                             || !definition.rangeProfile().supported() || definition.targetingProfile() == null
                             || !definition.targetingProfile().supported())
+                    .count();
+            long pendingOptionalDefinitions = review.definitions().stream()
+                    .filter(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition::active)
+                    .filter(definition -> !definition.required())
+                    .filter(definition -> definition.reviewStatus()
+                            != com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition.ReviewStatus.APPROVED)
                     .count();
             var selectedSource = selectedRulebookSource(scenarioPackage);
             long mismatchedSourceDefinitions = selectedSource == null ? 0 : review.definitions().stream()
@@ -96,9 +104,9 @@ public final class AdventureStartApplicationService {
                 throw new IllegalStateException("spell/action review definitions do not match the selected rulebook source");
             }
             if (pendingDefinitions > 0 || requiredUnsupported > 0) {
-                logSpellReviewGate(command, pendingDefinitions, requiredUnsupported,
+                logSpellReviewGate(command, pendingDefinitions, pendingOptionalDefinitions, requiredUnsupported,
                         pendingDefinitions > 0 ? "pending_review" : "required_unsupported");
-                throw new IllegalStateException("spell/action definitions require review or supported required definitions before adventure start");
+                throw new IllegalStateException("active required spell/action definitions must be approved and supported before adventure start");
             }
             try {
                 packages.lockSpellDefinitionPreparationForStart(review.preparationId(), command.scenarioPackageId(),
@@ -114,9 +122,10 @@ public final class AdventureStartApplicationService {
                 throw failure;
             }
             if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
-                LOGGER.info("dev_flow operation=adventure_start_spell_review outcome=locked sessionId={} preparationId={} expectedRevision={} actualRevision={} activeDefinitionCount={} reason=adventure_start",
+                LOGGER.info("dev_flow operation=adventure_start_spell_review outcome=locked sessionId={} preparationId={} expectedRevision={} actualRevision={} activeDefinitionCount={} actualPendingOptionalDefinitionCount={} reason=adventure_start",
                         command.sessionId().value(), review.preparationId(), review.revision(), review.revision(),
-                        review.definitions().stream().filter(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition::active).count());
+                        review.definitions().stream().filter(com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition::active).count(),
+                        pendingOptionalDefinitions);
             }
         }
 
@@ -146,10 +155,11 @@ public final class AdventureStartApplicationService {
         return adventure;
     }
 
-    private static void logSpellReviewGate(StartAdventureCommand command, long pending, long unsupported, String reason) {
+    private static void logSpellReviewGate(StartAdventureCommand command, long pendingRequired, long pendingOptional,
+            long unsupported, String reason) {
         if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
-            LOGGER.info("dev_flow operation=adventure_start_spell_review outcome=blocked sessionId={} expected=active_approved_and_required_supported actualPending={} actualRequiredUnsupported={} reason={}",
-                    command.sessionId().value(), pending, unsupported, reason);
+            LOGGER.info("dev_flow operation=adventure_start_spell_review outcome=blocked sessionId={} expected=active_required_approved_and_supported actualPendingRequired={} actualPendingOptional={} actualRequiredUnsupported={} reason={}",
+                    command.sessionId().value(), pendingRequired, pendingOptional, unsupported, reason);
         }
     }
 

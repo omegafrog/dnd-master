@@ -508,7 +508,7 @@ public final class CombatActionApplicationService {
                 command.characterSheetId(), command.combatMapId(), command.role(), command.action(), command.movementPath(),
                 command.ownerPlayerId(), command.tokenId(), command.expectedVersion(), armorClass, modifier,
                 command.targetCharacterSheetId(), damage, command.endCombat(), command.narrativePosition(),
-                command.movementDistance(), command.mapVersion());
+                command.movementDistance(), command.mapVersion(), command.aimSelection());
     }
 
     private CombatActionCommand resolveAiAttack(CombatActionCommand command, CombatEncounter encounter) {

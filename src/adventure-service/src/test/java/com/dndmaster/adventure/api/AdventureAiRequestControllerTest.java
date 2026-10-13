@@ -404,7 +404,9 @@ class AdventureAiRequestControllerTest {
                 adventures, mock(com.dndmaster.adventure.application.combat.CombatEventRepository.class), combatActions,
                 mock(com.dndmaster.adventure.application.combat.CombatReactionApplicationService.class),
                 workItems, scheduler,
-                mock(com.dndmaster.adventure.application.combat.CharacterCombatPort.class), aiRequests);
+                mock(com.dndmaster.adventure.application.combat.CharacterCombatPort.class), aiRequests,
+                mock(com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository.class),
+                mock(com.dndmaster.adventure.application.combat.CombatMapViewPort.class));
         return new Fixture(adventure, adventureController, combatController, aiRequests, gmTurns, runtimeTurns, runtimeTurnRepository,
                 combatActions, encounters, workItems, scheduler, gmTurnFailures, sessionEvents, combatLifecycle);
     }

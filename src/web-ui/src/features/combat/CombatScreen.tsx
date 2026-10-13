@@ -86,6 +86,21 @@ export function CombatScreen({ snapshot, api, map, onCommandCommitted }: { snaps
   const runAction = () => {
     if (!api) return
     if (!targetId) return setFeedback('공격할 적을 선택하세요.')
+    if (selectedAimDefinition) {
+      if (selectedAimDefinition.actionKind !== 'RANGED_ATTACK') return setFeedback('현재는 승인된 원거리 공격 정의만 실제 공격에 연결되어 있습니다.')
+      if (!aimSelection || aimSelection.definitionId !== selectedAimDefinition.id
+        || aimSelection.definitionVersion !== selectedAimDefinition.version
+        || aimSelection.expectedEncounterVersion !== snapshot.version) {
+        return setFeedback('지도에서 현재 전투 상태로 공격 위치를 다시 선택하세요.')
+      }
+      return send(() => api.submitAction(snapshot.adventureId, {
+        characterSheetId: snapshot.currentParticipantId, action: 'RANGED_ATTACK', targetCharacterSheetId: targetId,
+        aimDefinitionId: aimSelection.definitionId, aimDefinitionVersion: aimSelection.definitionVersion,
+        aimTokenId: aimSelection.tokenId, aimTargetX: aimSelection.targetX, aimTargetY: aimSelection.targetY,
+        aimTargetParticipantId: targetId, aimExpectedEncounterVersion: aimSelection.expectedEncounterVersion,
+        aimExpectedMapVersion: aimSelection.expectedMapVersion,
+      }, snapshot.version))
+    }
     return send(() => api.submitAction(snapshot.adventureId, { characterSheetId: snapshot.currentParticipantId, action: 'attack', targetCharacterSheetId: targetId }, snapshot.version))
   }
   const castSpell = () => {

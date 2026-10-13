@@ -45,6 +45,14 @@ export type CombatActionRequest = {
   narrativePosition?: { subjectId: string; targetId: string; rangeBand: string; cover: string }
   movementDistance?: number
   mapVersion?: number
+  aimDefinitionId?: string
+  aimDefinitionVersion?: number
+  aimTokenId?: string
+  aimTargetX?: number
+  aimTargetY?: number
+  aimTargetParticipantId?: string
+  aimExpectedEncounterVersion?: number
+  aimExpectedMapVersion?: number
 }
 
 export type CombatCommandResult = {

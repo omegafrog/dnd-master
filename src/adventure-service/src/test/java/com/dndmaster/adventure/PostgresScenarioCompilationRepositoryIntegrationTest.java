@@ -205,6 +205,82 @@ class PostgresScenarioCompilationRepositoryIntegrationTest {
         assertEquals(revisedApproved, packages.findSpellDefinitionPreparation(preparation.preparationId()).orElseThrow().definitions().getFirst());
     }
 
+    @Test
+    void start_lock_ignores_optional_and_inactive_pending_definitions_but_rejects_active_required_pending() {
+        var packages = new PostgresScenarioPackageRepository(dataSource);
+        for (var scenario : List.of(new boolean[] { false, true, true },
+                new boolean[] { true, false, true }, new boolean[] { true, true, false })) {
+            boolean required = scenario[0];
+            boolean active = scenario[1];
+            boolean shouldLock = scenario[2];
+            var packageVersion = ScenarioPackage.publish(bundleId, 1, "selective-lock-" + UUID.randomUUID(),
+                    List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()));
+            packages.save(packageVersion);
+            var source = BasicRulebookSpellInventory.load(
+                    new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst();
+            var definition = new StructuredSpellDefinition(source.id(), source.name(), source.sourceDocumentId(),
+                    source.sourceLocator(), source.sourceVersion(), source.extractionVersion(), source.level(),
+                    source.castingTime(), source.rangeArea(), source.components(), source.duration(), source.school(),
+                    source.attackSave(), source.damageEffect(), source.ownerPlanNumbers(), source.ownerEvidence(),
+                    source.executable(), source.reviewStatus(), required, source.actionKind(), source.rangeProfile(),
+                    source.targetingProfile(), active);
+            UUID owner = UUID.randomUUID();
+            UUID session = UUID.randomUUID();
+            var preparation = packages.createSpellDefinitionPreparation(packageVersion.packageId(), owner,
+                    "selective-lock-" + UUID.randomUUID(), List.of(definition));
+            packages.bindSpellDefinitionPreparation(preparation.preparationId(), packageVersion.packageId(), owner,
+                    session, preparation.revision());
+
+            if (shouldLock) {
+                packages.lockSpellDefinitionPreparationForStart(preparation.preparationId(), packageVersion.packageId(),
+                        owner, session, preparation.revision());
+                assertTrue(packages.findSpellDefinitionPreparation(preparation.preparationId()).orElseThrow().locked());
+            } else {
+                assertThrows(IllegalStateException.class, () -> packages.lockSpellDefinitionPreparationForStart(
+                        preparation.preparationId(), packageVersion.packageId(), owner, session, preparation.revision()));
+                assertFalse(packages.findSpellDefinitionPreparation(preparation.preparationId()).orElseThrow().locked());
+            }
+        }
+    }
+
+    @Test
+    void start_lock_allows_pending_optional_and_inactive_definitions_but_rejects_active_required_pending() {
+        var packages = new PostgresScenarioPackageRepository(dataSource);
+        for (var scenario : List.of(new boolean[] { false, true, true },
+                new boolean[] { true, false, true }, new boolean[] { true, true, false })) {
+            boolean required = scenario[0];
+            boolean active = scenario[1];
+            boolean shouldLock = scenario[2];
+            var packageVersion = ScenarioPackage.publish(bundleId, 1, "selective-lock-" + UUID.randomUUID(),
+                    List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()));
+            packages.save(packageVersion);
+            var source = BasicRulebookSpellInventory.load(
+                    new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst();
+            var definition = new StructuredSpellDefinition(source.id(), source.name(), source.sourceDocumentId(),
+                    source.sourceLocator(), source.sourceVersion(), source.extractionVersion(), source.level(),
+                    source.castingTime(), source.rangeArea(), source.components(), source.duration(), source.school(),
+                    source.attackSave(), source.damageEffect(), source.ownerPlanNumbers(), source.ownerEvidence(),
+                    source.executable(), source.reviewStatus(), required, source.actionKind(), source.rangeProfile(),
+                    source.targetingProfile(), active);
+            UUID owner = UUID.randomUUID();
+            UUID session = UUID.randomUUID();
+            var preparation = packages.createSpellDefinitionPreparation(packageVersion.packageId(), owner,
+                    "selective-lock-" + UUID.randomUUID(), List.of(definition));
+            packages.bindSpellDefinitionPreparation(preparation.preparationId(), packageVersion.packageId(), owner,
+                    session, preparation.revision());
+
+            if (shouldLock) {
+                packages.lockSpellDefinitionPreparationForStart(preparation.preparationId(), packageVersion.packageId(),
+                        owner, session, preparation.revision());
+                assertTrue(packages.findSpellDefinitionPreparation(preparation.preparationId()).orElseThrow().locked());
+            } else {
+                assertThrows(IllegalStateException.class, () -> packages.lockSpellDefinitionPreparationForStart(
+                        preparation.preparationId(), packageVersion.packageId(), owner, session, preparation.revision()));
+                assertFalse(packages.findSpellDefinitionPreparation(preparation.preparationId()).orElseThrow().locked());
+            }
+        }
+    }
+
     private static ScenarioModelElement element(String type, String value) {
         return new ScenarioModelElement(type, type, Map.of("value", value), List.of());
     }
