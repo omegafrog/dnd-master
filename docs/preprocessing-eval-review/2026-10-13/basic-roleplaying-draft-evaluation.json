@@ -1,0 +1,37 @@
+{
+  "annotation_page_count": 14,
+  "blocks": {
+    "gold": 326,
+    "matched": 326,
+    "precision": 0.9588235294117647,
+    "predicted": 340,
+    "recall": 1.0
+  },
+  "columns": {
+    "bbox_mean_iou": null,
+    "count_accuracy": null
+  },
+  "headings": {
+    "level_accuracy": 0.0,
+    "parent_accuracy": null,
+    "precision": 1.0,
+    "recall": 0.3958333333333333
+  },
+  "page_type_accuracy": 1.0,
+  "pipeline_version": null,
+  "reading_order_block_coverage": 0.9263803680981595,
+  "reading_order_covered_block_count": 302,
+  "reading_order_pairwise_agreement": 0.9973835688121402,
+  "section_continuations": {
+    "exact_matches": 0,
+    "gold_links": 2,
+    "link_exact_match_rate": 0.0
+  },
+  "source_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+  "tables": {
+    "cell_exact_rate": null,
+    "matched_table_count": null,
+    "precision": null,
+    "recall": null
+  }
+}

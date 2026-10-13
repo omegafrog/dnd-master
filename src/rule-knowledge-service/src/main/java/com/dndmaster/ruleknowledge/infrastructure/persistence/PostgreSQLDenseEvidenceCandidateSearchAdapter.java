@@ -136,7 +136,7 @@ public final class PostgreSQLDenseEvidenceCandidateSearchAdapter implements Dens
                                     new SourceProvenance(rows.getInt("page_number"), textArray(rows, "section_path"),
                                             doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("original_locator"),
                                             SourceProvenance.sourceSpansFromJson(rows.getString("source_spans"))),
-                                    rank++, null, 0d, similarity));
+                                    rank++, similarity));
                         }
                         if (ownsTransaction) connection.commit();
                         if (diagnosticsEnabled()) {

@@ -16,19 +16,53 @@ import org.junit.jupiter.api.Test;
 
 class RagExtractionPublicationServiceTest {
     @Test
-    void needsReviewPageBlocksPublicationWithoutCallingVectorStore() {
+    void publishesSearchablePagesAndKeepsAnUnreadablePageInTheManifest() {
+        RecordingRepository repository = new RecordingRepository();
+        RagExtractionPublicationService service = service(repository,
+                (chunks, model, dimension) -> embeddings(chunks));
+
+        RagExtractionVersion published = service.publish(request(
+                List.of(new RagExtractionPage(1, "VALIDATED", 1, List.of()),
+                        new RagExtractionPage(2, "NEEDS_REVIEW", 1, List.of("TEXT_UNUSABLE")))));
+
+        assertEquals(ExtractionPublicationStatus.INDEXED, published.status());
+        assertEquals(1, repository.publishCalls);
+        assertEquals(0, repository.failedCalls);
+        assertEquals(2, repository.publishedRequest.pages().size());
+        assertEquals("NEEDS_REVIEW", repository.publishedRequest.pages().get(1).status());
+    }
+
+    @Test
+    void rejectsSearchChunkSourcedFromUnreadablePageInPartialPublication() {
         RecordingRepository repository = new RecordingRepository();
         RagExtractionPublicationService service = service(repository, (chunks, model, dimension) -> {
-            throw new AssertionError("embedding must not be called for a review page");
+            throw new AssertionError("embedding must not receive a chunk from an unreadable page");
         });
+        PublishedRagChunk unreadableChunk = new PublishedRagChunk("processor-chunk-1", 0,
+                "Unreadable page text", "Unreadable page text",
+                new SourceProvenance(2, List.of(), List.of(), null, "page=2"));
 
         assertThrows(PublicationBlockedException.class, () -> service.publish(request(
                 List.of(new RagExtractionPage(1, "VALIDATED", 1, List.of()),
-                        new RagExtractionPage(2, "NEEDS_REVIEW", 1, List.of("TABLE_AMBIGUOUS"))))));
+                        new RagExtractionPage(2, "NEEDS_REVIEW", 1, List.of("TEXT_UNUSABLE"))),
+                List.of(unreadableChunk))));
 
         assertEquals(0, repository.publishCalls);
         assertEquals(1, repository.failedCalls);
         assertEquals(ExtractionPublicationStatus.NEEDS_REVIEW, repository.failedStatus);
+    }
+
+    @Test
+    void acceptsTextFromStructurallyUncertainPageWhenItsSourceIsMarkedUsable() {
+        RecordingRepository repository = new RecordingRepository();
+        RagExtractionPublicationService service = service(repository,
+                (chunks, model, dimension) -> embeddings(chunks));
+
+        RagExtractionVersion published = service.publish(request(List.of(
+                new RagExtractionPage(1, "USABLE_WITH_WARNINGS", 1, List.of("STRUCTURE_UNCERTAIN")))));
+
+        assertEquals(ExtractionPublicationStatus.INDEXED, published.status());
+        assertEquals(1, repository.publishCalls);
     }
 
     @Test
@@ -171,6 +205,7 @@ class RagExtractionPublicationServiceTest {
         private int failedCalls;
         private ExtractionPublicationStatus failedStatus;
         private List<EmbeddedPublishedRagChunk> publishedChunks = List.of();
+        private RagExtractionPublicationRequest publishedRequest;
 
         @Override
         public void beginCandidate(RagExtractionPublicationRequest request) {}
@@ -180,6 +215,7 @@ class RagExtractionPublicationServiceTest {
                 RagExtractionPublicationRequest request,
                 List<EmbeddedPublishedRagChunk> chunks) {
             publishCalls++;
+            publishedRequest = request;
             publishedChunks = List.copyOf(chunks);
         }
 

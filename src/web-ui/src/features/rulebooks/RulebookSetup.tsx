@@ -25,7 +25,7 @@ type PendingDocument = RulebookUploadDraft & { originalFilename: string }
 type CatalogRulebook = { catalogRevisionId: string; edition: string; displayName: string; rulebookId: string | null; revisionNumber: number; status: string }
 type SetupView = 'intro' | 'details' | 'materials' | 'preparing' | 'complete'
 
-const bundleReadyStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'READY', 'PARTIAL_CONFIRMED'])
+const bundleReadyStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'INDEXED_WITH_WARNINGS', 'READY', 'PARTIAL_CONFIRMED'])
 
 function createIdempotencyKey(file: File, index: number) {
   const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -152,7 +152,7 @@ export function RulebookSetup({
   const readySelectedCount = selectedDocuments.filter(document => bundleReadyStatuses.has(document.status)).length
   const hasMainScenario = selectedDocuments.some(document => roles[document.knowledgeDocumentId] === 'MAIN_SCENARIO')
   const pendingCount = selectedDocuments.filter(document => materialStatus(document).kind === 'processing').length
-  const issueCount = selectedDocuments.filter(document => ['review', 'failed'].includes(materialStatus(document).kind)).length
+  const issueCount = selectedDocuments.filter(document => ['warning', 'review', 'failed'].includes(materialStatus(document).kind)).length
   const canContinueDetails = Boolean(adventureName.trim() && selectedCatalogRulebookId && selectedEdition)
   const canCreateBundle = Boolean(canContinueDetails && selectedDocuments.length > 0 && readySelectedCount === selectedDocuments.length && hasMainScenario)
 
@@ -401,7 +401,7 @@ export function RulebookSetup({
       </div>
       {uploadedDocuments.length > 0 ? <div className="setup-material-list-section"><div className="setup-material-list-heading"><div><h2>추가된 자료</h2><p>이 모험에 사용할 자료를 선택하고 주 역할을 확인하세요.</p></div><span>{selectedDocuments.length}개 선택</span></div><ul className="file-list setup-material-list" aria-label="문서 상태 목록">{uploadedDocuments.map(document => {
         const selected = selectedUploadedIds.has(document.knowledgeDocumentId)
-        const previewable = ['EXTRACTED', 'INDEXED', 'READY', 'PARTIAL_CONFIRMED'].includes(document.status)
+        const previewable = ['EXTRACTED', 'INDEXED', 'INDEXED_WITH_WARNINGS', 'READY', 'PARTIAL_CONFIRMED'].includes(document.status)
         return <Fragment key={document.knowledgeDocumentId}>
           <MaterialRow document={document} selected={selected} selectable={materialStatus(document).kind !== 'failed'} onSelectedChange={checked => assignDefaultRole(document.knowledgeDocumentId, checked)} role={selected ? roles[document.knowledgeDocumentId] ?? 'HANDOUT' : undefined} onRoleChange={selected ? role => updateRole(document.knowledgeDocumentId, role) : undefined} actions={<>{previewable ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 미리보기`} onClick={() => void previewDocument(document.knowledgeDocumentId)}><Eye size={16} aria-hidden="true" /></Button> : null}{document.status === 'FAILED' ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 다시 처리`} onClick={() => void retryDocument(document.knowledgeDocumentId)}><RefreshCw size={16} aria-hidden="true" /></Button> : null}{api.deleteKnowledgeDocument ? <Button variant="ghost" size="icon" aria-label={`${document.originalFilename} 삭제`} onClick={() => void deleteDocument(document)}><Trash2 size={16} aria-hidden="true" /></Button> : null}</>} />
       {document.status === 'NEEDS_REVIEW' && document.reviewQuestions?.length ? <div className="setup-review-questions" aria-label={`${document.originalFilename} 검토 질문`}>

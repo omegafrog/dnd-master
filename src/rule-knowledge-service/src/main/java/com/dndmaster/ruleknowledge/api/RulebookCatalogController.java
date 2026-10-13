@@ -33,7 +33,7 @@ public final class RulebookCatalogController {
                 .filter(revision -> revision.status() == CatalogRevisionStatus.READY && revision.published())
                 .filter(revision -> revision.rulebookId() != null)
                 .filter(revision -> registrations.findById(new RulebookId(revision.rulebookId()))
-                        .filter(registration -> registration.processingStatus() == ProcessingStatus.INDEXED)
+                        .filter(registration -> registration.processingStatus().isSearchable())
                         .filter(registration -> registration.documentType() == DocumentType.RULEBOOK)
                         .filter(registration -> registration.ownerPlayerId().value().equals(CATALOG_OWNER))
                         .filter(registration -> registration.version() > 0)

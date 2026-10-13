@@ -3,9 +3,12 @@ import pytest
 from preprocessing_agent.domain import (
     Chunk,
     ContentType,
+    DocumentTree,
     ParsedBlock,
     ParsedDocument,
     ParsedPage,
+    SectionNode,
+    SourceSegment,
     SourceSpan,
 )
 from preprocessing_agent.validation import ValidationPolicy, validate_chunks
@@ -39,6 +42,90 @@ def test_empty_and_broken_sentence_are_reported():
                              page_count=1, block_count=1)
     types = {issue.issue_type for issue in result.issues}
     assert {"empty_chunk", "too_small_chunk", "broken_sentence"} <= types
+
+
+def test_missing_section_path_is_not_an_error_when_source_belongs_to_unresolved_heading(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    text = "Take cover."
+    span = SourceSpan(1, 2, 0, len(text))
+    unresolved = SectionNode("s1", "Cover", 1, ContentType.RULE,
+                             source_spans=(span,), block_ids=("p1-b2",),
+                             source_segments=(SourceSegment(text, span),), hierarchy_resolved=False)
+    tree = DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.NARRATIVE,
+                                             children=(unresolved,)))
+
+    result = validate_chunks((chunk("unresolved", text, span=span, tokens=2, section=()),),
+                             tree=tree, policy=ValidationPolicy(min_tokens=1))
+
+    assert result.valid
+    assert not any(issue.issue_type in {"orphan_heading", "missing_section_path"} for issue in result.issues)
+    assert "unresolvedHierarchyFullyCoveredChunkCount=1 missingPathIssueCount=0" in caplog.text
+
+
+def test_missing_section_path_still_fails_without_matching_unresolved_heading():
+    text = "Take cover."
+    span = SourceSpan(1, 2, 0, len(text))
+    tree = DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.NARRATIVE))
+
+    result = validate_chunks((chunk("unresolved", text, span=span, tokens=2, section=()),),
+                             tree=tree, policy=ValidationPolicy(min_tokens=1))
+
+    assert not result.valid
+    assert any(issue.issue_type == "orphan_heading" for issue in result.issues)
+
+
+def test_partial_overlap_with_unresolved_heading_does_not_hide_missing_path():
+    text = "Take cover now."
+    span = SourceSpan(1, 2, 0, len(text))
+    unresolved_span = SourceSpan(1, 2, 0, 5)
+    unresolved = SectionNode("s1", "Cover", 1, ContentType.RULE,
+                             source_spans=(unresolved_span,), block_ids=("p1-b2",),
+                             source_segments=(SourceSegment("Take ", unresolved_span),),
+                             hierarchy_resolved=False)
+    tree = DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.NARRATIVE,
+                                             children=(unresolved,)))
+
+    result = validate_chunks((chunk("partial", text, span=span, tokens=3, section=()),),
+                             tree=tree, policy=ValidationPolicy(min_tokens=1))
+
+    assert not result.valid
+    assert any(issue.issue_type in {"orphan_heading", "missing_section_path"} for issue in result.issues)
+
+
+def test_missing_path_is_allowed_when_adjacent_unresolved_ranges_cover_every_source_character():
+    text = "Take cover."
+    span = SourceSpan(1, 2, 0, len(text))
+    first = SourceSpan(1, 2, 0, 5)
+    second = SourceSpan(1, 2, 5, len(text))
+    unresolved = SectionNode("s1", "Cover", 1, ContentType.RULE,
+                             source_segments=(SourceSegment("Take ", first),
+                                              SourceSegment("cover.", second)),
+                             hierarchy_resolved=False)
+    tree = DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.NARRATIVE,
+                                             children=(unresolved,)))
+
+    result = validate_chunks((chunk("fully-covered", text, span=span, tokens=2, section=()),),
+                             tree=tree, policy=ValidationPolicy(min_tokens=1))
+
+    assert not any(issue.issue_type in {"orphan_heading", "missing_section_path"} for issue in result.issues)
+
+
+def test_missing_path_is_not_allowed_when_one_of_multiple_source_spans_is_uncovered():
+    first_text, second_text = "Take ", "cover."
+    spans = (SourceSpan(1, 2, 0, len(first_text)), SourceSpan(1, 3, 0, len(second_text)))
+    unresolved = SectionNode("s1", "Cover", 1, ContentType.RULE,
+                             source_segments=(SourceSegment(first_text, spans[0]),),
+                             hierarchy_resolved=False)
+    tree = DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.NARRATIVE,
+                                             children=(unresolved,)))
+    item = Chunk("chk-mixed", "rules.mixed", ContentType.RULE,
+                 first_text + second_text, first_text + second_text, 2, spans, ())
+
+    result = validate_chunks((item,), tree=tree, policy=ValidationPolicy(min_tokens=1))
+
+    assert not result.valid
+    assert any(issue.issue_type in {"orphan_heading", "missing_section_path"} for issue in result.issues)
 
 
 def _parsed_document() -> ParsedDocument:

@@ -1,9 +1,8 @@
 import hashlib
 import json
-import re
 from pathlib import Path
 
-from preprocessing_agent.pipeline.extraction_service import ExtractionApplicationService
+from preprocessing_agent.pipeline.extraction_service import ExtractionApplicationService, PyMuPdfNativePdfAdapter
 from preprocessing_agent.adapters.ocr import TesseractOcrAdapter
 from preprocessing_agent.ports.extraction import RenderedPage, normalize_ocr_blocks
 
@@ -120,6 +119,60 @@ def test_confirmed_form_is_preserved_but_excluded_from_chunks(tmp_path, monkeypa
     assert "A validated rule" not in caplog.text
 
 
+def test_verified_blank_form_is_excluded_without_becoming_a_review_page(tmp_path):
+    class BlankForm:
+        def extract(self, _source):
+            return [{"page_number": 1, "geometry": {"width": 100, "height": 100}, "blocks": [],
+                     "page_classification": "form", "form_diagnostics": {
+                         "drawing_count": 180, "aligned_line_count": 466,
+                         "long_horizontal_line_count": 154, "text_line_count": 0}}]
+
+    result = ExtractionApplicationService(BlankForm(), Render(), None).preprocess(request(tmp_path, "blank-form"))
+
+    assert result["status"] == "READY"
+    assert result["pages"][0]["status"] == "EXCLUDED_FORM"
+    assert result["page_summary"]["excluded_forms"] == 1
+    assert result["page_summary"]["needs_review"] == 0
+
+
+def test_filled_form_values_remain_searchable_and_log_the_selected_route(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+
+    result = ExtractionApplicationService(Native([
+        {"block_id": "entry", "text": "Strength 16", "bbox": (10, 10, 40, 20), "kind": "form_value"},
+    ], page_classification="form", form_content_state="filled", populated_form_field_count=1,
+       form_diagnostics={"drawing_count": 180, "aligned_line_count": 466,
+                         "long_horizontal_line_count": 154, "text_line_count": 15}),
+       Render(), None).preprocess(request(tmp_path, "filled-form"))
+
+    assert result["status"] == "PARTIAL"
+    assert result["pages"][0]["status"] == "USABLE_WITH_WARNINGS"
+    assert result["pages"][0]["form_content_state"] == "filled"
+    chunks = [json.loads(line) for line in Path(result["artifacts"]["chunks"]["path"]).read_text().splitlines()]
+    assert any("Strength 16" in chunk["embedding_text"] for chunk in chunks)
+    assert "dev_preprocessing_form stage=content_assessment pageNumber=1" in caplog.text
+    assert "actualPopulatedFieldCount=1 route=searchable_form_content" in caplog.text
+
+
+def test_uncertain_form_with_image_uses_ocr_and_stays_searchable_with_warning(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+
+    result = ExtractionApplicationService(Native([
+        {"block_id": "label", "text": "Character Name", "bbox": (5, 5, 40, 15)},
+    ], page_classification="form", form_content_state="unknown", image_regions=[(40, 10, 90, 50)],
+       form_diagnostics={"drawing_count": 180, "aligned_line_count": 466,
+                         "long_horizontal_line_count": 154, "text_line_count": 15}),
+       Render(), Ocr()).preprocess(request(tmp_path, "uncertain-form-image"))
+
+    assert result["status"] == "PARTIAL"
+    assert result["pages"][0]["status"] == "USABLE_WITH_WARNINGS"
+    assert "FORM_CONTENT_UNVERIFIED" in result["pages"][0]["findings"]
+    assert "scanned" in Path(result["artifacts"]["chunks"]["path"]).read_text()
+    assert "actualState=unknown populatedFieldCount=0 imageRegionCount=1 route=ocr_and_preserve_page_asset" in caplog.text
+
+
 def test_unverified_form_classification_stays_needs_review(tmp_path):
     result = ExtractionApplicationService(Native([
         {"block_id": "label", "text": "Strength", "bbox": (10, 10, 40, 20)},
@@ -127,13 +180,119 @@ def test_unverified_form_classification_stays_needs_review(tmp_path):
        "aligned_line_count": 466, "long_horizontal_line_count": 5, "text_line_count": 15}), Render(), None).preprocess(
            request(tmp_path, "uncertain-form"))
 
+    assert result["status"] == "PARTIAL"
+    assert result["pages"][0]["status"] == "USABLE_WITH_WARNINGS"
+    assert "FORM_CLASSIFICATION_UNVERIFIED" in result["pages"][0]["findings"]
+    assert "chunks" in result["artifacts"]
+
+
+def test_searchable_pages_are_published_when_other_pages_need_review(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    text = "Page one contains a reliable rule with page coordinates and source provenance. " * 25
+    second_text = "Page two contains a different usable rule with its own source coordinates. " * 25
+    unresolved = {"bbox": [10, 10, 90, 90], "row_count": 5, "column_count": 5,
+                  "missing_cell_count": 8, "observed_cell_geometry_count": 17,
+                  "expected_cell_count": 25, "signals": ["IRREGULAR_GRID"],
+                  "decision": "strong_unresolved", "rejection_reason": "MISSING_CELL_BBOXES"}
+
+    class MixedPages:
+        def extract(self, _source):
+            return [
+                {"page_number": 1, "geometry": {"width": 100, "height": 100},
+                 "blocks": [{"block_id": "rule", "text": text, "bbox": (5, 5, 90, 95)}],
+                 "native_table_candidate_count": 1, "native_table_diagnostics": [unresolved]},
+                {"page_number": 2, "geometry": {"width": 100, "height": 100},
+                 "blocks": [{"block_id": "usable", "text": second_text, "bbox": (5, 5, 90, 95)}]},
+                {"page_number": 3, "geometry": {"width": 100, "height": 100}, "blocks": [],
+                 "page_classification": "image-only"},
+            ]
+
+    service = ExtractionApplicationService(MixedPages(), Render(), None)
+    result = service.preprocess(request(tmp_path, "partial-pages"))
+
+    assert result["status"] == "PARTIAL"
+    jsonschema = __import__("pytest").importorskip("jsonschema")
+    response_schema = json.loads((Path(__file__).parents[2] / "schemas" / "extraction-response.schema.json").read_text())
+    jsonschema.Draft202012Validator(response_schema).validate(result)
+    assert [page["status"] for page in result["pages"]] == [
+        "VALIDATED", "VALIDATED", "NEEDS_REVIEW"]
+    assert result["pages"][0]["findings"] == []
+    assert "OCR_UNAVAILABLE" in result["pages"][2]["findings"]
+    assert result["page_summary"]["usable_with_warnings"] == 0
+    assert result["page_summary"]["needs_review"] == 1
+    assert result["page_summary"]["ready"] == 2
+
+    chunks = [json.loads(line) for line in Path(result["artifacts"]["chunks"]["path"]).read_text().splitlines()]
+    source_pages = {span["page_number"] for chunk in chunks for span in chunk["source_spans"]}
+    assert source_pages == {1, 2}
+    assert all(span["page_number"] != 3 for chunk in chunks for span in chunk["source_spans"])
+
+    version = json.loads(Path(result["artifacts"]["version"]["path"]).read_text())
+    assert version["page_count"] == 3
+    assert [page["status"] for page in version["pages"]] == [
+        "VALIDATED", "VALIDATED", "NEEDS_REVIEW"]
+    assert version["pages"][0]["blocks"][0]["text"] == text
+    reread = service.get_status(result["version_id"], tmp_path / "partial-pages")
+    assert reread["status"] == "PARTIAL"
+    assert reread["page_summary"] == result["page_summary"]
+    jsonschema.Draft202012Validator(response_schema).validate(reread)
+    assert "dev_preprocessing_page stage=completed pageNumber=1" in caplog.text
+    assert "actualStatus=VALIDATED" in caplog.text
+    assert "dev_preprocessing_run stage=completed status=PARTIAL" in caplog.text
+    assert text not in caplog.text
+
+
+def test_default_search_path_skips_structure_analyzers_and_keeps_page_searchable(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    text = "This page has usable text and page coordinates even if structural analysis crashes. " * 20
+
+    calls = []
+    def fail_structure_analysis(*_args, **_kwargs):
+        calls.append("called")
+        raise RuntimeError("structure analysis must be disabled")
+    for target in (
+        "preprocessing_agent.pipeline.extraction_service.ReadingOrderPlanner.plan",
+        "preprocessing_agent.pipeline.extraction_service.HeadingAssociator.analyze",
+        "preprocessing_agent.pipeline.extraction_service.TableStructureDetector.detect",
+        "preprocessing_agent.pipeline.extraction_service.LayoutValidationService.validate",
+        "preprocessing_agent.structure.tree_builder.HeadingDetector.detect",
+    ):
+        monkeypatch.setattr(target, fail_structure_analysis)
+    result = ExtractionApplicationService(
+        Native([{"block_id": "body", "text": text, "bbox": (5, 5, 90, 95)}]), Render(), None,
+    ).preprocess(request(tmp_path, "structure-failure"))
+
+    assert result["status"] == "READY"
+    assert result["pages"][0]["status"] == "VALIDATED"
+    assert result["pages"][0]["findings"] == []
+    assert calls == []
+    chunks = [json.loads(line) for line in Path(result["artifacts"]["chunks"]["path"]).read_text().splitlines()]
+    assert chunks and all(span["page_number"] == 1 for chunk in chunks for span in chunk["source_spans"])
+    assert all(span["bbox"] == [5.0, 5.0, 90.0, 95.0]
+               for chunk in chunks for span in chunk["source_spans"])
+    assert "dev_preprocessing_layout" not in caplog.text
+    assert "dev_preprocessing_heading" not in caplog.text
+    assert "dev_preprocessing_page stage=completed pageNumber=1" in caplog.text
+    assert text not in caplog.text
+
+
+def test_text_without_page_source_geometry_is_quarantined(tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", raising=False)
+    caplog.set_level("INFO")
+    result = ExtractionApplicationService(
+        Native([{"block_id": "unlocated", "text": "Text without a page coordinate must not be published."}]),
+        Render(), None,
+    ).preprocess(request(tmp_path, "missing-source-location"))
+
     assert result["status"] == "NEEDS_REVIEW"
     assert result["pages"][0]["status"] == "NEEDS_REVIEW"
-    assert "FORM_CLASSIFICATION_UNVERIFIED" in result["pages"][0]["findings"]
     assert "chunks" not in result["artifacts"]
+    assert "dev_preprocessing_page" not in caplog.text
 
 
-def test_weak_native_table_candidate_logs_counts_and_continues_layout(tmp_path, monkeypatch, caplog):
+def test_default_search_extraction_does_not_run_table_candidate_diagnostics(tmp_path, monkeypatch, caplog):
     monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
     caplog.set_level("INFO")
     result = ExtractionApplicationService(
@@ -145,12 +304,12 @@ def test_weak_native_table_candidate_logs_counts_and_continues_layout(tmp_path, 
                    "rejection_reason": "INSUFFICIENT_GEOMETRIC_EVIDENCE"}]), Render(), None,
     ).preprocess(request(tmp_path, "table-gap"))
     assert result["status"] == "READY"
-    assert "expectedNativeCandidateCount=1 actualExplicitTableZoneCount=0" in caplog.text
-    assert re.search(r"weakCandidateCount=1 route=continue_layout_analysis elapsedMs=\d+ outcome=continue", caplog.text)
+    assert result["pages"][0]["status"] == "VALIDATED"
+    assert "dev_preprocessing_layout stage=table_classification" not in caplog.text
     assert "source words" not in caplog.text
 
 
-def test_strong_unresolved_candidate_keeps_layout_and_full_diagnostic_for_review(tmp_path):
+def test_unresolved_table_structure_does_not_block_default_search_extraction(tmp_path):
     diagnostic = {"bbox": [10, 10, 90, 90], "row_count": 5, "column_count": 5,
                   "missing_cell_count": 8, "observed_cell_geometry_count": 17,
                   "expected_cell_count": 25,
@@ -167,21 +326,40 @@ def test_strong_unresolved_candidate_keeps_layout_and_full_diagnostic_for_review
         Native(blocks, native_table_candidate_count=1, native_table_diagnostics=[diagnostic]), Render(), None,
     ).preprocess(request(tmp_path, "unresolved-table"))
     page = result["pages"][0]
-    assert result["status"] == "NEEDS_REVIEW"
-    assert "TABLE_STRUCTURE_UNRESOLVED" in page["findings"]
-    assert page["layout_review"]["ambiguous"] is True
-    assert page["layout_review"]["table_diagnostics"] == [diagnostic]
-    schema = json.loads((Path(__file__).parents[2] / "schemas" / "extraction-response.schema.json").read_text())
-    jsonschema = __import__("pytest").importorskip("jsonschema")
-    layout_schema = {"$schema": schema["$schema"], "$defs": schema["$defs"], **schema["$defs"]["layout_review"]}
-    jsonschema.Draft202012Validator(layout_schema).validate(page["layout_review"])
+    assert result["status"] == "READY"
+    assert page["status"] == "VALIDATED"
+    assert page["findings"] == []
     version = json.loads((tmp_path / "unresolved-table" / "versions" / result["version_id"] / "version.json").read_text())
-    assert version["pages"][0]["layout"]["ambiguous"] is True
-    assert version["pages"][0]["table_diagnostics"] == [diagnostic]
+    assert [block["text"] for block in version["pages"][0]["blocks"]] == ["A", "B", "C", "D"]
+    assert "layout" not in version["pages"][0]
+    assert "tables" not in version["pages"][0]
 
 
 def test_service_wires_optional_tesseract_adapter_by_default():
-    assert isinstance(ExtractionApplicationService().ocr, TesseractOcrAdapter)
+    service = ExtractionApplicationService()
+    assert isinstance(service.ocr, TesseractOcrAdapter)
+    assert isinstance(service.native_pdf, PyMuPdfNativePdfAdapter)
+    assert service.native_pdf.analyze_structure is False
+
+
+def test_search_native_pdf_adapter_skips_table_reconstruction(tmp_path, monkeypatch):
+    fitz = __import__("pytest").importorskip("fitz")
+    source = tmp_path / "raw-text.pdf"
+    document = fitz.open()
+    page = document.new_page(width=300, height=200)
+    page.insert_text((30, 40), "Text stays in its original PDF block.")
+    document.save(source)
+    document.close()
+
+    def fail_table_finding(*_args, **_kwargs):
+        raise AssertionError("search extraction must not run table reconstruction")
+    monkeypatch.setattr("preprocessing_agent.pipeline.extraction_service._find_native_tables", fail_table_finding)
+
+    raw_page = PyMuPdfNativePdfAdapter(analyze_structure=False).extract(source)[0]
+
+    assert any("Text stays in its original PDF block." in block["text"] for block in raw_page["blocks"])
+    assert all("table_id" not in block for block in raw_page["blocks"])
+    assert "native_table_diagnostics" not in raw_page
 
 
 def test_tesseract_availability_requires_a_runnable_binary(monkeypatch):

@@ -90,6 +90,20 @@ class ScenarioBundleIssue156Test {
                 List.of(new BundleDocumentDraft(needsReview, ScenarioBundleDocumentRole.RULEBOOK))));
     }
 
+    @Test
+    void allowsSearchableDocumentWithSomeUnreadablePagesInBundle() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        KnowledgeDocumentId partial = id();
+        ScenarioBundleApplicationService service = new ScenarioBundleApplicationService(new InMemoryRepository(), lookup(
+                record(partial, KnowledgeDocumentStatus.INDEXED_WITH_WARNINGS, "partial-rules.pdf", "RULEBOOK")));
+
+        ScenarioSourceBundle bundle = service.createBundle(owner, "Partial rules", RulebookEdition.DND_5E_2014,
+                List.of(new BundleDocumentDraft(partial, ScenarioBundleDocumentRole.RULEBOOK)));
+
+        assertEquals(KnowledgeDocumentStatus.INDEXED_WITH_WARNINGS,
+                bundle.currentRevision().documents().getFirst().status());
+    }
+
     private static KnowledgeDocumentId id() { return new KnowledgeDocumentId(UUID.randomUUID()); }
 
     private static KnowledgeDocumentLookupPort lookup(KnowledgeDocumentLookupPort.KnowledgeDocumentRecord... values) {

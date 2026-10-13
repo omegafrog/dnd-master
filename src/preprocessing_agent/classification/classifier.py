@@ -32,6 +32,10 @@ class DeterministicContentClassifier:
 
     def classify(self, section: SectionNode, source_text: str = "") -> ClassificationDecision:
         text = f"{section.title}\n{source_text}".strip()
+        if section.level == 0:
+            if os.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "").lower() in {"1", "true", "yes", "on"}:
+                _LOGGER.info("dev_content_classifier stage=document_root_classification level=0 sourceCharacterCount=%d sourceSegmentCount=%d expectedContentSectionLevel=1 actualContentSectionLevel=0 recoveryAction=keep_root_type_unknown outcome=skipped", len(source_text), len(section.source_segments or ()))
+            return ClassificationDecision(ContentType.UNKNOWN, 0.0, "document root is not a content section", True, source_text)
         structural_title = bool(re.match(r"\s*(?:part|chapter|section|appendix|book)\b", section.title, re.I))
         if _has_table_layout(source_text):
             return ClassificationDecision(ContentType.TABLE, 0.88, "deterministic table layout", False, source_text)

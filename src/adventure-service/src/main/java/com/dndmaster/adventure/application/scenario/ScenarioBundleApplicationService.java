@@ -150,7 +150,7 @@ public final class ScenarioBundleApplicationService {
 
     private static boolean isUsable(KnowledgeDocumentStatus status) {
         return switch (status) {
-            case EXTRACTED, INDEXED, PARTIAL_AWAITING_CONFIRMATION, PARTIAL_CONFIRMED -> true;
+            case EXTRACTED, INDEXED, INDEXED_WITH_WARNINGS, PARTIAL_AWAITING_CONFIRMATION, PARTIAL_CONFIRMED -> true;
             case NEEDS_REVIEW -> false;
             default -> false;
         };

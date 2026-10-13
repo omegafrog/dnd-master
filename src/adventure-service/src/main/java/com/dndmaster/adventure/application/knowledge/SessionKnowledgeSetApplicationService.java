@@ -40,7 +40,8 @@ public final class SessionKnowledgeSetApplicationService {
             if (document == null) {
                 throw new ForeignKnowledgeDocumentSelectionException();
             }
-            if (document.status() != KnowledgeDocumentStatus.INDEXED) {
+            if (document.status() != KnowledgeDocumentStatus.INDEXED
+                    && document.status() != KnowledgeDocumentStatus.INDEXED_WITH_WARNINGS) {
                 throw new UnindexedKnowledgeDocumentSelectionException(knowledgeDocumentId);
             }
         }

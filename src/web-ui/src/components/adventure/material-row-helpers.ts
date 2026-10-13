@@ -1,6 +1,6 @@
 import type { KnowledgeDocumentView, ScenarioBundleRole } from '../../features/rulebooks/SetupApi'
 
-export type MaterialStatusKind = 'ready' | 'processing' | 'review' | 'failed'
+export type MaterialStatusKind = 'ready' | 'warning' | 'processing' | 'review' | 'failed'
 
 export const materialRoleLabels: Record<ScenarioBundleRole, string> = {
   RULEBOOK: '룰북',
@@ -14,6 +14,7 @@ export const materialRoleLabels: Record<ScenarioBundleRole, string> = {
 }
 
 export function materialStatus(document: KnowledgeDocumentView): { kind: MaterialStatusKind; label: string } {
+  if (document.status === 'INDEXED_WITH_WARNINGS') return { kind: 'warning', label: '일부 자료 확인 필요' }
   if (['INDEXED', 'READY', 'PARTIAL_CONFIRMED'].includes(document.status)) return { kind: 'ready', label: '준비됨' }
   if (['FAILED', 'REJECTED'].includes(document.status)) return { kind: 'failed', label: '사용 불가' }
   if (['NEEDS_REVIEW', 'NEEDS_INPUT', 'PARTIAL_AWAITING_CONFIRMATION'].includes(document.status)) return { kind: 'review', label: '확인 필요' }

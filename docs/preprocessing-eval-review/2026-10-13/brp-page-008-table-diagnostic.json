@@ -1,0 +1,175 @@
+{
+  "source_pdf": "Basic_Roleplaying_ORC_Content_Document.pdf",
+  "source_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+  "annotation_source_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+  "page_number": 8,
+  "page_size": [
+    612.0,
+    792.0
+  ],
+  "gold_table_count": 1,
+  "gold_table": {
+    "bbox": [
+      36.0,
+      210.8,
+      576.1,
+      351.6
+    ],
+    "row_count": 5,
+    "column_count": 2,
+    "row_labels": [
+      "Result",
+      "1",
+      "2",
+      "3",
+      "4"
+    ]
+  },
+  "native_detection": {
+    "line_strategy": {
+      "candidate_count": 0,
+      "elapsed_ms": 172
+    },
+    "text_strategy": {
+      "candidate_count": 1,
+      "elapsed_ms": 351,
+      "candidates": [
+        {
+          "bbox": [
+            36.025,
+            47.735,
+            561.101,
+            755.955
+          ],
+          "row_count": 72,
+          "column_count": 10,
+          "projected_cell_count": 0,
+          "diagnostics": {
+            "bbox": [
+              36.025001525878906,
+              47.734806060791016,
+              561.101318359375,
+              755.9547729492188
+            ],
+            "row_count": 72,
+            "column_count": 10,
+            "missing_cell_count": 0,
+            "observed_cell_geometry_count": 720,
+            "expected_cell_count": 720,
+            "signals": [
+              "VALID_TABLE_BBOX",
+              "ROW_COUNT_72",
+              "COLUMN_COUNT_10",
+              "CELL_GEOMETRY_COVERAGE_1.000",
+              "DISTINCT_ROW_CENTER_COUNT_72",
+              "X_EDGE_SUPPORT_ACROSS_ROWS_COUNT_11",
+              "RECTANGULAR_GRID",
+              "TEXT_GRID_HAS_UNSUPPORTED_EMPTY_ROWS"
+            ],
+            "decision": "weak_candidate",
+            "rejection_reason": "TEXT_DETECTION_EMPTY_ROWS_REQUIRE_GEOMETRIC_CONFIRMATION",
+            "mapping_tolerance": 1.1340000000000003,
+            "extracted_empty_row_count": 23,
+            "unsupported_empty_row_count": 23,
+            "aligned_following_span_count": 0,
+            "continued_row_projected": false,
+            "reconstructed_row_count": 72,
+            "candidate_kind": "unconfirmed_text_grid",
+            "reconstruction_decision": "strong_unresolved",
+            "reconstruction_rejection_reason": "TEXT_GRID_HAS_UNSUPPORTED_EMPTY_ROWS"
+          }
+        }
+      ]
+    },
+    "broad_candidate_gold_bbox_iou": 0.1977,
+    "broad_candidate_page_area_ratio": 0.7672
+  },
+  "exploratory_manual_clip_probes": [
+    {
+      "name": "visually_bounded_table",
+      "clip_bbox": [
+        30,
+        195,
+        582,
+        355
+      ],
+      "candidate_count": 1,
+      "candidates": [
+        {
+          "bbox": [
+            36.025,
+            212.035,
+            560.318,
+            351.305
+          ],
+          "row_count": 16,
+          "column_count": 12
+        }
+      ]
+    },
+    {
+      "name": "data_rows_only",
+      "clip_bbox": [
+        30,
+        223,
+        582,
+        355
+      ],
+      "candidate_count": 1,
+      "candidates": [
+        {
+          "bbox": [
+            36.025,
+            226.035,
+            560.318,
+            351.305
+          ],
+          "row_count": 14,
+          "column_count": 12
+        }
+      ]
+    },
+    {
+      "name": "wider_context",
+      "clip_bbox": [
+        25,
+        180,
+        590,
+        365
+      ],
+      "candidate_count": 1,
+      "candidates": [
+        {
+          "bbox": [
+            36.025,
+            174.755,
+            560.318,
+            372.825
+          ],
+          "row_count": 22,
+          "column_count": 14
+        }
+      ]
+    }
+  ],
+  "evaluation": {
+    "gold_tables": 1,
+    "adopted_tables": 0,
+    "table_detection_recall": 0.0,
+    "accepted_structure_precision": null,
+    "accepted_structure_false_count": 0,
+    "candidate_deferred_count": 1,
+    "candidate_deferral_rate": 1.0,
+    "candidate_bbox_match_count_iou_0_5": 0,
+    "grid_shape_accuracy": null
+  },
+  "source_preservation": {
+    "source_token_count": 994,
+    "artifact_token_count": 994,
+    "missing_token_count": 0,
+    "extra_token_count": 0,
+    "matched_token_multiset": true,
+    "table_text_present_in_extracted_blocks": true
+  },
+  "interpretation": "The global text candidate is a false localization and is safely deferred. The gold table is not structurally reconstructed. A visually supplied clip does not yield a valid grid; no automatic subregion method is validated by this page."
+}

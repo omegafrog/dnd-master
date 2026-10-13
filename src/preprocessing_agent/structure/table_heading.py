@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections import defaultdict
+import re
 from typing import Iterable, Mapping, Protocol
 
 from preprocessing_agent.domain.layout import BoundingBox
@@ -53,6 +54,29 @@ class HeadingAssociation:
     confidence: float
     ambiguous: bool = False
     findings: tuple[str, ...] = ()
+    heading_text: str | None = None
+    source_char_start: int | None = None
+    source_char_end: int | None = None
+    hierarchy_resolved: bool = False
+    hierarchy_evidence: tuple[str, ...] = ()
+    parent_heading_block_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class HeadingCandidate:
+    block_id: str
+    line_index: int
+    span_indices: tuple[int, ...]
+    source_char_start: int
+    source_char_end: int
+    text: str
+    bbox: tuple[float, float, float, float] | None
+    font_size: float | None
+    font_weight: str | None
+    confidence: float
+    accepted: bool
+    reason: str
+    evidence: tuple[str, ...] = ()
 
 
 class HeadingAssociator:
@@ -61,30 +85,227 @@ class HeadingAssociator:
     def __init__(self, detector: HeadingDetector | None = None) -> None:
         self.detector = detector or HeadingDetector()
 
-    def associate(self, blocks: Iterable[StructuredValue], reading_plan: object | None = None) -> tuple[HeadingAssociation, ...]:
+    def associate(self, blocks: Iterable[StructuredValue], reading_plan: object | None = None,
+                  reference_font_size: float | None = None) -> tuple[HeadingAssociation, ...]:
+        associations, _ = self.analyze(blocks, reading_plan, reference_font_size)
+        return associations
+
+    def analyze(self, blocks: Iterable[StructuredValue], reading_plan: object | None = None,
+                reference_font_size: float | None = None) -> tuple[tuple[HeadingAssociation, ...], tuple[HeadingCandidate, ...]]:
         values = tuple(blocks)
-        result: list[HeadingAssociation] = []
-        for index, heading in enumerate(values):
-            decision = self.detector.detect(_as_parsed_block(heading))
-            if not decision.is_heading:
+        candidates: list[HeadingCandidate] = []
+        accepted_by_range: dict[tuple[str, int, int], HeadingCandidate] = {}
+        for block in values:
+            if str(_get(block, "table_id", "")) or str(_get(block, "kind", "")).casefold() in {"table", "table_cell", "cell"}:
                 continue
-            heading_box = _bbox(heading)
+            for line_index, line in enumerate(_candidate_lines(block)):
+                text = line["text"].strip()
+                if not text:
+                    continue
+                font_size = line.get("font_size")
+                font_weight = line.get("font_weight")
+                isolated = bool(line.get("spatially_isolated"))
+                relative_size = bool(font_size is not None and reference_font_size
+                                     and float(font_size) >= reference_font_size * 1.15)
+                bold = bool(font_weight and str(font_weight).casefold() in {"bold", "semibold", "700", "bolditalic"})
+                numbered = bool(re.match(r"^(?:\d+(?:\.\d+)*\.?|[IVX]+\.)\s+", text, re.I))
+                if len(text) > 160 and not (relative_size or bold or isolated or numbered):
+                    continue
+                parsed = _as_parsed_block({"block_id": _id(block), "text": text,
+                    "bbox": line.get("bbox") or _bbox(block), "font_size": font_size,
+                    "font_weight": font_weight})
+                decision = self.detector.detect(parsed, reference_font_size=reference_font_size,
+                                                spatially_isolated=isolated)
+                char_start = int(line.get("char_start", 0))
+                char_end = int(line.get("char_end", char_start + len(text)))
+                evidence = tuple(item for item, enabled in (
+                    ("numbered", decision.feature.numbered),
+                    ("relative_font_size", relative_size),
+                    ("bold_style", bold),
+                    ("spatial_separation", isolated),
+                ) if enabled)
+                candidate = HeadingCandidate(_id(block), line_index,
+                    tuple(int(value) for value in line.get("span_indices", ())), char_start, char_end,
+                    text, _box_tuple(line.get("bbox")), font_size,
+                    str(font_weight) if font_weight else None, decision.confidence,
+                    decision.is_heading, decision.reason, evidence)
+                candidates.append(candidate)
+                if decision.is_heading:
+                    key = (_id(block), char_start, char_end)
+                    current = accepted_by_range.get(key)
+                    if current is None or candidate.confidence > current.confidence:
+                        accepted_by_range[key] = candidate
+
+        by_id = {_id(value): value for value in values}
+        planned_ids = tuple(getattr(reading_plan, "ordered_block_ids", ())) if reading_plan is not None else ()
+        ordered_values = tuple(by_id[item] for item in planned_ids if item in by_id)
+        ordered_ids = {item for item in planned_ids if item in by_id}
+        ordered_values += tuple(value for value in values if _id(value) not in ordered_ids)
+        block_order = {_id(value): index for index, value in enumerate(ordered_values)}
+        result: list[HeadingAssociation] = []
+        accepted = sorted(accepted_by_range.values(), key=lambda item: (
+            block_order[item.block_id], item.line_index))
+        for position, candidate_heading in enumerate(accepted):
+            heading = by_id[candidate_heading.block_id]
+            heading_box = _candidate_bbox(candidate_heading, heading)
             members: list[str] = []
             evidence: set[str] = set()
-            for candidate in values[index + 1 :]:
-                candidate_box = _bbox(candidate)
+            next_heading = accepted[position + 1] if position + 1 < len(accepted) else None
+            start = block_order[candidate_heading.block_id] + 1
+            stop = block_order[next_heading.block_id] if next_heading is not None else len(ordered_values)
+            if next_heading is not None and next_heading.block_id == candidate_heading.block_id:
+                stop = block_order[candidate_heading.block_id] + 1
+            for content in ordered_values[start:stop]:
+                candidate_box = _bbox(content)
                 if candidate_box.y0 < heading_box.y1:
                     continue
-                if self.detector.detect(_as_parsed_block(candidate)).is_heading:
-                    break
                 if _spans(heading_box, candidate_box, values):
-                    members.append(_id(candidate))
+                    members.append(_id(content))
                     evidence.add("spanning_content")
                 elif _same_column(heading_box, candidate_box, reading_plan):
-                    members.append(_id(candidate))
+                    members.append(_id(content))
                     evidence.add("same_column")
-            result.append(HeadingAssociation(_id(heading), decision.level or 1, tuple(members), tuple(sorted(evidence)), decision.confidence))
-        return tuple(result)
+            decision = self.detector.detect(_as_parsed_block({"block_id": _id(heading),
+                "text": candidate_heading.text, "bbox": heading_box,
+                "font_size": candidate_heading.font_size, "font_weight": candidate_heading.font_weight}),
+                reference_font_size=reference_font_size,
+                spatially_isolated="spatial_separation" in candidate_heading.evidence)
+            result.append(HeadingAssociation(_id(heading), decision.level or 1, tuple(dict.fromkeys(members)),
+                tuple(sorted(evidence | set(candidate_heading.evidence))), candidate_heading.confidence,
+                False, (), candidate_heading.text, candidate_heading.source_char_start,
+                candidate_heading.source_char_end))
+        return tuple(result), tuple(candidates)
+
+
+def document_reference_font_size(pages: Iterable[Mapping[str, object]]) -> float | None:
+    """Return a text-length-weighted document font size, excluding table cells."""
+    sizes: list[tuple[float, int]] = []
+    for page in pages:
+        if page.get("page_classification") == "form":
+            continue
+        blocks = page.get("blocks", ())
+        if not isinstance(blocks, (tuple, list)):
+            continue
+        geometry = page.get("geometry", {})
+        try:
+            page_height = float(geometry.get("height")) if isinstance(geometry, Mapping) else 0.0
+        except (TypeError, ValueError):
+            page_height = 0.0
+        if page_height <= 0:
+            page_height = max((float(block.get("bbox", (0, 0, 0, 0))[3]) for block in blocks
+                               if isinstance(block, Mapping) and isinstance(block.get("bbox"), (tuple, list))
+                               and len(block["bbox"]) == 4), default=0.0)
+        for block in blocks:
+            if not isinstance(block, Mapping) or block.get("table_id") or str(block.get("kind", "")).casefold() in {"table", "table_cell", "cell"}:
+                continue
+            box = block.get("bbox")
+            if page_height > 0 and isinstance(box, (tuple, list)) and len(box) == 4:
+                if float(box[1]) <= page_height * 0.06 or float(box[3]) >= page_height * 0.94:
+                    continue
+            spans = [span for line in block.get("lines", ()) if isinstance(line, Mapping)
+                     for span in line.get("spans", ()) if isinstance(span, Mapping)]
+            if not spans:
+                spans = [block]
+            for span in spans:
+                try:
+                    size = float(span.get("font_size", span.get("size", block.get("font_size", block.get("size")))))
+                except (TypeError, ValueError):
+                    continue
+                text_length = max(1, len(str(span.get("text", block.get("text", ""))).strip()))
+                sizes.append((size, text_length))
+    if not sizes:
+        return None
+    ordered = sorted(sizes)
+    midpoint = sum(weight for _, weight in ordered) // 2
+    cumulative = 0
+    for size, weight in ordered:
+        cumulative += weight
+        if cumulative > midpoint:
+            return size
+    return ordered[-1][0]
+
+
+def _candidate_lines(block: StructuredValue) -> tuple[dict[str, object], ...]:
+    raw_lines = _get(block, "lines", ())
+    text = _text(block)
+    if not isinstance(raw_lines, (tuple, list)) or not raw_lines:
+        split_lines = text.splitlines()
+        if len(split_lines) > 1:
+            block_box = _bbox(block)
+            line_height = (block_box.y1 - block_box.y0) / len(split_lines)
+            result = []
+            cursor = 0
+            for index, line_text in enumerate(split_lines):
+                start = text.find(line_text, cursor)
+                start = cursor if start < 0 else start
+                end = start + len(line_text)
+                result.append({"text": line_text, "bbox": (block_box.x0, block_box.y0 + index * line_height,
+                    block_box.x1, block_box.y0 + (index + 1) * line_height),
+                    "font_size": _get(block, "font_size", _get(block, "size")),
+                    "font_weight": _get(block, "font_weight", _get(block, "weight", _get(block, "font"))),
+                    "char_start": start, "char_end": end, "span_indices": (),
+                    "spatially_isolated": False})
+                cursor = end
+            return tuple(result)
+        return ({"text": text, "bbox": _bbox(block), "font_size": _get(block, "font_size", _get(block, "size")),
+                 "font_weight": _get(block, "font_weight", _get(block, "weight", _get(block, "font"))),
+                 "char_start": 0, "char_end": len(text), "span_indices": (),
+                 "spatially_isolated": False},)
+    result: list[dict[str, object]] = []
+    cursor = 0
+    cleaned = []
+    for index, line in enumerate(raw_lines):
+        if not isinstance(line, Mapping):
+            continue
+        line_text = str(line.get("text", ""))
+        if not line_text:
+            spans = line.get("spans", ())
+            line_text = " ".join(str(span.get("text", "")) for span in spans if isinstance(span, Mapping)).strip()
+        if not line_text:
+            continue
+        start = text.find(line_text, cursor)
+        if start < 0:
+            start = cursor
+        end = min(len(text), start + len(line_text))
+        spans = [span for span in line.get("spans", ()) if isinstance(span, Mapping)]
+        font_sizes = [float(span.get("font_size", span.get("size"))) for span in spans
+                      if span.get("font_size", span.get("size")) is not None]
+        fonts = [str(span.get("font_weight", span.get("font", ""))) for span in spans]
+        font = "bold" if any("bold" in value.casefold() for value in fonts) else (fonts[0] if fonts else _get(block, "font_weight", _get(block, "font")))
+        box = line.get("bbox")
+        cleaned.append({"text": line_text, "bbox": box if box and len(box) == 4 else _bbox(block),
+            "font_size": sorted(font_sizes)[len(font_sizes) // 2] if font_sizes else _get(block, "font_size", _get(block, "size")),
+            "font_weight": font, "char_start": start, "char_end": end,
+            "span_indices": tuple(range(len(spans))), "line_index": index})
+        cursor = end
+    for index, item in enumerate(cleaned):
+        box = item.get("bbox")
+        next_box = cleaned[index + 1].get("bbox") if index + 1 < len(cleaned) else None
+        previous_box = cleaned[index - 1].get("bbox") if index else None
+        box_values = _box_tuple(box)
+        next_values = _box_tuple(next_box)
+        previous_values = _box_tuple(previous_box)
+        height = max(1.0, box_values[3] - box_values[1]) if box_values else 1.0
+        gap_after = next_values[1] - box_values[3] if box_values and next_values else 0.0
+        gap_before = box_values[1] - previous_values[3] if box_values and previous_values else 0.0
+        isolated = len(str(item["text"])) <= 80 and max(gap_after, gap_before) >= height * 0.55
+        result.append({**item, "spatially_isolated": isolated})
+    return tuple(result) or ({"text": text, "bbox": _bbox(block), "char_start": 0,
+        "char_end": len(text), "font_size": _get(block, "font_size"), "font_weight": _get(block, "font_weight"),
+        "span_indices": (), "spatially_isolated": False},)
+
+
+def _candidate_bbox(candidate: HeadingCandidate, block: StructuredValue) -> BoundingBox:
+    return _bbox({"bbox": candidate.bbox}) if candidate.bbox is not None else _bbox(block)
+
+
+def _box_tuple(value: object) -> tuple[float, float, float, float] | None:
+    if value is None:
+        return None
+    if isinstance(value, BoundingBox):
+        return value.x0, value.y0, value.x1, value.y1
+    values = tuple(float(item) for item in value)  # type: ignore[arg-type]
+    return values if len(values) == 4 else None
 
 
 def _same_column(heading: BoundingBox, candidate: BoundingBox, plan: object | None) -> bool:
@@ -116,7 +337,10 @@ def _as_parsed_block(value: StructuredValue):
     from preprocessing_agent.domain import ParsedBlock, SourceSpan
     if hasattr(value, "source_span"):
         return value
-    return ParsedBlock(_id(value), _text(value) or " ", SourceSpan(1), _get(value, "bbox"), _get(value, "font_size", _get(value, "size")), _get(value, "font_weight", _get(value, "weight", _get(value, "font"))))
+    box = _get(value, "bbox")
+    if isinstance(box, BoundingBox):
+        box = (box.x0, box.y0, box.x1, box.y1)
+    return ParsedBlock(_id(value), _text(value) or " ", SourceSpan(1), box, _get(value, "font_size", _get(value, "size")), _get(value, "font_weight", _get(value, "weight", _get(value, "font"))))
 
 
 @dataclass(frozen=True, slots=True)

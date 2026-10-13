@@ -47,22 +47,52 @@ class ChunkPlanner:
         blocks = {block.block_id: block for page in document.pages for block in page.blocks}
         tables = tuple((page.page_number, table) for page in document.pages for table in page.tables)
         table_block_ids = {block_id for _, table in tables for cell in _value(table, "cells", ()) for block_id in _value(cell, "source_block_ids", ())}
+        table_source_positions = {
+            (block.source_span.page_number, block.source_span.block_index)
+            for block in blocks.values()
+            if block.block_id in table_block_ids and block.source_span.block_index is not None
+        }
         if _diagnostics_enabled():
             _LOGGER.info("dev_chunk_planner stage=start documentId=%s blockCount=%d tableCount=%d outcome=started", document.document_id, len(blocks), len(tables))
         output: list[ChunkCandidate] = []
         emitted_table_ids: set[tuple[int, str]] = set()
+        tree_range_node_count = legacy_block_node_count = planned_source_segment_count = 0
+        unresolved_heading_path_omission_count = 0
+        table_source_segment_exclusion_count = 0
 
         def visit(node: SectionNode, path: tuple[str, ...]) -> None:
-            current_path = path + ((_key(node.title),) if node.level else ())
+            nonlocal tree_range_node_count, legacy_block_node_count, planned_source_segment_count
+            nonlocal unresolved_heading_path_omission_count
+            nonlocal table_source_segment_exclusion_count
+            if node.level and node.hierarchy_resolved:
+                current_path = path + (_key(node.title),)
+            else:
+                current_path = path
+                if node.level:
+                    unresolved_heading_path_omission_count += 1
             source_blocks = [blocks[item] for item in node.block_ids if item in blocks and item not in table_block_ids]
-            text = "\n\n".join(block.source_text for block in source_blocks).strip()
-            spans = tuple(block.source_span for block in source_blocks)
+            if node.source_segments is not None:
+                tree_range_node_count += 1
+                source_segments = tuple(
+                    segment for segment in node.source_segments
+                    if (segment.source_span.page_number, segment.source_span.block_index) not in table_source_positions
+                )
+                excluded_table_segments = len(node.source_segments) - len(source_segments)
+                table_source_segment_exclusion_count += excluded_table_segments
+                if excluded_table_segments and _diagnostics_enabled():
+                    _LOGGER.info("dev_chunk_planner stage=table_segment_exclusion documentId=%s nodeId=%s expectedTableSourceSegmentCount=%d actualExcludedSegmentCount=%d remainingSourceSegmentCount=%d recoveryAction=emit_table_separately outcome=success", document.document_id, node.node_id, excluded_table_segments, excluded_table_segments, len(source_segments))
+            else:
+                legacy_block_node_count += 1
+                source_segments = tuple(SourceSegment(block.source_text, block.source_span) for block in source_blocks)
+            planned_source_segment_count += len(source_segments)
+            text = "\n\n".join(segment.source_text for segment in source_segments).strip()
+            spans = tuple(segment.source_span for segment in source_segments)
             if text:
                 canonical = _anchored_key(_bounded_key(".".join(current_path) or _key(document.document_id)), node, spans)
                 candidate_id = "cand_" + content_hash(canonical + "\n" + text)[:16]
                 output.append(ChunkCandidate(
                     candidate_id, canonical, node.content_type, text, spans, current_path,
-                    source_segments=tuple(SourceSegment(block.source_text, block.source_span) for block in source_blocks),
+                    source_segments=tuple(source_segments),
                 ))
             node_ids = set(node.block_ids)
             for page_number, table in tables:
@@ -96,7 +126,7 @@ class ChunkPlanner:
 
         visit(tree.root, ())
         if _diagnostics_enabled():
-            _LOGGER.info("dev_chunk_planner stage=complete documentId=%s blockCount=%d tableCount=%d candidateCount=%d elapsedMs=%d outcome=success", document.document_id, len(blocks), len(tables), len(output), int((time.monotonic() - started_at) * 1000))
+            _LOGGER.info("dev_chunk_planner stage=complete documentId=%s blockCount=%d tableCount=%d treeRangeNodeCount=%d legacyBlockNodeCount=%d plannedSourceSegmentCount=%d tableSourceSegmentExclusionCount=%d unresolvedHeadingPathOmissionCount=%d candidateCount=%d elapsedMs=%d outcome=success", document.document_id, len(blocks), len(tables), tree_range_node_count, legacy_block_node_count, planned_source_segment_count, table_source_segment_exclusion_count, unresolved_heading_path_omission_count, len(output), int((time.monotonic() - started_at) * 1000))
         return tuple(output)
 
 

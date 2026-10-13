@@ -114,6 +114,8 @@ class ParsedPage:
     tables: tuple[Any, ...] = ()
     page_classification: str = "text-native"
     layout_plan: ReadingOrderPlan | None = None
+    heading_candidates: tuple[Any, ...] = ()
+    native_table_diagnostics: tuple[Mapping[str, Any], ...] = ()
 
     def __post_init__(self) -> None:
         if self.page_number < 1:
@@ -145,6 +147,8 @@ class SectionNode:
     source_spans: tuple[SourceSpan, ...] = ()
     block_ids: tuple[str, ...] = ()
     children: tuple["SectionNode", ...] = ()
+    source_segments: tuple[SourceSegment, ...] | None = None
+    hierarchy_resolved: bool = True
 
     def __post_init__(self) -> None:
         if not self.node_id or not self.title:

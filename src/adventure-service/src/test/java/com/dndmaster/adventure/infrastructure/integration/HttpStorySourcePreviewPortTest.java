@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.infrastructure.integration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
@@ -58,7 +59,7 @@ class HttpStorySourcePreviewPortTest {
             assertEquals(List.of("Apply the saving throw"), results.getLast());
             assertEquals(2, ((List<?>) captured.get().get("queries")).size());
             assertEquals(8, captured.get().get("denseLimit"));
-            assertEquals(8, captured.get().get("bm25Limit"));
+            assertFalse(captured.get().containsKey("bm25Limit"));
             assertEquals("RULEBOOK", ((Map<?, ?>) ((List<?>) captured.get().get("scope")).getFirst()).get("documentType"));
         } finally { server.stop(0); }
     }
@@ -101,7 +102,7 @@ class HttpStorySourcePreviewPortTest {
             assertEquals("ending", passages.getFirst().text());
             assertEquals(1200, passages.get(1).text().length());
             assertEquals(15, captured.get().get("denseLimit"));
-            assertEquals(15, captured.get().get("bm25Limit"));
+            assertFalse(captured.get().containsKey("bm25Limit"));
             assertEquals("STORYBOOK", ((Map<?, ?>) ((List<?>) captured.get().get("scope")).getFirst()).get("documentType"));
             assertEquals(1, ((List<?>) captured.get().get("queries")).size());
         } finally {

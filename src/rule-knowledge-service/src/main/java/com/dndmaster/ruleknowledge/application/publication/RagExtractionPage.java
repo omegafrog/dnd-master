@@ -10,7 +10,8 @@ public record RagExtractionPage(int pageNumber, String status, int attempts, Lis
 
     public RagExtractionPage {
         if (pageNumber < 1) throw new IllegalArgumentException("page number must be positive");
-        if (!"VALIDATED".equals(status) && !"EXCLUDED_FORM".equals(status) && !"NEEDS_REVIEW".equals(status)) {
+        if (!"VALIDATED".equals(status) && !"USABLE_WITH_WARNINGS".equals(status)
+                && !"EXCLUDED_FORM".equals(status) && !"NEEDS_REVIEW".equals(status)) {
             throw new IllegalArgumentException("unsupported extraction page status");
         }
         if (attempts < 1) throw new IllegalArgumentException("page attempts must be positive");

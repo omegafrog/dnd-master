@@ -13,8 +13,7 @@ public record PreparationEvidenceSearchRequest(
         List<AuthorizedDocumentScope> scope,
         List<String> activeLocators,
         String query,
-        int denseLimit,
-        int bm25Limit) {
+        int denseLimit) {
     public PreparationEvidenceSearchRequest {
         Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
         Objects.requireNonNull(scenarioSourceBundleId, "scenario source bundle id must not be null");
@@ -27,6 +26,6 @@ public record PreparationEvidenceSearchRequest(
 
     public EvidenceSearchRequest asSharedSearchRequest() {
         return new EvidenceSearchRequest(ownerPlayerId, null, null, "scenario-preparation", "SCENARIO_PREPARATION",
-                scope, activeLocators, query, denseLimit, bm25Limit);
+                scope, activeLocators, query, denseLimit, List.of(), null);
     }
 }

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "preprocessing-agent/document-structure-references",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pdf_bookmarks", "printed_contents", "heading_reference_candidates", "hierarchy_changed"],
+  "properties": {
+    "pdf_bookmarks": {"type": "array", "items": {"$ref": "#/$defs/bookmark"}},
+    "printed_contents": {"type": "array", "items": {"$ref": "#/$defs/contents_entry"}},
+    "heading_reference_candidates": {"type": "array", "items": {"$ref": "#/$defs/heading_candidate"}},
+    "hierarchy_changed": {"type": "boolean", "const": false}
+  },
+  "$defs": {
+    "bookmark": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reference_id", "source", "level", "title", "target_page", "parent_reference_id"],
+      "properties": {
+        "reference_id": {"type": "string"}, "source": {"const": "pdf_bookmark"},
+        "level": {"type": "integer", "minimum": 1}, "title": {"type": "string"},
+        "target_page": {"type": "integer", "minimum": 0},
+        "parent_reference_id": {"type": ["string", "null"]}
+      }
+    },
+    "contents_entry": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reference_id", "source", "source_page", "title", "target_printed_page", "source_text", "bbox", "indentation"],
+      "properties": {
+        "reference_id": {"type": "string"}, "source": {"const": "printed_contents"},
+        "source_page": {"type": "integer", "minimum": 1}, "title": {"type": "string"},
+        "target_printed_page": {"type": "integer", "minimum": 1}, "source_text": {"type": "string"},
+        "bbox": {"type": ["array", "null"], "minItems": 4, "maxItems": 4, "items": {"type": "number"}},
+        "indentation": {"type": "number"}
+      }
+    },
+    "heading_candidate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["page_number", "block_id", "title", "references"],
+      "properties": {
+        "page_number": {"type": "integer", "minimum": 1}, "block_id": {"type": "string"},
+        "title": {"type": "string"}, "references": {"type": "array", "items": {"$ref": "#/$defs/reference_match"}}
+      }
+    },
+    "reference_match": {
+      "type": "object", "additionalProperties": false,
+      "required": ["reference_id", "source", "title", "title_similarity", "relationship_confirmed"],
+      "properties": {
+        "reference_id": {"type": "string"}, "source": {"enum": ["pdf_bookmark", "printed_contents"]},
+        "title": {"type": "string"}, "title_similarity": {"type": "number", "minimum": 0.8, "maximum": 1},
+        "relationship_confirmed": {"type": "boolean", "const": false},
+        "target_page": {"type": "integer", "minimum": 0}, "page_distance": {"type": "integer", "minimum": 0},
+        "source_page": {"type": "integer", "minimum": 1}, "target_printed_page": {"type": "integer", "minimum": 1},
+        "indentation": {"type": "number"}
+      },
+      "allOf": [
+        {"if": {"properties": {"source": {"const": "pdf_bookmark"}}, "required": ["source"]},
+         "then": {"required": ["target_page", "page_distance"]}},
+        {"if": {"properties": {"source": {"const": "printed_contents"}}, "required": ["source"]},
+         "then": {"required": ["source_page", "target_printed_page", "indentation"]}}
+      ]
+    }
+  }
+}

@@ -6,9 +6,63 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
+import java.time.Duration;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationAgentPort.ScenarioCompilationAgentRequest;
+import com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
+@ExtendWith(OutputCaptureExtension.class)
 class HttpScenarioCompilationAgentPortTest {
+    @Test
+    void scenario_model_deserialization_logs_only_path_and_json_shapes(CapturedOutput output) throws Exception {
+        String privateValue = "PRIVATE_SCENARIO_MODEL_VALUE";
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/internal/gm/scenario-compilation", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] body = ("{\"status\":\"READY\",\"scenarioModel\":{\"schemaVersion\":\""
+                    + privateValue + "\",\"actors\":[],\"locations\":[],\"objectives\":[],"
+                    + "\"revelations\":[],\"encounters\":[],\"relationships\":[],"
+                    + "\"resolutionCriteria\":[],\"startingSituation\":\"\"},\"diagnostics\":[]}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        String previous = System.getProperty(DevelopmentDiagnostics.FLAG);
+        System.setProperty(DevelopmentDiagnostics.FLAG, "true");
+        server.start();
+        try {
+            var port = new HttpScenarioCompilationAgentPort(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(2), new ObjectMapper(), "internal-secret");
+
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                    () -> port.compile(new ScenarioCompilationAgentRequest("scenario-compilation:invalid-model",
+                            "private Storybook excerpt")));
+
+            assertThat(output.getAll()).contains("dev_scenario_compilation stage=output_validation")
+                    .contains("operationKey=scenario-compilation:invalid-model")
+                    .contains("code=SCENARIO_MODEL_TYPE_MISMATCH")
+                    .contains("path=scenarioModel.schemaVersion")
+                    .contains("expected=int")
+                    .contains("actual=VALUE_STRING")
+                    .doesNotContain(privateValue)
+                    .doesNotContain("private Storybook excerpt");
+        } finally {
+            server.stop(0);
+            if (previous == null) System.clearProperty(DevelopmentDiagnostics.FLAG);
+            else System.setProperty(DevelopmentDiagnostics.FLAG, previous);
+        }
+    }
+
     @Test
     void retains_safe_remote_failure_code_and_correlation_id_without_copying_response_text() {
         var failure = HttpScenarioCompilationAgentPort.decodeFailure(503,

@@ -6,8 +6,7 @@ import com.dndmaster.ruleknowledge.application.search.EvidenceCandidate;
 import com.dndmaster.ruleknowledge.application.search.EvidenceLocationLookupPort;
 import com.dndmaster.ruleknowledge.application.search.EvidenceSearchResult;
 import com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest;
-import com.dndmaster.ruleknowledge.application.search.HybridEvidenceSearchService;
-import com.dndmaster.ruleknowledge.application.search.RrfFusionPolicy;
+import com.dndmaster.ruleknowledge.application.search.DenseEvidenceSearchService;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
@@ -45,7 +44,7 @@ public final class RulebookActionDefinitionExtractionService {
             new Query("thrown-actions", "thrown weapons and thrown attack rules", CANDIDATES_PER_QUERY));
 
     private final RulebookActionDefinitionRepository repository;
-    private final HybridEvidenceSearchService evidenceSearch;
+    private final DenseEvidenceSearchService evidenceSearch;
     private final EvidenceLocationLookupPort locationLookup;
     private final RulebookActionDefinitionExtractionPort extractor;
     private final Double minimumDenseSimilarity;
@@ -88,7 +87,7 @@ public final class RulebookActionDefinitionExtractionService {
     }
 
     public RulebookActionDefinitionExtractionService(RulebookActionDefinitionRepository repository,
-            HybridEvidenceSearchService evidenceSearch, EvidenceLocationLookupPort locationLookup,
+            DenseEvidenceSearchService evidenceSearch, EvidenceLocationLookupPort locationLookup,
             RulebookActionDefinitionExtractionPort extractor, Double minimumDenseSimilarity,
             long targetedInputTokenLimit, long targetedExternalTokenReserve) {
         this.repository = Objects.requireNonNull(repository);
@@ -107,9 +106,8 @@ public final class RulebookActionDefinitionExtractionService {
         this.targetedExternalTokenReserve = targetedExternalTokenReserve;
     }
 
-    private static HybridEvidenceSearchService denseOnlySearch(DenseEvidenceCandidateSearchPort denseSearch) {
-        return new HybridEvidenceSearchService(Objects.requireNonNull(denseSearch), request -> List.of(),
-                new RrfFusionPolicy(), false);
+    private static DenseEvidenceSearchService denseOnlySearch(DenseEvidenceCandidateSearchPort denseSearch) {
+        return new DenseEvidenceSearchService(Objects.requireNonNull(denseSearch));
     }
 
     private static EvidenceLocationLookupPort emptyLocationLookup() {
@@ -145,10 +143,10 @@ public final class RulebookActionDefinitionExtractionService {
                     new OwnerPlayerId(CATALOG_OWNER), null, null, "rulebook-action-extraction", query.id(),
                     List.of(new AuthorizedDocumentScope(new KnowledgeDocumentId(documentId), scopeVersion,
                             DocumentType.RULEBOOK, new OwnerPlayerId(CATALOG_OWNER))), List.of(), query.text(),
-                    query.candidateLimit(), 0)).toList();
-            log("dev_rulebook_action_extraction stage=dense_discovery_search_started expectedRequestCount={} searchBoundary=hybrid_dense_only bm25Enabled=false outcome=started",
+                    query.candidateLimit())).toList();
+            log("dev_rulebook_action_extraction stage=dense_discovery_search_started expectedRequestCount={} searchBoundary=dense_vector_search outcome=started",
                     requests.size());
-            List<EvidenceSearchResult> searchResults = evidenceSearch.searchDenseBatch(requests);
+            List<EvidenceSearchResult> searchResults = evidenceSearch.searchBatch(requests);
             List<List<EvidenceCandidate>> results = searchResults == null ? null
                     : searchResults.stream().map(EvidenceSearchResult::candidates).toList();
             if (results == null || results.size() != requests.size()) {
@@ -156,7 +154,7 @@ public final class RulebookActionDefinitionExtractionService {
                         requests.size(), results == null ? -1 : results.size());
                 throw new IllegalStateException("dense RAG query result count mismatch");
             }
-            log("dev_rulebook_action_extraction stage=dense_discovery_search_completed expectedRequestCount={} actualRequestCount={} searchBoundary=hybrid_dense_only bm25Enabled=false outcome=completed",
+            log("dev_rulebook_action_extraction stage=dense_discovery_search_completed expectedRequestCount={} actualRequestCount={} searchBoundary=dense_vector_search outcome=completed",
                     requests.size(), results.size());
             List<List<EvidenceCandidate>> candidatesByQuery = new ArrayList<>();
             for (int index = 0; index < results.size(); index++) {

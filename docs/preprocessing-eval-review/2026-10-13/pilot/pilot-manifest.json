@@ -1,0 +1,830 @@
+{
+  "annotation_set": "preprocessing-structure-pilot-2026-10-13",
+  "status": "draft-awaiting-human-confirmation",
+  "purpose": "세 PDF에서 각 3페이지를 원본과 대조해 정답 초안과 채점기를 함께 점검하는 파일럿. 전처리기 범용성을 판정하는 기준선은 아님.",
+  "source_documents": {
+    "basic-roleplaying": {
+      "title": "Basic Roleplaying",
+      "filename": "Basic_Roleplaying_ORC_Content_Document.pdf",
+      "sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+      "page_count": 303,
+      "annotated_pages": [
+        6,
+        7,
+        8
+      ]
+    },
+    "cairn-player": {
+      "title": "Cairn Player Guide",
+      "filename": "Cairn_2e_Players_Guide.pdf",
+      "sha256": "ed2869946b0de9d97398c975a3dde8d5701250eb4c8776cb40907fe23c6300bb",
+      "page_count": 88,
+      "annotated_pages": [
+        9,
+        10,
+        11
+      ]
+    },
+    "cairn-warden": {
+      "title": "Cairn Warden Guide",
+      "filename": "Cairn_2e_Wardens_Guide.pdf",
+      "sha256": "7f3917fffb205a0e09f80145bc8bd78c982ad9a6fef18d9d84b64b9d4b5ece8e",
+      "page_count": 192,
+      "annotated_pages": [
+        32,
+        33,
+        119
+      ]
+    }
+  },
+  "pages": [
+    {
+      "document": "basic-roleplaying",
+      "title": "Basic Roleplaying",
+      "filename": "Basic_Roleplaying_ORC_Content_Document.pdf",
+      "source_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+      "page_number": 6,
+      "page_type": "text-native",
+      "review_status": "draft-awaiting-human-confirmation",
+      "label_counts": {
+        "text_blocks": 21,
+        "headings": 3,
+        "tables": 0,
+        "section_continuations": 2
+      },
+      "score_file": "basic-roleplaying-evaluation.json"
+    },
+    {
+      "document": "basic-roleplaying",
+      "title": "Basic Roleplaying",
+      "filename": "Basic_Roleplaying_ORC_Content_Document.pdf",
+      "source_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+      "page_number": 7,
+      "page_type": "text-native",
+      "review_status": "draft-awaiting-human-confirmation",
+      "label_counts": {
+        "text_blocks": 13,
+        "headings": 2,
+        "tables": 0,
+        "section_continuations": 1
+      },
+      "score_file": "basic-roleplaying-evaluation.json"
+    },
+    {
+      "document": "basic-roleplaying",
+      "title": "Basic Roleplaying",
+      "filename": "Basic_Roleplaying_ORC_Content_Document.pdf",
+      "source_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+      "page_number": 8,
+      "page_type": "text-native",
+      "review_status": "draft-awaiting-human-confirmation",
+      "label_counts": {
+        "text_blocks": 20,
+        "headings": 3,
+        "tables": 1,
+        "section_continuations": 1
+      },
+      "score_file": "basic-roleplaying-evaluation.json"
+    },
+    {
+      "document": "cairn-player",
+      "title": "Cairn Player Guide",
+      "filename": "Cairn_2e_Players_Guide.pdf",
+      "source_sha256": "ed2869946b0de9d97398c975a3dde8d5701250eb4c8776cb40907fe23c6300bb",
+      "page_number": 9,
+      "page_type": "mixed",
+      "review_status": "draft-awaiting-human-confirmation",
+      "label_counts": {
+        "text_blocks": 15,
+        "headings": 4,
+        "tables": 0,
+        "section_continuations": 1
+      },
+      "score_file": "cairn-player-evaluation.json"
+    },
+    {
+      "document": "cairn-player",
+      "title": "Cairn Player Guide",
+      "filename": "Cairn_2e_Players_Guide.pdf",
+      "source_sha256": "ed2869946b0de9d97398c975a3dde8d5701250eb4c8776cb40907fe23c6300bb",
+      "page_number": 10,
+      "page_type": "text-native",
+      "review_status": "draft-awaiting-human-confirmation",
+      "label_counts": {
+        "text_blocks": 25,
+        "headings": 1,
+        "tables": 4,
+        "section_continuations": 1
+      },
+      "score_file": "cairn-player-evaluation.json"
+    },
+    {
+      "document": "cairn-player",
+      "title": "Cairn Player Guide",
+      "filename": "Cairn_2e_Players_Guide.pdf",
+      "source_sha256": "ed2869946b0de9d97398c975a3dde8d5701250eb4c8776cb40907fe23c6300bb",
+      "page_number": 11,
+      "page_type": "text-native",
+      "review_status": "draft-awaiting-human-confirmation",
+      "label_counts": {
+        "text_blocks": 25,
+        "headings": 1,
+        "tables": 4,
+        "section_continuations": 0
+      },
+      "score_file": "cairn-player-evaluation.json"
+    },
+    {
+      "document": "cairn-warden",
+      "title": "Cairn Warden Guide",
+      "filename": "Cairn_2e_Wardens_Guide.pdf",
+      "source_sha256": "7f3917fffb205a0e09f80145bc8bd78c982ad9a6fef18d9d84b64b9d4b5ece8e",
+      "page_number": 32,
+      "page_type": "text-native",
+      "review_status": "draft-awaiting-human-confirmation",
+      "label_counts": {
+        "text_blocks": 11,
+        "headings": 10,
+        "tables": 0,
+        "section_continuations": 1
+      },
+      "score_file": "cairn-warden-evaluation.json"
+    },
+    {
+      "document": "cairn-warden",
+      "title": "Cairn Warden Guide",
+      "filename": "Cairn_2e_Wardens_Guide.pdf",
+      "source_sha256": "7f3917fffb205a0e09f80145bc8bd78c982ad9a6fef18d9d84b64b9d4b5ece8e",
+      "page_number": 33,
+      "page_type": "text-native",
+      "review_status": "draft-awaiting-human-confirmation",
+      "label_counts": {
+        "text_blocks": 7,
+        "headings": 6,
+        "tables": 0,
+        "section_continuations": 0
+      },
+      "score_file": "cairn-warden-evaluation.json"
+    },
+    {
+      "document": "cairn-warden",
+      "title": "Cairn Warden Guide",
+      "filename": "Cairn_2e_Wardens_Guide.pdf",
+      "source_sha256": "7f3917fffb205a0e09f80145bc8bd78c982ad9a6fef18d9d84b64b9d4b5ece8e",
+      "page_number": 119,
+      "page_type": "text-native",
+      "review_status": "draft-awaiting-human-confirmation",
+      "label_counts": {
+        "text_blocks": 28,
+        "headings": 1,
+        "tables": 1,
+        "section_continuations": 0
+      },
+      "score_file": "cairn-warden-evaluation.json"
+    }
+  ],
+  "boundary_review": [
+    {
+      "document": "basic-roleplaying",
+      "from_page": 5,
+      "to_page": 6,
+      "decision": "same-section-continuation",
+      "reason": "Creating a Character 설명이 다음 페이지의 진행 안내로 이어짐. 원본 페이지 5는 문맥 자료로만 포함.",
+      "review_note": "같은 상위 절에 속함. 같은 문단 또는 같은 표가 이어진다는 라벨은 원본에서 확인되지 않음.",
+      "section_relation": "SAME_SECTION",
+      "content_continuity": "NONE"
+    },
+    {
+      "document": "basic-roleplaying",
+      "from_page": 6,
+      "to_page": 7,
+      "decision": "same-section-continuation",
+      "reason": "Step Three: Age의 나이 규칙이 페이지 하단에서 다음 페이지로 이어짐.",
+      "review_note": "같은 상위 절에 속함. 같은 문단 또는 같은 표가 이어진다는 라벨은 원본에서 확인되지 않음.",
+      "section_relation": "SAME_SECTION",
+      "content_continuity": "NONE"
+    },
+    {
+      "document": "basic-roleplaying",
+      "from_page": 7,
+      "to_page": 8,
+      "decision": "same-section-continuation",
+      "reason": "Step Five: Derived Characteristics 아래 내용이 Fatigue Points와 Sanity로 이어짐.",
+      "review_note": "같은 상위 절에 속함. 같은 문단 또는 같은 표가 이어진다는 라벨은 원본에서 확인되지 않음.",
+      "section_relation": "SAME_SECTION",
+      "content_continuity": "NONE"
+    },
+    {
+      "document": "basic-roleplaying",
+      "from_page": 8,
+      "to_page": 9,
+      "decision": "same-section-continuation",
+      "reason": "Step Seven: Profession and Skills의 배분 규칙이 다음 페이지에서 이어짐. 페이지 9는 문맥 자료.",
+      "review_note": "같은 상위 절에 속함. 같은 문단 또는 같은 표가 이어진다는 라벨은 원본에서 확인되지 않음.",
+      "section_relation": "SAME_SECTION",
+      "content_continuity": "NONE"
+    },
+    {
+      "document": "cairn-player",
+      "from_page": 8,
+      "to_page": 9,
+      "decision": "same-parent-section",
+      "reason": "Creating a Character의 절차 안내 뒤에 Attributes 세부 설명이 이어짐. 페이지 8은 문맥 자료.",
+      "review_note": "Creating a Character라는 상위 제목 아래에 Attributes가 시작됨. 공통 상위 제목만으로 동일한 세부 절이라고 단정하지 않음.",
+      "section_relation": "UNRESOLVED",
+      "content_continuity": "NONE"
+    },
+    {
+      "document": "cairn-player",
+      "from_page": 9,
+      "to_page": 10,
+      "decision": "related-separate-subsections",
+      "reason": "캐릭터 생성 흐름 안의 Attributes 설명에서 Character Traits 표로 넘어감. 직접 같은 소절의 연속으로 라벨링하지 않음.",
+      "section_relation": "DIFFERENT_SECTION",
+      "content_continuity": "NONE",
+      "review_note": "별도 절로 이동하는 경계로 검토함."
+    },
+    {
+      "document": "cairn-player",
+      "from_page": 10,
+      "to_page": 11,
+      "decision": "same-section-continuation",
+      "reason": "Character Traits 표 모음이 페이지를 넘어 이어짐.",
+      "review_note": "같은 상위 절에 속함. 같은 문단 또는 같은 표가 이어진다는 라벨은 원본에서 확인되지 않음.",
+      "section_relation": "SAME_SECTION",
+      "content_continuity": "NONE"
+    },
+    {
+      "document": "cairn-player",
+      "from_page": 11,
+      "to_page": 12,
+      "decision": "new-subsection",
+      "reason": "Character Traits 뒤에 Bonds라는 별도 제목과 d20 표가 시작됨. 페이지 12는 문맥 자료.",
+      "section_relation": "DIFFERENT_SECTION",
+      "content_continuity": "NONE",
+      "review_note": "별도 절로 이동하는 경계로 검토함."
+    },
+    {
+      "document": "cairn-warden",
+      "from_page": 31,
+      "to_page": 32,
+      "decision": "new-section",
+      "reason": "앞 페이지의 Worldbuilding: Put It All Together 다음에 Dungeon Seeds가 새로 시작됨. 페이지 31은 문맥 자료.",
+      "section_relation": "DIFFERENT_SECTION",
+      "content_continuity": "NONE",
+      "review_note": "별도 절로 이동하는 경계로 검토함."
+    },
+    {
+      "document": "cairn-warden",
+      "from_page": 32,
+      "to_page": 33,
+      "decision": "same-section-continuation",
+      "reason": "Dungeon Seeds의 원칙과 항목이 다음 페이지에서 이어짐.",
+      "review_note": "같은 상위 절에 속함. 같은 문단 또는 같은 표가 이어진다는 라벨은 원본에서 확인되지 않음.",
+      "section_relation": "SAME_SECTION",
+      "content_continuity": "NONE"
+    },
+    {
+      "document": "cairn-warden",
+      "from_page": 33,
+      "to_page": 34,
+      "decision": "same-running-section-new-subsection",
+      "reason": "반복 머리글은 Dungeon Seeds이나 Creating a Dungeon이라는 새 절차 제목이 시작됨. 직접 연속 라벨은 보류.",
+      "section_relation": "UNRESOLVED",
+      "content_continuity": "NONE",
+      "review_note": "같은 상위 제목 아래에 있다는 사실만으로 같은 세부 절로 단정하지 않음."
+    },
+    {
+      "document": "cairn-warden",
+      "from_page": 118,
+      "to_page": 119,
+      "decision": "peer-lists-same-parent",
+      "reason": "Naming Procedures 아래 Adjectives와 Nouns라는 별도 목록이 이어짐. 같은 세부 목록의 연속은 아님.",
+      "section_relation": "UNRESOLVED",
+      "content_continuity": "NONE",
+      "review_note": "같은 상위 제목 아래에 있다는 사실만으로 같은 세부 절로 단정하지 않음."
+    },
+    {
+      "document": "cairn-warden",
+      "from_page": 119,
+      "to_page": 120,
+      "decision": "new-subsection",
+      "reason": "Nouns 목록 뒤에 Faction Names 절차가 시작됨. 페이지 120은 문맥 자료.",
+      "section_relation": "DIFFERENT_SECTION",
+      "content_continuity": "NONE",
+      "review_note": "별도 절로 이동하는 경계로 검토함."
+    }
+  ],
+  "review_instructions": [
+    "각 대상 페이지의 원본 이미지와 페이지 유형·텍스트·제목·읽기 순서·표·페이지 연결 초안을 대조한다.",
+    "표 제목은 표의 캡션으로, 표 셀에는 실제 행과 열의 내용만 기록했다.",
+    "페이지 경계는 정확한 세부 절의 동일 여부를 표시한다. 공통 상위 제목만 확인되면 같은 절로 단정하지 말고 판정 보류로 둔다. 문단이나 표의 내용이 직접 이어지는지는 별도 항목으로 표시한다.",
+    "메모를 내보내도 원본 라벨 JSONL은 자동 수정되지 않는다. 검수 의견을 반영할 때만 별도로 수정한다."
+  ],
+  "evaluation_scope": [
+    "page_type",
+    "text_blocks",
+    "headings",
+    "reading_order",
+    "tables",
+    "page_boundary_relations"
+  ],
+  "not_measured_or_not_labeled": [
+    "prose column boundaries",
+    "all pages in each document",
+    "paragraph_or_table_continuity_prediction",
+    "manual validation by the user"
+  ],
+  "source_directory": "/home/jiwoo/workspace/dnd-master/docs/asset/preprocessing-eval/",
+  "evaluation_results": {
+    "basic-roleplaying": {
+      "annotation_page_count": 3,
+      "blocks": {
+        "gold": 49,
+        "matched": 49,
+        "matched_predicted": 49,
+        "precision": 0.9423076923076923,
+        "predicted": 52,
+        "recall": 1.0
+      },
+      "columns": {
+        "bbox_mean_iou": null,
+        "count_accuracy": null
+      },
+      "headings": {
+        "hierarchy_heading_count": 1044,
+        "hierarchy_resolution_coverage": 0.011494252873563218,
+        "hierarchy_resolved_count": 12,
+        "level_accuracy": null,
+        "level_gold_count": 8,
+        "level_resolution_coverage": 0.0,
+        "level_resolved_count": 0,
+        "parent_accuracy": null,
+        "parent_gold_count": 1,
+        "parent_resolution_coverage": 0.0,
+        "parent_resolved_count": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "page_type_accuracy": 1.0,
+      "pipeline_version": "0.1.0",
+      "reading_order_block_coverage": 0.8979591836734694,
+      "reading_order_covered_block_count": 44,
+      "reading_order_pairwise_agreement": 1.0,
+      "section_continuations": {
+        "accuracy": 0.0,
+        "annotated_boundary_count": 4,
+        "class_metrics": {
+          "DIFFERENT_SECTION": {
+            "precision": null,
+            "recall": null
+          },
+          "SAME_SECTION": {
+            "precision": null,
+            "recall": 0.0
+          }
+        },
+        "confusion_counts": {
+          "DIFFERENT_SECTION": {
+            "DIFFERENT_SECTION": 0,
+            "SAME_SECTION": 0,
+            "UNRESOLVED": 0
+          },
+          "SAME_SECTION": {
+            "DIFFERENT_SECTION": 0,
+            "SAME_SECTION": 0,
+            "UNRESOLVED": 4
+          },
+          "UNRESOLVED": {
+            "DIFFERENT_SECTION": 0,
+            "SAME_SECTION": 0,
+            "UNRESOLVED": 0
+          }
+        },
+        "content_continuity": {
+          "accuracy": null,
+          "gold_relation_counts": {
+            "NONE": 4
+          },
+          "status": "not-measured"
+        },
+        "decision_coverage": 0.0,
+        "endpoint_match_rate": 1.0,
+        "evaluated_boundary_count": 4,
+        "gold_relation_counts": {
+          "SAME_SECTION": 4
+        },
+        "unmatched_endpoint_count": 0,
+        "unresolved_gold_abstention_rate": null,
+        "unresolved_prediction_count": 4
+      },
+      "source_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+      "tables": {
+        "cell_exact_rate": null,
+        "grid_shape_exact_rate": null,
+        "matched_table_count": 0,
+        "precision": null,
+        "recall": 0.0,
+        "shape_diagnostics": []
+      },
+      "offline_preprocessing_run": {
+        "run_date": "2026-10-13",
+        "git_head": "8ef50e1b0e939104445c4f7a73442cb42e3fdada",
+        "pdf_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+        "pages": 303,
+        "chunks": 1161,
+        "validation_issues": 683,
+        "elapsed_seconds": 209.53,
+        "max_rss_kib": 191304,
+        "preprocess_valid": false
+      }
+    },
+    "cairn-player": {
+      "annotation_page_count": 3,
+      "blocks": {
+        "gold": 17,
+        "matched": 17,
+        "matched_predicted": 17,
+        "precision": 0.6538461538461539,
+        "predicted": 26,
+        "recall": 1.0
+      },
+      "columns": {
+        "bbox_mean_iou": null,
+        "count_accuracy": null
+      },
+      "headings": {
+        "hierarchy_heading_count": 176,
+        "hierarchy_resolution_coverage": 0.0,
+        "hierarchy_resolved_count": 0,
+        "level_accuracy": null,
+        "level_gold_count": 6,
+        "level_resolution_coverage": 0.0,
+        "level_resolved_count": 0,
+        "parent_accuracy": null,
+        "parent_gold_count": 0,
+        "parent_resolution_coverage": null,
+        "parent_resolved_count": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "page_type_accuracy": 0.6666666666666666,
+      "pipeline_version": "0.1.0",
+      "reading_order_block_coverage": 0.9411764705882353,
+      "reading_order_covered_block_count": 16,
+      "reading_order_pairwise_agreement": 1.0,
+      "section_continuations": {
+        "accuracy": 0.0,
+        "annotated_boundary_count": 3,
+        "class_metrics": {
+          "DIFFERENT_SECTION": {
+            "precision": null,
+            "recall": 0.0
+          },
+          "SAME_SECTION": {
+            "precision": null,
+            "recall": 0.0
+          }
+        },
+        "confusion_counts": {
+          "DIFFERENT_SECTION": {
+            "DIFFERENT_SECTION": 0,
+            "SAME_SECTION": 0,
+            "UNRESOLVED": 1
+          },
+          "SAME_SECTION": {
+            "DIFFERENT_SECTION": 0,
+            "SAME_SECTION": 0,
+            "UNRESOLVED": 1
+          },
+          "UNRESOLVED": {
+            "DIFFERENT_SECTION": 0,
+            "SAME_SECTION": 0,
+            "UNRESOLVED": 1
+          }
+        },
+        "content_continuity": {
+          "accuracy": null,
+          "gold_relation_counts": {
+            "NONE": 3
+          },
+          "status": "not-measured"
+        },
+        "decision_coverage": 0.0,
+        "endpoint_match_rate": 1.0,
+        "evaluated_boundary_count": 3,
+        "gold_relation_counts": {
+          "DIFFERENT_SECTION": 1,
+          "SAME_SECTION": 1,
+          "UNRESOLVED": 1
+        },
+        "unmatched_endpoint_count": 0,
+        "unresolved_gold_abstention_rate": 1.0,
+        "unresolved_prediction_count": 3
+      },
+      "source_sha256": "ed2869946b0de9d97398c975a3dde8d5701250eb4c8776cb40907fe23c6300bb",
+      "tables": {
+        "cell_exact_rate": 0.8,
+        "grid_shape_exact_rate": 0.0,
+        "matched_table_count": 8,
+        "precision": 1.0,
+        "recall": 1.0,
+        "shape_diagnostics": [
+          {
+            "actual_columns": 4,
+            "actual_nonempty_rows": 4,
+            "actual_rows": 4,
+            "caption": "Skin (d10)",
+            "empty_rows": 0,
+            "expected_columns": 4,
+            "expected_rows": 5,
+            "extra_rows": 0,
+            "missing_rows": 1,
+            "page_number": 10,
+            "shape_matches": false,
+            "table_index": 1
+          },
+          {
+            "actual_columns": 4,
+            "actual_nonempty_rows": 4,
+            "actual_rows": 4,
+            "caption": "Face (d10)",
+            "empty_rows": 0,
+            "expected_columns": 4,
+            "expected_rows": 5,
+            "extra_rows": 0,
+            "missing_rows": 1,
+            "page_number": 10,
+            "shape_matches": false,
+            "table_index": 3
+          },
+          {
+            "actual_columns": 4,
+            "actual_nonempty_rows": 4,
+            "actual_rows": 4,
+            "caption": "Physique (d10)",
+            "empty_rows": 0,
+            "expected_columns": 4,
+            "expected_rows": 5,
+            "extra_rows": 0,
+            "missing_rows": 1,
+            "page_number": 10,
+            "shape_matches": false,
+            "table_index": 0
+          },
+          {
+            "actual_columns": 4,
+            "actual_nonempty_rows": 4,
+            "actual_rows": 4,
+            "caption": "Hair (d10)",
+            "empty_rows": 0,
+            "expected_columns": 4,
+            "expected_rows": 5,
+            "extra_rows": 0,
+            "missing_rows": 1,
+            "page_number": 10,
+            "shape_matches": false,
+            "table_index": 2
+          },
+          {
+            "actual_columns": 4,
+            "actual_nonempty_rows": 4,
+            "actual_rows": 4,
+            "caption": "Clothing (d10)",
+            "empty_rows": 0,
+            "expected_columns": 4,
+            "expected_rows": 5,
+            "extra_rows": 0,
+            "missing_rows": 1,
+            "page_number": 11,
+            "shape_matches": false,
+            "table_index": 1
+          },
+          {
+            "actual_columns": 4,
+            "actual_nonempty_rows": 4,
+            "actual_rows": 4,
+            "caption": "Vice (d10)",
+            "empty_rows": 0,
+            "expected_columns": 4,
+            "expected_rows": 5,
+            "extra_rows": 0,
+            "missing_rows": 1,
+            "page_number": 11,
+            "shape_matches": false,
+            "table_index": 3
+          },
+          {
+            "actual_columns": 4,
+            "actual_nonempty_rows": 4,
+            "actual_rows": 4,
+            "caption": "Virtue (d10)",
+            "empty_rows": 0,
+            "expected_columns": 4,
+            "expected_rows": 5,
+            "extra_rows": 0,
+            "missing_rows": 1,
+            "page_number": 11,
+            "shape_matches": false,
+            "table_index": 2
+          },
+          {
+            "actual_columns": 4,
+            "actual_nonempty_rows": 4,
+            "actual_rows": 4,
+            "caption": "Speech (d10)",
+            "empty_rows": 0,
+            "expected_columns": 4,
+            "expected_rows": 5,
+            "extra_rows": 0,
+            "missing_rows": 1,
+            "page_number": 11,
+            "shape_matches": false,
+            "table_index": 0
+          }
+        ]
+      },
+      "offline_preprocessing_run": {
+        "run_date": "2026-10-13",
+        "git_head": "8ef50e1b0e939104445c4f7a73442cb42e3fdada",
+        "pdf_sha256": "ed2869946b0de9d97398c975a3dde8d5701250eb4c8776cb40907fe23c6300bb",
+        "pages": 88,
+        "chunks": 249,
+        "validation_issues": 343,
+        "elapsed_seconds": 26.44,
+        "max_rss_kib": 430808,
+        "preprocess_valid": false
+      }
+    },
+    "cairn-warden": {
+      "annotation_page_count": 3,
+      "blocks": {
+        "gold": 20,
+        "matched": 20,
+        "matched_predicted": 20,
+        "precision": 0.8695652173913043,
+        "predicted": 23,
+        "recall": 1.0
+      },
+      "columns": {
+        "bbox_mean_iou": null,
+        "count_accuracy": null
+      },
+      "headings": {
+        "hierarchy_heading_count": 339,
+        "hierarchy_resolution_coverage": 0.10914454277286136,
+        "hierarchy_resolved_count": 37,
+        "level_accuracy": null,
+        "level_gold_count": 17,
+        "level_resolution_coverage": 0.0,
+        "level_resolved_count": 0,
+        "parent_accuracy": null,
+        "parent_gold_count": 9,
+        "parent_resolution_coverage": 0.0,
+        "parent_resolved_count": 0,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "page_type_accuracy": 1.0,
+      "pipeline_version": "0.1.0",
+      "reading_order_block_coverage": 1.0,
+      "reading_order_covered_block_count": 20,
+      "reading_order_pairwise_agreement": 1.0,
+      "section_continuations": {
+        "accuracy": 0.0,
+        "annotated_boundary_count": 3,
+        "class_metrics": {
+          "DIFFERENT_SECTION": {
+            "precision": null,
+            "recall": 0.0
+          },
+          "SAME_SECTION": {
+            "precision": null,
+            "recall": 0.0
+          }
+        },
+        "confusion_counts": {
+          "DIFFERENT_SECTION": {
+            "DIFFERENT_SECTION": 0,
+            "SAME_SECTION": 0,
+            "UNRESOLVED": 1
+          },
+          "SAME_SECTION": {
+            "DIFFERENT_SECTION": 0,
+            "SAME_SECTION": 0,
+            "UNRESOLVED": 1
+          },
+          "UNRESOLVED": {
+            "DIFFERENT_SECTION": 0,
+            "SAME_SECTION": 0,
+            "UNRESOLVED": 1
+          }
+        },
+        "content_continuity": {
+          "accuracy": null,
+          "gold_relation_counts": {
+            "NONE": 3
+          },
+          "status": "not-measured"
+        },
+        "decision_coverage": 0.0,
+        "endpoint_match_rate": 1.0,
+        "evaluated_boundary_count": 3,
+        "gold_relation_counts": {
+          "DIFFERENT_SECTION": 1,
+          "SAME_SECTION": 1,
+          "UNRESOLVED": 1
+        },
+        "unmatched_endpoint_count": 0,
+        "unresolved_gold_abstention_rate": 1.0,
+        "unresolved_prediction_count": 3
+      },
+      "source_sha256": "7f3917fffb205a0e09f80145bc8bd78c982ad9a6fef18d9d84b64b9d4b5ece8e",
+      "tables": {
+        "cell_exact_rate": 1.0,
+        "grid_shape_exact_rate": 0.0,
+        "matched_table_count": 1,
+        "precision": 1.0,
+        "recall": 1.0,
+        "shape_diagnostics": [
+          {
+            "actual_columns": 8,
+            "actual_nonempty_rows": 26,
+            "actual_rows": 51,
+            "caption": null,
+            "empty_rows": 25,
+            "expected_columns": 8,
+            "expected_rows": 26,
+            "extra_rows": 25,
+            "missing_rows": 0,
+            "page_number": 119,
+            "shape_matches": false,
+            "table_index": 0
+          }
+        ]
+      },
+      "offline_preprocessing_run": {
+        "run_date": "2026-10-13",
+        "git_head": "8ef50e1b0e939104445c4f7a73442cb42e3fdada",
+        "pdf_sha256": "7f3917fffb205a0e09f80145bc8bd78c982ad9a6fef18d9d84b64b9d4b5ece8e",
+        "pages": 192,
+        "chunks": 416,
+        "validation_issues": 548,
+        "elapsed_seconds": 53.27,
+        "max_rss_kib": 357608,
+        "preprocess_valid": false
+      }
+    }
+  },
+  "source_audit": {
+    "status": "assistant-reviewed; awaiting-human-confirmation",
+    "method": "각 대상 페이지 PNG를 눈으로 대조하고, PDF 원문 텍스트에서 모든 라벨 문구·제목·표 셀을 확인함.",
+    "findings": [
+      "9페이지 전부의 라벨 텍스트와 제목 문구가 PDF 원문 텍스트에 존재함을 확인함.",
+      "Cairn Player 10·11페이지 표 8개는 각각 5개 데이터 행·4개 열이며, 모든 값이 원본 이미지와 일치함.",
+      "Cairn Warden 119페이지 표는 머리글 1행과 데이터 25행·8열이며, 모든 값이 원본 이미지와 일치함.",
+      "Basic Roleplaying 8페이지 Personality Types 표가 원본에 있으나 전처리 결과에는 표로 생성되지 않음.",
+      "Cairn Player 10·11페이지 표마다 마지막 데이터 행(5, 10)이 전처리 결과에서 빠짐. Cairn Warden 119페이지는 빈 행이 끼어 있으나 데이터 값 자체는 모두 보존됨.",
+      "Cairn Warden 33페이지 소제목 6개의 단계 표기를 원본의 글자 크기·배치에 맞춰 2에서 3으로 수정함.",
+      "페이지 연결 5곳의 출발점을 실제 페이지 끝의 이어지는 내용으로 고쳤고 Cairn Player 11페이지 도착점은 첫 표 Speech (d10)으로 지정함.",
+      "Cairn Player 9페이지는 본문과 삽화가 함께 있는 혼합 페이지로 표시함. 전처리 결과는 텍스트 페이지로 분류함.",
+      "전처리 코드는 수정하지 않음. 이 정답 초안의 사용자 승인은 아직 남아 있음."
+    ],
+    "label_corrections": [
+      "basic-roleplaying 6→7 source",
+      "basic-roleplaying 7→8 source",
+      "basic-roleplaying 8→9 source",
+      "cairn-player 10→11 source and destination",
+      "cairn-warden 32→33 source",
+      "cairn-warden page 33 heading levels"
+    ]
+  },
+  "heading_stage_trace": {
+    "status": "diagnostic-replay-not-algorithm-change",
+    "file": "heading-stage-trace.json",
+    "human_readable_report": "heading-stage-trace.md",
+    "total_headings": 31,
+    "source_text_present": 31,
+    "detector_replay_accepted": 3,
+    "persisted_heading_associations": 3,
+    "document_tree_nodes": 3,
+    "first_failure_stage": "heading_candidate_detection",
+    "missing_at_candidate_detection": 28,
+    "caveat": "원본 실행 산출물에는 후보별 점수가 저장되지 않았으므로 점수는 현재 판정 함수를 원본 블록·첫 글자 모양에 다시 적용해 계산함."
+  },
+  "boundary_relation_review": {
+    "status": "draft-awaiting-human-confirmation",
+    "annotated_link_count": 10,
+    "relation_counts": {
+      "SAME_SECTION": 6,
+      "DIFFERENT_SECTION": 2,
+      "UNRESOLVED": 2
+    },
+    "content_continuity_counts": {
+      "NONE": 10
+    },
+    "note": "이전의 7개 긍정 라벨 중 Cairn Player 8→9는 상위 제목만 공통으로 확인되어 판정 보류로 바꿨다. Cairn Player 9→10과 Cairn Warden 31→32는 서로 다른 절의 반례로, Warden 118→119는 공통 상위 맥락만으로 세부 절 관계를 확정하기 어려워 보류했다. 나머지 6개는 같은 구체 절의 이어짐으로 유지했다. 모든 라벨은 사용자 승인 대기이며, 문단·표 자체의 페이지 넘김은 이 표본에서 확인하지 못했다."
+  },
+  "offline_baseline_run": "offline-baseline-run.json",
+  "baseline_note": "Fresh offline preprocessing completed, but all three outputs had validation issues and valid=false. Structural metrics below apply only to manually annotated pilot pages."
+}

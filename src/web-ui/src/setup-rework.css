@@ -577,6 +577,7 @@
 .app-page-setup .file-status-ready { color: #596b4c; }
 .app-page-setup .file-status-processing { color: var(--rework-muted, #655e56); }
 .app-page-setup .file-status-review { color: #9a6c27; }
+.app-page-setup .file-status-warning { color: #9a6c27; }
 .app-page-setup .file-status-failed { color: #873b36; }
 
 .setup-material-empty {

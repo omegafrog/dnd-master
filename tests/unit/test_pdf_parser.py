@@ -23,6 +23,26 @@ def test_parser_excludes_only_geometry_confirmed_forms_and_records_original_page
     assert document.metadata["excluded_form_evidence"][0]["form_diagnostics"]["drawing_count"] == 180
 
 
+def test_parser_keeps_filled_or_uncertain_forms_searchable():
+    diagnostics = {"drawing_count": 180, "aligned_line_count": 466,
+                   "long_horizontal_line_count": 154, "text_line_count": 15}
+    pages = [
+        {"page_number": 1, "page_classification": "form", "form_content_state": "filled",
+         "form_diagnostics": diagnostics,
+         "blocks": [{"block_id": "value", "text": "Strength 16", "bbox": (10, 10, 40, 20)}]},
+        {"page_number": 2, "page_classification": "form", "form_content_state": "unknown",
+         "form_diagnostics": diagnostics,
+         "blocks": [{"block_id": "label", "text": "Character Name", "bbox": (10, 10, 40, 20)}]},
+    ]
+
+    document = PdfDocumentParser(extractor=lambda _source: pages, analyze_structure=False).parse(Path("source.pdf"))
+
+    assert [page.page_number for page in document.pages] == [1, 2]
+    assert "Strength 16" in document.source_text
+    assert "Character Name" in document.source_text
+    assert document.metadata["excluded_form_pages"] == ()
+
+
 def test_pymupdf_native_table_cells_are_projected_when_supported(tmp_path):
     fitz = __import__("pytest").importorskip("fitz")
     document = fitz.open()
@@ -141,6 +161,82 @@ def test_unresolved_text_candidate_remains_diagnostic_without_becoming_confirmed
                   "signals": []}
     _classify_text_detection_hypothesis(unresolved, "lines")
     assert unresolved["decision"] == "strong_unresolved"
+
+
+def test_text_candidate_with_unsubstantiated_empty_rows_is_deferred_and_logged(caplog, monkeypatch):
+    table = SimpleNamespace(bbox=(0, 0, 100, 60), rows=(
+        SimpleNamespace(cells=((0, 0, 50, 20), (50, 0, 100, 20))),
+        SimpleNamespace(cells=((0, 20, 50, 40), (50, 20, 100, 40))),
+        SimpleNamespace(cells=((0, 40, 50, 60), (50, 40, 100, 60))),
+    ), extract=lambda: [["A", "B"], ["", ""], ["C", "D"]])
+    source = [{"text": value, "bbox": (x + 5, y + 5, x + 15, y + 15),
+               "spans": [{"text": value, "bbox": (x + 5, y + 5, x + 15, y + 15)}]}
+              for y, values in ((0, ("A", "B")), (40, ("C", "D")))
+              for x, value in zip((0, 50), values)]
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+
+    projected, diagnostic = _reconstruct_native_table(table, source)
+    assert diagnostic["decision"] == "confirmed_structured"
+    _classify_text_detection_hypothesis(diagnostic, "text", 119)
+
+    assert diagnostic["decision"] == "weak_candidate"
+    assert diagnostic["reconstruction_decision"] == "strong_unresolved"
+    assert diagnostic["rejection_reason"] == "TEXT_DETECTION_EMPTY_ROWS_REQUIRE_GEOMETRIC_CONFIRMATION"
+    assert diagnostic["extracted_empty_row_count"] == 1
+    assert len(projected) == 6
+    log = " ".join(record.getMessage() for record in caplog.records)
+    assert "pageNumber=119" in log
+    assert "expectedEmptyRowCount=0" in log and "actualEmptyRowCount=1" in log
+    assert "preserve_source_blocks_and_defer_text_grid" in log
+
+
+def test_line_candidate_recovers_a_complete_aligned_row_below_its_detected_bounds(caplog, monkeypatch):
+    table = SimpleNamespace(bbox=(0, 0, 100, 40), rows=(
+        SimpleNamespace(cells=((0, 0, 50, 20), (50, 0, 100, 20))),
+        SimpleNamespace(cells=((0, 20, 50, 40), (50, 20, 100, 40))),
+    ), extract=lambda: [["A", "B"], ["C", "D"]])
+    source = [{"text": value, "bbox": (x + 5, y + 5, x + 15, y + 15),
+               "spans": [{"text": value, "bbox": (x + 5, y + 5, x + 15, y + 15)}]}
+              for y, values in ((0, ("A", "B")), (20, ("C", "D")), (44, ("E", "F")))
+              for x, value in zip((0, 50), values)]
+
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    projected, diagnostic = _reconstruct_native_table(table, source, 10)
+    _classify_text_detection_hypothesis(diagnostic, "lines", 10)
+    assert diagnostic["decision"] == "confirmed_structured"
+    assert diagnostic["effective_bbox"] == [0.0, 0.0, 100.0, 59.0]
+    assert diagnostic["aligned_following_span_count"] == 2
+    assert diagnostic["continued_row_projected"] is True
+    assert diagnostic["reconstructed_row_count"] == 3
+    assert [(cell["row"], cell["column"], cell["text"]) for cell in projected][-2:] == [
+        (2, 0, "E"), (2, 1, "F"),
+    ]
+    log = " ".join(record.getMessage() for record in caplog.records)
+    assert "stage=native_table_continuation pageNumber=10" in log
+    assert "expectedColumnCount=2 actualProjectedColumnCount=2" in log
+    assert "recoveryAction=include_aligned_source_row_and_expand_table_region" in log
+
+
+def test_empty_pdf_spans_do_not_make_valid_table_cells_unmappable():
+    table = SimpleNamespace(bbox=(0, 0, 100, 40), rows=(
+        SimpleNamespace(cells=((0, 0, 50, 20), (50, 0, 100, 20))),
+        SimpleNamespace(cells=((0, 20, 50, 40), (50, 20, 100, 40))),
+    ), extract=lambda: [["A", "B"], ["C", "D"]])
+    source = [{"text": value, "bbox": (x + 5, y + 5, x + 15, y + 15),
+               "spans": [{"text": value, "bbox": (x + 5, y + 5, x + 15, y + 15)},
+                         {"text": "", "bbox": (x + 2, y + 2, x + 4, y + 4)}]}
+              for y, values in ((0, ("A", "B")), (20, ("C", "D")))
+              for x, value in zip((0, 50), values)]
+
+    projected, diagnostic = _reconstruct_native_table(table, source, 119)
+
+    assert diagnostic["decision"] == "confirmed_structured"
+    assert diagnostic["source_span_count"] == diagnostic["mapped_span_count"] == 4
+    assert [(cell["row"], cell["column"], cell["text"]) for cell in projected] == [
+        (0, 0, "A"), (0, 1, "B"), (1, 0, "C"), (1, 1, "D"),
+    ]
 
 
 def test_reported_partial_native_grid_shapes_are_strong_but_not_reconstructed():
@@ -346,6 +442,21 @@ def test_pdf_parser_preserves_order_layout_and_source_spans():
     assert parsed.source_text == "Part I\nA rule."
 
 
+def test_pdf_parser_retains_all_native_table_candidate_diagnostics():
+    candidates = (
+        {"bbox": [10, 20, 30, 40], "detection_strategies": ["lines"],
+         "decision": "strong_unresolved", "rejection_reason": "GRID_RECONSTRUCTION_AMBIGUOUS"},
+        {"bbox": [8, 18, 32, 42], "detection_strategies": ["text"],
+         "decision": "weak_candidate", "rejection_reason": "TEXT_DETECTION_NOT_CONFIRMED"},
+    )
+    parsed = PdfDocumentParser(lambda _: [{"page_number": 4, "blocks": [
+        {"block_id": "body", "text": "Source remains available", "bbox": [10, 50, 90, 60]},
+    ], "native_table_diagnostics": candidates}]).parse(Path("fixture.pdf"))
+
+    assert parsed.pages[0].native_table_diagnostics == candidates
+    assert parsed.pages[0].blocks[0].source_text == "Source remains available"
+
+
 def test_pdf_parser_carries_exact_table_cell_location_on_source_span():
     parser = PdfDocumentParser(lambda _: [{"page_number": 3, "blocks": [
         {"block_id": "p3-table-0-r1-c2", "text": "12", "bbox": [10, 20, 30, 40],
@@ -400,6 +511,27 @@ def test_pdf_parser_preserves_line_boxes_as_analysis_metadata():
     assert block.source_text == "Original paragraph text"
     assert block.line_boxes == ((10.0, 10.0, 40.0, 18.0), (10.0, 20.0, 40.0, 28.0),
                                 (10.0, 30.0, 40.0, 38.0))
+
+
+def test_heading_candidate_diagnostic_records_counts_and_document_style(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    page = {"page_number": 1, "geometry": {"width": 300, "height": 400}, "blocks": [
+        {"block_id": "body", "text": "Body words that establish the document style.", "bbox": [20, 100, 200, 120],
+         "lines": [{"text": "Body words that establish the document style.", "bbox": [20, 100, 200, 120],
+                    "spans": [{"text": "Body words that establish the document style.", "size": 10}]}]},
+        {"block_id": "heading", "text": "RULES", "bbox": [20, 150, 100, 160], "font_size": 12,
+         "lines": [{"text": "RULES", "bbox": [20, 150, 100, 160],
+                    "spans": [{"text": "RULES", "size": 12, "font": "Bold"}]}]},
+    ]}
+    parsed = PdfDocumentParser(lambda _source: [page]).parse(Path("fixture.pdf"))
+    log = next(record.message for record in caplog.records if "dev_preprocessing_heading stage=candidate_analysis" in record.message)
+
+    assert parsed.pages[0].heading_candidates
+    assert "pageNumber=1" in log
+    assert "actualReferenceFontSize=10.0" in log
+    assert "candidateCount=2" in log and "acceptedCount=1" in log and "rejectedCount=1" in log
+    assert "route=line_and_span_candidates" in log and "outcome=success" in log
 
 
 def test_form_page_uses_geometric_order_without_prose_column_profiles():

@@ -53,6 +53,6 @@ function DocumentIcon({ documentType }: { documentType: KnowledgeDocumentView['d
 
 function MaterialStatusIcon({ kind }: { kind: MaterialStatusKind }) {
   if (kind === 'ready') return <Check size={14} aria-hidden="true" />
-  if (kind === 'review' || kind === 'failed') return <AlertTriangle size={14} aria-hidden="true" />
+  if (kind === 'warning' || kind === 'review' || kind === 'failed') return <AlertTriangle size={14} aria-hidden="true" />
   return <span className="status-dot" aria-hidden="true" />
 }

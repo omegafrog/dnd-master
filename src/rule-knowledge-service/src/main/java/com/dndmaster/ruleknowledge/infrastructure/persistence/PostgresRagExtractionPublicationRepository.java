@@ -11,17 +11,12 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 import java.util.Objects;
-import java.util.regex.Pattern;
 import javax.sql.DataSource;
 
 /** PostgreSQL boundary for immutable extraction candidates and their public pointer. */
 public final class PostgresRagExtractionPublicationRepository implements RagExtractionPublicationRepository {
-    private static final Pattern BM25_TOKEN = Pattern.compile("[\\p{L}\\p{N}_]+");
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String INSERT_VERSION = """
             INSERT INTO rag_extraction_version
@@ -53,7 +48,7 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
             """;
     private static final String SELECT_PAGE_COUNTS = """
             SELECT COUNT(*) AS total_pages,
-                   COUNT(*) FILTER (WHERE status IN ('VALIDATED', 'EXCLUDED_FORM')) AS publishable_pages
+                   COUNT(*) FILTER (WHERE status IN ('VALIDATED', 'USABLE_WITH_WARNINGS', 'EXCLUDED_FORM')) AS publishable_pages
               FROM rag_extraction_page
              WHERE document_id = ? AND extraction_version = ?
             """;
@@ -62,8 +57,8 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
                 (document_id, owner_player_id, extraction_version, processor_chunk_id, chunk_id,
                  sequence, content, embedding_text, embedding, embedding_model, embedding_dimension,
                  section_path, page_number, bbox, table_cell, original_locator, source_spans, parent_key,
-                 content_type, token_count, canonical_key, document_length)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?, ?)
+                 content_type, token_count, canonical_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?, ?)
             ON CONFLICT (document_id, extraction_version, processor_chunk_id) DO UPDATE SET
                 chunk_id = EXCLUDED.chunk_id, sequence = EXCLUDED.sequence, content = EXCLUDED.content,
                 embedding_text = EXCLUDED.embedding_text, embedding = EXCLUDED.embedding,
@@ -71,14 +66,7 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
                 section_path = EXCLUDED.section_path, page_number = EXCLUDED.page_number,
                 bbox = EXCLUDED.bbox, table_cell = EXCLUDED.table_cell,
                 original_locator = EXCLUDED.original_locator, source_spans = EXCLUDED.source_spans, parent_key = EXCLUDED.parent_key,
-                content_type = EXCLUDED.content_type, token_count = EXCLUDED.token_count, canonical_key = EXCLUDED.canonical_key,
-                document_length = EXCLUDED.document_length
-            """;
-    private static final String DELETE_TERM_FREQUENCIES = "DELETE FROM chunk_term_frequency WHERE chunk_id = ?";
-    private static final String INSERT_TERM_FREQUENCY = """
-            INSERT INTO chunk_term_frequency (chunk_id, term, term_frequency)
-            VALUES (?, ?, ?)
-            ON CONFLICT (chunk_id, term) DO UPDATE SET term_frequency = EXCLUDED.term_frequency
+                content_type = EXCLUDED.content_type, token_count = EXCLUDED.token_count, canonical_key = EXCLUDED.canonical_key
             """;
     private static final String MARK_INDEXED = """
             UPDATE rag_extraction_version
@@ -149,9 +137,7 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
             verifyDocumentIdentity(connection, request);
             verifyVersionIdentity(connection, request);
             verifyAllPagesValidated(connection, request);
-            try (PreparedStatement insert = connection.prepareStatement(INSERT_CHUNK);
-                    PreparedStatement deleteTerms = connection.prepareStatement(DELETE_TERM_FREQUENCIES);
-                    PreparedStatement insertTerm = connection.prepareStatement(INSERT_TERM_FREQUENCY)) {
+            try (PreparedStatement insert = connection.prepareStatement(INSERT_CHUNK)) {
                 for (EmbeddedPublishedRagChunk embedded : immutableChunks) {
                     var chunk = embedded.chunk();
                     var provenance = chunk.provenance();
@@ -180,27 +166,9 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
                     insert.setString(19, chunk.contentType());
                     insert.setInt(20, chunk.tokenCount());
                     insert.setString(21, chunk.canonicalKey());
-                    insert.setInt(22, bm25TermFrequencies(chunk.embeddingText()).values().stream()
-                            .mapToInt(Integer::intValue).sum());
                     insert.addBatch();
-
-                    setUuid(deleteTerms, 1, chunkId);
-                    deleteTerms.addBatch();
                 }
                 insert.executeBatch();
-                deleteTerms.executeBatch();
-                for (EmbeddedPublishedRagChunk embedded : immutableChunks) {
-                    var chunkId = com.dndmaster.ruleknowledge.domain.index.ChunkId
-                            .fromPublicationValue(request.documentId(), request.extractionVersion(),
-                                    embedded.chunk().processorChunkId()).value();
-                    for (var term : bm25TermFrequencies(embedded.chunk().embeddingText()).entrySet()) {
-                        setUuid(insertTerm, 1, chunkId);
-                        insertTerm.setString(2, term.getKey());
-                        insertTerm.setInt(3, term.getValue());
-                        insertTerm.addBatch();
-                    }
-                }
-                insertTerm.executeBatch();
             }
             executeUpdate(connection, MARK_INDEXED, statement -> {
                 statement.setObject(1, request.documentId().value(), Types.OTHER);
@@ -263,14 +231,19 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
     }
 
     private static void verifyAllPagesValidated(Connection connection, RagExtractionPublicationRequest request) throws SQLException {
+        long expectedSearchablePages = request.pages().stream()
+                .filter(page -> "VALIDATED".equals(page.status())
+                        || "USABLE_WITH_WARNINGS".equals(page.status())
+                        || "EXCLUDED_FORM".equals(page.status()))
+                .count();
         try (PreparedStatement statement = connection.prepareStatement(SELECT_PAGE_COUNTS)) {
             setUuid(statement, 1, request.documentId().value());
             statement.setString(2, request.extractionVersion());
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
                 if (row.getInt("total_pages") != request.pages().size()
-                        || row.getInt("publishable_pages") != request.pages().size()) {
-                    throw new IllegalStateException("extraction version contains an unvalidated or missing page");
+                        || row.getLong("publishable_pages") != expectedSearchablePages) {
+                    throw new IllegalStateException("extraction version page manifest does not match searchable page states");
                 }
             }
         }
@@ -338,13 +311,6 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
         } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
             throw new IllegalArgumentException("could not serialize published source spans", exception);
         }
-    }
-
-    private static Map<String, Integer> bm25TermFrequencies(String text) {
-        Map<String, Integer> frequencies = new LinkedHashMap<>();
-        var matcher = BM25_TOKEN.matcher(text.toLowerCase(Locale.ROOT));
-        while (matcher.find()) frequencies.merge(matcher.group(), 1, Integer::sum);
-        return frequencies;
     }
 
     @FunctionalInterface

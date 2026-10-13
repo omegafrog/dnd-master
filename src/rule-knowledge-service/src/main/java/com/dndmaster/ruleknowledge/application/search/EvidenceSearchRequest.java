@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
-/** Input for a single scoped dense and BM25 candidate search. */
+/** Input for a single scoped dense candidate search. */
 public record EvidenceSearchRequest(
         OwnerPlayerId ownerPlayerId,
         UUID sessionId,
@@ -17,19 +17,19 @@ public record EvidenceSearchRequest(
         List<String> activeLocators,
         String query,
         int denseLimit,
-        int bm25Limit,
         List<UUID> excludedChunkIds,
         Double minimumDenseSimilarity) {
     public EvidenceSearchRequest(OwnerPlayerId ownerPlayerId, UUID sessionId, UUID scenarioPackageId, String stageKey,
             String actionIntent, List<AuthorizedDocumentScope> scope, List<String> activeLocators, String query,
-            int denseLimit, int bm25Limit) {
-        this(ownerPlayerId, sessionId, scenarioPackageId, stageKey, actionIntent, scope, activeLocators, query, denseLimit, bm25Limit, List.of(), null);
+            int denseLimit) {
+        this(ownerPlayerId, sessionId, scenarioPackageId, stageKey, actionIntent, scope, activeLocators, query,
+                denseLimit, List.of(), null);
     }
     public EvidenceSearchRequest(OwnerPlayerId ownerPlayerId, UUID sessionId, UUID scenarioPackageId, String stageKey,
             String actionIntent, List<AuthorizedDocumentScope> scope, List<String> activeLocators, String query,
-            int denseLimit, int bm25Limit, List<UUID> excludedChunkIds) {
+            int denseLimit, List<UUID> excludedChunkIds) {
         this(ownerPlayerId, sessionId, scenarioPackageId, stageKey, actionIntent, scope, activeLocators, query,
-                denseLimit, bm25Limit, excludedChunkIds, null);
+                denseLimit, excludedChunkIds, null);
     }
     public EvidenceSearchRequest {
         Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -53,9 +53,6 @@ public record EvidenceSearchRequest(
         }
         if (query == null || query.isBlank()) throw new IllegalArgumentException("query must not be blank");
         validateLimit(denseLimit, "dense limit");
-        if (bm25Limit < 0 || bm25Limit > RrfFusionPolicy.MAX_RESULTS_PER_RETRIEVER) {
-            throw new IllegalArgumentException("BM25 limit must be between 0 and 30");
-        }
         if (minimumDenseSimilarity != null && (!Double.isFinite(minimumDenseSimilarity)
                 || minimumDenseSimilarity < -1 || minimumDenseSimilarity > 1)) {
             throw new IllegalArgumentException("minimum dense similarity must be finite and between -1 and 1");

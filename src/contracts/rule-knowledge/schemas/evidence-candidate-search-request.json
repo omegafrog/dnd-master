@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://dnd-master.local/contracts/rule-knowledge/v1/evidence-candidate-search-request.json",
-  "title": "한 번의 혼합 문서 근거 검색 요청",
+  "title": "한 번의 문서 근거 검색 요청",
   "type": "object",
   "additionalProperties": false,
   "required": ["ownerId", "sessionId", "scenarioPackageId", "stageKey", "actionIntent", "scope", "activeLocators", "excludedEvidenceIds", "query", "denseLimit"],

@@ -47,6 +47,8 @@ public final class RagExtractionPublicationService {
             log("dev_rag_extraction_publication stage=page_validation pageCount=" + effectiveRequest.pages().size()
                     + " excludedFormPageCount=" + effectiveRequest.pages().stream()
                         .filter(page -> "EXCLUDED_FORM".equals(page.status())).count()
+                    + " unresolvedPageCount=" + effectiveRequest.pages().stream()
+                        .filter(page -> "NEEDS_REVIEW".equals(page.status())).count()
                     + " chunkCount=" + effectiveRequest.chunks().size() + " outcome=accepted");
             List<RulebookChunk> embeddingInputs = effectiveRequest.chunks().stream()
                     .map(chunk -> toRulebookChunk(effectiveRequest.documentId(), effectiveRequest.extractionVersion(), chunk))
@@ -83,12 +85,14 @@ public final class RagExtractionPublicationService {
             log("dev_rag_extraction_publication stage=complete pageCount=" + effectiveRequest.pages().size()
                     + " excludedFormPageCount=" + effectiveRequest.pages().stream()
                         .filter(page -> "EXCLUDED_FORM".equals(page.status())).count()
+                    + " unresolvedPageCount=" + effectiveRequest.pages().stream()
+                        .filter(page -> "NEEDS_REVIEW".equals(page.status())).count()
                     + " chunkCount=" + publishedChunks.size() + " outcome=published");
             return new RagExtractionVersion(effectiveRequest.documentId(), effectiveRequest.extractionVersion(), ExtractionPublicationStatus.INDEXED);
         } catch (PublicationBlockedException exception) {
             log("dev_rag_extraction_publication stage=page_validation failureCode=PUBLICATION_BLOCKED"
-                    + " expectedAllowedStatuses=VALIDATED,EXCLUDED_FORM actualPageCount=" + effectiveRequest.pages().size()
-                    + " recoveryAction=retain_candidate_and_require_review outcome=blocked");
+                    + " expectedAllowedChunkSourceStatuses=VALIDATED,USABLE_WITH_WARNINGS actualPageCount=" + effectiveRequest.pages().size()
+                    + " recoveryAction=retain_source_and_exclude_unusable_pages outcome=blocked");
             repository.fail(effectiveRequest, ExtractionPublicationStatus.NEEDS_REVIEW, "PUBLICATION_BLOCKED");
             throw exception;
         } catch (RuntimeException exception) {
@@ -105,9 +109,9 @@ public final class RagExtractionPublicationService {
         for (RagExtractionPage page : request.pages()) {
             if (!pageNumbers.add(page.pageNumber())) throw new PublicationBlockedException("duplicate extraction page");
             statusByPage.put(page.pageNumber(), page.status());
-            if (!"VALIDATED".equals(page.status()) && !"EXCLUDED_FORM".equals(page.status())) {
-                throw new PublicationBlockedException("extraction version has an unvalidated page");
-            }
+            if (!"VALIDATED".equals(page.status()) && !"USABLE_WITH_WARNINGS".equals(page.status())
+                    && !"EXCLUDED_FORM".equals(page.status()) && !"NEEDS_REVIEW".equals(page.status()))
+                throw new PublicationBlockedException("extraction version has an unsupported page status");
         }
         for (int page = 1; page <= pageNumbers.size(); page++) {
             if (!pageNumbers.contains(page)) throw new PublicationBlockedException("extraction page manifest is incomplete");
@@ -119,9 +123,11 @@ public final class RagExtractionPublicationService {
             }
             if (!pageNumbers.contains(chunk.provenance().pageNumber())) throw new PublicationBlockedException("chunk page is not in extraction manifest");
             if ("EXCLUDED_FORM".equals(statusByPage.get(chunk.provenance().pageNumber()))
+                    || "NEEDS_REVIEW".equals(statusByPage.get(chunk.provenance().pageNumber()))
                     || chunk.provenance().sourceSpans().stream()
-                        .anyMatch(span -> "EXCLUDED_FORM".equals(statusByPage.get(span.pageNumber())))) {
-                throw new PublicationBlockedException("chunk references an excluded form page");
+                        .anyMatch(span -> "EXCLUDED_FORM".equals(statusByPage.get(span.pageNumber()))
+                                || "NEEDS_REVIEW".equals(statusByPage.get(span.pageNumber())))) {
+                throw new PublicationBlockedException("chunk references a page without searchable text");
             }
         }
     }

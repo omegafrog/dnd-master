@@ -30,6 +30,7 @@ public final class ResolutionCandidateController {
             "(?i)\\bDC\\s*(\\d+)\\s+([A-Za-z]+(?:\\s*\\([^)]*\\))?)\\s+(sa\\s*ving\\s+throw(?:s)?|check(?:s)?)");
     private static final Pattern DICE = Pattern.compile("(?i)\\b(\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?)\\b");
     private static final Pattern ANY_DC = Pattern.compile("(?i)\\bDC\\s*(\\d+)\\b");
+    private static final String DICE_EXPRESSION_RULE = "For diceExpression on dice-based roll kinds other than RECHARGE_ROLL, use exactly one NdS term: positive integer N from 1 to 100, the letter d, and positive integer S from 1 to 1000, optionally followed by at most one signed integer modifier (+K or -K). Examples: 1d20, 2d6+3, 1d8-1. Do not use multiple dice terms or multiple modifiers (invalid examples: 1d6+1d4, 2d6+2+1). Keep every die and modifier grounded in the source; never invent them. For RECHARGE_ROLL, use only a numeric inclusive N-M range present in the source, with bounds from 1 to 20 and N no greater than M; encode Recharge 5-6 exactly as 5-6, never include words.";
     private final SpringAiChatAdapter adapter;
     private final ObjectMapper objectMapper;
     private final AgentEndpointRegistry endpointRegistry;
@@ -52,19 +53,10 @@ public final class ResolutionCandidateController {
     @PostMapping("/internal/v1/gm/resolution-candidates")
     Response extract(@RequestBody Request request) {
         if (request == null || request.excerpts() == null) return new Response(List.of());
-        String prompt = "Extract only directly supported tabletop resolution candidates from these source excerpts. "
-                + (request.attempt() > 0 ? "This is retry attempt " + request.attempt() + ". Failed candidate: " + request.failedCandidate()
-                        + ". Diagnostics: " + request.diagnostics() + ". Correct the diagnosed failure and return a replacement candidate. " : "")
-                + "Return exactly a JSON array, never an object wrapper. Use only these exact enum values and field types; do not create aliases or other values. "
-                + "Template: [{\"kind\":\"SAVING_THROW\",\"abilityOrSkill\":\"Dexterity\",\"dc\":{\"type\":\"FIXED\",\"value\":12},\"diceExpression\":\"1d10\",\"visibility\":\"GM_REFERENCE\",\"sourceQuote\":\"exact quote\",\"sourceRefs\":[{\"documentId\":\"uuid\",\"extractionVersion\":2,\"locator\":\"offset 0-10\"}],\"detail\":{\"trigger\":{\"type\":\"WORLD_EVENT\",\"condition\":\"entering the room\"},\"check\":{\"rollMethod\":\"SYSTEM\",\"method\":\"Dexterity saving throw\"},\"stateEffect\":{\"stateKey\":\"trap\",\"successEffect\":\"avoided\",\"failureEffect\":\"damaged\"},\"reveal\":{\"condition\":\"ON_SUCCESS\",\"level\":\"CLUE\",\"hiddenFact\":\"a concealed trap\"},\"priorKnowledge\":{\"alreadyPublic\":false,\"knownFacts\":[]}},\"provenance\":\"source text\"}]. "
-                + "Enum values by field: kind is one of SKILL_ABILITY_CHECK,SAVING_THROW,PASSIVE_THRESHOLD,DICE_ROLL,ATTACK_ROLL,DAMAGE_ROLL,HEALING_ROLL,OPPOSED_CHECK,INITIATIVE_ROLL,RECHARGE_ROLL,RANDOM_TABLE,SPECIAL_ROLL; visibility is GM_REFERENCE or PLAYER_SAFE; dc.type is FIXED or CASTER_SPELL_SAVE_DC; trigger.type is WORLD_EVENT or PLAYER_ACTION (COMBAT_EVENT is a legacy alias for WORLD_EVENT); check.rollMethod is SYSTEM or PLAYER; reveal.condition is ON_SUCCESS, ON_FAILURE, or ALWAYS; reveal.level domain values are NONE, CLUE, FACT, and FULL. These lists are exhaustive. Candidate constraints: reveal.hiddenFact must be a non-empty fact, so reveal.level must be CLUE, FACT, or FULL; never use NONE for a candidate. ON_TRIGGER is not a valid reveal.condition: use ALWAYS when a fact is revealed whenever the trigger occurs, or use ON_SUCCESS/ON_FAILURE only when reveal depends on the check result. PLAYER_ACTION must use check.rollMethod PLAYER; WORLD_EVENT/COMBAT_EVENT must use SYSTEM. Every required string in detail must be non-empty. "
-                + "Field rules: for ATTACK_ROLL, abilityOrSkill is optional because source text may provide only an attack bonus; provide a valid d20 attack expression such as 1d20+5. For RECHARGE_ROLL, encode 'Recharge 5-6' as diceExpression exactly '5-6'; use only an inclusive numeric N-M range, never 'Recharge 5-6', '5 to 6', or null when the range is present. "
-                + "visibility must be GM_REFERENCE or PLAYER_SAFE. Keep sourceRefs only when the excerpt supplies an exact object reference. "
-                + "For SAVING_THROW dc, use {\"type\":\"FIXED\",\"value\":N} only for explicit numeric DCs; for the caster's or user's spell save DC use {\"type\":\"CASTER_SPELL_SAVE_DC\"}. Never invent a number. "
-                + "Do not invent values or references. Output JSON only. Excerpts: " + request.excerpts();
-        if (request.promptVersion() != null && request.promptVersion().startsWith("resolution-recovery")) {
-            prompt += " This is a recovery pass for previously invalid candidates. Re-read the exact source text and repair only the invalid resolution. For RECHARGE_ROLL, extract a numeric inclusive range such as Recharge 5-6 into diceExpression as exactly 5-6; never leave diceExpression null when the source contains a recharge range. Preserve the source quote and source reference.";
-        }
+        long startedAt = System.nanoTime();
+        String prompt = buildPrompt(request);
+        if (diagnosticsEnabled()) log.info("resolution_candidate_started operationId={} excerpts={} excerptChars={} promptChars={} attempt={}",
+                request.operationId(), request.excerpts().size(), excerptChars(request.excerpts()), prompt.length(), request.attempt());
         List<Candidate> candidates;
         AgentEndpoint endpoint = endpointRegistry.active();
         try {
@@ -79,8 +71,8 @@ public final class ResolutionCandidateController {
             // A provider response is optional authoring assistance. If it is
             // malformed or unavailable, continue with the source-pattern
             // fallback instead of failing the whole package preparation job.
-            log.warn("resolution_candidate_provider_fallback operationId={} provider={} reason={}",
-                    request.operationId(), endpoint.provider(), malformedOrUnavailable.getMessage());
+            if (diagnosticsEnabled()) log.warn("resolution_candidate_provider_fallback operationId={} provider={} failureClass={}",
+                    request.operationId(), endpoint.provider(), malformedOrUnavailable.getClass().getSimpleName());
             candidates = List.of();
         }
         if (!candidates.isEmpty()) {
@@ -95,21 +87,59 @@ public final class ResolutionCandidateController {
                 if (contractFailure != null) rejectedContract++;
                 else if (sourceFailure != null) rejectedSource++;
                 else verified.add(enrichSymbolicDc(candidate, request.excerpts()));
-                log.info("resolution_candidate_diagnostic operationId={} index={} accepted={} rejection={} candidate={}",
-                        request.operationId(), index, contractFailure == null && sourceFailure == null,
+                if (diagnosticsEnabled()) log.info("resolution_candidate_diagnostic operationId={} index={} kind={} accepted={} rejection={} sourceQuoteChars={} sourceRefCount={} detailType={}",
+                        request.operationId(), index, candidate.kind(), contractFailure == null && sourceFailure == null,
                         contractFailure != null ? "canonical_contract:" + contractFailure
                                 : sourceFailure != null ? "source_evidence:" + sourceFailure : "none",
-                        candidateJson(candidate));
+                        textLength(candidate.sourceQuote()),
+                        candidate.sourceRefs() == null ? 0 : candidate.sourceRefs().size(),
+                        candidate.detail() == null ? "NULL" : candidate.detail().getNodeType());
             }
             List<Candidate> deduplicated = deduplicate(verified);
-            log.info("resolution_candidate_ai_result operationId={} aiCandidates={} rejectedContract={} rejectedSource={} verified={} deduplicated={} excerpts={}",
-                    request.operationId(), candidates.size(), rejectedContract, rejectedSource, verified.size(), deduplicated.size(), request.excerpts().size());
+            if (diagnosticsEnabled()) log.info("resolution_candidate_ai_result operationId={} aiCandidates={} rejectedContract={} rejectedSource={} verified={} deduplicated={} excerpts={} elapsedMs={}",
+                    request.operationId(), candidates.size(), rejectedContract, rejectedSource, verified.size(), deduplicated.size(), request.excerpts().size(), elapsedMillis(startedAt));
             return new Response(deduplicated);
         }
         List<Candidate> fallback = deduplicate(fallbackCandidates(request.excerpts()).stream()
                 .filter(candidate -> canonicalContractValid(candidate.detail())).toList());
-        log.warn("resolution_candidate_ai_empty operationId={} fallbackCandidates={} excerpts={} excerptSummaries={}", request.operationId(), fallback.size(), request.excerpts().size(), request.excerpts().stream().map(e -> e.locator() + ":" + (e.text() == null ? 0 : e.text().length()) + ":" + (e.text() == null ? "" : e.text().substring(0, Math.min(100, e.text().length())).replaceAll("\\s+", " "))).toList());
+        if (diagnosticsEnabled()) log.warn("resolution_candidate_ai_empty operationId={} fallbackCandidates={} excerpts={} excerptChars={} elapsedMs={}",
+                request.operationId(), fallback.size(), request.excerpts().size(), excerptChars(request.excerpts()), elapsedMillis(startedAt));
         return new Response(fallback);
+    }
+
+    private static int excerptChars(List<Excerpt> excerpts) {
+        return excerpts.stream().mapToInt(excerpt -> textLength(excerpt.text())).sum();
+    }
+
+    private static int textLength(String text) {
+        return text == null ? 0 : text.length();
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return (System.nanoTime() - startedAt) / 1_000_000;
+    }
+
+    private static boolean diagnosticsEnabled() {
+        return "true".equalsIgnoreCase(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+    }
+
+    String buildPrompt(Request request) {
+        String prompt = "Extract only directly supported tabletop resolution candidates from these source excerpts. "
+                + (request.attempt() > 0 ? "This is retry attempt " + request.attempt() + ". Failed candidate: " + request.failedCandidate()
+                        + ". Diagnostics: " + request.diagnostics() + ". Correct the diagnosed failure and return a replacement candidate. " : "")
+                + "Return exactly a JSON array, never an object wrapper. Use only these exact enum values and field types; do not create aliases or other values. "
+                + "Template: [{\"kind\":\"SAVING_THROW\",\"abilityOrSkill\":\"Dexterity\",\"dc\":{\"type\":\"FIXED\",\"value\":12},\"diceExpression\":\"1d10\",\"visibility\":\"GM_REFERENCE\",\"sourceQuote\":\"exact quote\",\"sourceRefs\":[{\"documentId\":\"uuid\",\"extractionVersion\":2,\"locator\":\"offset 0-10\"}],\"detail\":{\"trigger\":{\"type\":\"WORLD_EVENT\",\"condition\":\"entering the room\"},\"check\":{\"rollMethod\":\"SYSTEM\",\"method\":\"Dexterity saving throw\"},\"stateEffect\":{\"stateKey\":\"trap\",\"successEffect\":\"avoided\",\"failureEffect\":\"damaged\"},\"reveal\":{\"condition\":\"ON_SUCCESS\",\"level\":\"CLUE\",\"hiddenFact\":\"a concealed trap\"},\"priorKnowledge\":{\"alreadyPublic\":false,\"knownFacts\":[]}},\"provenance\":\"source text\"}]. "
+                + "Enum values by field: kind is one of SKILL_ABILITY_CHECK,SAVING_THROW,PASSIVE_THRESHOLD,DICE_ROLL,ATTACK_ROLL,DAMAGE_ROLL,HEALING_ROLL,OPPOSED_CHECK,INITIATIVE_ROLL,RECHARGE_ROLL,RANDOM_TABLE,SPECIAL_ROLL; visibility is GM_REFERENCE or PLAYER_SAFE; dc.type is FIXED or CASTER_SPELL_SAVE_DC; trigger.type is WORLD_EVENT or PLAYER_ACTION (COMBAT_EVENT is a legacy alias for WORLD_EVENT); check.rollMethod is SYSTEM or PLAYER; reveal.condition is ON_SUCCESS, ON_FAILURE, or ALWAYS; reveal.level domain values are NONE, CLUE, FACT, and FULL. These lists are exhaustive. Candidate constraints: reveal.hiddenFact must be a non-empty fact, so reveal.level must be CLUE, FACT, or FULL; never use NONE for a candidate. ON_TRIGGER is not a valid reveal.condition: use ALWAYS when a fact is revealed whenever the trigger occurs, or use ON_SUCCESS/ON_FAILURE only when reveal depends on the check result. PLAYER_ACTION must use check.rollMethod PLAYER; WORLD_EVENT/COMBAT_EVENT must use SYSTEM. Every required string in detail must be non-empty. "
+                + "Field rules: for ATTACK_ROLL, abilityOrSkill is optional because source text may provide only an attack bonus; provide a valid d20 attack expression such as 1d20+5. "
+                + DICE_EXPRESSION_RULE + " "
+                + "visibility must be GM_REFERENCE or PLAYER_SAFE. Keep sourceRefs only when the excerpt supplies an exact object reference. "
+                + "For SAVING_THROW dc, use {\"type\":\"FIXED\",\"value\":N} only for explicit numeric DCs; for the caster's or user's spell save DC use {\"type\":\"CASTER_SPELL_SAVE_DC\"}. Never invent a number. "
+                + "Do not invent values or references. Output JSON only. Excerpts: " + request.excerpts();
+        if (request.promptVersion() != null && request.promptVersion().startsWith("resolution-recovery")) {
+            prompt += " This is a recovery pass for previously invalid candidates. Re-read the exact source text and repair only the invalid resolution. Follow the diceExpression grammar above without adding dice or modifiers; for RECHARGE_ROLL, preserve only the source-grounded inclusive numeric range. Preserve the source quote and source reference, and do not invent values or references.";
+        }
+        return prompt;
     }
 
     private static boolean verifiedAgainstExcerpts(Candidate candidate, List<Excerpt> excerpts) {
@@ -182,14 +212,6 @@ public final class ResolutionCandidateController {
             return null;
         } catch (IllegalArgumentException invalid) {
             return invalid.getMessage();
-        }
-    }
-
-    private String candidateJson(Candidate candidate) {
-        try {
-            return objectMapper.writeValueAsString(candidate);
-        } catch (Exception serializationFailure) {
-            return String.valueOf(candidate);
         }
     }
 

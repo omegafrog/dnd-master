@@ -210,7 +210,7 @@ public final class RulebookCatalogBackofficeController {
                 && actionDefinitions.find(publicationRegistration.rulebookId().value(), publicationRegistration.candidateExtractionVersion())
                         .map(item -> "COMPLETED".equals(item.status())).orElse(false);
         if (current.rulebookId() == null || !actionDefinitionsReady || registrations.findById(new RulebookId(current.rulebookId()))
-                .map(item -> item.processingStatus() == ProcessingStatus.INDEXED
+                .map(item -> item.processingStatus().isSearchable()
                         && item.documentType() == DocumentType.RULEBOOK
                         && item.ownerPlayerId().value().equals(CATALOG_OWNER) && item.version() > 0)
                 .orElse(false) == false) {

@@ -5,6 +5,7 @@ public enum ProcessingStatus {
     PROCESSING,
     VALIDATED,
     INDEXED,
+    INDEXED_WITH_WARNINGS,
     FAILED,
     NEEDS_REVIEW,
     NEEDS_INPUT,
@@ -12,5 +13,9 @@ public enum ProcessingStatus {
     EXTRACTED,
     PARTIAL_AWAITING_CONFIRMATION,
     PARTIAL_CONFIRMED,
-    REJECTED
+    REJECTED;
+
+    public boolean isSearchable() {
+        return this == INDEXED || this == INDEXED_WITH_WARNINGS || this == PARTIAL_CONFIRMED;
+    }
 }

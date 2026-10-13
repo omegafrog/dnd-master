@@ -1,7 +1,8 @@
 import json
+import hashlib
 
 from preprocessing_agent.chunking import ChunkAssembler, ChunkPolicy, ChunkSplitter
-from preprocessing_agent.domain import Chunk, ChunkCandidate, ContentType, DocumentTree, SectionNode, SourceSegment, SourceSpan, ValidationIssue
+from preprocessing_agent.domain import Chunk, ChunkCandidate, ContentType, DocumentTree, ParsedBlock, ParsedDocument, ParsedPage, SectionNode, SourceSegment, SourceSpan, ValidationIssue
 from preprocessing_agent.exporters import ArtifactExporter
 from preprocessing_agent.domain import schema_path, validate_json
 from preprocessing_agent.validation import ValidationPolicy, validate_chunks
@@ -21,6 +22,34 @@ def test_exporter_writes_four_artifacts_and_excludes_invalid_spans(tmp_path):
     assert len((tmp_path / "chunks.jsonl").read_text().splitlines()) == 1
     assert manifest["statistics"]["chunks"]["exported"] == 1
     json.loads((tmp_path / "manifest.json").read_text())
+
+
+def test_exporter_writes_page_structure_and_source_file_hash(tmp_path):
+    source = tmp_path / "input.pdf"
+    source.write_bytes(b"pdf bytes")
+    block = ParsedBlock("p1-b0", "Heading", SourceSpan(1), (1, 2, 30, 12))
+    table_diagnostics = ({"bbox": [10, 20, 30, 40], "row_count": 5,
+                         "decision": "weak_candidate", "rejection_reason": "TEXT_DETECTION_NOT_CONFIRMED"},)
+    page = ParsedPage(1, (block,), "Heading", page_classification="text-native",
+                      native_table_diagnostics=table_diagnostics)
+    references = {"pdf_bookmarks": [], "printed_contents": [], "heading_reference_candidates": [],
+                  "hierarchy_changed": False}
+    document = ParsedDocument("doc", str(source), "Heading", (page,),
+                              {"excluded_form_pages": [3], "document_structure_references": references})
+    tree = DocumentTree("doc", SectionNode("root", "Heading", 0, ContentType.RULE))
+
+    manifest = ArtifactExporter().export(tmp_path / "out", source, "Heading", (), (), tree, document=document)
+
+    structure = json.loads((tmp_path / "out" / "document_structure.json").read_text())
+    assert structure["pipeline_version"] == ArtifactExporter.PIPELINE_VERSION
+    assert structure["document_structure_references"] == references
+    assert structure["pages"][0]["blocks"] == [{"block_id": "p1-b0", "bbox": [1, 2, 30, 12], "text": "Heading"}]
+    assert structure["pages"][0]["native_table_diagnostics"] == list(table_diagnostics)
+    assert structure["pages"][1] == {"page_number": 3, "page_classification": "form", "blocks": [],
+                                     "heading_associations": [], "heading_candidates": [], "tables": [],
+                                     "native_table_diagnostics": [], "layout": None}
+    assert manifest["source_file_sha256"] == hashlib.sha256(b"pdf bytes").hexdigest()
+    validate_json(manifest, json.loads(schema_path("manifest.schema.json").read_text(encoding="utf-8")))
 
 
 def test_exporter_serializes_split_chunk_as_one_schema_valid_jsonl_line(tmp_path):

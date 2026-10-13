@@ -181,7 +181,8 @@ public class AdventureSessionApplicationService {
                     blueprint.provenance().selectedRulebookExtractionVersion());
         var sources = scenarioPackage.documents().stream()
                 .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType())
-                        && document.status() == com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED)
+                        && (document.status() == com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED
+                            || document.status() == com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED_WITH_WARNINGS))
                 .toList();
         return sources.size() == 1 ? new SelectedRulebookSource(sources.getFirst().knowledgeDocumentId().value(),
                 sources.getFirst().extractionVersion()) : null;

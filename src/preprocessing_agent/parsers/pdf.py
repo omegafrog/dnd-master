@@ -31,9 +31,11 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class PdfDocumentParser:
-    def __init__(self, extractor: Extractor | None = None, layout_selections: dict[int, dict[str, int]] | None = None) -> None:
+    def __init__(self, extractor: Extractor | None = None, layout_selections: dict[int, dict[str, int]] | None = None,
+                 *, analyze_structure: bool = True) -> None:
         self._extractor = extractor or _default_extractor
         self._layout_selections = layout_selections or {}
+        self._analyze_structure = analyze_structure
 
     def parse(self, source: Path) -> ParsedDocument:
         source = Path(source)
@@ -41,6 +43,17 @@ class PdfDocumentParser:
             raw_pages = tuple(self._extractor(source))
         except Exception as exc:  # normalize adapter errors at the port boundary
             raise ParserError(f"failed to parse {source}: {exc}") from exc
+        pdf_bookmarks = tuple(raw_pages[0].get("pdf_bookmarks", ())) if raw_pages and self._analyze_structure else ()
+        if self._analyze_structure:
+            from preprocessing_agent.structure.references import extract_printed_contents_entries
+            printed_contents = tuple(extract_printed_contents_entries(raw_pages))
+            from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector, document_reference_font_size
+            reference_font_size = document_reference_font_size(raw_pages)
+        else:
+            printed_contents = ()
+            reference_font_size = None
+            _layout_log("dev_preprocessing_parser stage=started pageCount=%d expectedAnalysis=disabled actualAnalysis=disabled route=source_text_and_provenance outcome=started",
+                        len(raw_pages))
         pages: list[ParsedPage] = []
         layout_diagnostics: list[dict[str, Any]] = []
         document_parts: list[str] = []
@@ -51,7 +64,9 @@ class PdfDocumentParser:
             page_number = int(raw_page.get("page_number", page_position))
             form_diagnostics = raw_page.get("form_diagnostics")
             required_form_counts = {"drawing_count", "aligned_line_count", "long_horizontal_line_count", "text_line_count"}
-            if (raw_page.get("page_classification") == "form" and isinstance(form_diagnostics, Mapping)
+            if (raw_page.get("page_classification") == "form"
+                    and raw_page.get("form_content_state", "blank") == "blank"
+                    and isinstance(form_diagnostics, Mapping)
                     and required_form_counts <= form_diagnostics.keys()
                     and all(type(form_diagnostics[key]) is int and form_diagnostics[key] >= 0
                             for key in required_form_counts)
@@ -70,39 +85,48 @@ class PdfDocumentParser:
                 for index, raw_block in enumerate(raw_page.get("blocks", ()))
             ))
             missing_geometry = any(raw_block.get("bbox") is None for raw_block in source_blocks)
-            layout_value = raw_page.get("layout")
-            serialized_plan = layout_value if isinstance(layout_value, Mapping) and any(
-                key in layout_value for key in ("ordered_block_ids", "regions", "profiles", "table_zones")) else None
-            if serialized_plan is not None:
-                plan = _validated_plan(serialized_plan, source_blocks)
-                _layout_log("dev_preprocessing_layout stage=plan_consumed pageNumber=%d blockCount=%d tableSourceBlockCount=%d orderedBlockCount=%d furnitureBlockCount=%d route=serialized_plan elapsedMs=%d outcome=accepted",
-                             page_number, len(source_blocks), sum(_is_table_block(block) for block in source_blocks),
-                             len(plan.ordered_block_ids), len(plan.furniture_block_ids),
-                             round((time.monotonic() - page_started) * 1000))
-            else:
-                plan = None if missing_geometry else (
-                    ReadingOrderPlanner().form_plan(source_blocks)
-                    if raw_page.get("page_classification") == "form" else
-                    ReadingOrderPlanner().plan(source_blocks, selections=self._layout_selections.get(page_number, {})))
-                _layout_log("dev_preprocessing_layout stage=plan_complete pageNumber=%d blockCount=%d tableSourceBlockCount=%d route=%s elapsedMs=%d outcome=%s",
-                             page_number, len(source_blocks), sum(_is_table_block(block) for block in source_blocks),
-                             "recomputed" if plan is not None else "missing_geometry",
-                             round((time.monotonic() - page_started) * 1000), "success" if plan is not None else "review")
-            if missing_geometry and plan is None:
-                # Text-only callers remain compatible, but the missing
-                # geometry is explicit evidence and cannot be READY-published.
+            if not self._analyze_structure:
+                plan = None
                 raw_blocks = source_blocks
-                layout_diagnostics.append({"page_number": page_number, "finding": "LAYOUT_GEOMETRY_REQUIRED"})
-            elif plan.ambiguous:
-                # Use the planner's deterministic geometric diagnostic order,
-                # never the extractor/source order. The application gate still
-                # blocks this page from READY publication.
-                by_id = {str(block["block_id"]): block for block in source_blocks}
-                raw_blocks = tuple(by_id[block_id] for block_id in (*plan.ordered_block_ids, *plan.furniture_block_ids))
-                layout_diagnostics.append({"page_number": page_number, "layout": to_dict(plan)})
+                _layout_log("dev_preprocessing_parser stage=page_source pageNumber=%d expectedBlockCount=%d actualBlockCount=%d expectedLocatedBlockCount=%d actualLocatedBlockCount=%d route=source_order_no_structure_analysis outcome=%s",
+                            page_number, len(source_blocks), len(raw_blocks),
+                            sum(raw_block.get("bbox") is not None for raw_block in source_blocks),
+                            sum(raw_block.get("bbox") is not None for raw_block in raw_blocks),
+                            "complete" if not missing_geometry else "missing_provenance")
             else:
-                by_id = {str(block["block_id"]): block for block in source_blocks}
-                raw_blocks = tuple(by_id[block_id] for block_id in (*plan.ordered_block_ids, *plan.furniture_block_ids))
+                layout_value = raw_page.get("layout")
+                serialized_plan = layout_value if isinstance(layout_value, Mapping) and any(
+                    key in layout_value for key in ("ordered_block_ids", "regions", "profiles", "table_zones")) else None
+                if serialized_plan is not None:
+                    plan = _validated_plan(serialized_plan, source_blocks)
+                    _layout_log("dev_preprocessing_layout stage=plan_consumed pageNumber=%d blockCount=%d tableSourceBlockCount=%d orderedBlockCount=%d furnitureBlockCount=%d route=serialized_plan elapsedMs=%d outcome=accepted",
+                                 page_number, len(source_blocks), sum(_is_table_block(block) for block in source_blocks),
+                                 len(plan.ordered_block_ids), len(plan.furniture_block_ids),
+                                 round((time.monotonic() - page_started) * 1000))
+                else:
+                    plan = None if missing_geometry else (
+                        ReadingOrderPlanner().form_plan(source_blocks)
+                        if raw_page.get("page_classification") == "form" else
+                        ReadingOrderPlanner().plan(source_blocks, selections=self._layout_selections.get(page_number, {})))
+                    _layout_log("dev_preprocessing_layout stage=plan_complete pageNumber=%d blockCount=%d tableSourceBlockCount=%d route=%s elapsedMs=%d outcome=%s",
+                                 page_number, len(source_blocks), sum(_is_table_block(block) for block in source_blocks),
+                                 "recomputed" if plan is not None else "missing_geometry",
+                                 round((time.monotonic() - page_started) * 1000), "success" if plan is not None else "review")
+                if missing_geometry and plan is None:
+                    # Text-only callers remain compatible, but the missing
+                    # geometry is explicit evidence and cannot be READY-published.
+                    raw_blocks = source_blocks
+                    layout_diagnostics.append({"page_number": page_number, "finding": "LAYOUT_GEOMETRY_REQUIRED"})
+                elif plan.ambiguous:
+                    # Use the planner's deterministic geometric diagnostic order,
+                    # never the extractor/source order. The application gate still
+                    # blocks this page from READY publication.
+                    by_id = {str(block["block_id"]): block for block in source_blocks}
+                    raw_blocks = tuple(by_id[block_id] for block_id in (*plan.ordered_block_ids, *plan.furniture_block_ids))
+                    layout_diagnostics.append({"page_number": page_number, "layout": to_dict(plan)})
+                else:
+                    by_id = {str(block["block_id"]): block for block in source_blocks}
+                    raw_blocks = tuple(by_id[block_id] for block_id in (*plan.ordered_block_ids, *plan.furniture_block_ids))
             blocks: list[ParsedBlock] = []
             page_parts: list[str] = []
             char_cursor = 0
@@ -138,22 +162,40 @@ class PdfDocumentParser:
                 page_parts.append(text)
                 char_cursor += len(text) + 1
             page_text = normalize_text("\n".join(page_parts))
-            from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector
             blocks_by_id = {block.block_id: block for block in blocks}
             page_structure = tuple({**raw_block, "source_text": blocks_by_id[str(raw_block["block_id"])].source_text} for raw_block in raw_blocks if str(raw_block["block_id"]) in blocks_by_id)
-            headings = HeadingAssociator().associate(page_structure, plan) if plan is not None else ()
-            tables = TableStructureDetector().detect(page_structure) if plan is not None else ()
+            heading_started = time.monotonic()
+            headings, heading_candidates = (HeadingAssociator().analyze(page_structure, plan, reference_font_size)
+                                            if self._analyze_structure and plan is not None else ((), ()))
+            if self._analyze_structure:
+                _layout_log("dev_preprocessing_heading stage=candidate_analysis pageNumber=%d blockCount=%d expectedReferenceFontSize=available actualReferenceFontSize=%s candidateCount=%d acceptedCount=%d rejectedCount=%d route=line_and_span_candidates elapsedMs=%d outcome=%s",
+                             page_number, len(page_structure), reference_font_size, len(heading_candidates),
+                             sum(candidate.accepted for candidate in heading_candidates),
+                             sum(not candidate.accepted for candidate in heading_candidates),
+                             round((time.monotonic() - heading_started) * 1000), "success" if plan is not None else "skipped_missing_layout")
+            tables = TableStructureDetector().detect(page_structure) if self._analyze_structure and plan is not None else ()
             pages.append(ParsedPage(page_number, tuple(blocks), page_text, headings, tables,
-                                   str(raw_page.get("page_classification", "text-native")), layout_plan=plan))
+                                   str(raw_page.get("page_classification", "text-native")), layout_plan=plan,
+                                   heading_candidates=heading_candidates,
+                                   native_table_diagnostics=tuple(raw_page.get("native_table_diagnostics", ()))))
             document_parts.append(page_text)
         source_text = normalize_text("\n".join(document_parts))
         document_id = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
         metadata = {"format": "pdf", "source_page_count": len(raw_pages),
+                    "structure_analysis": self._analyze_structure,
                     "excluded_form_pages": excluded_form_pages,
                     "excluded_form_evidence": excluded_form_evidence}
         if layout_diagnostics:
             metadata["layout_diagnostics"] = layout_diagnostics
-        return ParsedDocument(document_id, str(source), source_text, tuple(pages), metadata)
+        document = ParsedDocument(document_id, str(source), source_text, tuple(pages), metadata)
+        if self._analyze_structure:
+            from preprocessing_agent.structure import DocumentHierarchyResolver
+            from preprocessing_agent.structure.references import collect_document_structure_references
+            document = DocumentHierarchyResolver().resolve(document)
+            return collect_document_structure_references(document, pdf_bookmarks, printed_contents)
+        _layout_log("dev_preprocessing_parser stage=completed pageCount=%d expectedSourcePageCount=%d actualSourcePageCount=%d route=source_text_and_provenance outcome=success",
+                    len(pages), len(raw_pages), len(pages))
+        return document
 
 
 def _bbox(value: Any) -> tuple[float, float, float, float] | None:
@@ -281,9 +323,39 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
                 if not text:
                     continue
                 first = spans[0] if spans else {}
+                line_values = []
+                cursor = 0
+                for line in lines:
+                    line_spans = line.get("spans", [])
+                    line_parts: list[str] = []
+                    previous_text = ""
+                    for span in line_spans:
+                        span_text = str(span.get("text", ""))
+                        if span_text and previous_text and not previous_text[-1:].isspace() and not span_text[:1].isspace():
+                            line_parts.append(" ")
+                        line_parts.append(span_text)
+                        if span_text:
+                            previous_text = span_text
+                    line_text = "".join(line_parts)
+                    line_start = text.find(line_text, cursor) if line_text else -1
+                    if line_start < 0:
+                        line_start = cursor
+                    line_end = min(len(text), line_start + len(line_text))
+                    detailed_spans = []
+                    for span_index, span in enumerate(line_spans):
+                        font_name = str(span.get("font", ""))
+                        detailed_spans.append({"text": span.get("text", ""), "bbox": span.get("bbox"),
+                            "font_size": span.get("size"), "font": font_name,
+                            "font_weight": "bold" if "bold" in font_name.casefold() else font_name,
+                            "char_start": line_start, "char_end": line_end, "span_index": span_index})
+                    line_values.append({"text": line_text, "bbox": line.get("bbox"),
+                        "char_start": line_start, "char_end": line_end, "spans": detailed_spans})
+                    cursor = line_end
                 blocks.append({"text": text, "bbox": block.get("bbox"), "font_size": first.get("size"), "font": first.get("font"),
-                               "spans": [{"text": span.get("text", ""), "bbox": span.get("bbox")} for span in spans],
-                               "lines": [{"bbox": line.get("bbox")} for line in lines if line.get("bbox") is not None]})
+                               "spans": [{"text": span.get("text", ""), "bbox": span.get("bbox"), "font_size": span.get("size"),
+                                          "font": span.get("font"), "font_weight": "bold" if "bold" in str(span.get("font", "")).casefold() else str(span.get("font", ""))}
+                                         for span in spans],
+                               "lines": line_values})
             text_line_count = sum(len(block.get("lines", ())) for block in blocks)
             form_diagnostics = form_geometry_counts(page.get_drawings(), text_line_count)
             page_classification = "form" if is_form_like(**form_diagnostics) else "text-native"
@@ -293,16 +365,34 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
             found_tables = _find_native_tables(page, page_number)
             reconstructed = []
             for table, strategy in found_tables:
-                projected, diagnostic = _reconstruct_native_table(table, blocks)
+                projected, diagnostic = _reconstruct_native_table(table, blocks, page_number)
                 diagnostic.update(detection_strategies=strategy.split("+"), detection_deduplicated=False)
-                _classify_text_detection_hypothesis(diagnostic, strategy)
+                _classify_text_detection_hypothesis(diagnostic, strategy, page_number)
                 reconstructed.append((projected, diagnostic))
-            selected, _ = _reconcile_native_table_candidates(found_tables, reconstructed, page_number)
+            selected, table_diagnostics = _reconcile_native_table_candidates(found_tables, reconstructed, page_number)
+            for candidate_index, diagnostic in enumerate(table_diagnostics):
+                projected = reconstructed[candidate_index][0]
+                _layout_log("dev_preprocessing_layout stage=native_table_reconstruction pageNumber=%d candidateIndex=%d strategies=%s rowCount=%d reconstructedRowCount=%d columnCount=%d expectedCellCount=%d actualProjectedCellCount=%d sourceSpanCount=%d mappedSpanCount=%d sourceTokenCount=%d projectedTokenCount=%d textMatchesGrid=%s emptyRowCount=%d alignedFollowingSpanCount=%d continuedRowProjected=%s decision=%s rejectionReason=%s recoveryAction=%s outcome=%s",
+                            page_number, candidate_index,
+                            "+".join(diagnostic.get("detection_strategies", ())), diagnostic["row_count"],
+                            diagnostic.get("reconstructed_row_count", diagnostic["row_count"]),
+                            diagnostic["column_count"], diagnostic["expected_cell_count"], len(projected),
+                            diagnostic.get("source_span_count", 0), diagnostic.get("mapped_span_count", 0),
+                            diagnostic.get("source_token_count", 0), diagnostic.get("projected_token_count", 0),
+                            diagnostic.get("source_text_matches_grid", False),
+                            diagnostic.get("extracted_empty_row_count", 0),
+                            diagnostic.get("aligned_following_span_count", 0),
+                            diagnostic.get("continued_row_projected", False), diagnostic["decision"],
+                            diagnostic.get("rejection_reason") or "none",
+                            "adopt_confirmed_structure" if diagnostic["decision"] == "confirmed_structured"
+                            else "preserve_original_text_and_review",
+                            "adopted" if diagnostic["decision"] == "confirmed_structured" else "deferred")
             table_regions = []
             for table_index, (table, strategy, projected, diagnostic) in enumerate(selected):
                 if diagnostic["decision"] != "confirmed_structured":
                     continue
-                table_bbox = tuple(float(value) for value in getattr(table, "bbox", ()))
+                table_bbox = tuple(float(value) for value in diagnostic.get(
+                    "effective_bbox", getattr(table, "bbox", ())))
                 if len(table_bbox) != 4:
                     continue
                 blocks = _without_consumed_header_blocks(blocks, projected)
@@ -313,9 +403,22 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
                                    "table_id": table_id})
             if table_regions:
                 blocks = [block for block in blocks if block.get("kind") == "table_cell" or not _inside_table_region(block.get("bbox"), table_regions)]
-            yield {"page_number": page_number, "blocks": blocks,
-                   "page_classification": page_classification,
-                   "form_diagnostics": form_diagnostics}
+            page_value = {"page_number": page_number, "geometry": {"width": page.rect.width, "height": page.rect.height}, "blocks": blocks,
+                          "page_classification": page_classification,
+                          "form_diagnostics": form_diagnostics,
+                          "native_table_diagnostics": table_diagnostics}
+            if page_number == 1:
+                try:
+                    outline = document.get_toc()
+                except Exception as exc:
+                    _layout_log("dev_document_references stage=bookmark_extraction failureType=%s route=continue_without_bookmarks recoveryAction=use_printed_contents_only outcome=failed",
+                                 type(exc).__name__)
+                    outline = ()
+                page_value["pdf_bookmarks"] = tuple(
+                    {"level": int(level), "title": str(title), "target_page": int(target_page)}
+                    for level, title, target_page in outline
+                )
+            yield page_value
 
 
 def _find_native_tables(page: Any, page_number: int) -> list[tuple[Any, str]]:
@@ -373,6 +476,8 @@ def _reconcile_native_table_candidates(candidates: list[tuple[Any, str]],
         prior_table, prior_strategy, prior_cells, prior_diagnostic = selected[duplicate]
         rank = {"confirmed_structured": 2, "strong_unresolved": 1, "weak_candidate": 0}
         quality = lambda item: (rank.get(item["decision"], -1),
+                                bool(item.get("source_text_matches_grid", False)),
+                                item.get("mapped_span_count", 0) / max(1, item.get("source_span_count", 0)),
                                 item["observed_cell_geometry_count"] / max(1, item["expected_cell_count"]))
         if quality(diagnostic) > quality(prior_diagnostic):
             loser = prior_diagnostic
@@ -396,8 +501,27 @@ def _reconcile_native_table_candidates(candidates: list[tuple[Any, str]],
     return selected, diagnostics
 
 
-def _classify_text_detection_hypothesis(diagnostic: dict[str, Any], strategy: str) -> None:
+def _classify_text_detection_hypothesis(diagnostic: dict[str, Any], strategy: str,
+                                        page_number: int = 0) -> None:
     """Keep failed text-only detections visible without treating them as table evidence."""
+    if strategy == "text" and diagnostic.get("unsupported_empty_row_count", 0):
+        diagnostic.update(decision="weak_candidate", candidate_kind="unconfirmed_text_grid",
+                          reconstruction_decision="strong_unresolved",
+                          reconstruction_rejection_reason="TEXT_GRID_HAS_UNSUPPORTED_EMPTY_ROWS",
+                          rejection_reason="TEXT_DETECTION_EMPTY_ROWS_REQUIRE_GEOMETRIC_CONFIRMATION",
+                          signals=[*diagnostic["signals"], "TEXT_GRID_HAS_UNSUPPORTED_EMPTY_ROWS"])
+        _layout_log("dev_preprocessing_layout stage=native_table_candidate pageNumber=%d strategy=%s expectedEmptyRowCount=0 actualEmptyRowCount=%d decision=%s rejectionReason=%s recoveryAction=preserve_source_blocks_and_defer_text_grid outcome=deferred",
+                    page_number, strategy, diagnostic["unsupported_empty_row_count"],
+                    diagnostic["decision"], diagnostic["rejection_reason"])
+        return
+    if strategy == "lines" and diagnostic.get("aligned_following_span_count", 0) \
+            and not diagnostic.get("continued_row_projected", False):
+        diagnostic.update(decision="strong_unresolved", rejection_reason="POSSIBLE_TABLE_ROW_OUTSIDE_CANDIDATE",
+                          signals=[*diagnostic["signals"], "ALIGNED_TEXT_BELOW_TABLE_BOUNDS"])
+        _layout_log("dev_preprocessing_layout stage=native_table_candidate pageNumber=%d strategy=%s expectedAlignedFollowingSpanCount=0 actualAlignedFollowingSpanCount=%d decision=%s rejectionReason=%s recoveryAction=preserve_source_blocks_and_defer_partial_grid outcome=deferred",
+                    page_number, strategy, diagnostic["aligned_following_span_count"],
+                    diagnostic["decision"], diagnostic["rejection_reason"])
+        return
     if strategy == "text" and diagnostic["decision"] == "strong_unresolved":
         diagnostic.update(decision="weak_candidate", candidate_kind="unresolved_text_detection",
                           reconstruction_decision="strong_unresolved",
@@ -434,8 +558,10 @@ def _is_reliable_native_table(table: Any) -> bool:
     return column_count >= 2 and len(row_centers) >= 2 and len(valid) >= 2 and repeated_edges >= 2
 
 
-def _reconstruct_native_table(table: Any, source_blocks: list[dict[str, Any]] | tuple[Mapping[str, Any], ...]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _reconstruct_native_table(table: Any, source_blocks: list[dict[str, Any]] | tuple[Mapping[str, Any], ...],
+                              page_number: int = 0) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Project native cells only when geometry and candidate-region text agree."""
+    reconstruction_started = time.monotonic()
     diagnostic = _native_table_candidate_diagnostic(table)
     if diagnostic["decision"] == "weak_candidate" and (
         not diagnostic["bbox"] or diagnostic["row_count"] < 2 or diagnostic["column_count"] < 2
@@ -468,6 +594,10 @@ def _reconstruct_native_table(table: Any, source_blocks: list[dict[str, Any]] | 
         extracted_rows = tuple(table.extract())
     except (AttributeError, RuntimeError, TypeError):
         extracted_rows = ()
+    extracted_empty_row_count = sum(
+        not any(str(value or "").strip() for value in row)
+        for row in extracted_rows
+    )
     result: list[dict[str, Any]] = []
     for row_index, cells in enumerate(row_cells):
         occupied: set[int] = set()
@@ -493,6 +623,7 @@ def _reconstruct_native_table(table: Any, source_blocks: list[dict[str, Any]] | 
             text = str(extracted[column_index]).strip() if column_index < len(extracted) and extracted[column_index] is not None else ""
             region_spans = [span for block in source_blocks
                             for span in block.get("spans", ()) if isinstance(span, Mapping)
+                            and str(span.get("text", "")).strip()
                             and isinstance(span.get("bbox"), (list, tuple)) and len(span["bbox"]) == 4
                             and table_bbox[0] <= (float(span["bbox"][0]) + float(span["bbox"][2])) / 2 <= table_bbox[2]
                             and table_bbox[1] <= (float(span["bbox"][1]) + float(span["bbox"][3])) / 2 <= table_bbox[3]
@@ -524,10 +655,49 @@ def _reconstruct_native_table(table: Any, source_blocks: list[dict[str, Any]] | 
             return [], diagnostic
     bbox = diagnostic.get("bbox")
     candidate_spans = [span for block in source_blocks for span in block.get("spans", ())
-                       if bbox and isinstance(span, Mapping) and isinstance(span.get("bbox"), (list, tuple))
+                       if bbox and isinstance(span, Mapping) and str(span.get("text", "")).strip()
+                       and isinstance(span.get("bbox"), (list, tuple))
                        and len(span["bbox"]) == 4
                        and bbox[0] <= (float(span["bbox"][0]) + float(span["bbox"][2])) / 2 <= bbox[2]
                        and bbox[1] <= (float(span["bbox"][1]) + float(span["bbox"][3])) / 2 <= bbox[3]]
+    aligned_following_spans = _aligned_spans_below_candidate(
+        table_bbox, row_cells, source_blocks, candidate_spans
+    )
+    continued_row_projected = False
+    if aligned_following_spans and edges:
+        last_row = len(rows)
+        grouped: dict[int, list[Mapping[str, Any]]] = {}
+        for span in aligned_following_spans:
+            span_box = _bbox(span.get("bbox"))
+            center_x = (span_box[0] + span_box[2]) / 2
+            column = next((index for index, (left, right) in enumerate(zip(edges, edges[1:]))
+                           if left - edge_tolerance <= center_x <= right + edge_tolerance), None)
+            if column is None:
+                grouped = {}
+                break
+            grouped.setdefault(column, []).append(span)
+        if grouped and set(grouped) == set(range(len(edges) - 1)):
+            for column, (left, right) in enumerate(zip(edges, edges[1:])):
+                spans = sorted(grouped[column], key=lambda span: _bbox(span.get("bbox"))[0])
+                boxes = [_bbox(span.get("bbox")) for span in spans]
+                result.append({"text": " ".join(str(span.get("text", "")).strip() for span in spans).strip() or " ",
+                               "bbox": (left, min(box[1] for box in boxes), right, max(box[3] for box in boxes)),
+                               "kind": "table_cell", "row": last_row, "column": column,
+                               "column_span": 1, "row_span": 1, "merged": False})
+            candidate_spans.extend(aligned_following_spans)
+            continued_row_projected = True
+            diagnostic["effective_bbox"] = [float(table_bbox[0]), float(table_bbox[1]),
+                                            float(table_bbox[2]),
+                                            max(float(table_bbox[3]), max(_bbox(span.get("bbox"))[3]
+                                                                          for span in aligned_following_spans))]
+            _layout_log("dev_preprocessing_layout stage=native_table_continuation pageNumber=%d expectedColumnCount=%d actualProjectedColumnCount=%d expectedRowCount=%d actualRowCount=%d sourceSpanCount=%d recoveryAction=include_aligned_source_row_and_expand_table_region outcome=projected elapsedMs=%d",
+                        page_number, len(edges) - 1, len(grouped), len(rows), last_row + 1,
+                        len(aligned_following_spans), round((time.monotonic() - reconstruction_started) * 1000))
+    diagnostic.update(extracted_empty_row_count=extracted_empty_row_count,
+                      unsupported_empty_row_count=extracted_empty_row_count,
+                      aligned_following_span_count=len(aligned_following_spans),
+                      continued_row_projected=continued_row_projected,
+                      reconstructed_row_count=len(rows) + int(continued_row_projected))
     source_text = " ".join(str(span.get("text", "")) for span in candidate_spans)
     if not source_text:
         source_text = " ".join(str(block.get("text", "")) for block in sorted(
@@ -544,7 +714,13 @@ def _reconstruct_native_table(table: Any, source_blocks: list[dict[str, Any]] | 
     if not candidate_spans:
         table_text = " ".join(str(value) for row in extracted_rows for value in row if value)
     tokenize = lambda text: Counter(re.findall(r"\w+|[^\w\s]", text, flags=re.UNICODE))
-    if not source_text or tokenize(source_text) != tokenize(table_text):
+    source_tokens, table_tokens = tokenize(source_text), tokenize(table_text)
+    diagnostic.update(source_span_count=len(candidate_spans),
+                      mapped_span_count=len(candidate_spans),
+                      source_token_count=sum(source_tokens.values()),
+                      projected_token_count=sum(table_tokens.values()),
+                      source_text_matches_grid=bool(source_text) and source_tokens == table_tokens)
+    if not source_text or source_tokens != table_tokens:
         diagnostic.update(decision="strong_unresolved", rejection_reason="TABLE_TEXT_MISMATCH")
         return [], diagnostic
     headers, header_error = _native_table_header(rows, edges, result, source_blocks, edge_tolerance)
@@ -559,6 +735,57 @@ def _reconstruct_native_table(table: Any, source_blocks: list[dict[str, Any]] | 
         cell["is_header"] = bool(headers) and cell["row"] == 0
     diagnostic.update(decision="confirmed_structured", rejection_reason=None)
     return result, diagnostic
+
+
+def _aligned_spans_below_candidate(table_bbox: Any, rows: tuple[Any, ...],
+                                   source_blocks: list[dict[str, Any]] | tuple[Mapping[str, Any], ...],
+                                   candidate_spans: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
+    """Find a nearby text row outside a detected table's bottom edge.
+
+    This is a completeness warning only. It never adds text to a table; the
+    caller must defer the candidate so the original text remains available.
+    """
+    if not isinstance(table_bbox, (tuple, list)) or len(table_bbox) != 4 or not rows:
+        return []
+    row_boxes = [box for row in rows
+                 for box in (getattr(row, "cells", row if isinstance(row, (list, tuple)) else ()) or ())
+                 if isinstance(box, (tuple, list)) and len(box) == 4 and box[1] < box[3]]
+    centers = sorted({(float(box[1]) + float(box[3])) / 2 for box in row_boxes})
+    pitches = [right - left for left, right in zip(centers, centers[1:]) if right > left]
+    row_pitch = _median_positive(pitches)
+    span_heights = [float(span["bbox"][3]) - float(span["bbox"][1]) for span in candidate_spans
+                    if isinstance(span.get("bbox"), (tuple, list)) and len(span["bbox"]) == 4
+                    and float(span["bbox"][3]) > float(span["bbox"][1])]
+    span_height = _median_positive(span_heights)
+    if not row_pitch or not span_height:
+        return []
+    left_edges = sorted({float(box[0]) for box in row_boxes})
+    right_edges = sorted({float(box[2]) for box in row_boxes})
+    columns = [(left, right) for left, right in zip(left_edges, right_edges) if right > left]
+    if len(columns) < 2:
+        return []
+    tolerance = span_height * 0.6
+    max_gap = row_pitch * 1.5
+    excluded = {id(span) for span in candidate_spans}
+    nearby: list[tuple[Mapping[str, Any], float, int]] = []
+    for block in source_blocks:
+        for span in block.get("spans", ()):
+            box = span.get("bbox") if isinstance(span, Mapping) else None
+            if id(span) in excluded or not isinstance(box, (tuple, list)) or len(box) != 4:
+                continue
+            x0, y0, x1, y1 = map(float, box)
+            center_x, center_y = (x0 + x1) / 2, (y0 + y1) / 2
+            gap = center_y - float(table_bbox[3])
+            if 0 < gap <= max_gap and x0 >= float(table_bbox[0]) and x1 <= float(table_bbox[2]):
+                column = next((index for index, (left, right) in enumerate(columns)
+                               if left - tolerance <= center_x <= right + tolerance), None)
+                if column is not None:
+                    nearby.append((span, center_y, column))
+    for _, center_y, _ in nearby:
+        same_row = [column for _, y, column in nearby if abs(y - center_y) <= tolerance]
+        if len(set(same_row)) >= min(2, len(columns)):
+            return [span for span, y, _ in nearby if abs(y - center_y) <= tolerance]
+    return []
 
 
 def _median_positive(values: list[float]) -> float | None:

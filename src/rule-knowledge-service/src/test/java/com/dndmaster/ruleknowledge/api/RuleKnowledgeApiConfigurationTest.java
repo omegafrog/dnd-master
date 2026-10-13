@@ -8,7 +8,7 @@ import com.dndmaster.ruleknowledge.application.ocr.OcrPort;
 import com.dndmaster.ruleknowledge.application.ocr.OcrRequest;
 import com.dndmaster.ruleknowledge.application.ocr.OcrResult;
 import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
-import com.dndmaster.ruleknowledge.application.search.HybridEvidenceSearchService;
+import com.dndmaster.ruleknowledge.application.search.DenseEvidenceSearchService;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLDenseEvidenceCandidateSearchAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLEvidenceLocationLookupAdapter;
 import com.dndmaster.ruleknowledge.domain.rulebook.BoundingBox;
@@ -23,18 +23,17 @@ import org.junit.jupiter.api.Test;
 class RuleKnowledgeApiConfigurationTest {
 
     @Test
-    void wiresTheScopedDenseAndBm25CandidateSearchersIntoHybridSearch() {
+    void wiresTheScopedDenseCandidateSearcherIntoDenseSearch() {
         RuleKnowledgeApiConfiguration configuration = new RuleKnowledgeApiConfiguration();
         EmbeddingPort embeddings = (chunks, model, dimension) -> List.of();
         DataSource dataSource = mock(DataSource.class);
         var dense = configuration.denseEvidenceCandidateSearchPort(dataSource, embeddings, "mock-embedding", 3);
-        var bm25 = configuration.bm25EvidenceCandidateSearchPort(dataSource);
         var exact = configuration.evidenceLocationLookupPort(dataSource);
 
         assertEquals(PostgreSQLDenseEvidenceCandidateSearchAdapter.class, dense.getClass());
         assertEquals(PostgreSQLEvidenceLocationLookupAdapter.class, exact.getClass());
-        assertEquals(HybridEvidenceSearchService.class,
-                configuration.hybridEvidenceSearchService(dense, bm25, true).getClass());
+        assertEquals(DenseEvidenceSearchService.class,
+                configuration.denseEvidenceSearchService(dense).getClass());
     }
 
     @Test

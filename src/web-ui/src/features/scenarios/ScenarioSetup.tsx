@@ -34,12 +34,13 @@ function sleep(ms: number) {
 const selectableStatuses = new Set<KnowledgeDocumentView['status']>([
   'EXTRACTED',
   'INDEXED',
+  'INDEXED_WITH_WARNINGS',
   'READY',
   'PARTIAL_AWAITING_CONFIRMATION',
   'PARTIAL_CONFIRMED',
 ])
 
-const indexingFinishedStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'READY', 'PARTIAL_CONFIRMED'])
+const indexingFinishedStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'INDEXED_WITH_WARNINGS', 'READY', 'PARTIAL_CONFIRMED'])
 const isIndexingFinished = (document: KnowledgeDocumentView) => indexingFinishedStatuses.has(document.status) || document.progress?.stage === 'READY'
 
 const compilationPollIntervalMs = 500
@@ -369,6 +370,8 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
               </Select>
               {document.status === 'FAILED' ? (
                 <p role="alert">{document.originalFilename}: 준비에 문제가 있습니다 — {(document.warnings ?? []).join(', ') || document.failureReason || '자료를 읽지 못했습니다.'}</p>
+              ) : document.status === 'INDEXED_WITH_WARNINGS' ? (
+                <p role="status">{document.originalFilename}: 일부 페이지를 읽지 못했습니다. 검색 가능한 나머지 내용으로 진행합니다.</p>
               ) : document.status === 'PARTIAL_AWAITING_CONFIRMATION' ||
                 document.status === 'PARTIAL_CONFIRMED' ||
                 (document.warnings?.length ?? 0) > 0 ? (

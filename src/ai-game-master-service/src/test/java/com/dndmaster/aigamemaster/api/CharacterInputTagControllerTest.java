@@ -7,6 +7,9 @@ import java.util.UUID;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 class CharacterInputTagControllerTest {
     private static final UUID SOLO_PLAYER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -57,6 +60,60 @@ class CharacterInputTagControllerTest {
         assertEquals("Elf", result.getFirst().optionDetails().getFirst().value());
         assertEquals("An elf character option.", result.getFirst().optionDetails().getFirst().description());
         assertEquals(1, result.getFirst().optionDetails().getFirst().evidence().size());
+    }
+
+    @Test
+    void acceptsLowercaseConfidenceValues() {
+        var controller = new CharacterInputTagController((CharacterTagCompletionPort) null, new ObjectMapper());
+
+        var result = controller.parseModel("[{\"key\":\"race\",\"options\":[\"Elf\"],\"confidence\":\"high\"}]");
+
+        assertEquals(1, result.size());
+        assertEquals("HIGH", result.getFirst().confidence());
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void rejectedModelCandidateLogsShapeWithoutResponseContent(CapturedOutput output) {
+        String secret = "PRIVATE_TAG_RESPONSE_SENTINEL";
+        var controller = new CharacterInputTagController((operationId, prompt) ->
+                "[{\"key\":\"" + secret + "\",\"sourceQuote\":\"" + secret
+                        + "\",\"options\":[\"Elf\"],\"confidence\":\"not-a-confidence\"}]",
+                new ObjectMapper());
+
+        String prior = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        CharacterInputTagController.Response result;
+        try {
+            result = controller.extract(new CharacterInputTagController.Request(SOLO_PLAYER_ID, "operation", List.of(
+                    new CharacterInputTagController.Excerpt(UUID.randomUUID(), 1, "page:1", secret)), "v1", "p1"));
+        } finally {
+            if (prior == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", prior);
+        }
+
+        assertTrue(result.candidates().isEmpty());
+        assertTrue(output.getOut().contains("reason=UNSUPPORTED_CONFIDENCE"));
+        assertTrue(output.getOut().contains("rootType=ARRAY"));
+        assertTrue(output.getOut().contains("operationId=operation"));
+        assertTrue(output.getOut().contains("excerpts=1"));
+        assertTrue(!output.getOut().contains(secret));
+    }
+
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void doesNotWriteDetailedDiagnosticsWhenDisabled(CapturedOutput output) {
+        String prior = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "false");
+        try {
+            var controller = new CharacterInputTagController((operationId, prompt) -> "[]", new ObjectMapper());
+            controller.extract(new CharacterInputTagController.Request(SOLO_PLAYER_ID, "disabled-operation", List.of(
+                    new CharacterInputTagController.Excerpt(UUID.randomUUID(), 1, "page:1", "PRIVATE_SOURCE_SENTINEL")), "v1", "p1"));
+        } finally {
+            if (prior != null) System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", prior);
+        }
+        assertTrue(!output.getOut().contains("character_tag_extract_started"));
+        assertTrue(!output.getOut().contains("PRIVATE_SOURCE_SENTINEL"));
     }
 
     @Test

@@ -53,11 +53,11 @@ def test_confirmed_layout_and_attempt_history_survive_full_version_promotion(tmp
     source = tmp_path / "source.pdf"
     source.write_bytes(b"pdf")
     output = tmp_path / "artifacts"
-    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None, analyze_structure=True)
     first = service.preprocess({"request_id": "initial", "source_path": str(source),
         "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
         "output_dir": str(output), "version_id": "candidate-1"})
-    assert first["status"] == "NEEDS_REVIEW"
+    assert first["status"] == "PARTIAL"
     profile = first["pages"][0]["layout_review"]["profiles"][0]
     candidate = next(index for index, value in enumerate(profile["candidates"])
                      if value["column_count"] == 2)
@@ -81,7 +81,7 @@ def test_fresh_review_replaces_stale_recovered_confirmation_before_promotion(tmp
     source = tmp_path / "source.pdf"
     source.write_bytes(b"pdf")
     output = tmp_path / "artifacts"
-    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None, analyze_structure=True)
     first = service.preprocess({"request_id": "initial", "source_path": str(source),
         "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
         "output_dir": str(output), "version_id": "candidate-1"})
@@ -120,7 +120,7 @@ def test_confirmed_layout_is_recomputed_when_analysis_version_changes(tmp_path):
     source.write_bytes(b"pdf")
     output = tmp_path / "artifacts"
     native = _CountingNativeColumns()
-    service = ExtractionApplicationService(native, _Render(), None)
+    service = ExtractionApplicationService(native, _Render(), None, analyze_structure=True)
     first = service.preprocess({"request_id": "initial", "source_path": str(source),
         "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
         "output_dir": str(output), "version_id": "candidate-1"})
@@ -152,7 +152,7 @@ def test_matching_approval_is_reused_across_artifact_roots_with_original_admin(t
     common = tmp_path / "common"
     first_root = common / "00000000-0000-0000-0000-000000000001" / "artifacts"
     second_root = common / "00000000-0000-0000-0000-000000000002" / "artifacts"
-    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None, analyze_structure=True)
     first = service.preprocess({"request_id": "initial", "source_path": str(source),
         "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
         "output_dir": str(first_root), "version_id": "candidate-one"})
@@ -179,7 +179,7 @@ def test_approval_mismatch_does_not_validate_new_artifact(tmp_path, monkeypatch,
     common = tmp_path / "common"
     first_root = common / "00000000-0000-0000-0000-000000000001" / "artifacts"
     second_root = common / "00000000-0000-0000-0000-000000000002" / "artifacts"
-    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None, analyze_structure=True)
     first = service.preprocess({"request_id": "initial", "source_path": str(source),
         "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
         "output_dir": str(first_root), "version_id": "candidate-one"})
@@ -217,12 +217,12 @@ def test_approval_mismatch_does_not_validate_new_artifact(tmp_path, monkeypatch,
         second_source = tmp_path / "different.pdf"
         second_source.write_bytes(b"different")
         expected_hash = hashlib.sha256(b"different").hexdigest()
-    repeated = ExtractionApplicationService(native, _Render(), None).preprocess({
+    repeated = ExtractionApplicationService(native, _Render(), None, analyze_structure=True).preprocess({
         "request_id": "new-upload", "source_path": str(second_source),
         "source_sha256": expected_hash, "policy_version": "p1",
         "output_dir": str(second_root), "version_id": "candidate-two"})
 
-    assert repeated["status"] == "NEEDS_REVIEW"
+    assert repeated["status"] == "PARTIAL"
     assert repeated["pages"][0].get("layout_confirmation") is None
 
 
@@ -230,7 +230,7 @@ def test_unselected_review_state_survives_final_page_promotion(tmp_path):
     source = tmp_path / "source.pdf"
     source.write_bytes(b"pdf")
     output = tmp_path / "artifacts"
-    service = ExtractionApplicationService(_NativeTwoPages(), _Render(), None)
+    service = ExtractionApplicationService(_NativeTwoPages(), _Render(), None, analyze_structure=True)
     first = service.preprocess({"request_id": "initial", "source_path": str(source),
         "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
         "output_dir": str(output), "version_id": "candidate-1"})
@@ -274,7 +274,7 @@ def test_retry_extracts_source_once_for_multiple_review_pages_and_logs_counts(tm
     source.write_bytes(b"pdf")
     output = tmp_path / "artifacts"
     native = _CountingNativeTwoPages()
-    service = ExtractionApplicationService(native, _Render(), None)
+    service = ExtractionApplicationService(native, _Render(), None, analyze_structure=True)
     first = service.preprocess({"request_id": "initial", "source_path": str(source),
         "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
         "output_dir": str(output), "version_id": "candidate-1"})
@@ -301,7 +301,7 @@ def test_failed_fresh_review_invalidates_validated_page_and_recovered_result(tmp
     source.write_bytes(b"pdf")
     output = tmp_path / "artifacts"
     native = _NativeColumns()
-    service = ExtractionApplicationService(native, _Render(), None)
+    service = ExtractionApplicationService(native, _Render(), None, analyze_structure=True)
     first = service.preprocess({"request_id": "initial", "source_path": str(source),
         "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
         "output_dir": str(output), "version_id": "candidate-1"})
@@ -317,7 +317,7 @@ def test_failed_fresh_review_invalidates_validated_page_and_recovered_result(tmp
     failed = service.retry_pages("candidate-1", output, [1], request_id="retry-2",
         layout_selections={1: {profile["region_id"]: candidate}}, confirmed_by="admin-2")
 
-    assert failed["status"] == "NEEDS_REVIEW"
+    assert failed["status"] == "PARTIAL"
     assert failed["pages"][0]["status"] == "NEEDS_REVIEW"
     assert failed["pages"][0]["attempt_history"][-1]["status"] == "NEEDS_REVIEW"
     assert failed["pages"][0].get("layout_confirmation") is None
@@ -331,7 +331,7 @@ def test_distinguishable_alternate_is_tried_without_overriding_low_confidence(tm
     source = tmp_path / "source.pdf"
     source.write_bytes(b"pdf")
     output = tmp_path / "artifacts"
-    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None, analyze_structure=True)
     service.preprocess({"request_id": "initial", "source_path": str(source),
         "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
         "output_dir": str(output), "version_id": "candidate-1"})
@@ -339,7 +339,7 @@ def test_distinguishable_alternate_is_tried_without_overriding_low_confidence(tm
     retried = service.retry_pages("candidate-1", output, [1], request_id="alternate-1")
 
     page = retried["pages"][0]
-    assert page["status"] == "NEEDS_REVIEW"
+    assert page["status"] == "USABLE_WITH_WARNINGS"
     assert page["diagnostics"]["strategy"] == "alternate-column-hypothesis"
     assert page.get("layout_confirmation") is None
     assert "stage=alternate_layout_candidate pageNumber=1 candidateRegionCount=1" in caplog.text
@@ -349,7 +349,7 @@ def test_retry_rejects_candidate_index_outside_recomputed_profile(tmp_path):
     source = tmp_path / "source.pdf"
     source.write_bytes(b"pdf")
     output = tmp_path / "artifacts"
-    service = ExtractionApplicationService(_NativeColumns(), _Render(), None)
+    service = ExtractionApplicationService(_NativeColumns(), _Render(), None, analyze_structure=True)
     first = service.preprocess({"request_id": "initial", "source_path": str(source),
         "source_sha256": hashlib.sha256(b"pdf").hexdigest(), "policy_version": "p1",
         "output_dir": str(output), "version_id": "candidate-1"})

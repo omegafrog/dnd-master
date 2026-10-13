@@ -13,7 +13,7 @@ import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicat
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.search.EvidenceCandidate;
 import com.dndmaster.ruleknowledge.application.search.EvidenceSearchResult;
-import com.dndmaster.ruleknowledge.application.search.HybridEvidenceSearchService;
+import com.dndmaster.ruleknowledge.application.search.DenseEvidenceSearchService;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
@@ -30,9 +30,9 @@ import org.springframework.http.converter.json.MappingJackson2HttpMessageConvert
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-class RuleKnowledgeCharacterContextHybridTest {
+class RuleKnowledgeCharacterContextDenseTest {
     @Test
-    void character_context_uses_fused_candidates_when_hybrid_search_is_configured() throws Exception {
+    void character_context_uses_dense_candidates_when_dense_search_is_configured() throws Exception {
         UUID owner = UUID.randomUUID();
         UUID document = UUID.randomUUID();
         RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
@@ -44,18 +44,18 @@ class RuleKnowledgeCharacterContextHybridTest {
                         com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus.INDEXED,
                         com.dndmaster.ruleknowledge.domain.rulebook.ExtractionStatus.SUCCESS, "content", List.of(), null,
                         1, java.time.Instant.now(), java.time.Instant.now(), DocumentType.STORYBOOK, "story.txt")));
-        HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
-        when(hybrid.search(any())).thenReturn(new EvidenceSearchResult(List.of(new EvidenceCandidate(
+        DenseEvidenceSearchService denseSearch = mock(DenseEvidenceSearchService.class);
+        when(denseSearch.search(any())).thenReturn(new EvidenceSearchResult(List.of(new EvidenceCandidate(
                 new KnowledgeDocumentId(document), new ChunkId(UUID.randomUUID()), 1, DocumentType.STORYBOOK,
                 "page:2", "story constraint", new SourceProvenance(2, List.of(), List.of(), null, "page:2"),
-                1, 1, 0.032d))));
+                1, 0.78d))));
 
         RuleKnowledgeController controller = new RuleKnowledgeController(
                 mock(RulebookPipelineApplicationService.class), registrations,
                 mock(RuleEvidenceSearchApplicationService.class), mock(StorySourceSearchApplicationService.class),
                 mock(CharacterContextSearchApplicationService.class), null,
                 new com.fasterxml.jackson.databind.ObjectMapper(), null, "internal-token",
-                mock(CatalogRulebookRepository.class), null, hybrid);
+                mock(CatalogRulebookRepository.class), null, denseSearch);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
                 .build();
@@ -89,14 +89,14 @@ class RuleKnowledgeCharacterContextHybridTest {
                 "공용 규칙", catalogRulebook, 1,
                 com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus.READY, true, null,
                 java.time.Instant.now(), java.time.Instant.now())));
-        HybridEvidenceSearchService hybrid = mock(HybridEvidenceSearchService.class);
-        when(hybrid.search(any())).thenReturn(new EvidenceSearchResult(List.of()));
+        DenseEvidenceSearchService denseSearch = mock(DenseEvidenceSearchService.class);
+        when(denseSearch.search(any())).thenReturn(new EvidenceSearchResult(List.of()));
 
         RuleKnowledgeController controller = new RuleKnowledgeController(
                 mock(RulebookPipelineApplicationService.class), registrations,
                 mock(RuleEvidenceSearchApplicationService.class), mock(StorySourceSearchApplicationService.class),
                 mock(CharacterContextSearchApplicationService.class), null,
-                new com.fasterxml.jackson.databind.ObjectMapper(), null, "internal-token", catalog, null, hybrid);
+                new com.fasterxml.jackson.databind.ObjectMapper(), null, "internal-token", catalog, null, denseSearch);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
                 .build();
@@ -114,7 +114,7 @@ class RuleKnowledgeCharacterContextHybridTest {
 
         ArgumentCaptor<com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest> request =
                 ArgumentCaptor.forClass(com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest.class);
-        verify(hybrid).search(request.capture());
+        verify(denseSearch).search(request.capture());
         var scope = request.getValue().scope();
         org.junit.jupiter.api.Assertions.assertEquals(
                 UUID.fromString("00000000-0000-0000-0000-000000000005"), scope.get(0).documentOwner().value());

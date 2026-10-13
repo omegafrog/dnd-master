@@ -1,5 +1,7 @@
 # Product Spec: hybrid-rag-evidence-selection
 
+> **Status: Superseded.** The current runtime retrieval decision is dense vector similarity search only. This historical spec does not describe the active API, storage, or runtime behavior. BM25 remains limited to offline evaluation tools.
+
 ## 1. **Problem and Context**
 
 현재 근거 검색은 Dense 검색만 사용하므로 단어가 정확히 일치하는 근거를 놓칠 수 있다. 그 결과 AI Game Master가 실제 모험 준비·진행 중 필요한 룰북·시나리오 사실을 충분히 확보하지 못할 수 있다.

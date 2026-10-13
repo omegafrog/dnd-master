@@ -21,3 +21,14 @@ def is_form_like(*, drawing_count: int, aligned_line_count: int,
     return (drawing_count >= 100 and aligned_line_count >= 100
             and long_horizontal_line_count >= 40
             and long_horizontal_line_count >= text_line_count * 1.5)
+
+
+def form_content_state(*, populated_field_count: int, image_region_count: int,
+                       text_block_count: int = 0) -> str:
+    """Classify searchable content separately from the page's form appearance."""
+    if populated_field_count > 0:
+        return "filled"
+    if image_region_count > 0 or text_block_count > 0:
+        # Flattened form values and handwriting cannot be distinguished safely from labels.
+        return "unknown"
+    return "blank"

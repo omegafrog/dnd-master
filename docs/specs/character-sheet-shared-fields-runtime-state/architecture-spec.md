@@ -593,7 +593,7 @@ Bounded Context, internal capability, code module, deployment service를 1:1로 
 | --- | --- | --- | --- | --- |
 | Scenario Preparation/Adventure | 세션별 공통 항목 확장 | `adventure-service` 내부 기능 | 기존 adventure service | 세션 준비 소유권과 상태가 일치 |
 | Character Management | PC별 필드 임시 준비와 규칙 기반 상태 변경 | 기존 서비스 내부 application/domain 기능 및 API 계약 | 기존 `character-management-service` | 시트·버전·변경 기록 소유자가 최종 저장 |
-| Document Knowledge (`rule-knowledge-service`) | 기존 hybrid evidence search for Rulebook and authorized Storybooks | 기존 search application service와 검색 adapter | 기존 `rule-knowledge-service` | 검색·권한 소유권을 재사용하고 GSD 발행 경로는 변경하지 않음 |
+| Document Knowledge (`rule-knowledge-service`) | 기존 Rulebook 및 허용된 Storybook 벡터 유사도 검색 | 기존 검색 응용 서비스와 검색 adapter | 기존 `rule-knowledge-service` | 검색·권한 소유권을 재사용하고 GSD 발행 경로는 변경하지 않음 |
 
 ## 5.2 Boundary Promotion Decisions
 
@@ -783,9 +783,9 @@ stop
 | --- | --- | --- | --- |
 | Adventure persistence | session extension revision and Saga/session state | Adventure repositories | repository/application layer |
 | Character Management database | sheet values, optimistic versions, operation history | CM repository | repository/transaction boundary |
-| Document Knowledge (`rule-knowledge-service`) persistence | 기존 Rulebook/Storybook 색인과 접근 정책 | 기존 search adapter | read-only hybrid search port |
+| Document Knowledge (`rule-knowledge-service`) persistence | 기존 Rulebook/Storybook 색인과 접근 정책 | 기존 search adapter | read-only dense search port |
 | existing internal HTTP infrastructure | commands between services | CM client adapter/controller | service authentication, timeout, error mapping |
-| existing retrieval/evaluation toolchain | hybrid source retrieval and recommendation quality reporting | search adapter/evaluator | offline tooling boundary |
+| existing retrieval/evaluation toolchain | source retrieval and recommendation quality reporting | search adapter/evaluator | offline tooling boundary |
 
 ## 5.12 External Dependency Isolation
 
@@ -837,7 +837,7 @@ src/character-management-service/
   .../CharacterSheet.java                              # per-PC values/invariants/derived values
   .../RuntimeCharacterMutation.java                   # generalized allowed operation model
 src/rule-knowledge-service/
-  .../CharacterContextSearchPort.java                  # existing hybrid search for current Rulebook and authorized Storybooks
+  .../CharacterContextSearchPort.java                  # existing dense search for current Rulebook and authorized Storybooks
   .../CharacterContextSearchPort.java                  # existing search contract; no candidate extraction/publication changes
 scripts/evaluate_preprocessing.py                      # extend/use existing fixed-case evaluator path
 tests/fixtures/character-field-recommendation-gold.json    # fixed question, Rulebook/Storybook source, expected candidates and evidence
@@ -1125,7 +1125,7 @@ stop
 | --- | --- |
 | Scenario Preparation/Adventure | add session-only overlay revision, hidden staging/activation, start-time value validation, lock on start |
 | Character Management | add typed per-PC extension values, all-target batch staging, rule-authorized runtime mutations, derived-value recalculation and direct-write guard |
-| Scenario Preparation/Adventure | use existing hybrid search over current Rulebook and authorized Storybooks; preserve the D&D 5e preset fields and offer additional candidates |
+| Scenario Preparation/Adventure | use existing dense vector search over current Rulebook and authorized Storybooks; preserve the D&D 5e preset fields and offer additional candidates |
 | recommendation evaluation | add fixed questions/source/gold expected candidates; report field identification, requiredness, and evidence metrics; baseline first |
 | internal API/DTOs | add versioned idempotent staging and resolved mutation contracts |
 | persistence | additive schema/revision/operation metadata needed to preserve ownership and recovery |

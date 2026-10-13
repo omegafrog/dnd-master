@@ -3,7 +3,11 @@ package com.dndmaster.adventure.infrastructure.integration;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationAgentPort;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationAgentFailureException;
 import com.dndmaster.adventure.domain.scenario.ScenarioModel;
+import com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -18,6 +22,7 @@ import java.util.UUID;
 
 /** Sends selected, source-identified Storybook excerpts to the semantic scenario compiler. */
 public final class HttpScenarioCompilationAgentPort implements ScenarioCompilationAgentPort {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(HttpScenarioCompilationAgentPort.class);
     private final HttpClient client;
     private final URI baseUri;
     private final Duration timeout;
@@ -67,7 +72,17 @@ public final class HttpScenarioCompilationAgentPort implements ScenarioCompilati
             for (String field : List.of("actors", "locations", "objectives", "revelations", "encounters",
                     "relationships", "resolutionCriteria")) values.putIfAbsent(field, List.of());
             values.putIfAbsent("startingSituation", "");
-            ScenarioModel model = mapper.convertValue(values, ScenarioModel.class);
+            ScenarioModel model;
+            try {
+                model = mapper.convertValue(values, ScenarioModel.class);
+            } catch (IllegalArgumentException invalidModel) {
+                ScenarioModelDeserializationDiagnostic diagnostic = scenarioModelDiagnostic(invalidModel);
+                if (diagnostic != null && DevelopmentDiagnostics.enabled()) {
+                    LOGGER.warn("dev_scenario_compilation stage=output_validation operationKey={} code={} path={} expected={} actual={} recoveryAction=reject_response outcome=failed",
+                            request.operationKey(), diagnostic.code(), diagnostic.path(), diagnostic.expected(), diagnostic.actual());
+                }
+                throw invalidModel;
+            }
             return new ScenarioCompilationAgentResult(ScenarioCompilationAgentResult.Status.READY, model, result.diagnostics());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -109,6 +124,39 @@ public final class HttpScenarioCompilationAgentPort implements ScenarioCompilati
         } catch (NumberFormatException | ArithmeticException ignored) {
             // Leave invalid values intact so the ScenarioModel deserializer reports the contract error.
         }
+    }
+
+    static ScenarioModelDeserializationDiagnostic scenarioModelDiagnostic(Throwable failure) {
+        JsonMappingException mappingFailure = null;
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof JsonMappingException mapping) {
+                mappingFailure = mapping;
+                break;
+            }
+        }
+        if (mappingFailure == null) return null;
+
+        StringBuilder path = new StringBuilder("scenarioModel");
+        for (JsonMappingException.Reference reference : mappingFailure.getPath()) {
+            if (reference.getFieldName() != null && reference.getFieldName().matches("[A-Za-z0-9_$]{1,80}")) {
+                path.append('.').append(reference.getFieldName());
+            } else if (reference.getIndex() >= 0) {
+                path.append('[').append(reference.getIndex()).append(']');
+            } else {
+                path.append("[?");
+            }
+        }
+
+        String expected = mappingFailure instanceof MismatchedInputException mismatch
+                && mismatch.getTargetType() != null
+                ? mismatch.getTargetType().getSimpleName() : "ScenarioModel";
+        String actual = "unknown";
+        if (mappingFailure.getProcessor() instanceof JsonParser parser && parser.currentToken() != null) {
+            actual = parser.currentToken().name();
+        }
+        String code = mappingFailure instanceof MismatchedInputException
+                ? "SCENARIO_MODEL_TYPE_MISMATCH" : "SCENARIO_MODEL_DESERIALIZATION_FAILED";
+        return new ScenarioModelDeserializationDiagnostic(code, path.toString(), expected, actual);
     }
 
     static void normalizeStartingSituation(Map<String, Object> values) {
@@ -174,6 +222,7 @@ public final class HttpScenarioCompilationAgentPort implements ScenarioCompilati
     }
 
     private record CompilationRequest(UUID soloPlayerId, String operationKey, String storybookContext) { }
+    record ScenarioModelDeserializationDiagnostic(String code, String path, String expected, String actual) { }
     private record CompilationResponse(String status, Map<String, Object> scenarioModel, List<String> diagnostics) {
         private CompilationResponse {
             diagnostics = diagnostics == null ? List.of() : List.copyOf(diagnostics);

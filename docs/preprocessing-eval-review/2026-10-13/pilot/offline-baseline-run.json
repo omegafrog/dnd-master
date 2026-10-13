@@ -1,0 +1,42 @@
+{
+  "run_date": "2026-10-13",
+  "git_head": "8ef50e1b0e939104445c4f7a73442cb42e3fdada",
+  "command": "scripts/preprocess.py <pdf> --profile default --output <fresh-temp-directory>",
+  "mode": "offline; sequential; no indexing or publishing; fresh output folders",
+  "output_root": "/tmp/offline-preprocessing-eval.JU9Vsv",
+  "preprocess_valid": false,
+  "documents": {
+    "basic-roleplaying": {
+      "pdf_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+      "pages": 303,
+      "chunks": 1161,
+      "validation_issues": 683,
+      "elapsed_seconds": 209.53,
+      "max_rss_kib": 191304
+    },
+    "cairn-player": {
+      "pdf_sha256": "ed2869946b0de9d97398c975a3dde8d5701250eb4c8776cb40907fe23c6300bb",
+      "pages": 88,
+      "chunks": 249,
+      "validation_issues": 343,
+      "elapsed_seconds": 26.44,
+      "max_rss_kib": 430808
+    },
+    "cairn-warden": {
+      "pdf_sha256": "7f3917fffb205a0e09f80145bc8bd78c982ad9a6fef18d9d84b64b9d4b5ece8e",
+      "pages": 192,
+      "chunks": 416,
+      "validation_issues": 548,
+      "elapsed_seconds": 53.27,
+      "max_rss_kib": 357608
+    }
+  },
+  "evaluation_limit": "Only annotated pages are scored; these are pilot structural results, not full-document accuracy.",
+  "evaluator_script_sha256": "249db393574d9f19d1838d30382bf690763da750e6d9ffe6b007d207515264c3",
+  "annotation_schema_sha256": "6a046a2c1185671ad0a3703d620f84292d2566cb2ed80b3373e7a78e60a5d73b",
+  "annotation_sha256": {
+    "basic-roleplaying-structure-gold.jsonl": "4f35084478fa8ebf3cf2a37cd03abfb4024eeaa440e7270ec0e216885b205a88",
+    "cairn-player-structure-gold.jsonl": "4b11de874e0f1a39ecd7a1af0c494bfb2808cf079cb45904e127edfa14307ec4",
+    "cairn-warden-structure-gold.jsonl": "e1e8c90db465ef299f02b952b852c0fbfe39c2d3a2ca1d46305dbef42acf0762"
+  }
+}

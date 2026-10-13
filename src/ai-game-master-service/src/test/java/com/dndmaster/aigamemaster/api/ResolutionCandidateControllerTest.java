@@ -7,12 +7,58 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.dndmaster.aigamemaster.application.ai.AiExecutionSuccess;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointStore;
+import java.net.URI;
+import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 class ResolutionCandidateControllerTest {
+    @Test
+    @ExtendWith(OutputCaptureExtension.class)
+    void logsOnlyStructuralResolutionCandidateDiagnostics(CapturedOutput output) {
+        String secret = "PRIVATE_RESOLUTION_SENTINEL";
+        String modelResponse = "[{\"kind\":\"DAMAGE_ROLL\",\"visibility\":\"GM_REFERENCE\","
+                + "\"sourceQuote\":\"" + secret + "\",\"provenance\":\"" + secret + "\",\"detail\":{}}]";
+        AgentEndpoint endpoint = new AgentEndpoint(UUID.randomUUID(), "test", AgentEndpoint.Provider.CODEX_CLI,
+                URI.create("http://localhost:1234"), "test-model", null, true, Instant.now());
+        AgentEndpointStore store = new AgentEndpointStore() {
+            @Override public List<AgentEndpoint> list() { return List.of(endpoint); }
+            @Override public Optional<AgentEndpoint> active() { return Optional.of(endpoint); }
+            @Override public void save(AgentEndpoint ignored) {}
+        };
+        var controller = new ResolutionCandidateController(null, new ObjectMapper(),
+                new AgentEndpointRegistry(store), request -> new AiExecutionSuccess(modelResponse));
+
+        String prior = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            controller.extract(new ResolutionCandidateController.Request(UUID.randomUUID(), "resolution-operation",
+                    List.of(new ResolutionCandidateController.Excerpt(UUID.randomUUID(), 1, "page:sentinel", secret)),
+                    "v1", "p1"));
+        } finally {
+            if (prior == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", prior);
+        }
+
+        assertTrue(output.getOut().contains("operationId=resolution-operation"));
+        assertTrue(output.getOut().contains("index=0"));
+        assertTrue(output.getOut().contains("rejection="));
+        assertTrue(output.getOut().contains("aiCandidates=1"));
+        assertFalse(output.getOut().contains(secret));
+        assertFalse(output.getOut().contains("candidate={"));
+    }
+
     @Test
     void llmContractValidatorRejectsMissingAndContradictoryCanonicalContracts() throws Exception {
         var mapper = new ObjectMapper();
@@ -79,6 +125,41 @@ class ResolutionCandidateControllerTest {
         assertEquals("SAVING_THROW", candidates.getFirst().kind());
         assertEquals("GM_REFERENCE", candidates.getFirst().visibility());
         assertEquals(12, candidates.getFirst().dc().path("value").asInt());
+    }
+
+    @Test
+    void initialAndRecoveryPromptsStateTheValidatedDiceGrammar() {
+        var controller = new ResolutionCandidateController(null, new ObjectMapper());
+        var playerId = java.util.UUID.randomUUID();
+        var excerpt = new ResolutionCandidateController.Excerpt(
+                java.util.UUID.randomUUID(), 1, "page=1", "The trap deals 2d6+3 damage. Recharge 5-6.");
+
+        String initial = controller.buildPrompt(new ResolutionCandidateController.Request(
+                playerId, "initial", List.of(excerpt), "v1", "resolution-v1"));
+        String recovery = controller.buildPrompt(new ResolutionCandidateController.Request(
+                playerId, "repair", List.of(excerpt), "v1", "resolution-recovery-v1",
+                new ObjectMapper().createObjectNode(), 1, List.of("dice expression is invalid")));
+
+        for (String prompt : List.of(initial, recovery)) {
+            assertTrue(prompt.contains("exactly one NdS term"));
+            assertTrue(prompt.contains("at most one signed integer modifier"));
+            assertTrue(prompt.contains("2d6+3"));
+            assertTrue(prompt.contains("Recharge 5-6"));
+            assertTrue(prompt.contains("numeric inclusive N-M range"));
+            assertTrue(prompt.contains("Do not invent values or references"));
+        }
+        assertTrue(recovery.contains("repair only the invalid resolution"));
+    }
+
+    @Test
+    void parserPreservesAValidSingleDiceTermWithIntegerModifier() {
+        var controller = new ResolutionCandidateController(null, new ObjectMapper());
+
+        var candidates = controller.parseModel("[{\"kind\":\"DAMAGE_ROLL\",\"diceExpression\":\"2d6+3\","
+                + "\"visibility\":\"GM_REFERENCE\",\"sourceQuote\":\"2d6+3 damage\","
+                + "\"sourceRefs\":[],\"provenance\":\"source text\"}]");
+
+        assertEquals("2d6+3", candidates.getFirst().diceExpression());
     }
 
     @Test

@@ -35,7 +35,7 @@ class FakeSetupApi implements SetupApi {
       knowledgeDocumentId: 'doc-2',
       documentType: 'STORYBOOK',
       originalFilename: 'handout.pdf',
-      status: 'PARTIAL_CONFIRMED',
+      status: 'INDEXED_WITH_WARNINGS',
       format: 'PDF',
       extractionVersion: 7,
       warnings: ['page 3 failed'],
@@ -73,7 +73,7 @@ class FakeSetupApi implements SetupApi {
   async createScenarioBundle() {
     return bundle('bundle-1', 1, [
       { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'INDEXED', role: 'MAIN_SCENARIO', extractionVersion: 3 },
-      { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'handout.pdf', status: 'PARTIAL_CONFIRMED', role: 'HANDOUT', extractionVersion: 7 },
+      { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'handout.pdf', status: 'INDEXED_WITH_WARNINGS', role: 'HANDOUT', extractionVersion: 7 },
       { knowledgeDocumentId: 'doc-3', documentType: 'RULEBOOK', originalFilename: 'rules.pdf', status: 'INDEXED', role: 'RULEBOOK', extractionVersion: 1 },
     ])
   }
@@ -248,7 +248,7 @@ describe('ScenarioSetup', () => {
     expect(await screen.findByText('main.pdf')).toBeInTheDocument()
     expect(screen.getByText('rules.pdf')).toBeInTheDocument()
     expect(screen.getByLabelText('rules.pdf 역할')).toHaveValue('RULEBOOK')
-    expect(screen.getByText('handout.pdf: 자료를 읽는 중 확인이 필요한 부분이 있습니다.')).toBeInTheDocument()
+    expect(screen.getByText('handout.pdf: 일부 페이지를 읽지 못했습니다. 검색 가능한 나머지 내용으로 진행합니다.')).toBeInTheDocument()
     expect(screen.getByText('failed-main.pdf: 준비에 문제가 있습니다 — document parser stopped')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('main.pdf 역할'), 'MAIN_SCENARIO')

@@ -74,6 +74,57 @@ class ProcessCliPreprocessingAdapterTest {
     }
 
     @Test
+    void acceptsPartialResultWithUsableAndUnreadablePagesAndSearchArtifacts() throws Exception {
+        Path work = Files.createTempDirectory("rag-014-adapter-partial-");
+        String hash = "a".repeat(64);
+        Map<String, Object> fixture = fixture(work, hash, "candidate-partial", "adapter-partial", "preprocess");
+        fixture.put("status", "PARTIAL");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> pages = (List<Map<String, Object>>) fixture.get("pages");
+        Map<String, Object> usable = new LinkedHashMap<>(pages.getFirst());
+        usable.put("status", "USABLE_WITH_WARNINGS");
+        usable.put("findings", List.of("STRUCTURE_UNCERTAIN"));
+        Map<String, Object> unreadable = Map.of("page_number", 2, "status", "NEEDS_REVIEW", "attempts", 1,
+                "findings", List.of("TEXT_UNUSABLE"));
+        fixture.put("pages", List.of(usable, unreadable));
+        fixture.put("page_summary", Map.of("count", 2, "processed", 2, "validated", 0,
+                "usable_with_warnings", 1, "excluded_forms", 0, "needs_review", 1, "ready", 1));
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> artifactRefs = (Map<String, Object>) fixture.get("artifacts");
+        Map<String, Object> versionRef = new LinkedHashMap<>((Map<String, Object>) artifactRefs.get("version"));
+        Path versionPath = Path.of((String) versionRef.get("path"));
+        Files.writeString(versionPath, new ObjectMapper().writeValueAsString(Map.of("version_id", "candidate-partial",
+                "source_sha256", hash, "status", "PARTIAL", "page_count", 2, "excluded_form_pages", List.of())));
+        versionRef.put("sha256", sha256(versionPath));
+        artifactRefs.put("version", versionRef);
+
+        Map<String, Object> manifest = new LinkedHashMap<>((Map<String, Object>) fixture.get("manifest"));
+        manifest.put("statistics", Map.of("pages", 2));
+        manifest.put("page_statistics", Map.of("count", 2, "excluded_form_pages", List.of()));
+        fixture.put("manifest", manifest);
+        Map<String, Object> manifestRef = new LinkedHashMap<>((Map<String, Object>) artifactRefs.get("manifest"));
+        Path manifestPath = Path.of((String) manifestRef.get("path"));
+        Files.writeString(manifestPath, new ObjectMapper().writeValueAsString(manifest));
+        manifestRef.put("sha256", sha256(manifestPath));
+        artifactRefs.put("manifest", manifestRef);
+        artifactRefs.put("manifest_sha256", manifestRef.get("sha256"));
+
+        Path script = writeScript(work.resolve("fake-python-partial"), new ObjectMapper().writeValueAsString(fixture));
+        ProcessCliPreprocessingAdapter adapter = new ProcessCliPreprocessingAdapter(
+                script.toString(), work, Duration.ofMinutes(2), new ObjectMapper());
+
+        PreprocessingRunResult result = adapter.preprocess(
+                new PreprocessingRunRequest("adapter-partial", work.resolve("source.pdf"), hash,
+                        "p1", work.resolve("out"), "candidate-partial"));
+
+        assertEquals("PARTIAL", result.status());
+        assertEquals(List.of("USABLE_WITH_WARNINGS", "NEEDS_REVIEW"),
+                result.pages().stream().map(com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState::status).toList());
+    }
+
+    @Test
     void rejectsSourceHashMismatchWithoutExposingProcessDetails() throws Exception {
         Path work = Files.createTempDirectory("rag-014-adapter-");
         Path source = work.resolve("rules.txt");
@@ -203,7 +254,8 @@ class ProcessCliPreprocessingAdapterTest {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("schema_version", "1"); response.put("operation", operation); response.put("request_id", requestId);
         response.put("version_id", versionId); response.put("status", "READY"); response.put("pages", List.of(page));
-        response.put("page_summary", Map.of("count", 1, "processed", 1, "validated", 1, "excluded_forms", 0, "needs_review", 0, "ready", 1));
+        response.put("page_summary", Map.of("count", 1, "processed", 1, "validated", 1,
+                "usable_with_warnings", 0, "excluded_forms", 0, "needs_review", 0, "ready", 1));
         response.put("artifacts", files); response.put("manifest_sha256", files.get("manifest"));
         Map<String, Object> refs = new LinkedHashMap<>((Map<String, Object>) files);
         refs.put("manifest_sha256", ((Map<String, Object>) files.get("manifest")).get("sha256"));

@@ -24,10 +24,10 @@ from preprocessing_agent.domain import PageStatus, ParsedDocument, ParsedPage, P
 from preprocessing_agent.domain.layout import BoundingBox, PageGeometry, LayoutBlock
 from preprocessing_agent.domain.serialization import to_dict
 from preprocessing_agent.layout import ReadingOrderPlanner
-from preprocessing_agent.layout.page_classification import form_geometry_counts, is_form_like
+from preprocessing_agent.layout.page_classification import form_content_state, form_geometry_counts, is_form_like
 from preprocessing_agent.parsers.pdf import PdfDocumentParser, _classify_text_detection_hypothesis, _find_native_tables, _native_table_candidate_diagnostic, _reconcile_native_table_candidates, _reconstruct_native_table, _without_consumed_header_blocks
 from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
-from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector
+from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector, document_reference_font_size
 from preprocessing_agent.ports.extraction import ExtractionCapabilityError, PageRenderPort, OcrPort, normalize_ocr_blocks
 from preprocessing_agent.adapters.ocr import PyMuPdfPageRenderAdapter, TesseractOcrAdapter
 from preprocessing_agent.validation import LayoutValidationService
@@ -123,6 +123,7 @@ class ExtractionStatus(str, Enum):
     PROCESSING = "PROCESSING"
     VALIDATING = "VALIDATING"
     READY = "READY"
+    PARTIAL = "PARTIAL"
     NEEDS_REVIEW = "NEEDS_REVIEW"
 
 
@@ -161,7 +162,7 @@ class ExtractionVersion:
         return cls(version_id, document_id, policy_version, page_count, ExtractionStatus.PROCESSING)
 
     def record_page(self, page: PageExtraction) -> None:
-        if self.status == ExtractionStatus.READY:
+        if self.status in {ExtractionStatus.READY, ExtractionStatus.PARTIAL}:
             raise ValueError("published extraction version is immutable")
         if not 1 <= page.page_number <= self.page_count:
             raise ValueError("page number is outside extraction version")
@@ -171,13 +172,18 @@ class ExtractionVersion:
             self.status = ExtractionStatus.NEEDS_REVIEW
 
     def publish(self) -> None:
-        if len(self.pages) != self.page_count or any(
-            page.status not in {PageStatus.VALIDATED, PageStatus.EXCLUDED_FORM}
-            for page in self.pages.values()
-        ):
+        usable = {PageStatus.VALIDATED, PageStatus.USABLE_WITH_WARNINGS}
+        if (len(self.pages) != self.page_count
+                or (not any(page.status in usable for page in self.pages.values())
+                    and not all(page.status == PageStatus.EXCLUDED_FORM for page in self.pages.values()))
+                or any(page.status not in {*usable, PageStatus.EXCLUDED_FORM, PageStatus.NEEDS_REVIEW}
+                       for page in self.pages.values())):
             self.status = ExtractionStatus.NEEDS_REVIEW
-            raise ValueError("cannot publish extraction version with unvalidated pages")
-        self.status = ExtractionStatus.READY
+            raise ValueError("cannot publish extraction version without usable page content")
+        self.status = (ExtractionStatus.PARTIAL
+                       if any(page.status in {PageStatus.USABLE_WITH_WARNINGS, PageStatus.NEEDS_REVIEW}
+                              for page in self.pages.values())
+                       else ExtractionStatus.READY)
 
 
 class NativePdfPort(Protocol):
@@ -185,6 +191,9 @@ class NativePdfPort(Protocol):
 
 
 class PyMuPdfNativePdfAdapter:
+    def __init__(self, *, analyze_structure: bool = True) -> None:
+        self.analyze_structure = analyze_structure
+
     def extract(self, source: Path) -> list[Mapping[str, Any]]:
         try:
             with contextlib.redirect_stdout(sys.stderr):
@@ -196,23 +205,56 @@ class PyMuPdfNativePdfAdapter:
             for number, page in enumerate(document, 1):
                 rect = page.rect
                 blocks = []
-                font_metadata = _font_metadata_by_block(page)
+                image_regions = [tuple(float(value) for value in image["bbox"])
+                                 for image in page.get_image_info(xrefs=True)
+                                 if isinstance(image.get("bbox"), (list, tuple)) and len(image["bbox"]) == 4]
+                widgets = list(page.widgets() or ())
+                populated_widgets = [widget for widget in widgets
+                                     if str(getattr(widget, "field_value", "") or "").strip()]
+                font_metadata = _font_metadata_by_block(page) if self.analyze_structure else {}
                 text_spans = {}
                 text_lines = {}
-                for text_block in page.get_text("dict").get("blocks", ()):
+                text_payload = page.get_text("dict")
+                text_blocks = text_payload.get("blocks", ()) if isinstance(text_payload, Mapping) else ()
+                for text_block in text_blocks if self.analyze_structure else ():
                     key = tuple(float(value) for value in text_block.get("bbox", ()))
-                    text_spans[key] = [{"text": span.get("text", ""), "bbox": span.get("bbox")}
-                                       for line in text_block.get("lines", ()) for span in line.get("spans", ())]
-                    text_lines[key] = [{"bbox": line.get("bbox")} for line in text_block.get("lines", ())
-                                       if line.get("bbox") is not None]
+                    detailed_spans = []
+                    detailed_lines = []
+                    for line_index, line in enumerate(text_block.get("lines", ())):
+                        raw_spans = line.get("spans", ())
+                        line_parts: list[str] = []
+                        previous_text = ""
+                        for span in raw_spans:
+                            span_text = str(span.get("text", ""))
+                            if span_text and previous_text and not previous_text[-1:].isspace() and not span_text[:1].isspace():
+                                line_parts.append(" ")
+                            line_parts.append(span_text)
+                            if span_text:
+                                previous_text = span_text
+                        line_text = "".join(line_parts)
+                        line_spans = []
+                        for span_index, span in enumerate(raw_spans):
+                            font_name = str(span.get("font", ""))
+                            item = {"text": span.get("text", ""), "bbox": span.get("bbox"),
+                                "font_size": span.get("size"), "size": span.get("size"),
+                                "font": font_name,
+                                "font_weight": "bold" if "bold" in font_name.casefold() or "semibold" in font_name.casefold() else font_name,
+                                "span_index": span_index}
+                            line_spans.append(item)
+                            detailed_spans.append(item)
+                        detailed_lines.append({"text": line_text, "bbox": line.get("bbox"),
+                            "line_index": line_index, "spans": line_spans})
+                    text_spans[key] = detailed_spans
+                    text_lines[key] = detailed_lines
                 for index, raw in enumerate(page.get_text("blocks")):
                     text = str(raw[4]).strip()
                     if not text:
                         continue
                     size, font = font_metadata.get(tuple(float(value) for value in raw[:4]), (None, None))
-                    block = {"block_id": f"p{number}-b{index}", "text": text, "bbox": raw[:4],
-                             "spans": text_spans.get(tuple(float(value) for value in raw[:4]), []),
-                             "lines": text_lines.get(tuple(float(value) for value in raw[:4]), [])}
+                    block = {"block_id": f"p{number}-b{index}", "text": text, "bbox": raw[:4]}
+                    if self.analyze_structure:
+                        block.update(spans=text_spans.get(tuple(float(value) for value in raw[:4]), []),
+                                     lines=text_lines.get(tuple(float(value) for value in raw[:4]), []))
                     # Keep typography useful for heading confidence without
                     # turning page numbers and running headers (normally 8-9pt)
                     # into furniture merely because metadata is present.
@@ -221,23 +263,31 @@ class PyMuPdfNativePdfAdapter:
                     if font is not None and ("bold" in font.casefold() or "semibold" in font.casefold()):
                         block["font_weight"] = "bold"
                     blocks.append(block)
+                for index, widget in enumerate(populated_widgets):
+                    value = str(getattr(widget, "field_value", "") or "").strip()
+                    field_rect = getattr(widget, "rect", None)
+                    if value and field_rect is not None:
+                        blocks.append({"block_id": f"p{number}-field-{index}", "text": value,
+                                       "bbox": [float(field_rect.x0), float(field_rect.y0),
+                                                float(field_rect.x1), float(field_rect.y1)],
+                                       "kind": "form_value"})
                 # PyMuPDF's table finder is the native structured extraction
                 # seam. Keep cells as geometry-bearing blocks so downstream
                 # structure detection receives real row/column provenance.
-                found_tables = _find_native_tables(page, number)
+                found_tables = _find_native_tables(page, number) if self.analyze_structure else []
                 reconstructed = []
                 reconstruction_elapsed = []
                 for table, strategy in found_tables:
                     reconstruction_started = time.monotonic()
-                    projected, diagnostic = _reconstruct_native_table(table, blocks)
+                    projected, diagnostic = _reconstruct_native_table(table, blocks, number)
                     diagnostic.update(detection_strategies=strategy.split("+"),
                                       detection_deduplicated="+" in strategy)
-                    _classify_text_detection_hypothesis(diagnostic, strategy)
+                    _classify_text_detection_hypothesis(diagnostic, strategy, number)
                     reconstructed.append((projected, diagnostic))
                     reconstruction_elapsed.append(round((time.monotonic() - reconstruction_started) * 1000))
                 selected_tables, table_diagnostics = _reconcile_native_table_candidates(found_tables, reconstructed, number)
                 for index, diagnostic in enumerate(table_diagnostics):
-                    table_bbox = diagnostic["bbox"]
+                    table_bbox = diagnostic.get("effective_bbox") or diagnostic["bbox"]
                     source_spans = [span for block in blocks for span in block.get("spans", ())
                                     if isinstance(span, Mapping) and isinstance(span.get("bbox"), (list, tuple))
                                     and len(span["bbox"]) == 4 and table_bbox
@@ -248,9 +298,13 @@ class PyMuPdfNativePdfAdapter:
                     mapped_count = sum(sum(cell["bbox"][0] - mapping_tolerance <= (float(span["bbox"][0]) + float(span["bbox"][2])) / 2 <= cell["bbox"][2] + mapping_tolerance
                                            and cell["bbox"][1] - mapping_tolerance <= (float(span["bbox"][1]) + float(span["bbox"][3])) / 2 <= cell["bbox"][3] + mapping_tolerance
                                            for cell in projected) == 1 for span in source_spans)
-                    _dev_log("dev_preprocessing_layout stage=native_table_reconstruction pageNumber=%d candidateIndex=%d strategies=%s detectionDeduplicated=%s rowCount=%d columnCount=%d expectedCellCount=%d actualProjectedCellCount=%d sourceSpanCount=%d mappedSpanCount=%d elapsedMs=%d decision=%s rejectionReason=%s recoveryAction=%s outcome=%s",
-                             number, index, "+".join(diagnostic["detection_strategies"]), diagnostic["detection_deduplicated"], diagnostic["row_count"], diagnostic["column_count"],
+                    _dev_log("dev_preprocessing_layout stage=native_table_reconstruction pageNumber=%d candidateIndex=%d strategies=%s detectionDeduplicated=%s rowCount=%d reconstructedRowCount=%d columnCount=%d expectedCellCount=%d actualProjectedCellCount=%d sourceSpanCount=%d mappedSpanCount=%d sourceTokenCount=%d projectedTokenCount=%d textMatchesGrid=%s emptyRowCount=%d alignedFollowingSpanCount=%d continuedRowProjected=%s elapsedMs=%d decision=%s rejectionReason=%s recoveryAction=%s outcome=%s",
+                             number, index, "+".join(diagnostic["detection_strategies"]), diagnostic["detection_deduplicated"], diagnostic["row_count"], diagnostic.get("reconstructed_row_count", diagnostic["row_count"]), diagnostic["column_count"],
                              diagnostic["expected_cell_count"], len(projected), len(source_spans), mapped_count,
+                             diagnostic.get("source_token_count", 0), diagnostic.get("projected_token_count", 0),
+                             diagnostic.get("source_text_matches_grid", False),
+                             diagnostic.get("extracted_empty_row_count", 0), diagnostic.get("aligned_following_span_count", 0),
+                             diagnostic.get("continued_row_projected", False),
                              reconstruction_elapsed[index],
                              diagnostic["decision"], diagnostic["rejection_reason"] or "none",
                              "needs_review" if diagnostic["decision"] == "strong_unresolved" else "continue_layout_analysis",
@@ -261,7 +315,7 @@ class PyMuPdfNativePdfAdapter:
                         continue
                     blocks = _without_consumed_header_blocks(blocks, projected)
                     table_id = f"p{number}-table-{table_index}"
-                    table_bbox = getattr(table, "bbox", None)
+                    table_bbox = diagnostic.get("effective_bbox") or getattr(table, "bbox", None)
                     if table_bbox is not None and len(table_bbox) == 4:
                         table_regions.append(tuple(float(value) for value in table_bbox))
                     for cell in projected:
@@ -270,17 +324,29 @@ class PyMuPdfNativePdfAdapter:
                 if table_regions:
                     blocks = [block for block in blocks if block.get("kind") == "table_cell" or not _inside_table_region(block.get("bbox"), table_regions)]
                 blocks = list(_deduplicate_blocks(blocks))
-                form_diagnostics = _page_form_diagnostics(page, blocks)
+                text_line_count = sum(len(block.get("lines", ())) for block in text_blocks)
+                if not self.analyze_structure:
+                    form_diagnostics = form_geometry_counts(page.get_drawings(), text_line_count)
+                else:
+                    form_diagnostics = _page_form_diagnostics(page, blocks)
                 page_classification = "form" if is_form_like(**form_diagnostics) else "text-native"
                 _dev_log("dev_preprocessing_layout stage=page_classification pageNumber=%d drawingCount=%d alignedLineCount=%d longHorizontalLineCount=%d textLineCount=%d expectedFormEvidence=repeated_writing_rules actualForm=%s route=%s outcome=%s",
                          number, form_diagnostics["drawing_count"], form_diagnostics["aligned_line_count"],
                          form_diagnostics["long_horizontal_line_count"], form_diagnostics["text_line_count"], page_classification == "form",
                          "form_review" if page_classification == "form" else "prose_layout", page_classification)
-                pages.append({"page_number": number, "geometry": {"width": rect.width, "height": rect.height},
-                              "blocks": blocks, "page_classification": page_classification,
-                              "form_diagnostics": form_diagnostics,
-                              "native_table_candidate_count": len(found_tables),
-                              "native_table_diagnostics": table_diagnostics})
+                page_result = {"page_number": number, "geometry": {"width": rect.width, "height": rect.height},
+                               "blocks": blocks, "page_classification": page_classification,
+                               "form_diagnostics": form_diagnostics,
+                               "form_content_state": form_content_state(
+                                   populated_field_count=len(populated_widgets),
+                                   image_region_count=len(image_regions),
+                                   text_block_count=sum(bool(str(block.get("text", "")).strip()) for block in blocks)),
+                               "populated_form_field_count": len(populated_widgets),
+                               "image_regions": image_regions}
+                if self.analyze_structure:
+                    page_result.update(native_table_candidate_count=len(found_tables),
+                                       native_table_diagnostics=table_diagnostics)
+                pages.append(page_result)
         return pages
 
 
@@ -302,7 +368,9 @@ def _font_metadata_by_block(page: Any) -> dict[tuple[float, float, float, float]
 
 
 def _page_form_diagnostics(page: Any, blocks: list[Mapping[str, Any]]) -> dict[str, int]:
-    return form_geometry_counts(page.get_drawings(),
+    get_drawings = getattr(page, "get_drawings", None)
+    drawings = get_drawings() if callable(get_drawings) else ()
+    return form_geometry_counts(drawings,
                                 sum(len(block.get("lines", ())) for block in blocks))
 
 
@@ -367,8 +435,10 @@ def _layout_review_payload(page: Mapping[str, Any]) -> dict[str, Any]:
 
 
 class ExtractionApplicationService:
-    def __init__(self, native_pdf: NativePdfPort | None = None, render: PageRenderPort | None = None, ocr: OcrPort | None = None) -> None:
-        self.native_pdf = native_pdf or PyMuPdfNativePdfAdapter()
+    def __init__(self, native_pdf: NativePdfPort | None = None, render: PageRenderPort | None = None,
+                 ocr: OcrPort | None = None, *, analyze_structure: bool = False) -> None:
+        self.analyze_structure = analyze_structure
+        self.native_pdf = native_pdf or PyMuPdfNativePdfAdapter(analyze_structure=analyze_structure)
         self.render = render or PyMuPdfPageRenderAdapter()
         self.ocr = ocr or TesseractOcrAdapter()
         # Publication always requires a real renderer.  Fixtures and callers
@@ -396,6 +466,7 @@ class ExtractionApplicationService:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     def _preprocess_locked(self, request: Mapping[str, Any], canonical_output: Path) -> Mapping[str, Any]:
+        started = time.monotonic()
         source = _canonical_path(str(request["source_path"]), require_file=True)
         _enforce_root(source, "PREPROCESS_INPUT_ROOT")
         output = canonical_output
@@ -436,6 +507,9 @@ class ExtractionApplicationService:
                     pass
                 index.pop(idempotency_key, None)
         recovered = request.get("recovered_pages", {})
+        extraction_started = time.monotonic()
+        _dev_log("dev_preprocessing_run stage=source_extraction_started expectedPageCount=from_source actualRecoveredPageCount=%d sourceType=%s outcome=started",
+                 len(recovered) if isinstance(recovered, Mapping) else 0, source.suffix.lower() or "text")
         try:
             raw_pages = self.native_pdf.extract(source) if source.suffix.lower() == ".pdf" else self._text_pages(source)
             if isinstance(recovered, Mapping):
@@ -445,25 +519,41 @@ class ExtractionApplicationService:
         except Exception as exc:
             if isinstance(recovered, Mapping) and recovered:
                 raw_pages = list(recovered.values())
+                _dev_log("dev_preprocessing_run stage=source_extraction_fallback expectedPageCount=from_source actualRecoveredPageCount=%d failureType=%s route=recovered_page_artifacts recoveryAction=continue_page_processing elapsedMs=%d outcome=fallback",
+                         len(raw_pages), type(exc).__name__,
+                         round((time.monotonic() - extraction_started) * 1000))
             else:
+                _dev_log("dev_preprocessing_run stage=source_extraction_failed expectedPageCount=from_source actualRecoveredPageCount=0 failureType=%s route=none recoveryAction=preserve_source_require_reextraction elapsedMs=%d outcome=failed",
+                         type(exc).__name__, round((time.monotonic() - extraction_started) * 1000))
                 raise ValueError("NATIVE_EXTRACTION_FAILED") from exc
         document_id = source_hash[:16]
         version_id = str(request.get("version_id") or f"ev-{uuid.uuid4().hex[:12]}")
         if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id) or version_id in {".", ".."}:
             raise ValueError("INVALID_REQUEST")
         version = ExtractionVersion.create(version_id, document_id, policy, len(raw_pages) or 1)
-        parser_pages: list[Mapping[str, Any]] = []
+        _dev_log("dev_preprocessing_run stage=source_extraction_completed expectedPageCount=from_source actualPageCount=%d elapsedMs=%d route=page_provenance_validation outcome=success",
+                 version.page_count, round((time.monotonic() - extraction_started) * 1000))
+        reference_font_size = document_reference_font_size(raw_pages) if self.analyze_structure else None
+        _dev_log("dev_preprocessing_run stage=page_scan_started expectedPageCount=%d actualExtractedPageCount=%d route=%s outcome=started",
+                 version.page_count, len(raw_pages),
+                 "development_structure_analysis" if self.analyze_structure else "text_provenance_form_classification")
+        parser_pages_by_number: dict[int, Mapping[str, Any]] = {}
         page_artifacts: list[dict[str, Any]] = []
         seen_page_numbers: set[int] = set()
         for position, raw in enumerate(raw_pages, 1):
+            page_started = time.monotonic()
             number: int | None = None
+            safe_search_page: Mapping[str, Any] | None = None
             heading_evidence: list[Any] = []
+            heading_candidate_evidence: list[Any] = []
             table_evidence: list[Any] = []
             render_evidence: dict[str, Any] = {"page_number": position, "status": "UNAVAILABLE"}
             layout_validation: Mapping[str, Any] = {}
             layout_plan = None
             table_diagnostics: list[Mapping[str, Any]] = []
             pending_findings: list[str] = []
+            _dev_log("dev_preprocessing_page stage=started pageNumber=%d expectedPageCount=%d outcome=started",
+                     position, version.page_count)
             try:
                 if not isinstance(raw, Mapping):
                     raise ValueError("MALFORMED_EXTRACTION_PAYLOAD")
@@ -481,7 +571,9 @@ class ExtractionApplicationService:
                 seen_page_numbers.add(number)
                 raw = self._augment_with_ocr(source, raw, number)
                 if raw.get("capability_error"):
-                    raise ValueError(str(raw["capability_error"]))
+                    pending_findings.append(str(raw["capability_error"]))
+                    if not any(str(block.get("text", "")).strip() for block in raw.get("blocks", ())):
+                        raise ValueError(str(raw["capability_error"]))
                 geometry = PageGeometry(float(geometry_raw["width"]), float(geometry_raw["height"]))
                 if not math.isfinite(geometry.width) or not math.isfinite(geometry.height):
                     raise ValueError("INVALID_GEOMETRY")
@@ -498,6 +590,13 @@ class ExtractionApplicationService:
                     LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), extraction_method, float(block.get("confidence", 1.0)), document_id, number, geometry)
                     blocks.append({**block, "extraction_method": extraction_method, "text_confidence": float(block.get("text_confidence", block.get("confidence", 1.0))), "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
                 raw = {**raw, "blocks": blocks}
+                has_text = any(str(block.get("text", "")).strip() for block in blocks)
+                form_state = str(raw.get("form_content_state", "blank"))
+                if has_text:
+                    # Page and bounding-box provenance is assigned above. Structural
+                    # review findings must not discard otherwise usable source text.
+                    safe_search_page = raw
+                    parser_pages_by_number[number] = raw
                 is_form = raw.get("page_classification") == "form"
                 form_diagnostics = raw.get("form_diagnostics")
                 expected_form_fields = {"drawing_count", "aligned_line_count", "long_horizontal_line_count", "text_line_count"}
@@ -512,14 +611,16 @@ class ExtractionApplicationService:
                     pending_findings.append("FORM_CLASSIFICATION_UNVERIFIED")
                     _dev_log("dev_preprocessing_form stage=classification pageNumber=%d expectedEvidenceFields=4 actualEvidenceFields=%d route=needs_review outcome=unverified",
                              number, len(form_diagnostics.keys()) if isinstance(form_diagnostics, Mapping) else 0)
-                elif verified_form:
+                elif verified_form and form_state == "blank":
                     evidence = {"page_number": number, "page_classification": "form",
+                                "form_content_state": form_state,
                                 "form_diagnostics": {key: form_diagnostics[key] for key in sorted(expected_form_fields)},
                                 "exclusion_evidence": {"classifier": "form_geometry", "decision": "EXCLUDED_FORM"},
                                 "geometry": {"width": geometry.width, "height": geometry.height,
                                              "unit": geometry.unit, "origin": geometry.origin},
                                 "blocks": blocks}
                     version.record_page(PageExtraction(number, PageStatus.EXCLUDED_FORM))
+                    parser_pages_by_number[number] = raw
                     page_artifacts.append({**evidence, "status": PageStatus.EXCLUDED_FORM.value,
                                            "attempts": raw.get("_retry_attempts", 1),
                                            "attempt_history": raw.get("_retry_attempt_history", [{
@@ -532,126 +633,153 @@ class ExtractionApplicationService:
                              form_diagnostics["long_horizontal_line_count"], form_diagnostics["text_line_count"],
                              version.page_count,
                              sum(item.status == PageStatus.EXCLUDED_FORM for item in version.pages.values()))
+                    _dev_log("dev_preprocessing_page stage=completed pageNumber=%d expectedStatus=EXCLUDED_FORM actualStatus=%s elapsedMs=%d route=preserve_form_asset outcome=excluded",
+                             number, PageStatus.EXCLUDED_FORM.value,
+                             round((time.monotonic() - page_started) * 1000))
                     continue
-                table_classification_started = time.monotonic()
-                native_table_candidate_count = raw.get("native_table_candidate_count")
-                candidate_values = raw.get("native_table_diagnostics", ())
-                table_diagnostics = [item for item in candidate_values if isinstance(item, Mapping)] if isinstance(candidate_values, (list, tuple)) else []
-                unresolved_count = sum(item.get("decision") == "strong_unresolved" for item in table_diagnostics)
-                confirmed_count = sum(item.get("decision") == "confirmed_structured" for item in table_diagnostics)
-                weak_count = sum(item.get("decision") == "weak_candidate" for item in table_diagnostics)
-                if unresolved_count:
-                    pending_findings.append("TABLE_STRUCTURE_UNRESOLVED")
-                explicit_table_ids = {str(block.get("table_id")) for block in blocks if block.get("table_id")}
-                explicit_table_ids.update(str(block.get("block_id")) for block in blocks
-                                           if str(block.get("kind", "")).casefold() in {"table", "table_cell", "cell"}
-                                           and not block.get("table_id"))
-                raw["table_diagnostics"] = table_diagnostics
-                _dev_log("dev_preprocessing_layout stage=table_classification pageNumber=%d expectedNativeCandidateCount=%d actualExplicitTableZoneCount=%d confirmedStructuredCount=%d strongUnresolvedCount=%d weakCandidateCount=%d route=%s elapsedMs=%d outcome=%s",
-                         number, native_table_candidate_count if type(native_table_candidate_count) is int else len(table_diagnostics),
-                         len(explicit_table_ids), confirmed_count, unresolved_count, weak_count,
-                         "review_unresolved_table" if unresolved_count else "continue_layout_analysis",
-                         round((time.monotonic() - table_classification_started) * 1000),
-                         "needs_review" if unresolved_count else "continue")
-                cached_approval = None
-                if not isinstance(raw.get("layout_confirmation"), Mapping):
-                    cached_approval = _load_layout_approval(output, source_hash, number, raw)
+                elif verified_form and form_state == "unknown":
+                    pending_findings.append("FORM_CONTENT_UNVERIFIED")
+                    _dev_log("dev_preprocessing_form stage=content_assessment pageNumber=%d expectedState=blank_or_filled actualState=unknown populatedFieldCount=%d imageRegionCount=%d route=%s recoveryAction=do_not_exclude_as_blank outcome=review_required",
+                             number, int(raw.get("populated_form_field_count", 0)),
+                             len(raw.get("image_regions", ())),
+                             "ocr_and_preserve_page_asset" if raw.get("image_regions") else "preserve_text_and_page_asset")
+                elif verified_form and form_state == "filled":
+                    pending_findings.append("FORM_VALUES_PRESERVED")
+                    _dev_log("dev_preprocessing_form stage=content_assessment pageNumber=%d expectedPopulatedFieldCount=0 actualPopulatedFieldCount=%d route=searchable_form_content recoveryAction=preserve_field_values_and_source_positions outcome=usable_with_warning",
+                             number, int(raw.get("populated_form_field_count", 0)))
+                if not has_text:
+                    raise ValueError("NO_USABLE_TEXT")
+                if self.analyze_structure:
+                    table_diagnostics = [item for item in raw.get("native_table_diagnostics", ())
+                                         if isinstance(item, Mapping)]
+                    if any(item.get("decision") == "strong_unresolved" for item in table_diagnostics):
+                        pending_findings.append("TABLE_STRUCTURE_UNRESOLVED")
+                    cached_approval = None
+                    if not isinstance(raw.get("layout_confirmation"), Mapping):
+                        cached_approval = _load_layout_approval(output, source_hash, number, raw)
+                        _dev_log("dev_preprocessing_layout_approval stage=cache_lookup pageNumber=%d outcome=%s",
+                                 number, "hit" if cached_approval else "miss")
                     if cached_approval:
                         raw["layout_confirmation"] = {**cached_approval, "_approval_cache_hit": True}
-                        _dev_log("dev_preprocessing_layout_approval stage=cache_lookup pageNumber=%d sourceHashMatched=true fingerprintMatched=true analysisVersionMatched=true outcome=hit",
-                                 number)
-                    else:
-                        _dev_log("dev_preprocessing_layout_approval stage=cache_lookup pageNumber=%d outcome=miss",
-                                 number)
-                layout_value = raw.get("layout")
-                layout_name = layout_value if isinstance(layout_value, str) else str(layout_value.get("name", layout_value.get("strategy", ""))) if isinstance(layout_value, Mapping) else ""
-                declared_multi = raw.get("column_count", 1) != 1 or layout_name in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, [])
-                if declared_multi and not blocks:
-                    raise ValueError("MULTI_COLUMN_UNSUPPORTED: MULTI_COLUMN_GEOMETRY_REQUIRED")
-                confirmation = raw.get("layout_confirmation") if isinstance(raw.get("layout_confirmation"), Mapping) else {}
-                confirmed_by = confirmation.get("admin_id")
-                confirmed_candidate = confirmation.get("candidate_version")
-                retry_candidate = request.get("retry_source_version_id")
-                confirmed_selections = confirmation.get("selections", {})
-                confirmed_columns = bool(
-                    isinstance(confirmed_by, str) and confirmed_by
-                    and isinstance(confirmed_candidate, str) and confirmed_candidate
-                    and (confirmed_candidate == retry_candidate or confirmation.get("_approval_cache_hit") is True)
-                    and isinstance(confirmed_selections, Mapping) and confirmed_selections
-                )
-                form_review_started = time.monotonic()
-                layout_plan = (ReadingOrderPlanner().form_plan(blocks, geometry) if is_form else
-                    ReadingOrderPlanner().plan(blocks, geometry,
-                        dict(confirmed_selections) if confirmed_columns else None))
-                if is_form:
-                    _dev_log("dev_preprocessing_layout stage=form_review pageNumber=%d expectedProseProfileCount=0 actualProfileCount=%d blockCount=%d elapsedMs=%d recoveryAction=retain_source_and_require_form_review outcome=needs_review",
-                             number, len(layout_plan.profiles), len(blocks),
-                             round((time.monotonic() - form_review_started) * 1000))
-                if confirmed_columns and any(profile.selected is None for profile in layout_plan.profiles):
-                    raise ValueError("INVALID_LAYOUT_CANDIDATE")
-                if cached_approval:
-                    raw["layout_confirmation"] = {key: value for key, value in cached_approval.items()
-                                                   if key in {"admin_id", "candidate_version", "selections",
-                                                              "source_sha256", "page_layout_fingerprint",
-                                                              "layout_analysis_version"}}
-                layout_evidence = to_dict(layout_plan)
-                raw["layout"] = layout_evidence
-                # Structure is page evidence, not flattened prose. An
-                # irregular table remains reviewable and cannot be published.
-                heading_evidence = to_dict(HeadingAssociator().associate(blocks, layout_plan))
-                tables = TableStructureDetector().detect(blocks)
-                table_evidence = to_dict(tables)
-                table_findings = [finding for table in tables for finding in table.findings]
-                if table_findings:
-                    raise ValueError("IRREGULAR_TABLE: " + ",".join(sorted(set(table_findings))))
-                raw["heading_associations"] = heading_evidence
-                raw["tables"] = table_evidence
-                render_evidence = self._render_evidence(source, number, geometry)
-                raw["render_evidence"] = render_evidence
-                validation = self.layout_validator.validate(raw, render_evidence,
-                    confirmed_columns=confirmed_columns)
-                raw["layout_validation"] = validation.as_dict()
-                layout_validation = validation.as_dict()
-                if not validation.valid:
-                    raise ValueError("LAYOUT_VALIDATION_FAILED: " + ",".join(item.code for item in validation.findings))
-                if pending_findings:
-                    raise ValueError(",".join(pending_findings))
-                version.record_page(PageExtraction.validated(number))
-                parser_pages.append(raw)
-                evidence = {"page_number": number, "page_classification": raw.get("page_classification", "text-native"), "form_diagnostics": raw.get("form_diagnostics", {}), "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence, "heading_associations": heading_evidence, "tables": table_evidence, "render_evidence": render_evidence, "layout_validation": validation.as_dict()}
-                page_artifacts.append({**evidence, "status": PageStatus.VALIDATED.value,
+                    confirmation = raw.get("layout_confirmation") if isinstance(raw.get("layout_confirmation"), Mapping) else {}
+                    confirmed_columns = bool(
+                        isinstance(confirmation.get("admin_id"), str) and confirmation.get("admin_id")
+                        and isinstance(confirmation.get("candidate_version"), str)
+                        and (confirmation.get("candidate_version") == request.get("retry_source_version_id")
+                             or confirmation.get("_approval_cache_hit") is True)
+                        and isinstance(confirmation.get("selections"), Mapping)
+                        and confirmation.get("selections")
+                    )
+                    layout_plan = (ReadingOrderPlanner().form_plan(blocks, geometry) if is_form else
+                                   ReadingOrderPlanner().plan(blocks, geometry,
+                                       dict(confirmation.get("selections", {})) if confirmed_columns else None))
+                    layout_evidence = to_dict(layout_plan)
+                    raw["layout"] = layout_evidence
+                    heading_associations, heading_candidates = HeadingAssociator().analyze(
+                        blocks, layout_plan, reference_font_size)
+                    heading_evidence = to_dict(heading_associations)
+                    heading_candidate_evidence = to_dict(heading_candidates)
+                    table_values = TableStructureDetector().detect(blocks)
+                    table_evidence = to_dict(table_values)
+                    table_findings = [finding for table in table_values for finding in table.findings]
+                    if table_findings:
+                        raise ValueError("IRREGULAR_TABLE: " + ",".join(sorted(set(table_findings))))
+                    raw.update(heading_associations=heading_evidence,
+                               heading_candidates=heading_candidate_evidence, tables=table_evidence)
+                    render_evidence = self._render_evidence(source, number, geometry)
+                    validation = self.layout_validator.validate(raw, render_evidence,
+                        confirmed_columns=confirmed_columns)
+                    layout_validation = validation.as_dict()
+                    raw["layout_validation"] = layout_validation
+                    if not validation.valid:
+                        raise ValueError("LAYOUT_VALIDATION_FAILED: " + ",".join(
+                            item.code for item in validation.findings))
+                    if pending_findings:
+                        raise ValueError(",".join(pending_findings))
+                    evidence = {"page_number": number,
+                                "page_classification": raw.get("page_classification", "text-native"),
+                                "form_content_state": raw.get("form_content_state"),
+                                "image_regions": raw.get("image_regions", []),
+                                "form_diagnostics": form_diagnostics or {},
+                                "geometry": {"width": geometry.width, "height": geometry.height,
+                                             "unit": geometry.unit, "origin": geometry.origin},
+                                "blocks": blocks, "layout": layout_evidence,
+                                "heading_associations": heading_evidence,
+                                "heading_candidates": heading_candidate_evidence,
+                                "tables": table_evidence, "layout_validation": layout_validation}
+                    page_status = PageStatus.VALIDATED
+                else:
+                    evidence = {"page_number": number,
+                                "page_classification": raw.get("page_classification", "text-native"),
+                                "form_content_state": raw.get("form_content_state"),
+                                "image_regions": raw.get("image_regions", []),
+                                "form_diagnostics": form_diagnostics or {},
+                                "geometry": {"width": geometry.width, "height": geometry.height,
+                                             "unit": geometry.unit, "origin": geometry.origin},
+                                "blocks": blocks}
+                page_status = (PageStatus.USABLE_WITH_WARNINGS if pending_findings
+                               else page_status if self.analyze_structure else PageStatus.VALIDATED)
+                findings = list(dict.fromkeys(pending_findings))
+                version.record_page(PageExtraction(number, page_status, findings))
+                evidence["findings"] = findings
+                page_artifacts.append({**evidence, "status": page_status.value,
                     "attempts": raw.get("_retry_attempts", 1),
                     "attempt_history": raw.get("_retry_attempt_history", [{"attempt": 1,
-                        "status": PageStatus.VALIDATED.value, "findings": []}]),
-                    "layout_review": raw.get("layout_review"),
-                    "layout_confirmation": raw.get("layout_confirmation"),
-                    "table_diagnostics": table_diagnostics,
+                        "status": page_status.value, "findings": findings}]),
+                    "layout_review": raw.get("layout_review") if self.analyze_structure else None,
+                    "layout_confirmation": raw.get("layout_confirmation") if self.analyze_structure else None,
+                    "table_diagnostics": table_diagnostics if self.analyze_structure else [],
                     "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
-            except (KeyError, TypeError, ValueError) as exc:
+                _dev_log("dev_preprocessing_page stage=completed pageNumber=%d expectedTextBlockCount=at_least_1 actualTextBlockCount=%d actualTextCharacters=%d actualStatus=%s findingCount=%d elapsedMs=%d route=source_text_and_provenance outcome=%s",
+                         number, sum(bool(str(block.get("text", "")).strip()) for block in blocks),
+                         sum(len(str(block.get("text", ""))) for block in blocks), page_status.value,
+                         len(findings), round((time.monotonic() - page_started) * 1000),
+                         "warning" if findings else "success")
+            except Exception as exc:
                 safe_number = number if "number" in locals() and 1 <= number <= version.page_count else position
                 finding = str(exc) or "INVALID_GEOMETRY"
                 findings = list(dict.fromkeys([*pending_findings,
                     *(item.strip() for item in finding.replace(":", ",").split(",") if item.strip())]))
-                version.record_page(PageExtraction(safe_number, PageStatus.NEEDS_REVIEW, findings))
+                page_status = (PageStatus.USABLE_WITH_WARNINGS if safe_search_page is not None
+                               else PageStatus.NEEDS_REVIEW)
+                version.record_page(PageExtraction(safe_number, page_status, findings))
                 page_artifacts[:] = [item for item in page_artifacts if item.get("page_number") != safe_number]
                 evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value,
                             "findings": version.pages[safe_number].findings,
                             "page_classification": raw.get("page_classification", "text-native") if isinstance(raw, Mapping) else "text-native",
                             "form_diagnostics": raw.get("form_diagnostics", {}) if isinstance(raw, Mapping) else {},
+                            "form_content_state": raw.get("form_content_state", "unknown") if isinstance(raw, Mapping) else "unknown",
+                            "image_regions": raw.get("image_regions", []) if isinstance(raw, Mapping) else [],
                             "blocks": raw.get("blocks", []) if isinstance(raw, Mapping) else [],
                             "geometry": raw.get("geometry", {}) if isinstance(raw, Mapping) else {},
                             "layout": to_dict(layout_plan) if "layout_plan" in locals() and layout_plan is not None else {},
                             "table_diagnostics": table_diagnostics,
-                            "heading_associations": heading_evidence, "tables": table_evidence,
+                            "heading_associations": heading_evidence, "heading_candidates": heading_candidate_evidence, "tables": table_evidence,
                             "render_evidence": render_evidence, "layout_validation": layout_validation}
-                page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
+                page_artifacts.append({**evidence, "status": page_status.value,
+                                       "attempts": raw.get("_retry_attempts", 1) if isinstance(raw, Mapping) else 1,
+                                       "attempt_history": raw.get("_retry_attempt_history", [{
+                                           "attempt": 1, "status": page_status.value, "findings": findings}]) if isinstance(raw, Mapping) else [{
+                                           "attempt": 1, "status": page_status.value, "findings": findings}],
+                                       "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
+                _dev_log("dev_preprocessing_page stage=completed pageNumber=%d expectedUsableText=source_text_with_page_provenance actualTextBlockCount=%d actualTextCharacters=%d expectedStatus=VALIDATED actualStatus=%s findingCount=%d failureType=%s elapsedMs=%d route=%s recoveryAction=%s outcome=%s",
+                         safe_number,
+                         sum(bool(str(block.get("text", "")).strip()) for block in safe_search_page.get("blocks", ())) if safe_search_page else 0,
+                         sum(len(str(block.get("text", ""))) for block in safe_search_page.get("blocks", ())) if safe_search_page else 0,
+                         page_status.value, len(findings), type(exc).__name__,
+                         round((time.monotonic() - page_started) * 1000),
+                         "continue_with_searchable_page" if safe_search_page else "quarantine_page",
+                         "publish_partial_artifacts" if safe_search_page else "preserve_source_and_require_reextraction",
+                         "warning" if safe_search_page else "needs_review")
         present_pages = {item["page_number"] for item in page_artifacts}
         for missing in range(1, version.page_count + 1):
             if missing not in present_pages:
                 evidence = {"page_number": missing, "status": PageStatus.NEEDS_REVIEW.value, "findings": ["MISSING_PAGE_METADATA"]}
                 page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
+                _dev_log("dev_preprocessing_page stage=completed pageNumber=%d expectedPageMetadata=true actualPageMetadata=false actualStatus=NEEDS_REVIEW failureType=MISSING_PAGE_METADATA elapsedMs=0 route=quarantine_page recoveryAction=preserve_source outcome=needs_review",
+                         missing)
         page_artifacts.sort(key=lambda item: item["page_number"])
-        ready = False
+        published = False
         manifest: Mapping[str, Any] = {}
         output.mkdir(parents=True, exist_ok=True)
         versions = output / "versions"
@@ -659,12 +787,16 @@ class ExtractionApplicationService:
         versions.mkdir(exist_ok=True)
         temp_dir = Path(tempfile.mkdtemp(prefix=f".{version_id}-", dir=str(versions)))
         try:
-            if len(version.pages) == version.page_count and all(
-                page.status in {PageStatus.VALIDATED, PageStatus.EXCLUDED_FORM}
-                for page in version.pages.values()
-            ) and version.pages:
+            searchable_page_count = sum(page.status in {PageStatus.VALIDATED, PageStatus.USABLE_WITH_WARNINGS}
+                                        for page in version.pages.values())
+            can_materialize = (searchable_page_count > 0 and len(version.pages) == version.page_count)
+            forms_only = (len(version.pages) == version.page_count and version.pages
+                          and all(page.status == PageStatus.EXCLUDED_FORM for page in version.pages.values()))
+            if can_materialize or forms_only:
                 version.publish()
-                parser = PdfDocumentParser(extractor=lambda _source: parser_pages)
+                parser_pages = [parser_pages_by_number.get(number, {"page_number": number, "blocks": []})
+                                for number in range(1, version.page_count + 1)]
+                parser = PdfDocumentParser(extractor=lambda _source: parser_pages, analyze_structure=False)
                 result = PreprocessingPipeline.from_config({"name": "extraction-version", "pipeline_version": policy}, parser=parser, output_dir=temp_dir).run(source=source)
                 manifest = dict(result.manifest)
                 manifest_path = temp_dir / "manifest.json"
@@ -678,7 +810,7 @@ class ExtractionApplicationService:
                                                      "excluded_form_pages": excluded_form_pages}
                 manifest_path.write_text(json.dumps(manifest_data, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
                 manifest = manifest_data
-                ready = True
+                published = True
             else:
                 version.status = ExtractionStatus.NEEDS_REVIEW
                 excluded_form_pages = sorted(number for number, page in version.pages.items()
@@ -703,23 +835,25 @@ class ExtractionApplicationService:
                                    "attempts": item.get("attempts", 1), "findings": item.get("findings", []),
                                    "page_classification": item.get("page_classification"),
                                    "form_diagnostics": item.get("form_diagnostics"),
-                                   "layout_review": item.get("layout_review") or (_layout_review_payload(item) if item["status"] == "NEEDS_REVIEW" else None),
+                                   "form_content_state": item.get("form_content_state"),
+                                   "layout_review": item.get("layout_review") or (_layout_review_payload(item) if item["status"] in {"NEEDS_REVIEW", "USABLE_WITH_WARNINGS"} else None),
                                    "layout_confirmation": item.get("layout_confirmation"),
                                    "attempt_history": item.get("attempt_history", [{"attempt": 1,
                                        "status": item["status"], "findings": item.get("findings", [])}])}
                                   for item in page_artifacts],
                         "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts),
                                          "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts),
+                                         "usable_with_warnings": sum(item["status"] == "USABLE_WITH_WARNINGS" for item in page_artifacts),
                                          "excluded_forms": sum(item["status"] == "EXCLUDED_FORM" for item in page_artifacts),
                                          "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts),
-                                         "ready": sum(item["status"] in {"VALIDATED", "EXCLUDED_FORM"} for item in page_artifacts)},
-                        "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
+                                         "ready": sum(item["status"] in {"VALIDATED", "USABLE_WITH_WARNINGS", "EXCLUDED_FORM"} for item in page_artifacts)},
+                        "artifacts": self._artifact_refs(temp_dir, published), "manifest": manifest}
             (temp_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             version_dir = versions / version_id
             if version_dir.exists():
                 raise ValueError("VERSION_ID_CONFLICT")
             temp_dir.rename(version_dir)
-            if ready:
+            if published:
                 try:
                     generations = output / "generations"
                     _canonical_path(str(generations))
@@ -734,11 +868,11 @@ class ExtractionApplicationService:
                     raise
                 finally:
                     pass
-            response = {**response, "artifacts": self._artifact_refs(version_dir, ready)}
-            if ready and 'generation' in locals():
-                response = {**response, "artifacts": self._artifact_refs(generation, ready)}
+            response = {**response, "artifacts": self._artifact_refs(version_dir, published)}
+            if published and 'generation' in locals():
+                response = {**response, "artifacts": self._artifact_refs(generation, published)}
             (version_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
-            if ready and 'generation' in locals():
+            if published and 'generation' in locals():
                 shutil.copy2(version_dir / "response.json", generation / "response.json")
                 pointer = {"version_id": version_id, "generation": str(generation), "status": version.status.value}
                 (output / "current.json.tmp").write_text(json.dumps(pointer, sort_keys=True) + "\n")
@@ -746,28 +880,37 @@ class ExtractionApplicationService:
             else:
                 # Keep the prior current generation visible; this attempt is version-scoped.
                 pass
+            _dev_log("dev_preprocessing_run stage=completed status=%s expectedPageCount=%d actualPageCount=%d searchablePageCount=%d warningPageCount=%d reviewPageCount=%d chunkCount=%d elapsedMs=%d route=%s outcome=%s",
+                     version.status.value, version.page_count, len(page_artifacts),
+                     response["page_summary"]["ready"] - response["page_summary"]["excluded_forms"],
+                     response["page_summary"]["usable_with_warnings"], response["page_summary"]["needs_review"],
+                     manifest.get("statistics", {}).get("chunks", {}).get("exported", 0),
+                     round((time.monotonic() - started) * 1000),
+                     "publish_searchable_pages" if published else "preserve_review_only",
+                     "success" if published else "needs_review")
             index[idempotency_key] = version_id
             index_tmp = index_path.with_suffix(".tmp")
             index_tmp.write_text(json.dumps(index, sort_keys=True, indent=2) + "\n")
             os.replace(index_tmp, index_path)
             return response
         except Exception as exc:
+            _dev_log("dev_preprocessing_run stage=artifact_materialization_failed expectedPageCount=%d actualPageArtifactCount=%d searchablePageCount=%d failureType=%s failure=%s elapsedMs=%d recoveryAction=preserve_source_and_page_diagnostics outcome=failed",
+                     version.page_count, len(page_artifacts),
+                     sum(page.status in {PageStatus.VALIDATED, PageStatus.USABLE_WITH_WARNINGS}
+                         for page in version.pages.values()), type(exc).__name__, str(exc),
+                     round((time.monotonic() - started) * 1000))
             if temp_dir.exists(): shutil.rmtree(temp_dir)
             raise
 
     def _augment_with_ocr(self, source: Path, raw: Mapping[str, Any], number: int) -> Mapping[str, Any]:
         """Classify a page and OCR only declared image regions or image-only pages."""
-        # Regional/multi-column analysis belongs to RAG-009; do not reinterpret
-        # an explicitly declared layout as an OCR target here.
         if raw.get("page_classification") == "form":
-            return raw
-        layout_value = raw.get("layout")
-        layout_name = layout_value if isinstance(layout_value, str) else str(layout_value.get("name", layout_value.get("strategy", ""))) if isinstance(layout_value, Mapping) else ""
-        if raw.get("column_count", 1) != 1 or layout_name in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []):
-            return {**raw, "page_classification": "ambiguous"}
+            if raw.get("form_content_state") == "blank" or not raw.get("image_regions"):
+                return raw
         native_blocks = [dict(item) for item in raw.get("blocks", ()) if str(item.get("text", "")).strip()]
         image_regions = raw.get("image_regions", ())
-        classification = "text-native" if native_blocks and not image_regions else ("mixed" if native_blocks else "image-only")
+        is_form = raw.get("page_classification") == "form"
+        classification = "form" if is_form else ("text-native" if native_blocks and not image_regions else ("mixed" if native_blocks else "image-only"))
         updated = {**raw, "page_classification": classification}
         if classification == "text-native":
             return updated
@@ -861,24 +1004,25 @@ class ExtractionApplicationService:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
                 if not isinstance(response, dict) or not all(key in response for key in ("schema_version", "operation", "request_id", "version_id", "status", "pages", "page_summary", "artifacts", "manifest")) or not isinstance(response["pages"], list) or not isinstance(response["artifacts"], dict) or not isinstance(response["page_summary"], dict) or not isinstance(response["manifest"], dict):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
-                if response["schema_version"] != "1" or response["operation"] not in {"preprocess", "status", "retry_pages"} or not isinstance(response["request_id"], str) or not response["request_id"] or response["version_id"] != version_id or response["status"] not in {"QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"}:
+                if response["schema_version"] != "1" or response["operation"] not in {"preprocess", "status", "retry_pages"} or not isinstance(response["request_id"], str) or not response["request_id"] or response["version_id"] != version_id or response["status"] not in {"QUEUED", "PROCESSING", "VALIDATING", "READY", "PARTIAL", "NEEDS_REVIEW"}:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 summary = response.get("page_summary", {})
-                if not isinstance(summary, dict) or any(type(summary.get(key)) is not int for key in ("count", "processed", "validated", "excluded_forms", "needs_review", "ready")) or summary.get("count") != len(response["pages"]) or summary.get("processed") != len(response["pages"]):
+                if not isinstance(summary, dict) or any(type(summary.get(key)) is not int for key in ("count", "processed", "validated", "usable_with_warnings", "excluded_forms", "needs_review", "ready")) or summary.get("count") != len(response["pages"]) or summary.get("processed") != len(response["pages"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 statuses = [page.get("status") for page in response["pages"] if isinstance(page, dict)]
                 if (summary.get("validated") != statuses.count("VALIDATED")
+                        or summary.get("usable_with_warnings") != statuses.count("USABLE_WITH_WARNINGS")
                         or summary.get("excluded_forms") != statuses.count("EXCLUDED_FORM")
                         or summary.get("needs_review") != statuses.count("NEEDS_REVIEW")
-                        or summary.get("ready") != statuses.count("VALIDATED") + statuses.count("EXCLUDED_FORM")):
+                        or summary.get("ready") != statuses.count("VALIDATED") + statuses.count("USABLE_WITH_WARNINGS") + statuses.count("EXCLUDED_FORM")):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
-                if response["status"] == "READY" and any(page.get("status") == "NEEDS_REVIEW" for page in response["pages"]):
+                if response["status"] == "READY" and any(page.get("status") in {"USABLE_WITH_WARNINGS", "NEEDS_REVIEW"} for page in response["pages"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 page_numbers = [page.get("page_number") if isinstance(page, dict) else None for page in response["pages"]]
                 if len(set(page_numbers)) != len(page_numbers) or any(type(number) is not int or number < 1 for number in page_numbers) or page_numbers != sorted(page_numbers) or page_numbers != list(range(1, len(page_numbers) + 1)):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for page in response["pages"]:
-                    if not isinstance(page, dict) or type(page.get("page_number")) is not int or page.get("status") not in {"VALIDATED", "EXCLUDED_FORM", "NEEDS_REVIEW"} or type(page.get("attempts")) is not int or page.get("attempts") < 1 or not isinstance(page.get("findings"), list) or any(not isinstance(item, str) for item in page.get("findings", [])):
+                    if not isinstance(page, dict) or type(page.get("page_number")) is not int or page.get("status") not in {"VALIDATED", "USABLE_WITH_WARNINGS", "EXCLUDED_FORM", "NEEDS_REVIEW"} or type(page.get("attempts")) is not int or page.get("attempts") < 1 or not isinstance(page.get("findings"), list) or any(not isinstance(item, str) for item in page.get("findings", [])):
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                     if page.get("status") == "EXCLUDED_FORM":
                         diagnostics = page.get("form_diagnostics")
@@ -896,7 +1040,7 @@ class ExtractionApplicationService:
                 allowed_refs = {"manifest_sha256", "manifest", "version", "chunks", "document_tree", "issues"}
                 if set(response["artifacts"]) - allowed_refs or not {"manifest_sha256", "manifest", "version"} <= set(response["artifacts"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
-                if response["status"] == "READY" and not {"chunks", "document_tree", "issues"} <= set(response["artifacts"]):
+                if response["status"] in {"READY", "PARTIAL"} and not {"chunks", "document_tree", "issues"} <= set(response["artifacts"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for ref in response["artifacts"].values():
                     if isinstance(ref, dict) and "path" in ref and "sha256" in ref:
@@ -1001,8 +1145,10 @@ class ExtractionApplicationService:
             recovered_pages: dict[str, Mapping[str, Any]] = dict(persisted_recovered)
             source_path = Path(str(current.get("manifest", {}).get("source", {}).get("path", "")))
             raw_pages: list[Mapping[str, Any]] | None = None
+            heading_reference_font_size: float | None = None
             for page in (() if resume_promotion else current["pages"]):
                 item = dict(page)
+                previous_status = item.get("status")
                 if item.get("status") == "EXCLUDED_FORM":
                     if item["page_number"] in wanted:
                         raise ValueError("EXCLUDED_FORM_PAGE_IMMUTABLE")
@@ -1067,6 +1213,8 @@ class ExtractionApplicationService:
                             _dev_log("dev_preprocessing_retry stage=source_extraction_complete versionId=%s requestId=%s selectedPageCount=%d extractedPageCount=%d elapsedMs=%d outcome=completed",
                                      version_id, request_id, len(wanted), len(raw_pages),
                                      round((time.monotonic() - extraction_started) * 1000))
+                            if self.analyze_structure:
+                                heading_reference_font_size = document_reference_font_size(raw_pages)
                         raw = next((p for p in raw_pages if isinstance(p, Mapping) and p.get("page_number") == item["page_number"]), None)
                         geometry = raw.get("geometry", {}) if isinstance(raw, Mapping) else {}
                         # Retry must use the same OCR-capable extraction path
@@ -1081,7 +1229,14 @@ class ExtractionApplicationService:
                             item["findings"] = [str(raw["capability_error"])]
                         if valid:
                             page_geometry = PageGeometry(float(geometry["width"]), float(geometry["height"]))
-                            if selected_regions:
+                            if not self.analyze_structure:
+                                if selected_regions:
+                                    raise ValueError("LAYOUT_SELECTION_UNSUPPORTED_IN_TEXT_MODE")
+                                valid = any(str(block.get("text", "")).strip() for block in boxes
+                                            if isinstance(block, Mapping))
+                                if not valid:
+                                    item["findings"] = ["NO_USABLE_TEXT"]
+                            elif selected_regions:
                                 candidate_plan = ReadingOrderPlanner().plan(boxes, page_geometry)
                                 current_profiles = {profile.region_id: profile for profile in candidate_plan.profiles}
                                 if set(selected_regions) != set(current_profiles) or any(
@@ -1090,9 +1245,10 @@ class ExtractionApplicationService:
                                     for region, candidate in selected_regions.items()
                                 ):
                                     raise ValueError("INVALID_LAYOUT_CANDIDATE")
-                            planner = ReadingOrderPlanner()
-                            layout_plan = planner.plan(boxes, page_geometry, selected_regions)
-                            if not selected_regions and attempt.strategy == "alternate-column-hypothesis":
+                            if self.analyze_structure:
+                                planner = ReadingOrderPlanner()
+                                layout_plan = planner.plan(boxes, page_geometry, selected_regions)
+                            if self.analyze_structure and not selected_regions and attempt.strategy == "alternate-column-hypothesis":
                                 alternate = {}
                                 for profile in layout_plan.profiles:
                                     ranked = sorted(enumerate(profile.candidates),
@@ -1107,7 +1263,7 @@ class ExtractionApplicationService:
                                     _dev_log("dev_preprocessing_retry stage=alternate_layout_candidate pageNumber=%d candidateRegionCount=0 minimumScoreGap=0.08 outcome=needs_review",
                                              item["page_number"])
                                     valid = False
-                            if confirmed_by and selected_regions:
+                            if self.analyze_structure and confirmed_by and selected_regions:
                                 previous = item.get("layout_review") or {}
                                 old_layout = persisted_page.get("layout", {}) if was_validated else {}
                                 prior_profiles = {profile["region_id"]: profile for profile in
@@ -1125,18 +1281,21 @@ class ExtractionApplicationService:
                                     "page_layout_fingerprint": _page_layout_fingerprint(raw),
                                     "layout_analysis_version": _LAYOUT_ANALYSIS_VERSION}
                                 raw["layout_confirmation"] = item["layout_confirmation"]
-                            if layout_plan.ambiguous:
+                            if self.analyze_structure and layout_plan.ambiguous:
                                 valid = False
-                            raw = {**raw, "layout": to_dict(layout_plan)}
-                            raw["heading_associations"] = to_dict(HeadingAssociator().associate(boxes, layout_plan))
-                            raw["tables"] = to_dict(TableStructureDetector().detect(boxes))
-                            render = self._render_evidence(source_path, item["page_number"], page_geometry)
-                            validation = self.layout_validator.validate(raw, render,
-                                confirmed_columns=bool(confirmed_by and selected_regions))
-                            valid = validation.valid
-                            if not valid:
-                                item["findings"] = [finding.code for finding in validation.findings
-                                    if finding.severity == "error"]
+                            if self.analyze_structure:
+                                raw = {**raw, "layout": to_dict(layout_plan)}
+                                associations, candidates = HeadingAssociator().analyze(boxes, layout_plan, heading_reference_font_size)
+                                raw["heading_associations"] = to_dict(associations)
+                                raw["heading_candidates"] = to_dict(candidates)
+                                raw["tables"] = to_dict(TableStructureDetector().detect(boxes))
+                                render = self._render_evidence(source_path, item["page_number"], page_geometry)
+                                validation = self.layout_validator.validate(raw, render,
+                                    confirmed_columns=bool(confirmed_by and selected_regions))
+                                valid = validation.valid
+                                if not valid:
+                                    item["findings"] = [finding.code for finding in validation.findings
+                                        if finding.severity == "error"]
                         if valid:
                             if confirmed_by and selected_regions and isinstance(item.get("layout_confirmation"), Mapping):
                                 _save_layout_approval(root,
@@ -1158,9 +1317,10 @@ class ExtractionApplicationService:
                             raise
                         item["findings"] = [str(exc) or "RETRY_EXTRACTION_FAILED"]
                     if item["status"] != "VALIDATED":
-                        item["status"] = "NEEDS_REVIEW"
+                        item["status"] = ("USABLE_WITH_WARNINGS" if previous_status == "USABLE_WITH_WARNINGS"
+                                           else "NEEDS_REVIEW")
                         item["attempt_history"][-1] = {**item["attempt_history"][-1],
-                            "status": "NEEDS_REVIEW", "findings": item.get("findings", [])}
+                            "status": item["status"], "findings": item.get("findings", [])}
                     item["diagnostics"]["finding_regions"] = item.get("finding_regions", item["diagnostics"].get("regions", []))
                     item["diagnostics"]["overlay"] = f"diagnostics/{version_id}/page-{item['page_number']}-attempt-{attempt.attempt_number}.json"
                 updated.append(item)
@@ -1170,9 +1330,10 @@ class ExtractionApplicationService:
             statuses = [p["status"] for p in updated]
             response["page_summary"] = {**current["page_summary"],
                                         "validated": statuses.count("VALIDATED"),
+                                        "usable_with_warnings": statuses.count("USABLE_WITH_WARNINGS"),
                                         "excluded_forms": statuses.count("EXCLUDED_FORM"),
                                         "needs_review": statuses.count("NEEDS_REVIEW"),
-                                        "ready": statuses.count("VALIDATED") + statuses.count("EXCLUDED_FORM")}
+                                        "ready": statuses.count("VALIDATED") + statuses.count("USABLE_WITH_WARNINGS") + statuses.count("EXCLUDED_FORM")}
             _dev_log("dev_preprocessing_retry stage=page_checkpoint_complete versionId=%s requestId=%s expectedSelectedPageCount=%d actualValidatedPageCount=%d actualNeedsReviewPageCount=%d elapsedMs=%d outcome=checkpointed",
                      version_id, request_id, len(wanted), statuses.count("VALIDATED"),
                      statuses.count("NEEDS_REVIEW"), round((time.monotonic() - started) * 1000))
@@ -1263,7 +1424,7 @@ class ExtractionApplicationService:
                                     "recovered_pages": promoted_recovered}
                 try:
                     promoted = self._preprocess_locked(promoted_request, root)
-                    if promoted.get("status") == "READY":
+                    if promoted.get("status") in {"READY", "PARTIAL"}:
                         retry_index[idem] = {"version_id": version_id, "pages": wanted, "state": "completed", "result_version_id": promoted["version_id"]}
                     else:
                         retry_index[idem] = {"version_id": version_id, "pages": wanted, "state": "promotion_pending"}
@@ -1277,8 +1438,8 @@ class ExtractionApplicationService:
             return response
 
     @staticmethod
-    def _artifact_refs(directory: Path, ready: bool) -> dict[str, Any]:
-        names = ["manifest.json", "version.json"] + (["chunks.jsonl", "document_tree.json", "issues.jsonl"] if ready else [])
+    def _artifact_refs(directory: Path, published: bool) -> dict[str, Any]:
+        names = ["manifest.json", "version.json"] + (["chunks.jsonl", "document_tree.json", "issues.jsonl"] if published else [])
         refs: dict[str, Any] = {}
         for name in names:
             path = directory / name

@@ -72,13 +72,13 @@ class PreprocessingPipeline:
         candidates = ChunkPlanner().plan(tree, document)
         chunks = ChunkAssembler(ChunkSplitter(self.policy)).assemble(candidates)
         chunks = postprocess_chunks(chunks)
-        initial_validation = validate_chunks(chunks, document=document, policy=self.validation_policy)
+        initial_validation = validate_chunks(chunks, document=document, tree=tree, policy=self.validation_policy)
         invalid_chunk_ids = {
             item.path for item in initial_validation.issues
             if item.issue_type == "invalid_source_span" and item.path is not None
         }
         chunks, _ = prepare_export_chunks(chunks, invalid_chunk_ids=invalid_chunk_ids)
-        validation = validate_chunks(chunks, document=document, policy=self.validation_policy)
+        validation = validate_chunks(chunks, document=document, tree=tree, policy=self.validation_policy)
         issues = validation.issues
         source_page_count = document.metadata.get("source_page_count", len(document.pages))
         if type(source_page_count) is not int or source_page_count < len(document.pages):
@@ -88,6 +88,7 @@ class PreprocessingPipeline:
             self.output_dir, source_path, document.source_text, chunks, issues, tree,
             page_count=source_page_count, excluded_form_pages=excluded_form_pages,
             profile=self.config.name, policy=self.policy,
+            document=document,
             pipeline_version=self.config.pipeline_version, invalid_chunk_ids=invalid_chunk_ids,
         )
         return PipelineResult(source_path, document, tree, chunks, validation, issues, manifest)
@@ -95,8 +96,11 @@ class PreprocessingPipeline:
         blocks = {block.block_id: block for page in document.pages for block in page.blocks}
         classifier = DeterministicContentClassifier()
         def visit(node: SectionNode) -> SectionNode:
-            text = "\n".join(blocks[item].source_text for item in node.block_ids if item in blocks)
+            text = ("\n".join(segment.source_text for segment in node.source_segments)
+                    if node.source_segments is not None else
+                    "\n".join(blocks[item].source_text for item in node.block_ids if item in blocks))
             decision = classifier.classify(node, text)
             children = tuple(visit(child) for child in node.children)
-            return SectionNode(node.node_id, node.title, node.level, decision.label, node.source_spans, node.block_ids, children)
+            return SectionNode(node.node_id, node.title, node.level, decision.label, node.source_spans,
+                               node.block_ids, children, node.source_segments, node.hierarchy_resolved)
         return DocumentTree(tree.document_id, visit(tree.root))

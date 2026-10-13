@@ -122,7 +122,8 @@ public final class ScenarioPreparationApplicationService {
         List<String> blockers = new ArrayList<>();
         List<ScenarioBundleDocumentSelection> basicRulesSources = scenarioPackage.documents().stream()
                 .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
-                .filter(document -> document.status() == KnowledgeDocumentStatus.INDEXED)
+                .filter(document -> document.status() == KnowledgeDocumentStatus.INDEXED
+                        || document.status() == KnowledgeDocumentStatus.INDEXED_WITH_WARNINGS)
                 .toList();
         var provenance = scenarioPackage.characterCreationBlueprint() == null
                 ? com.dndmaster.adventure.domain.scenario.BlueprintProvenance.empty()
@@ -218,7 +219,7 @@ public final class ScenarioPreparationApplicationService {
                 sourceSpellDefinitions,
                 packageRepository.spellDefinitionRevision(scenarioPackageId),
                 packageRepository.spellDefinitionHistory(scenarioPackageId),
-                scenarioPackage.documents().stream().filter(document -> document.status() == KnowledgeDocumentStatus.INDEXED)
+                scenarioPackage.documents().stream().filter(document -> isSearchable(document.status()))
                         .map(document -> new PreparationSourceView(document.knowledgeDocumentId().value(), document.originalFilename(), document.extractionVersion())).toList());
     }
 
@@ -277,11 +278,11 @@ public final class ScenarioPreparationApplicationService {
         var source = scenarioPackage.documents().stream()
                 .filter(document -> document.knowledgeDocumentId().value().equals(request.sourceDocumentId()))
                 .findFirst().orElse(null);
-        if (source == null || source.status() != KnowledgeDocumentStatus.INDEXED) {
+        if (source == null || !isSearchable(source.status())) {
             if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
                 LOGGER.info("dev_flow operation=spell_action_definition_add outcome=blocked preparationId={} expected=package_indexed_source actualDocumentCount={} actualIndexedSourceCount={} reason={}",
                         preparationId, scenarioPackage.documents().size(),
-                        scenarioPackage.documents().stream().filter(document -> document.status() == KnowledgeDocumentStatus.INDEXED).count(),
+                        scenarioPackage.documents().stream().filter(document -> isSearchable(document.status())).count(),
                         source == null ? "source_not_in_package" : "source_not_indexed");
             }
             throw new IllegalArgumentException("source document must be indexed and part of this package");
@@ -430,7 +431,7 @@ public final class ScenarioPreparationApplicationService {
     private boolean hasApprovedRulebookSource(ScenarioBundleDocumentSelection source) {
         var documents = knowledgeDocumentLookupPort.findPublishedSharedCatalogDocuments();
         return documents.stream().anyMatch(document -> document.knowledgeDocumentId().equals(source.knowledgeDocumentId())
-                && document.status() == KnowledgeDocumentStatus.INDEXED
+                && isSearchable(document.status())
                 && "RULEBOOK".equalsIgnoreCase(document.documentType())
                 && document.extractionVersion() == source.extractionVersion());
     }
@@ -1093,5 +1094,10 @@ public final class ScenarioPreparationApplicationService {
                         .map(reference -> new CharacterCreationBlueprintView.FieldView.SourceReferenceView(
                                 reference.knowledgeDocumentId().value().toString(), reference.extractionVersion(), reference.locator()))
                         .toList())).toList();
+    }
+
+    private static boolean isSearchable(com.dndmaster.adventure.domain.scenario.KnowledgeDocumentStatus status) {
+        return status != null && ("INDEXED".equals(status.name())
+                || "INDEXED_WITH_WARNINGS".equals(status.name()));
     }
 }

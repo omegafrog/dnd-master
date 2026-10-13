@@ -3,7 +3,7 @@
   "$id": "preprocessing-agent/heading-association",
   "type": "object",
   "additionalProperties": false,
-  "required": ["heading_block_id", "level", "associated_block_ids", "evidence", "confidence", "ambiguous", "findings"],
+  "required": ["heading_block_id", "level", "associated_block_ids", "evidence", "confidence", "ambiguous", "findings", "heading_text", "source_char_start", "source_char_end", "hierarchy_resolved", "hierarchy_evidence", "parent_heading_block_id"],
   "properties": {
     "heading_block_id": {"type": "string", "minLength": 1},
     "level": {"type": "integer", "minimum": 1},
@@ -11,6 +11,12 @@
     "evidence": {"type": "array", "items": {"type": "string"}},
     "confidence": {"type": "number", "minimum": 0, "maximum": 1},
     "ambiguous": {"type": "boolean"},
-    "findings": {"type": "array", "items": {"type": "string"}}
+    "findings": {"type": "array", "items": {"type": "string"}},
+    "heading_text": {"type": ["string", "null"]},
+    "source_char_start": {"type": ["integer", "null"], "minimum": 0},
+    "source_char_end": {"type": ["integer", "null"], "minimum": 0},
+    "hierarchy_resolved": {"type": "boolean"},
+    "hierarchy_evidence": {"type": "array", "items": {"type": "string"}},
+    "parent_heading_block_id": {"type": ["string", "null"]}
   }
 }

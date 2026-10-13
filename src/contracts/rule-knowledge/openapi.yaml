@@ -296,7 +296,8 @@ paths:
           application/json:
             schema:
               type: object
-              required: [ownerId, scenarioSourceBundleId, scope, query, denseLimit, bm25Limit]
+              additionalProperties: false
+              required: [ownerId, scenarioSourceBundleId, scope, query, denseLimit]
               properties:
                 ownerId: { type: string, format: uuid }
                 scenarioSourceBundleId: { type: string, format: uuid }
@@ -304,7 +305,6 @@ paths:
                 activeLocators: { type: array, items: { type: string } }
                 query: { type: string, minLength: 1 }
                 denseLimit: { type: integer, minimum: 1 }
-                bm25Limit: { type: integer, minimum: 1 }
       responses:
         '200': { description: Preparation candidates restricted to owner/scope/version or published catalog documents. }
         '400': { description: Invalid request or unindexed/wrong-version scope. }

@@ -196,7 +196,7 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
             throw new PreprocessingProcessException("VERSION_ID_MISMATCH");
         }
         String status = response.path("status").asText("");
-        if (!List.of("QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW").contains(status)) {
+        if (!List.of("QUEUED", "PROCESSING", "VALIDATING", "READY", "PARTIAL", "NEEDS_REVIEW").contains(status)) {
             throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
         }
         List<PreprocessingPageState> pages = parsePages(response.path("pages"));
@@ -277,7 +277,7 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
                 findings.add(item.asText());
             });
             String status = page.path("status").asText("");
-            if (!List.of("VALIDATED", "EXCLUDED_FORM", "NEEDS_REVIEW").contains(status)) {
+            if (!List.of("VALIDATED", "USABLE_WITH_WARNINGS", "EXCLUDED_FORM", "NEEDS_REVIEW").contains(status)) {
                 throw new PreprocessingProcessException("PAGE_DIAGNOSTIC_MISMATCH");
             }
             pages.add(new PreprocessingPageState(number, status, attempts, findings,
@@ -369,12 +369,14 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
             throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
         }
         long validated = pages.stream().filter(page -> "VALIDATED".equals(page.status())).count();
+        long usableWithWarnings = pages.stream().filter(page -> "USABLE_WITH_WARNINGS".equals(page.status())).count();
         long excludedForms = pages.stream().filter(page -> "EXCLUDED_FORM".equals(page.status())).count();
         long review = pages.stream().filter(page -> "NEEDS_REVIEW".equals(page.status())).count();
         if (summary.path("validated").asLong(-1) != validated
+                || summary.path("usable_with_warnings").asLong(-1) != usableWithWarnings
                 || summary.path("excluded_forms").asLong(-1) != excludedForms
                 || summary.path("needs_review").asLong(-1) != review
-                || summary.path("ready").asLong(-1) != validated + excludedForms) {
+                || summary.path("ready").asLong(-1) != validated + usableWithWarnings + excludedForms) {
             throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
         }
     }
@@ -404,7 +406,8 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
             paths.put(field.getKey(), path.toAbsolutePath().normalize());
         }
         if (!hashes.containsKey("manifest") || !hashes.containsKey("version")
-                || ("READY".equals(status) && !hashes.keySet().containsAll(List.of("chunks", "document_tree", "issues")))) {
+                || (("READY".equals(status) || "PARTIAL".equals(status))
+                    && !hashes.keySet().containsAll(List.of("chunks", "document_tree", "issues")))) {
             throw new PreprocessingProcessException("ARTIFACT_MANIFEST_MISMATCH");
         }
         JsonNode version = readArtifactJson(artifacts.path("version"));

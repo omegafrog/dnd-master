@@ -22,7 +22,7 @@
 - Scenario Preparation은 AI Game Master를 후보 생성 Provider로 사용한다. AI 결과는 반드시 Scenario Preparation에서 검증한 뒤 저장한다.
 - Adventure Runtime은 Scenario Preparation의 게시된 Package Version만 사용한다.
 - 새로 준비하는 모험의 필수 상황과 중간 상황 후보는 Scenario Preparation이 모험별로 독립 생성·저장한다. Adventure Runtime은 해당 모험의 후보 선택·사용 상태와 플레이 중 새로 만든 상황을 소유하고 기존 턴의 현재 상황 변경과 함께 검증·확정한다. 다른 모험의 상황 자료를 재사용하거나 변경하지 않는다.
-- Adventure Runtime과 Scenario Preparation은 Document Knowledge의 통합 근거 후보 검색 계약을 사용한다. 각 작업의 상황별 근거 충분성 정책이 STORYBOOK, RULEBOOK 또는 두 유형을 검색 대상으로 선택하며, Document Knowledge는 선택된 범위 안에서 Dense·BM25 후보를 RRF 방식으로 통합한다.
+- Adventure Runtime과 Scenario Preparation은 Document Knowledge의 근거 후보 검색 계약을 사용한다. 각 작업의 상황별 근거 충분성 정책이 STORYBOOK, RULEBOOK 또는 두 유형을 검색 대상으로 선택하며, Document Knowledge는 선택된 범위 안에서 벡터 유사도로 검색한다.
 - Adventure Runtime과 Scenario Preparation은 AI Game Master를 관련도 재정렬과 근거 충분성 판단의 제안 Provider로 사용한다. AI 결과의 후보 식별자, 범위, 형식은 Adventure 서비스가 검증하고, 상황별 최종 결과도 Adventure 서비스가 확정한다.
 - Adventure Runtime은 적 캐릭터 시트 후보의 출처와 완전성을 검증해 모험별 고정 지식 자료 범위 안에서 저장·재사용한다. AI Game Master는 적 전투 수치, 행동, 규칙 판정 근거를 포함한 후보를 만들고 Document Knowledge는 선택된 자료에서 출처 증거를 제공한다.
 - Adventure Runtime은 AI Game Master의 제안을 검증되지 않은 상태 변경으로 취급한다.

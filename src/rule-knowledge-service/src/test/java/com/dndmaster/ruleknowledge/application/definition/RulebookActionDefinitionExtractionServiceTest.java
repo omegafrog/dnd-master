@@ -13,8 +13,7 @@ import com.dndmaster.ruleknowledge.application.search.DenseEvidenceCandidateSear
 import com.dndmaster.ruleknowledge.application.search.EvidenceCandidate;
 import com.dndmaster.ruleknowledge.application.search.EvidenceLocationLookupPort;
 import com.dndmaster.ruleknowledge.application.search.EvidenceSearchRequest;
-import com.dndmaster.ruleknowledge.application.search.HybridEvidenceSearchService;
-import com.dndmaster.ruleknowledge.application.search.RrfFusionPolicy;
+import com.dndmaster.ruleknowledge.application.search.DenseEvidenceSearchService;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
@@ -40,7 +39,7 @@ class RulebookActionDefinitionExtractionServiceTest {
     private static final List<PreprocessingPageState> PAGES = List.of(new PreprocessingPageState(1, "COMPLETED", 1, List.of()));
     private static final EvidenceCandidate CANDIDATE = new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID),
             new ChunkId(EVIDENCE_ID), 7, DocumentType.RULEBOOK, "page=1:section=Spells", "Magic Missile has range 120 feet.",
-            new SourceProvenance(1, List.of("Spells"), List.of(), null, "page=1"), 1, null, 0.02);
+            new SourceProvenance(1, List.of("Spells"), List.of(), null, "page=1"), 1,null);
 
     @Test
     void targetedCandidateCountPreservesTheFull64ResultSearchLimit() {
@@ -57,10 +56,7 @@ class RulebookActionDefinitionExtractionServiceTest {
         var repository = new MemoryRepository();
         var requests = new ArrayList<EvidenceSearchRequest>();
         DenseEvidenceCandidateSearchPort search = request -> { requests.add(request); return List.of(CANDIDATE); };
-        AtomicInteger bm25Calls = new AtomicInteger();
-        var searchBoundary = new HybridEvidenceSearchService(search, request -> {
-            bm25Calls.incrementAndGet(); throw new AssertionError("action extraction must remain dense-only");
-        }, new RrfFusionPolicy(), true);
+        var searchBoundary = new DenseEvidenceSearchService(search);
         var service = new RulebookActionDefinitionExtractionService(repository, searchBoundary,
                 (owner, scope, locators, limit) -> Map.of(), (document, version, evidence, coverage, actor) -> {
             assertEquals(1, evidence.size());
@@ -77,10 +73,8 @@ class RulebookActionDefinitionExtractionServiceTest {
         finally { restoreDiagnostics(previousDiagnostics); }
 
         assertEquals(5, requests.size());
-        assertEquals(0, bm25Calls.get());
         assertEquals(5, requests.stream().map(EvidenceSearchRequest::query).distinct().count());
         assertEquals(30, requests.getFirst().denseLimit());
-        assertEquals(0, requests.getFirst().bm25Limit());
         AuthorizedDocumentScope scope = requests.getFirst().scope().getFirst();
         assertEquals(DOCUMENT_ID, scope.documentId().value());
         assertEquals(7, scope.extractionVersion());
@@ -107,7 +101,7 @@ class RulebookActionDefinitionExtractionServiceTest {
                 UUID chunkId = UUID.nameUUIDFromBytes((currentQuery + ":" + rank).getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 return new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID), new ChunkId(chunkId), 7,
                         DocumentType.RULEBOOK, "page=" + (currentQuery + 1), "query=" + currentQuery + " rank=" + rank,
-                        CANDIDATE.provenance(), rank + 1, null, 0.02);
+                        CANDIDATE.provenance(), rank + 1,null);
             }).toList();
         }, (document, version, evidence, coverage, actor) -> {
             assertEquals(5, coverage.size());
@@ -139,7 +133,7 @@ class RulebookActionDefinitionExtractionServiceTest {
     @Test
     void splitsOutputLimitedAssignedBatchAndKeepsEachChildEvidenceScope() {
         EvidenceCandidate list = new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID), new ChunkId(EVIDENCE_ID), 7,
-                DocumentType.RULEBOOK, "page=1", "Alpha Beta", CANDIDATE.provenance(), 1, null, 0.02);
+                DocumentType.RULEBOOK, "page=1", "Alpha Beta", CANDIDATE.provenance(), 1,null);
         EvidenceCandidate alpha = evidenceCandidate("alpha-source", 30);
         EvidenceCandidate beta = evidenceCandidate("beta-source", 30);
         RulebookActionDefinitionExtractionPort extractor = new RulebookActionDefinitionExtractionPort() {
@@ -192,7 +186,7 @@ class RulebookActionDefinitionExtractionServiceTest {
     void requiresOneAccountedResultForEachDiscoveredCandidate() {
         EvidenceCandidate listEntry = new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID), new ChunkId(EVIDENCE_ID), 7,
                 DocumentType.RULEBOOK, "page=1:section=Spell List", "Magic Missile; Fireball",
-                CANDIDATE.provenance(), 1, null, 0.02);
+                CANDIDATE.provenance(), 1,null);
         RulebookActionDefinitionExtractionPort extractor = new RulebookActionDefinitionExtractionPort() {
             @Override public List<RulebookActionDefinition> extract(UUID document, String version, List<RulebookActionEvidence> evidence,
                     List<RulebookActionQueryCoverage> coverage, UUID actor) { throw new AssertionError("staged contract expected"); }
@@ -229,7 +223,7 @@ class RulebookActionDefinitionExtractionServiceTest {
     @Test
     void eachActionStartsFromItsOwnNamedSourceWithoutAppendingSharedSearchResults() {
         EvidenceCandidate listEntry = new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID), new ChunkId(EVIDENCE_ID), 7,
-                DocumentType.RULEBOOK, "page=1:section=Actions", "Alpha; Beta", CANDIDATE.provenance(), 1, null, 0.02);
+                DocumentType.RULEBOOK, "page=1:section=Actions", "Alpha; Beta", CANDIDATE.provenance(), 1,null);
         var assignedInputs = new ArrayList<List<String>>();
         RulebookActionDefinitionExtractionPort extractor = new RulebookActionDefinitionExtractionPort() {
             @Override public List<RulebookActionDefinition> extract(UUID document, String version, List<RulebookActionEvidence> evidence,
@@ -264,10 +258,10 @@ class RulebookActionDefinitionExtractionServiceTest {
     void retrievesOnlyExplicitlyNeededMissingFieldsAndPreservesKnownFacts(CapturedOutput output) {
         EvidenceCandidate source = new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID), new ChunkId(UUID.nameUUIDFromBytes(
                 "own-source".getBytes(java.nio.charset.StandardCharsets.UTF_8))), 7, DocumentType.RULEBOOK, "page=1:section=staff",
-                "Signal Staff description.", CANDIDATE.provenance(), 1, null, 0.02);
+                "Signal Staff description.", CANDIDATE.provenance(), 1,null);
         EvidenceCandidate supplement = new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID), new ChunkId(UUID.nameUUIDFromBytes(
                 "needed-cost".getBytes(java.nio.charset.StandardCharsets.UTF_8))), 7, DocumentType.RULEBOOK, "page=1:chunk=page-one-neighbor",
-                "Using the staff costs one action.", CANDIDATE.provenance(), 1, null, 0.02);
+                "Using the staff costs one action.", CANDIDATE.provenance(), 1,null);
         var requests = new ArrayList<EvidenceSearchRequest>();
         RulebookActionDefinitionExtractionPort extractor = new RulebookActionDefinitionExtractionPort() {
             @Override public List<RulebookActionDefinition> extract(UUID document, String version, List<RulebookActionEvidence> evidence,
@@ -370,7 +364,7 @@ class RulebookActionDefinitionExtractionServiceTest {
         List<EvidenceCandidate> targeted = java.util.stream.IntStream.range(0, 49).mapToObj(index -> {
             UUID id = UUID.nameUUIDFromBytes(("targeted-" + index).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             return new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID), new ChunkId(id), 7, DocumentType.RULEBOOK,
-                    CANDIDATE.locator(), "detail-" + index + " " + "x".repeat(1_000), CANDIDATE.provenance(), index + 1, null, 0.02);
+                    CANDIDATE.locator(), "detail-" + index + " " + "x".repeat(1_000), CANDIDATE.provenance(), index + 1,null);
         }).toList();
         var batchSizes = new ArrayList<Integer>();
         var exactLocators = new ArrayList<List<String>>();
@@ -435,7 +429,7 @@ class RulebookActionDefinitionExtractionServiceTest {
         var foreignLocation = new EvidenceCandidate(wrongPage.documentId(), wrongPage.chunkId(), wrongPage.extractionVersion(),
                 wrongPage.documentType(), "page=99:chunk=wrong", wrongPage.excerpt(),
                 new SourceProvenance(99, List.of(), List.of(), null, "page=99:chunk=wrong"),
-                wrongPage.denseRank(), wrongPage.bm25Rank(), wrongPage.rrfScore(), wrongPage.denseSimilarity());
+                wrongPage.denseRank(), wrongPage.denseSimilarity());
         RulebookActionDefinitionExtractionPort extractor = new RulebookActionDefinitionExtractionPort() {
             @Override public List<RulebookActionDefinition> extract(UUID document, String version,
                     List<RulebookActionEvidence> evidence, List<RulebookActionQueryCoverage> coverage, UUID actor) {
@@ -664,7 +658,7 @@ class RulebookActionDefinitionExtractionServiceTest {
         UUID supplementId = UUID.fromString("f5c2a8ed-125f-46fc-9df2-e0c49916af91");
         EvidenceCandidate supplement = new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID), new ChunkId(supplementId), 7,
                 DocumentType.RULEBOOK, discovery.sourceLocator(), "Magic Missile costs one action.",
-                new SourceProvenance(1, List.of("Spells"), List.of(), null, discovery.sourceLocator()), 1, null, 0.02);
+                new SourceProvenance(1, List.of("Spells"), List.of(), null, discovery.sourceLocator()), 1,null);
         var denseRequests = new ArrayList<EvidenceSearchRequest>();
         var port = new RulebookActionDefinitionExtractionPort() {
             @Override public List<RulebookActionCandidate> discover(UUID document, String version, List<RulebookActionEvidence> evidence,
@@ -806,7 +800,7 @@ class RulebookActionDefinitionExtractionServiceTest {
     private static EvidenceCandidate evidenceCandidate(String seed, int chars) {
         UUID id = UUID.nameUUIDFromBytes(seed.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return new EvidenceCandidate(new KnowledgeDocumentId(DOCUMENT_ID), new ChunkId(id), 7, DocumentType.RULEBOOK,
-                "page=2:section=" + seed, "x".repeat(chars), CANDIDATE.provenance(), 1, null, 0.02);
+                "page=2:section=" + seed, "x".repeat(chars), CANDIDATE.provenance(), 1,null);
     }
 
     private static EvidenceLocationLookupPort exactLookup(EvidenceCandidate... candidates) {
@@ -822,18 +816,19 @@ class RulebookActionDefinitionExtractionServiceTest {
     private static EvidenceCandidate withLocator(EvidenceCandidate candidate, String locator) {
         return new EvidenceCandidate(candidate.documentId(), candidate.chunkId(), candidate.extractionVersion(),
                 candidate.documentType(), locator, candidate.excerpt(), candidate.provenance(), candidate.denseRank(),
-                candidate.bm25Rank(), candidate.rrfScore(), candidate.denseSimilarity());
+                candidate.denseSimilarity());
     }
 
     @Test
     void rejectsEvidenceOutsideTheSelectedDocumentAndVersion() {
         var repository = new MemoryRepository();
         var other = new EvidenceCandidate(new KnowledgeDocumentId(UUID.randomUUID()), new ChunkId(EVIDENCE_ID), 6,
-                DocumentType.RULEBOOK, "page=1", "text", CANDIDATE.provenance(), 1, null, 0.01);
+                DocumentType.RULEBOOK, "page=1", "text", CANDIDATE.provenance(), 1,null);
         var service = new RulebookActionDefinitionExtractionService(repository, request -> List.of(other),
                 (document, version, evidence, coverage, actor) -> List.of());
 
-        assertThrows(IllegalStateException.class, () -> service.extract(DOCUMENT_ID, VERSION, 7, PAGES, ACTOR_ID));
+        assertThrows(com.dndmaster.ruleknowledge.application.search.EvidenceSearchUnavailableException.class,
+                () -> service.extract(DOCUMENT_ID, VERSION, 7, PAGES, ACTOR_ID));
         assertEquals("FAILED", repository.find(DOCUMENT_ID, VERSION).orElseThrow().status());
     }
 

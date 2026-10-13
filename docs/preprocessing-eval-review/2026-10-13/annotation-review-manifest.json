@@ -1,0 +1,358 @@
+{
+  "annotation_set": "preprocessing-structure-gold-draft-2026-10-13",
+  "status": "draft-awaiting-human-confirmation",
+  "annotator": "assistant visual review of original PDF contact sheets",
+  "source_documents": {
+    "basic-roleplaying": {
+      "filename": "Basic_Roleplaying_ORC_Content_Document.pdf",
+      "sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+      "page_count": 303,
+      "annotated_pages": [
+        6,
+        7,
+        8,
+        27,
+        135,
+        158,
+        164,
+        166,
+        169,
+        171,
+        207,
+        211,
+        271,
+        276
+      ]
+    },
+    "cairn-player": {
+      "filename": "Cairn_2e_Players_Guide.pdf",
+      "sha256": "ed2869946b0de9d97398c975a3dde8d5701250eb4c8776cb40907fe23c6300bb",
+      "page_count": 88,
+      "annotated_pages": [
+        2,
+        3,
+        7,
+        9,
+        10,
+        11,
+        17,
+        20,
+        30,
+        62,
+        66,
+        75,
+        76
+      ]
+    },
+    "cairn-warden": {
+      "filename": "Cairn_2e_Wardens_Guide.pdf",
+      "sha256": "7f3917fffb205a0e09f80145bc8bd78c982ad9a6fef18d9d84b64b9d4b5ece8e",
+      "page_count": 192,
+      "annotated_pages": [
+        2,
+        3,
+        29,
+        32,
+        33,
+        56,
+        68,
+        102,
+        119,
+        121,
+        123,
+        130,
+        165,
+        177,
+        186
+      ]
+    }
+  },
+  "pages": [
+    {
+      "document": "basic-roleplaying",
+      "page_number": 6,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 7,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 8,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 27,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 135,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 158,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 164,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 166,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 169,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 171,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 207,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 211,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 271,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "basic-roleplaying",
+      "page_number": 276,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 2,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 3,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 7,
+      "page_type": "image-only",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 9,
+      "page_type": "mixed",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 10,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 11,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 17,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 20,
+      "page_type": "mixed",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 30,
+      "page_type": "mixed",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 62,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 66,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 75,
+      "page_type": "mixed",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-player",
+      "page_number": 76,
+      "page_type": "mixed",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 2,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 3,
+      "page_type": "mixed",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 29,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 32,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 33,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 56,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 68,
+      "page_type": "mixed",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 102,
+      "page_type": "mixed",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 119,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 121,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 123,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 130,
+      "page_type": "mixed",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 165,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 177,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    },
+    {
+      "document": "cairn-warden",
+      "page_number": 186,
+      "page_type": "text-native",
+      "review_status": "assistant-drafted; human-confirmation-required"
+    }
+  ],
+  "scope": {
+    "annotated_categories": [
+      "page_type",
+      "blocks",
+      "reading_order",
+      "headings",
+      "section_continuations"
+    ],
+    "not_yet_annotated_categories": [
+      "prose_regions",
+      "table_regions_and_cells"
+    ],
+    "page_selection": "40 pages selected by seeded random sampling and extraction-output complexity; sampling list is stored in reports/2026-10-13/structure-annotation-candidates.json",
+    "warning": "Draft labels require human confirmation before being treated as authoritative evaluation gold.",
+    "cross_page_relationship_coverage": {
+      "annotated_links": [
+        {
+          "document": "basic-roleplaying",
+          "from_page": 6,
+          "heading": "Step Three: Age",
+          "to_page": 7,
+          "content_anchor": "For every full 10 years added to the rolled starting age"
+        },
+        {
+          "document": "basic-roleplaying",
+          "from_page": 7,
+          "heading": "Step Five: Derived Characteristics",
+          "to_page": 8,
+          "content_anchor": "Fatigue Points (Option)"
+        }
+      ],
+      "other_page_boundaries": "not-yet-reviewed; absence of a link is not a negative label"
+    }
+  }
+}

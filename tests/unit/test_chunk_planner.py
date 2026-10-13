@@ -1,5 +1,5 @@
 from preprocessing_agent.chunking import ChunkAssembler, ChunkPlanner, ChunkPolicy, ChunkSplitter
-from preprocessing_agent.domain import ContentType, ParsedBlock, ParsedDocument, ParsedPage, SectionNode, SourceSpan, DocumentTree
+from preprocessing_agent.domain import ContentType, ParsedBlock, ParsedDocument, ParsedPage, SectionNode, SourceSegment, SourceSpan, DocumentTree
 from preprocessing_agent.domain.layout import BoundingBox
 from preprocessing_agent.structure import TableCell, TableRow, TableStructure
 
@@ -16,6 +16,29 @@ def test_planner_creates_semantic_candidates_before_token_splitting():
     assert candidates[0].source_text == block.source_text
     assert candidates[0].source_segments[0].source_text == block.source_text
     assert candidates[0].source_segments[0].source_span == span
+
+
+def test_planner_does_not_put_unresolved_heading_in_section_path(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    span = SourceSpan(1, block_index=0)
+    block = ParsedBlock("b1", "Uncertain heading body.", span)
+    document = ParsedDocument("doc", "rules.pdf", block.source_text,
+                              (ParsedPage(1, (block,), block.source_text),))
+    known_parent = SectionNode("s1", "Known chapter", 1, ContentType.RULE, children=(
+        SectionNode("s2", "Uncertain heading", 2, ContentType.RULE,
+                    block_ids=("b1",), hierarchy_resolved=False),
+    ))
+
+    candidates = ChunkPlanner().plan(
+        DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.NARRATIVE,
+                                         children=(known_parent,))), document
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].section_path == ("known_chapter",)
+    assert candidates[0].source_text == block.source_text
+    assert "unresolvedHeadingPathOmissionCount=1" in caplog.text
 
 
 def test_planner_removes_duplicated_page_prefixes_from_canonical_keys():
@@ -72,7 +95,34 @@ def test_planner_preserves_table_row_and_column_relationships(monkeypatch, caplo
     assert tuple(span.table_cell for span in chunk.source_spans) == tuple(f"r{i // 2}:c{i % 2}" for i in range(4))
     assert "stage=table_source_mapping documentId=doc pageNumber=1 tableId=t1 expectedMappedCellCount=4 actualMappedCellCount=4 actualSourceSpanCount=4 outcome=success" in caplog.text
     assert "dev_chunk_planner stage=complete documentId=doc" in caplog.text
-    assert "tableCount=1 candidateCount=1" in caplog.text
+    assert "tableCount=1 treeRangeNodeCount=0 legacyBlockNodeCount=2 plannedSourceSegmentCount=0 tableSourceSegmentExclusionCount=0 unresolvedHeadingPathOmissionCount=0 candidateCount=1" in caplog.text
+
+
+def test_root_source_segments_exclude_structured_table_cells_and_emit_them_separately(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    prose_span = SourceSpan(1, 0)
+    table_span = SourceSpan(1, 1, table_id="t1", table_cell="r0:c0")
+    prose = ParsedBlock("prose", "A nearby rule.", prose_span)
+    table_block = ParsedBlock("table-cell", "Name", table_span)
+    cell = TableCell("table-cell", 0, 0, "Name", BoundingBox(0, 0, 20, 10), source_block_ids=("table-cell",))
+    table = TableStructure("t1", BoundingBox(0, 0, 20, 10), (TableRow(0, (cell,), True),), (), (cell,))
+    page = ParsedPage(1, (prose, table_block), "A nearby rule.\nName", tables=(table,))
+    root = SectionNode("root", "doc", 0, ContentType.UNKNOWN,
+                       block_ids=("prose", "table-cell"),
+                       source_segments=(SourceSegment(prose.source_text, prose_span),
+                                        SourceSegment(table_block.source_text, table_span)))
+
+    candidates = ChunkPlanner().plan(DocumentTree("doc", root), ParsedDocument("doc", "rules.pdf", page.source_text, (page,)))
+
+    assert len(candidates) == 2
+    prose_candidate = next(item for item in candidates if item.source_text == "A nearby rule.")
+    table_candidate = next(item for item in candidates if item.content_type is ContentType.TABLE)
+    assert prose_candidate.source_spans == (prose_span,)
+    assert table_candidate.source_text == "Name"
+    assert table_candidate.source_spans == (table_span,)
+    assert "expectedTableSourceSegmentCount=1 actualExcludedSegmentCount=1" in caplog.text
+    assert "tableSourceSegmentExclusionCount=1" in caplog.text
 
 
 def test_table_intersecting_multiple_sections_is_emitted_once():

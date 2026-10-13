@@ -6,7 +6,7 @@ import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
 import java.util.Objects;
 
-/** A scoped chunk candidate with source information preserved for later fusion. */
+/** A scoped dense-search candidate with source information preserved. */
 public record EvidenceCandidate(
         KnowledgeDocumentId documentId,
         ChunkId chunkId,
@@ -16,16 +16,7 @@ public record EvidenceCandidate(
         String excerpt,
         SourceProvenance provenance,
         Integer denseRank,
-        Integer bm25Rank,
-        double rrfScore,
         Double denseSimilarity) {
-    public EvidenceCandidate(KnowledgeDocumentId documentId, ChunkId chunkId, long extractionVersion,
-            DocumentType documentType, String locator, String excerpt, SourceProvenance provenance,
-            Integer denseRank, Integer bm25Rank, double rrfScore) {
-        this(documentId, chunkId, extractionVersion, documentType, locator, excerpt, provenance,
-                denseRank, bm25Rank, rrfScore, null);
-    }
-
     public EvidenceCandidate {
         Objects.requireNonNull(documentId, "document id must not be null");
         Objects.requireNonNull(chunkId, "chunk id must not be null");
@@ -35,8 +26,6 @@ public record EvidenceCandidate(
         if (locator == null || locator.isBlank()) throw new IllegalArgumentException("locator must not be blank");
         if (excerpt == null || excerpt.isBlank()) throw new IllegalArgumentException("excerpt must not be blank");
         if (denseRank != null && denseRank <= 0) throw new IllegalArgumentException("dense rank must be positive");
-        if (bm25Rank != null && bm25Rank <= 0) throw new IllegalArgumentException("BM25 rank must be positive");
-        if (!Double.isFinite(rrfScore) || rrfScore < 0) throw new IllegalArgumentException("RRF score must be finite and non-negative");
         if (denseSimilarity != null && (!Double.isFinite(denseSimilarity) || denseSimilarity < -1 || denseSimilarity > 1)) {
             throw new IllegalArgumentException("dense similarity must be finite and between -1 and 1");
         }

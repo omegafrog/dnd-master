@@ -29,7 +29,7 @@ export type BatchRulebookView = {
   failureReason?: string | null
 }
 
-export type KnowledgeDocumentStatus = 'UPLOADED' | 'NEEDS_INPUT' | 'QUEUED' | 'PROCESSING' | 'NEEDS_REVIEW' | 'FAILED' | 'EXTRACTED' | 'INDEXED' | 'READY' | 'PARTIAL_AWAITING_CONFIRMATION' | 'PARTIAL_CONFIRMED' | 'REJECTED'
+export type KnowledgeDocumentStatus = 'UPLOADED' | 'NEEDS_INPUT' | 'QUEUED' | 'PROCESSING' | 'NEEDS_REVIEW' | 'FAILED' | 'EXTRACTED' | 'INDEXED' | 'INDEXED_WITH_WARNINGS' | 'READY' | 'PARTIAL_AWAITING_CONFIRMATION' | 'PARTIAL_CONFIRMED' | 'REJECTED'
 
 export type DocumentPreparationStage = 'QUEUED' | 'EXTRACTING' | 'CHUNKING' | 'EMBEDDING' | 'INDEXING' | 'NEEDS_REVIEW' | 'READY' | 'FAILED'
 

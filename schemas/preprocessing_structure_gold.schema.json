@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Human PDF page structure annotations",
+  "type": "object",
+  "required": [
+    "source_sha256",
+    "page_number"
+  ],
+  "properties": {
+    "source_sha256": {
+      "type": "string",
+      "pattern": "^[a-fA-F0-9]{64}$"
+    },
+    "page_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "page_type": {
+      "enum": [
+        "text-native",
+        "image-only",
+        "mixed",
+        "ambiguous",
+        "form"
+      ]
+    },
+    "blocks": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/block"
+      }
+    },
+    "reading_order": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "headings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "level"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "block_id": {
+            "type": "string"
+          },
+          "anchor": {
+            "$ref": "#/$defs/anchor"
+          },
+          "level": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "oneOf": [
+          {
+            "required": [
+              "block_id"
+            ]
+          },
+          {
+            "required": [
+              "anchor"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      }
+    },
+    "prose_regions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "bbox",
+          "columns"
+        ],
+        "properties": {
+          "bbox": {
+            "$ref": "#/$defs/bbox"
+          },
+          "columns": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/bbox"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "tables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "bbox",
+          "rows"
+        ],
+        "properties": {
+          "bbox": {
+            "$ref": "#/$defs/bbox"
+          },
+          "caption": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "section_continuations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "source",
+          "destination",
+          "section_relation",
+          "content_continuity"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/endpoint"
+          },
+          "destination": {
+            "$ref": "#/$defs/endpoint"
+          },
+          "section_relation": {
+            "enum": [
+              "SAME_SECTION",
+              "DIFFERENT_SECTION",
+              "UNRESOLVED"
+            ]
+          },
+          "content_continuity": {
+            "enum": [
+              "NONE",
+              "PARAGRAPH_CONTINUATION",
+              "TABLE_CONTINUATION",
+              "UNRESOLVED"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "bbox": {
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        {
+          "type": "object",
+          "required": [
+            "x0",
+            "y0",
+            "x1",
+            "y1"
+          ],
+          "properties": {
+            "x0": {
+              "type": "number"
+            },
+            "y0": {
+              "type": "number"
+            },
+            "x1": {
+              "type": "number"
+            },
+            "y1": {
+              "type": "number"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "anchor": {
+      "type": "object",
+      "required": [
+        "text",
+        "bbox"
+      ],
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bbox": {
+          "$ref": "#/$defs/bbox"
+        }
+      },
+      "additionalProperties": false
+    },
+    "endpoint": {
+      "type": "object",
+      "required": [
+        "page_number"
+      ],
+      "properties": {
+        "page_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "block_id": {
+          "type": "string"
+        },
+        "anchor": {
+          "$ref": "#/$defs/anchor"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "block_id"
+          ]
+        },
+        {
+          "required": [
+            "anchor"
+          ]
+        }
+      ],
+      "additionalProperties": false
+    },
+    "block": {
+      "type": "object",
+      "required": [
+        "id",
+        "text",
+        "bbox"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "bbox": {
+          "$ref": "#/$defs/bbox"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

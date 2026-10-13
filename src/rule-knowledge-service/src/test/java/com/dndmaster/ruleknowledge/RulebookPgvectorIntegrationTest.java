@@ -3,8 +3,6 @@ package com.dndmaster.ruleknowledge;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.dndmaster.ruleknowledge.api.SourceLocationResponse;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.index.ExtractedContentRange;
@@ -30,7 +28,6 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceScope;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchQuery;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.RuleVectorPersistenceException;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
-import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLBm25EvidenceCandidateSearchAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLDenseEvidenceCandidateSearchAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLEvidenceLocationLookupAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
@@ -47,12 +44,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -76,7 +68,6 @@ class RulebookPgvectorIntegrationTest {
     private static PostgresRagExtractionPublicationRepository publicationRepository;
     private static PgvectorRuleEvidenceSearchRepository evidenceRepository;
     private static PgvectorStorySourceSearchRepository storySourceRepository;
-    private static PostgreSQLBm25EvidenceCandidateSearchAdapter bm25EvidenceRepository;
     private static PostgresRulebookIndexRepository indexRepository;
 
     @BeforeAll
@@ -88,7 +79,6 @@ class RulebookPgvectorIntegrationTest {
         publicationRepository = new PostgresRagExtractionPublicationRepository(dataSource);
         evidenceRepository = new PgvectorRuleEvidenceSearchRepository(dataSource);
         storySourceRepository = new PgvectorStorySourceSearchRepository(dataSource);
-        bm25EvidenceRepository = new PostgreSQLBm25EvidenceCandidateSearchAdapter(dataSource);
         indexRepository = new PostgresRulebookIndexRepository(dataSource);
     }
 
@@ -144,78 +134,38 @@ class RulebookPgvectorIntegrationTest {
     }
 
     @Test
-    void publishedChunksExposeLengthAndTermFrequencyStorageForBm25Indexing() throws SQLException {
-        try (Connection connection = dataSource.getConnection()) {
-            assertEquals(1, countRows(connection, """
-                    SELECT 1
-                      FROM information_schema.columns
-                     WHERE table_name = 'published_rag_chunk'
-                       AND column_name = 'document_length'
-                    """));
-            assertEquals(1, countRows(connection, """
-                    SELECT 1
-                      FROM information_schema.tables
-                     WHERE table_name = 'chunk_term_frequency'
-                    """));
-            assertEquals(1, countRows(connection, """
-                    SELECT 1
-                      FROM pg_indexes
-                     WHERE tablename = 'chunk_term_frequency'
-                       AND indexname = 'chunk_term_frequency_term_idx'
-                    """));
-            assertEquals(1, countRows(connection, """
-                    SELECT 1
-                      FROM pg_indexes
-                     WHERE tablename = 'chunk_term_frequency'
-                       AND indexname = 'chunk_term_frequency_chunk_id_idx'
-                    """));
-        }
-    }
-
-    @Test
-    void publishingChunkStoresDocumentLengthAndTermFrequenciesTogether() throws SQLException {
+    void publishesSearchableWarningPagesAndKeepsUnreadablePagesInPartialManifest() throws SQLException {
         OwnerPlayerId owner = owner();
         RulebookId documentId = RulebookId.generate();
         register(documentId, owner);
-        RagExtractionPublicationRequest request = publicationRequest(documentId, owner, "bm25-statistics", 1);
-        publicationRepository.beginCandidate(request);
-        publicationRepository.publish(request, List.of(publicationChunk(request, 1)));
+        RagExtractionPublicationRequest base = publicationRequest(documentId, owner, "partial-pages", 1);
+        RagExtractionPublicationRequest partial = new RagExtractionPublicationRequest(
+                base.documentId(), base.ownerPlayerId(), base.operationId(), base.extractionVersion(),
+                base.sourceHash(), base.policyVersion(), base.manifestHash(),
+                List.of(new RagExtractionPage(1, "VALIDATED", 1, List.of()),
+                        new RagExtractionPage(2, "USABLE_WITH_WARNINGS", 1, List.of("FORM_CONTENT_UNVERIFIED"),
+                                "form", Map.of("text_line_count", 10)),
+                        new RagExtractionPage(3, "NEEDS_REVIEW", 1, List.of("TEXT_UNUSABLE"))),
+                List.of(new PublishedRagChunk(
+                        base.chunks().getFirst().processorChunkId(), 0, "warning page content", "warning page content",
+                        "rule", 3, "partial.warning.page",
+                        new SourceProvenance(2, List.of(), List.of(), null, "page=2", List.of()), null)),
+                base.embeddingModel());
 
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement chunk = connection.prepareStatement("""
-                        SELECT document_length
-                          FROM published_rag_chunk
-                         WHERE document_id = ? AND extraction_version = ?
-                        """);
-                PreparedStatement frequencies = connection.prepareStatement("""
-                        SELECT frequency.term, frequency.term_frequency
-                          FROM chunk_term_frequency frequency
-                          JOIN published_rag_chunk chunk ON chunk.chunk_id = frequency.chunk_id
-                         WHERE chunk.document_id = ? AND chunk.extraction_version = ?
-                         ORDER BY frequency.term
-                        """)) {
-            chunk.setObject(1, documentId.value());
-            chunk.setString(2, request.extractionVersion());
-            try (ResultSet rows = chunk.executeQuery()) {
-                assertEquals(true, rows.next());
-                assertEquals(2, rows.getInt("document_length"));
-            }
-            frequencies.setObject(1, documentId.value());
-            frequencies.setString(2, request.extractionVersion());
-            try (ResultSet rows = frequencies.executeQuery()) {
-                assertEquals(true, rows.next());
-                assertEquals("content", rows.getString("term"));
-                assertEquals(1, rows.getInt("term_frequency"));
-                assertEquals(true, rows.next());
-                assertEquals("published", rows.getString("term"));
-                assertEquals(1, rows.getInt("term_frequency"));
-                assertEquals(false, rows.next());
-            }
-        }
+        publicationRepository.beginCandidate(partial);
+        publicationRepository.publish(partial, List.of(new EmbeddedPublishedRagChunk(
+                partial.chunks().getFirst(), new float[] {1, 0, 0})));
+
+        assertEquals(3, queryInt("SELECT COUNT(*) FROM rag_extraction_page WHERE document_id = ? AND extraction_version = ?",
+                documentId.value(), partial.extractionVersion()));
+        assertEquals(1, queryInt("SELECT COUNT(*) FROM published_rag_chunk WHERE document_id = ? AND extraction_version = ?",
+                documentId.value(), partial.extractionVersion()));
+        assertEquals("INDEXED", queryString("SELECT status FROM rag_extraction_version WHERE document_id = ? AND extraction_version = ?",
+                documentId.value(), partial.extractionVersion()));
     }
 
     @Test
-    void publicationFaultAtEveryIndexWriteRollsBackCandidateAndKeepsPriorPublicVersion() throws SQLException {
+    void publicationFaultAtDenseVectorAndIndexStatusWritesRollsBackCandidateAndKeepsPriorPublicVersion() throws SQLException {
         OwnerPlayerId owner = owner();
         RulebookId documentId = RulebookId.generate();
         register(documentId, owner);
@@ -229,51 +179,12 @@ class RulebookPgvectorIntegrationTest {
             publicationRepository.beginCandidate(candidate);
 
             assertThrows(RuntimeException.class, () -> new PostgresRagExtractionPublicationRepository(
-                    new FaultInjectingDataSource(dataSource, fault)).publish(candidate, List.of(publicationChunk(candidate, 2))));
+                    new FaultInjectingDataSource(dataSource, fault)).publish(candidate, List.of(publicationChunk(candidate, 2))),
+                    "fault injection did not trigger for " + fault);
 
             assertEquals("prior-public", publishedExtractionVersion(documentId));
             assertEquals(1, countRows("published_rag_chunk"));
             assertEquals(0, countRowsForExtraction("published_rag_chunk", documentId, candidate.extractionVersion()));
-            assertEquals(0, countRowsForExtraction("chunk_term_frequency", documentId, candidate.extractionVersion()));
-            assertEquals(0, countRows("""
-                    SELECT COUNT(*)
-                      FROM chunk_term_frequency frequency
-                     WHERE NOT EXISTS (
-                           SELECT 1 FROM published_rag_chunk chunk WHERE chunk.chunk_id = frequency.chunk_id)
-                    """));
-        }
-    }
-
-    @Test
-    void republishingSameExtractionReplacesStaleTermFrequencies() throws SQLException {
-        OwnerPlayerId owner = owner();
-        RulebookId documentId = RulebookId.generate();
-        register(documentId, owner);
-        RagExtractionPublicationRequest request = publicationRequest(documentId, owner, "republished", 1);
-        publicationRepository.beginCandidate(request);
-        publicationRepository.publish(request, List.of(publicationChunk(request, 1)));
-
-        PublishedRagChunk replacement = new PublishedRagChunk(
-                request.chunks().getFirst().processorChunkId(), 0, "lantern lantern", "lantern lantern",
-                request.chunks().getFirst().provenance());
-        publicationRepository.publish(request, List.of(new EmbeddedPublishedRagChunk(replacement, new float[] {1, 0, 0})));
-
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement terms = connection.prepareStatement("""
-                        SELECT frequency.term, frequency.term_frequency
-                          FROM chunk_term_frequency frequency
-                          JOIN published_rag_chunk chunk ON chunk.chunk_id = frequency.chunk_id
-                         WHERE chunk.document_id = ? AND chunk.extraction_version = ?
-                         ORDER BY frequency.term
-                        """)) {
-            terms.setObject(1, documentId.value());
-            terms.setString(2, request.extractionVersion());
-            try (ResultSet rows = terms.executeQuery()) {
-                assertEquals(true, rows.next());
-                assertEquals("lantern", rows.getString("term"));
-                assertEquals(2, rows.getInt("term_frequency"));
-                assertEquals(false, rows.next());
-            }
         }
     }
 
@@ -305,39 +216,6 @@ class RulebookPgvectorIntegrationTest {
     }
 
     @Test
-    void bm25CandidateSearchRestrictsResultsToOwnerScopeAndActivePublishedExtraction() throws SQLException {
-        OwnerPlayerId owner = owner();
-        OwnerPlayerId otherOwner = owner();
-        RulebookId selectedDocument = RulebookId.generate();
-        RulebookId unselectedDocument = RulebookId.generate();
-        RulebookId foreignDocument = RulebookId.generate();
-        register(selectedDocument, owner);
-        register(unselectedDocument, owner);
-        register(foreignDocument, otherOwner);
-
-        publish(selectedDocument, owner, "selected-old", "old clockwork source", "page=1:old");
-        publish(selectedDocument, owner, "selected-current", "clockwork lantern rules", "page=2:current");
-        publish(unselectedDocument, owner, "unselected", "clockwork spoiler", "page=3:unselected");
-        publish(foreignDocument, otherOwner, "foreign", "clockwork foreign", "page=4:foreign");
-
-        var candidates = bm25EvidenceRepository.search(evidenceRequest(owner,
-                List.of(new AuthorizedDocumentScope(
-                        KnowledgeDocumentId.fromRulebookId(selectedDocument), 1, DocumentType.RULEBOOK)),
-                List.of(), "clockwork"));
-
-        assertEquals(1, candidates.size());
-        var candidate = candidates.getFirst();
-        assertEquals(KnowledgeDocumentId.fromRulebookId(selectedDocument), candidate.documentId());
-        assertEquals(1, candidate.extractionVersion());
-        assertEquals(DocumentType.RULEBOOK, candidate.documentType());
-        assertEquals("clockwork lantern rules", candidate.excerpt());
-        assertEquals("page=2:current", candidate.locator());
-        assertEquals(2, candidate.provenance().pageNumber());
-        assertEquals(List.of("Chapter", "selected-current"), candidate.provenance().sectionPath());
-        assertEquals(1d, candidate.denseSimilarity());
-    }
-
-    @Test
     void denseCandidateSearchFiltersByMinimumCosineSimilarityAfterBoundedRetrieval() throws SQLException {
         OwnerPlayerId owner = owner();
         RulebookId documentId = RulebookId.generate();
@@ -350,33 +228,12 @@ class RulebookPgvectorIntegrationTest {
                 KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK)), List.of(), "orthogonal query");
         request = new EvidenceSearchRequest(request.ownerPlayerId(), request.sessionId(), request.scenarioPackageId(),
                 request.stageKey(), request.actionIntent(), request.scope(), request.activeLocators(), request.query(),
-                64, 0, List.of(), 0.1);
+                64, List.of(), 0.1);
 
         var candidates = new PostgreSQLDenseEvidenceCandidateSearchAdapter(
                 dataSource, new RecordingQueryEmbeddingPort(), "mock-embedding", 3).search(request);
 
         assertEquals(List.of(), candidates);
-    }
-
-    @Test
-    void bm25CandidateSearchMatchesSharedDeterministicContract() throws SQLException, IOException {
-        JsonNode contract = sharedRetrievalContract().path("bm25");
-        OwnerPlayerId owner = owner();
-        List<AuthorizedDocumentScope> scope = new ArrayList<>();
-        Map<String, String> chunkIdsByExcerpt = new LinkedHashMap<>();
-        for (JsonNode document : contract.path("documents")) {
-            RulebookId documentId = RulebookId.generate();
-            register(documentId, owner);
-            publish(documentId, owner, "contract-" + document.path("id").asText(),
-                    document.path("text").asText(), "page=1:" + document.path("id").asText());
-            scope.add(new AuthorizedDocumentScope(KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK));
-            chunkIdsByExcerpt.put(document.path("text").asText(), document.path("id").asText());
-        }
-
-        assertEquals(stringList(contract.path("expected_order")), bm25EvidenceRepository.search(
-                evidenceRequest(owner, scope, List.of(), contract.path("query").asText())).stream()
-                .map(candidate -> chunkIdsByExcerpt.get(candidate.excerpt()))
-                .toList());
     }
 
     @Test
@@ -439,7 +296,7 @@ class RulebookPgvectorIntegrationTest {
     }
 
     @Test
-    void activeSourceLocatorsRankFirstInBothCandidateRetrieversWithoutEscapingAuthorizedScope() throws SQLException {
+    void activeSourceLocatorsRankFirstWithoutEscapingAuthorizedScope() throws SQLException {
         OwnerPlayerId owner = owner();
         RulebookId documentId = RulebookId.generate();
         register(documentId, owner);
@@ -458,7 +315,6 @@ class RulebookPgvectorIntegrationTest {
         var request = evidenceRequest(owner, List.of(new AuthorizedDocumentScope(
                 KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK)), List.of("page=1:active"), "clockwork");
 
-        assertEquals("page=1:active", bm25EvidenceRepository.search(request).getFirst().locator());
         assertEquals("page=1:active", new PostgreSQLDenseEvidenceCandidateSearchAdapter(
                 dataSource, new RecordingQueryEmbeddingPort(), "mock-embedding", 3).search(request).getFirst().locator());
     }
@@ -489,26 +345,6 @@ class RulebookPgvectorIntegrationTest {
                 assertEquals(2, rows.getInt(1));
             }
         }
-    }
-
-    @Test
-    void denseSearchDoesNotDependOnBm25Statistics() throws SQLException {
-        OwnerPlayerId owner = owner();
-        RulebookId documentId = RulebookId.generate();
-        register(documentId, owner);
-        publish(documentId, owner, "legacy", "clockwork legacy evidence", "page=1:legacy");
-        try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-            statement.executeUpdate("DELETE FROM chunk_term_frequency");
-            statement.executeUpdate("UPDATE published_rag_chunk SET document_length = 0");
-        }
-        var scope = List.of(new AuthorizedDocumentScope(
-                KnowledgeDocumentId.fromRulebookId(documentId), 1, DocumentType.RULEBOOK));
-
-        assertEquals(List.of(), bm25EvidenceRepository.search(evidenceRequest(owner, scope, List.of(), "clockwork")));
-        assertEquals(List.of("clockwork legacy evidence"), new PostgreSQLDenseEvidenceCandidateSearchAdapter(
-                dataSource, new RecordingQueryEmbeddingPort(), "mock-embedding", 3)
-                .search(evidenceRequest(owner, scope, List.of(), "clockwork")).stream()
-                .map(candidate -> candidate.excerpt()).toList());
     }
 
     @Test
@@ -558,7 +394,7 @@ class RulebookPgvectorIntegrationTest {
     private static EvidenceSearchRequest evidenceRequest(
             OwnerPlayerId owner, List<AuthorizedDocumentScope> scope, List<String> activeLocators, String query) {
         return new EvidenceSearchRequest(owner, UUID.randomUUID(), UUID.randomUUID(), "opening", "STORY", scope,
-                activeLocators, query, 30, 30);
+                activeLocators, query, 30);
     }
 
     private static RagExtractionPublicationRequest publicationRequest(
@@ -620,6 +456,28 @@ class RulebookPgvectorIntegrationTest {
             statement.setString(4, ("c".repeat(32) + documentId.value().toString().replace("-", "")).substring(0, 64));
             statement.setString(5, "storage/" + documentId.value());
             statement.executeUpdate();
+        }
+    }
+
+    private static int queryInt(String sql, UUID documentId, String extractionVersion) throws SQLException {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, documentId);
+            statement.setString(2, extractionVersion);
+            try (ResultSet result = statement.executeQuery()) {
+                result.next();
+                return result.getInt(1);
+            }
+        }
+    }
+
+    private static String queryString(String sql, UUID documentId, String extractionVersion) throws SQLException {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, documentId);
+            statement.setString(2, extractionVersion);
+            try (ResultSet result = statement.executeQuery()) {
+                result.next();
+                return result.getString(1);
+            }
         }
     }
 
@@ -770,22 +628,6 @@ class RulebookPgvectorIntegrationTest {
         return new OwnerPlayerId(UUID.randomUUID());
     }
 
-    private static JsonNode sharedRetrievalContract() throws IOException {
-        Path current = Path.of(System.getProperty("user.dir")).toAbsolutePath();
-        while (current != null) {
-            Path candidate = current.resolve("tests/fixtures/hybrid-retrieval-deterministic-contract.json");
-            if (Files.isRegularFile(candidate)) return new ObjectMapper().readTree(candidate.toFile());
-            current = current.getParent();
-        }
-        throw new IOException("shared deterministic retrieval contract was not found");
-    }
-
-    private static List<String> stringList(JsonNode values) {
-        List<String> result = new ArrayList<>();
-        values.forEach(value -> result.add(value.asText()));
-        return result;
-    }
-
     private static long countRows(String table) throws SQLException {
         try (Connection connection = dataSource.getConnection();
                 Statement statement = connection.createStatement();
@@ -809,14 +651,7 @@ class RulebookPgvectorIntegrationTest {
 
     private static long countRowsForExtraction(String table, RulebookId documentId, String extractionVersion)
             throws SQLException {
-        String sql = table.equals("published_rag_chunk")
-                ? "SELECT COUNT(*) FROM published_rag_chunk WHERE document_id = ? AND extraction_version = ?"
-                : """
-                        SELECT COUNT(*)
-                          FROM chunk_term_frequency frequency
-                          JOIN published_rag_chunk chunk ON chunk.chunk_id = frequency.chunk_id
-                         WHERE chunk.document_id = ? AND chunk.extraction_version = ?
-                        """;
+        String sql = "SELECT COUNT(*) FROM published_rag_chunk WHERE document_id = ? AND extraction_version = ?";
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, documentId.value());
             statement.setString(2, extractionVersion);
@@ -836,8 +671,6 @@ class RulebookPgvectorIntegrationTest {
 
     private enum PublicationFault {
         DENSE_VECTOR,
-        BM25_TERMS,
-        DOCUMENT_STATISTICS,
         INDEX_STATUS
     }
 
@@ -913,10 +746,6 @@ class RulebookPgvectorIntegrationTest {
     private static boolean shouldFail(Method method, Object[] arguments, String sql, PublicationFault fault) {
         if (fault == PublicationFault.DENSE_VECTOR && method.getName().equals("setString")
                 && parameterIndex(arguments) == 9 && sql.contains("INSERT INTO published_rag_chunk")) return true;
-        if (fault == PublicationFault.DOCUMENT_STATISTICS && method.getName().equals("setInt")
-                && parameterIndex(arguments) == 18 && sql.contains("INSERT INTO published_rag_chunk")) return true;
-        if (fault == PublicationFault.BM25_TERMS && method.getName().equals("executeBatch")
-                && sql.contains("INSERT INTO chunk_term_frequency")) return true;
         return fault == PublicationFault.INDEX_STATUS && method.getName().equals("executeUpdate")
                 && sql.contains("UPDATE rag_extraction_version") && sql.contains("SET status = 'INDEXED'");
     }

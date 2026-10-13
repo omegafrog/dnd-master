@@ -8,6 +8,7 @@ public enum KnowledgeDocumentStatus implements com.dndmaster.adventure.domain.sc
     NEEDS_REVIEW,
     EXTRACTED,
     INDEXED,
+    INDEXED_WITH_WARNINGS,
     PARTIAL_AWAITING_CONFIRMATION,
     PARTIAL_CONFIRMED,
     FAILED,

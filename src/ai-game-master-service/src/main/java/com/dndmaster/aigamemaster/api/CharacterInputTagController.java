@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -19,7 +20,6 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public final class CharacterInputTagController {
     private static final Logger LOGGER = LoggerFactory.getLogger(CharacterInputTagController.class);
-    private static final int DIAGNOSTIC_TEXT_LIMIT = 4000;
     private final CharacterTagCompletionPort adapter;
     private final ObjectMapper objectMapper;
 
@@ -34,25 +34,27 @@ public final class CharacterInputTagController {
         String prompt = buildPrompt(request);
         boolean focused = request.instruction() != null && !request.instruction().isBlank();
         long startedAt = System.nanoTime();
-        LOGGER.info("character_tag_extract_started operationId={} focused={} excerpts={} promptChars={} excerptSummaries={}",
-                request.operationId(), focused, request.excerpts().size(), prompt.length(), excerptSummaries(request.excerpts()));
+        if (diagnosticsEnabled()) LOGGER.info("character_tag_extract_started operationId={} focused={} excerpts={} excerptChars={} promptChars={}",
+                request.operationId(), focused, request.excerpts().size(), excerptChars(request.excerpts()), prompt.length());
         try {
             String modelResponse = adapter.complete(request.soloPlayerId(), request.operationId(), prompt);
-            LOGGER.info("character_tag_model_response operationId={} responseChars={} payload={}",
-                    request.operationId(), modelResponse == null ? 0 : modelResponse.length(), diagnosticText(modelResponse));
+            ResponseShape responseShape = responseShape(modelResponse);
+            if (diagnosticsEnabled()) LOGGER.info("character_tag_model_response operationId={} responseChars={} rootType={} itemCount={}",
+                    request.operationId(), modelResponse == null ? 0 : modelResponse.length(),
+                    responseShape.rootType(), responseShape.itemCount());
 
             List<Candidate> parsed = parseModel(request.operationId(), modelResponse, true);
-            LOGGER.info("character_tag_parsed_candidates operationId={} candidates={} summaries={}",
-                    request.operationId(), parsed.size(), candidateSummaries(parsed));
+            if (diagnosticsEnabled()) LOGGER.info("character_tag_parsed_candidates operationId={} candidates={}",
+                    request.operationId(), parsed.size());
 
             List<Candidate> candidates = groundAgainstExcerpts(request.operationId(), parsed, request.excerpts());
-            LOGGER.info("character_tag_extract_finished operationId={} focused={} parsedCandidates={} groundedCandidates={} elapsedMs={}",
+            if (diagnosticsEnabled()) LOGGER.info("character_tag_extract_finished operationId={} focused={} parsedCandidates={} groundedCandidates={} elapsedMs={}",
                     request.operationId(), focused, parsed.size(), candidates.size(),
                     (System.nanoTime() - startedAt) / 1_000_000);
             return new Response(candidates);
         } catch (RuntimeException exception) {
-            LOGGER.warn("character_tag_extract_failed operationId={} focused={} elapsedMs={} reason={}",
-                    request.operationId(), focused, (System.nanoTime() - startedAt) / 1_000_000, reason(exception));
+            if (diagnosticsEnabled()) LOGGER.warn("character_tag_extract_failed operationId={} focused={} elapsedMs={} failureClass={}",
+                    request.operationId(), focused, (System.nanoTime() - startedAt) / 1_000_000, exception.getClass().getSimpleName());
             throw exception;
         }
     }
@@ -64,6 +66,7 @@ public final class CharacterInputTagController {
         boolean focused = request.instruction() != null && !request.instruction().isBlank();
         String schema = "Each array item requires key as a string and options as an array of strings. "
                 + "inputMode, label, parentKey, required, confidence, sourceType, evidence, sourceQuote, and optionDetails are optional. "
+                + "If confidence is present, use HIGH, MEDIUM, or LOW; values are case-insensitive. "
                 + "A non-empty options list means a selectable field; an empty options list means free text. "
                 + "Include only options explicitly visible in the excerpts. Options must be values the player can choose; never emit headings, field names, book titles, or generic nouns as options. ";
         return "Extract only source-grounded character input tags. Return one JSON array only; do not explain your answer or output reasoning. "
@@ -126,21 +129,21 @@ public final class CharacterInputTagController {
                             node.path("required").asBoolean(false), mode, options, optionDetails,
                             strings(node.get("suggestions")), confidence, quote, evidence, sourceType));
                 } catch (RuntimeException invalidCandidate) {
-                    String rejection = reason(invalidCandidate);
+                    String rejection = parseRejectionCode(invalidCandidate);
                     rejected.merge(rejection, 1, Integer::sum);
-                    LOGGER.info("character_tag_parse_candidate_rejected operationId={} index={} reason={} payload={}",
-                            operationId, index, rejection, diagnosticText(node.toString()));
+                    if (diagnosticsEnabled()) LOGGER.info("character_tag_parse_candidate_rejected operationId={} index={} reason={} nodeType={} fieldCount={}",
+                            operationId, index, rejection, node.getNodeType(), node.isObject() ? node.size() : 0);
                 }
                 index++;
             }
-            LOGGER.info("character_tag_parse operationId={} responseChars={} firstChar={} jsonRoot={} candidates={} accepted={} rejected={}",
-                    operationId, response.length(), firstChar(response), root.isArray() ? "array" : root.getNodeType(),
+            if (diagnosticsEnabled()) LOGGER.info("character_tag_parse operationId={} responseChars={} rootType={} candidates={} accepted={} rejected={}",
+                    operationId, response.length(), root.getNodeType(),
                     root.size(), result.size(), rejected);
             return List.copyOf(result);
         } catch (Exception malformed) {
-            LOGGER.warn("character_tag_parse_failed operationId={} responseChars={} firstChar={} hasArrayMarkers={} reason={} payload={}",
-                    operationId, response.length(), firstChar(response), response.contains("[") && response.contains("]"),
-                    reason(malformed), diagnosticText(response));
+            if (diagnosticsEnabled()) LOGGER.warn("character_tag_parse_failed operationId={} responseChars={} rootType=UNPARSED hasArrayMarkers={} failureClass={}",
+                    operationId, response.length(), response.contains("[") && response.contains("]"),
+                    malformed.getClass().getSimpleName());
             return List.of();
         }
     }
@@ -151,14 +154,9 @@ public final class CharacterInputTagController {
         for (Candidate candidate : candidates) {
             List<SourceRef> inferred = candidate.evidence().isEmpty() ? inferredEvidence(candidate, excerpts) : List.of();
             List<SourceRef> evidence = candidate.evidence().isEmpty() ? inferred : candidate.evidence();
-            List<String> quoteMatches = matchingLocators(candidate.sourceQuote(), excerpts);
-            Map<String, List<String>> optionMatches = optionMatches(candidate.options(), excerpts);
-
             if (evidence.isEmpty()) {
-                LOGGER.info("character_tag_grounding_rejected operationId={} index={} key={} reason=NO_EVIDENCE mode={} quote={} quoteMatches={} options={} optionMatches={}",
-                        operationId, index, diagnosticText(candidate.key()), candidate.inputMode(),
-                        diagnosticText(candidate.sourceQuote()), quoteMatches,
-                        diagnosticStrings(candidate.options()), optionMatches);
+                if (diagnosticsEnabled()) LOGGER.info("character_tag_grounding_rejected operationId={} index={} reason=NO_EVIDENCE mode={} quoteChars={} optionCount={} evidenceCount=0",
+                        operationId, index, candidate.inputMode(), textLength(candidate.sourceQuote()), candidate.options().size());
                 index++;
                 continue;
             }
@@ -167,9 +165,8 @@ public final class CharacterInputTagController {
                     .filter(option -> isSelectableOption(option, candidate))
                     .toList();
             if (!candidate.inputMode().equals("FREE_TEXT") && options.isEmpty()) {
-                LOGGER.info("character_tag_grounding_rejected operationId={} index={} key={} reason=NO_SELECTABLE_OPTIONS mode={} originalOptions={} label={} evidence={}",
-                        operationId, index, diagnosticText(candidate.key()), candidate.inputMode(),
-                        diagnosticStrings(candidate.options()), diagnosticText(candidate.label()), evidence);
+                if (diagnosticsEnabled()) LOGGER.info("character_tag_grounding_rejected operationId={} index={} reason=NO_SELECTABLE_OPTIONS mode={} originalOptionCount={} selectableOptionCount=0 evidenceCount={}",
+                        operationId, index, candidate.inputMode(), candidate.options().size(), evidence.size());
                 index++;
                 continue;
             }
@@ -188,13 +185,12 @@ public final class CharacterInputTagController {
                     candidate.inputMode(), options, details, candidate.suggestions(), candidate.confidence(), quote,
                     evidence, candidate.sourceType());
             grounded.add(accepted);
-            LOGGER.info("character_tag_grounding_accepted operationId={} index={} key={} mode={} evidenceSource={} evidence={} quoteMatches={} optionMatches={} result={}",
-                    operationId, index, diagnosticText(candidate.key()), candidate.inputMode(),
-                    candidate.evidence().isEmpty() ? "INFERRED" : "MODEL", evidence, quoteMatches, optionMatches,
-                    candidateSummary(accepted));
+            if (diagnosticsEnabled()) LOGGER.info("character_tag_grounding_accepted operationId={} index={} mode={} evidenceSource={} evidenceCount={} optionCount={} optionDetailCount={}",
+                    operationId, index, candidate.inputMode(), candidate.evidence().isEmpty() ? "INFERRED" : "MODEL",
+                    evidence.size(), options.size(), details.size());
             index++;
         }
-        LOGGER.info("character_tag_grounding_summary operationId={} parsed={} accepted={} rejected={}",
+        if (diagnosticsEnabled()) LOGGER.info("character_tag_grounding_summary operationId={} parsed={} accepted={} rejected={}",
                 operationId, candidates.size(), grounded.size(), candidates.size() - grounded.size());
         return List.copyOf(grounded);
     }
@@ -213,62 +209,35 @@ public final class CharacterInputTagController {
         }).map(excerpt -> new SourceRef(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())).toList();
     }
 
-    private static List<String> matchingLocators(String value, List<Excerpt> excerpts) {
-        if (value == null || value.isBlank()) return List.of();
-        return excerpts.stream()
-                .filter(excerpt -> excerpt.text() != null && excerpt.text().contains(value))
-                .map(Excerpt::locator)
-                .toList();
+    private static int excerptChars(List<Excerpt> excerpts) {
+        return excerpts.stream().mapToInt(excerpt -> textLength(excerpt.text())).sum();
     }
 
-    private static Map<String, List<String>> optionMatches(List<String> options, List<Excerpt> excerpts) {
-        Map<String, List<String>> result = new LinkedHashMap<>();
-        for (String option : options) result.put(diagnosticText(option), matchingLocators(option, excerpts));
-        return result;
+    private static int textLength(String value) {
+        return value == null ? 0 : value.length();
     }
 
-    private static List<String> excerptSummaries(List<Excerpt> excerpts) {
-        return excerpts.stream().map(excerpt -> "documentId=" + excerpt.documentId()
-                + ",version=" + excerpt.extractionVersion()
-                + ",locator=" + diagnosticText(excerpt.locator())
-                + ",textChars=" + (excerpt.text() == null ? 0 : excerpt.text().length())).toList();
+    private static boolean diagnosticsEnabled() {
+        return "true".equalsIgnoreCase(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
     }
 
-    private static List<String> candidateSummaries(List<Candidate> candidates) {
-        return candidates.stream().map(CharacterInputTagController::candidateSummary).toList();
+    private ResponseShape responseShape(String response) {
+        try {
+            JsonNode root = objectMapper.readTree(extractJsonArray(response));
+            return new ResponseShape(root.getNodeType().name(), root.isArray() ? root.size() : -1);
+        } catch (Exception malformed) {
+            return new ResponseShape("UNPARSED", -1);
+        }
     }
 
-    private static String candidateSummary(Candidate candidate) {
-        return "key=" + diagnosticText(candidate.key())
-                + ",label=" + diagnosticText(candidate.label())
-                + ",mode=" + candidate.inputMode()
-                + ",options=" + diagnosticStrings(candidate.options())
-                + ",optionDetails=" + candidate.optionDetails().size()
-                + ",evidence=" + candidate.evidence().size()
-                + ",quote=" + diagnosticText(candidate.sourceQuote())
-                + ",confidence=" + candidate.confidence()
-                + ",sourceType=" + candidate.sourceType();
-    }
-
-    private static List<String> diagnosticStrings(List<String> values) {
-        return values.stream().map(CharacterInputTagController::diagnosticText).toList();
-    }
-
-    private static String diagnosticText(String value) {
-        if (value == null) return "<null>";
-        String normalized = value.replaceAll("\\s+", " ").strip();
-        return normalized.substring(0, Math.min(normalized.length(), DIAGNOSTIC_TEXT_LIMIT));
-    }
-
-    private static String firstChar(String value) {
-        return value.isEmpty() ? "EMPTY" : String.valueOf(value.charAt(0));
-    }
-
-    private static String reason(Throwable exception) {
-        String message = exception.getMessage();
-        if (message == null || message.isBlank()) return exception.getClass().getSimpleName();
-        String normalized = message.replaceAll("\\s+", " ");
-        return normalized.substring(0, Math.min(normalized.length(), 80));
+    private static String parseRejectionCode(RuntimeException failure) {
+        if ("unsupported confidence".equals(failure.getMessage())) return "UNSUPPORTED_CONFIDENCE";
+        if ("free-text options".equals(failure.getMessage())) return "FREE_TEXT_HAS_OPTIONS";
+        if ("free-text option details".equals(failure.getMessage())) return "FREE_TEXT_HAS_OPTION_DETAILS";
+        if ("invalid option detail".equals(failure.getMessage())) return "OPTION_DETAIL_NOT_IN_OPTIONS";
+        if (failure instanceof IllegalArgumentException) return "INVALID_CANDIDATE";
+        return failure.getClass().getSimpleName();
     }
 
     private static String extractJsonArray(String response) {
@@ -295,7 +264,7 @@ public final class CharacterInputTagController {
 
     private static String confidence(JsonNode node) {
         if (node != null && node.isNumber()) return node.asDouble() >= .85 ? "HIGH" : node.asDouble() >= .5 ? "MEDIUM" : "LOW";
-        return node == null ? "LOW" : node.asText("LOW");
+        return node == null ? "LOW" : node.asText("LOW").strip().toUpperCase(Locale.ROOT);
     }
 
     private static String nullable(JsonNode node, String name) {
@@ -368,5 +337,6 @@ public final class CharacterInputTagController {
                             String confidence, String sourceQuote, List<SourceRef> evidence, String sourceType) {}
     public record OptionDetail(String value, String label, String description, String sourceQuote, List<SourceRef> evidence) {}
     public record SourceRef(UUID documentId, long extractionVersion, String locator) {}
+    private record ResponseShape(String rootType, int itemCount) {}
     private enum InputMode { FREE_TEXT, SINGLE_SELECT, MULTI_SELECT }
 }

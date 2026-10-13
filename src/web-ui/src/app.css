@@ -1402,7 +1402,7 @@ body:not(:has(.creator-main)) .ui-button-icon-size { min-width: 2.25rem; padding
 .workspace-header-actions .ui-button { display: inline-flex; align-items: center; gap: .4rem; }
 .workspace-status, .file-status { display: inline-flex; align-items: center; gap: .28rem; font-size: .72rem; font-weight: 800; white-space: nowrap; }
 .workspace-status-ready, .file-status-ready { color: var(--color-success); }
-.workspace-status-review, .file-status-review { color: var(--color-warning); }
+.workspace-status-review, .file-status-review, .file-status-warning { color: var(--color-warning); }
 .workspace-status-processing, .file-status-processing { color: var(--color-muted); }
 .file-status-failed { color: var(--color-danger); }
 .status-dot { width: .42rem; height: .42rem; border-radius: 50%; background: currentColor; }

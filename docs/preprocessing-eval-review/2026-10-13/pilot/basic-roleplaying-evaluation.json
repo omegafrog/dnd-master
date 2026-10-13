@@ -1,0 +1,102 @@
+{
+  "annotation_page_count": 3,
+  "blocks": {
+    "gold": 49,
+    "matched": 49,
+    "matched_predicted": 49,
+    "precision": 0.9423076923076923,
+    "predicted": 52,
+    "recall": 1.0
+  },
+  "columns": {
+    "bbox_mean_iou": null,
+    "count_accuracy": null
+  },
+  "headings": {
+    "hierarchy_heading_count": 1044,
+    "hierarchy_resolution_coverage": 0.011494252873563218,
+    "hierarchy_resolved_count": 12,
+    "level_accuracy": null,
+    "level_gold_count": 8,
+    "level_resolution_coverage": 0.0,
+    "level_resolved_count": 0,
+    "parent_accuracy": null,
+    "parent_gold_count": 1,
+    "parent_resolution_coverage": 0.0,
+    "parent_resolved_count": 0,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "page_type_accuracy": 1.0,
+  "pipeline_version": "0.1.0",
+  "reading_order_block_coverage": 0.8979591836734694,
+  "reading_order_covered_block_count": 44,
+  "reading_order_pairwise_agreement": 1.0,
+  "section_continuations": {
+    "accuracy": 0.0,
+    "annotated_boundary_count": 4,
+    "class_metrics": {
+      "DIFFERENT_SECTION": {
+        "precision": null,
+        "recall": null
+      },
+      "SAME_SECTION": {
+        "precision": null,
+        "recall": 0.0
+      }
+    },
+    "confusion_counts": {
+      "DIFFERENT_SECTION": {
+        "DIFFERENT_SECTION": 0,
+        "SAME_SECTION": 0,
+        "UNRESOLVED": 0
+      },
+      "SAME_SECTION": {
+        "DIFFERENT_SECTION": 0,
+        "SAME_SECTION": 0,
+        "UNRESOLVED": 4
+      },
+      "UNRESOLVED": {
+        "DIFFERENT_SECTION": 0,
+        "SAME_SECTION": 0,
+        "UNRESOLVED": 0
+      }
+    },
+    "content_continuity": {
+      "accuracy": null,
+      "gold_relation_counts": {
+        "NONE": 4
+      },
+      "status": "not-measured"
+    },
+    "decision_coverage": 0.0,
+    "endpoint_match_rate": 1.0,
+    "evaluated_boundary_count": 4,
+    "gold_relation_counts": {
+      "SAME_SECTION": 4
+    },
+    "unmatched_endpoint_count": 0,
+    "unresolved_gold_abstention_rate": null,
+    "unresolved_prediction_count": 4
+  },
+  "source_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+  "tables": {
+    "cell_exact_rate": null,
+    "grid_shape_exact_rate": null,
+    "matched_table_count": 0,
+    "precision": null,
+    "recall": 0.0,
+    "shape_diagnostics": []
+  },
+  "offline_preprocessing_run": {
+    "run_date": "2026-10-13",
+    "git_head": "8ef50e1b0e939104445c4f7a73442cb42e3fdada",
+    "pdf_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+    "pages": 303,
+    "chunks": 1161,
+    "validation_issues": 683,
+    "elapsed_seconds": 209.53,
+    "max_rss_kib": 191304,
+    "preprocess_valid": false
+  }
+}

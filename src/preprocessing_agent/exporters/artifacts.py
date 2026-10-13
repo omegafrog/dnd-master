@@ -8,7 +8,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
-from preprocessing_agent.domain import Chunk, DocumentTree, ValidationIssue, to_dict
+from preprocessing_agent.domain import Chunk, DocumentTree, ParsedDocument, ValidationIssue, to_dict
 from preprocessing_agent.validation.deterministic import is_numeric_separator_only_unknown
 
 
@@ -51,6 +51,7 @@ class ArtifactExporter:
     def export(self, output_dir: str | Path, source: str | Path, source_text: str,
                chunks: Iterable[Chunk], issues: Iterable[ValidationIssue], tree: DocumentTree,
                *, page_count: int = 0, profile: str = "default", policy: object | None = None,
+               document: ParsedDocument | None = None,
                agent_stats: dict[str, int] | None = None, invalid_chunk_ids: set[str] | None = None,
                excluded_form_pages: Iterable[int] = (),
                pipeline_version: str = PIPELINE_VERSION, schema_version: str = SCHEMA_VERSION) -> dict[str, object]:
@@ -82,6 +83,45 @@ class ArtifactExporter:
                 "agent": agent_stats or {"calls": 0, "accepted": 0, "rejected": 0},
             },
         }
+        source_path = Path(source)
+        if source_path.is_file():
+            with source_path.open("rb") as source_file:
+                manifest["source_file_sha256"] = hashlib.file_digest(source_file, "sha256").hexdigest()
+        if document is not None:
+            excluded = set(document.metadata.get("excluded_form_pages", ()))
+            pages = {page.page_number: page for page in document.pages}
+            with (output / "document_structure.json").open("w", encoding="utf-8") as structure_file:
+                structure_file.write('{"source_sha256":')
+                json.dump(manifest.get("source_file_sha256", manifest["source_sha256"]), structure_file)
+                structure_file.write(',"pipeline_version":')
+                json.dump(pipeline_version, structure_file)
+                structure_file.write(',"document_tree":')
+                json.dump(to_dict(tree), structure_file, ensure_ascii=False, sort_keys=True)
+                structure_file.write(',"document_structure_references":')
+                json.dump(to_dict(document.metadata.get("document_structure_references", {})),
+                          structure_file, ensure_ascii=False, sort_keys=True)
+                structure_file.write(',"pages":[\n')
+                first = True
+                for page_number in sorted(set(pages) | excluded):
+                    page = pages.get(page_number)
+                    value = ({"page_number": page_number, "page_classification": "form", "blocks": [],
+                              "heading_associations": [], "heading_candidates": [], "tables": [],
+                              "native_table_diagnostics": [], "layout": None}
+                             if page is None else {
+                                 "page_number": page.page_number, "page_classification": page.page_classification,
+                                 "blocks": [{"block_id": block.block_id, "text": block.source_text, "bbox": block.bbox}
+                                            for block in page.blocks if block.bbox is not None],
+                                 "heading_associations": to_dict(page.heading_associations),
+                                 "heading_candidates": to_dict(page.heading_candidates),
+                                 "tables": to_dict(page.tables),
+                                 "native_table_diagnostics": to_dict(page.native_table_diagnostics),
+                                 "layout": to_dict(page.layout_plan),
+                             })
+                    if not first:
+                        structure_file.write(',\n')
+                    json.dump(value, structure_file, ensure_ascii=False, sort_keys=True)
+                    first = False
+                structure_file.write(']}\n')
         manifest["page_statistics"] = {"count": page_count,
                                         "excluded_form_pages": sorted(set(excluded_form_pages))}
         manifest["chunk_statistics"] = manifest["statistics"]["chunks"]

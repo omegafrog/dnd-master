@@ -71,7 +71,7 @@ public final class HttpStorySourcePreviewPort implements StorySourcePreviewPort 
                     "documentType", document.documentType())).toList();
             String body = mapper.writeValueAsString(Map.of("ownerId", ownerId, "scenarioSourceBundleId", bundleId,
                     "scope", scopes, "activeLocators", List.of(), "queries", queries,
-                    "denseLimit", candidateLimit, "bm25Limit", candidateLimit));
+                    "denseLimit", candidateLimit));
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/evidence-candidates/preparation-search-batch"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", token)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();

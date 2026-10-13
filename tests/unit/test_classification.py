@@ -1,6 +1,6 @@
 from preprocessing_agent.classification import DeterministicContentClassifier
 from preprocessing_agent.classification.agent import structured_decision
-from preprocessing_agent.domain import ContentType, SectionNode
+from preprocessing_agent.domain import ContentType, SectionNode, SourceSegment, SourceSpan
 
 
 def section(title="Fireball"):
@@ -46,6 +46,22 @@ def test_table_words_and_die_notation_in_prose_are_not_table_evidence():
 
     assert classifier.classify(section("Ability Checks"), prose).label is not ContentType.TABLE
     assert classifier.classify(section("Soldier Specialty"), table).label is ContentType.TABLE
+
+
+def test_document_root_is_not_classified_from_content_spanning_the_whole_document(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    text = "d6 | Result\n1 | one\n2 | two"
+    root = SectionNode("root", "document", 0, ContentType.NARRATIVE,
+                       source_segments=(SourceSegment(text, SourceSpan(1, 0)),))
+
+    result = DeterministicContentClassifier().classify(root, text)
+
+    assert result.label is ContentType.UNKNOWN
+    assert result.review_required is True
+    assert result.source_text == text
+    assert "dev_content_classifier stage=document_root_classification" in caplog.text
+    assert "expectedContentSectionLevel=1 actualContentSectionLevel=0" in caplog.text
 
 
 def test_table_embedded_in_long_prose_does_not_classify_the_whole_section_as_table(monkeypatch, caplog):

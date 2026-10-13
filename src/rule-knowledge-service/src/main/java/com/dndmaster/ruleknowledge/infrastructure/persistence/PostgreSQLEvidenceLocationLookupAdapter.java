@@ -89,7 +89,7 @@ public final class PostgreSQLEvidenceLocationLookupAdapter implements EvidenceLo
                             rows.getString("content"), new SourceProvenance(rows.getInt("page_number"), textArray(rows, "section_path"),
                                     doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("original_locator"),
                                     SourceProvenance.sourceSpansFromJson(rows.getString("source_spans"))),
-                            excerpts.size() + 1, null, 0));
+                            excerpts.size() + 1, null));
                 }
             }
             Map<String, List<EvidenceCandidate>> immutable = new LinkedHashMap<>();

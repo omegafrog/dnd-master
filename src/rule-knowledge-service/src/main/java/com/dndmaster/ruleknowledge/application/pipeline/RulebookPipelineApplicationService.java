@@ -45,8 +45,11 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class RulebookPipelineApplicationService implements RulebookUploadProcessor {
+    private static final Logger LOGGER = LoggerFactory.getLogger(RulebookPipelineApplicationService.class);
     private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
     private static final Duration PROCESSING_LEASE = Duration.ofMinutes(10);
     private static final int PENDING_BATCH_SIZE = 10;
@@ -398,7 +401,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         var extraction = actionDefinitionExtractionService.extract(source.documentId(), source.extractionVersion(),
                 source.scopeVersion(), source.preprocessedPages(), extractionActorPlayerId);
         if (!"COMPLETED".equals(extraction.status())) throw new IllegalStateException("action definition extraction did not complete");
-        if (registration.processingStatus() != ProcessingStatus.INDEXED) {
+        if (registration.processingStatus() != ProcessingStatus.INDEXED
+                && registration.processingStatus() != ProcessingStatus.INDEXED_WITH_WARNINGS) {
             registrationRepository.save(withStatus(registration, ProcessingStatus.INDEXED, null, null, null, null, null));
         }
         return new RulebookProcessingResult(rulebookId, ProcessingStatus.INDEXED, List.of());
@@ -477,6 +481,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     }
 
     private RulebookProcessingResult processWithPreprocessing(StoredRulebookRegistration registration) {
+        long startedAt = System.nanoTime();
         try {
             byte[] storedContent = fileStorage.read(new StoredRulebookFile(registration.storageKey()));
             SourcePreviewResult previewResult = sourcePreviewExtractor.preview(registration.format(), storedContent);
@@ -489,12 +494,45 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             PreprocessingRunResult result = preprocessingProcessPort.preprocess(new PreprocessingRunRequest(
                     registration.operationKey(), source, registration.contentHash(), "rag-preprocessing-v1", output, null));
             validatePreprocessingResult(registration, result);
+            log("dev_preprocessing_publication stage=page_result_validation documentId={} expectedPageCount={} actualPageCount={} searchablePageCount={} warningPageCount={} unreadablePageCount={} status={} outcome=validated",
+                    registration.rulebookId().value(), result.pages().size(), result.pages().size(),
+                    result.pages().stream().filter(page -> Set.of("VALIDATED", "USABLE_WITH_WARNINGS").contains(page.status())).count(),
+                    result.pages().stream().filter(page -> "USABLE_WITH_WARNINGS".equals(page.status())).count(),
+                    result.pages().stream().filter(page -> "NEEDS_REVIEW".equals(page.status())).count(), result.status());
             if ("NEEDS_REVIEW".equals(result.status())) {
                 StoredRulebookRegistration review = withPreprocessing(
                         registration, ProcessingStatus.NEEDS_REVIEW, "PREPROCESSING_NEEDS_REVIEW", result, previewResult);
                 registrationRepository.save(review);
                 return new RulebookProcessingResult(
                         registration.rulebookId(), ProcessingStatus.NEEDS_REVIEW, diagnosticWarnings(result.pages()));
+            }
+            if ("PARTIAL".equals(result.status())) {
+                if (ragExtractionPublicationService == null) {
+                    log("dev_preprocessing_publication stage=partial_not_published documentId={} searchablePageCount={} unreadablePageCount={} failureKind=rag_publication_unavailable recoveryAction=retain_source_and_review_pages elapsedMs={} outcome=needs_review",
+                            registration.rulebookId().value(),
+                            result.pages().stream().filter(page -> Set.of("VALIDATED", "USABLE_WITH_WARNINGS").contains(page.status())).count(),
+                            result.pages().stream().filter(page -> "NEEDS_REVIEW".equals(page.status())).count(),
+                            elapsedMillis(startedAt));
+                    StoredRulebookRegistration review = withPreprocessing(registration, ProcessingStatus.NEEDS_REVIEW,
+                            "PARTIAL_CONTENT_NOT_INDEXED", result, previewResult);
+                    registrationRepository.save(review);
+                    return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.NEEDS_REVIEW,
+                            diagnosticWarnings(result.pages()));
+                }
+                publishPreprocessed(registration, result);
+                extractActionDefinitions(registration, result.versionId(), registration.version(), result.pages(),
+                        registration.extractionActorPlayerId());
+                StoredRulebookRegistration indexedWithWarnings = withPreprocessing(registration,
+                        ProcessingStatus.INDEXED_WITH_WARNINGS, null, result, previewResult);
+                registrationRepository.save(indexedWithWarnings);
+                log("dev_preprocessing_publication stage=partial_published documentId={} expectedPageCount={} searchablePageCount={} warningPageCount={} unreadablePageCount={} route=publish_searchable_pages elapsedMs={} outcome=indexed_with_warnings",
+                        registration.rulebookId().value(), result.pages().size(),
+                        result.pages().stream().filter(page -> Set.of("VALIDATED", "USABLE_WITH_WARNINGS").contains(page.status())).count(),
+                        result.pages().stream().filter(page -> "USABLE_WITH_WARNINGS".equals(page.status())).count(),
+                        result.pages().stream().filter(page -> "NEEDS_REVIEW".equals(page.status())).count(),
+                        elapsedMillis(startedAt));
+                return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.INDEXED_WITH_WARNINGS,
+                        diagnosticWarnings(result.pages()));
             }
             if ("READY".equals(result.status())) {
                 publishPreprocessed(registration, result);
@@ -509,12 +547,27 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             }
             throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
         } catch (PreprocessingProcessException exception) {
+            log("dev_preprocessing_publication stage=failed documentId={} failureKind={} elapsedMs={} recoveryAction=retain_source_and_page_diagnostics outcome=failed",
+                    registration.rulebookId().value(), exception.code(), elapsedMillis(startedAt));
             return failPreprocessing(registration, exception.code());
         } catch (RuntimeException exception) {
+            log("dev_preprocessing_publication stage=failed documentId={} failureKind={} elapsedMs={} recoveryAction=retain_source_and_page_diagnostics outcome=failed",
+                    registration.rulebookId().value(), exception.getClass().getSimpleName(), elapsedMillis(startedAt));
             return failPreprocessing(registration, "PREPROCESSING_FAILED");
         } catch (Exception exception) {
+            log("dev_preprocessing_publication stage=failed documentId={} failureKind={} elapsedMs={} recoveryAction=retain_source_and_page_diagnostics outcome=failed",
+                    registration.rulebookId().value(), exception.getClass().getSimpleName(), elapsedMillis(startedAt));
             return failPreprocessing(registration, "PREPROCESSING_FAILED");
         }
+    }
+
+    private static void log(String pattern, Object... arguments) {
+        if (Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")))) LOGGER.info(pattern, arguments);
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
     }
 
     private RulebookProcessingResult rejectUnsupportedFormat(StoredRulebookRegistration registration) {
@@ -553,18 +606,26 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 && result.pages().stream().anyMatch(page -> !Set.of("VALIDATED", "EXCLUDED_FORM").contains(page.status()))) {
             throw new PreprocessingProcessException("UNVALIDATED_PAGE");
         }
-        if ("NEEDS_REVIEW".equals(result.status())
-                && result.pages().stream().noneMatch(page -> "NEEDS_REVIEW".equals(page.status()))) {
+        long searchablePages = result.pages().stream()
+                .filter(page -> Set.of("VALIDATED", "USABLE_WITH_WARNINGS").contains(page.status())).count();
+        long uncertainPages = result.pages().stream()
+                .filter(page -> Set.of("USABLE_WITH_WARNINGS", "NEEDS_REVIEW").contains(page.status())).count();
+        if ("PARTIAL".equals(result.status()) && (searchablePages == 0 || uncertainPages == 0)) {
             throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
         }
-        if (!"READY".equals(result.status()) && !"NEEDS_REVIEW".equals(result.status())) {
+        if ("NEEDS_REVIEW".equals(result.status()) && (searchablePages != 0
+                || result.pages().stream().noneMatch(page -> "NEEDS_REVIEW".equals(page.status())))) {
+            throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
+        }
+        if (!"READY".equals(result.status()) && !"PARTIAL".equals(result.status())
+                && !"NEEDS_REVIEW".equals(result.status())) {
             throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
         }
     }
 
     private static List<String> diagnosticWarnings(List<PreprocessingPageState> pages) {
         return pages.stream()
-                .filter(page -> "NEEDS_REVIEW".equals(page.status()))
+                .filter(page -> "USABLE_WITH_WARNINGS".equals(page.status()) || "NEEDS_REVIEW".equals(page.status()))
                 .flatMap(page -> page.findings().stream())
                 .distinct()
                 .toList();

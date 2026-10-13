@@ -85,7 +85,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
             String body = objectMapper.writeValueAsString(new PreparationSearchRequest(
                     bundle.ownerPlayerId().value(), bundle.id().value(), documents.stream()
                     .map(document -> new PreparationScope(document.documentId(), document.extractionVersion(), documentType)).toList(),
-                    List.of(), situation, limit, limit));
+                    List.of(), situation, limit));
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/evidence-candidates/preparation-search"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
@@ -172,7 +172,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     }
 
     record PreparationSearchRequest(UUID ownerId, UUID scenarioSourceBundleId, List<PreparationScope> scope,
-                                    List<String> activeLocators, String query, int denseLimit, int bm25Limit) {}
+                                    List<String> activeLocators, String query, int denseLimit) {}
     record PreparationScope(UUID documentId, long extractionVersion, String documentType) {}
     record DocumentRequest(java.util.UUID documentId, long extractionVersion) {}
     @JsonIgnoreProperties(ignoreUnknown = true)

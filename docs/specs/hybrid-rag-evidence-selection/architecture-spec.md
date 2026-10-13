@@ -1,5 +1,7 @@
 # Architecture Spec
 
+> **Status: Superseded.** The current runtime retrieval decision is dense vector similarity search only. This historical spec does not describe the active API, storage, or runtime behavior. BM25 remains limited to offline evaluation tools.
+
 # 1. Design Scope
 ## 1.1 Target
 | 항목 | 대상 |

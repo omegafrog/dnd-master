@@ -22,7 +22,7 @@ public final class HttpRagToolSearch {
         if (!authenticatedOwner.toString().equals(confirmedScope.path("ownerId").asText())) throw new SecurityException("search scope owner mismatch");
         if (query == null || query.isBlank() || query.length() > 1000) throw new IllegalArgumentException("search query must contain 1 to 1000 characters");
         com.fasterxml.jackson.databind.node.ObjectNode payload = ((com.fasterxml.jackson.databind.node.ObjectNode) confirmedScope).deepCopy();
-        payload.put("query", query.trim()); payload.put("denseLimit", 30); payload.put("bm25Limit", 30);
+        payload.put("query", query.trim()); payload.put("denseLimit", 30);
         HttpRequest request = HttpRequest.newBuilder(endpoint).timeout(timeout)
                 .header("X-Internal-Token", token).header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofByteArray(mapper.writeValueAsBytes(payload))).build();

@@ -44,7 +44,8 @@ class HeadingDetector:
             depth = {"part": 1, "chapter": 2, "section": 3, "subsection": 4}[named.group("kind").casefold()]
         return HeadingFeature(text, normalized_key(text), bool(number.strip() or named), depth, block.font_size, block.font_weight, len(text) <= 100, not text.endswith((".", ":", ";")))
 
-    def detect(self, block: ParsedBlock) -> HeadingDecision:
+    def detect(self, block: ParsedBlock, *, reference_font_size: float | None = None,
+               spatially_isolated: bool = False) -> HeadingDecision:
         feature = self.features(block)
         numeric_prefix = bool(re.match(r"^(?:\d+(?:\.\d+)*\.?|[IVX]+\.)\s+", feature.text, re.I))
         # A bare number or numeric table value is not a section heading.  The
@@ -53,8 +54,15 @@ class HeadingDetector:
         # promote values such as "2–3\n-4" or a page number.
         if feature.numbered and not numeric_prefix and not re.match(r"^(?:part|chapter|section|subsection)\b", feature.text, re.I):
             return HeadingDecision(False, None, 0.0, feature, "numeric value without heading prefix")
-        if numeric_prefix and not (feature.font_weight and feature.font_weight.casefold() in {"bold", "semibold", "700", "bolditalic"}) and not (feature.font_size is not None and feature.font_size >= 13):
+        relatively_larger = (feature.font_size is not None and reference_font_size is not None
+                             and reference_font_size > 0 and feature.font_size >= reference_font_size * 1.15)
+        legacy_size_evidence = reference_font_size is None and feature.font_size is not None and feature.font_size >= 13
+        if numeric_prefix and not (feature.font_weight and feature.font_weight.casefold() in {"bold", "semibold", "700", "bolditalic"}) and not (relatively_larger or legacy_size_evidence):
             return HeadingDecision(False, None, 0.0, feature, "numeric text without heading layout evidence")
+        named_prefix = bool(re.match(r"^(?:part|chapter|section|subsection)\b", feature.text, re.I))
+        emphasized = bool(feature.font_weight and feature.font_weight.casefold() in {"bold", "semibold", "700", "bolditalic"})
+        if named_prefix and feature.text.endswith(".") and not (emphasized or relatively_larger or spatially_isolated):
+            return HeadingDecision(False, None, 0.0, feature, "named reference sentence without heading layout evidence")
         score = 0.0
         if feature.numbered:
             score += 0.55
@@ -64,8 +72,14 @@ class HeadingDetector:
             score += 0.10
         if feature.punctuation_free:
             score += 0.10
-        if feature.font_size is not None and feature.font_size >= 13:
+        if reference_font_size is not None and reference_font_size > 0:
+            if feature.font_size is not None and feature.font_size >= reference_font_size * 1.15:
+                score += 0.55
+        elif feature.font_size is not None and feature.font_size >= 13:
+            # Compatibility fallback for callers that have no document profile.
             score += 0.80
+        if spatially_isolated and feature.short_line:
+            score += 0.45
         is_heading = score >= self.confidence_threshold
         level = _level(feature) if is_heading else None
         return HeadingDecision(is_heading, level, min(score, 1.0), feature, "deterministic heading features" if is_heading else "below heading threshold")

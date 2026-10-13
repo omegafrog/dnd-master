@@ -4,10 +4,8 @@ import com.dndmaster.ruleknowledge.application.indexing.*;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.*;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
-import com.dndmaster.ruleknowledge.application.search.Bm25EvidenceCandidateSearchPort;
 import com.dndmaster.ruleknowledge.application.search.DenseEvidenceCandidateSearchPort;
-import com.dndmaster.ruleknowledge.application.search.HybridEvidenceSearchService;
-import com.dndmaster.ruleknowledge.application.search.RrfFusionPolicy;
+import com.dndmaster.ruleknowledge.application.search.DenseEvidenceSearchService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchPort;
@@ -30,7 +28,6 @@ import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorCharacterContextSearchRepository;
-import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLBm25EvidenceCandidateSearchAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgreSQLDenseEvidenceCandidateSearchAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.storage.LocalFileSystemRulebookStorage;
 import com.dndmaster.ruleknowledge.infrastructure.storage.RulebookStorageProperties;
@@ -177,7 +174,7 @@ public class RuleKnowledgeApiConfiguration {
     @Bean
     com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionService rulebookActionDefinitionExtractionService(
             com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionRepository repository,
-            HybridEvidenceSearchService evidenceSearch,
+            DenseEvidenceSearchService evidenceSearch,
             com.dndmaster.ruleknowledge.application.search.EvidenceLocationLookupPort locationLookup,
             com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionExtractionPort extractor,
             @Value("${rule-knowledge.action-extraction.minimum-dense-similarity:0.45}") String minimumDenseSimilarity,
@@ -215,15 +212,9 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
-    Bm25EvidenceCandidateSearchPort bm25EvidenceCandidateSearchPort(DataSource dataSource) {
-        return new PostgreSQLBm25EvidenceCandidateSearchAdapter(dataSource);
-    }
-
-    @Bean
-    HybridEvidenceSearchService hybridEvidenceSearchService(
-            DenseEvidenceCandidateSearchPort denseSearch, Bm25EvidenceCandidateSearchPort bm25Search,
-            @Value("${rule-knowledge.search.bm25-enabled:true}") boolean bm25Enabled) {
-        return new HybridEvidenceSearchService(denseSearch, bm25Search, new RrfFusionPolicy(), bm25Enabled);
+    DenseEvidenceSearchService denseEvidenceSearchService(
+            DenseEvidenceCandidateSearchPort denseSearch) {
+        return new DenseEvidenceSearchService(denseSearch);
     }
 
     @Bean
@@ -327,11 +318,11 @@ public class RuleKnowledgeApiConfiguration {
             com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository definitionRepository,
             CatalogRulebookRepository catalogRulebookRepository,
             com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort playerSessionLookup,
-            HybridEvidenceSearchService hybridEvidenceSearchService,
+            DenseEvidenceSearchService denseEvidenceSearchService,
             @Value("${rule-knowledge.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
                 characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, catalogRulebookRepository,
-                playerSessionLookup, hybridEvidenceSearchService);
+                playerSessionLookup, denseEvidenceSearchService);
     }
 }

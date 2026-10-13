@@ -90,7 +90,7 @@ public final class RuleKnowledgeAssetController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "source document not found");
         }
         StoredRulebookRegistration stored = registration
-                .filter(candidate -> candidate.processingStatus() == com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus.INDEXED)
+                .filter(candidate -> candidate.processingStatus() != null && candidate.processingStatus().isSearchable())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "source document not found"));
         byte[] source;
         try {

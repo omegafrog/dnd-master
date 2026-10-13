@@ -51,7 +51,7 @@ class RuleKnowledgeAssetControllerTest {
         RulebookId id = RulebookId.generate();
         byte[] pdf = pdfWithImage();
         var registration = new StoredRulebookRegistration(id, new OwnerPlayerId(UUID.randomUUID()), "op", "hash",
-                RulebookFormat.PDF, pdf.length, "stored", ProcessingStatus.INDEXED, ExtractionStatus.SUCCESS,
+                RulebookFormat.PDF, pdf.length, "stored", ProcessingStatus.INDEXED_WITH_WARNINGS, ExtractionStatus.SUCCESS,
                 "content", List.of(), null, 1, Instant.now(), Instant.now(), DocumentType.STORYBOOK, "legacy-rulebook");
         var registrations = mock(RulebookRegistrationRepository.class);
         when(registrations.findById(id)).thenReturn(java.util.Optional.of(registration));
