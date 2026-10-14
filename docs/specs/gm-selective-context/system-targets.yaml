@@ -1,0 +1,38 @@
+schema_version: 1
+id: system-targets
+system_characteristics:
+  interaction: "Codex를 사용하는 모험의 플레이어 행동 요청을 받아 GM이 필요한 정보를 조회하고 검증·저장 후 최종 응답한다. 사람의 주사위 입력 대기는 별도다. 다른 AI 제공자는 기존 경로를 유지한다."
+  workload: "모험 시작 이후 턴 처리와 확정 전투 결과 서술이다. 모델·조회 왕복 시간이 포함되며 실제 동시 요청 수와 측정 환경은 아직 미확인이다."
+  state: "기존 모험 상태, 선택된 시츄에이션, 서사 상태, 대화 요약, 장기 기록을 각 정본 소유자에게서 읽는다."
+  consistency: "조회는 읽기 전용이다. 상태 변경과 공개는 기존 엔진 검증·버전·중복 처리 규칙을 따르며 미확정 턴은 기억 압축에 넣지 않는다."
+  availability: "필수 근거 누락 시 확정을 보류한다. 5초를 초과해도 동일 요청에서 완료를 기다리며 기존 최종 오류 처리는 유지한다."
+  growth: "긴 모험의 대화 증가를 기존 비동기 요약과 관련 장기 기록 선택으로 처리한다. 사용자 수·데이터 증가율은 미제공이다."
+initial:
+  - id: ST-BASELINE
+    metric: latency_p99_ms
+    status: unresolved
+    provenance: measured
+    confidence: low
+    rationale: "현재 전체 턴 지연은 아직 측정하지 않았다. 이 항목은 측정 필요성을 기록하며 사용자가 일부 백분위만 5초를 만족하면 된다고 승인한 것은 아니다."
+  - id: ST-CONCURRENCY
+    metric: concurrency
+    status: unresolved
+    provenance: user_supplied
+    confidence: low
+    rationale: "5초 목표를 검증할 동시 요청 수가 제공되지 않았다. 수치를 임의로 가정하지 않는다."
+expected_growth: []
+architecture_boundary:
+  - id: ST-TURN-COMPLETION
+    metric: availability
+    status: resolved
+    condition: "Codex 사용 시 추가 조회를 포함한 전체 성공 턴을 서버 요청 접수부터 최종 응답까지 5000 ms 이내에 완료하는 것을 목표로 한다. 초과한 턴도 측정에 포함하며 같은 요청에서 완료까지 기다린다. 사람의 주사위 입력 대기만 제외한다. 다른 제공자의 기존 동작은 변경하지 않는다."
+    provenance: user_supplied
+    confidence: high
+    rationale: "사용자는 전체 5초 목표와 초과 시 계속 대기를 명시했다. 스키마에 전체 턴 최대 지연 항목이 없어 관찰 가능한 조건으로 원문 요구를 보존한다. 백분위나 조기 오류 반환 기준으로 완화하지 않는다."
+  - id: ST-CONTEXT-OWNERSHIP
+    metric: data_volume
+    status: resolved
+    condition: "기존 정본 소유권을 유지하며 선택된 시츄에이션 최신 상태와 관련 장기 기억을 기본 컨텍스트로 제공한다. 미공개 정보는 엔진 공개 허가 전 플레이어 출력에 포함되지 않는다."
+    provenance: user_supplied
+    confidence: high
+    rationale: "별도 메모리 저장소 통합 대신 전달 컨텍스트 통합을 합의했다."

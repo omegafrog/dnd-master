@@ -1,0 +1,46 @@
+@startuml
+title UC-02 — 확정 턴 압축과 다음 턴 연속성
+left to right direction
+skinparam packageStyle rectangle
+
+actor "플레이어" as Player
+actor "모험 실행 시스템" as Runtime
+actor "GM 대화 압축 작업" as Compactor
+
+rectangle "확정 턴 연속성" {
+  usecase "확정 결과 전달" as Deliver
+  usecase "오래된 대화 비동기 압축" as Compact
+  usecase "요약 및 원문 보존" as Preserve
+  usecase "다음 턴 컨텍스트 구성" as NextContext
+}
+
+Runtime --> Deliver : GM Turn 확정 후
+Deliver --> Player
+Deliver --> Compact : 응답 전달 뒤 비동기 시작
+Compactor --> Compact : 확인된 턴만 처리
+Compact --> Preserve : 성공 또는 실패 결과 반영
+Runtime --> Preserve : 최신 상태와 현재 상황 별도 유지
+Player --> NextContext : 다음 행동 입력
+Runtime --> NextContext : 최신 저장 상태 제공
+Preserve --> NextContext : 최근 원문·유효 요약·장기 기록
+
+note bottom of Compact
+오래된 대화만 압축한다. 현재 상황은 ConversationSummary에서 갱신하지 않는다.
+확인된 대화 및 시츄에이션 종료 후에도 유효한 관련 기록을 보존한다.
+end note
+
+note bottom of Preserve
+압축 실패 시 기존 원문과 마지막 유효 ConversationSummary를 보존한다.
+압축 실패만으로 이미 전달된 응답을 취소하지 않는다. 다음 턴은 마지막 유효 요약과 원문 기록으로 준비한다.
+LongTermAdventureFact의 기존 소유권을 유지한다.
+end note
+
+note right of NextContext
+다음 턴은 최신 저장 상태에서 현재 상황과 선택된 시츄에이션 진행 상태를 읽는다.
+압축 요약은 최신 수치나 현재 상태의 정본으로 사용하지 않는다.
+end note
+
+note bottom
+UC-02, BR-09~BR-11
+end note
+@enduml

@@ -1,0 +1,100 @@
+@startuml
+title 실행 컨텍스트 아키텍처 — UC-01, BR-04~BR-07, BR-14~BR-16
+left to right direction
+skinparam packageStyle rectangle
+
+package "모험 실행 경계" {
+  class RuntimeTurnApplicationService
+  class RuntimePlanningRequest
+  class GmAgentRuntimePlanningAdapter
+  class GmContextEnvelope
+  class Adventure
+  class StageArtifactRepository
+  class ConversationCompactionJobRepository
+}
+
+package "프롬프트와 GM 실행" {
+  class RuntimeGmPromptComposer
+  class HttpTypedRuntimeGmAgentPort
+  class TypedAgentContractController
+  class GmCompletionRouter
+  class RemoteAiExecutionPort
+  class RuntimePlanningResult
+}
+
+package "로컬 연결 및 도구" {
+  class LocalConnectionManager
+  class CodexWebSocketAgent
+  class McpStdioServer
+  class AgentWebSocketHandler
+}
+
+package "턴 변경 검증" {
+  class StoryRuntimeProposal
+  class PendingRuntimeState
+  class StoryRuntimeRules
+  class RevealFilter
+  class PlayerVisibleTurn
+  class TurnWriterPort
+  class WriterProse
+}
+
+RuntimeTurnApplicationService --> RuntimePlanningRequest : 버전 고정 실행 요청 구성
+RuntimePlanningRequest --> GmAgentRuntimePlanningAdapter : 기본 컨텍스트 준비
+GmAgentRuntimePlanningAdapter --> Adventure : 최신 Adventure.storyRuntimeState 읽기
+GmAgentRuntimePlanningAdapter --> StageArtifactRepository : 정확한 revision의 시츄에이션 자료 읽기
+GmAgentRuntimePlanningAdapter --> ConversationCompactionJobRepository : 기존 대화·기억 자료 연결
+GmAgentRuntimePlanningAdapter --> GmContextEnvelope : 기본 컨텍스트 구성
+GmContextEnvelope --> HttpTypedRuntimeGmAgentPort : typed 실행 입력
+HttpTypedRuntimeGmAgentPort --> RuntimeGmPromptComposer : 프롬프트 구성 호출
+HttpTypedRuntimeGmAgentPort --> TypedAgentContractController : 기존 계약 경로
+TypedAgentContractController --> GmCompletionRouter
+GmCompletionRouter --> RemoteAiExecutionPort
+RemoteAiExecutionPort --> LocalConnectionManager : 활성 실행 등록·응답 전달
+LocalConnectionManager --> CodexWebSocketAgent : scoped 실행 연결
+CodexWebSocketAgent --> McpStdioServer : 읽기 전용 도구 호출
+McpStdioServer --> CodexWebSocketAgent : 도구 결과 전달
+CodexWebSocketAgent --> AgentWebSocketHandler : 도구 결과와 실행 식별자 전달
+AgentWebSocketHandler --> LocalConnectionManager : 연결·요청 범위 검증
+AgentWebSocketHandler --> RuntimeTurnApplicationService : 기존 읽기 전용 조회 책임 호출
+LocalConnectionManager ..> RemoteAiExecutionPort : 서버가 수집한 신뢰 근거 반환
+RemoteAiExecutionPort ..> GmCompletionRouter
+GmCompletionRouter ..> TypedAgentContractController
+TypedAgentContractController ..> HttpTypedRuntimeGmAgentPort : 근거를 응답에 병합
+HttpTypedRuntimeGmAgentPort --> RuntimePlanningResult : 인용 검증된 계획 반환
+RuntimePlanningResult --> StoryRuntimeProposal : 같은 턴 제안 포함
+StoryRuntimeProposal --> PendingRuntimeState : 대기 가능한 제안 저장값
+PendingRuntimeState --> StoryRuntimeRules : 턴 확정 시 기존 규칙 검증
+StoryRuntimeRules --> Adventure : 같은 턴 저장 경계에서 적용
+Adventure --> RevealFilter : 검증된 결과와 기존 공개 규칙
+RevealFilter --> PlayerVisibleTurn : 허가된 사실·관찰 결과 구성
+PlayerVisibleTurn --> TurnWriterPort : 공개용 입력만 전달
+TurnWriterPort --> WriterProse : 플레이어용 서술 생성
+
+note bottom of GmAgentRuntimePlanningAdapter
+현재 상태와 자료는 Adventure Runtime의 기존 소유자를 통해 읽는다.
+선택된 시츄에이션 자료는 StageArtifactRepository의 정확한 revision을 사용한다.
+end note
+
+note bottom of LocalConnectionManager
+도구가 실제 반환한 근거를 활성 요청 수명 동안 보관한다.
+근거는 모델 응답 본문과 분리해 완료 metadata로 전달한다.
+저장 전 연결 종료 시 실행별 근거를 폐기한다.
+end note
+
+note bottom of RuntimeTurnApplicationService
+조회는 기존 모험 상태·시나리오·기억 저장소 및 고정 자료 범위를 읽는다.
+조회 전용 새 서비스나 별도 저장소를 추가하지 않는다.
+end note
+
+note bottom of StoryRuntimeRules
+조회는 상태를 변경하지 않는다. 시츄에이션 활성화·완료 제안은 같은 턴의
+기존 검증·저장을 거치며, 주사위 대기 중에는 적용하지 않는다.
+Codex에만 적용하고 다른 AI 제공자 경로는 기존 동작을 유지한다.
+end note
+
+note bottom of TurnWriterPort
+기존 서술 경계다. 내부 GM 계획, narrationSeed, 도구 대화, 비공개 기억은 받지 않는다.
+전체 성공 턴의 5초 목표는 이 서술 생성과 최종 응답까지 포함한다.
+end note
+@enduml

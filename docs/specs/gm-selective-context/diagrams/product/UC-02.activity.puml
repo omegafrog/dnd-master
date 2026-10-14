@@ -1,0 +1,35 @@
+@startuml
+title UC-02 — 확정 턴 압축과 다음 턴 연속성
+
+|턴 진행|
+start
+:GM Turn 확정;
+:플레이어에게 응답 전달;
+fork
+  |비동기 압축|
+  :응답 이후 확인된 턴의 오래된 대화를 압축;
+  if (압축 성공?) then (예)
+    :새 요약과 원문 보존 규칙 반영;
+  else (아니오)
+    :원문과 마지막 유효 ConversationSummary 보존;
+    note right
+      확정된 턴 응답은 취소하지 않는다.
+      실패 시 다음 턴은 마지막 유효 요약과 원문 기록으로 준비한다.
+    end note
+  endif
+  detach
+fork again
+  |다음 턴|
+  :플레이어가 다음 턴 행동을 입력;
+  :최신 저장 상태에서 현재 상황과 선택된 시츄에이션 진행 상태 읽기;
+  :최근 원문, 마지막 유효 ConversationSummary,
+  관련 LongTermAdventureFact 연결;
+  note right
+    압축 완료를 기다리지 않는다.
+    요약은 과거 대화를 잇는 자료이며 현재 상태·수치의 정본이 아니다.
+    시츄에이션 종료 뒤에도 확인된 관련 대화를 맥락에 남긴다.
+  end note
+  :다음 GM Turn 컨텍스트 구성;
+  stop
+end fork
+@enduml

@@ -1,0 +1,51 @@
+@startuml
+title 실행 범위 조회·근거 수명 상태 — BR-04~BR-07, BR-14~BR-16
+
+state "실행 범위 등록됨" as Registered
+state "GM 처리 중" as GmRunning
+state "읽기 전용 조회 중" as Querying
+state "재시도 또는 턴 보류" as Deferred
+state "근거와 미확정 제안 전달됨" as HandedOff
+state "실행 범위 해제됨" as Released
+state "활성 실행 무효화됨" as Invalidated
+
+[*] --> Registered : 최신 상태·자료 revision·실행 소유권 등록
+Registered --> GmRunning : GM 실행 시작
+GmRunning --> Querying : 조회 종류·대상·범위 결정
+Querying --> GmRunning : 근거 확보 후 서버 소유 실행에 누적
+Querying --> GmRunning : 선택 정보 누락 / 확인된 정보로 진행
+Querying --> Invalidated : 정본 revision 불일치 / 현재 실행 범위 폐기
+Querying --> Deferred : 필수 근거 누락 / 판정·공개·턴 확정 보류
+Deferred --> Invalidated : 재시도 전 기존 실행 범위 해제
+Invalidated --> Registered : 기존 재시도 처리로 새 실행 범위 등록
+GmRunning --> HandedOff : 모델 완료 / 서버 조회 근거를 응답과 분리해 전달
+HandedOff --> Released : 서버가 근거와 미확정 제안을 인수
+Registered --> Invalidated : 저장 전 연결 끊김
+GmRunning --> Invalidated : 저장 전 연결 끊김
+Querying --> Invalidated : 저장 전 연결 끊김
+Released --> [*]
+
+note right of Querying
+조회는 읽기 전용이며 시츄에이션 상태를 변경하지 않는다.
+5초 초과는 실행 범위를 끝내는 조건이 아니다.
+end note
+
+note right of HandedOff
+실행 범위는 Adventure의 턴 저장과 분리해 GM 실행 종료 시 해제한다.
+실행 종료 때 relay가 근거를 서버에 넘기고 실행 범위를 해제한다.
+Adventure는 인수한 근거를 응답과 병합하고 저장 전에 인용·턴 제안을 검증한다.
+검증 뒤 같은 턴의 기존 저장 경계에서 제안을 적용한다.
+굴림 대기에는 미적용 제안을 PendingRuntimeState로 보존하고, 재개 때 이를 읽는다.
+end note
+
+note bottom of Invalidated
+저장 전 끊긴 실행의 누적 근거와 제안은 폐기한다.
+게임 상태 쓰기 없이 재시도한다. 실행 시도 식별자가 다른 시도의 늦은 결과를 거부한다.
+같은 요청의 저장은 기존 중복 방지 규칙을 따른다.
+end note
+
+note bottom
+이 설계 상태는 조회 근거의 실행 범위 수명을 나타낸다.
+다른 AI 제공자는 기존 경로를 사용한다.
+end note
+@enduml
