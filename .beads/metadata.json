@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "dnd_master",
+  "project_id": "b521c3b6-457d-459d-992c-7b7d7c476e65"
+}
