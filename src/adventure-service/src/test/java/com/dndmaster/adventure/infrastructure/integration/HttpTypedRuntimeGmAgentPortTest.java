@@ -24,14 +24,31 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
+@ExtendWith(OutputCaptureExtension.class)
 class HttpTypedRuntimeGmAgentPortTest {
     private WireMockServer server;
+    private String previousDiagnostics;
+
+    @BeforeEach
+    void enableDiagnostics() {
+        previousDiagnostics = System.getProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
+    }
 
     @AfterEach
     void stopServer() {
         if (server != null) server.stop();
+        if (previousDiagnostics == null) {
+            System.clearProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG);
+        } else {
+            System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, previousDiagnostics);
+        }
     }
 
     @Test
@@ -73,7 +90,7 @@ class HttpTypedRuntimeGmAgentPortTest {
     }
 
     @Test
-    void maps_model_selected_storybook_and_rulebook_keys_back_to_the_exact_evidence_items() {
+    void maps_model_selected_storybook_and_rulebook_keys_back_to_the_exact_evidence_items(CapturedOutput output) {
         server = new WireMockServer(0);
         server.start();
         UUID storybookId = UUID.randomUUID();
@@ -107,6 +124,13 @@ class HttpTypedRuntimeGmAgentPortTest {
         var plan = port.plan(context).plan();
 
         org.junit.jupiter.api.Assertions.assertEquals(List.of(storybook, rulebook), plan.citedEvidence());
+        org.assertj.core.api.Assertions.assertThat(output.getAll())
+                .contains("includedEvidenceIds=["
+                        + com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(storybookKey)
+                        + ", "
+                        + com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(rulebookKey)
+                        + "] omittedEvidenceIds=[]")
+                .doesNotContain(storybook.excerpt(), rulebook.excerpt());
     }
 
     @Test

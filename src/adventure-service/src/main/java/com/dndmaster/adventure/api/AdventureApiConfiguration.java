@@ -889,6 +889,17 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.runtime.RuntimeEvidenceLocationLookupPort runtimeEvidenceLocationLookupPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String ruleKnowledgeBaseUrl,
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long ruleKnowledgeTimeoutSeconds,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuntimeEvidenceLocationLookupGateway(
+                HttpClient.newHttpClient(), URI.create(ruleKnowledgeBaseUrl), Duration.ofSeconds(ruleKnowledgeTimeoutSeconds),
+                objectMapper, internalToken);
+    }
+
+    @Bean
     com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService(
             ObjectMapper objectMapper,
             com.dndmaster.adventure.evidence.EvidenceCandidateSearchPort candidateSearch,
@@ -1046,6 +1057,7 @@ public class AdventureApiConfiguration {
             RuntimeTurnCommitOrchestrator commitOrchestrator,
             RuntimeFactLookupService runtimeFactLookupService,
             com.dndmaster.adventure.evidence.EvidenceCandidateSearchPort runtimeEvidenceCandidateSearchPort,
+            com.dndmaster.adventure.application.runtime.RuntimeEvidenceLocationLookupPort runtimeEvidenceLocationLookupPort,
             RuntimeCharacterSheetReadPort characterSheetReadPort,
             com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort,
             com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort,
@@ -1065,7 +1077,8 @@ public class AdventureApiConfiguration {
         service.setCommitGate(new com.dndmaster.adventure.application.combat.PreparedMapEntryCommitGate(
                 combatMapViewPort, combatMapPreparationPort));
         service.setRuntimeFactLookupService(runtimeFactLookupService);
-        service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(runtimeEvidenceCandidateSearchPort));
+        service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(
+                runtimeEvidenceCandidateSearchPort, runtimeEvidenceLocationLookupPort));
         service.setCharacterSheetReadPort(characterSheetReadPort);
         service.setConversationCompactionJobRepository(conversationCompactionJobRepository(dataSource));
         service.setAdventureCompletionCommitPort(adventureCompletionCommitPort);

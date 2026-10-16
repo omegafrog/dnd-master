@@ -1,11 +1,14 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceLocationLookupPort;
 import com.dndmaster.adventure.application.runtime.RuntimePlayerActionEvidenceAcquirer;
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.evidence.EvidenceCandidate;
 import com.dndmaster.adventure.evidence.EvidenceCandidateSearchPort;
 import com.dndmaster.adventure.evidence.EvidenceSearchScope;
@@ -66,5 +69,56 @@ class RuntimePlayerActionEvidenceAcquirerTest {
         assertEquals(1, result.size());
         assertEquals(2, result.getFirst().extractionVersion());
         assertEquals("Current version result", result.getFirst().excerpt());
+    }
+
+    @Test
+    void expands_all_selected_anchors_within_the_selected_extraction_versions() {
+        UUID storyId = UUID.randomUUID();
+        UUID rulesId = UUID.randomUUID();
+        EvidenceSearchScope scope = new EvidenceSearchScope(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                "scene:cellar", "PLAYER_ACTION", List.of(
+                        new EvidenceSearchScope.Document(storyId, 4, "STORYBOOK"),
+                        new EvidenceSearchScope.Document(rulesId, 9, "RULEBOOK")), List.of());
+        RuntimeEvidence storyAnchor = evidence(RuntimeEvidenceType.STORYBOOK, storyId, 4, "page:2", "story anchor");
+        RuntimeEvidence secondStoryAnchor = evidence(RuntimeEvidenceType.STORYBOOK, storyId, 4, "page:3:chunk=anchor", "another story anchor");
+        RuntimeEvidence ruleAnchor = evidence(RuntimeEvidenceType.RULEBOOK, rulesId, 9, "page:18", "rule anchor");
+        RuntimeEvidence otherStoryPage = evidence(RuntimeEvidenceType.STORYBOOK, storyId, 4, "page:3:chunk=neighbor", "same page result");
+        RuntimeEvidence staleVersion = evidence(RuntimeEvidenceType.RULEBOOK, rulesId, 8, "page:18", "stale version");
+        AtomicInteger calls = new AtomicInteger();
+        RuntimeEvidenceLocationLookupPort lookup = (receivedScope, anchors, limit) -> {
+            calls.incrementAndGet();
+            assertSame(scope, receivedScope);
+            assertEquals(List.of(storyAnchor, secondStoryAnchor, ruleAnchor), anchors);
+            assertEquals(4, limit);
+            return List.of(storyAnchor, otherStoryPage, staleVersion);
+        };
+
+        List<RuntimeEvidence> expanded = new RuntimePlayerActionEvidenceAcquirer(request -> List.of(), lookup)
+                .expandSamePages(scope, List.of(storyAnchor, secondStoryAnchor, ruleAnchor));
+
+        assertEquals(1, calls.get());
+        assertEquals(List.of(otherStoryPage), expanded);
+    }
+
+    @Test
+    void does_not_exceed_the_supplemental_context_character_limit() {
+        UUID documentId = UUID.randomUUID();
+        EvidenceSearchScope scope = new EvidenceSearchScope(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                "scene:cellar", "PLAYER_ACTION", List.of(new EvidenceSearchScope.Document(documentId, 1, "RULEBOOK")), List.of());
+        RuntimeEvidence anchor = evidence(RuntimeEvidenceType.RULEBOOK, documentId, 1, "page:1:anchor", "anchor");
+        RuntimeEvidence tooLarge = evidence(RuntimeEvidenceType.RULEBOOK, documentId, 1, "page:1:large", "x".repeat(12_001));
+        RuntimeEvidence fits = evidence(RuntimeEvidenceType.RULEBOOK, documentId, 1, "page:1:fits", "fits");
+        RuntimeEvidenceLocationLookupPort lookup = (ignoredScope, ignoredAnchors, ignoredLimit) -> List.of(tooLarge, fits);
+
+        List<RuntimeEvidence> expanded = new RuntimePlayerActionEvidenceAcquirer(request -> List.of(), lookup)
+                .expandSamePages(scope, List.of(anchor));
+
+        assertEquals(List.of(fits), expanded);
+        assertTrue(expanded.stream().mapToInt(item -> item.excerpt().length()).sum() <= 12_000);
+    }
+
+    private static RuntimeEvidence evidence(RuntimeEvidenceType type, UUID documentId, long version,
+            String locator, String excerpt) {
+        return new RuntimeEvidence(type, new KnowledgeDocumentId(documentId), version, locator, excerpt);
     }
 }

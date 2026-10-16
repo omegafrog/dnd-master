@@ -50,7 +50,7 @@ public final class PostgreSQLEvidenceLocationLookupAdapter implements EvidenceLo
                 + "AND v.extraction_version=c.extraction_version AND v.status='INDEXED' JOIN authorized_scope s "
                 + "ON s.document_id=c.document_id AND s.extraction_version=CASE WHEN c.extraction_version ~ '^[0-9]+$' "
                 + "THEN c.extraction_version::bigint ELSE GREATEST(r.version,1) END AND s.document_type=r.document_type "
-                + "AND s.owner_player_id=c.owner_player_id WHERE c.owner_player_id=?), ranked AS ("
+                + "AND s.owner_player_id=c.owner_player_id), ranked AS ("
                 + "SELECT source.locator AS requested_locator,c.document_id,c.chunk_id,CASE WHEN c.extraction_version ~ '^[0-9]+$' "
                 + "THEN c.extraction_version::bigint ELSE GREATEST(r.version,1) END AS extraction_version,r.document_type,"
                 + "c.original_locator,c.content,c.page_number,c.section_path,c.bbox,c.table_cell,c.source_spans,"
@@ -74,7 +74,6 @@ public final class PostgreSQLEvidenceLocationLookupAdapter implements EvidenceLo
             }
             Array locatorArray = connection.createArrayOf("text", locators.toArray(String[]::new));
             statement.setArray(parameter++, locatorArray);
-            statement.setObject(parameter++, ownerPlayerId.value(), Types.OTHER);
             statement.setInt(parameter, limit);
             Map<String, List<EvidenceCandidate>> found = new LinkedHashMap<>();
             locators.forEach(locator -> found.put(locator, new ArrayList<>()));

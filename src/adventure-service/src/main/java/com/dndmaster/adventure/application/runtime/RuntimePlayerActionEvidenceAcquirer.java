@@ -17,10 +17,21 @@ import java.util.stream.Collectors;
 public final class RuntimePlayerActionEvidenceAcquirer {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(RuntimePlayerActionEvidenceAcquirer.class);
     private static final int CANDIDATES_PER_SOURCE = 5;
+    // shortcut: ten anchors, four chunks each, and 12k supplemental characters; widen only if measured misses remain.
+    private static final int MAX_SAME_PAGE_ANCHORS = CANDIDATES_PER_SOURCE * 2;
+    private static final int SAME_PAGE_CHUNKS_PER_ANCHOR = 4;
+    private static final int SAME_PAGE_EVIDENCE_CHARACTER_LIMIT = 12_000;
     private final EvidenceCandidateSearchPort candidateSearch;
+    private final RuntimeEvidenceLocationLookupPort locationLookup;
 
     public RuntimePlayerActionEvidenceAcquirer(EvidenceCandidateSearchPort candidateSearch) {
+        this(candidateSearch, null);
+    }
+
+    public RuntimePlayerActionEvidenceAcquirer(EvidenceCandidateSearchPort candidateSearch,
+            RuntimeEvidenceLocationLookupPort locationLookup) {
         this.candidateSearch = Objects.requireNonNull(candidateSearch, "candidate search must not be null");
+        this.locationLookup = locationLookup;
     }
 
     public List<RuntimeEvidence> acquire(EvidenceSearchScope scope, String action) {
@@ -72,6 +83,67 @@ public final class RuntimePlayerActionEvidenceAcquirer {
                     candidates.size() - freshCandidates.size());
         }
         return selected;
+    }
+
+    public List<RuntimeEvidence> expandSamePages(EvidenceSearchScope scope, List<RuntimeEvidence> selected) {
+        if (locationLookup == null || selected == null || selected.isEmpty()) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                LOGGER.info("dev_runtime_same_page_lookup stage=skipped reason={} selectedCount={} result=skipped",
+                        locationLookup == null ? "LOOKUP_UNAVAILABLE" : "NO_ANCHORS", selected == null ? 0 : selected.size());
+            }
+            return List.of();
+        }
+        Map<String, RuntimeEvidence> anchors = new java.util.LinkedHashMap<>();
+        selected.stream().filter(evidence -> evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK
+                        || evidence.evidenceType() == RuntimeEvidenceType.RULEBOOK)
+                .filter(evidence -> scope.documents().stream().anyMatch(document -> document.id().equals(evidence.knowledgeDocumentId().value())
+                        && document.extractionVersion() == evidence.extractionVersion()
+                        && document.type().equals(evidence.evidenceType().name())))
+                .forEach(evidence -> anchors.putIfAbsent(evidence.immutableEvidenceId(), evidence));
+        if (anchors.isEmpty()) return List.of();
+
+        List<RuntimeEvidence> anchorList = anchors.values().stream().limit(MAX_SAME_PAGE_ANCHORS).toList();
+        long startedAt = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "runtime_same_page_evidence_lookup", "sessionId=" + scope.sessionId() + " scenarioPackageId="
+                        + scope.scenarioPackageId() + " anchorCount=" + anchorList.size());
+        try {
+            List<RuntimeEvidence> found = locationLookup.findOnSamePages(scope, anchorList, SAME_PAGE_CHUNKS_PER_ANCHOR);
+            if (found == null || found.size() > anchorList.size() * SAME_PAGE_CHUNKS_PER_ANCHOR
+                    || found.stream().anyMatch(Objects::isNull)) {
+                throw new IllegalStateException("same-page evidence lookup returned invalid result count");
+            }
+            Map<String, EvidenceSearchScope.Document> authorized = scope.documents().stream()
+                    .collect(Collectors.toMap(document -> document.id() + ":" + document.extractionVersion(), document -> document));
+            var seen = new HashSet<String>();
+            selected.stream().map(RuntimeEvidence::immutableEvidenceId).filter(Objects::nonNull).forEach(seen::add);
+            List<RuntimeEvidence> fresh = new java.util.ArrayList<>();
+            int remainingCharacters = SAME_PAGE_EVIDENCE_CHARACTER_LIMIT;
+            int omittedBySize = 0;
+            for (RuntimeEvidence evidence : found) {
+                EvidenceSearchScope.Document document = authorized.get(evidence.knowledgeDocumentId().value() + ":"
+                        + evidence.extractionVersion());
+                if (document == null || !document.type().equals(evidence.evidenceType().name())
+                        || !seen.add(evidence.immutableEvidenceId())) continue;
+                if (evidence.excerpt().length() > remainingCharacters) {
+                    omittedBySize++;
+                    continue;
+                }
+                fresh.add(evidence);
+                remainingCharacters -= evidence.excerpt().length();
+            }
+            fresh = List.copyOf(fresh);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "runtime_same_page_evidence_lookup", "sessionId=" + scope.sessionId() + " scenarioPackageId="
+                            + scope.scenarioPackageId() + " anchorCount=" + anchorList.size() + " candidateCount=" + found.size()
+                            + " selectedCount=" + fresh.size() + " omittedBySize=" + omittedBySize + " selected=" + fresh.stream()
+                                    .map(RuntimeEvidence::immutableEvidenceId).toList(), startedAt);
+            return fresh;
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "runtime_same_page_evidence_lookup", "sessionId=" + scope.sessionId() + " scenarioPackageId="
+                            + scope.scenarioPackageId() + " anchorCount=" + anchorList.size(), startedAt, failure);
+            throw failure;
+        }
     }
 
     static String turnRulesQuery(String action, String situation, String stageKey) {

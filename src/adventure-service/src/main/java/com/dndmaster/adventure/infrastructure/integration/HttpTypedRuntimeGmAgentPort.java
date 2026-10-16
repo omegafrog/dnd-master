@@ -174,8 +174,21 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         String prompt;
         try {
             prompt = context.composePrompt(contextLimit);
+            List<String> includedEvidenceIds = context.evidencePack().all().stream()
+                    .filter(evidence -> prompt.contains(evidence.excerpt()))
+                    .map(evidence -> com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics
+                            .fingerprint(evidence.referenceKey()))
+                    .toList();
+            List<String> omittedEvidenceIds = context.evidencePack().all().stream()
+                    .filter(evidence -> !prompt.contains(evidence.excerpt()))
+                    .map(evidence -> com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics
+                            .fingerprint(evidence.referenceKey()))
+                    .toList();
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(
-                    LOGGER, "runtime_prompt_composition", callContext + " contextLimit=" + contextLimit, promptStarted);
+                    LOGGER, "runtime_prompt_composition", callContext + " contextLimit=" + contextLimit
+                            + " promptChars=" + prompt.length() + " evidenceCount=" + context.evidencePack().all().size()
+                            + " includedEvidenceIds=" + includedEvidenceIds + " omittedEvidenceIds=" + omittedEvidenceIds,
+                    promptStarted);
         } catch (RuntimeException | Error failure) {
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(
                     LOGGER, "runtime_prompt_composition", callContext, promptStarted, failure);

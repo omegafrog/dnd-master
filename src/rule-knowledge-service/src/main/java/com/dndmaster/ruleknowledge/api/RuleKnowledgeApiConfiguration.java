@@ -319,10 +319,11 @@ public class RuleKnowledgeApiConfiguration {
             CatalogRulebookRepository catalogRulebookRepository,
             com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort playerSessionLookup,
             DenseEvidenceSearchService denseEvidenceSearchService,
+            com.dndmaster.ruleknowledge.application.search.EvidenceLocationLookupPort evidenceLocationLookup,
             @Value("${rule-knowledge.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
                 characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, catalogRulebookRepository,
-                playerSessionLookup, denseEvidenceSearchService);
+                playerSessionLookup, denseEvidenceSearchService, evidenceLocationLookup);
     }
 }

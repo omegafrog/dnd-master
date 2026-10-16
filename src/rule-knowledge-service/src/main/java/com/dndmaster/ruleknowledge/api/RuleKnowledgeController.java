@@ -68,6 +68,7 @@ public class RuleKnowledgeController {
     private final CatalogRulebookRepository catalogRepository;
     private final PlayerSessionLookupPort playerSessionLookup;
     private final DenseEvidenceSearchService denseEvidenceSearchService;
+    private final com.dndmaster.ruleknowledge.application.search.EvidenceLocationLookupPort evidenceLocationLookup;
     private Set<String> backofficeAdminPlayerIds = Set.of();
 
     public RuleKnowledgeController(
@@ -99,6 +100,7 @@ public class RuleKnowledgeController {
         this.catalogRepository = null;
         this.playerSessionLookup = null;
         this.denseEvidenceSearchService = null;
+        this.evidenceLocationLookup = null;
     }
 
     public RuleKnowledgeController(
@@ -143,7 +145,7 @@ public class RuleKnowledgeController {
             CatalogRulebookRepository catalogRepository,
             PlayerSessionLookupPort playerSessionLookup) {
         this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService, characterContextSearchService,
-                indexRepository, objectMapper, definitionRepository, internalToken, catalogRepository, playerSessionLookup, null);
+                indexRepository, objectMapper, definitionRepository, internalToken, catalogRepository, playerSessionLookup, null, null);
     }
 
     public RuleKnowledgeController(
@@ -159,6 +161,25 @@ public class RuleKnowledgeController {
             CatalogRulebookRepository catalogRepository,
             PlayerSessionLookupPort playerSessionLookup,
             DenseEvidenceSearchService denseEvidenceSearchService) {
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken,
+                catalogRepository, playerSessionLookup, denseEvidenceSearchService, null);
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            RulebookIndexRepository indexRepository,
+            ObjectMapper objectMapper,
+            GameSystemDefinitionRepository definitionRepository,
+            String internalToken,
+            CatalogRulebookRepository catalogRepository,
+            PlayerSessionLookupPort playerSessionLookup,
+            DenseEvidenceSearchService denseEvidenceSearchService,
+            com.dndmaster.ruleknowledge.application.search.EvidenceLocationLookupPort evidenceLocationLookup) {
         this.pipelineService = pipelineService;
         this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
@@ -172,6 +193,7 @@ public class RuleKnowledgeController {
         this.catalogRepository = catalogRepository;
         this.playerSessionLookup = playerSessionLookup;
         this.denseEvidenceSearchService = denseEvidenceSearchService;
+        this.evidenceLocationLookup = evidenceLocationLookup;
     }
 
     @org.springframework.beans.factory.annotation.Value("${rule-knowledge.backoffice.admin-player-ids:}")
@@ -700,6 +722,129 @@ public class RuleKnowledgeController {
                             : status == 400 ? "EVIDENCE_SEARCH_INVALID_REQUEST" : "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
         } catch (IllegalArgumentException exception) {
             return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+        }
+    }
+
+    @PostMapping("/internal/v1/evidence-locations/lookup")
+    ResponseEntity<?> lookupEvidenceLocations(
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody com.fasterxml.jackson.databind.JsonNode body) {
+        try {
+            requireInternalToken(token);
+        } catch (ResponseStatusException unauthenticated) {
+            return evidenceSearchError(unauthenticated.getStatusCode().value() == 401
+                    ? HttpStatus.UNAUTHORIZED : HttpStatus.FORBIDDEN, "EVIDENCE_SEARCH_UNAUTHENTICATED");
+        }
+        Set<String> fields = new HashSet<>();
+        if (body != null && body.isObject()) body.fieldNames().forEachRemaining(fields::add);
+        if (!fields.equals(Set.of("ownerId", "sessionId", "scenarioPackageId", "scope", "locators", "limit"))) {
+            devLog("dev_evidence_location_lookup stage=rejected expectedFields=ownerId,sessionId,scenarioPackageId,scope,locators,limit actualFields={} outcome=invalid_request",
+                    fields);
+            return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+        }
+        EvidenceLocationLookupRequest request;
+        try {
+            request = objectMapper.treeToValue(body, EvidenceLocationLookupRequest.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            devLog("dev_evidence_location_lookup stage=rejected expected=valid_request_structure actual=invalid_json outcome=invalid_request");
+            return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+        }
+        try {
+            if (evidenceLocationLookup == null || request.ownerId() == null || request.sessionId() == null
+                    || request.scenarioPackageId() == null || request.scope() == null || request.scope().isEmpty()
+                    || request.scope().size() > 16 || request.locators() == null || request.locators().isEmpty()
+                    || request.locators().size() > 16 || request.locators().stream().anyMatch(value -> value == null || value.isBlank())
+                    || request.locators().size() != request.locators().stream().distinct().count()
+                    || request.limit() < 1 || request.limit() > 4) {
+                devLog("dev_evidence_location_lookup stage=rejected expected=scope=1..16,locators=1..16,limit=1..4 actualScopeCount={} actualLocatorCount={} actualLimit={} lookupAvailable={} outcome=invalid_request",
+                        request.scope() == null ? -1 : request.scope().size(),
+                        request.locators() == null ? -1 : request.locators().size(), request.limit(), evidenceLocationLookup != null);
+                return evidenceSearchError(evidenceLocationLookup == null ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.BAD_REQUEST,
+                        evidenceLocationLookup == null ? "EVIDENCE_SEARCH_UNAVAILABLE" : "EVIDENCE_SEARCH_INVALID_REQUEST");
+            }
+            devLog("dev_evidence_location_lookup stage=started sessionId={} scenarioPackageId={} locatorCount={} scopeCount={} requestedLimit={} outcome=started",
+                    request.sessionId(), request.scenarioPackageId(), request.locators().size(), request.scope().size(), request.limit());
+            Set<String> scopeKeys = new HashSet<>();
+            List<com.dndmaster.ruleknowledge.application.search.AuthorizedDocumentScope> scope = new java.util.ArrayList<>();
+            for (EvidenceCandidateScopeRequest item : request.scope()) {
+                if (item == null || item.documentId() == null || item.documentType() == null || item.extractionVersion() <= 0
+                        || !scopeKeys.add(item.documentId() + ":" + item.extractionVersion())) {
+                    devLog("dev_evidence_location_lookup stage=rejected expected=unique_document_type_and_positive_version actual=invalid_scope_item outcome=invalid_request");
+                    return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+                }
+                StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(item.documentId()))
+                        .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "document scope is not authorized"));
+                boolean catalog = item.documentType() == DocumentType.RULEBOOK
+                        && isPublishedCatalogScope(List.of(item.documentId()));
+                if (!catalog && !registration.ownerPlayerId().value().equals(request.ownerId())) {
+                    devLog("dev_evidence_location_lookup stage=rejected documentId={} expected=authorized_owner_or_catalog actual=owner_scope_mismatch outcome=forbidden",
+                            item.documentId());
+                    return evidenceSearchError(HttpStatus.FORBIDDEN, "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
+                }
+                if (!registration.processingStatus().isSearchable() || registration.version() != item.extractionVersion()
+                        || registration.documentType() != item.documentType()) {
+                    devLog("dev_evidence_location_lookup stage=rejected documentId={} expectedVersion={} actualVersion={} expectedType={} actualType={} searchable={} outcome=inactive_scope",
+                            item.documentId(), item.extractionVersion(), registration.version(), item.documentType(),
+                            registration.documentType(), registration.processingStatus().isSearchable());
+                    return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+                }
+                scope.add(new com.dndmaster.ruleknowledge.application.search.AuthorizedDocumentScope(
+                        new KnowledgeDocumentId(item.documentId()), item.extractionVersion(), item.documentType(),
+                        new OwnerPlayerId(catalog ? CATALOG_OWNER : request.ownerId())));
+            }
+            Map<String, List<EvidenceCandidate>> found = evidenceLocationLookup.findByLocators(
+                    new OwnerPlayerId(request.ownerId()), scope, request.locators(), request.limit());
+            if (found == null || !found.keySet().equals(new java.util.LinkedHashSet<>(request.locators()))) {
+                devLog("dev_evidence_location_lookup stage=failed expectedLocatorCount={} actualLocatorCount={} result=invalid_response",
+                        request.locators().size(), found == null ? -1 : found.size());
+                return evidenceSearchError(HttpStatus.INTERNAL_SERVER_ERROR, "EVIDENCE_SEARCH_INVALID_RESPONSE");
+            }
+            Map<UUID, com.dndmaster.ruleknowledge.application.search.AuthorizedDocumentScope> documents = scope.stream()
+                    .collect(java.util.stream.Collectors.toMap(item -> item.documentId().value(), item -> item));
+            List<UnifiedEvidenceCandidateResponse> candidates = new java.util.ArrayList<>();
+            for (String locator : request.locators()) {
+                List<EvidenceCandidate> items = found.get(locator);
+                if (items == null || items.size() > request.limit()) {
+                    devLog("dev_evidence_location_lookup stage=failed expectedMaxPerLocator={} actualCount={} result=invalid_response",
+                            request.limit(), items == null ? -1 : items.size());
+                    return evidenceSearchError(HttpStatus.INTERNAL_SERVER_ERROR, "EVIDENCE_SEARCH_INVALID_RESPONSE");
+                }
+                for (EvidenceCandidate candidate : items) {
+                    if (candidate == null || candidate.documentId() == null || candidate.chunkId() == null) {
+                        devLog("dev_evidence_location_lookup stage=failed expected=candidate_with_document_and_chunk_ids actual=null_or_incomplete result=invalid_response");
+                        return evidenceSearchError(HttpStatus.INTERNAL_SERVER_ERROR, "EVIDENCE_SEARCH_INVALID_RESPONSE");
+                    }
+                    var document = documents.get(candidate.documentId().value());
+                    if (document == null || document.extractionVersion() != candidate.extractionVersion()
+                            || document.documentType() != candidate.documentType()) {
+                        devLog("dev_evidence_location_lookup stage=failed chunkId={} expectedVersion={} actualVersion={} expectedType={} actualType={} result=out_of_scope_response",
+                                candidate.chunkId().value(), document == null ? -1 : document.extractionVersion(),
+                                candidate.extractionVersion(), document == null ? "UNSCOPED" : document.documentType(), candidate.documentType());
+                        return evidenceSearchError(HttpStatus.INTERNAL_SERVER_ERROR, "EVIDENCE_SEARCH_INVALID_RESPONSE");
+                    }
+                    candidates.add(candidateResponse(candidate));
+                }
+            }
+            devLog("dev_evidence_location_lookup stage=completed sessionId={} scenarioPackageId={} locatorCount={} scopeCount={} candidateCount={} result=completed",
+                    request.sessionId(), request.scenarioPackageId(), request.locators().size(), scope.size(), candidates.size());
+            return ResponseEntity.ok(new UnifiedEvidenceCandidateSearchResponse(request.ownerId(), request.sessionId(),
+                    request.scenarioPackageId(), candidates));
+        } catch (ResponseStatusException exception) {
+            int status = exception.getStatusCode().value();
+            devLog("dev_evidence_location_lookup stage=failed status={} failureClass={} outcome=rejected",
+                    status, exception.getClass().getSimpleName());
+            return evidenceSearchError(status == 401 ? HttpStatus.UNAUTHORIZED
+                    : status == 400 ? HttpStatus.BAD_REQUEST : HttpStatus.FORBIDDEN,
+                    status == 401 ? "EVIDENCE_SEARCH_UNAUTHENTICATED"
+                            : status == 400 ? "EVIDENCE_SEARCH_INVALID_REQUEST" : "EVIDENCE_SEARCH_SCOPE_FORBIDDEN");
+        } catch (IllegalArgumentException exception) {
+            devLog("dev_evidence_location_lookup stage=failed status=400 failureClass={} outcome=rejected",
+                    exception.getClass().getSimpleName());
+            return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
+        } catch (RuntimeException exception) {
+            devLog("dev_evidence_location_lookup stage=failed failureClass={} outcome=unavailable",
+                    exception.getClass().getSimpleName());
+            return evidenceSearchError(HttpStatus.SERVICE_UNAVAILABLE, "EVIDENCE_SEARCH_UNAVAILABLE");
         }
     }
 
@@ -1274,6 +1419,8 @@ public class RuleKnowledgeController {
         }
     }
     public record EvidenceCandidateScopeRequest(UUID documentId, long extractionVersion, DocumentType documentType) {}
+    public record EvidenceLocationLookupRequest(UUID ownerId, UUID sessionId, UUID scenarioPackageId,
+            List<EvidenceCandidateScopeRequest> scope, List<String> locators, int limit) {}
     public record UnifiedEvidenceCandidateSearchResponse(
             UUID ownerId, UUID sessionId, UUID scenarioPackageId, List<UnifiedEvidenceCandidateResponse> candidates) {}
     public record PreparationEvidenceCandidateSearchRequest(

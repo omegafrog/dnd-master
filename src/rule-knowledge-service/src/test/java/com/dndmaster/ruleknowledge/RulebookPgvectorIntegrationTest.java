@@ -598,6 +598,23 @@ class RulebookPgvectorIntegrationTest {
         assertEquals(List.of(1, 1), results.get(sourceLocator).stream().map(candidate -> candidate.provenance().pageNumber()).toList());
     }
 
+    @Test
+    void exactSourceLocatorCanReadPublishedCatalogChunksForAuthorizedPlayer() throws SQLException {
+        OwnerPlayerId player = owner();
+        OwnerPlayerId catalogOwner = new OwnerPlayerId(UUID.fromString("00000000-0000-0000-0000-000000000005"));
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, catalogOwner);
+        String locator = "page=1:chunk=catalog-anchor";
+        publish(documentId, catalogOwner, "catalog-source-page", "Catalog rule detail", locator);
+
+        var results = new PostgreSQLEvidenceLocationLookupAdapter(dataSource).findByLocators(player,
+                List.of(new AuthorizedDocumentScope(KnowledgeDocumentId.fromRulebookId(documentId), 1,
+                        DocumentType.RULEBOOK, catalogOwner)), List.of(locator), 4);
+
+        assertEquals(List.of(locator), results.get(locator).stream().map(EvidenceCandidate::locator).toList());
+        assertEquals("Catalog rule detail", results.get(locator).getFirst().excerpt());
+    }
+
     private static PublishedRagChunk publishedChunk(String id, int sequence, String content, String parentKey) {
         return new PublishedRagChunk(
                 id, sequence, content, content,

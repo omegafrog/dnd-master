@@ -1,0 +1,38 @@
+@startuml
+title 같은 페이지 근거 보완 구조 — UC-01
+left to right direction
+skinparam packageStyle rectangle
+
+package "Adventure Runtime" {
+  class RuntimeTurnApplicationService
+  class RuntimeFactLookupService {
+    +lookup(UUID soloPlayerId, RuntimeFactLookupRequest request, List<RuntimeEvidence> evidence): RuntimeFactLookupResult
+  }
+  class RuntimePlayerActionEvidenceAcquirer
+}
+
+package "Document Knowledge" {
+  class RuleKnowledgeController
+  interface EvidenceLocationLookupPort {
+    +findByLocators(OwnerPlayerId ownerPlayerId, List<AuthorizedDocumentScope> scope, List<String> locators, int limit): Map<String, List<EvidenceCandidate>>
+  }
+  class PostgreSQLEvidenceLocationLookupAdapter
+}
+
+RuntimeTurnApplicationService --> RuntimeFactLookupService : 기존 사실 조회
+RuntimeTurnApplicationService --> RuntimePlayerActionEvidenceAcquirer : 정상 NOT_FOUND일 때만 확장 요청
+RuntimeTurnApplicationService --> RuntimeFactLookupService : 새 근거가 있을 때만 한 번 재조회
+RuntimePlayerActionEvidenceAcquirer --> RuleKnowledgeController : 허가 범위·활성 버전·locator 전달
+RuleKnowledgeController --> EvidenceLocationLookupPort : 인증·범위 검증 뒤 같은 페이지 조회
+PostgreSQLEvidenceLocationLookupAdapter ..|> EvidenceLocationLookupPort
+
+note bottom of RuntimeTurnApplicationService
+  기술 오류는 NOT_FOUND로 바꾸지 않는다.
+  확장 결과가 비었거나 재조회도 NOT_FOUND이면 미해결로 남긴다.
+end note
+
+note bottom of EvidenceLocationLookupPort
+  허가된 현재 버전의 게시 청크만 반환한다.
+  과거 버전, 다른 페이지, 원문 미청킹 데이터는 조회하지 않는다.
+end note
+@enduml

@@ -34,12 +34,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 // 근거 수집 -> 계획 -> 안전 검사 -> 세션 저장 순서로 런타임 턴을 처리한다.
 public class RuntimeTurnApplicationService {
-    private record RuntimeActionContext(EvidencePack evidencePack, List<RuntimeFactLookupResult> relatedFacts) {
-        private RuntimeActionContext {
+    record RuntimeActionContext(EvidencePack evidencePack, List<RuntimeFactLookupResult> relatedFacts) {
+        RuntimeActionContext {
             evidencePack = Objects.requireNonNull(evidencePack);
             relatedFacts = List.copyOf(relatedFacts);
         }
     }
+    private record RuntimeFactLookupAttempt(RuntimeFactLookupResult result, boolean technicalFailure) {}
     private static final String SESSION_OPENING_ACTION = "SESSION_OPENING";
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(RuntimeTurnApplicationService.class);
     private static final RuntimeTurnFailureClassifier FAILURE_CLASSIFIER = new RuntimeTurnFailureClassifier();
@@ -1030,9 +1031,8 @@ public class RuntimeTurnApplicationService {
         RuntimeActionContext actionContext = stage(command.turnId(), "player_action_context_lookup", () -> {
             EvidencePack evidence = prefetchEvidence(command, adventure, binding, scenarioPackage,
                     selectedSituationContext, knownEvidenceIds);
-            return new RuntimeActionContext(evidence,
-                    lookupRuntimeFacts(command, adventure, scenarioPackage, evidence, selectedSituationContext,
-                            knownEvidenceIds));
+            return lookupRuntimeFactsWithSamePageExpansion(command, adventure, binding, scenarioPackage,
+                    evidence, selectedSituationContext, knownEvidenceIds);
         });
         EvidencePack initialEvidencePack = actionContext.evidencePack();
         List<RuntimeFactLookupResult> factLookupResults = actionContext.relatedFacts();
@@ -1544,33 +1544,74 @@ public class RuntimeTurnApplicationService {
         return false;
     }
 
-    private List<RuntimeFactLookupResult> lookupRuntimeFacts(SubmitRuntimeTurnCommand command, Adventure adventure,
-            ScenarioPackage scenarioPackage, EvidencePack evidencePack) {
-        return lookupRuntimeFacts(command, adventure, evidencePack, scenarioPackage.scenarioModel(), "",
-                knownImmutableEvidenceIds(adventure));
-    }
-
-    private List<RuntimeFactLookupResult> lookupRuntimeFacts(SubmitRuntimeTurnCommand command, Adventure adventure,
-            ScenarioPackage scenarioPackage, EvidencePack evidencePack, String preparedSituation, List<String> knownEvidenceIds) {
-        return lookupRuntimeFacts(command, adventure, evidencePack, scenarioPackage.scenarioModel(),
+    RuntimeActionContext lookupRuntimeFactsWithSamePageExpansion(SubmitRuntimeTurnCommand command,
+            Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage, EvidencePack evidencePack,
+            String preparedSituation, List<String> knownEvidenceIds) {
+        if (runtimeFactLookupService == null) return new RuntimeActionContext(evidencePack, List.of());
+        RuntimeFactLookupAttempt initial = lookupRuntimeFact(command, adventure, scenarioPackage, evidencePack,
                 preparedSituation, knownEvidenceIds);
+        if (initial.technicalFailure() || initial.result().status() != RuntimeFactLookupResult.Status.NOT_FOUND
+                || playerActionEvidenceAcquirer == null) {
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                LOGGER.info("dev_runtime_fact_same_page_fallback stage=skipped turnId={} lookupStatus={} technicalFailure={} reason={} result=skipped",
+                        command.turnId(), initial.technicalFailure() ? "UNAVAILABLE" : initial.result().status(), initial.technicalFailure(),
+                        playerActionEvidenceAcquirer == null ? "ACQUIRER_UNAVAILABLE"
+                                : initial.technicalFailure() ? "TECHNICAL_LOOKUP_FAILURE" : "LOOKUP_FOUND");
+            }
+            return new RuntimeActionContext(evidencePack, initial.technicalFailure() ? List.of() : List.of(initial.result()));
+        }
+
+        List<UUID> documentIds = knowledgeDocumentIds(adventure, scenarioPackage);
+        com.dndmaster.adventure.evidence.EvidenceSearchScope scope = playerActionEvidenceScope(
+                command, adventure, binding, scenarioPackage, documentIds, knownEvidenceIds);
+        long startedAt = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "runtime_fact_same_page_fallback", "turnId=" + command.turnId() + " sessionId="
+                        + adventure.sessionId().value() + " evidenceCount=" + evidencePack.rules().size()
+                        + " trigger=EXPLICIT_NOT_FOUND");
+        try {
+            List<RuntimeEvidence> additional = playerActionEvidenceAcquirer.expandSamePages(scope, evidencePack.rules());
+            if (additional.isEmpty()) {
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "runtime_fact_same_page_fallback", "turnId=" + command.turnId() + " addedCount=0 retry=skipped",
+                        startedAt);
+                return new RuntimeActionContext(evidencePack, List.of(initial.result()));
+            }
+            EvidencePack expanded = evidencePack.prioritizingCombatEvidence(additional);
+            RuntimeFactLookupAttempt retried = lookupRuntimeFact(command, adventure, scenarioPackage, expanded,
+                    preparedSituation, knownEvidenceIds);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "runtime_fact_same_page_fallback", "turnId=" + command.turnId() + " addedCount=" + additional.size()
+                            + " retryStatus=" + (retried.technicalFailure() ? "UNAVAILABLE" : retried.result().status())
+                            + " retryTechnicalFailure=" + retried.technicalFailure(),
+                    startedAt);
+            return new RuntimeActionContext(expanded, retried.technicalFailure() ? List.of() : List.of(retried.result()));
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "runtime_fact_same_page_fallback", "turnId=" + command.turnId() + " evidenceCount="
+                            + evidencePack.rules().size() + " retry=not_started_or_failed", startedAt, failure);
+            if (!isRecoverableLookupFailure(failure)) throw failure;
+            return new RuntimeActionContext(evidencePack, List.of());
+        }
     }
 
-    private List<RuntimeFactLookupResult> lookupRuntimeFacts(SubmitRuntimeTurnCommand command, Adventure adventure,
-            EvidencePack evidencePack, ScenarioModel scenarioModel, String preparedSituation, List<String> knownEvidenceIds) {
-        if (runtimeFactLookupService == null) return List.of();
+    private RuntimeFactLookupAttempt lookupRuntimeFact(SubmitRuntimeTurnCommand command, Adventure adventure,
+            ScenarioPackage scenarioPackage, EvidencePack evidencePack, String preparedSituation,
+            List<String> knownEvidenceIds) {
+        List<RuntimeEvidence> actionEvidence = evidencePack.rules();
         try {
-            List<RuntimeEvidence> actionEvidence = java.util.stream.Stream.concat(evidencePack.storybook().stream(),
-                    evidencePack.rulebook().stream()).toList();
             RuntimeFactLookupResult result = runtimeFactLookupService.lookup(adventure.ownerPlayerId().value(),
                     new RuntimeFactLookupRequest(command.action(), adventure.gameState(), adventure.runtimeAddedFacts(),
-                            scenarioModel, adventure.currentSituation().toString(), adventure.currentContext().currentScene(),
-                            actionEvidence, preparedSituation, longTermFactsForPrompt(adventure), knownEvidenceIds), actionEvidence);
-            return List.of(result);
+                            scenarioPackage.scenarioModel(), adventure.currentSituation().toString(),
+                            adventure.currentContext().currentScene(), actionEvidence, preparedSituation,
+                            longTermFactsForPrompt(adventure), knownEvidenceIds), actionEvidence);
+            return new RuntimeFactLookupAttempt(Objects.requireNonNull(result), false);
         } catch (RuntimeException failure) {
             if (!isRecoverableLookupFailure(failure)) throw failure;
-            LOGGER.warn("runtime_fact_lookup_unavailable actionIntent=PLAYER_ACTION");
-            return List.of(RuntimeFactLookupResult.notFound());
+            if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+                LOGGER.warn("dev_runtime_fact_lookup stage=failed actionIntent=PLAYER_ACTION failureClass={} expectedStatus=FOUND_OR_NOT_FOUND actualStatus=UNAVAILABLE fallback=skipped",
+                        failure.getClass().getSimpleName());
+            }
+            return new RuntimeFactLookupAttempt(RuntimeFactLookupResult.notFound(), true);
         }
     }
 

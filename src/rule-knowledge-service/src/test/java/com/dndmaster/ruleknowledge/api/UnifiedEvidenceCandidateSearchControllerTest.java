@@ -16,6 +16,8 @@ import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.application.search.EvidenceCandidate;
+import com.dndmaster.ruleknowledge.application.search.EvidenceLocationLookupPort;
+import com.dndmaster.ruleknowledge.application.search.AuthorizedDocumentScope;
 import com.dndmaster.ruleknowledge.application.search.EvidenceSearchResult;
 import com.dndmaster.ruleknowledge.application.search.DenseEvidenceSearchService;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
@@ -40,6 +42,46 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 class UnifiedEvidenceCandidateSearchControllerTest {
     private static final UUID OWNER = UUID.fromString("11111111-1111-1111-1111-111111111111");
+
+    @Test
+    void samePageLookupReturnsOnlyTheAuthorizedCurrentVersionAndPreservesSource() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        String locator = "page=4:chunk=anchor";
+        EvidenceLocationLookupPort locationLookup = mock(EvidenceLocationLookupPort.class);
+        when(locationLookup.findByLocators(any(), any(), any(), org.mockito.ArgumentMatchers.eq(4)))
+                .thenReturn(java.util.Map.of(locator, List.of(new EvidenceCandidate(
+                        new KnowledgeDocumentId(documentId), new ChunkId(UUID.randomUUID()), 1, DocumentType.STORYBOOK,
+                        "page=4:chunk=neighbor", "same page context", new SourceProvenance(4, List.of(), List.of(), null,
+                                "page=4:chunk=neighbor"), null, null))));
+
+        controllerWithLocationLookup(registration(documentId, ProcessingStatus.INDEXED), null, locationLookup)
+                .perform(post("/internal/v1/evidence-locations/lookup")
+                        .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
+                        .content(locationRequest(documentId, locator, 4)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.candidates[0].locator").value("page=4:chunk=neighbor"))
+                .andExpect(jsonPath("$.candidates[0].provenance.pageNumber").value(4))
+                .andExpect(jsonPath("$.candidates[0].extractionVersion").value(1));
+
+        ArgumentCaptor<List<AuthorizedDocumentScope>> scope = ArgumentCaptor.forClass(List.class);
+        verify(locationLookup).findByLocators(any(), scope.capture(), org.mockito.ArgumentMatchers.eq(List.of(locator)),
+                org.mockito.ArgumentMatchers.eq(4));
+        assertEquals(1, scope.getValue().getFirst().extractionVersion());
+        assertEquals(OWNER, scope.getValue().getFirst().documentOwner().value());
+    }
+
+    @Test
+    void rejectsWrongExtractionVersionBeforeLocationLookup() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        EvidenceLocationLookupPort locationLookup = mock(EvidenceLocationLookupPort.class);
+        controllerWithLocationLookup(registration(documentId, ProcessingStatus.INDEXED), null, locationLookup)
+                .perform(post("/internal/v1/evidence-locations/lookup")
+                        .header("X-Internal-Token", "internal-token").contentType(MediaType.APPLICATION_JSON)
+                        .content(locationRequest(documentId, "page=4:chunk=anchor", 4).replace("\"extractionVersion\":1", "\"extractionVersion\":2")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("EVIDENCE_SEARCH_INVALID_REQUEST"));
+        org.mockito.Mockito.verifyNoInteractions(locationLookup);
+    }
 
     @Test
     void authenticatesValidatesScopeAndReturnsCandidateProvenance() throws Exception {
@@ -313,6 +355,23 @@ class UnifiedEvidenceCandidateSearchControllerTest {
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper())).build();
     }
 
+    private static MockMvc controllerWithLocationLookup(
+            StoredRulebookRegistration registration, CatalogRulebookRepository catalog, EvidenceLocationLookupPort locationLookup) {
+        RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
+        when(registrations.findById(any())).thenReturn(java.util.Optional.of(registration));
+        return controllerWithLocationLookup(registrations, catalog, locationLookup);
+    }
+
+    private static MockMvc controllerWithLocationLookup(
+            RulebookRegistrationRepository registrations, CatalogRulebookRepository catalog,
+            EvidenceLocationLookupPort locationLookup) {
+        RuleKnowledgeController controller = new RuleKnowledgeController(mock(RulebookPipelineApplicationService.class), registrations,
+                mock(RuleEvidenceSearchApplicationService.class), null, null, null, new com.fasterxml.jackson.databind.ObjectMapper(),
+                null, "internal-token", catalog, null, null, locationLookup);
+        return MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper())).build();
+    }
+
     private static MockMvc controller(
             RulebookRegistrationRepository registrations, CatalogRulebookRepository catalog, DenseEvidenceSearchService denseSearch) {
         RuleKnowledgeController controller = new RuleKnowledgeController(mock(RulebookPipelineApplicationService.class), registrations,
@@ -332,6 +391,12 @@ class UnifiedEvidenceCandidateSearchControllerTest {
         return """
                 {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","stageKey":"opening","actionIntent":"RULE","scope":[{"documentId":"%s","extractionVersion":1,"documentType":"RULEBOOK"}],"activeLocators":[],"excludedEvidenceIds":[],"query":"what is the rule?","denseLimit":5}
                 """.formatted(OWNER, UUID.randomUUID(), UUID.randomUUID(), documentId);
+    }
+
+    private static String locationRequest(UUID documentId, String locator, int limit) {
+        return """
+                {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","scope":[{"documentId":"%s","extractionVersion":1,"documentType":"STORYBOOK"}],"locators":["%s"],"limit":%d}
+                """.formatted(OWNER, UUID.randomUUID(), UUID.randomUUID(), documentId, locator, limit);
     }
 
     private static String preparationRequest(UUID documentId, UUID bundleId) {
