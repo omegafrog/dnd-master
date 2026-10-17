@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
-import type { AdventurePlayApi, CombatMapView as CombatMapState, MapBoundary, MapBoundaryProposal, MapMovementResult } from '../saved-adventures/AdventurePlayApi'
+import type { AdventurePlayApi, CombatMapView as CombatMapState, ExplorationGroup, MapBoundary, MapBoundaryProposal, MapMovementResult } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
@@ -53,6 +53,10 @@ function logMapZoom(previous: number, zoom: number, outcome: 'changed' | 'reset'
 
 export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, movementRemaining, onPreparationComplete, aimInteraction }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; movementRemaining?: number; onPreparationComplete?: () => void | Promise<void>; aimInteraction?: CombatAimMapInteraction }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
+  const [explorationGroups, setExplorationGroups] = useState<ExplorationGroup[]>([])
+  const [explorationVersion, setExplorationVersion] = useState<number | null>(null)
+  const [explorationBusy, setExplorationBusy] = useState(false)
+  const [splitMemberIds, setSplitMemberIds] = useState<Record<string, string>>({})
   const [publicMapImage, setPublicMapImage] = useState<string | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
   const [naturalMovementText, setNaturalMovementText] = useState('')
@@ -198,6 +202,36 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   // stays inside this request lifecycle and must not retrigger the load.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adventureId, api, preparationMode, refreshToken])
+
+  useEffect(() => {
+    if (preparationMode || !api.getExplorationGroups) return
+    let active = true
+    void api.getExplorationGroups(adventureId).then(result => {
+      if (active) { setExplorationGroups(result.groups); setExplorationVersion(result.version) }
+    }).catch(error => { if (active) setMessage(error instanceof Error ? error.message : '탐험 그룹을 불러오지 못했습니다.') })
+    return () => { active = false }
+  }, [adventureId, api, preparationMode, refreshToken])
+
+  async function saveGroups(next: ExplorationGroup[]) {
+    if (!api.saveExplorationGroups || explorationVersion === null || explorationBusy) return
+    const started = performance.now()
+    setExplorationBusy(true)
+    diagnosticEvent('exploration_groups_save', { outcome: 'started', groupCount: next.length, memberCount: next.reduce((sum, group) => sum + group.members.length, 0) })
+    try {
+      const saved = await api.saveExplorationGroups(adventureId, explorationVersion, next.map(group => ({
+        id: group.id,
+        members: group.members.map(({ characterSheetId, formation }) => ({ characterSheetId, formation })),
+      })))
+      setExplorationGroups(saved.groups)
+      setExplorationVersion(saved.version)
+      setMap(await api.getCombatMap(adventureId))
+      setMessage('탐험 그룹과 대열을 저장했습니다.')
+      diagnosticEvent('exploration_groups_save', { outcome: 'completed', groupCount: saved.groups.length, elapsedMs: Math.round(performance.now() - started) })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '탐험 그룹을 저장하지 못했습니다.')
+      diagnosticEvent('exploration_groups_save', { outcome: 'failed', groupCount: next.length, failureClass: error instanceof Error ? error.name : 'UnknownError', elapsedMs: Math.round(performance.now() - started) })
+    } finally { setExplorationBusy(false) }
+  }
 
   async function chooseCell(cell: { x: number; y: number }) {
     if (!map || !selectedToken) return
@@ -813,6 +847,47 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {preparationMode && <section className="map-start-preparation" aria-label="플레이어 시작 위치"><h3>시작 위치 확인</h3>{placementRequired && <p role="alert">자동 판정으로 시작 위치를 찾지 못했습니다. 지도에서 직접 선택해주세요.</p>}<p>모험 중 맵에 진입할 때 행동·서술과 지도 이미지를 바탕으로 시작 위치를 자동 판정합니다. 아래 선택은 자동 판정에 실패했을 때 사용할 수 있는 수동 대안입니다.</p>{map.playerStartCandidates?.length ? <ul>{map.playerStartCandidates.map((candidate, index) => <li key={`${candidate.x}-${candidate.y}-${index}`}><button type="button" aria-pressed={selectedPlayerStart?.x === candidate.x && selectedPlayerStart?.y === candidate.y} onClick={() => setSelectedPlayerStart({ x: candidate.x, y: candidate.y })}>({candidate.x},{candidate.y}) 선택</button><span>신뢰도 {Math.round(candidate.confidence * 100)}% · {candidate.evidence.join(', ') || '근거 없음'}</span></li>)}</ul> : <p>아직 모험 중 진입 서술이 없어 자동 시작 위치 후보가 없습니다.</p>}<p role="status">{selectedPlayerStart ? `수동 대안으로 선택한 시작 칸: (${selectedPlayerStart.x},${selectedPlayerStart.y})` : '자동 판정 대기 중입니다.'}</p></section>}
       {preparationMode && <section className="map-preparation-editor" aria-label="맵 초안 검수"><h3>3. AI 초안 생성 및 검수</h3><p>{!cropConfirmed ? '먼저 1단계에서 여백 자르기를 적용하세요.' : !gridConfirmed ? '먼저 2단계에서 격자를 맞추고 적용하세요.' : '격자 적용 완료. 현재 자른 영역과 격자를 기준으로 AI 초안을 생성합니다.'}</p>{cropConfirmed && gridConfirmed && <><button type="button" disabled={boundaryDetecting || layoutSaving || layoutEditing} onClick={() => void detectBoundaries()}>{boundaryDetecting ? 'AI 벽·문 감지 중…' : 'AI 벽·문 감지'}</button><button type="button" onClick={() => { if (layoutEditing) { setLayoutEditing(false); return }; if (!layoutBeforeEdit) setLayoutBeforeEdit(map); setLayoutSaved(false); setLayoutEditing(true) }}>{layoutEditing ? '검수 닫기' : '벽·문 편집'}</button>{layoutEditing && <div className="map-layout-editor"><ol className="map-layout-guide"><li>선은 칸의 한 면에 붙어 표시됩니다.</li><li>벽 그리기·문 그리기·지우기 중 하나를 고르세요.</li><li>격자선 위를 누른 채 끌면 지나간 선분에 적용됩니다.</li></ol><div className="map-boundary-tools" role="group" aria-label="벽과 문 그리기 도구"><button type="button" aria-pressed={boundaryTool === 'WALL'} onClick={() => setBoundaryTool('WALL')}>벽 그리기</button><button type="button" aria-pressed={boundaryTool === 'DOOR'} onClick={() => setBoundaryTool('DOOR')}>문 그리기</button><button type="button" aria-pressed={boundaryTool === 'ERASE'} onClick={() => setBoundaryTool('ERASE')}>지우기</button></div>{tacticalMap}<p>칸은 이동하거나 선택되지 않습니다.</p><div className="map-layout-actions"><button type="button" disabled={layoutSaving} onClick={() => { boundaryStroke.current = null; setBoundaryPreview(null); const restored = layoutBeforeEdit; setMap(restored); setLayoutSaved(restored?.layers?.some(layer => layer.type === 'MAP_LAYOUT_CONFIRMED') ?? false); setLayoutDirty(false); setLayoutEditing(false); setLayoutBeforeEdit(null) }}>편집 취소</button><button type="button" disabled={layoutSaving} onClick={() => void saveLayout()}>{layoutSaving ? '저장 중…' : '맵 초안 저장'}</button></div></div>}</>}</section>}
       {!layoutEditing && tacticalMap}
+      {!preparationMode && explorationGroups.length > 0 && api.saveExplorationGroups && <section className="exploration-groups" aria-label="탐험 그룹 관리">
+        <h3>탐험 그룹과 대열</h3>
+        {explorationGroups.map(group => {
+          const token = map?.tokens?.find(item => item.id === group.mapTokenId)
+          return <fieldset key={group.id}>
+            <legend>그룹 · 이동 속도 {group.speed}피트{token ? ` · 현재 위치 (${token.x},${token.y})` : ''}</legend>
+            {group.members.map(member => <label key={member.characterSheetId}>
+              모험가 {member.characterSheetId.slice(0, 8)}
+              <select aria-label={`대열 ${member.characterSheetId}`} value={member.formation} disabled={explorationBusy}
+                onChange={event => void saveGroups(explorationGroups.map(candidate => candidate.id !== group.id ? candidate : {
+                  ...candidate, members: candidate.members.map(current => current.characterSheetId !== member.characterSheetId
+                    ? current : { ...current, formation: event.target.value as typeof current.formation }),
+                }))}>
+                <option value="FRONT">전열</option><option value="MIDDLE">중열</option><option value="REAR">후열</option>
+              </select>
+            </label>)}
+            {group.members.length > 1 && <label>분리할 모험가
+              <select aria-label={`분리할 모험가 ${group.id}`} value={splitMemberIds[group.id] ?? group.members.at(-1)!.characterSheetId}
+                disabled={explorationBusy} onChange={event => setSplitMemberIds(current => ({ ...current, [group.id]: event.target.value }))}>
+                {group.members.map(member => <option key={member.characterSheetId} value={member.characterSheetId}>모험가 {member.characterSheetId.slice(0, 8)}</option>)}
+              </select>
+              <button type="button" disabled={explorationBusy} onClick={() => {
+              const moved = group.members.find(member => member.characterSheetId === (splitMemberIds[group.id] ?? group.members.at(-1)!.characterSheetId))!
+              const identity = createMapCommandIdentity().commandId
+              void saveGroups([...explorationGroups.filter(candidate => candidate.id !== group.id),
+                { ...group, members: group.members.filter(member => member.characterSheetId !== moved.characterSheetId) },
+                { id: identity, mapTokenId: identity, speed: moved.speed, members: [{ ...moved, formation: 'FRONT' }] }])
+            }}>현재 위치에서 분리</button>
+            </label>}
+          </fieldset>
+        })}
+        {explorationGroups.flatMap((target, index) => explorationGroups.slice(index + 1).map(source => {
+          const targetToken = map?.tokens?.find(item => item.id === target.mapTokenId)
+          const sourceToken = map?.tokens?.find(item => item.id === source.mapTokenId)
+          const coLocated = targetToken && sourceToken && targetToken.x === sourceToken.x && targetToken.y === sourceToken.y
+          return <button key={`${target.id}-${source.id}`} type="button" disabled={explorationBusy || !coLocated}
+            title={coLocated ? '선택한 두 그룹을 명시적으로 합칩니다.' : '같은 칸에 있는 그룹만 합칠 수 있습니다.'}
+            onClick={() => void saveGroups([...explorationGroups.filter(group => group.id !== target.id && group.id !== source.id),
+              { ...target, members: [...target.members, ...source.members] }])}>그룹 합류</button>
+        }))}
+      </section>}
       {!preparationMode && api.previewNaturalLanguageMovement && <form aria-label="자연어 이동" onSubmit={previewNaturalMovement}><label htmlFor="natural-movement-text">어디로 이동할까요?</label><input id="natural-movement-text" value={naturalMovementText} onChange={event => setNaturalMovementText(event.target.value)} placeholder="예: 열린 문 쪽으로 이동" /><button type="submit" disabled={previewing || !naturalMovementText.trim()}>목적지 미리보기</button></form>}
       {map?.tokens?.find(token => token.type === 'PLAYER' && map.current?.some(cell => cell.x === token.x && cell.y === token.y)) && api.observeSpatial && <button type="button" onClick={() => void observeCurrentCell()}>주변 살피기</button>}
       {map?.tokens?.filter(token => token.type !== 'PLAYER' && !token.lastSeen && map.current?.some(cell => cell.x === token.x && cell.y === token.y)).map(token => <button key={`target-${token.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'TARGET', { x: token.x, y: token.y }, token.id)) }}>대상 선택: {token.type}</button>)}

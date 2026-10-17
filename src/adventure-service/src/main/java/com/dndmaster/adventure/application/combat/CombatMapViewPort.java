@@ -6,6 +6,10 @@ import java.util.UUID;
 
 public interface CombatMapViewPort {
     Optional<View> playerView(UUID adventureId, UUID ownerId);
+    default List<ExplorationToken> ensureExplorationTokens(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId,
+            List<UUID> preferredTokenIds, UUID originTokenId, int count) {
+        throw new UnsupportedOperationException("exploration token lifecycle unavailable");
+    }
     default Optional<View> preparationView(UUID adventureId, UUID ownerId) { return playerView(adventureId, ownerId); }
     default boolean hasPreparedMap(UUID adventureId, UUID ownerId) { return false; }
 
@@ -60,6 +64,7 @@ public interface CombatMapViewPort {
     record Token(UUID id, String type, int x, int y, int elevationFeet) {
         public Token(UUID id, String type, int x, int y) { this(id, type, x, y, 0); }
     }
+    record ExplorationToken(UUID id, int x, int y) {}
     record Obstacle(int x, int y) {}
     record Door(int x, int y, boolean open) {}
     record Boundary(int x, int y, String orientation, String kind, boolean open) {}

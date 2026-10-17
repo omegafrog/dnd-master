@@ -31,6 +31,34 @@ import org.junit.jupiter.api.Test;
 
 class HttpCombatMapPreparationGatewayTest {
     @Test
+    void exploration_token_gateway_sends_server_derived_token_preferences_and_reads_map_positions() throws Exception {
+        UUID mapId = UUID.randomUUID(), ownerId = UUID.randomUUID(), commandId = UUID.randomUUID(), tokenId = UUID.randomUUID();
+        AtomicReference<JsonNode> payload = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/combat-maps/" + mapId + "/exploration-tokens", exchange -> {
+            payload.set(new ObjectMapper().readTree(exchange.getRequestBody()));
+            byte[] response = ("{\"mapId\":\"" + mapId + "\",\"version\":4,\"tokens\":[{\"id\":\"" + tokenId + "\",\"x\":2,\"y\":3}]}")
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, response.length);
+            exchange.getResponseBody().write(response);
+            exchange.getResponseBody().close();
+        });
+        server.start();
+        try {
+            var gateway = new com.dndmaster.adventure.application.combat.HttpCombatMapViewGateway(
+                    HttpClient.newHttpClient(), java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(2), new ObjectMapper(), "secret");
+            var result = gateway.ensureExplorationTokens(mapId, ownerId, 3, commandId,
+                    java.util.Arrays.asList(tokenId, null), tokenId, 2);
+            assertEquals(ownerId.toString(), payload.get().path("ownerId").asText());
+            assertEquals(tokenId.toString(), payload.get().path("preferredTokenIds").get(0).asText());
+            assertTrue(payload.get().path("preferredTokenIds").get(1).isNull());
+            assertEquals(2, payload.get().path("count").asInt());
+            assertEquals(new com.dndmaster.adventure.application.combat.CombatMapViewPort.ExplorationToken(tokenId, 2, 3), result.getFirst());
+        } finally { server.stop(0); }
+    }
+
+    @Test
     void player_map_gateway_preserves_public_token_elevation_in_feet() throws Exception {
         UUID mapId = UUID.randomUUID();
         UUID tokenId = UUID.randomUUID();

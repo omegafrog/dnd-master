@@ -545,6 +545,114 @@ public class AdventureController {
                 .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), null));
     }
 
+    @GetMapping("/api/v1/adventures/{adventureId}/exploration-groups")
+    ExplorationGroupsResponse explorationGroups(@PathVariable UUID adventureId) {
+        Adventure adventure = ownedAdventure(adventureId);
+        Object stored = adventure.gameState().values().get("explorationState");
+        var state = stored == null ? initialExplorationState(adventure) : objectMapper.convertValue(stored, com.dndmaster.adventure.domain.runtime.ExplorationState.class);
+        return new ExplorationGroupsResponse(adventure.version(), state.groups());
+    }
+
+    private com.dndmaster.adventure.domain.runtime.ExplorationState initialExplorationState(Adventure adventure) {
+        var map = combatMapViewPort.playerView(adventure.id().value(), playerResolver.playerId())
+                .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "EXPLORATION_MAP_UNAVAILABLE"));
+        var playerToken = map.tokens().stream().filter(token -> "PLAYER".equals(token.type())).findFirst()
+                .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "EXPLORATION_PLAYER_TOKEN_UNAVAILABLE"));
+        var members = adventure.party().stream().map(member -> new com.dndmaster.adventure.domain.runtime.ExplorationGroup.Member(
+                member.characterSheetId().value(), com.dndmaster.adventure.domain.runtime.ExplorationGroup.Formation.FRONT,
+                characterCombatPort.movementSpeed(member.characterSheetId().value(), playerResolver.playerId(), adventure.sessionId().value()))).toList();
+        UUID groupId = UUID.nameUUIDFromBytes((adventure.id().value() + ":exploration-group").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return new com.dndmaster.adventure.domain.runtime.ExplorationState(List.of(
+                new com.dndmaster.adventure.domain.runtime.ExplorationGroup(groupId, playerToken.id(), members)));
+    }
+
+    @PutMapping("/api/v1/adventures/{adventureId}/exploration-groups")
+    ExplorationGroupsResponse saveExplorationGroups(@PathVariable UUID adventureId,
+            @RequestBody ExplorationGroupsRequest request) {
+        if (request == null || request.expectedVersion() == null || request.groups() == null || request.groups().isEmpty()
+                || request.groups().stream().anyMatch(group -> group == null || group.id() == null || group.members() == null
+                        || group.members().isEmpty() || group.members().stream().anyMatch(member -> member == null
+                                || member.characterSheetId() == null || member.formation() == null)))
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_EXPLORATION_GROUPS");
+        Adventure adventure = ownedAdventure(adventureId);
+        long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                "exploration_groups_save", "adventureId=" + adventureId + " groupCount=" + request.groups().size()
+                        + " memberCount=" + request.groups().stream().mapToInt(group -> group.members().size()).sum()
+                        + " expectedVersion=" + request.expectedVersion());
+        try {
+            var proposed = request.groups().stream().map(group -> new com.dndmaster.adventure.domain.runtime.ExplorationGroup(
+                    group.id(), UUID.randomUUID(), group.members().stream().map(member -> new com.dndmaster.adventure.domain.runtime.ExplorationGroup.Member(
+                            member.characterSheetId(), member.formation(), characterCombatPort.movementSpeed(member.characterSheetId(),
+                                    playerResolver.playerId(), adventure.sessionId().value()))).toList())).toList();
+            var proposedState = new com.dndmaster.adventure.domain.runtime.ExplorationState(proposed);
+            java.util.Set<UUID> partyIds = adventure.party().stream().map(member -> member.characterSheetId().value())
+                    .collect(java.util.stream.Collectors.toSet());
+            java.util.Set<UUID> requestedIds = proposedState.groups().stream().flatMap(group -> group.members().stream())
+                    .map(com.dndmaster.adventure.domain.runtime.ExplorationGroup.Member::characterSheetId)
+                    .collect(java.util.stream.Collectors.toSet());
+            if (!partyIds.equals(requestedIds))
+                throw new ApiRequestGuard.ApiContractException(400, "EXPLORATION_GROUP_MEMBERS_MUST_MATCH_PARTY");
+            Object stored = adventure.gameState().values().get("explorationState");
+            var previousState = stored == null ? initialExplorationState(adventure)
+                    : objectMapper.convertValue(stored, com.dndmaster.adventure.domain.runtime.ExplorationState.class);
+            var map = combatMapViewPort.playerView(adventureId, playerResolver.playerId())
+                    .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "EXPLORATION_MAP_UNAVAILABLE"));
+            for (var nextGroup : proposedState.groups()) {
+                var contributors = previousState.groups().stream().filter(previous -> previous.members().stream()
+                        .anyMatch(old -> nextGroup.members().stream().anyMatch(current -> current.characterSheetId().equals(old.characterSheetId())))).toList();
+                if (contributors.size() > 1) {
+                    var positions = contributors.stream().map(previous -> map.tokens().stream()
+                            .filter(token -> token.id().equals(previous.mapTokenId())).findFirst()
+                            .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "EXPLORATION_TOKEN_UNAVAILABLE")))
+                            .map(token -> token.x() + "," + token.y()).collect(java.util.stream.Collectors.toSet());
+                    if (positions.size() != 1) throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_GROUPS_NOT_COLOCATED");
+                }
+            }
+            List<UUID> preferredTokenIds = proposedState.groups().stream().map(group -> previousState.groups().stream()
+                    .filter(previous -> previous.id().equals(group.id())).map(com.dndmaster.adventure.domain.runtime.ExplorationGroup::mapTokenId)
+                    .findFirst().orElse(null)).toList();
+            UUID originTokenId = proposedState.groups().stream().filter(group -> previousState.groups().stream()
+                            .noneMatch(previous -> previous.id().equals(group.id())))
+                    .flatMap(group -> previousState.groups().stream().filter(previous -> previous.members().stream()
+                            .map(com.dndmaster.adventure.domain.runtime.ExplorationGroup.Member::characterSheetId).collect(java.util.stream.Collectors.toSet())
+                            .containsAll(group.members().stream().map(com.dndmaster.adventure.domain.runtime.ExplorationGroup.Member::characterSheetId)
+                                    .collect(java.util.stream.Collectors.toSet()))).map(com.dndmaster.adventure.domain.runtime.ExplorationGroup::mapTokenId))
+                    .findFirst().orElse(null);
+            var tokens = combatMapViewPort.ensureExplorationTokens(map.mapId(), playerResolver.playerId(), map.version(),
+                    UUID.randomUUID(), preferredTokenIds, originTokenId, proposedState.groups().size());
+            var state = new com.dndmaster.adventure.domain.runtime.ExplorationState(
+                    java.util.stream.IntStream.range(0, proposedState.groups().size()).mapToObj(index -> {
+                        var group = proposedState.groups().get(index);
+                        return new com.dndmaster.adventure.domain.runtime.ExplorationGroup(group.id(), tokens.get(index).id(), group.members());
+                    }).toList());
+            adventure.updateExplorationState(new OwnerPlayerId(playerResolver.playerId()), request.expectedVersion(), state);
+            adventureRepository.save(adventure);
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                    "exploration_groups_save", "adventureId=" + adventureId + " expectedVersion=" + request.expectedVersion()
+                            + " actualVersion=" + adventure.version() + " groupCount=" + state.groups().size(), started);
+            return new ExplorationGroupsResponse(adventure.version(), state.groups());
+        } catch (RuntimeException | Error failure) {
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "exploration_groups_save", "adventureId=" + adventureId + " groupCount=" + request.groups().size()
+                            + " memberCount=" + request.groups().stream().mapToInt(group -> group.members().size()).sum()
+                            + " expectedVersion=" + request.expectedVersion() + " actualVersion=" + adventure.version(), started, failure);
+            throw failure;
+        }
+    }
+
+    private Adventure ownedAdventure(UUID adventureId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId()))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        return adventure;
+    }
+
+    record ExplorationMemberInput(UUID characterSheetId, com.dndmaster.adventure.domain.runtime.ExplorationGroup.Formation formation) { }
+    record ExplorationGroupInput(UUID id, List<ExplorationMemberInput> members) { }
+    record ExplorationGroupsRequest(Long expectedVersion, List<ExplorationGroupInput> groups) { }
+    record ExplorationGroupsResponse(long version,
+            List<com.dndmaster.adventure.domain.runtime.ExplorationGroup> groups) { }
+
     @PostMapping("/api/v1/adventures/{adventureId}/combat-map/movement-preview")
     CombatMapMovementPreviewResponse previewMovement(@PathVariable UUID adventureId,
             @RequestBody CombatMapMovementPreviewRequest request) {

@@ -110,6 +110,28 @@ public class CombatMapController {
         return PlayerCombatMapResponse.from(view);
     }
 
+    @PutMapping("/internal/v1/combat-maps/{mapId}/exploration-tokens")
+    public ExplorationTokensResponse ensureExplorationTokens(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) EnsureExplorationTokensRequest request) {
+        requestGuard.internal(token);
+        requireRequest(request, "exploration token request is required");
+        if (request.ownerId() == null || request.commandId() == null || request.expectedVersion() == null || request.count() < 1)
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "owner, command, version, and positive group count are required");
+        CombatMap map = mapViewService.ensureExplorationTokenCount(new MapId(mapId), new MapOwnerId(request.ownerId()),
+                request.expectedVersion(), request.commandId(), request.preferredTokenIds(), request.originTokenId(), request.count());
+        List<ExplorationToken> tokens = map.tokens().stream().filter(candidate -> candidate.type() == TokenType.PLAYER
+                        && candidate.ownerPlayerId().filter(owner -> owner.value().equals(request.ownerId())).isPresent())
+                .map(candidate -> new ExplorationToken(candidate.id().value(), candidate.position().x(), candidate.position().y())).toList();
+        return new ExplorationTokensResponse(map.id().value(), map.version(), tokens);
+    }
+
+    public record EnsureExplorationTokensRequest(UUID ownerId, UUID commandId, Long expectedVersion,
+            List<UUID> preferredTokenIds, UUID originTokenId, int count) { }
+    public record ExplorationToken(UUID id, int x, int y) { }
+    public record ExplorationTokensResponse(UUID mapId, long version, List<ExplorationToken> tokens) { }
+
     @GetMapping("/internal/v1/combat-maps/{mapId}/gm-view")
     GmCombatMapResponse gmView(@PathVariable UUID mapId, @RequestParam UUID ownerId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token) {

@@ -215,6 +215,42 @@ public final class CombatMapViewService {
         store.update(owner, updated, expectedVersion); return updated;
     }
     public PlayerCombatMapView displayForPlayer(MapId id, MapOwnerId owner) { VersionedOwnedCombatMap state = owned(id, owner); observePublicImage(id, owner, state); return projection(state.map(), state.version()); }
+    public CombatMap ensureExplorationTokenCount(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId, int count) {
+        return ensureExplorationTokenCount(id, owner, expectedVersion, commandId, java.util.Collections.nCopies(count, null), null, count);
+    }
+    public CombatMap ensureExplorationTokenCount(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId,
+            List<UUID> preferredTokenIds, UUID originTokenId, int count) {
+        boolean diagnostics = Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+        long started = diagnostics ? System.nanoTime() : 0L;
+        if (diagnostics) LOGGER.info("dev_exploration_tokens_ensure outcome=started mapId={} count={} preferredCount={} expectedVersion={}", id.value(), count, preferredTokenIds == null ? -1 : preferredTokenIds.size(), expectedVersion);
+        long actualVersion = -1;
+        try {
+            VersionedOwnedCombatMap state = owned(id, owner);
+            actualVersion = state.version();
+            String fingerprint = id + "|" + owner + "|EXPLORATION_TOKENS|" + count + "|" + preferredTokenIds + "|" + originTokenId;
+            CombatMap replay = replay(id, owner, commandId, fingerprint);
+            if (replay != null) {
+                if (diagnostics) LOGGER.info("dev_exploration_tokens_ensure outcome=replayed mapId={} count={} tokenCount={} version={} elapsedMs={}",
+                        id.value(), count, replay.tokens().stream().filter(token -> token.type() == TokenType.PLAYER).count(), replay.version(),
+                        java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+                return replay;
+            }
+            if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
+            List<CombatToken> tokens = state.map().ensurePlayerTokenCount(new PlayerId(owner.value()), preferredTokenIds, originTokenId, count);
+            state.map().refreshVisibility(state.map().visibilitySnapshot() == null ? 0 : state.map().visibilitySnapshot().ruleTurn());
+            store.update(owner, state.map(), expectedVersion, expectedVersion + 1, commandId, fingerprint);
+            if (diagnostics) LOGGER.info("dev_exploration_tokens_ensure outcome=completed mapId={} count={} preferredCount={} tokenCount={} version={} elapsedMs={}",
+                    id.value(), count, preferredTokenIds == null ? -1 : preferredTokenIds.size(), tokens.size(), expectedVersion + 1,
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+            return state.map();
+        } catch (RuntimeException | Error failure) {
+            if (diagnostics) LOGGER.info("dev_exploration_tokens_ensure outcome=failed mapId={} count={} preferredCount={} expectedVersion={} actualVersion={} failureClass={} elapsedMs={}",
+                    id.value(), count, preferredTokenIds == null ? -1 : preferredTokenIds.size(), expectedVersion, actualVersion, failure.getClass().getSimpleName(),
+                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+            throw failure;
+        }
+    }
     public CombatMap displayForGm(MapId id, MapOwnerId owner) { return owned(id, owner).map(); }
     public Optional<PlayerCombatMapView> displayForAdventure(AdventureId adventureId, MapOwnerId owner) { return store.findByAdventureId(adventureId, owner).map(state -> { observePublicImage(state.map().id(), owner, state); return projection(state.map(), state.version()); }); }
     public Optional<PlayerCombatMapView> displayForPreparation(AdventureId adventureId, MapOwnerId owner) {

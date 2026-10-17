@@ -74,6 +74,8 @@ export type CombatMapView = {
   spatialFeatures?: Array<{ id: string; type: string; cells: Array<{ x: number; y: number }>; visibility: string; state: string; interactable: boolean }>
   playerStartCandidates?: Array<{ x: number; y: number; confidence: number; evidence: string[]; source?: string }>
 }
+export type ExplorationGroup = { id: string; mapTokenId: string; speed: number; members: Array<{ characterSheetId: string; formation: 'FRONT' | 'MIDDLE' | 'REAR'; speed: number }> }
+export type ExplorationGroups = { version: number; groups: ExplorationGroup[] }
 
 export type MapGridAlignment = { mapId: string; version: number; imageRevision: string; imageViewId?: string; originX: number; originY: number; cellSize: number }
 export type MapGridAlignmentRequest = { mapId: string; commandId: string; expectedVersion: number; imageRevision: string; originX: number; originY: number; cellSize: number }
@@ -171,6 +173,8 @@ export interface AdventurePlayApi {
   getSessionKnowledgeSet(adventureId: string): Promise<SessionKnowledgeSet>
   saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]): Promise<SessionKnowledgeSet>
   getCombatMap(adventureId: string): Promise<CombatMapView>
+  getExplorationGroups?(adventureId: string): Promise<ExplorationGroups>
+  saveExplorationGroups?(adventureId: string, expectedVersion: number, groups: Array<{ id: string; members: Array<{ characterSheetId: string; formation: 'FRONT' | 'MIDDLE' | 'REAR' }> }>): Promise<ExplorationGroups>
   getCombatMapPreparation?(adventureId: string): Promise<CombatMapView>
   getPublicMapImage?(adventureId: string): Promise<string | null>
   getCombatMapPreparationImage?(adventureId: string): Promise<string | null>
@@ -319,6 +323,17 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   getCombatMap(adventureId: string) {
     return request<CombatMapView>(`/api/v1/adventures/${adventureId}/combat-map`, {
       headers: this.authHeaders(),
+    })
+  }
+
+  getExplorationGroups(adventureId: string) {
+    return request<ExplorationGroups>(`/api/v1/adventures/${adventureId}/exploration-groups`, { headers: this.authHeaders() })
+  }
+
+  saveExplorationGroups(adventureId: string, expectedVersion: number, groups: Array<{ id: string; members: Array<{ characterSheetId: string; formation: 'FRONT' | 'MIDDLE' | 'REAR' }> }>) {
+    return request<ExplorationGroups>(`/api/v1/adventures/${adventureId}/exploration-groups`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ expectedVersion, groups }),
     })
   }
 

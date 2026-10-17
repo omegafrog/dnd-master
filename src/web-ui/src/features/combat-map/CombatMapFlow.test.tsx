@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { CharacterSheetView } from '../character/CharacterSheetView'
 import { RoleDiceRoller } from '../dice/RoleDiceRoller'
-import { HttpAdventurePlayApi, type AdventurePlayApi, type CombatMapView as CombatMapState } from '../saved-adventures/AdventurePlayApi'
+import { HttpAdventurePlayApi, type AdventurePlayApi, type CombatMapView as CombatMapState, type ExplorationGroup } from '../saved-adventures/AdventurePlayApi'
 import { animateCommittedMovement, boundariesInStroke, CombatMapView } from './CombatMapView'
 import type { CombatAimMapInteraction } from './CombatMapView'
 import * as diagnostics from '../../shared/developmentDiagnostics'
@@ -43,6 +43,47 @@ it('uses the shared screen-to-grid conversion for aim hover, overlays public cel
   } finally {
     bounds.mockRestore()
   }
+})
+
+it('saves formation changes and exposes a split at the group token current position', async () => {
+  const api = fakeApi()
+  const group = { id: 'g1', mapTokenId: 'p1', speed: 20, members: [
+    { characterSheetId: 'sheet-1', formation: 'FRONT' as const, speed: 30 },
+    { characterSheetId: 'sheet-2', formation: 'REAR' as const, speed: 20 },
+  ] }
+  let version = 4
+  let groups: ExplorationGroup[] = [group]
+  let tokens = [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }]
+  api.getCombatMap = vi.fn(async () => ({ adventureId: 'a1', status: 'map', mapId: 'm1', version: 0,
+    grid: { width: 3, height: 2 }, tokens, current: [{ x: 1, y: 1 }], explored: [{ x: 1, y: 1 }] }))
+  api.getExplorationGroups = vi.fn(async () => ({ version, groups }))
+  api.saveExplorationGroups = vi.fn(async (_adventureId: string, _version: number,
+    requested: Parameters<NonNullable<AdventurePlayApi['saveExplorationGroups']>>[2]) => {
+    version++
+    groups = requested.map((next, index) => ({ id: next.id, mapTokenId: groups.find(group => group.id === next.id)?.mapTokenId ?? `p${index + 1}`,
+      speed: Math.min(...next.members.map(member => member.characterSheetId === 'sheet-2' ? 20 : 30)),
+      members: next.members.map(member => ({ ...member, speed: member.characterSheetId === 'sheet-2' ? 20 : 30 })) }))
+    tokens = groups.map((next, index) => ({ id: next.mapTokenId, type: 'PLAYER', x: index === 0 ? 1 : 1, y: 1 }))
+    return { version, groups }
+  })
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  const formation = await screen.findByRole('combobox', { name: '대열 sheet-2' })
+  await userEvent.selectOptions(formation, 'MIDDLE')
+  await waitFor(() => expect(api.saveExplorationGroups).toHaveBeenCalledWith('a1', 4, [{ id: 'g1', members: [
+    { characterSheetId: 'sheet-1', formation: 'FRONT' }, { characterSheetId: 'sheet-2', formation: 'MIDDLE' },
+  ] }]))
+  await userEvent.click(await screen.findByRole('button', { name: '현재 위치에서 분리' }))
+  await waitFor(() => expect(api.saveExplorationGroups).toHaveBeenLastCalledWith('a1', 5, expect.arrayContaining([
+    expect.objectContaining({ members: [expect.objectContaining({ characterSheetId: 'sheet-1' })] }),
+    expect.objectContaining({ members: [expect.objectContaining({ characterSheetId: 'sheet-2' })] }),
+  ])))
+  expect(await screen.findByRole('button', { name: '그룹 합류' })).toBeEnabled()
+  await userEvent.click(screen.getByRole('button', { name: '그룹 합류' }))
+  await waitFor(() => expect(api.saveExplorationGroups).toHaveBeenLastCalledWith('a1', 6,
+    [expect.objectContaining({ members: expect.arrayContaining([
+      expect.objectContaining({ characterSheetId: 'sheet-1' }), expect.objectContaining({ characterSheetId: 'sheet-2' }),
+    ]) })]))
 })
 
 it('animates only the server committed traversed path', async () => {

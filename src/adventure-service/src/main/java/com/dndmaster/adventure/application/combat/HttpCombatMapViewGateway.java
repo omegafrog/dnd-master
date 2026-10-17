@@ -47,6 +47,24 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
 
     @Override
+    public List<ExplorationToken> ensureExplorationTokens(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId,
+            List<UUID> preferredTokenIds, UUID originTokenId, int count) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/exploration-tokens"))
+                .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                .PUT(HttpRequest.BodyPublishers.ofString(write(new ExplorationTokensRequest(ownerId, commandId, expectedVersion,
+                        preferredTokenIds, originTokenId, count))))
+                .build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300)
+                throw new IllegalStateException("exploration token reconciliation failed");
+            return mapper.readValue(response.body(), ExplorationTokensResponse.class).tokens().stream()
+                    .map(token -> new ExplorationToken(token.id(), token.x(), token.y())).toList();
+        } catch (IOException exception) { throw new IllegalStateException("exploration token reconciliation transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("exploration token reconciliation interrupted", exception); }
+    }
+
+    @Override
     public Optional<View> preparationView(UUID adventureId, UUID ownerId) {
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/adventures/" + adventureId + "/combat-map/preparation-view?ownerId=" + ownerId))
                 .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
@@ -236,6 +254,10 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             List<SpatialFeaturePayload> spatialFeatures) {
         private Payload { playerStartCandidates = playerStartCandidates == null ? List.of() : List.copyOf(playerStartCandidates); }
     }
+
+    private record ExplorationTokensRequest(UUID ownerId, UUID commandId, long expectedVersion, List<UUID> preferredTokenIds, UUID originTokenId, int count) { }
+    private record ExplorationTokenPayload(UUID id, int x, int y) { }
+    private record ExplorationTokensResponse(UUID mapId, long version, List<ExplorationTokenPayload> tokens) { }
     private record StartCandidatePayload(int x, int y, double confidence, List<String> evidence, String source) {
         private StartCandidatePayload { evidence = evidence == null ? List.of() : List.copyOf(evidence); }
     }

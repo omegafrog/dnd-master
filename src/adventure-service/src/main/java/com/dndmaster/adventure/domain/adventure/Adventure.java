@@ -180,6 +180,22 @@ public final class Adventure {
         version++;
     }
 
+    public void updateExplorationState(OwnerPlayerId requestingOwner, long expectedVersion,
+            com.dndmaster.adventure.domain.runtime.ExplorationState explorationState) {
+        authorizeSaved(requestingOwner);
+        requireExpectedVersion(expectedVersion);
+        java.util.Set<java.util.UUID> partyIds = party.stream().map(member -> member.characterSheetId().value())
+                .collect(java.util.stream.Collectors.toSet());
+        java.util.Set<java.util.UUID> groupIds = explorationState.groups().stream()
+                .flatMap(group -> group.members().stream()).map(member -> member.characterSheetId())
+                .collect(java.util.stream.Collectors.toSet());
+        if (!partyIds.equals(groupIds)) throw new IllegalArgumentException("exploration groups must contain every party member exactly once");
+        java.util.Map<String, Object> values = new java.util.LinkedHashMap<>(gameState.values());
+        values.put("explorationState", Objects.requireNonNull(explorationState));
+        gameState = new GameState(values, gameState.revision() + 1);
+        version++;
+    }
+
     /** Applies every local RuntimeTurn change under one Adventure aggregate version. */
     public void commitRuntimeTurn(OwnerPlayerId requestingOwner, long expectedVersion,
             PendingRuntimeState pending, AdventureContext playerContext,

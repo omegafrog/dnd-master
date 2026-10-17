@@ -3,7 +3,7 @@ import java.util.*;
 public final class CombatMap {
     private final MapId id; private final AdventureId adventureId; private final RuleSetId ruleSetId; private final GridSpec grid;
     private final PlayerId ownerPlayerId;
-    private final List<CombatToken> tokens; private final Set<GridPosition> obstacles; private final List<MapLayer> layers;
+    private List<CombatToken> tokens; private final Set<GridPosition> obstacles; private final List<MapLayer> layers;
     private List<SpatialFeature> spatialFeatures = List.of(); private Set<Door> doors = Set.of();
     private boolean spatialPreparationBlocked;
     private long version; private UUID operationKey; private String operationFingerprint; private VisibilitySnapshot visibilitySnapshot;
@@ -77,6 +77,40 @@ public final class CombatMap {
     }
     public java.util.Optional<CombatToken> token(TokenId tokenId) {
         return tokens.stream().filter(candidate -> candidate.id().equals(Objects.requireNonNull(tokenId))).findFirst();
+    }
+    public List<CombatToken> ensurePlayerTokenCount(PlayerId playerId, int count) {
+        List<UUID> preferred = tokens.stream().filter(token -> token.type() == TokenType.PLAYER
+                && token.ownerPlayerId().filter(playerId::equals).isPresent()).limit(Math.max(0, count))
+                .map(token -> token.id().value()).collect(java.util.stream.Collectors.toCollection(ArrayList::new));
+        while (preferred.size() < count) preferred.add(null);
+        return ensurePlayerTokenCount(playerId, preferred, null, count);
+    }
+    public List<CombatToken> ensurePlayerTokenCount(PlayerId playerId, List<UUID> preferredTokenIds, UUID originTokenId, int count) {
+        Objects.requireNonNull(playerId, "player id must not be null");
+        if (ownerPlayerId == null || !ownerPlayerId.equals(playerId) || count < 1 || preferredTokenIds == null || preferredTokenIds.size() != count)
+            throw new CombatMapMovementDeniedException("invalid exploration token owner or count");
+        List<CombatToken> playerTokens = tokens.stream().filter(token -> token.type() == TokenType.PLAYER
+                && token.ownerPlayerId().filter(playerId::equals).isPresent()).toList();
+        if (playerTokens.isEmpty()) throw new CombatMapMovementDeniedException("player token position is unavailable");
+        Set<UUID> seen = new HashSet<>();
+        List<CombatToken> ensured = new ArrayList<>(count);
+        for (UUID preferredId : preferredTokenIds) {
+            if (preferredId == null) { ensured.add(null); continue; }
+            if (!seen.add(preferredId)) throw new CombatMapMovementDeniedException("exploration token ids must be unique");
+            ensured.add(playerTokens.stream().filter(candidate -> candidate.id().value().equals(preferredId)).findFirst()
+                    .orElseThrow(() -> new CombatMapMovementDeniedException("exploration token does not belong to player")));
+        }
+        CombatToken origin = originTokenId == null ? playerTokens.getFirst() : playerTokens.stream()
+                .filter(candidate -> candidate.id().value().equals(originTokenId)).findFirst()
+                .orElseThrow(() -> new CombatMapMovementDeniedException("exploration origin token does not belong to player"));
+        GridPosition spawn = origin.position();
+        if (!isPublicTraversable(spawn)) throw new CombatMapMovementDeniedException("player token position is not publicly traversable");
+        for (int index = 0; index < ensured.size(); index++) if (ensured.get(index) == null)
+            ensured.set(index, new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER, spawn, TokenController.PLAYER, playerId));
+        tokens = java.util.stream.Stream.concat(tokens.stream().filter(token -> token.type() != TokenType.PLAYER
+                        || !token.ownerPlayerId().filter(playerId::equals).isPresent()), ensured.stream())
+                .toList();
+        return List.copyOf(ensured);
     }
     public int setTokenElevation(TokenId tokenId, int elevationFeet) {
         CombatToken token = token(tokenId).orElseThrow(() -> new CombatMapMovementDeniedException("token not found"));

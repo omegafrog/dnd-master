@@ -13,6 +13,32 @@ class CombatMapVisibilityIntegrationTest{
   assertEquals(12,store.find(map.id()).orElseThrow().map().tokens().getFirst().elevation());
  }
  @Test @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+ void explorationGroupsUseMapOwnedTokensAndKeepTheirAuthoritativePositions(org.springframework.boot.test.system.CapturedOutput output){
+  GridPosition start=new GridPosition(1,1); PlayerId player=new PlayerId(owner.value());
+  PreparedMapData prepared=new PreparedMapData(new GridSpec(4,4,50,5),List.of(
+          new CombatToken(new TokenId(UUID.randomUUID()),TokenType.PLAYER,start,TokenController.PLAYER,player)),Set.of(),List.of());
+  CombatMapViewService service=service(prepared);
+  CombatMap map=service.prepareGenerated(owner,adventure(),rules(),"exploration");
+  UUID firstToken=map.tokens().getFirst().id().value(), command=UUID.randomUUID();
+
+  List<UUID> preferred=Arrays.asList(firstToken,null);
+  String previous=System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+  System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED","true");
+  CombatMap changed, replay;
+  try {
+   changed=service.ensureExplorationTokenCount(map.id(),owner,0,command,preferred,firstToken,2);
+   replay=service.ensureExplorationTokenCount(map.id(),owner,0,command,preferred,firstToken,2);
+   assertThrows(IllegalStateException.class,()->service.ensureExplorationTokenCount(map.id(),owner,0,UUID.randomUUID(),preferred,firstToken,2));
+  } finally {if(previous==null)System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",previous);}
+
+  assertEquals(2,changed.tokens().stream().filter(token->token.type()==TokenType.PLAYER).count());
+  assertEquals(start,changed.tokens().get(1).position());
+  assertEquals(changed.tokens().stream().map(CombatToken::id).toList(),replay.tokens().stream().map(CombatToken::id).toList());
+  assertEquals(2,store.find(map.id()).orElseThrow().map().tokens().stream().filter(token->token.type()==TokenType.PLAYER).count());
+  org.assertj.core.api.Assertions.assertThat(output).contains("dev_exploration_tokens_ensure outcome=started")
+          .contains("count=2").contains("preferredCount=2").contains("outcome=completed").contains("outcome=replayed").contains("actualVersion=1");
+ }
+ @Test @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
  void ownerCanChangeTokenElevationWithExpectedVersionAndPersistIt(org.springframework.boot.test.system.CapturedOutput output){
   var token=new CombatToken(new TokenId(UUID.randomUUID()),TokenType.PLAYER,new GridPosition(1,1),TokenController.PLAYER,new PlayerId(owner.value()));
   var map=new CombatMap(new MapId(UUID.randomUUID()),adventure(),rules(),new GridSpec(4,4,50,5),new PlayerId(owner.value()),List.of(token),Set.of(),List.of(),0,null);
