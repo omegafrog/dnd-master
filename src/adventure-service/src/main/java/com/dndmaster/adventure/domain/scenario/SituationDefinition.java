@@ -8,7 +8,7 @@ public record SituationDefinition(String situationId, List<StageIntent> intents,
                                   List<String> funnelPredicateIds, List<String> importantConsequenceIds, boolean opening,
                                   boolean required, List<String> prerequisiteSituationIds,
                                   SituationProvenance provenance, java.util.UUID mapDefinitionId,
-                                  List<ScenarioSourceReference> sourceRefs, boolean mapNeeded) {
+                                  List<ScenarioSourceReference> sourceRefs, Boolean mapNeeded) {
     public SituationDefinition(String situationId, List<StageIntent> intents,
             List<String> revelationIds, List<String> pressureIds, List<String> funnelIds,
             List<String> funnelPredicateIds, List<String> importantConsequenceIds, boolean opening,
@@ -16,7 +16,7 @@ public record SituationDefinition(String situationId, List<StageIntent> intents,
             java.util.UUID mapDefinitionId, List<ScenarioSourceReference> sourceRefs) {
         this(situationId, intents, revelationIds, pressureIds, funnelIds, funnelPredicateIds,
                 importantConsequenceIds, opening, required, prerequisiteSituationIds, provenance,
-                mapDefinitionId, sourceRefs, false);
+                mapDefinitionId, sourceRefs, mapDefinitionId != null);
     }
 
     public SituationDefinition {
@@ -36,6 +36,7 @@ public record SituationDefinition(String situationId, List<StageIntent> intents,
         }
         provenance = Objects.requireNonNull(provenance, "situation provenance must not be null");
         sourceRefs = List.copyOf(Objects.requireNonNull(sourceRefs, "situation source refs must not be null"));
+        mapNeeded = mapNeeded == null ? mapDefinitionId != null : mapNeeded;
         if (mapNeeded && mapDefinitionId == null) throw new IllegalArgumentException("map-needed situation requires a map definition");
         if (intents.isEmpty()) throw new IllegalArgumentException("situation must have a stage intent");
         if (revelationIds.isEmpty() && pressureIds.isEmpty() && funnelIds.isEmpty() && funnelPredicateIds.isEmpty() && importantConsequenceIds.isEmpty()) {

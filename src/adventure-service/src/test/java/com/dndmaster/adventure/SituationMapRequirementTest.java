@@ -25,6 +25,18 @@ class SituationMapRequirementTest {
         assertThrows(IllegalArgumentException.class, () -> situation(null, true));
     }
 
+    @Test
+    void olderSavedSituationsInferMapNeedFromTheirMapIdButExplicitFalseWins() {
+        var mapId = UUID.randomUUID();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var olderSavedSituation = mapper.valueToTree(situation(mapId, true));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) olderSavedSituation).remove("mapNeeded");
+        var explicitMaplessSituation = mapper.valueToTree(situation(mapId, false));
+
+        assertTrue(mapper.convertValue(olderSavedSituation, SituationDefinition.class).mapNeeded());
+        assertFalse(mapper.convertValue(explicitMaplessSituation, SituationDefinition.class).mapNeeded());
+    }
+
     private static SituationDefinition situation(UUID mapId, boolean mapNeeded) {
         return new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
                 List.of(), List.of(), List.of(), List.of(), true, true, List.of(),
