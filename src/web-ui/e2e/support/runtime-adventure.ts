@@ -29,6 +29,10 @@ export function assertPotentBrewStorybooks(sources = storybooks) {
   if (missingRoles.length) throw new Error(`BACKEND_E2E_STORYBOOKS_JSON is missing required roles: ${missingRoles.join(', ')}`)
 }
 
+export function isStorybookReady(status: string) {
+  return ['EXTRACTED', 'INDEXED', 'INDEXED_WITH_WARNINGS', 'PARTIAL_CONFIRMED'].includes(status)
+}
+
 export async function bootstrapStartedAdventure(request: APIRequestContext, partyMemberCount = 1) {
   const auth = await login(request)
   const prepared = await createPreparedPackage(request, auth)
@@ -174,7 +178,7 @@ async function waitForDocuments(request: APIRequestContext, auth: Auth, ids: str
     const items = (await response.json() as { rulebooks: Array<{ knowledgeDocumentId: string, status: string, failureReason?: string }> }).rulebooks.filter(item => ids.includes(item.knowledgeDocumentId))
     const failed = items.find(item => ['FAILED', 'REJECTED', 'NEEDS_INPUT', 'PARTIAL_AWAITING_CONFIRMATION'].includes(item.status))
     if (failed) throw new Error(`storybook ${failed.knowledgeDocumentId} stopped at ${failed.status}: ${failed.failureReason ?? ''}`)
-    if (items.length === ids.length && items.every(item => ['EXTRACTED', 'INDEXED', 'PARTIAL_CONFIRMED'].includes(item.status))) return
+    if (items.length === ids.length && items.every(item => isStorybookReady(item.status))) return
     await delay(2_000)
   }
 }

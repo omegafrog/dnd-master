@@ -1,8 +1,13 @@
 import { expect, test } from '@playwright/test'
-import { assertPotentBrewStorybooks, bootstrapStartedAdventure, hasRuntimeEnvironment } from './support/runtime-adventure'
+import { assertPotentBrewStorybooks, bootstrapStartedAdventure, hasRuntimeEnvironment, isStorybookReady } from './support/runtime-adventure'
 
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
+
+test('storybook extraction warnings are terminal when the indexed content remains usable', () => {
+  expect(isStorybookReady('INDEXED_WITH_WARNINGS')).toBe(true)
+  expect(isStorybookReady('PROCESSING')).toBe(false)
+})
 
 test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다', async ({ page, request }) => {
   test.skip(!hasRuntimeEnvironment(), '실제 백엔드 로그인과 MAIN_SCENARIO, MAP, HANDOUT 자료가 필요합니다')
