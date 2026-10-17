@@ -579,6 +579,13 @@ public class AdventureController {
                 "exploration_groups_save", "adventureId=" + adventureId + " groupCount=" + request.groups().size()
                         + " memberCount=" + request.groups().stream().mapToInt(group -> group.members().size()).sum()
                         + " expectedVersion=" + request.expectedVersion());
+        if (adventure.version() != request.expectedVersion()) {
+            var stale = new ApiRequestGuard.ApiContractException(409, "STALE_EXPLORATION_GROUPS");
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                    "exploration_groups_save", "adventureId=" + adventureId + " expectedVersion=" + request.expectedVersion()
+                            + " actualVersion=" + adventure.version(), started, stale);
+            throw stale;
+        }
         try {
             var proposed = request.groups().stream().map(group -> new com.dndmaster.adventure.domain.runtime.ExplorationGroup(
                     group.id(), UUID.randomUUID(), group.members().stream().map(member -> new com.dndmaster.adventure.domain.runtime.ExplorationGroup.Member(

@@ -89,6 +89,8 @@ public final class CombatMap {
         Objects.requireNonNull(playerId, "player id must not be null");
         if (ownerPlayerId == null || !ownerPlayerId.equals(playerId) || count < 1 || preferredTokenIds == null || preferredTokenIds.size() != count)
             throw new CombatMapMovementDeniedException("invalid exploration token owner or count");
+        if (runtimeState.combatEntered() && runtimeState.outcome().isBlank())
+            throw new CombatMapMovementDeniedException("exploration tokens cannot replace player tokens during active combat");
         List<CombatToken> playerTokens = tokens.stream().filter(token -> token.type() == TokenType.PLAYER
                 && token.ownerPlayerId().filter(playerId::equals).isPresent()).toList();
         if (playerTokens.isEmpty()) throw new CombatMapMovementDeniedException("player token position is unavailable");

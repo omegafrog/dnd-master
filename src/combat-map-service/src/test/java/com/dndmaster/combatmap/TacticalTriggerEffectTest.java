@@ -94,4 +94,22 @@ class TacticalTriggerEffectTest {
         assertEquals("SUCCESS", map.runtimeState().outcome());
         assertEquals("ending-1", map.runtimeState().transitionId());
     }
+
+    @Test
+    void explorationTokenReconciliationCannotReplacePlayerTokensDuringActiveCombat() {
+        var owner = new PlayerId(UUID.randomUUID());
+        var first = new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
+                new GridPosition(0, 0), TokenController.PLAYER, owner);
+        var second = new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
+                new GridPosition(1, 0), TokenController.PLAYER, owner);
+        var map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()),
+                new RuleSetId(UUID.randomUUID()), new GridSpec(3, 3, 5, 5), owner,
+                List.of(first, second), List.of(), List.of(), 0, null);
+        map.apply(TacticalTriggerEffect.planned("combat-entry", TacticalTriggerEffect.Kind.COMBAT_ENTRY,
+                List.of(), "", "combat-entry"));
+
+        assertThrows(CombatMapMovementDeniedException.class,
+                () -> map.ensurePlayerTokenCount(owner, List.of(first.id().value()), first.id().value(), 1));
+        assertEquals(List.of(first.id(), second.id()), map.tokens().stream().map(CombatToken::id).toList());
+    }
 }
