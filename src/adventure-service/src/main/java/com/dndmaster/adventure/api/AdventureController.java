@@ -567,6 +567,7 @@ public class AdventureController {
     }
 
     @PutMapping("/api/v1/adventures/{adventureId}/exploration-groups")
+    @org.springframework.transaction.annotation.Transactional
     ExplorationGroupsResponse saveExplorationGroups(@PathVariable UUID adventureId,
             @RequestBody ExplorationGroupsRequest request) {
         if (request == null || request.expectedVersion() == null || request.groups() == null || request.groups().isEmpty()
@@ -574,7 +575,9 @@ public class AdventureController {
                         || group.members().isEmpty() || group.members().stream().anyMatch(member -> member == null
                                 || member.characterSheetId() == null || member.formation() == null)))
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_EXPLORATION_GROUPS");
-        Adventure adventure = ownedAdventure(adventureId);
+        Adventure adventure = adventureRepository.findByIdForUpdate(new AdventureId(adventureId)).orElseThrow();
+        if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId()))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
                 "exploration_groups_save", "adventureId=" + adventureId + " groupCount=" + request.groups().size()
                         + " memberCount=" + request.groups().stream().mapToInt(group -> group.members().size()).sum()

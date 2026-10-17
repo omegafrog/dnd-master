@@ -41,6 +41,18 @@ public final class PostgresAdventureRepository implements AdventureRepository, A
     }
 
     @Override
+    public Optional<Adventure> findByIdForUpdate(AdventureId adventureId) {
+        String sql = "SELECT * FROM adventure WHERE adventure_id = ? FOR UPDATE";
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, adventureId.value());
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) return Optional.empty();
+                return Optional.of(mapAdventure(connection, row));
+            }
+        } catch (SQLException exception) { throw failure("could not lock adventure for update", exception); }
+    }
+
+    @Override
     public Optional<Adventure> findBySessionId(SessionId sessionId) {
         String sql = "SELECT * FROM adventure WHERE session_id = ? ORDER BY adventure_id LIMIT 1";
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {

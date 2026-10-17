@@ -9,6 +9,8 @@ import java.util.Optional;
 
 public interface AdventureRepository {
     Optional<Adventure> findById(AdventureId adventureId);
+    /** Loads an adventure while preventing concurrent versioned updates until the current transaction ends. */
+    default Optional<Adventure> findByIdForUpdate(AdventureId adventureId) { return findById(adventureId); }
     /** Finds the runtime adventure already associated with a session, if one exists. */
     default Optional<Adventure> findBySessionId(SessionId sessionId) { return Optional.empty(); }
     List<Adventure> findSavedByOwner(OwnerPlayerId ownerPlayerId);
