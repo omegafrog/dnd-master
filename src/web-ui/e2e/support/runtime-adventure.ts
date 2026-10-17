@@ -33,6 +33,10 @@ export function isStorybookReady(status: string) {
   return ['EXTRACTED', 'INDEXED', 'INDEXED_WITH_WARNINGS', 'PARTIAL_CONFIRMED'].includes(status)
 }
 
+export function sessionCreationPayload(packageId: string, blueprintRevision: number, partySize: number, preparationId: string) {
+  return { scenarioPackageId: packageId, blueprintId: packageId, blueprintRevision, partySize, preparationId }
+}
+
 export async function bootstrapStartedAdventure(request: APIRequestContext, partyMemberCount = 1) {
   const auth = await login(request)
   const prepared = await createPreparedPackage(request, auth)
@@ -152,8 +156,31 @@ async function createPreparedPackage(request: APIRequestContext, auth: Auth): Pr
 }
 
 async function createSession(request: APIRequestContext, auth: Auth, prepared: PreparedPackage, partyMemberCount: number) {
+  const reviewResponse = await request.post(`${backend}/api/v1/scenario-packages/${prepared.packageId}/play-preparations`, {
+    headers: { ...auth.headers, 'Idempotency-Key': crypto.randomUUID() },
+  })
+  expect(reviewResponse.ok(), await reviewResponse.text()).toBeTruthy()
+  let review = await reviewResponse.json() as {
+    preparationId: string,
+    spellDefinitionRevision: number,
+    spellDefinitions: Array<{ id: string, active: boolean, required: boolean, executable: boolean,
+      reviewStatus: string, rangeProfile?: { supported: boolean }, targetingProfile?: { supported: boolean } }>,
+  }
+  const requiredPending = review.spellDefinitions.filter(definition => definition.active && definition.required
+    && definition.reviewStatus !== 'APPROVED')
+  for (const definition of requiredPending) {
+    expect(definition.executable && definition.rangeProfile?.supported && definition.targetingProfile?.supported,
+      `required action ${definition.id} must be supported before session creation`).toBe(true)
+    const approval = await request.post(`${backend}/api/v1/play-preparations/${review.preparationId}`
+      + `/spell-action-definitions/${encodeURIComponent(definition.id)}/approve`, {
+      headers: auth.headers,
+      data: { expectedRevision: review.spellDefinitionRevision },
+    })
+    expect(approval.ok(), await approval.text()).toBeTruthy()
+    review = await approval.json() as typeof review
+  }
   const response = await request.post(`${backend}/api/v1/adventure-sessions`, { headers: auth.headers,
-    data: { scenarioPackageId: prepared.packageId, blueprintId: prepared.packageId, blueprintRevision: prepared.blueprintRevision, partySize: partyMemberCount } })
+    data: sessionCreationPayload(prepared.packageId, prepared.blueprintRevision, partyMemberCount, review.preparationId) })
   expect(response.ok(), await response.text()).toBeTruthy()
   return response.json() as Promise<{ sessionId: string, version: number }>
 }

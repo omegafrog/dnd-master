@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
-import { assertPotentBrewStorybooks, bootstrapStartedAdventure, hasRuntimeEnvironment, isStorybookReady } from './support/runtime-adventure'
+import { assertPotentBrewStorybooks, bootstrapStartedAdventure, hasRuntimeEnvironment, isStorybookReady,
+  sessionCreationPayload } from './support/runtime-adventure'
 
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
@@ -7,6 +8,13 @@ const password = process.env.BACKEND_E2E_PASSWORD
 test('storybook extraction warnings are terminal when the indexed content remains usable', () => {
   expect(isStorybookReady('INDEXED_WITH_WARNINGS')).toBe(true)
   expect(isStorybookReady('PROCESSING')).toBe(false)
+})
+
+test('adventure session creation binds the reviewed action preparation', () => {
+  expect(sessionCreationPayload('package-1', 3, 2, 'preparation-1')).toEqual({
+    scenarioPackageId: 'package-1', blueprintId: 'package-1', blueprintRevision: 3,
+    partySize: 2, preparationId: 'preparation-1',
+  })
 })
 
 test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다', async ({ page, request }) => {
