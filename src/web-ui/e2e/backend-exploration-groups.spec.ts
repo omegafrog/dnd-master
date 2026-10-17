@@ -56,7 +56,9 @@ test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다',
 
 async function readGroups(page: import('@playwright/test').Page, adventureId: string) {
   return page.evaluate(async ({ adventureId }) => {
-    const response = await fetch(`/api/v1/adventures/${adventureId}/exploration-groups`)
+    const token = JSON.parse(localStorage.getItem('dnd-master.auth-session') ?? '{}').accessToken as string | undefined
+    if (!token) throw new Error('authenticated browser session is unavailable')
+    const response = await fetch(`/api/v1/adventures/${adventureId}/exploration-groups`, { headers: { Authorization: `Bearer ${token}` } })
     if (!response.ok) throw new Error(`group read failed: ${response.status}`)
     return response.json() as Promise<{ version: number, groups: Array<{ id: string, mapTokenId: string, members: Array<{ characterSheetId: string, formation: string }> }> }>
   }, { adventureId })
@@ -64,7 +66,9 @@ async function readGroups(page: import('@playwright/test').Page, adventureId: st
 
 async function readMap(page: import('@playwright/test').Page, adventureId: string) {
   return page.evaluate(async ({ adventureId }) => {
-    const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map`)
+    const token = JSON.parse(localStorage.getItem('dnd-master.auth-session') ?? '{}').accessToken as string | undefined
+    if (!token) throw new Error('authenticated browser session is unavailable')
+    const response = await fetch(`/api/v1/adventures/${adventureId}/combat-map`, { headers: { Authorization: `Bearer ${token}` } })
     if (!response.ok) throw new Error(`map read failed: ${response.status}`)
     return response.json() as Promise<{ tokens: Array<{ id: string, type: string, x: number, y: number }> }>
   }, { adventureId })
