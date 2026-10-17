@@ -266,9 +266,14 @@ class CharacterSheetApplicationServiceTest {
             UUID commandId = UUID.randomUUID();
             service.updateAbilityResource(sheet.id(), sheet.sessionId(), owner, "charge", List.of("ability:test"),
                     1, 2, "LONG_REST", commandId, 0);
+            assertThrows(IllegalArgumentException.class, () -> service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                    "charge", 0, null, false, UUID.randomUUID(), 1));
             String output = String.join("\n", records);
             assertTrue(output.contains(commandId.toString()));
             assertTrue(output.contains("branch=updated"));
+            assertTrue(output.contains("outcome=started"));
+            assertTrue(output.contains("outcome=failed"));
+            assertTrue(output.contains("failureClass=IllegalArgumentException"));
             assertTrue(output.contains("expectedVersion=0"));
             assertTrue(output.contains("actualVersion=1"));
         } finally {
