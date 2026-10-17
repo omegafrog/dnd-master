@@ -29,21 +29,24 @@ export function assertPotentBrewStorybooks(sources = storybooks) {
   if (missingRoles.length) throw new Error(`BACKEND_E2E_STORYBOOKS_JSON is missing required roles: ${missingRoles.join(', ')}`)
 }
 
-export async function bootstrapStartedAdventure(request: APIRequestContext) {
+export async function bootstrapStartedAdventure(request: APIRequestContext, partyMemberCount = 1) {
   const auth = await login(request)
   const prepared = await createPreparedPackage(request, auth)
-  const session = await createSession(request, auth, prepared)
-  const sheetId = await createCharacter(request, auth, session.sessionId)
-  const party = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/party`, {
-    headers: { ...auth.headers, 'If-Match-Version': String(session.version) },
-    data: { characterSheetId: sheetId, controlMode: 'DIRECT', nameMutableAfterStart: false, raceMutableAfterStart: false,
-      characterClassMutableAfterStart: false, backgroundMutableAfterStart: false, startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false },
-  })
-  expect(party.ok(), await party.text()).toBeTruthy()
-  const ready = await party.json() as { version: number }
+  const session = await createSession(request, auth, prepared, partyMemberCount)
+  let version = session.version
+  for (let member = 0; member < partyMemberCount; member++) {
+    const sheetId = await createCharacter(request, auth, session.sessionId)
+    const party = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/party`, {
+      headers: { ...auth.headers, 'If-Match-Version': String(version) },
+      data: { characterSheetId: sheetId, controlMode: 'DIRECT', nameMutableAfterStart: false, raceMutableAfterStart: false,
+        characterClassMutableAfterStart: false, backgroundMutableAfterStart: false, startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false },
+    })
+    expect(party.ok(), await party.text()).toBeTruthy()
+    version = (await party.json() as { version: number }).version
+  }
   const adventureId = crypto.randomUUID()
   const started = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/start`, {
-    headers: { ...auth.headers, 'If-Match-Version': String(ready.version), 'Idempotency-Key': crypto.randomUUID() },
+    headers: { ...auth.headers, 'If-Match-Version': String(version), 'Idempotency-Key': crypto.randomUUID() },
     data: { adventureId, prepareMapOnly: false },
   })
   expect(started.ok(), await started.text()).toBeTruthy()
@@ -144,9 +147,9 @@ async function createPreparedPackage(request: APIRequestContext, auth: Auth): Pr
   return { packageId, blueprintRevision: published.characterCreationBlueprint.revision! }
 }
 
-async function createSession(request: APIRequestContext, auth: Auth, prepared: PreparedPackage) {
+async function createSession(request: APIRequestContext, auth: Auth, prepared: PreparedPackage, partyMemberCount: number) {
   const response = await request.post(`${backend}/api/v1/adventure-sessions`, { headers: auth.headers,
-    data: { scenarioPackageId: prepared.packageId, blueprintId: prepared.packageId, blueprintRevision: prepared.blueprintRevision, partySize: 1 } })
+    data: { scenarioPackageId: prepared.packageId, blueprintId: prepared.packageId, blueprintRevision: prepared.blueprintRevision, partySize: partyMemberCount } })
   expect(response.ok(), await response.text()).toBeTruthy()
   return response.json() as Promise<{ sessionId: string, version: number }>
 }
