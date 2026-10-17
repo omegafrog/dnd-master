@@ -204,6 +204,15 @@ class CharacterSheetApplicationServiceTest {
         assertThrows(IllegalStateException.class, () -> service.updateAbilityResource(sheet.id(), sheet.sessionId(), owner,
                 "arcane-charge", List.of("ability:blink"), 1, 3, "LONG_REST", setupCommand, 0));
         assertEquals(1, repository.findById(sheet.id()).orElseThrow().version());
+        CharacterSheet otherSheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("리안", 1, false, "인간", "위저드", "학자", "INT=16", "{}",
+                        "{\"ownedEquipment\":[],\"ownedWeaponIds\":[],\"subclass\":\"\"}",
+                        "{\"equippedItems\":{\"armor\":\"\",\"shield\":false,\"mainHandWeaponId\":null,\"offHandWeaponId\":null,\"twoHandedWeaponId\":null}}"), 0, null, null);
+        repository.save(otherSheet);
+        assertThrows(IllegalStateException.class, () -> service.updateAbilityResource(otherSheet.id(), otherSheet.sessionId(), owner,
+                "arcane-charge", List.of("ability:blink"), 2, 3, "LONG_REST", setupCommand, 0));
+        assertEquals(0, repository.findById(otherSheet.id()).orElseThrow().version());
         UUID consumeCommand = UUID.randomUUID();
         CharacterSheet consumed = service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
                 "arcane-charge", 1, null, false, consumeCommand, 1);

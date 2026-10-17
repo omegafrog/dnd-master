@@ -180,7 +180,8 @@ public final class CharacterSheetApplicationService {
             CharacterResourceDiagnostics.fail(LOGGER, started, String.valueOf(commandId), expectedVersion, -1, failure);
             throw failure;
         }
-        String fingerprint = "RESOURCE|SET|" + idKey + "|" + abilities + "|" + current + "|" + maximum + "|" + recoveryCondition;
+        String fingerprint = resourceCommandFingerprint(id, sessionId, ownerPlayerId,
+                "SET|" + idKey + "|" + abilities + "|" + current + "|" + maximum + "|" + recoveryCondition);
         return applyResourceChange(id, sessionId, ownerPlayerId, commandId, expectedVersion, fingerprint, started, state -> {
             ObjectNode resource = JSON.createObjectNode();
             resource.put("current", current); resource.put("maximum", maximum); resource.put("recoveryCondition", recoveryCondition);
@@ -214,7 +215,8 @@ public final class CharacterSheetApplicationService {
             CharacterResourceDiagnostics.fail(LOGGER, started, "null", expectedVersion, -1, failure);
             throw failure;
         }
-        String fingerprint = "RESOURCE|" + (recover ? "RECOVER|" + recoveryCondition : "CONSUME") + "|" + idKey + "|" + amount;
+        String fingerprint = resourceCommandFingerprint(id, sessionId, ownerPlayerId,
+                (recover ? "RECOVER|" + recoveryCondition : "CONSUME") + "|" + idKey + "|" + amount);
         return applyResourceChange(id, sessionId, ownerPlayerId, commandId, expectedVersion, fingerprint, started, state -> {
             JsonNode resources = state.get("resources");
             JsonNode found = resources == null ? null : resources.get(idKey);
@@ -272,6 +274,11 @@ public final class CharacterSheetApplicationService {
         JsonNode value = resource.get(key);
         if (value == null || !value.isIntegralNumber() || value.intValue() < 0) throw new IllegalArgumentException("저장된 자원 " + key + " 값이 올바르지 않습니다.");
         return value.intValue();
+    }
+
+    private static String resourceCommandFingerprint(CharacterSheetId id, SessionId sessionId, UUID ownerPlayerId,
+            String operation) {
+        return "RESOURCE|SHEET=" + id.value() + "|SESSION=" + sessionId.value() + "|OWNER=" + ownerPlayerId + "|" + operation;
     }
 
     private static String safeResourceId(String resourceId) { return resourceId == null ? "unknown" : resourceId.trim(); }

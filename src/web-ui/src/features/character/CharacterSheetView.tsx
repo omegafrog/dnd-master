@@ -20,6 +20,11 @@ export function CharacterSheetView({ sheetId, api }: { sheetId: string; api: Adv
     ['지혜', 'WIS', sheet.wisdom],
     ['매력', 'CHA', sheet.charisma],
   ] as const
+  const recoveryConditionLabel = (condition: string) => {
+    const names: Record<string, string> = { LONG_REST: '긴 휴식', SHORT_REST: '짧은 휴식' }
+    const name = names[condition]
+    return name ? `${name} (저장된 회복 조건 식별자: ${condition})` : `저장된 회복 조건 식별자: ${condition}`
+  }
   return (
     <section className="character-sheet-page" aria-labelledby="sheet-heading">
       <div className="page-heading character-sheet-heading"><div><p className="eyebrow">CHARACTER RECORD</p><h1 id="sheet-heading">{sheet.name}</h1><p>모험에 고정된 캐릭터 능력치와 방어 정보를 확인합니다.</p></div><span className="status-chip">{sheet.edition}</span></div>
@@ -43,10 +48,10 @@ export function CharacterSheetView({ sheetId, api }: { sheetId: string; api: Adv
       </div>
       <section aria-labelledby="sheet-resources-heading" className="character-sheet-resources">
         <h2 id="sheet-resources-heading">배운 능력과 자원</h2>
-        {(sheet.learnedAbilityIds?.length ?? 0) > 0 && <ul aria-label="배운 능력 식별자">{sheet.learnedAbilityIds!.map(id => <li key={id}>{id}</li>)}</ul>}
+        {(sheet.learnedAbilityIds?.length ?? 0) > 0 && <ul aria-label="배운 능력의 고유 식별자">{sheet.learnedAbilityIds!.map(id => <li key={id}>능력의 고유 식별자: {id}</li>)}</ul>}
         {Object.entries(sheet.resources ?? {}).length === 0 ? <p>저장된 능력 자원이 없습니다.</p> : Object.entries(sheet.resources ?? {}).map(([id, resource]) => <article key={id}>
-          <h3>{id}</h3><p>{resource.current}/{resource.maximum} · 회복 조건 {resource.recoveryCondition}</p>
-          {resource.abilityIds.length > 0 && <p>연결된 능력: {resource.abilityIds.join(', ')}</p>}
+          <h3>자원 고유 식별자: {id}</h3><p>현재 {resource.current}/{resource.maximum} · 회복 조건 {recoveryConditionLabel(resource.recoveryCondition)}</p>
+          {resource.abilityIds.length > 0 && <p>연결된 능력의 고유 식별자: {resource.abilityIds.join(', ')}</p>}
         </article>)}
       </section>
     </section>
