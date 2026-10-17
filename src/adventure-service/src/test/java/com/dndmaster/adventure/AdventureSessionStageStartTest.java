@@ -57,8 +57,11 @@ class AdventureSessionStageStartTest {
         when(scenarioPackage.isReady()).thenReturn(true);
         when(scenarioPackage.scenarioModel()).thenReturn(mock(com.dndmaster.adventure.domain.scenario.ScenarioModel.class));
         AdventureSessionRuntimeConfiguration configuration = configuration(packageId);
-        when(scenarioPackage.initialMapDefinition(configuration.initialScene()))
-                .thenReturn(Optional.of(mock(MapDefinition.class)));
+        MapDefinition map = mock(MapDefinition.class);
+        UUID mapId = UUID.randomUUID();
+        when(map.id()).thenReturn(mapId);
+        when(map.autoActivatable()).thenReturn(true);
+        when(scenarioPackage.mapDefinitions()).thenReturn(List.of(map));
         AdventureSession session = AdventureSession.rehydrate(SessionId.generate(), owner, packageId, 1,
                 packageId, 1, 1, List.of(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()),
                         ControlMode.DIRECT, true, true, true, true, true, true)), configuration,
@@ -80,6 +83,8 @@ class AdventureSessionStageStartTest {
         var prepared = mock(StageArtifactPreparationApplicationService.Result.class);
         var opening = mock(com.dndmaster.adventure.domain.scenario.SituationDefinition.class);
         when(opening.situationId()).thenReturn("opening");
+        when(opening.mapNeeded()).thenReturn(true);
+        when(opening.mapDefinitionId()).thenReturn(mapId);
         when(prepared.openingSituation()).thenReturn(opening);
         when(preparation.prepare(any(), any(), eq(packageId))).thenReturn(prepared);
         var plan = mock(com.dndmaster.adventure.application.runtime.RuntimePlan.class);
@@ -131,6 +136,8 @@ class AdventureSessionStageStartTest {
         when(scenarioPackage.bundleRevision()).thenReturn(1L);
         when(scenarioPackage.isReady()).thenReturn(true);
         when(scenarioPackage.scenarioModel()).thenReturn(mock(com.dndmaster.adventure.domain.scenario.ScenarioModel.class));
+        when(scenarioPackage.initialMapDefinition(configuration(packageId).initialScene()))
+                .thenReturn(Optional.of(mock(MapDefinition.class)));
         AdventureSession session = AdventureSession.rehydrate(SessionId.generate(), owner, packageId, 1,
                 packageId, 1, 1, List.of(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()),
                         ControlMode.DIRECT, true, true, true, true, true, true)), configuration(packageId),
@@ -148,15 +155,17 @@ class AdventureSessionStageStartTest {
         RuntimeTurnApplicationService openingRuntime = mock(RuntimeTurnApplicationService.class);
         UUID requestId = UUID.randomUUID();
 
+        CombatMapPreparationPort maps = mock(CombatMapPreparationPort.class);
         AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions,
                 packageRepository(scenarioPackage), adventures, mock(RuntimeBindingApplicationService.class),
                 mock(AdventureSessionStartCoordinator.class), mock(CharacterSheetOwnershipPort.class),
                 mock(SessionKnowledgeSetRepository.class), mock(AiCompanionGenerationPort.class),
-                mock(AiCompanionSheetCreationPort.class), (adventure, player, rules, map, stage) -> null, preparation,
+                mock(AiCompanionSheetCreationPort.class), maps, preparation,
                 openingRuntime);
 
         AdventureId adventureId = AdventureId.generate();
         service.start(session.id(), owner, 0, requestId, adventureId);
+        org.mockito.Mockito.verifyNoInteractions(maps);
 
         org.mockito.ArgumentCaptor<Adventure> saved = org.mockito.ArgumentCaptor.forClass(Adventure.class);
         org.mockito.Mockito.verify(adventures, org.mockito.Mockito.atLeastOnce()).save(saved.capture());
@@ -174,7 +183,10 @@ class AdventureSessionStageStartTest {
         when(scenarioPackage.isReady()).thenReturn(true);
         when(scenarioPackage.scenarioModel()).thenReturn(mock(com.dndmaster.adventure.domain.scenario.ScenarioModel.class));
         MapDefinition mapDefinition = mock(MapDefinition.class);
-        when(scenarioPackage.initialMapDefinition("legacy opening")).thenReturn(Optional.of(mapDefinition));
+        UUID mapId = UUID.randomUUID();
+        when(mapDefinition.id()).thenReturn(mapId);
+        when(mapDefinition.autoActivatable()).thenReturn(true);
+        when(scenarioPackage.mapDefinitions()).thenReturn(List.of(mapDefinition));
         var runtimeConfiguration = configuration(packageId);
         AdventureSession session = AdventureSession.rehydrate(SessionId.generate(), owner, packageId, 1,
                 packageId, 1, 1, List.of(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()),
@@ -196,6 +208,8 @@ class AdventureSessionStageStartTest {
         var prepared = mock(StageArtifactPreparationApplicationService.Result.class);
         var opening = mock(com.dndmaster.adventure.domain.scenario.SituationDefinition.class);
         when(opening.situationId()).thenReturn("prepared-opening");
+        when(opening.mapNeeded()).thenReturn(true);
+        when(opening.mapDefinitionId()).thenReturn(mapId);
         when(prepared.openingSituation()).thenReturn(opening);
         when(preparation.prepare(any(), any(), eq(packageId))).thenReturn(prepared);
         RuntimeTurnApplicationService openingRuntime = mock(RuntimeTurnApplicationService.class);
@@ -206,7 +220,7 @@ class AdventureSessionStageStartTest {
         when(openingRuntime.openSessionTurn(adventureId, owner, requestId)).thenReturn(openingResult);
         when(openingResult.turn()).thenReturn(openingTurn);
         when(openingTurn.plan()).thenReturn(openingPlan);
-        when(openingPlan.mapEntryRequested()).thenReturn(true);
+        when(openingPlan.mapEntryRequested()).thenReturn(false);
         when(openingTurn.action()).thenReturn("SESSION_OPENING");
         when(openingTurn.narration()).thenReturn("양조장 문을 열고 나무 계단을 따라 지하 저장고로 내려갑니다.");
         when(openingPlan.judgment()).thenReturn("스토리북의 시작 장면을 적용");

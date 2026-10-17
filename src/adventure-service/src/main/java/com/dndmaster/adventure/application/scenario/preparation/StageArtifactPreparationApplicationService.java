@@ -320,7 +320,8 @@ public final class StageArtifactPreparationApplicationService implements StageAr
 
     private static List<String> situationAudit(List<SituationDefinition> situations) {
         return situations.stream().map(item -> item.situationId() + ":required=" + item.required() + ":provenance="
-                + item.provenance() + ":prerequisites=" + item.prerequisiteSituationIds() + ":sourceRefs="
+                + item.provenance() + ":mapNeeded=" + item.mapNeeded() + ":mapDefinitionId=" + item.mapDefinitionId()
+                + ":prerequisites=" + item.prerequisiteSituationIds() + ":sourceRefs="
                 + sourceReferences(item.sourceRefs())).toList();
     }
 

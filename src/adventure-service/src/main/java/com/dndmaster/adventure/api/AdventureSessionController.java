@@ -4,14 +4,10 @@ import com.dndmaster.adventure.application.session.AdventureSessionApplicationSe
 import com.dndmaster.adventure.application.runtime.GmProviderBindingService;
 import com.dndmaster.adventure.application.runtime.GmProviderSelection;
 import com.dndmaster.adventure.application.runtime.ProviderBinding;
-import com.dndmaster.adventure.application.combat.CombatMapViewPort;
 import com.dndmaster.adventure.domain.adventure.*;
 import java.util.List;
 import java.util.UUID;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/v1/adventure-sessions")
@@ -20,26 +16,12 @@ public final class AdventureSessionController {
     private final AdventureSessionApplicationService service;
     private final AuthenticatedPlayerResolver playerResolver;
     private final GmProviderBindingService providerBindings;
-    private final CombatMapViewPort combatMapViewPort;
 
     public AdventureSessionController(AdventureSessionApplicationService service, AuthenticatedPlayerResolver playerResolver,
             GmProviderBindingService providerBindings) {
-        this(service, playerResolver, providerBindings, (adventureId, ownerId) -> java.util.Optional.empty());
-    }
-
-    @org.springframework.beans.factory.annotation.Autowired
-    public AdventureSessionController(AdventureSessionApplicationService service, AuthenticatedPlayerResolver playerResolver,
-            GmProviderBindingService providerBindings, ObjectProvider<CombatMapViewPort> combatMapViewPort) {
-        this(service, playerResolver, providerBindings,
-                combatMapViewPort.getIfAvailable(() -> (adventureId, ownerId) -> java.util.Optional.empty()));
-    }
-
-    private AdventureSessionController(AdventureSessionApplicationService service, AuthenticatedPlayerResolver playerResolver,
-            GmProviderBindingService providerBindings, CombatMapViewPort combatMapViewPort) {
         this.service = service;
         this.playerResolver = playerResolver;
         this.providerBindings = providerBindings;
-        this.combatMapViewPort = combatMapViewPort;
     }
 
     @PostMapping SessionView create(@RequestBody CreateSessionRequest request) { return SessionView.from(service.create(owner(), request.scenarioPackageId(), request.blueprintId(), request.blueprintRevision(), request.runtimeConfiguration(), request.partySize(), request.preparationId())); }
@@ -73,25 +55,10 @@ public final class AdventureSessionController {
     @DeleteMapping("/{sessionId}/party/{characterSheetId}") SessionView remove(@PathVariable UUID sessionId, @PathVariable UUID characterSheetId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.removeMember(new SessionId(sessionId), owner(), version, new CharacterSheetId(characterSheetId))); }
     @PostMapping("/{sessionId}/start") SessionView start(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version, @RequestHeader("Idempotency-Key") UUID requestId, @RequestBody StartRequest request) {
         String context = "sessionId=" + sessionId + " adventureId=" + request.adventureId()
-                + " requestId=" + requestId + " prepareMapOnly=" + request.prepareMapOnly();
+                + " requestId=" + requestId + " mapApprovalRequired=false";
         long startedAt = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics
                 .begin(LOGGER, "session_start_http", context);
         try {
-            if (!request.prepareMapOnly()) {
-                var preparation = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
-                        LOGGER, "session_start_map_preparation_view", context,
-                        () -> combatMapViewPort.preparationView(request.adventureId(), playerResolver.playerId()));
-                if (preparation.isPresent()) {
-                    boolean matches = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
-                            LOGGER, "session_start_map_alignment_check", context + " mapId=" + preparation.get().mapId(),
-                            () -> mapLayoutMatchesAlignment(preparation.get()));
-                    if (!matches) {
-                        LOGGER.info("dev_flow operation=session_start_map_guard outcome=blocked context={} reason=layout_not_confirmed",
-                                context);
-                        throw new ResponseStatusException(HttpStatus.CONFLICT, "맵 초안을 먼저 저장해야 모험을 시작할 수 있습니다.");
-                    }
-                }
-            }
             SessionView result = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
                     LOGGER, "session_start_application", context,
                     () -> SessionView.from(service.start(new SessionId(sessionId), owner(), version,
@@ -124,37 +91,6 @@ public final class AdventureSessionController {
                 session.status() != AdventureSession.Status.COMPLETED && session.status() != AdventureSession.Status.DELETED);
     }
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
-    private boolean mapLayoutMatchesAlignment(CombatMapViewPort.View preparation) {
-        var marker = preparation.layers().stream().filter(layer -> "MAP_LAYOUT_CONFIRMED".equals(layer.type())).findFirst();
-        if (marker.isEmpty()) {
-            LOGGER.info("dev_flow operation=session_start_map_alignment_check outcome=blocked mapId={} reason=confirmation_marker_missing",
-                    preparation.mapId());
-            return false;
-        }
-        String value = marker.get().value();
-        String prefix = "USER|ALIGNMENT_VERSION=";
-        if (!value.startsWith(prefix)) {
-            LOGGER.info("dev_flow operation=session_start_map_alignment_check outcome=blocked mapId={} reason=confirmation_marker_invalid",
-                    preparation.mapId());
-            return false;
-        }
-        try {
-            long savedVersion = Long.parseLong(value.substring(prefix.length()));
-            long currentVersion = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
-                    LOGGER, "session_start_alignment_read", "mapId=" + preparation.mapId(),
-                    () -> combatMapViewPort.alignment(preparation.mapId(), playerResolver.playerId()).version());
-            boolean matches = currentVersion == savedVersion;
-            if (!matches) {
-                LOGGER.info("dev_flow operation=session_start_map_alignment_check outcome=blocked mapId={} reason=version_mismatch savedVersion={} currentVersion={}",
-                        preparation.mapId(), savedVersion, currentVersion);
-            }
-            return matches;
-        } catch (RuntimeException failure) {
-            LOGGER.info("dev_flow operation=session_start_map_alignment_check outcome=blocked mapId={} reason=alignment_read_failed failureClass={}",
-                    preparation.mapId(), failure.getClass().getSimpleName());
-            return false;
-        }
-    }
     private static GmProviderSelection defaultProvider() { return new GmProviderSelection("codex-cli", "gpt-5.6-luna", "medium"); }
     public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize, UUID preparationId) {}
     public record StartRequest(UUID adventureId, boolean prepareMapOnly) {

@@ -357,6 +357,7 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                     Map.entry("importantConsequenceIndexes", arraySchema(indexSchema())),
                     Map.entry("required", booleanSchema()), Map.entry("prerequisiteSituationIds", arraySchema(stringSchema())),
                     Map.entry("provenance", enumSchema("SOURCE_EXTRACTED", "GM_SUPPLEMENTED")),
+                    Map.entry("mapNeeded", booleanSchema()),
                     Map.entry("mapDefinitionId", nullableMapDefinitionSchema(allowedMapIds)),
                     Map.entry("sourceRefIndexes", sourceRefIndexesSchema(allowedRefs)));
             Map<String, Object> situation = situationSchema(situationProperties);
@@ -534,8 +535,8 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
                 + "For a non-required GM_SUPPLEMENTED situation, keep prerequisiteSituationIds limited to extracted required situation IDs "
                 + "or situation IDs from this same response; do not refer to optional situations from another stage. "
                 + "sourceRefIndexes (integer indexes into NUMBERED_ALLOWED_SOURCE_REFS for extracted claims; empty for GM supplements), "
-                + "and mapDefinitionId "
-                + "(one supplied map UUID or null). Return a complete DetailedStage JSON object except package/revision/stage identifiers. "
+                + "mapNeeded (an explicit situation attribute chosen from the situation, never inferred from map availability), and mapDefinitionId "
+                + "(one supplied map UUID or null; required when mapNeeded is true). Return a complete DetailedStage JSON object except package/revision/stage identifiers. "
                 + "Use only these map IDs: " + json(scenarioPackage.mapDefinitions().stream().map(m -> m.id()).toList())
                 + "\nFor every required situation, set requiredSituationIndex to its zero-based position in this stage's REQUIRED_STORY_SITUATIONS list; use null for every intermediate candidate. The server assigns the exact situationId for that index. Preserve each prerequisiteSituationIds list: "
                 + json(required) + "\nSCENARIO_CONTEXT=" + promptStoryContext(scenarioPackage)

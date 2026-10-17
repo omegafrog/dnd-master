@@ -72,7 +72,7 @@ describe('AdventureSessionPanel lifecycle', () => {
     expect(screen.getByRole('button', { name: /시나리오 런타임 시작/ })).toBeTruthy()
   })
 
-  it('shows runtime preparation progress and ignores repeated starts', async () => {
+  it('starts the runtime directly and ignores repeated starts while preparation runs', async () => {
     let resolveStart!: (value: AdventureSessionView) => void
     const start = vi.fn<AdventureSessionApi['start']>((sessionId, version, adventureId, prepareMapOnly) => {
       void sessionId
@@ -92,10 +92,10 @@ describe('AdventureSessionPanel lifecycle', () => {
     await userEvent.click(button)
     expect(start).toHaveBeenCalledTimes(1)
     expect((screen.getByRole('button', { name: '시나리오 런타임 준비 중…' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText('맵을 준비하는 동안 잠시만 기다려 주세요. 같은 요청을 다시 보내지 않습니다.')).toBeTruthy()
+    expect(screen.getByText('시나리오 상황에 필요한 지도를 준비하고 있습니다.')).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: '시나리오 런타임 준비 중…' }))
     expect(start).toHaveBeenCalledTimes(1)
-    resolveStart({ sessionId: 's', characterLimit: 1, version: 4, status: 'STARTING', adventureId: 'a', runtimeConfiguration: { scenarioId: 'scenario', ruleSetId: 'rules', rulebookIds: [], engineId: 'ollama', toolIds: [], initialScene: 'intro' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT', nameMutableAfterStart: false, raceMutableAfterStart: false, characterClassMutableAfterStart: false, backgroundMutableAfterStart: false, startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false }] })
+    resolveStart({ sessionId: 's', characterLimit: 1, version: 4, status: 'STARTED', adventureId: 'a', runtimeConfiguration: { scenarioId: 'scenario', ruleSetId: 'rules', rulebookIds: [], engineId: 'ollama', toolIds: [], initialScene: 'intro' }, party: [{ characterSheetId: 'sheet-1', controlMode: 'DIRECT', nameMutableAfterStart: false, raceMutableAfterStart: false, characterClassMutableAfterStart: false, backgroundMutableAfterStart: false, startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false }] })
     await waitFor(() => expect(screen.queryByRole('button', { name: '시나리오 런타임 준비 중…' })).toBeNull())
   })
 })

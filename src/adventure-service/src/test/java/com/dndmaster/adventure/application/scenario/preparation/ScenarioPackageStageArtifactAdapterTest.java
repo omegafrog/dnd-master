@@ -37,7 +37,7 @@ import org.junit.jupiter.api.Test;
 
 class ScenarioPackageStageArtifactAdapterTest {
     @Test
-    void batch_detail_results_are_keyed_to_each_requested_stage_id() throws Exception {
+    void codex_detail_results_are_generated_for_each_requested_stage() throws Exception {
         var model = new ScenarioModel(1, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), "Story");
         var scenarioPackage = ScenarioPackage.publishWithScenarioModel(ScenarioBundleId.generate(), 1,
                 "fingerprint", List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
@@ -56,19 +56,19 @@ class ScenarioPackageStageArtifactAdapterTest {
         when(bindings.current(sessionId.value())).thenReturn(Optional.of(new ProviderBinding(sessionId.value(),
                 new GmProviderSelection(UUID.randomUUID(), "codex-cli", "story-model", "medium"), 0)));
         ObjectMapper mapper = new ObjectMapper();
-        var batchRequests = new java.util.ArrayList<InitialSituationGmPort.Request>();
-        var batchResult = new java.util.concurrent.atomic.AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        var stageRequests = new java.util.ArrayList<InitialSituationGmPort.Request>();
+        var stageResults = new java.util.ArrayDeque<com.fasterxml.jackson.databind.JsonNode>();
         InitialSituationGmPort gm = request -> {
-            batchRequests.add(request);
-            return batchResult.get();
+            stageRequests.add(request);
+            return stageResults.removeFirst();
         };
         var adapter = new ScenarioPackageStageArtifactAdapter(packages, gm, bindings, sessions, mapper);
         AdventureId adventureId = AdventureId.generate();
         var requests = List.of("first-stage", "second-stage").stream().map(stageId ->
                 new StageDetailedGenerationPort.Request(adventureId, sessionId, scenarioPackage.packageId(),
                         stageId, 1, List.of())).toList();
-        batchResult.set(batchResponse(mapper, Map.of("first-stage", batchDetail(mapper, "First stage"),
-                "second-stage", batchDetail(mapper, "Second stage"))));
+        stageResults.add(batchDetail(mapper, "First stage"));
+        stageResults.add(batchDetail(mapper, "Second stage"));
 
         List<com.dndmaster.adventure.domain.scenario.DetailedStage> results = adapter.generateAll(requests);
 
@@ -76,36 +76,12 @@ class ScenarioPackageStageArtifactAdapterTest {
                 .map(com.dndmaster.adventure.domain.scenario.DetailedStage::stageId).toList());
         assertEquals(List.of("First stage", "Second stage"), results.stream()
                 .map(com.dndmaster.adventure.domain.scenario.DetailedStage::coreProblem).toList());
-        assertEquals(1, batchRequests.size());
-        var stagesSchema = batchRequests.getFirst().outputSchema().path("properties").path("stages");
-        assertEquals("object", stagesSchema.path("type").asText());
-        assertEquals(List.of("first-stage", "second-stage"), mapper.convertValue(stagesSchema.path("required"),
-                mapper.getTypeFactory().constructCollectionType(List.class, String.class)));
-        assertFalse(stagesSchema.path("additionalProperties").asBoolean(true));
-        assertTrue(batchRequests.getFirst().prompt().contains("delegate_stage_tasks exactly once"));
-        assertFalse(batchRequests.getFirst().prompt().contains("First stage"));
-        var stageTasks = batchRequests.getFirst().stageTasks();
-        assertEquals(List.of("first-stage", "second-stage"), stageTasks.stream().map(InitialSituationGmPort.StageTask::stageId).toList());
-        assertTrue(stageTasks.getFirst().outputSchema().isObject());
-        assertEquals("object", stageTasks.get(1).outputSchema().path("type").asText());
-        assertEquals(stageTasks.getFirst().outputSchema(), stagesSchema.path("properties").path("first-stage"));
-        assertEquals(stageTasks.get(1).outputSchema(), stagesSchema.path("properties").path("second-stage"));
+        assertEquals(2, stageRequests.size());
+        assertTrue(stageRequests.get(0).operationKey().endsWith(":stage:first-stage"));
+        assertTrue(stageRequests.get(1).operationKey().endsWith(":stage:second-stage"));
+        assertTrue(stageRequests.stream().allMatch(request -> request.outputSchema().path("properties")
+                .path("situations").path("items").path("anyOf").isArray()));
 
-        batchResult.set(batchResponse(mapper, Map.of("first-stage", batchDetail(mapper, "First stage"))));
-        assertThrows(IllegalStateException.class, () -> adapter.generateAll(requests));
-        assertEquals(2, batchRequests.size(), "invalid mapping must not trigger separate GM requests");
-
-        batchResult.set(batchResponse(mapper, Map.of("first-stage", batchDetail(mapper, "First stage"),
-                "second-stage", mapper.createObjectNode().put("coreProblem", "incomplete"),
-                "unexpected-stage", batchDetail(mapper, "Extra stage"))));
-        assertThrows(IllegalStateException.class, () -> adapter.generateAll(requests));
-        assertEquals(3, batchRequests.size(), "invalid schemas must not trigger separate GM requests");
-    }
-
-    private static com.fasterxml.jackson.databind.JsonNode batchResponse(ObjectMapper mapper, Map<String, com.fasterxml.jackson.databind.JsonNode> stages) {
-        var response = mapper.createObjectNode();
-        response.set("stages", mapper.valueToTree(stages));
-        return response;
     }
 
     @Test
@@ -311,6 +287,8 @@ class ScenarioPackageStageArtifactAdapterTest {
         assertEquals("array", calls.getLast().outputSchema().path("properties").path("situations").path("type").asText());
         var situationAlternatives = calls.getLast().outputSchema().path("properties").path("situations").path("items").path("anyOf");
         assertEquals(10, situationAlternatives.size());
+        assertTrue(java.util.stream.StreamSupport.stream(situationAlternatives.spliterator(), false)
+                .allMatch(branch -> branch.path("properties").path("mapNeeded").path("type").asText().equals("boolean")));
         assertTrue(java.util.stream.StreamSupport.stream(situationAlternatives.spliterator(), false)
                 .filter(branch -> branch.path("properties").path("provenance").path("enum").get(0).asText()
                         .equals("GM_SUPPLEMENTED"))
@@ -558,6 +536,7 @@ class ScenarioPackageStageArtifactAdapterTest {
         result.put("required", required);
         result.put("prerequisiteSituationIds", prerequisites);
         result.put("provenance", provenance);
+        result.put("mapNeeded", false);
         result.put("sourceRefIndexes", refs);
         return result;
     }

@@ -256,23 +256,19 @@ public class AdventureSessionApplicationService {
         return start(id, owner, expectedVersion, requestId, adventureId, false);
     }
 
-    /**
-     * Starts the session preparation transaction. When prepareMapOnly is true,
-     * the session intentionally remains STARTING until the player confirms the
-     * map draft; a later idempotent call completes the runtime start.
-     */
+    /** Starts runtime preparation; the legacy prepareMapOnly flag is ignored. */
     public AdventureSession start(SessionId id, OwnerPlayerId owner, long expectedVersion, java.util.UUID requestId, AdventureId adventureId, boolean prepareMapOnly) {
         String context = "sessionId=" + id.value() + " adventureId=" + adventureId.value()
-                + " requestId=" + requestId + " prepareMapOnly=" + prepareMapOnly;
+                + " requestId=" + requestId + " legacyPrepareMapOnly=" + prepareMapOnly;
         return com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
                 LOGGER, "session_start_service", context,
-                () -> startInternal(id, owner, expectedVersion, requestId, adventureId, prepareMapOnly));
+                () -> startInternal(id, owner, expectedVersion, requestId, adventureId));
     }
 
     private AdventureSession startInternal(SessionId id, OwnerPlayerId owner, long expectedVersion,
-            java.util.UUID requestId, AdventureId adventureId, boolean prepareMapOnly) {
+            java.util.UUID requestId, AdventureId adventureId) {
         String context = "sessionId=" + id.value() + " adventureId=" + adventureId.value()
-                + " requestId=" + requestId + " prepareMapOnly=" + prepareMapOnly;
+                + " requestId=" + requestId;
         AdventureSession session = authorize(load(id), owner);
         if (session.status() == AdventureSession.Status.DELETED) {
             throw new IllegalStateException("deleted adventure session cannot be started");
@@ -292,7 +288,6 @@ public class AdventureSessionApplicationService {
             requestId = session.startRequestId();
         }
         boolean resumingStart = session.status() == AdventureSession.Status.STARTING;
-        AdventureId requestedAdventureId = adventureId;
         java.util.UUID effectiveRequestId = requestId;
         if (!resumingStart) requireVersion(session, expectedVersion);
         var scenarioPackage = packageRepository.findById(session.scenarioPackageId()).orElseThrow(() -> new IllegalStateException("scenario package not found"));
@@ -305,14 +300,6 @@ public class AdventureSessionApplicationService {
         session.validateStart();
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
-        if (!prepareMapOnly) {
-            boolean mapLayoutConfirmed = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
-                    LOGGER, "session_start_layout_confirmation_check", context,
-                    () -> combatMapPreparationPort.mapLayoutConfirmed(requestedAdventureId, owner.value()));
-            if (!mapLayoutConfirmed) {
-                throw new IllegalStateException("맵 초안을 먼저 저장해야 모험을 시작할 수 있습니다.");
-            }
-        }
         // A retried browser request can generate a new adventure id after a
         // previous attempt already persisted the adventure. Reuse the
         // session-owned row so the unique session constraint remains intact.
@@ -358,7 +345,31 @@ public class AdventureSessionApplicationService {
                 LOGGER, "session_start_knowledge_set", context,
                 () -> initializeSessionKnowledgeSetIfMissing(session, scenarioPackage));
         Adventure activeAdventure = adventure;
-        var initialMapDefinition = scenarioPackage.initialMapDefinition(configuration.initialScene());
+        var openingSituation = preparedStage.openingSituation();
+        var initialMapDefinition = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "session_start_situation_map_selection", context + " situationId=" + openingSituation.situationId()
+                        + " mapNeeded=" + openingSituation.mapNeeded() + " mapDefinitionId=" + openingSituation.mapDefinitionId()
+                        + " availableMapCount=" + scenarioPackage.mapDefinitions().size(),
+                () -> {
+                    var selected = openingSituation.mapNeeded()
+                            ? scenarioPackage.mapDefinitions().stream()
+                                .filter(map -> map.id().equals(openingSituation.mapDefinitionId()))
+                                .filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable)
+                                .findFirst()
+                            : java.util.Optional.<com.dndmaster.adventure.domain.scenario.MapDefinition>empty();
+                    if (openingSituation.mapNeeded() && selected.isEmpty()) {
+                        throw new IllegalStateException("map-needed opening situation has no usable map definition"
+                                + "; expected=" + openingSituation.mapDefinitionId() + "; available="
+                                + scenarioPackage.mapDefinitions().size() + "; actual=0");
+                    }
+                    return selected;
+                });
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_situation_map_selection situationId={} expectedMapNeeded={} expectedMapDefinitionId={} actualMapDefinitionId={} outcome={}",
+                    openingSituation.situationId(), openingSituation.mapNeeded(), openingSituation.mapDefinitionId(),
+                    initialMapDefinition.map(com.dndmaster.adventure.domain.scenario.MapDefinition::id).orElse(null),
+                    initialMapDefinition.isPresent() ? "map_prepared" : "mapless");
+        }
         initialMapDefinition.ifPresent(mapDefinition -> {
             var mapActivationContext = activationContext(activeAdventure, session);
             // Starting the adventure only prepares the editable draft. The
@@ -368,7 +379,6 @@ public class AdventureSessionApplicationService {
                     LOGGER, "session_start_prepare_map_draft", "sessionId=" + id.value() + " adventureId=" + effectiveAdventureId.value(),
                     () -> combatMapPreparationPort.prepareDraft(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, mapActivationContext));
         });
-        if (prepareMapOnly) return session;
         com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
                 LOGGER, "session_start_runtime_binding", context,
                 () -> runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
@@ -379,12 +389,11 @@ public class AdventureSessionApplicationService {
                 : com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
                         LOGGER, "session_start_opening_gm_turn", context + " adventureId=" + effectiveAdventureId.value(),
                         () -> runtimeTurnService.openSessionTurn(effectiveAdventureId, owner, effectiveRequestId));
-        if (initialMapDefinition.isPresent() && openingResult != null
-                && (openingResult.turn().plan().mapEntryRequested()
-                || openingResult.turn().plan().combatStartRequested())) {
+        if (initialMapDefinition.isPresent()) {
             Adventure fallbackAdventure = adventure;
             com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
-                    LOGGER, "session_start_activate_map", context + " adventureId=" + effectiveAdventureId.value(), () -> {
+                    LOGGER, "session_start_activate_map", context + " adventureId=" + effectiveAdventureId.value()
+                            + " openingTurnPresent=" + (openingResult != null), () -> {
                         Adventure committedAdventure = adventureRepository.findById(effectiveAdventureId).orElse(fallbackAdventure);
                         combatMapPreparationPort.activatePrepared(effectiveAdventureId, owner.value(), configuration.ruleSetId(),
                                 1, activationContext(committedAdventure, session, openingResult));
