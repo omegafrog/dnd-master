@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -29,6 +30,9 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterAll;
@@ -151,6 +155,59 @@ class SavedAdventurePostgresIntegrationTest {
 
         assertThrows(OptimisticAdventureLockException.class, () -> repository.save(loser));
         assertEquals(0, service.listSavedAdventures(owner).size());
+    }
+
+    @Test
+    void findByIdForUpdateKeepsAdventureLockedUntilTheMapWorkCanBeCommitted() throws Exception {
+        OwnerPlayerId owner = owner();
+        Adventure created = service.createAdventure(command(owner, context("start")));
+        Adventure concurrentUpdate = repository.findById(created.id()).orElseThrow();
+        concurrentUpdate.preserveProgress(owner, 0, context("concurrent"), List.of());
+        var transactions = new org.springframework.transaction.support.TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+        CountDownLatch rowLocked = new CountDownLatch(1);
+        CountDownLatch allowCommit = new CountDownLatch(1);
+
+        CompletableFuture<Void> first = CompletableFuture.runAsync(() -> transactions.executeWithoutResult(status -> {
+            Adventure locked = repository.findByIdForUpdate(created.id()).orElseThrow();
+            rowLocked.countDown();
+            await(allowCommit);
+            locked.preserveProgress(owner, 0, context("locked"), List.of());
+            repository.save(locked);
+        }));
+
+        assertTrue(rowLocked.await(5, TimeUnit.SECONDS));
+        CompletableFuture<Throwable> second = CompletableFuture.supplyAsync(() -> {
+            try {
+                transactions.executeWithoutResult(status -> {
+                    new org.springframework.jdbc.core.JdbcTemplate(dataSource)
+                            .execute("SET LOCAL lock_timeout = '250ms'");
+                    repository.save(concurrentUpdate);
+                });
+                return null;
+            } catch (Throwable failure) {
+                return failure;
+            }
+        });
+        Throwable concurrentFailure;
+        try {
+            concurrentFailure = second.get(5, TimeUnit.SECONDS);
+        } finally {
+            allowCommit.countDown();
+        }
+        first.get(5, TimeUnit.SECONDS);
+
+        assertNotNull(concurrentFailure, "concurrent save must wait for the row lock and not commit first");
+        assertEquals("locked", repository.findById(created.id()).orElseThrow().currentContext().currentScene());
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(5, TimeUnit.SECONDS)) throw new AssertionError("timed out waiting for test transaction");
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("interrupted while waiting for test transaction", exception);
+        }
     }
 
     @Test
