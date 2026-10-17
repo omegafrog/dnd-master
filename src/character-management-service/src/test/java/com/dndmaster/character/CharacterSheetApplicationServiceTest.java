@@ -198,8 +198,12 @@ class CharacterSheetApplicationServiceTest {
                         "{\"ownedEquipment\":[],\"ownedWeaponIds\":[],\"subclass\":\"\"}",
                         "{\"equippedItems\":{\"armor\":\"\",\"shield\":false,\"mainHandWeaponId\":null,\"offHandWeaponId\":null,\"twoHandedWeaponId\":null}}"), 0, null, null);
         repository.save(sheet);
+        UUID setupCommand = UUID.randomUUID();
         CharacterSheet configured = service.updateAbilityResource(sheet.id(), sheet.sessionId(), owner,
-                "arcane-charge", List.of("ability:blink"), 2, 3, "LONG_REST", UUID.randomUUID(), 0);
+                "arcane-charge", List.of("ability:blink"), 2, 3, "LONG_REST", setupCommand, 0);
+        assertThrows(IllegalStateException.class, () -> service.updateAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "arcane-charge", List.of("ability:blink"), 1, 3, "LONG_REST", setupCommand, 0));
+        assertEquals(1, repository.findById(sheet.id()).orElseThrow().version());
         UUID consumeCommand = UUID.randomUUID();
         CharacterSheet consumed = service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
                 "arcane-charge", 1, null, false, consumeCommand, 1);
