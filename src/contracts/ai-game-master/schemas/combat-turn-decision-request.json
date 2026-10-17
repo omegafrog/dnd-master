@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dnd-master.local/contracts/ai-game-master/v1/combat-turn-decision-request.json",
+  "title": "전투 행동 요청",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["soloPlayerId", "operationKey", "endpointId", "provider", "model", "reasoning", "effectiveEndpointId", "effectiveEndpointVersion", "effectiveProvider", "effectiveModel", "prompt"],
+  "properties": {
+    "soloPlayerId": { "type": "string", "format": "uuid" },
+    "operationKey": { "type": "string", "minLength": 1 },
+    "endpointId": { "type": "string", "format": "uuid" },
+    "provider": { "type": "string", "minLength": 1 },
+    "model": { "type": "string", "minLength": 1 },
+    "reasoning": { "type": "string", "minLength": 1 },
+    "effectiveEndpointId": { "type": "string", "format": "uuid" },
+    "effectiveEndpointVersion": { "type": "string", "minLength": 1 },
+    "effectiveProvider": { "type": "string", "minLength": 1 },
+    "effectiveModel": { "type": "string", "minLength": 1 },
+    "prompt": { "type": "string", "minLength": 1 }
+  }
+}

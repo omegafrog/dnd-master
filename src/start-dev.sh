@@ -51,6 +51,7 @@ export SERVER_PORT="$BACKEND_SERVER_PORT"
 export SPRING_DATASOURCE_URL="${SPRING_DATASOURCE_URL:-jdbc:postgresql://127.0.0.1:$POSTGRES_PORT/postgres}"
 export SPRING_DATA_REDIS_PORT="${SPRING_DATA_REDIS_PORT:-$REDIS_PORT}"
 export BACKEND_E2E_URL="${BACKEND_E2E_URL:-http://127.0.0.1:$BACKEND_SERVER_PORT}"
+export RELAY_SCENARIO_LOOKUP_BASE_URL="${RELAY_SCENARIO_LOOKUP_BASE_URL:-${BACKEND_E2E_URL%/}/}"
 export IDENTITY_ACCESS_BASE_URL="${IDENTITY_ACCESS_BASE_URL:-$BACKEND_E2E_URL/}"
 export RULE_KNOWLEDGE_BASE_URL="${RULE_KNOWLEDGE_BASE_URL:-$BACKEND_E2E_URL/}"
 export AI_GAME_MASTER_BASE_URL="${AI_GAME_MASTER_BASE_URL:-$BACKEND_E2E_URL/}"
@@ -78,7 +79,7 @@ export CODEX_CHARACTER_TAG_MODEL="${CODEX_CHARACTER_TAG_MODEL:-gpt-5.6-luna}"
 # larger total window, but this local app-server path uses the
 # smaller effective limit until its own model metadata reports otherwise.
 # Other selected provider/model pairs must be configured explicitly.
-export GM_RUNTIME_CONTEXT_LIMITS="${GM_RUNTIME_CONTEXT_LIMITS:-codex-cli/gpt-5.6-luna=272000}"
+export GM_RUNTIME_CONTEXT_LIMITS="${GM_RUNTIME_CONTEXT_LIMITS:-codex-cli/gpt-5.6-luna=272000,codex-cli/gpt-6-luna=272000}"
 export RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE="${RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE:-/home/jiwoo/workspace/dnd-master/.venv-docling/bin/python}"
 export RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY="${RULE_KNOWLEDGE_PREPROCESSING_WORKING_DIRECTORY:-$ROOT/..}"
 # The WSL-local Tesseract installation is linked against libraries kept next
@@ -284,7 +285,6 @@ USER_PC_AGENT_LOG="$(mktemp "${TMPDIR:-/tmp}/dnd-master-user-pc-agent.XXXXXX.log
     AGENT_ACCESS_TOKEN="$AGENT_ACCESS_TOKEN" \
     AGENT_CONNECTION_ID="$AGENT_CONNECTION_ID" \
     CODEX_EXECUTABLE="$CODEX_EXECUTABLE" \
-    CODEX_WORK_DIRECTORY="$ROOT" \
     exec bash "$GRADLEW_TMP_DIR/gradlew" --no-daemon :user-pc-agent:run) >"$USER_PC_AGENT_LOG" 2>&1 &
 USER_PC_AGENT_PID=$!
 echo "    User PC agent PID: $USER_PC_AGENT_PID"
@@ -308,7 +308,12 @@ for attempt in $(seq 1 90); do
     sleep 2
 done
 
-"$ROOT/seed-local-rulebook-catalog.sh"
+if [ "${START_DEV_SKIP_LOCAL_RULEBOOK_CATALOG_SEED:-false}" = "true" ]; then
+    echo "dev_startup stage=local_catalog_seed expected=enabled actual=disabled route=browser_upload recoveryAction=skip_api_seed outcome=skipped"
+else
+    echo "dev_startup stage=local_catalog_seed expected=enabled actual=enabled route=api_seed recoveryAction=none outcome=started"
+    "$ROOT/seed-local-rulebook-catalog.sh"
+fi
 
 echo "==> Starting frontend (web-ui)..."
 if [ ! -d "$UI/node_modules" ] || ! (cd "$UI" && run_node -e "require.resolve('@rollup/rollup-linux-x64-gnu')" >/dev/null 2>&1); then
@@ -323,6 +328,7 @@ echo "    Frontend PID: $FRONTEND_PID"
 echo ""
 echo "  Backend:  $BACKEND_E2E_URL"
 echo "  Frontend: http://127.0.0.1:$FRONTEND_DEV_PORT"
+echo "  Relay scenario lookup: $RELAY_SCENARIO_LOOKUP_BASE_URL"
 echo "  Swagger:  $BACKEND_E2E_URL/swagger-ui.html"
 echo "  Demo login: demo-player@example.com / secret-password"
 echo "  Press Ctrl+C to stop all."

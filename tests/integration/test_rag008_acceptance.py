@@ -165,18 +165,18 @@ def test_native_out_of_order_pages_are_needs_review(tmp_path: Path) -> None:
 def test_process_cli_invalid_geometry_stdin_stdout_path(tmp_path: Path) -> None:
     fake = tmp_path / "fake"
     fake.mkdir()
-    (fake / "fitz.py").write_text("class R:\n width=100\n height=100\nclass P:\n rect=R()\n def get_text(self, *_): return [(0,0,101,10,'x')]\nclass D:\n def __enter__(self): return self\n def __exit__(self,*a): pass\n def __iter__(self): return iter([P()])\ndef open(_): return D()\n", encoding="utf-8")
+    (fake / "fitz.py").write_text("class R:\n width=100\n height=100\nclass P:\n rect=R()\n def get_text(self, kind):\n  return {'blocks':[{'type':0,'bbox':(0,0,101,10),'lines':[{'bbox':(0,0,101,10),'spans':[{'text':'x','bbox':(0,0,101,10),'size':10,'font':'F'}]}]}]} if kind=='dict' else [(0,0,101,10,'x',0,0)]\n def get_drawings(self): return []\n def get_image_info(self, **kwargs): return []\n def widgets(self): return None\nclass D:\n def __enter__(self): return self\n def __exit__(self,*a): pass\n def __iter__(self): return iter([P()])\n def get_toc(self, **kwargs): return []\ndef open(_): return D()\n", encoding="utf-8")
     source = tmp_path / "input.pdf"
     source.write_bytes(b"fixture")
     request = {"schema_version": "1", "operation": "preprocess", "request_id": "cli-bad", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p", "output_dir": str(tmp_path / "out")}
-    env = {"PYTHONPATH": f"{fake}:src"}
+    env = {"PYTHONPATH": f"{fake}:src", "PREPROCESSING_PDF_PROVIDER": "pymupdf"}
     proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env=env)
     payload = json.loads(proc.stdout)
     assert proc.returncode == 0 and payload["status"] == "NEEDS_REVIEW"
     assert "chunks" not in payload["artifacts"] and not (tmp_path / "out" / "current.json").exists()
 
 
-def test_process_cli_real_pymupdf_single_column_pdf_ready(tmp_path: Path) -> None:
+def test_process_cli_real_pymupdf_without_table_model_reports_warning(tmp_path: Path) -> None:
     fitz = __import__("pytest").importorskip("fitz")
     source = tmp_path / "input.pdf"
     document = fitz.open()
@@ -186,11 +186,35 @@ def test_process_cli_real_pymupdf_single_column_pdf_ready(tmp_path: Path) -> Non
     document.close()
     output = tmp_path / "out"
     request = {"schema_version": "1", "operation": "preprocess", "request_id": "real-pdf", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p", "output_dir": str(output)}
-    proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src", "PREPROCESSING_PDF_PROVIDER": "pymupdf"})
     payload = json.loads(proc.stdout)
-    assert proc.returncode == 0 and payload["status"] == "READY"
+    assert proc.returncode == 0 and payload["status"] == "PARTIAL"
+    assert "TABLE_EXTRACTION_NOT_CONFIGURED" in payload["pages"][0]["findings"]
     assert payload["artifacts"]["chunks"]["path"].startswith(str(output / "generations"))
     assert payload["manifest"]["source_sha256"] == request["source_sha256"]
+
+
+def test_process_cli_pymupdf4llm_emits_markdown_artifact_without_polluting_json_stdout(tmp_path: Path) -> None:
+    fitz = __import__("pytest").importorskip("fitz")
+    source = tmp_path / "markdown.pdf"
+    document = fitz.open()
+    page = document.new_page(width=300, height=400)
+    page.insert_text((30, 50), "Markdown heading")
+    document.save(source)
+    document.close()
+    output = tmp_path / "out"
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "markdown-pdf",
+               "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+               "policy_version": "p", "output_dir": str(output)}
+    proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"],
+                          input=json.dumps(request), text=True, capture_output=True,
+                          env={"PYTHONPATH": "src", "PREPROCESSING_PDF_PROVIDER": "pymupdf4llm"})
+
+    payload = json.loads(proc.stdout)
+    assert proc.returncode == 0
+    assert payload["manifest"]["pdf_provider"] == "pymupdf4llm"
+    markdown = output / "generations" / payload["version_id"] / "source.md"
+    assert markdown.read_text(encoding="utf-8").strip()
 
 
 def test_malformed_status_page_and_artifact_are_quarantined(tmp_path: Path) -> None:

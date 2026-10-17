@@ -43,6 +43,65 @@ paths:
               schema: { $ref: './schemas/runtime-turn-response.json' }
         '400': { description: Request or turn response violated the typed contract. }
         '401': { description: Invalid internal service token. }
+  /internal/v1/gm/evidence-rerank:
+    post:
+      operationId: rerankEvidenceCandidates
+      summary: 조회한 근거 후보를 관련도 순으로 정렬
+      description: 별도 근거 정렬 모델을 두지 않고 설정된 AI Game Master 모델을 사용한다. 일반 플레이어 행동 턴은 결과 한도를 20으로 지정한다.
+      security: [{ internalServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/evidence-rerank-request.json' }
+      responses:
+        '200':
+          description: 결과 한도까지 관련도 순으로 정렬한 후보 식별자. 점수 기준으로 먼저 후보를 버리지 않는다.
+          content:
+            application/json:
+              schema: { $ref: './schemas/evidence-rerank-response.json' }
+        '400': { description: 근거 후보 요청 형식이 계약과 다름. }
+        '401': { description: 내부 서비스 인증 실패. }
+        '422': { description: 설정된 모델의 근거 식별자나 응답 구조가 계약과 다름. }
+        '503': { description: 설정된 모델을 사용할 수 없음. }
+  /internal/v1/gm/evidence-sufficiency:
+    post:
+      operationId: judgeEvidenceSufficiency
+      summary: 정렬된 후보 중 작업에 필요한 근거를 선택하고 충분성을 판단
+      security: [{ internalServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/evidence-sufficiency-request.json' }
+      responses:
+        '200':
+          description: 선택한 근거와 필요한 사실·조건을 뒷받침하기에 충분한지 여부. 일반 플레이어 행동 턴에서는 최대 20개 후보를 받는다.
+          content:
+            application/json:
+              schema: { $ref: './schemas/evidence-sufficiency-response.json' }
+        '400': { description: 근거 선택 요청 형식이 계약과 다름. }
+        '401': { description: 내부 서비스 인증 실패. }
+        '422': { description: 설정된 모델의 근거 식별자나 응답 구조가 계약과 다름. }
+        '503': { description: 설정된 모델을 사용할 수 없음. }
+  /internal/gm/combat-turn-decision:
+    post:
+      operationId: combatTurnDecision
+      summary: Choose an action or end the current combat actor's turn
+      security: [{ internalServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/combat-turn-decision-request.json' }
+      responses:
+        '200':
+          description: Combat action decision with source citations.
+          content:
+            application/json:
+              schema: { $ref: './schemas/combat-turn-decision-response.json' }
+        '400': { description: Request or combat response violated its contract. }
+        '401': { description: Invalid internal service token. }
   /internal/v1/gm/judgments:
     post: { operationId: adjudicate, security: [{ internalServiceToken: [] }], responses: { '200': { description: rule-set judgment }, '401': { description: invalid internal service token } } }
   /internal/v1/gm/rule-answers:

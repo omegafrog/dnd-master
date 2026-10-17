@@ -54,6 +54,7 @@ def test_reading_order_reports_when_bbox_is_unavailable():
 
 
 def test_before_mode_preserves_legacy_extractor_order(monkeypatch, tmp_path):
+    monkeypatch.setenv("PREPROCESSING_PDF_PROVIDER", "pymupdf")
     raw = [{"page_number": 1, "blocks": [
         {"block_id": "right", "text": "Right", "bbox": [400, 10, 500, 30]},
         {"block_id": "left", "text": "Left", "bbox": [10, 10, 100, 30]},

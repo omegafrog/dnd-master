@@ -321,8 +321,8 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
   async function createAdventure() {
     if (!scenarioPackage || !sessionApi?.create || !api.getPlayPreparation) return
     try {
-      const preparation = playPreparation?.preparationId
-        ? await api.getPlayPreparation(playPreparation.preparationId)
+      const preparation = playPreparation?.preparationId && api.getPlayPreparationById
+        ? await api.getPlayPreparationById(playPreparation.preparationId)
         : await api.getPlayPreparation(scenarioPackage.packageId)
       if ((preparation.spellDefinitions ?? []).some(definition => definition.reviewStatus !== 'APPROVED')) {
         window.location.hash = `#/scenario-packages/${scenarioPackage.packageId}/character-blueprint`

@@ -1,6 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://dnd-master.local/contracts/rule-knowledge/v1/evidence-candidate-search-response.json",
+  "title": "근거 후보 검색 결과",
+  "description": "한 번의 검색 요청에서 최대 40개 후보를 반환한다.",
   "type": "object",
   "additionalProperties": false,
   "required": ["ownerId", "sessionId", "scenarioPackageId", "candidates"],
@@ -10,6 +12,7 @@
     "scenarioPackageId": { "type": "string", "format": "uuid" },
     "candidates": {
       "type": "array",
+      "maxItems": 40,
       "items": {
         "type": "object",
         "additionalProperties": false,

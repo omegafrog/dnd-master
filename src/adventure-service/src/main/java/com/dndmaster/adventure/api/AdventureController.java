@@ -894,7 +894,8 @@ public class AdventureController {
         }
         com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
                 LOGGER, "combat_map_calibration_save", "adventureId=" + adventureId + " mapId=" + request.mapId()
-                        + " expectedVersion=" + request.expectedVersion(),
+                        + " expectedVersion=" + request.expectedVersion() + " grid=" + request.width() + "x" + request.height()
+                        + " cellSize=" + request.cellSize(),
                 () -> combatMapViewPort.calibrate(request.mapId(), playerResolver.playerId(), request.expectedVersion(),
                         request.width(), request.height(), request.cellSize(), request.originX(), request.originY(),
                         request.imageWidth(), request.imageHeight(), request.playerX(), request.playerY()));
@@ -1004,6 +1005,23 @@ public class AdventureController {
             if ("map grid alignment conflict".equals(exception.getMessage())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, exception.getMessage(), exception);
             throw exception;
         }
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/combat-map/analyze-grid")
+    com.dndmaster.adventure.application.combat.CombatMapViewPort.GridAnalysis analyzeMapGrid(@PathVariable UUID adventureId, @RequestBody MapGridAnalysisRequest request) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        UUID owner = playerResolver.playerId();
+        if (!adventure.ownerPlayerId().value().equals(owner)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        var map = editingMap(adventureId, owner);
+        var result = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
+                LOGGER, "combat_map_grid_analysis", "adventureId=" + adventureId + " mapId=" + map.mapId()
+                        + " cropWidth=" + request.width() + " cropHeight=" + request.height(),
+                () -> combatMapViewPort.analyzeGrid(map.mapId(), owner, request.x(), request.y(), request.width(), request.height()));
+        if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_flow operation=combat_map_grid_analysis_result mapId={} status={} expectedCrop={}x{} resultGrid={}x{} confidence={}",
+                    map.mapId(), result.status(), request.width(), request.height(), result.width(), result.height(), result.confidence());
+        }
+        return result;
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
@@ -1499,6 +1517,7 @@ public class AdventureController {
     public record CombatMapCalibrationRequest(UUID mapId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     public record CombatMapCalibrationResponse(UUID mapId, int width, int height) {}
+    public record MapGridAnalysisRequest(int x, int y, int width, int height) {}
     public record CombatMapLayoutRequest(UUID commandId, long expectedVersion, List<PositionPayload> obstacles,
                                          List<PositionPayload> doors, List<BoundaryPayload> boundaries, String crop,
                                          Long alignmentVersion, String imageRevision, PositionPayload playerStart) {

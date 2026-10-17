@@ -31,5 +31,5 @@ export async function diagnosticFetch(input: RequestInfo | URL, init?: RequestIn
 
 /** Logs preparation progress metadata in development diagnostics; never pass player text or source excerpts. */
 export function diagnosticEvent(event: string, details: Record<string, string | number | boolean | null>) {
-  if (viteEnvironment.DEV) console.info(`dev_${event}`, details)
+  if (diagnosticsEnabled) console.info(`dev_${event}`, details)
 }

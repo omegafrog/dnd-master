@@ -3,15 +3,18 @@ import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import { finiteGridOrigin, refineCellSize, type ImagePoint, type MapGridAlignmentDraft } from './mapGridAlignmentGeometry'
 
-export type AlignmentToSave = MapGridAlignmentDraft & { mapId: string; commandId: string; expectedVersion: number; imageRevision: string }
+export type AlignmentToSave = MapGridAlignmentDraft & { width: number; height: number; mapId: string; commandId: string; expectedVersion: number; imageRevision: string }
 const MAGNIFIER_SCALE = 2.5
 type Drag = { kind: 'new' | 'origin' | 'size'; anchor: ImagePoint; draft: MapGridAlignmentDraft; start: ImagePoint; moved: boolean }
 type PendingMeasurement = { anchor: ImagePoint; previous: MapGridAlignmentDraft }
 type PanDrag = { startX: number; startY: number; initialX: number; initialY: number }
 export type AlignmentCrop = { x: number; y: number; width: number; height: number }
 
-export function MapGridAlignmentEditor({ image, initial, crop, grid, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { mapId: string; version: number; imageRevision: string }; crop?: AlignmentCrop; grid?: { width: number; height: number }; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
-  const [draft, setDraft] = useState<MapGridAlignmentDraft>(initial)
+export type GridAnalysis = { status: 'DETECTED' | 'UNRESOLVED'; width?: number; height?: number; cellSize?: number; originX?: number; originY?: number; confidence?: number }
+export function MapGridAlignmentEditor({ image, initial, crop, grid, onAnalyze, onApply, onCancel }: { image: string; initial: MapGridAlignmentDraft & { mapId: string; version: number; imageRevision: string }; crop?: AlignmentCrop; grid?: { width: number; height: number }; onAnalyze?: (crop: AlignmentCrop) => Promise<GridAnalysis>; onApply: (value: AlignmentToSave) => Promise<void>; onCancel: () => void }) {
+  const initialDraft = initial.version === 0 && crop ? { ...initial, originX: crop.x, originY: crop.y } : initial
+  const [draft, setDraft] = useState<MapGridAlignmentDraft>(initialDraft)
+  const [gridSize, setGridSize] = useState({ width: grid?.width ?? 1, height: grid?.height ?? 1 })
   const [sizeInput, setSizeInput] = useState(String(Number(initial.cellSize.toFixed(4))))
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -21,7 +24,11 @@ export function MapGridAlignmentEditor({ image, initial, crop, grid, onApply, on
   const [showFullGrid, setShowFullGrid] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [analysisMessage, setAnalysisMessage] = useState('')
   const [imageSize, setImageSize] = useState({ width: 1, height: 1 })
+  const gridWidth = grid?.width
+  const gridHeight = grid?.height
+  useEffect(() => { if (gridWidth != null && gridHeight != null) setGridSize({ width: gridWidth, height: gridHeight }) }, [gridWidth, gridHeight])
   const canvas = useRef<HTMLDivElement>(null)
   const commandId = useRef<string | null>(null)
   const drag = useRef<Drag | null>(null)
@@ -30,7 +37,7 @@ export function MapGridAlignmentEditor({ image, initial, crop, grid, onApply, on
   const displayCrop = crop && crop.width > 0 && crop.height > 0 ? crop : { x: 0, y: 0, width: imageSize.width, height: imageSize.height }
   const saveOrigin = grid
     ? imageSize.width > 1 && imageSize.height > 1
-      ? finiteGridOrigin(draft, { x: initial.originX, y: initial.originY }, grid, imageSize)
+      ? finiteGridOrigin(draft, { x: initialDraft.originX, y: initialDraft.originY }, gridSize, imageSize)
       : null
     : { x: draft.originX, y: draft.originY }
   const gridCannotFit = !!grid && imageSize.width > 1 && imageSize.height > 1 && !saveOrigin
@@ -171,9 +178,26 @@ export function MapGridAlignmentEditor({ image, initial, crop, grid, onApply, on
     setError('')
     try {
       commandId.current ??= globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
-      await onApply({ ...draft, originX: saveOrigin.x, originY: saveOrigin.y, mapId: initial.mapId, commandId: commandId.current, expectedVersion: initial.version, imageRevision: initial.imageRevision })
+      await onApply({ ...draft, width: gridSize.width, height: gridSize.height, originX: saveOrigin.x, originY: saveOrigin.y, mapId: initial.mapId, commandId: commandId.current, expectedVersion: initial.version, imageRevision: initial.imageRevision })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '격자 맞추기를 저장하지 못했습니다.')
+    } finally { setSaving(false) }
+  }
+  async function analyze() {
+    if (!onAnalyze || !crop || crop.width < 1 || crop.height < 1) return
+    setSaving(true); setError(''); setAnalysisMessage('잘라낸 지도에서 격자를 분석하고 있습니다.')
+    try {
+      const result = await onAnalyze(crop)
+      if (result.status !== 'DETECTED' || !result.width || !result.height || !result.cellSize || result.originX == null || result.originY == null) {
+        setAnalysisMessage('격자를 찾지 못했습니다. 아래에서 열·행 수를 직접 입력하세요.')
+        return
+      }
+      setGridSize({ width: result.width, height: result.height })
+      changeDraft({ ...draft, originX: result.originX, originY: result.originY, cellSize: result.cellSize })
+      setAnalysisMessage(`격자 ${result.width}열 × ${result.height}행을 찾았습니다. 오버레이를 확인하고 필요하면 수정하세요.`)
+    } catch (reason) {
+      setAnalysisMessage('격자 분석에 실패했습니다. 아래에서 열·행 수를 직접 입력하세요.')
+      setError(reason instanceof Error ? reason.message : '격자 분석에 실패했습니다.')
     } finally { setSaving(false) }
   }
 
@@ -189,9 +213,16 @@ export function MapGridAlignmentEditor({ image, initial, crop, grid, onApply, on
   const magnifierAt = magnifier && toCanvas(magnifier.x, magnifier.y)
   const numericSize = Number(sizeInput)
   const validSize = Number.isFinite(numericSize) && numericSize > 0
+  const validGridSize = Number.isInteger(gridSize.width) && Number.isInteger(gridSize.height) && gridSize.width > 0 && gridSize.height > 0
 
   return <section className="map-grid-alignment-editor" aria-label="맵 격자 맞추기">
     <p className="map-grid-alignment-hint">3×3칸의 대각선 양 끝 교차점을 차례로 선택하세요.</p>
+    <div className="map-grid-alignment-adjustments">
+      <label>격자 열 수<Input aria-label="격자 열 수" type="number" min="1" step="1" value={gridSize.width || ''} onChange={event => { commandId.current = null; setGridSize(current => ({ ...current, width: Math.max(0, Math.floor(Number(event.target.value) || 0)) })) }} /></label>
+      <label>격자 행 수<Input aria-label="격자 행 수" type="number" min="1" step="1" value={gridSize.height || ''} onChange={event => { commandId.current = null; setGridSize(current => ({ ...current, height: Math.max(0, Math.floor(Number(event.target.value) || 0)) })) }} /></label>
+      {onAnalyze && <Button type="button" disabled={saving || !crop} onClick={() => void analyze()}>잘라낸 지도에서 격자 다시 분석</Button>}
+      {analysisMessage && <p role="status">{analysisMessage}</p>}
+    </div>
     <div className="map-grid-alignment-controls">
       <div className="map-grid-alignment-toolbar" aria-label="지도 보기 조절">
         <Button type="button" onClick={() => changeZoom(.25)}>확대</Button><span aria-live="polite">{Math.round(zoom * 100)}%</span>
@@ -209,7 +240,7 @@ export function MapGridAlignmentEditor({ image, initial, crop, grid, onApply, on
         <div className="map-grid-nudge" role="group" aria-label="원점 미세 조정 (원본 이미지 픽셀)">
           <Button type="button" size="icon" aria-label="원점 위로 이동" onClick={event => nudge(0, -1, event)}>↑</Button><Button type="button" size="icon" aria-label="원점 왼쪽으로 이동" onClick={event => nudge(-1, 0, event)}>←</Button><Button type="button" size="icon" aria-label="원점 아래로 이동" onClick={event => nudge(0, 1, event)}>↓</Button><Button type="button" size="icon" aria-label="원점 오른쪽으로 이동" onClick={event => nudge(1, 0, event)}>→</Button>
         </div>
-        <Button type="button" onClick={() => { pendingRef.current = null; setPending(null); changeDraft(initial); setError('') }}>초기값으로</Button>
+        <Button type="button" onClick={() => { pendingRef.current = null; setPending(null); changeDraft(initialDraft); setError('') }}>초기값으로</Button>
       </div>
     </div>
     <div ref={canvas} style={canvasStyle} className={`map-grid-alignment-canvas${pending ? ' is-sizing' : ''}${panMode ? ' is-panning' : ''}`} onPointerDown={event => panMode ? beginPanning(event) : beginGridSizing(event)} onPointerMove={move} onPointerUp={finish} onPointerCancel={cancelPointer} onPointerLeave={() => !drag.current && !panDrag.current && setMagnifier(null)}>
@@ -217,6 +248,7 @@ export function MapGridAlignmentEditor({ image, initial, crop, grid, onApply, on
         <img src={image} alt="공개된 지도 이미지" draggable={false} onLoad={event => { const loadedSize = { width: event.currentTarget.naturalWidth || 1, height: event.currentTarget.naturalHeight || 1 }; setImageSize(loadedSize); setPan(current => clampPan(current, crop && crop.width > 0 && crop.height > 0 ? crop : loadedSize, canvas.current, zoom)) }} style={{ width: imageSize.width, height: imageSize.height, maxWidth: 'none', maxHeight: 'none', transform: `translate(${-displayCrop.x * imageScale}px, ${-displayCrop.y * imageScale}px) scale(${imageScale})`, transformOrigin: '0 0' }} />
       </div>
       {showFullGrid && <div className="map-grid-alignment-full-grid" aria-hidden="true" style={{ ...cropViewport, '--alignment-cell-size': `${cellPixels}px`, '--alignment-origin-x': `${origin.left - cropViewport.left}px`, '--alignment-origin-y': `${origin.top - cropViewport.top}px` } as CSSProperties} />}
+      <div className="map-grid-alignment-extent" aria-hidden="true" data-grid-size={`${gridSize.width}x${gridSize.height}`} style={{ left: origin.left, top: origin.top, width: cellPixels * gridSize.width, height: cellPixels * gridSize.height }} />
       <div className="map-grid-alignment-grid" aria-hidden="true" style={{ left: origin.left, top: origin.top, width: cellPixels * 3, height: cellPixels * 3, '--alignment-origin-x': '0px', '--alignment-origin-y': '0px', '--alignment-cell-size': `${cellPixels}px` } as CSSProperties} />
       <button type="button" className="map-grid-alignment-handle" aria-label="기준점 이동" style={{ left: origin.left, top: origin.top }} onKeyDown={event => { if (event.key.startsWith('Arrow')) { event.preventDefault(); nudge(event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0, event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0, event) } }} onPointerDown={event => { event.stopPropagation(); beginGridSizing(event, 'origin') }} />
       <button type="button" className="map-grid-alignment-handle map-grid-alignment-size-handle" aria-label="세 칸 뒤 기준점 이동" style={{ left: scaleEnd.left, top: scaleEnd.top }} onKeyDown={event => { if (event.key.startsWith('Arrow')) { event.preventDefault(); const distance = (event.shiftKey ? 10 : 1) / 3; const nextSize = draft.cellSize + (event.key === 'ArrowRight' || event.key === 'ArrowDown' ? distance : -distance); if (nextSize > 0) changeDraft({ ...draft, cellSize: nextSize }) } }} onPointerDown={event => { event.stopPropagation(); beginGridSizing(event, 'size') }} />
@@ -226,7 +258,7 @@ export function MapGridAlignmentEditor({ image, initial, crop, grid, onApply, on
       {error && <p role="alert">{error}</p>}
       {grid && (imageSize.width <= 1 || imageSize.height <= 1) && <p role="status">지도 크기를 확인하고 있습니다.</p>}
       {gridCannotFit && <p role="alert">현재 지도 크기와 격자 칸 수로는 전체 격자를 맞출 수 없습니다. 칸 크기를 줄이거나 기준점을 조정하세요.</p>}
-    <div className="map-grid-alignment-actions"><Button type="button" disabled={saving || !validSize || !!pending || !saveOrigin} onClick={() => void apply()}>{saving ? '저장 중…' : error ? '다시 적용' : '적용'}</Button><Button type="button" disabled={saving} onClick={onCancel}>취소</Button></div>
+    <div className="map-grid-alignment-actions"><Button type="button" disabled={saving || !validSize || !validGridSize || !!pending || !saveOrigin} onClick={() => void apply()}>{saving ? '저장 중…' : error ? '다시 적용' : '적용'}</Button><Button type="button" disabled={saving} onClick={onCancel}>취소</Button></div>
   </section>
 }
 

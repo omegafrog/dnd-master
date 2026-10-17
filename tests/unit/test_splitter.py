@@ -24,6 +24,29 @@ def test_table_is_preserved_even_when_over_max():
     assert all(len(piece.source_text) <= policy.max_characters for piece in pieces)
 
 
+def test_prose_uses_smaller_limit_while_table_keeps_existing_limit(monkeypatch, caplog):
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level("INFO")
+    policy = ChunkPolicy(max_tokens=500, prose_max_tokens=180, min_tokens=1, overlap_tokens=30)
+    prose = candidate(ContentType.RULE, " ".join(f"Sentence {i} contains useful rule details." for i in range(100)))
+    table_text = "\n".join(f"Row {i} contains a complete table entry." for i in range(60))
+    table = candidate(ContentType.TABLE, table_text)
+
+    prose_pieces = ChunkSplitter(policy).split(prose)
+    table_pieces = ChunkSplitter(policy).split(table)
+
+    assert len(prose_pieces) > 1
+    assert max(count_tokens(piece.source_text) for piece in prose_pieces) <= 180
+    joined_pieces = "\n".join(piece.source_text for piece in prose_pieces)
+    assert all(f"Sentence {i} contains useful rule details." in joined_pieces for i in range(100))
+    assert "dev_chunk_splitter stage=start" in caplog.text
+    assert "expectedMaxTokens=180" in caplog.text
+    assert "dev_chunk_splitter stage=complete" in caplog.text
+    assert "outcome=split" in caplog.text
+    assert len(table_pieces) == 1
+    assert table_pieces[0].source_text == table_text
+
+
 def test_atomic_chunk_splits_by_characters_below_token_limit():
     policy = ChunkPolicy(target_tokens=350, max_tokens=500, max_characters=6000, min_tokens=1, overlap_tokens=30)
     text = "first " + "a" * 3500 + " second " + "b" * 3500

@@ -187,6 +187,28 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     }
 
     @Override
+    public <T> GmCompletionResult<T> completeWithImageAndResolution(UUID soloPlayerId, String operationId,
+            GmPrompt prompt, StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+            GmProviderSelectionResolver.EndpointResolution resolution, com.fasterxml.jackson.databind.JsonNode outputSchema) {
+        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
+        T response = switch (effective.provider()) {
+            case "openai" -> new OpenAiGmProvider(HttpClient.newHttpClient(), resolution.endpoint().baseUrl(),
+                    resolution.endpoint().secretEnvironmentVariable() == null ? defaults.apiKey()
+                            : System.getenv(resolution.endpoint().secretEnvironmentVariable()),
+                    effective.model(), effective.reasoning(), defaults.timeout())
+                    .complete(operationId + ":openai:" + effective.model(), prompt, parser, outputSchema);
+            case "ollama" -> new RemoteOllamaGmProvider(HttpClient.newHttpClient(), resolution.endpoint().baseUrl(),
+                    effective.model(), defaults.timeout(), schemaNumCtx)
+                    .complete(operationId + ":ollama:" + effective.model(), prompt, parser, outputSchema);
+            case "codex-cli" -> parser.parse(aiExecutionPort.execute(new AiExecutionRequest(soloPlayerId,
+                    operationId, operationId, prompt.text(), effective.model(), effective.reasoning(), "JSON",
+                    outputSchema, prompt.imageDataUri())).requireFinalText());
+            default -> throw new IllegalArgumentException("unsupported GM provider: " + effective.provider());
+        };
+        return new GmCompletionResult<>(response, effective);
+    }
+
+    @Override
     public <T> GmCompletionResult<T> completeWithResolutionAndSubtasks(UUID soloPlayerId, String operationId,
             String prompt, StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
             GmProviderSelectionResolver.EndpointResolution resolution,

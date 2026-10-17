@@ -18,6 +18,61 @@ it('shows only the map area saved by the previous crop step', () => {
   expect(viewport).toHaveAttribute('data-crop', '100,50,300,200')
 })
 
+it('lets the user adjust grid dimensions and uses them for the saved alignment', async () => {
+  const apply = vi.fn().mockResolvedValue(undefined)
+  const user = userEvent.setup()
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} crop={{ x: 0, y: 0, width: 300, height: 200 }} grid={{ width: 28, height: 19 }} onApply={apply} onCancel={() => {}} />)
+  Object.defineProperty(screen.getByAltText('공개된 지도 이미지'), 'naturalWidth', { value: 300 })
+  Object.defineProperty(screen.getByAltText('공개된 지도 이미지'), 'naturalHeight', { value: 200 })
+  fireEvent.load(screen.getByAltText('공개된 지도 이미지'))
+  await user.clear(screen.getByRole('spinbutton', { name: '격자 열 수' }))
+  await user.type(screen.getByRole('spinbutton', { name: '격자 열 수' }), '22')
+  await user.clear(screen.getByRole('spinbutton', { name: '격자 행 수' }))
+  await user.type(screen.getByRole('spinbutton', { name: '격자 행 수' }), '23')
+  await user.clear(screen.getByRole('textbox', { name: '한 칸 크기 (원본 이미지 픽셀)' }))
+  await user.type(screen.getByRole('textbox', { name: '한 칸 크기 (원본 이미지 픽셀)' }), '5')
+  expect(screen.getByRole('spinbutton', { name: '격자 열 수' })).toHaveValue(22)
+  expect(screen.getByRole('spinbutton', { name: '격자 행 수' })).toHaveValue(23)
+  expect(document.querySelector('[data-grid-size="22x23"]')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '적용' })).toBeEnabled()
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  expect(apply).toHaveBeenCalledWith(expect.objectContaining({ width: 22, height: 23 }))
+})
+
+it('starts an unsaved alignment at the selected crop instead of the full image origin', async () => {
+  const apply = vi.fn().mockResolvedValue(undefined)
+  const user = userEvent.setup()
+  render(<MapGridAlignmentEditor image="/public.png" initial={{ ...initial, version: 0, originX: 0, originY: 0 }} crop={{ x: 100, y: 50, width: 150, height: 150 }} grid={{ width: 3, height: 3 }} onApply={apply} onCancel={() => {}} />)
+  const image = screen.getByAltText('공개된 지도 이미지')
+  Object.defineProperty(image, 'naturalWidth', { value: 300 })
+  Object.defineProperty(image, 'naturalHeight', { value: 200 })
+  fireEvent.load(image)
+  await user.click(screen.getByRole('button', { name: '적용' }))
+  expect(apply).toHaveBeenCalledWith(expect.objectContaining({ originX: 100, originY: 50 }))
+})
+
+it('uses successful analysis as an editable suggestion', async () => {
+  const user = userEvent.setup()
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} crop={{ x: 100, y: 50, width: 300, height: 200 }} grid={{ width: 28, height: 19 }} onAnalyze={async area => {
+    expect(area).toEqual({ x: 100, y: 50, width: 300, height: 200 })
+    return { status: 'DETECTED', width: 22, height: 23, cellSize: 12, originX: 104, originY: 55, confidence: .9 }
+  }} onApply={vi.fn()} onCancel={() => {}} />)
+  await user.click(screen.getByRole('button', { name: '잘라낸 지도에서 격자 다시 분석' }))
+  expect(await screen.findByText('격자 22열 × 23행을 찾았습니다. 오버레이를 확인하고 필요하면 수정하세요.')).toBeInTheDocument()
+  expect(screen.getByRole('spinbutton', { name: '격자 열 수' })).toHaveValue(22)
+  expect(screen.getByRole('spinbutton', { name: '격자 행 수' })).toHaveValue(23)
+  expect(screen.getByRole('textbox', { name: '한 칸 크기 (원본 이미지 픽셀)' })).toHaveValue('12')
+})
+
+it('shows a failed cropped-map analysis without replacing manual grid dimensions', async () => {
+  const user = userEvent.setup()
+  render(<MapGridAlignmentEditor image="/public.png" initial={initial} crop={{ x: 10, y: 20, width: 300, height: 200 }} grid={{ width: 28, height: 19 }} onAnalyze={async () => ({ status: 'UNRESOLVED' })} onApply={vi.fn()} onCancel={() => {}} />)
+  await user.click(screen.getByRole('button', { name: '잘라낸 지도에서 격자 다시 분석' }))
+  expect(await screen.findByText('격자를 찾지 못했습니다. 아래에서 열·행 수를 직접 입력하세요.')).toBeInTheDocument()
+  expect(screen.getByRole('spinbutton', { name: '격자 열 수' })).toHaveValue(28)
+  expect(screen.getByRole('spinbutton', { name: '격자 행 수' })).toHaveValue(19)
+})
+
 it('keeps the 3×3 alignment draft local until explicit apply', async () => {
   const apply = vi.fn().mockResolvedValue(undefined)
   const cancel = vi.fn()

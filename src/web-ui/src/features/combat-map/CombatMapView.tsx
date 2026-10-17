@@ -156,7 +156,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         if (bounds?.length === 6 && bounds.every(Number.isFinite)) {
           setAlignment({ mapId: nextMap.mapId ?? '', version: 0, imageRevision: '', cellSize: bounds[2] / nextGrid.width, originX: bounds[0], originY: bounds[1] })
         }
-        try { const current = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable'))); if (active) { setAlignment(current); setAlignmentAvailable(true); if (current.version > 0 && !preparationMode) setGridConfirmed(true); if (preparationMode) setLayoutSaved(layoutConfirmedForAlignment(nextMap, current)) } } catch { if (active) { setAlignmentAvailable(false); setLayoutSaved(false); setGridMessage('저장된 격자 정렬을 불러오지 못했습니다.') } }
+        try { const current = await (api.getMapGridAlignment?.(adventureId) ?? Promise.reject(new Error('unavailable'))); if (active) { setAlignment(current); setAlignmentAvailable(true); if (current.version > 0) setGridConfirmed(true); if (preparationMode) setLayoutSaved(layoutConfirmedForAlignment(nextMap, current)); diagnosticEvent('combat_map_alignment_restore', { outcome: current.version > 0 ? 'restored' : 'not_saved', version: current.version, gridConfirmed: current.version > 0 }) } } catch { if (active) { setAlignmentAvailable(false); setLayoutSaved(false); setGridMessage('저장된 격자 정렬을 불러오지 못했습니다.'); diagnosticEvent('combat_map_alignment_restore', { outcome: 'failed', version: null, gridConfirmed: false }) } }
         try {
           let image: string | null = null
           if (preparationMode) {
@@ -475,9 +475,14 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const mapImage = publicMapImage
   useEffect(() => {
     const raw = map?.layers?.find(layer => layer.type === 'MAP_CROP')?.value?.split(',').map(Number)
-    if (raw?.length === 4 && raw.every(Number.isFinite)) setCrop({ x: raw[0], y: raw[1], width: raw[2], height: raw[3] })
-    else if (mapImageSize.width > 1 && mapImageSize.height > 1) setCrop({ x: 0, y: 0, width: mapImageSize.width, height: mapImageSize.height })
-  }, [map, mapImageSize])
+    if (raw?.length === 4 && raw.every(Number.isFinite) && raw[2] > 0 && raw[3] > 0) {
+      setCrop({ x: raw[0], y: raw[1], width: raw[2], height: raw[3] })
+      if (preparationMode) { setCropConfirmed(true); setCropEditorOpen(false); diagnosticEvent('combat_map_crop_restore', { outcome: 'restored', width: raw[2], height: raw[3] }) }
+    } else if (mapImageSize.width > 1 && mapImageSize.height > 1) {
+      setCrop({ x: 0, y: 0, width: mapImageSize.width, height: mapImageSize.height })
+      if (preparationMode) { setCropConfirmed(false); setCropEditorOpen(true); diagnosticEvent('combat_map_crop_restore', { outcome: 'missing_or_invalid', imageWidth: mapImageSize.width, imageHeight: mapImageSize.height }) }
+    }
+  }, [map, mapImageSize, preparationMode])
   const gridBounds = map?.layers?.find(layer => layer.type === 'GRID_BOUNDS')?.value?.split(',').map(Number)
   const hasGridBounds = gridBounds && gridBounds.length >= 6 && gridBounds.every(Number.isFinite)
     && gridBounds[0] >= 0 && gridBounds[1] >= 0 && gridBounds[2] > 0 && gridBounds[3] > 0
@@ -776,9 +781,24 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
         <h3>2. 맵 격자 맞추기</h3>
         {!cropConfirmed ? <p>1단계에서 여백 자르기를 적용하면 격자를 맞출 수 있습니다.</p> : !showGridEditor ? <p role="status">지도 이미지와 격자 정보를 불러오는 중입니다.</p> : <>
           <button type="button" onClick={() => setGridEditor(true)}>격자 맞추기</button>
-          {gridEditor && <MapGridAlignmentEditor key={`${alignment.mapId}-${alignment.version}`} image={mapImage!} initial={alignment} crop={crop} grid={map.grid} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {
+          {gridEditor && <MapGridAlignmentEditor key={`${alignment.mapId}-${alignment.version}`} image={mapImage!} initial={alignment} crop={crop} grid={map.grid} onAnalyze={api.analyzeMapGrid ? area => api.analyzeMapGrid!(adventureId, area) : undefined} onCancel={() => { setGridEditor(false); setGridMessage('이번 정렬 초안을 취소했습니다.') }} onApply={async value => {
           try {
-            const saved = await api.applyMapGridAlignment!(adventureId, value)
+            if (value.width !== map.grid?.width || value.height !== map.grid?.height) {
+              if (!api.calibrateMapGrid || !map.mapId) throw new Error('격자 수를 저장할 수 없습니다. 지도를 다시 불러오세요.')
+              try {
+                await api.calibrateMapGrid(adventureId, { mapId: map.mapId, expectedVersion: map.version ?? 0,
+                  width: value.width, height: value.height, cellSize: Math.max(1, Math.floor(value.cellSize)),
+                  originX: Math.max(0, Math.floor(value.originX)), originY: Math.max(0, Math.floor(value.originY)),
+                  imageWidth: mapImageSize.width, imageHeight: mapImageSize.height })
+              } catch (error) {
+                setMap(await (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)))
+                throw error
+              }
+              setMap(await (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)))
+            }
+            const alignmentRequest = { mapId: value.mapId, commandId: value.commandId, expectedVersion: value.expectedVersion,
+              imageRevision: value.imageRevision, originX: value.originX, originY: value.originY, cellSize: value.cellSize }
+            const saved = await api.applyMapGridAlignment!(adventureId, alignmentRequest)
             setAlignment(saved); setGridConfirmed(true); setLayoutSaved(false); setGridEditor(false); setGridMessage('격자 정렬을 저장했습니다. 이제 AI 초안을 생성하세요.'); setMap(await (preparationMode ? (api.getCombatMapPreparation?.(adventureId) ?? api.getCombatMap(adventureId)) : api.getCombatMap(adventureId)))
           } catch (error) {
             if (error instanceof Error && 'status' in error && (error as { status?: number }).status === 409) {

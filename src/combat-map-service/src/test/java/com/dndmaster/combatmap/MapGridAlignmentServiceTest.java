@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.dndmaster.combatmap.application.view.*;
 import com.dndmaster.combatmap.domain.*;
 import java.util.*;
+import java.awt.image.BufferedImage;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class MapGridAlignmentServiceTest {
@@ -104,6 +106,57 @@ class MapGridAlignmentServiceTest {
         MapGridAlignmentService service = new MapGridAlignmentService(new InMemoryMapStore(withoutImage, owner), new InMemoryAlignmentStore());
 
         assertThrows(MapGridAlignmentImageUnavailableException.class, () -> service.find(mapId, owner));
+    }
+
+    @Test
+    void reanalyzesOnlyTheSavedCropAndReturnsCoordinatesInTheOriginalImage() {
+        InMemoryMapStore maps = new InMemoryMapStore(map(), owner);
+        AtomicReference<BufferedImage> analyzed = new AtomicReference<>();
+        MapGridAlignmentService service = new MapGridAlignmentService(maps, new InMemoryAlignmentStore(), image -> {
+            analyzed.set(image);
+            return Optional.of(new DetectedMapGrid(22, 23, 40, 3, 4, .91));
+        });
+
+        DetectedMapGrid result = service.analyze(mapId, owner, 100, 200, 300, 400).orElseThrow();
+
+        assertEquals(300, analyzed.get().getWidth());
+        assertEquals(400, analyzed.get().getHeight());
+        assertEquals(22, result.width());
+        assertEquals(23, result.height());
+        assertEquals(103, result.originX());
+        assertEquals(204, result.originY());
+        assertEquals(.91, result.confidence());
+    }
+
+    @Test
+    void failedReanalysisDoesNotSupplyFallbackDimensions() {
+        MapGridAlignmentService service = new MapGridAlignmentService(new InMemoryMapStore(map(), owner), new InMemoryAlignmentStore(), image -> Optional.empty());
+        assertTrue(service.analyze(mapId, owner, 0, 0, 100, 100).isEmpty());
+    }
+
+    @Test
+    void changingDimensionsKeepsExistingCellCoordinatesAndRejectsClippingWithoutSaving() {
+        CombatMap source = map();
+        List<MapLayer> sourceLayers = new ArrayList<>(source.layers());
+        sourceLayers.add(new MapLayer("MAP_CROP", "10,20,800,700", LayerVisibility.PLAYER_VISIBLE));
+        sourceLayers.add(new MapLayer("MAP_LAYOUT_CONFIRMED", "old-alignment", LayerVisibility.PLAYER_VISIBLE));
+        CombatMap original = new CombatMap(source.id(), source.adventureId(), source.ruleSetId(), source.grid(), source.ownerPlayerId(),
+                source.tokens(), source.obstacles(), sourceLayers, source.version(), null);
+        InMemoryMapStore maps = new InMemoryMapStore(original, owner);
+        CombatMapViewService service = new CombatMapViewService(maps, ignored -> null, ignored -> null);
+
+        CombatMap adjusted = service.calibrateGrid(mapId, owner, 0,
+                new GridCalibrationRequest(5, 5, 50, 0, 0, 500, 500, null, null));
+        assertEquals(new GridSpec(5, 5, 50, 5), adjusted.grid());
+        assertEquals(new GridPosition(2, 3), adjusted.tokens().getFirst().position());
+        assertEquals(Set.of(new GridPosition(4, 4)), adjusted.obstacles());
+        assertTrue(adjusted.layers().stream().anyMatch(layer -> layer.type().equals("MAP_CROP") && layer.value().equals("10,20,800,700")));
+        assertFalse(adjusted.layers().stream().anyMatch(layer -> layer.type().equals("MAP_LAYOUT_CONFIRMED")));
+
+        CombatMap beforeRejectedResize = maps.current;
+        assertThrows(IllegalArgumentException.class, () -> service.calibrateGrid(mapId, owner, adjusted.version(),
+                new GridCalibrationRequest(4, 5, 50, 0, 0, 500, 500, null, null)));
+        assertSame(beforeRejectedResize, maps.current);
     }
 
     private CombatMap map() {

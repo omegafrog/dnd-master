@@ -167,6 +167,21 @@ describe('HttpSetupApi', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/runtime-options', expect.any(Object))
   })
 
+  it('reads a preparation by its preparation identifier', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: async () => ({ scenarioPackageId: 'package-1', status: 'READY' }),
+    } as Response)
+    vi.stubGlobal('fetch', fetchMock)
+    const api = new HttpSetupApi(() => 'owner-token')
+
+    await api.getPlayPreparationById?.('preparation-1')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/play-preparations/preparation-1', expect.any(Object))
+  })
+
   it('saves a blueprint node with expected revision and can add a child', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true, headers: new Headers(), json: async () => ({}) } as Response)
     vi.stubGlobal('fetch', fetchMock)

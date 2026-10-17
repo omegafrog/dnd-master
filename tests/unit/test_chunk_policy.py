@@ -6,7 +6,7 @@ from preprocessing_agent.domain import ContentType
 
 def test_dnd_policy_has_contract_limits_and_strategies():
     policy = load_policy(Path("configs/profiles/dnd_rulebook.yaml"))
-    assert (policy.target_tokens, policy.max_tokens, policy.min_tokens, policy.overlap_tokens) == (350, 500, 100, 30)
+    assert (policy.target_tokens, policy.max_tokens, policy.prose_max_tokens, policy.min_tokens, policy.overlap_tokens) == (350, 500, 300, 100, 30)
     assert policy.strategy_for(ContentType.SPELL) == "atomic"
     assert policy.strategy_for(ContentType.TABLE) == "table"
     assert policy.strategy_for(ContentType.RULE) == "rule"

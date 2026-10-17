@@ -1,5 +1,5 @@
 from preprocessing_agent.layout import LayoutAnalyzer, ReadingOrderPlanner
-from preprocessing_agent.domain.layout import BoundingBox, LayoutBlock, PageGeometry
+from preprocessing_agent.domain.layout import BoundingBox, ColumnHypothesis, ColumnProfile, LayoutBlock, LayoutRegion, PageGeometry
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from pathlib import Path
 from dataclasses import replace
@@ -23,6 +23,34 @@ def test_clear_two_column_profile_and_column_major_order():
     assert plan.profiles[0].selected.column_count == 2
     assert plan.ordered_block_ids == ("l1", "l2", "r1", "r2")
     assert len(plan.profiles[0].candidates) > 1
+
+
+def test_two_column_order_uses_block_center_when_bbox_rounding_crosses_column_edge(caplog, monkeypatch):
+    import logging
+
+    monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
+    caplog.set_level(logging.INFO)
+    candidate = ColumnHypothesis(2, (BoundingBox(10, 0, 49, 100), BoundingBox(51, 0, 90, 100)), 1.0,
+                                 "user-selected")
+
+    class FixedColumns:
+        def analyze(self, blocks, _page_geometry=None):
+            return (LayoutRegion("manual-region", BoundingBox(10, 0, 90, 100),
+                                 tuple(item["block_id"] for item in blocks)),)
+
+        def profile(self, region, _blocks, selected_candidate=None):
+            return ColumnProfile(region.region_id, (candidate,), candidate, 1.0)
+
+    blocks = [
+        block("right", "Right column", (50.999, 10, 90, 20)),
+        block("left", "Left column", (10, 30, 49, 40)),
+    ]
+
+    plan = ReadingOrderPlanner(FixedColumns()).plan(blocks)
+
+    assert plan.ordered_block_ids == ("left", "right")
+    assert "stage=column_assignment_completed expectedSelectedBlockCount=2 actualAssignedBlockCount=2" in caplog.text
+    assert "route=block_center_within_user_selected_columns outcome=success" in caplog.text
 
 
 def test_spanning_block_is_projected_once_between_regional_columns():

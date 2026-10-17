@@ -1,0 +1,20 @@
+{
+  "judgment": "해치를 열어 계단 아래를 조심스럽게 살펴보는 것은 현재 들리는 소리와 냄새를 확인하는 행동으로, 별도 판정 없이 가능하다.",
+  "citedEvidence": [
+    "SCENARIO_MODEL:location-beer-cellar",
+    "STORYBOOK:099a3ca0-2198-4f27-a566-f594b6e3ee1b:2:page=2:chunk=chk_f40fceecb60337b23883d21e1ef49a165aeb7d2ddafe0ae32284033e4b30f231"
+  ],
+  "판정제안": {
+    "필요": false,
+    "이유": null,
+    "판정능력또는기술": null,
+    "대상캐릭터ID": null,
+    "굴림주체": null,
+    "굴림식": null,
+    "보정치": null,
+    "난이도": null,
+    "근거키": null,
+    "성공시결과": null,
+    "실패시결과": null
+  }
+}

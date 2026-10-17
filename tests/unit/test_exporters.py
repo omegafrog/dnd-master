@@ -8,7 +8,7 @@ from preprocessing_agent.domain import schema_path, validate_json
 from preprocessing_agent.validation import ValidationPolicy, validate_chunks
 
 
-def test_exporter_writes_four_artifacts_and_excludes_invalid_spans(tmp_path):
+def test_exporter_writes_markdown_and_structured_artifacts_and_excludes_invalid_spans(tmp_path):
     good = Chunk("chk-good", "rules.good", ContentType.RULE, "Good.", "Good.", 1,
                  (SourceSpan(1, 0, 0, 5),), ("rules",))
     bad = Chunk("chk-bad", "rules.bad", ContentType.RULE, "Bad.", "Bad.", 1,
@@ -17,11 +17,22 @@ def test_exporter_writes_four_artifacts_and_excludes_invalid_spans(tmp_path):
     manifest = ArtifactExporter().export(tmp_path, "doc.pdf", "source", (good, bad), (), tree,
                                          page_count=1, invalid_chunk_ids={"chk-bad"})
     assert {p.name for p in tmp_path.iterdir()} == {
-        "chunks.jsonl", "issues.jsonl", "document_tree.json", "manifest.json"
+        "chunks.jsonl", "issues.jsonl", "document_tree.json", "manifest.json", "source.md"
     }
+    assert (tmp_path / "source.md").read_text() == "source\n"
     assert len((tmp_path / "chunks.jsonl").read_text().splitlines()) == 1
     assert manifest["statistics"]["chunks"]["exported"] == 1
     json.loads((tmp_path / "manifest.json").read_text())
+
+
+def test_exporter_writes_linearized_prose_without_changing_canonical_source_hash(tmp_path):
+    tree = DocumentTree("doc", SectionNode("root", "Rules", 0, ContentType.RULE))
+
+    manifest = ArtifactExporter().export(tmp_path, "doc.pdf", "First line\nsecond line", (), (), tree,
+                                         prose_text="First line second line")
+
+    assert (tmp_path / "source.md").read_text() == "First line second line\n"
+    assert manifest["source_sha256"] == hashlib.sha256(b"First line\nsecond line").hexdigest()
 
 
 def test_exporter_writes_page_structure_and_source_file_hash(tmp_path):
@@ -159,3 +170,22 @@ def test_exporter_issues_follow_the_final_chunk_set(tmp_path):
 
     assert (tmp_path / "issues.jsonl").read_text() == ""
     assert manifest["statistics"]["validation"] == {"issues": 0, "valid": True}
+
+
+def test_exporter_records_recovered_source_ranges_without_marking_them_invalid(tmp_path):
+    chunk = Chunk("chk-recovered", "recovered.p0001.b0001.r001", ContentType.UNKNOWN,
+                  "Recovered text.", "Recovered text.", 2, (SourceSpan(1, 1, 0, 15),))
+    tree = DocumentTree("doc", SectionNode("root", "Rules", 0, ContentType.NARRATIVE))
+    issue = ValidationIssue("source_text_recovered", "recovered", severity="info",
+                            path=chunk.chunk_id, source_span=chunk.source_spans[0])
+    coverage = {"parsed_block_count": 1, "recovered_range_count": 1,
+                "recovered_character_count": 15, "unaccounted_character_count": 0}
+
+    manifest = ArtifactExporter().export(tmp_path, "doc.pdf", "Recovered text.", (chunk,), (issue,), tree,
+                                         source_coverage=coverage)
+
+    assert manifest["statistics"]["source_coverage"] == coverage
+    assert manifest["statistics"]["validation"] == {"issues": 1, "valid": True}
+    exported_issues = [json.loads(line) for line in (tmp_path / "issues.jsonl").read_text().splitlines()]
+    assert exported_issues[0]["issue_type"] == "source_text_recovered"
+    validate_json(manifest, json.loads(schema_path("manifest.schema.json").read_text(encoding="utf-8")))

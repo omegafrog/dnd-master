@@ -85,8 +85,12 @@ def validate_chunks(
             issues.append(ValidationIssue("max_token_overflow", "chunk exceeds the maximum token policy", path=path))
         if not chunk.section_path:
             if chunk.chunk_id not in unresolved_hierarchy_chunk_ids:
-                issue_type = "orphan_heading" if len(text.split()) <= 12 else "missing_section_path"
-                issues.append(ValidationIssue(issue_type, "chunk has no document section path", path=path))
+                if chunk.content_type is ContentType.UNKNOWN:
+                    issues.append(ValidationIssue("section_path_unresolved", "검색에는 사용할 수 있지만 확정된 절 경로는 없습니다.",
+                                                  severity="warning", path=path))
+                else:
+                    issue_type = "orphan_heading" if len(text.split()) <= 12 else "missing_section_path"
+                    issues.append(ValidationIssue(issue_type, "chunk has no document section path", path=path))
         identity = (chunk.canonical_key, text)
         if text in seen_text or identity in seen_identity:
             issues.append(ValidationIssue("duplicate", f"duplicate content of {seen_text.get(text, path)}", path=path))

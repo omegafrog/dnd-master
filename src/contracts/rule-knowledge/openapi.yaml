@@ -250,7 +250,7 @@ paths:
   /internal/v1/evidence-candidates/search:
     post:
       operationId: searchEvidenceCandidates
-      summary: Search scoped dense-retrieval candidates once, across the supplied session document types
+      summary: 지정된 모험 자료 범위에서 근거 후보를 한 번 조회
       security: [{ internalToken: [] }]
       requestBody:
         required: true
@@ -273,11 +273,11 @@ paths:
                   uniqueItems: true
                   items: { type: string, pattern: '^IMMUTABLE_DOCUMENT:(RULEBOOK|STORYBOOK):[^:]+:[1-9][0-9]*:.+$' }
                 query: { type: string, minLength: 1 }
-                denseLimit: { type: integer, minimum: 1, maximum: 30 }
+                denseLimit: { type: integer, minimum: 1, maximum: 40, description: 이번 RAG 조회에서 반환할 근거 후보의 최대 개수 }
                 minimumDenseSimilarity: { type: number, minimum: -1, maximum: 1 }
       responses:
         '200':
-          description: Candidate list includes cosine similarity when dense retrieval provides it, restricted to owner/scope/version and excluding previously confirmed immutable evidence IDs.
+          description: 소유자·자료 범위·버전으로 제한하고 이미 확정된 근거를 제외한 후보 목록. 일반 플레이어 행동 턴은 최대 40개를 요청한다.
           content:
             application/json:
               schema: { $ref: './schemas/evidence-candidate-search-response.json' }

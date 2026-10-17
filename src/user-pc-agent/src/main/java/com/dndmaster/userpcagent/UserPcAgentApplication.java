@@ -26,8 +26,9 @@ public final class UserPcAgentApplication {
     public static void main(String[] args) {
         Settings settings = Settings.fromEnvironment();
         ObjectMapper objectMapper = new ObjectMapper();
+        CodexClientWorkspace.install(settings.codexClientDirectory());
         LocalCodexAiExecutionPort codex = new LocalCodexAiExecutionPort(
-                settings.codexExecutable(), settings.codexWorkDirectory(), settings.codexTimeout(), objectMapper);
+                settings.codexExecutable(), settings.codexClientDirectory(), settings.codexTimeout(), objectMapper, true);
         var loginExecutor = Executors.newVirtualThreadPerTaskExecutor();
         CodexConnectionService connectionService = new CodexConnectionService(codex.appServerClient(),
                 FileInstallationLinkStore.forCurrentUser(), loginExecutor,
@@ -100,7 +101,7 @@ public final class UserPcAgentApplication {
             String accessToken,
             String connectionId,
             String codexExecutable,
-            Path codexWorkDirectory,
+            Path codexClientDirectory,
             Duration codexTimeout) {
         private static Settings fromEnvironment() {
             return new Settings(
@@ -108,7 +109,9 @@ public final class UserPcAgentApplication {
                     required("AGENT_ACCESS_TOKEN"),
                     required("AGENT_CONNECTION_ID"),
                     environmentOrDefault("CODEX_EXECUTABLE", "codex"),
-                    Path.of(environmentOrDefault("CODEX_WORK_DIRECTORY", "/tmp")),
+                    Path.of(environmentOrDefault("CODEX_CLIENT_DIRECTORY",
+                            Path.of(System.getProperty("user.home"), ".dnd-master", "codex-client").toString()))
+                            .toAbsolutePath().normalize(),
                     Duration.parse(environmentOrDefault("CODEX_TIMEOUT", "PT5M")));
         }
 

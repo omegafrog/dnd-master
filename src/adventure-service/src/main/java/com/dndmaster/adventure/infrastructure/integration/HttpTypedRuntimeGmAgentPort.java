@@ -61,6 +61,18 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                     ? EffectiveGmProviderSelection.legacyUnknown()
                     : new EffectiveGmProviderSelection(context.requestedSelection().endpointId(), Instant.now(),
                             provider, model, reasoning);
+            if ("SESSION_OPENING".equals(context.action())) {
+                if (response.narration() == null || response.narration().isBlank()) {
+                    throw new IllegalArgumentException("opening narration response is incomplete");
+                }
+                RuntimePlan opening = new RuntimePlan(context.currentContext().currentScene(),
+                        context.currentContext().npcState(), "모험 시작", response.narration(), null, List.of(), List.of(),
+                        provider, model, reasoning, false, "", context.requestedSelection(), effective, 1,
+                        List.of(), null, List.of(), false, false);
+                devLog("dev_agent_opening_response outcome=accepted responseFields=narration only narrationChars={} stateMutation=false",
+                        response.narration().length());
+                return new GmPlanResult(opening, provider, model, reasoning, List.of());
+            }
             Map<String, com.dndmaster.adventure.application.runtime.RuntimeEvidence> evidenceByKey = context.evidencePack().all().stream()
                     .collect(java.util.stream.Collectors.toMap(
                             com.dndmaster.adventure.application.runtime.RuntimeEvidence::referenceKey,
@@ -227,6 +239,12 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             throw new IllegalStateException("typed runtime GM returned " + response.statusCode() + ": " + response.body());
         }
         RuntimeResponse result = mapper.readValue(response.body(), RuntimeResponse.class);
+        if ("SESSION_OPENING".equals(context.action())) {
+            if (result.narration() == null || result.narration().isBlank()) {
+                throw new IllegalStateException("typed runtime opening narration is incomplete");
+            }
+            return result;
+        }
         if (result.scene() == null || result.scene().isBlank()
                 || result.judgment() == null || result.judgment().isBlank()
                 || result.narration() == null || result.narration().isBlank() || result.situation() == null) {

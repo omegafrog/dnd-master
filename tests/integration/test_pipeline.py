@@ -23,6 +23,10 @@ def test_pipeline_runs_fixture_and_exports_all_public_artifacts(tmp_path):
     assert len({chunk.chunk_id for chunk in result.chunks}) == len(result.chunks)
     assert len({chunk.canonical_key for chunk in result.chunks}) == len(result.chunks)
     assert result.manifest["source_sha256"]
+    prose = (tmp_path / "out" / "source.md").read_text(encoding="utf-8")
+    assert prose.count("\n") == 1
+    assert "Advantage means a character rolls two d20s" in prose
+    assert "Range: 120 feet." in prose
     assert {name for name in ("chunks.jsonl", "issues.jsonl", "document_tree.json", "manifest.json") if (tmp_path / "out" / name).exists()} == {
         "chunks.jsonl", "issues.jsonl", "document_tree.json", "manifest.json"
     }

@@ -557,7 +557,8 @@ export interface SetupApi {
   preflightAgentEndpoint?(): Promise<AgentEndpointPreflightView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
   createPlayPreparation?(scenarioPackageId: string, requestKey: string): Promise<PlayPreparationView>
-  getPlayPreparation?(preparationId: string): Promise<PlayPreparationView>
+  getPlayPreparation?(scenarioPackageId: string): Promise<PlayPreparationView>
+  getPlayPreparationById?(preparationId: string): Promise<PlayPreparationView>
   editSpellDefinition?(preparationId: string, definitionId: string, expectedRevision: number,
     edit: StructuredActionEdit): Promise<PlayPreparationView>
   addActionDefinition?(preparationId: string, definition: AddActionDefinition): Promise<PlayPreparationView>
@@ -794,7 +795,13 @@ export class HttpSetupApi implements SetupApi {
     }, '모험 준비 검토를 시작하지 못했습니다.')
   }
 
-  getPlayPreparation(preparationId: string) {
+  getPlayPreparation(scenarioPackageId: string) {
+    return request<PlayPreparationView>(`/api/v1/scenario-packages/${scenarioPackageId}/play-preparation`, {
+      headers: this.authHeaders(),
+    }, '플레이 준비 상태를 불러오지 못했습니다.')
+  }
+
+  getPlayPreparationById(preparationId: string) {
     return request<PlayPreparationView>(`/api/v1/play-preparations/${preparationId}`, {
       headers: this.authHeaders(),
     }, '플레이 준비 상태를 불러오지 못했습니다.')

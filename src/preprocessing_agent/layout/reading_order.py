@@ -72,6 +72,13 @@ class ReadingOrderPlanner:
         ordered: list[tuple[int, int, float, str]] = []
         spanning: list[str] = []
         furniture: list[str] = []
+        assigned_column_count = 0
+        selected_region_count = sum(profile.selected is not None for profile in profiles)
+        expected_selected_block_count = sum(
+            len(region.block_ids) for region, profile in zip(regions, profiles)
+            if profile.selected is not None)
+        _diagnostic("dev_preprocessing_layout stage=column_assignment_started expectedSelectedRegionCount=%d expectedSelectedBlockCount=%d route=block_center_within_user_selected_columns outcome=started",
+                    selected_region_count, expected_selected_block_count)
         multi_region = any(profile.selected is not None and profile.selected.column_count > 1 for profile in profiles)
         table_regions = {table.zone_id: next((index for index, region in enumerate(regions)
                                               if region.bbox.y0 <= (table.bbox.y0 + table.bbox.y1) / 2 <= region.bbox.y1), None)
@@ -85,8 +92,10 @@ class ReadingOrderPlanner:
                 columns = profile.selected.columns
                 for block_id in region.block_ids:
                     box = _box(by_id[block_id])
+                    center_x = (box.x0 + box.x1) / 2
                     column = next((index for index, column_box in enumerate(columns)
-                                   if box.x0 >= column_box.x0 and box.x1 <= column_box.x1), 0)
+                                   if column_box.x0 <= center_x <= column_box.x1), 0)
+                    assigned_column_count += 1
                     kind = str(_value(by_id[block_id], "kind", "")).casefold()
                     font_size = _value(by_id[block_id], "font_size")
                     is_furniture = (kind in {"header", "footer", "repeated-header", "repeated-footer"}
@@ -141,6 +150,9 @@ class ReadingOrderPlanner:
                     len(source_ids), len(prose), sum(len(zone.block_ids) for zone in table_zones), len(table_zones),
                     len(regions), len(profiles), round((time.monotonic() - started) * 1000),
                     "review" if plan.ambiguous else "success")
+        _diagnostic("dev_preprocessing_layout stage=column_assignment_completed expectedSelectedBlockCount=%d actualAssignedBlockCount=%d route=block_center_within_user_selected_columns outcome=%s",
+                    expected_selected_block_count, assigned_column_count,
+                    "success" if assigned_column_count == expected_selected_block_count else "failed")
         return plan
 
     def form_plan(self, blocks: Sequence[Any], page_geometry: PageGeometry | None = None) -> ReadingOrderPlan:

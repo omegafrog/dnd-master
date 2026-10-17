@@ -25,4 +25,8 @@ public final class InstallationGuardedAiExecutionPort implements AiExecutionPort
             localCodex.setRagSearchHandler(handler);
         }
     }
+
+    public void setMcpToolHandler(LocalCodexAiExecutionPort.McpToolHandler handler) {
+        if (delegate instanceof LocalCodexAiExecutionPort localCodex) localCodex.setMcpToolHandler(handler);
+    }
 }

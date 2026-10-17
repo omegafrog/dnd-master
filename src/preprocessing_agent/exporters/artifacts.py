@@ -54,6 +54,8 @@ class ArtifactExporter:
                document: ParsedDocument | None = None,
                agent_stats: dict[str, int] | None = None, invalid_chunk_ids: set[str] | None = None,
                excluded_form_pages: Iterable[int] = (),
+               source_coverage: dict[str, object] | None = None,
+               prose_text: str | None = None,
                pipeline_version: str = PIPELINE_VERSION, schema_version: str = SCHEMA_VERSION) -> dict[str, object]:
         output = Path(output_dir); output.mkdir(parents=True, exist_ok=True)
         all_chunks = tuple(chunks); all_issues = tuple(issues)
@@ -67,6 +69,7 @@ class ArtifactExporter:
         )
         self._jsonl(output / "chunks.jsonl", exported, serializer=_chunk_to_dict)
         self._jsonl(output / "issues.jsonl", effective_issues)
+        (output / "source.md").write_text((prose_text if prose_text is not None else source_text).rstrip() + "\n", encoding="utf-8")
         (output / "document_tree.json").write_text(json.dumps(to_dict(tree), ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         source_bytes = source_text.encode("utf-8")
         manifest = {
@@ -79,10 +82,14 @@ class ArtifactExporter:
                 "pages": page_count, "chunks": {"input": len(all_chunks), "exported": len(exported),
                                                     "excluded": len(all_chunks) - len(exported),
                                                     "excluded_by_reason": excluded_by_reason},
-                "validation": {"issues": len(effective_issues), "valid": not effective_issues},
+                "validation": {"issues": len(effective_issues),
+                               "valid": not any(item.severity == "error" for item in effective_issues)},
                 "agent": agent_stats or {"calls": 0, "accepted": 0, "rejected": 0},
+                "source_coverage": source_coverage or {},
             },
         }
+        if document is not None and document.metadata.get("pdf_provider") in {"pymupdf", "pymupdf4llm", "docling", "hybrid"}:
+            manifest["pdf_provider"] = document.metadata["pdf_provider"]
         source_path = Path(source)
         if source_path.is_file():
             with source_path.open("rb") as source_file:

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dnd-master.local/contracts/ai-game-master/v1/evidence-rerank-request.json",
+  "title": "근거 후보 관련도 정렬 요청",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["soloPlayerId", "query", "taskContext", "resultLimit", "candidates"],
+  "properties": {
+    "soloPlayerId": { "type": "string", "format": "uuid" },
+    "query": { "type": "string", "minLength": 1 },
+    "taskContext": { "type": "string", "enum": ["PLAYER_ACTION", "SCENARIO_PREPARATION", "OPENING_SCENE", "RULE_GUIDANCE"], "description": "근거를 선택하는 작업 종류" },
+    "resultLimit": { "type": "integer", "minimum": 1, "maximum": 30, "description": "정렬 결과로 반환할 최대 후보 수. PLAYER_ACTION은 20" },
+    "candidates": {
+      "type": "array",
+      "maxItems": 180,
+      "items": { "$ref": "#/$defs/candidate" }
+    }
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceId", "documentType", "locator", "excerpt"],
+      "properties": {
+        "evidenceId": { "type": "string", "minLength": 1 },
+        "documentType": { "enum": ["RULEBOOK", "STORYBOOK"] },
+        "locator": { "type": "string", "minLength": 1 },
+        "excerpt": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "taskContext": { "const": "PLAYER_ACTION" } }, "required": ["taskContext"] },
+      "then": { "properties": { "resultLimit": { "const": 20 } } }
+    }
+  ]
+}

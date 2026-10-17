@@ -17,14 +17,41 @@ import javax.imageio.ImageIO;
 public final class MapGridAlignmentService {
     private final CombatMapViewStore maps;
     private final MapGridAlignmentStore alignments;
+    private final MapGridDetectionPort detector;
 
     public MapGridAlignmentService(CombatMapViewStore maps, MapGridAlignmentStore alignments) {
+        this(maps, alignments, image -> Optional.empty());
+    }
+
+    public MapGridAlignmentService(CombatMapViewStore maps, MapGridAlignmentStore alignments, MapGridDetectionPort detector) {
         this.maps = Objects.requireNonNull(maps);
         this.alignments = Objects.requireNonNull(alignments);
+        this.detector = Objects.requireNonNull(detector);
     }
 
     public MapGridAlignmentService(CombatMapViewStore maps, MapGridAlignmentStore alignments, CombatMapViewService mapViews) {
         this(maps, alignments);
+    }
+
+    public Optional<DetectedMapGrid> analyze(MapId mapId, MapOwnerId owner, int x, int y, int width, int height) {
+        CombatMap map = owned(mapId, owner);
+        try {
+            String encoded = mapImage(map);
+            int marker = encoded.indexOf("base64,");
+            if (!encoded.startsWith("data:image/") || marker < 0) throw new MapGridAlignmentImageUnavailableException();
+            var image = ImageIO.read(new ByteArrayInputStream(Base64.getDecoder().decode(encoded.substring(marker + 7))));
+            if (image == null || x < 0 || y < 0 || width < 1 || height < 1
+                    || x + width > image.getWidth() || y + height > image.getHeight()) {
+                throw new MapGridAlignmentImageUnavailableException();
+            }
+            return detector.detect(image.getSubimage(x, y, width, height))
+                    .map(grid -> new DetectedMapGrid(grid.width(), grid.height(), grid.cellSize(),
+                            x + grid.originX(), y + grid.originY(), grid.confidence()));
+        } catch (MapGridAlignmentImageUnavailableException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new MapGridAlignmentImageUnavailableException();
+        }
     }
 
     public MapGridAlignment find(MapId mapId, MapOwnerId owner) {

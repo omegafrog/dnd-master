@@ -1,5 +1,5 @@
 from preprocessing_agent.domain import Chunk, ContentType, SourceSpan
-from preprocessing_agent.postprocessing import postprocess_chunks
+from preprocessing_agent.postprocessing import linearize_prose, postprocess_chunks
 
 
 def make_chunk(text: str, key: str = "rules.attack", content_type: ContentType = ContentType.RULE) -> Chunk:
@@ -16,6 +16,14 @@ def test_postprocessing_normalizes_embedding_only_and_keeps_provenance_exact():
     assert processed.source_spans == chunk.source_spans
     assert "character creates" in processed.embedding_text
     assert "# Heading\n\nbody" in processed.embedding_text
+
+
+def test_linearize_prose_joins_wrapped_lines_and_keeps_list_items_separate():
+    source = "A sentence split\nacross a page.\n- First item\ncontinued text\n2. Second item"
+
+    result = linearize_prose(source)
+
+    assert result == "A sentence split across a page.\n- First item continued text\n2. Second item"
 
 
 def test_repeated_noise_is_removed_only_when_repeated():

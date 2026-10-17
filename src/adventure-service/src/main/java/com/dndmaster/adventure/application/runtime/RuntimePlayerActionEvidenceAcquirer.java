@@ -5,6 +5,7 @@ import com.dndmaster.adventure.evidence.EvidenceCandidate;
 import com.dndmaster.adventure.evidence.EvidenceCandidateSearchPort;
 import com.dndmaster.adventure.evidence.EvidenceCandidateSearchRequest;
 import com.dndmaster.adventure.evidence.EvidenceAcquisitionRequest;
+import com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService;
 import com.dndmaster.adventure.evidence.EvidenceSearchScope;
 import java.util.List;
 import java.util.HashSet;
@@ -22,6 +23,7 @@ public final class RuntimePlayerActionEvidenceAcquirer {
     private static final int SAME_PAGE_CHUNKS_PER_ANCHOR = 4;
     private static final int SAME_PAGE_EVIDENCE_CHARACTER_LIMIT = 12_000;
     private final EvidenceCandidateSearchPort candidateSearch;
+    private final EvidenceAcquisitionApplicationService acquisitionService;
     private final RuntimeEvidenceLocationLookupPort locationLookup;
 
     public RuntimePlayerActionEvidenceAcquirer(EvidenceCandidateSearchPort candidateSearch) {
@@ -31,6 +33,14 @@ public final class RuntimePlayerActionEvidenceAcquirer {
     public RuntimePlayerActionEvidenceAcquirer(EvidenceCandidateSearchPort candidateSearch,
             RuntimeEvidenceLocationLookupPort locationLookup) {
         this.candidateSearch = Objects.requireNonNull(candidateSearch, "candidate search must not be null");
+        this.acquisitionService = null;
+        this.locationLookup = locationLookup;
+    }
+
+    public RuntimePlayerActionEvidenceAcquirer(EvidenceAcquisitionApplicationService acquisitionService,
+            RuntimeEvidenceLocationLookupPort locationLookup) {
+        this.candidateSearch = null;
+        this.acquisitionService = Objects.requireNonNull(acquisitionService, "evidence acquisition service must not be null");
         this.locationLookup = locationLookup;
     }
 
@@ -48,6 +58,35 @@ public final class RuntimePlayerActionEvidenceAcquirer {
                     com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(query), query.length(),
                     scope.documents().stream().map(document -> document.type() + ":" + document.id() + ":v" + document.extractionVersion()).toList(),
                     scope.activeLocators(), scope.knownEvidenceIds());
+        }
+        if (acquisitionService != null) {
+            long startedAt = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
+                    "player_action_evidence_acquisition", "sessionId=" + scope.sessionId() + " scenarioPackageId="
+                            + scope.scenarioPackageId() + " candidateLimit=40 rerankLimit=20");
+            try {
+                var result = acquisitionService.acquire(new EvidenceAcquisitionRequest("PLAYER_ACTION", query, List.of(), scope, 0));
+                Map<UUID, EvidenceCandidate> byId = result.candidates().stream()
+                        .collect(Collectors.toMap(EvidenceCandidate::id, candidate -> candidate));
+                Map<UUID, EvidenceSearchScope.Document> documents = scope.documents().stream()
+                        .collect(Collectors.toMap(EvidenceSearchScope.Document::id, document -> document));
+                List<RuntimeEvidence> selected = result.decision().selectedEvidenceIds().stream()
+                        .map(id -> {
+                            EvidenceCandidate candidate = byId.get(id);
+                            if (candidate == null) throw new IllegalStateException("sufficiency decision selected unavailable evidence");
+                            return runtimeEvidence(candidate, documents);
+                        }).toList();
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
+                        "player_action_evidence_acquisition", "sessionId=" + scope.sessionId() + " scenarioPackageId="
+                                + scope.scenarioPackageId() + " candidateCount=" + result.candidates().size()
+                                + " selectedCount=" + selected.size() + " sufficient=" + result.decision().sufficient()
+                                + " additionalSearches=" + result.additionalSearches(), startedAt);
+                return selected;
+            } catch (RuntimeException | Error failure) {
+                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fail(LOGGER,
+                        "player_action_evidence_acquisition", "sessionId=" + scope.sessionId() + " scenarioPackageId="
+                                + scope.scenarioPackageId() + " candidateLimit=40 rerankLimit=20", startedAt, failure);
+                throw failure;
+            }
         }
         var acquisition = new EvidenceAcquisitionRequest("PLAYER_ACTION", query, List.of(), scope, 0);
         List<EvidenceCandidate> candidates = candidateSearch.search(new EvidenceCandidateSearchRequest(acquisition, query, 0));

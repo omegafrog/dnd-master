@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import logging
 import os
+import time
 from dataclasses import dataclass
 
 from preprocessing_agent.domain import ChunkCandidate, ContentType, SourceSegment, SourceSpan
@@ -38,12 +39,27 @@ class ChunkSplitter:
         strategy = self.policy.strategy_for(candidate.content_type)
         if strategy == "table":
             return self._table(candidate)
-        if len(tokens) <= self.policy.max_tokens and len(candidate.source_text) <= self.policy.max_characters:
+        prose = strategy in {"rule", "narrative"}
+        max_tokens = min(self.policy.prose_max_tokens, self.policy.max_tokens) if prose else self.policy.max_tokens
+        if len(tokens) <= max_tokens and len(candidate.source_text) <= self.policy.max_characters:
             return (SplitPiece(candidate.source_text, candidate.source_spans, candidate.canonical_key),)
         if strategy == "atomic":
             return self._atomic(candidate)
-        parts = self._semantic_parts(candidate.source_text)
-        return self._window(candidate, parts)
+        started = time.perf_counter()
+        if _diagnostics_enabled():
+            _LOGGER.info("dev_chunk_splitter stage=start canonicalKey=%s contentType=%s strategy=%s expectedMaxTokens=%d actualSourceTokens=%d actualSourceCharacters=%d",
+                         candidate.canonical_key, candidate.content_type.value, strategy, max_tokens,
+                         len(tokens), len(candidate.source_text))
+        parts = self._semantic_parts(candidate.source_text, max_tokens)
+        pieces = self._window(candidate, parts, max_tokens)
+        if _diagnostics_enabled():
+            errors = sum(piece.provenance_error is not None for piece in pieces)
+            _LOGGER.info("dev_chunk_splitter stage=complete canonicalKey=%s contentType=%s strategy=%s expectedMaxTokens=%d actualPieceCount=%d actualMaxPieceTokens=%d provenanceErrorCount=%d durationMs=%d outcome=%s",
+                         candidate.canonical_key, candidate.content_type.value, strategy, max_tokens,
+                         len(pieces), max((count_tokens(piece.source_text) for piece in pieces), default=0),
+                         errors, int((time.perf_counter() - started) * 1000),
+                         "failed" if errors else "split")
+        return pieces
 
     def _atomic(self, candidate: ChunkCandidate) -> tuple[SplitPiece, ...]:
         pieces = []
@@ -84,15 +100,15 @@ class ChunkSplitter:
                                       f"{candidate.canonical_key}.part-{len(pieces) + 1:03d}" if pieces else candidate.canonical_key))
         return tuple(pieces)
 
-    def _semantic_parts(self, text: str) -> list[_TextRange]:
+    def _semantic_parts(self, text: str, max_tokens: int) -> list[_TextRange]:
         sections = [self._trimmed_range(text, match.span()) for match in re.finditer(r"[^\n]*(?:\n(?!\s*\n)[^\n]*)*", text)]
         sections = [section for section in sections if section is not None]
-        if any(count_tokens(text[section.start:section.end]) > self.policy.max_tokens or
+        if any(count_tokens(text[section.start:section.end]) > max_tokens or
                section.end - section.start > self.policy.max_characters for section in sections):
             expanded: list[_TextRange] = []
             for section in sections:
                 part = text[section.start:section.end]
-                if count_tokens(part) <= self.policy.max_tokens and len(part) <= self.policy.max_characters:
+                if count_tokens(part) <= max_tokens and len(part) <= self.policy.max_characters:
                     expanded.append(section)
                     continue
                 for sentence in re.finditer(r".*?(?:[.!?](?:\s+|$)|$)", part, re.DOTALL):
@@ -102,7 +118,7 @@ class ChunkSplitter:
             sections = expanded
         return sections
 
-    def _window(self, candidate: ChunkCandidate, parts: list[_TextRange]) -> tuple[SplitPiece, ...]:
+    def _window(self, candidate: ChunkCandidate, parts: list[_TextRange], max_tokens: int) -> tuple[SplitPiece, ...]:
         result: list[SplitPiece] = []
         current: list[_TextRange] = []
         current_count = 0
@@ -110,7 +126,7 @@ class ChunkSplitter:
         for part in parts:
             part_text = candidate.source_text[part.start:part.end]
             part_count = count_tokens(part_text)
-            if current and (current_count + part_count > self.policy.max_tokens or
+            if current and (current_count + part_count > max_tokens or
                             current_chars + len(part_text) + 2 > self.policy.max_characters):
                 result.append(self._piece(
                     candidate, current[0].start, current[-1].end,
@@ -120,11 +136,11 @@ class ChunkSplitter:
                 current = [_TextRange(overlap_start, current[-1].end)] if overlap_start is not None else []
                 current_count = count_tokens(candidate.source_text[overlap_start:current[-1].end]) if current else 0
                 current_chars = len(candidate.source_text[current[0].start:current[-1].end]) if current else 0
-                if current and (current_count + part_count > self.policy.max_tokens or
+                if current and (current_count + part_count > max_tokens or
                                 current_chars + len(part_text) + 2 > self.policy.max_characters):
                     current, current_count, current_chars = [], 0, 0
-            if part_count > self.policy.max_tokens or len(part_text) > self.policy.max_characters:
-                for start, end in self._bounded_ranges(part_text):
+            if part_count > max_tokens or len(part_text) > self.policy.max_characters:
+                for start, end in self._bounded_ranges(part_text, max_tokens):
                     result.append(self._piece(
                         candidate, part.start + start, part.start + end,
                         f"{candidate.canonical_key}.part-{len(result) + 1:03d}",
@@ -145,14 +161,15 @@ class ChunkSplitter:
                          max((len(piece.source_text) for piece in result), default=0))
         return tuple(result)
 
-    def _bounded_ranges(self, text: str) -> list[tuple[int, int]]:
+    def _bounded_ranges(self, text: str, max_tokens: int | None = None) -> list[tuple[int, int]]:
+        max_tokens = max_tokens or self.policy.max_tokens
         ranges: list[tuple[int, int]] = []
         tokens = list(re.finditer(r"\S+", text))
         start = 0
         last_end = 0
         count = 0
         for token in tokens:
-            if count and (count + 1 > self.policy.max_tokens or
+            if count and (count + 1 > max_tokens or
                           token.end() - start > self.policy.max_characters):
                 ranges.append((start, last_end))
                 start = token.start()

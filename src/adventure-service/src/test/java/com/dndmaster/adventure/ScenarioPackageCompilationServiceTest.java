@@ -1,7 +1,6 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService;
@@ -233,7 +232,7 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
-    void rejectsRandomTableWithoutCanonicalContract() {
+    void doesNotApplyRuleCompletenessChecksToRandomTables() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 2);
         ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
@@ -245,7 +244,7 @@ class ScenarioPackageCompilationServiceTest {
                 com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
                 "Roll 1d6 on the whispers table: 1-2 footsteps, 5-6 laughter.",
                 List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 2, "page:5:span:2")),
-                "schema-v2",
+                "schema-v1",
                 new ScenarioResolutionDetail(
                         null,
                         null,
@@ -257,19 +256,15 @@ class ScenarioPackageCompilationServiceTest {
                         null,
                         List.of(),
                         List.of(),
-                        List.of(
-                                new ScenarioResolutionDetail.TableEntry("1-2", "Footsteps in the dark.", List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 2, "page:5:span:2"))),
-                                new ScenarioResolutionDetail.TableEntry("5-6", "Distant laughter.", List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 2, "page:5:span:2")))),
+                        List.of(),
                         "PARTIAL"));
 
         var unit = service.compile(bundle, List.of(randomTable)).units().get(0);
 
-        assertEquals("INVALID", unit.status().name());
+        assertEquals("COMPLETE", unit.status().name());
         assertEquals(List.of("RANDOM_TABLE"), unit.runtimeCapabilities());
         assertEquals("PARTIAL", unit.detail().tableCoverage());
-        org.assertj.core.api.Assertions.assertThat(unit.validationMessages())
-                .contains("trigger contract is missing", "check contract is missing", "state effect contract is missing",
-                        "reveal contract is missing", "prior knowledge contract is missing", "random table coverage is PARTIAL");
+        assertTrue(unit.validationMessages().isEmpty());
     }
 
     @Test
@@ -301,7 +296,7 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
-    void doesNotPersistIncompleteCompilationPackages() {
+    void persistsEvidenceBackedCandidatesWithoutRuleCompletenessChecks() {
         InMemoryPackageRepository repository = new InMemoryPackageRepository();
         ScenarioSourceBundle bundle = bundle(new KnowledgeDocumentId(UUID.randomUUID()), 1);
         KnowledgeDocumentId documentId = bundle.currentRevision().documents().getFirst().knowledgeDocumentId();
@@ -310,12 +305,12 @@ class ScenarioPackageCompilationServiceTest {
 
         var result = new ScenarioPackageCompilationService(repository).compile(bundle, List.of(incomplete));
 
-        assertEquals("PARTIAL", result.report().status().name());
-        assertEquals(0, repository.packages.size());
+        assertEquals("COMPLETE", result.report().status().name());
+        assertEquals(1, repository.packages.size());
     }
 
     @Test
-    void classifiesMissingDcAsPartialAndBadSourceOrDiceAsInvalid() {
+    void rejectsBadSourcesButDoesNotValidateRuleValues() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 2);
         ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
@@ -335,14 +330,14 @@ class ScenarioPackageCompilationServiceTest {
                         "schema-v1",
                         null)));
 
-        assertEquals("PARTIAL", result.units().get(0).status().name());
+        assertEquals("COMPLETE", result.units().get(0).status().name());
         assertEquals("INVALID", result.units().get(1).status().name());
-        assertEquals("INVALID", result.units().get(2).status().name());
-        assertEquals("INVALID", result.units().get(3).status().name());
+        assertEquals("COMPLETE", result.units().get(2).status().name());
+        assertEquals("COMPLETE", result.units().get(3).status().name());
         assertEquals("INVALID", result.units().get(4).status().name());
         assertEquals("INVALID", result.units().get(5).status().name());
         assertEquals(0, result.runtimeCandidates().stream().filter(unit -> unit.status().name().equals("INVALID")).count());
-        assertNotEquals(result.units().get(0).status(), result.units().get(2).status());
+        assertEquals(result.units().get(0).status(), result.units().get(2).status());
     }
 
     @Test

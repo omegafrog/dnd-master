@@ -330,16 +330,19 @@ export function PackageBlueprintReviewPage({
           {preparation.blockers.map(blocker => <li key={blocker}>{blocker}</li>)}
         </ul>
       )}
-      <section className="character-review-preparation" aria-label="기본 룰북 주문 목록">
-        <h2>기본 룰북 주문 목록</h2>
-        <p>2014 기본 룰북 원문과 구조를 확인한 주문입니다. 실행하지 못하거나 담당 기제가 준비되지 않은 주문은 전체 지원으로 계산하지 않습니다.</p>
-        <p>{spellDefinitions.length}개 확인 · 전체 실행 지원 미확인</p>
+      <section className="character-review-preparation" aria-label="주문 및 행동 규칙">
+        <h2>주문 및 행동 규칙</h2>
+        <p>{spellDefinitions.length === 0
+          ? '모험 준비 중에는 행동 규칙을 미리 추출하지 않습니다. 플레이 중 필요한 규칙을 선택한 룰북에서 검색합니다.'
+          : '기존에 저장된 규칙 정의입니다. 실행하지 못하거나 담당 기제가 준비되지 않은 정의는 전체 지원으로 계산하지 않습니다.'}</p>
+        <p>{spellDefinitions.length === 0 ? '미리 저장된 규칙 정의가 없습니다.' : `${spellDefinitions.length}개 저장됨 · 전체 실행 지원 미확인`}</p>
         {pendingOptionalDefinitions > 0 && (
           <p role="note">승인하지 않은 선택 행동 정의 {pendingOptionalDefinitions}개는 모험 시작 후 잠기며, 이 모험에서는 사용할 수 없습니다. 사용하려면 시작 전에 승인하세요.</p>
         )}
-        <details>
-          <summary>{spellDefinitions.length}개 주문과 출처 보기</summary>
-          <ol>
+        {spellDefinitions.length > 0 && (
+          <details>
+            <summary>{spellDefinitions.length}개 주문과 출처 보기</summary>
+            <ol>
             {spellDefinitions.map(spell => (
               <li key={spell.id}>
                 <span>{spell.name}</span>
@@ -472,8 +475,9 @@ export function PackageBlueprintReviewPage({
                 </details>
               </li>
             ))}
-          </ol>
-        </details>
+            </ol>
+          </details>
+        )}
         <details>
           <summary>출처를 확인한 행동 정의 추가</summary>
           <label>행동 이름<input aria-label="새 행동 이름" value={newAction.name} onChange={event => setNewAction(value => ({ ...value, name: event.target.value }))} /></label>

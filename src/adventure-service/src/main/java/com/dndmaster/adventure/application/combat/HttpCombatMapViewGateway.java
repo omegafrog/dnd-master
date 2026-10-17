@@ -92,6 +92,21 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     }
 
     @Override
+    public GridAnalysis analyzeGrid(UUID mapId, UUID ownerId, int x, int y, int width, int height) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/grid-analysis"))
+                .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                .POST(HttpRequest.BodyPublishers.ofString(write(new GridAnalysisRequest(ownerId, x, y, width, height)))).build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map grid analysis failed");
+            GridAnalysisPayload result = mapper.readValue(response.body(), GridAnalysisPayload.class);
+            return new GridAnalysis(result.status(), result.width(), result.height(), result.cellSize(),
+                    result.originX(), result.originY(), result.confidence());
+        } catch (IOException exception) { throw new IllegalStateException("combat map grid analysis transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map grid analysis interrupted", exception); }
+    }
+
+    @Override
     public void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles, List<Door> doors, String crop) {
         updateLayout(mapId, ownerId, expectedVersion, commandId, obstacles, doors, List.of(), crop, null, "");
     }
@@ -227,6 +242,9 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     private record SpatialFeaturePayload(UUID id, String type, List<Position> cells, String visibility, String state, boolean interactable) {}
     private record Calibration(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
+    private record GridAnalysisRequest(UUID ownerId, int x, int y, int width, int height) {}
+    private record GridAnalysisPayload(String status, Integer width, Integer height, Integer cellSize,
+            Integer originX, Integer originY, Double confidence) {}
     private record Layout(UUID ownerId, long expectedVersion, UUID commandId, List<String> obstacles, List<String> doors,
                           List<String> boundaries, String crop, Long alignmentVersion, String imageRevision, Position playerStart) {}
     private record Detection(UUID ownerId) {}

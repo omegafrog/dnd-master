@@ -563,15 +563,6 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    com.dndmaster.adventure.application.knowledge.RulebookActionDefinitionLookupPort rulebookActionDefinitionLookupPort(
-            ObjectMapper objectMapper,
-            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
-        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookActionDefinitionLookupGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(45), objectMapper, internalToken);
-    }
-
-    @Bean
     ScenarioPreparationApplicationService scenarioPreparationApplicationService(
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             ScenarioBundleRepository bundleRepository,
@@ -579,12 +570,11 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearch,
             com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterTagExtraction,
             GameSystemDefinitionPort gameSystemDefinitionPort,
-            KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
-            com.dndmaster.adventure.application.knowledge.RulebookActionDefinitionLookupPort actionDefinitionLookup) {
+            KnowledgeDocumentLookupPort knowledgeDocumentLookupPort) {
         return new ScenarioPreparationApplicationService(packageRepository, bundleRepository, runtimeOptionCatalogPort,
                 characterContextSearch, characterTagExtraction,
                 new com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler(),
-                gameSystemDefinitionPort, knowledgeDocumentLookupPort, actionDefinitionLookup);
+                gameSystemDefinitionPort, knowledgeDocumentLookupPort);
     }
 
     @Bean
@@ -1016,7 +1006,7 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort, GmToolGateway gmToolGateway,
                                             RuntimeCommandSagaApplicationService saga,
-                                            @Value("${adventure.runtime.best-of-n.count:3}") int candidateCount,
+                                            @Value("${adventure.runtime.best-of-n.count:1}") int candidateCount,
                                             @Value("${adventure.runtime.best-of-n.retry-count:2}") int retryCount,
                                             @Value("${adventure.runtime.best-of-n.simple:false}") boolean simpleTurn,
                                             PlanAuditPort planAuditPort) {
@@ -1056,7 +1046,7 @@ public class AdventureApiConfiguration {
             RuntimeTurnLockService runtimeTurnLockService,
             RuntimeTurnCommitOrchestrator commitOrchestrator,
             RuntimeFactLookupService runtimeFactLookupService,
-            com.dndmaster.adventure.evidence.EvidenceCandidateSearchPort runtimeEvidenceCandidateSearchPort,
+            com.dndmaster.adventure.evidence.EvidenceAcquisitionApplicationService evidenceAcquisitionApplicationService,
             com.dndmaster.adventure.application.runtime.RuntimeEvidenceLocationLookupPort runtimeEvidenceLocationLookupPort,
             RuntimeCharacterSheetReadPort characterSheetReadPort,
             com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort,
@@ -1078,7 +1068,7 @@ public class AdventureApiConfiguration {
                 combatMapViewPort, combatMapPreparationPort));
         service.setRuntimeFactLookupService(runtimeFactLookupService);
         service.setPlayerActionEvidenceAcquirer(new RuntimePlayerActionEvidenceAcquirer(
-                runtimeEvidenceCandidateSearchPort, runtimeEvidenceLocationLookupPort));
+                evidenceAcquisitionApplicationService, runtimeEvidenceLocationLookupPort));
         service.setCharacterSheetReadPort(characterSheetReadPort);
         service.setConversationCompactionJobRepository(conversationCompactionJobRepository(dataSource));
         service.setAdventureCompletionCommitPort(adventureCompletionCommitPort);

@@ -1,0 +1,1152 @@
+{
+  "label_status": "draft-awaiting-human-confirmation",
+  "extraction_rerun": false,
+  "stored_run": "/tmp/dnd-other-rulebooks-hybrid-ai-resolution",
+  "scope": "All explicitly scorable table labels currently available: 100 source-render page-presence draft labels (93 definite, 7 uncertain excluded) plus 18 pages with explicit table-region labels (15 new and 4 positive pilot pages, excluding output-informed Ironsworn p186). Five older pilot pages have no table annotation field and are not treated as negative labels. General structure labels are outside this table evaluation; their historical extraction baseline is unavailable.",
+  "page_presence": {
+    "unique_evaluable_pages": 111,
+    "uncertain_excluded": 7,
+    "tp": 36,
+    "fp": 3,
+    "fn": 0,
+    "tn": 72,
+    "precision": 0.9230769230769231,
+    "recall": 1.0,
+    "f1": 0.96,
+    "by_document": {
+      "dnd5th": {
+        "n": 25,
+        "tp": 10,
+        "fp": 2,
+        "fn": 0,
+        "tn": 13,
+        "precision": 0.8333333333333334,
+        "recall": 1.0
+      },
+      "ironsworn-digital-edition-rulebook": {
+        "n": 25,
+        "tp": 2,
+        "fp": 0,
+        "fn": 0,
+        "tn": 23,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "cairn-2e-players-guide": {
+        "n": 21,
+        "tp": 11,
+        "fp": 0,
+        "fn": 0,
+        "tn": 10,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "cairn-2e-wardens-guide": {
+        "n": 20,
+        "tp": 7,
+        "fp": 0,
+        "fn": 0,
+        "tn": 13,
+        "precision": 1.0,
+        "recall": 1.0
+      },
+      "basic-roleplaying-orc-content-document": {
+        "n": 20,
+        "tp": 6,
+        "fp": 1,
+        "fn": 0,
+        "tn": 13,
+        "precision": 0.8571428571428571,
+        "recall": 1.0
+      }
+    }
+  },
+  "regions": {
+    "labeled_pages": 18,
+    "gold_regions": 16,
+    "predicted_regions": 18,
+    "matched_regions_iou_ge_0_5": 16,
+    "precision": 0.8888888888888888,
+    "recall": 1.0,
+    "details": [
+      {
+        "document": "dnd5th",
+        "page": 26,
+        "gold_region_count": 0,
+        "predicted_region_count": 0,
+        "matched_region_count": 0,
+        "matched_iou": [],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "dnd5th",
+        "page": 35,
+        "gold_region_count": 2,
+        "predicted_region_count": 3,
+        "matched_region_count": 2,
+        "matched_iou": [
+          0.8051,
+          0.7568
+        ],
+        "unmatched_gold": [],
+        "unmatched_prediction": [
+          "pymupdf:p35-table-0"
+        ]
+      },
+      {
+        "document": "dnd5th",
+        "page": 45,
+        "gold_region_count": 1,
+        "predicted_region_count": 1,
+        "matched_region_count": 1,
+        "matched_iou": [
+          0.9972
+        ],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "dnd5th",
+        "page": 60,
+        "gold_region_count": 2,
+        "predicted_region_count": 2,
+        "matched_region_count": 2,
+        "matched_iou": [
+          0.9889,
+          0.8531
+        ],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "dnd5th",
+        "page": 69,
+        "gold_region_count": 0,
+        "predicted_region_count": 0,
+        "matched_region_count": 0,
+        "matched_iou": [],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "dnd5th",
+        "page": 76,
+        "gold_region_count": 0,
+        "predicted_region_count": 0,
+        "matched_region_count": 0,
+        "matched_iou": [],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "dnd5th",
+        "page": 106,
+        "gold_region_count": 0,
+        "predicted_region_count": 0,
+        "matched_region_count": 0,
+        "matched_iou": [],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "dnd5th",
+        "page": 114,
+        "gold_region_count": 0,
+        "predicted_region_count": 1,
+        "matched_region_count": 0,
+        "matched_iou": [],
+        "unmatched_gold": [],
+        "unmatched_prediction": [
+          "pymupdf:p114-table-0"
+        ]
+      },
+      {
+        "document": "ironsworn-digital-edition-rulebook",
+        "page": 28,
+        "gold_region_count": 0,
+        "predicted_region_count": 0,
+        "matched_region_count": 0,
+        "matched_iou": [],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "ironsworn-digital-edition-rulebook",
+        "page": 51,
+        "gold_region_count": 0,
+        "predicted_region_count": 0,
+        "matched_region_count": 0,
+        "matched_iou": [],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "ironsworn-digital-edition-rulebook",
+        "page": 86,
+        "gold_region_count": 0,
+        "predicted_region_count": 0,
+        "matched_region_count": 0,
+        "matched_iou": [],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "ironsworn-digital-edition-rulebook",
+        "page": 119,
+        "gold_region_count": 0,
+        "predicted_region_count": 0,
+        "matched_region_count": 0,
+        "matched_iou": [],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "ironsworn-digital-edition-rulebook",
+        "page": 152,
+        "gold_region_count": 1,
+        "predicted_region_count": 1,
+        "matched_region_count": 1,
+        "matched_iou": [
+          0.7441
+        ],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "ironsworn-digital-edition-rulebook",
+        "page": 184,
+        "gold_region_count": 0,
+        "predicted_region_count": 0,
+        "matched_region_count": 0,
+        "matched_iou": [],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "basic-roleplaying-orc-content-document",
+        "page": 8,
+        "gold_region_count": 1,
+        "predicted_region_count": 1,
+        "matched_region_count": 1,
+        "matched_iou": [
+          0.9543
+        ],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "cairn-2e-players-guide",
+        "page": 10,
+        "gold_region_count": 4,
+        "predicted_region_count": 4,
+        "matched_region_count": 4,
+        "matched_iou": [
+          0.7682,
+          0.7681,
+          0.7608,
+          0.644
+        ],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "cairn-2e-players-guide",
+        "page": 11,
+        "gold_region_count": 4,
+        "predicted_region_count": 4,
+        "matched_region_count": 4,
+        "matched_iou": [
+          0.7529,
+          0.6929,
+          0.6811,
+          0.6611
+        ],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      },
+      {
+        "document": "cairn-2e-wardens-guide",
+        "page": 119,
+        "gold_region_count": 1,
+        "predicted_region_count": 1,
+        "matched_region_count": 1,
+        "matched_iou": [
+          0.9654
+        ],
+        "unmatched_gold": [],
+        "unmatched_prediction": []
+      }
+    ]
+  },
+  "cell_grid": {
+    "tables_with_cell_gold": 10,
+    "exact_grid_shapes": 9,
+    "grid_shape_accuracy": 0.9,
+    "gold_cells": 378,
+    "exact_gold_cells": 376,
+    "cell_text_recall": 0.9947089947089947,
+    "gold_rows": 71,
+    "exact_rows": 70,
+    "exact_row_recall": 0.9859154929577465,
+    "notes": "Rows were aligned by content before cell comparison; the BRP page 8 table is missing its header row (2 cells), while its four data rows match. Prediction-side extra-cell precision is not measured."
+  },
+  "page_cases": [
+    {
+      "document": "dnd5th",
+      "page": 4,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 12,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 16,
+      "gold": false,
+      "predicted": true,
+      "result": "FP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 22,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 23,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 51,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 61,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 66,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 67,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 70,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 73,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 75,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 84,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 94,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 105,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 168,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 169,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 6,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 7,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 19,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 20,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 40,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 49,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 56,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 69,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 72,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 74,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 80,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 82,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 130,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 143,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 144,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 203,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 225,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 251,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 269,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 3,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 8,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 13,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 19,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 26,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 27,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 30,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 33,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 35,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 37,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 45,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 59,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 62,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 69,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 71,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 77,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 81,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 82,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 88,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 2,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 9,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 13,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 39,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 55,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 59,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 68,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 81,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 87,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 90,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 109,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 111,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 114,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 133,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 145,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 146,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 155,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 180,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 183,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 13,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 21,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 49,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 55,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 65,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 78,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 89,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 102,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 117,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 121,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 125,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 130,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 139,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 155,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 211,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 219,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 239,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 250,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 278,
+      "gold": false,
+      "predicted": true,
+      "result": "FP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 26,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 35,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 45,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 60,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "dnd5th",
+      "page": 69,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 76,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 106,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "dnd5th",
+      "page": 114,
+      "gold": false,
+      "predicted": true,
+      "result": "FP"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 28,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 51,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 86,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 119,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 152,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "ironsworn-digital-edition-rulebook",
+      "page": 184,
+      "gold": false,
+      "predicted": false,
+      "result": "TN"
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 8,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 10,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-players-guide",
+      "page": 11,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    },
+    {
+      "document": "cairn-2e-wardens-guide",
+      "page": 119,
+      "gold": true,
+      "predicted": true,
+      "result": "TP"
+    }
+  ],
+  "page_type_on_existing_structure_labels": {
+    "label_status": "draft-awaiting-human-confirmation",
+    "n": 42,
+    "correct": 32,
+    "accuracy": 0.7619047619047619,
+    "mismatches": [
+      {
+        "document": "cairn-player",
+        "page": 7,
+        "gold": "image-only",
+        "predicted": "text-native",
+        "correct": false
+      },
+      {
+        "document": "cairn-player",
+        "page": 9,
+        "gold": "mixed",
+        "predicted": "text-native",
+        "correct": false
+      },
+      {
+        "document": "cairn-player",
+        "page": 20,
+        "gold": "mixed",
+        "predicted": "text-native",
+        "correct": false
+      },
+      {
+        "document": "cairn-player",
+        "page": 30,
+        "gold": "mixed",
+        "predicted": "text-native",
+        "correct": false
+      },
+      {
+        "document": "cairn-player",
+        "page": 75,
+        "gold": "mixed",
+        "predicted": "text-native",
+        "correct": false
+      },
+      {
+        "document": "cairn-player",
+        "page": 76,
+        "gold": "mixed",
+        "predicted": "text-native",
+        "correct": false
+      },
+      {
+        "document": "cairn-warden",
+        "page": 3,
+        "gold": "mixed",
+        "predicted": "text-native",
+        "correct": false
+      },
+      {
+        "document": "cairn-warden",
+        "page": 68,
+        "gold": "mixed",
+        "predicted": "text-native",
+        "correct": false
+      },
+      {
+        "document": "cairn-warden",
+        "page": 102,
+        "gold": "mixed",
+        "predicted": "text-native",
+        "correct": false
+      },
+      {
+        "document": "cairn-warden",
+        "page": 130,
+        "gold": "mixed",
+        "predicted": "text-native",
+        "correct": false
+      }
+    ],
+    "note": "Measured against current saved hybrid extraction output only. Other structure categories are not scored here because this saved output has no heading associations, layout reading-order result, or document tree."
+  }
+}

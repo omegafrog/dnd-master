@@ -8,11 +8,13 @@ installing a particular PDF implementation.
 from __future__ import annotations
 
 import hashlib
+import contextlib
 import json
 import logging
 import math
 import os
 import re
+import sys
 import time
 from collections import Counter
 from pathlib import Path
@@ -32,8 +34,10 @@ _LOGGER = logging.getLogger(__name__)
 
 class PdfDocumentParser:
     def __init__(self, extractor: Extractor | None = None, layout_selections: dict[int, dict[str, int]] | None = None,
-                 *, analyze_structure: bool = True) -> None:
-        self._extractor = extractor or _default_extractor
+                 *, analyze_structure: bool = True, provider_name: str | None = None) -> None:
+        provider = os.getenv("PREPROCESSING_PDF_PROVIDER", "hybrid").strip().casefold() if extractor is None else "injected"
+        self._extractor = extractor or _provider_extractor()
+        self._provider_name = provider_name or provider
         self._layout_selections = layout_selections or {}
         self._analyze_structure = analyze_structure
 
@@ -86,12 +90,22 @@ class PdfDocumentParser:
             ))
             missing_geometry = any(raw_block.get("bbox") is None for raw_block in source_blocks)
             if not self._analyze_structure:
-                plan = None
-                raw_blocks = source_blocks
-                _layout_log("dev_preprocessing_parser stage=page_source pageNumber=%d expectedBlockCount=%d actualBlockCount=%d expectedLocatedBlockCount=%d actualLocatedBlockCount=%d route=source_order_no_structure_analysis outcome=%s",
+                plan = None if missing_geometry else ReadingOrderPlanner().plan(
+                    source_blocks, selections=self._layout_selections.get(page_number, {}))
+                if plan is None:
+                    raw_blocks = source_blocks
+                else:
+                    by_id = {str(block["block_id"]): block for block in source_blocks}
+                    raw_blocks = tuple(by_id[block_id]
+                                       for block_id in (*plan.ordered_block_ids, *plan.furniture_block_ids))
+                    if plan.ambiguous:
+                        layout_diagnostics.append({"page_number": page_number, "layout": to_dict(plan)})
+                _layout_log("dev_preprocessing_parser stage=page_source pageNumber=%d expectedBlockCount=%d actualBlockCount=%d expectedLocatedBlockCount=%d actualLocatedBlockCount=%d route=%s outcome=%s",
                             page_number, len(source_blocks), len(raw_blocks),
                             sum(raw_block.get("bbox") is not None for raw_block in source_blocks),
                             sum(raw_block.get("bbox") is not None for raw_block in raw_blocks),
+                            "geometry_reading_order_only" if plan is not None else "source_order_missing_geometry",
+                            "ambiguous_but_ordered" if plan is not None and plan.ambiguous else
                             "complete" if not missing_geometry else "missing_provenance")
             else:
                 layout_value = raw_page.get("layout")
@@ -173,7 +187,19 @@ class PdfDocumentParser:
                              sum(candidate.accepted for candidate in heading_candidates),
                              sum(not candidate.accepted for candidate in heading_candidates),
                              round((time.monotonic() - heading_started) * 1000), "success" if plan is not None else "skipped_missing_layout")
-            tables = TableStructureDetector().detect(page_structure) if self._analyze_structure and plan is not None else ()
+            explicit_table_blocks = tuple(block for block in page_structure if _is_table_block(block))
+            explicit_table_geometry_available = bool(explicit_table_blocks) and all(
+                _bbox(block.get("bbox")) is not None for block in explicit_table_blocks)
+            if self._analyze_structure and plan is not None:
+                tables = TableStructureDetector().detect(page_structure)
+            elif explicit_table_geometry_available:
+                from preprocessing_agent.structure import TableStructureDetector
+                tables = TableStructureDetector().detect(explicit_table_blocks)
+                _layout_log("dev_preprocessing_table_structure stage=explicit_cells pageNumber=%d expectedCellBlockCount=%d actualStructuredTableCount=%d route=table_cells_without_heading_analysis outcome=%s",
+                             page_number, len(explicit_table_blocks), len(tables),
+                             "success" if tables else "preserved_as_text")
+            else:
+                tables = ()
             pages.append(ParsedPage(page_number, tuple(blocks), page_text, headings, tables,
                                    str(raw_page.get("page_classification", "text-native")), layout_plan=plan,
                                    heading_candidates=heading_candidates,
@@ -181,7 +207,8 @@ class PdfDocumentParser:
             document_parts.append(page_text)
         source_text = normalize_text("\n".join(document_parts))
         document_id = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
-        metadata = {"format": "pdf", "source_page_count": len(raw_pages),
+        metadata = {"format": "pdf", "pdf_provider": self._provider_name,
+                    "source_page_count": len(raw_pages),
                     "structure_analysis": self._analyze_structure,
                     "excluded_form_pages": excluded_form_pages,
                     "excluded_form_evidence": excluded_form_evidence}
@@ -310,18 +337,22 @@ def _order_blocks(blocks: tuple[Mapping[str, Any], ...]) -> tuple[Mapping[str, A
 
 def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
     try:
-        import fitz  # type: ignore
+        with contextlib.redirect_stdout(sys.stderr):
+            import fitz  # type: ignore
     except ImportError:
         raise ParserError("install PyMuPDF or provide an extractor")
     with fitz.open(source) as document:
         for page_number, page in enumerate(document, start=1):
             blocks = []
-            for block in page.get_text("dict").get("blocks", []):
+            generated_block_id_count = 0
+            for block_index, block in enumerate(page.get_text("dict").get("blocks", [])):
                 lines = block.get("lines", [])
                 spans = [span for line in lines for span in line.get("spans", [])]
                 text = _block_text(block).strip()
                 if not text:
                     continue
+                block_id = str(block.get("block_id") or f"p{page_number}-b{block_index}")
+                generated_block_id_count += not bool(block.get("block_id"))
                 first = spans[0] if spans else {}
                 line_values = []
                 cursor = 0
@@ -351,11 +382,14 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
                     line_values.append({"text": line_text, "bbox": line.get("bbox"),
                         "char_start": line_start, "char_end": line_end, "spans": detailed_spans})
                     cursor = line_end
-                blocks.append({"text": text, "bbox": block.get("bbox"), "font_size": first.get("size"), "font": first.get("font"),
+                blocks.append({"block_id": block_id, "text": text, "bbox": block.get("bbox"), "font_size": first.get("size"), "font": first.get("font"),
                                "spans": [{"text": span.get("text", ""), "bbox": span.get("bbox"), "font_size": span.get("size"),
                                           "font": span.get("font"), "font_weight": "bold" if "bold" in str(span.get("font", "")).casefold() else str(span.get("font", ""))}
                                          for span in spans],
                                "lines": line_values})
+            _layout_log("dev_preprocessing_block_identity stage=completed pageNumber=%d expectedIdentifiedBlockCount=%d actualBlockCount=%d generatedBlockIdCount=%d route=page_and_source_block_ordinal outcome=%s",
+                        page_number, len(blocks), len(blocks), generated_block_id_count,
+                        "success" if all(block.get("block_id") for block in blocks) else "failed")
             text_line_count = sum(len(block.get("lines", ())) for block in blocks)
             form_diagnostics = form_geometry_counts(page.get_drawings(), text_line_count)
             page_classification = "form" if is_form_like(**form_diagnostics) else "text-native"
@@ -419,6 +453,26 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
                     for level, title, target_page in outline
                 )
             yield page_value
+
+
+def _provider_extractor() -> Extractor:
+    provider = os.getenv("PREPROCESSING_PDF_PROVIDER", "hybrid").strip().casefold()
+    if provider == "hybrid":
+        from preprocessing_agent.adapters.hybrid_pdf import HybridPdfAdapter
+        _layout_log("dev_preprocessing_pdf_provider stage=selected expectedProvider=pymupdf_and_docling actualProvider=hybrid route=parser_extractor outcome=selected")
+        return HybridPdfAdapter().extract
+    if provider == "pymupdf4llm":
+        from preprocessing_agent.adapters.pymupdf4llm_pdf import PyMuPdf4LlmPdfAdapter
+        _layout_log("dev_preprocessing_pdf_provider stage=selected expectedProvider=pymupdf4llm actualProvider=pymupdf4llm route=parser_extractor outcome=selected")
+        return PyMuPdf4LlmPdfAdapter().extract
+    if provider == "pymupdf":
+        _layout_log("dev_preprocessing_pdf_provider stage=selected expectedProvider=pymupdf4llm actualProvider=pymupdf_legacy route=parser_extractor outcome=selected")
+        return _default_extractor
+    if provider == "docling":
+        from preprocessing_agent.adapters.docling_pdf import DoclingPdfAdapter
+        _layout_log("dev_preprocessing_pdf_provider stage=selected expectedProvider=pymupdf_or_docling actualProvider=docling route=parser_extractor outcome=selected")
+        return DoclingPdfAdapter().extract
+    raise ParserError(f"unsupported PREPROCESSING_PDF_PROVIDER: {provider}")
 
 
 def _find_native_tables(page: Any, page_number: int) -> list[tuple[Any, str]]:

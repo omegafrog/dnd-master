@@ -166,6 +166,27 @@ paths:
     get: { operationId: rollConditions, security: [{ internalServiceToken: [] }], responses: { '200': { description: conditions }, '401': { description: invalid internal service token } } }
   /internal/v1/adventures/{adventureId}/movement-validations:
     post: { operationId: validateMovement, security: [{ internalServiceToken: [] }], responses: { '200': { description: validation }, '401': { description: invalid internal service token } } }
+  /internal/v1/adventures/scenario-elements/search:
+    post:
+      operationId: searchLockedScenarioElements
+      security: [{ internalServiceToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [ownerId, sessionId, scenarioPackageId, query]
+              properties:
+                ownerId: { type: string, format: uuid }
+                sessionId: { type: string, format: uuid }
+                scenarioPackageId: { type: string, format: uuid }
+                query: { type: string, minLength: 1, maxLength: 1000 }
+      responses:
+        '200': { description: exact matching elements from the session's locked scenario package }
+        '401': { description: invalid internal service token }
+        '404': { description: scenario package is not locked to this owner and session }
   /api/v1/adventures/{adventureId}/combat-map/movement-preview:
     post:
       operationId: previewAdventureMapMovement

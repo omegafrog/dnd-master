@@ -14,6 +14,7 @@ import java.io.OutputStreamWriter;
 import java.nio.file.Files;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -704,6 +705,7 @@ public final class CodexAppServerClient implements AutoCloseable, CodexAccountCl
         request.put("id", id);
         request.put("method", method);
         request.set("params", params);
+        if ("turn/start".equals(method) && runtimeDiagnosticsEnabled()) captureTurnRequest(request);
         send(request);
         while (true) {
             JsonNode message = readMessageUntil(deadlineNanos);
@@ -758,6 +760,25 @@ public final class CodexAppServerClient implements AutoCloseable, CodexAccountCl
         input.write(mapper.writeValueAsString(message));
         input.newLine();
         input.flush();
+    }
+
+    private void captureTurnRequest(JsonNode request) {
+        String fileId = java.util.UUID.randomUUID().toString();
+        long startedAt = System.nanoTime();
+        LOGGER.info("dev_codex_request_body_capture_started requestId={} method={} bodyChars={}",
+                request.path("id").asLong(), request.path("method").asText(), request.toString().length());
+        try {
+            Path directory = Path.of(System.getProperty("java.io.tmpdir"), "dnd-master-codex-request-capture");
+            Files.createDirectories(directory);
+            Path file = Files.createTempFile(directory, "turn-start-" + fileId + "-", ".json",
+                    PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+            Files.writeString(file, mapper.writeValueAsString(request), StandardCharsets.UTF_8);
+            LOGGER.info("dev_codex_request_body_capture_completed requestId={} file={} bodyChars={} durationMs={}",
+                    request.path("id").asLong(), file, request.toString().length(), elapsedMillis(startedAt));
+        } catch (Exception failure) {
+            LOGGER.warn("dev_codex_request_body_capture_failed requestId={} bodyChars={} failureType={} durationMs={} recoveryAction=continue_without_capture",
+                    request.path("id").asLong(), request.toString().length(), failure.getClass().getSimpleName(), elapsedMillis(startedAt));
+        }
     }
 
     private void handleServerRequest(JsonNode message) throws IOException {

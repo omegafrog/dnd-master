@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dnd-master.local/contracts/ai-game-master/v1/evidence-rerank-response.json",
+  "title": "관련도 순으로 정렬된 근거 후보",
+  "description": "orderedCandidateIds는 요청의 resultLimit을 넘지 않아야 한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderedCandidateIds"],
+  "properties": {
+    "orderedCandidateIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 30,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

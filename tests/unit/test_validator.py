@@ -75,6 +75,16 @@ def test_missing_section_path_still_fails_without_matching_unresolved_heading():
     assert any(issue.issue_type == "orphan_heading" for issue in result.issues)
 
 
+def test_unclassified_content_without_section_path_is_retained_with_a_warning():
+    item = chunk("unknown", "Recovered text.", section=(), content_type=ContentType.UNKNOWN)
+    result = validate_chunks((item,), page_count=1, block_count=1,
+                             policy=ValidationPolicy(min_tokens=1))
+
+    assert result.valid
+    assert any(issue.issue_type == "section_path_unresolved" and issue.severity == "warning"
+               for issue in result.issues)
+
+
 def test_partial_overlap_with_unresolved_heading_does_not_hide_missing_path():
     text = "Take cover now."
     span = SourceSpan(1, 2, 0, len(text))

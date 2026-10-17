@@ -668,7 +668,7 @@ public class RuleKnowledgeController {
                             .anyMatch(id -> id == null || !id.startsWith("IMMUTABLE_DOCUMENT:"))
                     || request.minimumDenseSimilarity() != null && (!Double.isFinite(request.minimumDenseSimilarity())
                             || request.minimumDenseSimilarity() < -1 || request.minimumDenseSimilarity() > 1)
-                    || request.denseLimit() < 1 || request.denseLimit() > 30) {
+                    || request.denseLimit() < 1 || request.denseLimit() > 40) {
                 return evidenceSearchError(HttpStatus.BAD_REQUEST, "EVIDENCE_SEARCH_INVALID_REQUEST");
             }
             Set<String> scopeKeys = new HashSet<>();

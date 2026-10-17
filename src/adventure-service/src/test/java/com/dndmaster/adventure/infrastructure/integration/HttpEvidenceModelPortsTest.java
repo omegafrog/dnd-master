@@ -52,7 +52,7 @@ class HttpEvidenceModelPortsTest {
         server.stubFor(post(urlEqualTo("/internal/v1/gm/evidence-rerank"))
                 .withHeader("X-Internal-Token", equalTo("internal-token"))
                 .withRequestBody(equalToJson("""
-                        {"soloPlayerId":"%s","query":"question","taskContext":"RULE_GUIDANCE","candidates":[
+                        {"soloPlayerId":"%s","query":"question","taskContext":"RULE_GUIDANCE","resultLimit":30,"candidates":[
                           {"evidenceId":"%s","documentType":"RULEBOOK","locator":"p:1","excerpt":"rule text"}
                         ]}
                         """.formatted(soloPlayerId, candidateId)))

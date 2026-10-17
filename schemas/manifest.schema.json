@@ -6,8 +6,8 @@
   "properties": {
     "source": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "minLength": 64}}},
     "source_sha256": {"type": "string", "minLength": 64}, "source_file_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"}, "pipeline_version": {"type": "string", "minLength": 1}, "schema_version": {"type": "string", "minLength": 1},
-    "profile": {"type": "string", "minLength": 1}, "policy": {"type": "object"}, "token_policy": {"type": "object"},
-    "statistics": {"type": "object"}, "page_statistics": {"type": "object"}, "chunk_statistics": {"type": "object"},
+    "profile": {"type": "string", "minLength": 1}, "pdf_provider": {"type": "string", "enum": ["pymupdf", "pymupdf4llm", "docling", "hybrid"]}, "policy": {"type": "object"}, "token_policy": {"type": "object"},
+    "statistics": {"type": "object", "properties": {"source_coverage": {"type": "object"}}}, "page_statistics": {"type": "object"}, "chunk_statistics": {"type": "object"},
     "agent_statistics": {"type": "object"}, "validation_statistics": {"type": "object"}
   }
 }

@@ -106,7 +106,7 @@ class Rag017RetryFlowTest {
         public PreprocessingRunResult retryPages(PreprocessingRetryRequest request) {
             retryCalls++;
             if (returnNeedsReviewOnFirstRetry && retryCalls == 1) {
-                return result(request.requestId(), "candidate-1", "NEEDS_REVIEW", sourceHash, "rag-preprocessing-v1",
+                return result(request.requestId(), "candidate-1", "NEEDS_REVIEW", sourceHash, "rag-preprocessing-v2",
                         new PreprocessingPageState(1, "NEEDS_REVIEW", 2, List.of("LAYOUT_VALIDATION_FAILED")),
                         new PreprocessingArtifactManifest("b".repeat(64), Map.of()));
             }
@@ -114,7 +114,7 @@ class Rag017RetryFlowTest {
                 Files.createDirectories(request.artifactRoot());
                 Path chunks = request.artifactRoot().resolve("chunks.jsonl");
                 Files.writeString(chunks, "{\"chunk_id\":\"chunk-1\",\"canonical_key\":\"combat.attack\",\"content_type\":\"rule\",\"token_count\":2,\"source_text\":\"A rule\",\"embedding_text\":\"A rule\",\"source_spans\":[{\"page_number\":1}],\"section_path\":[\"Combat\"]}\n");
-                return result(request.requestId(), "candidate-1-retry", "READY", sourceHash, "rag-preprocessing-v1",
+                return result(request.requestId(), "candidate-1-retry", "READY", sourceHash, "rag-preprocessing-v2",
                         new PreprocessingPageState(1, "VALIDATED", returnNeedsReviewOnFirstRetry ? 3 : 2, List.of()),
                         new PreprocessingArtifactManifest("c".repeat(64), Map.of("chunks", sha256(chunks)), Map.of("chunks", chunks)));
             } catch (Exception exception) {

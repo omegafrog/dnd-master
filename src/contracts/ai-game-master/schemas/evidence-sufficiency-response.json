@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dnd-master.local/contracts/ai-game-master/v1/evidence-sufficiency-response.json",
+  "title": "선택된 충분 근거",
+  "description": "PLAYER_ACTION 요청에서는 최대 20개까지 선택한다. selectionReasons의 키는 selectedEvidenceIds와 정확히 일치해야 한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sufficient", "selectedEvidenceIds", "selectionReasons", "missing"],
+  "properties": {
+    "sufficient": { "type": "boolean" },
+    "selectedEvidenceIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 30,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "selectionReasons": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "missing": { "type": "string" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "sufficient": { "const": true } }, "required": ["sufficient"] },
+      "then": { "properties": { "selectedEvidenceIds": { "minItems": 1 }, "missing": { "maxLength": 0 } } }
+    },
+    {
+      "if": { "properties": { "sufficient": { "const": false } }, "required": ["sufficient"] },
+      "then": { "properties": { "missing": { "minLength": 1 } } }
+    }
+  ]
+}

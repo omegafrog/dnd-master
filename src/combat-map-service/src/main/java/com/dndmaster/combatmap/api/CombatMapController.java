@@ -88,6 +88,19 @@ public class CombatMapController {
         this.spatialRuntime = spatialRuntime;
     }
 
+    @PostMapping("/internal/v1/combat-maps/{mapId}/grid-analysis")
+    public GridAnalysisResponse analyzeGrid(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) GridAnalysisRequest request) {
+        requestGuard.internal(token);
+        requireRequest(request, "grid analysis request is required");
+        var result = mapGridAlignmentService.analyze(new MapId(mapId), new MapOwnerId(request.ownerId()),
+                request.x(), request.y(), request.width(), request.height());
+        return result.map(grid -> new GridAnalysisResponse("DETECTED", grid.width(), grid.height(), grid.cellSize(),
+                grid.originX(), grid.originY(), grid.confidence()))
+                .orElseGet(() -> new GridAnalysisResponse("UNRESOLVED", null, null, null, null, null, null));
+    }
+
     @GetMapping("/internal/v1/combat-maps/{mapId}/player-view")
     public PlayerCombatMapResponse playerView(
             @PathVariable UUID mapId, @RequestParam UUID ownerId,
@@ -753,6 +766,9 @@ public class CombatMapController {
     }
     public record GridCalibrationRequest(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
                                          int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
+    public record GridAnalysisRequest(UUID ownerId, int x, int y, int width, int height) {}
+    public record GridAnalysisResponse(String status, Integer width, Integer height, Integer cellSize,
+                                       Integer originX, Integer originY, Double confidence) {}
     public record MapGridAlignmentRequest(UUID ownerId, UUID commandId, long expectedVersion, String imageRevision,
                                           double originX, double originY, double cellSize) {}
     public record MapBoundaryDetectionRequest(UUID ownerId) {}

@@ -35,7 +35,9 @@ public final class RulebookActionDefinitionExtractionService {
     private static final int MAX_DISCOVERY_EVIDENCE_CHARS = 24_000;
     private static final int MAX_INITIAL_ASSIGNED_EVIDENCE_CHARS = 48_000;
     private static final int TARGETED_SEARCH_BATCH_SIZE = 16;
-    private static final String CONTRACT_VERSION = "rulebook-action-definition-v8-complete-targeted-evidence";
+    private static final int TARGETED_NAME_SEARCH_LIMIT = 64;
+    private static final int MAX_TARGETED_EVIDENCE_PER_ACTION = 8;
+    private static final String CONTRACT_VERSION = "rulebook-action-definition-v13-title-first-targeted-evidence";
     private static final List<Query> QUERIES = List.of(
             new Query("contents", "목차 주문 목록 주문 이름 장 제목 주문 장 구성", MAX_DISCOVERY_QUERY_CANDIDATES),
             new Query("weapon-table", "무기 표 원거리 무기 투척 무기 속성 사거리 피해", CANDIDATES_PER_QUERY),
@@ -388,8 +390,20 @@ public final class RulebookActionDefinitionExtractionService {
                         CONTRACT_VERSION, assignments.stream().map(RulebookActionAssignment::candidate).toList(), assignedOutcomes));
                 for (RulebookActionDefinitionResult result : assignedOutcomes) {
                     result.sharedRules().forEach(rule -> sharedRules.putIfAbsent(rule.id(), rule));
-                    RulebookActionCandidate candidate = assignments.stream().map(RulebookActionAssignment::candidate)
-                            .filter(item -> item.id().equals(result.candidateId())).findFirst().orElseThrow();
+                    RulebookActionAssignment assignment = assignments.stream()
+                            .filter(item -> item.candidate().id().equals(result.candidateId())).findFirst().orElseThrow();
+                    RulebookActionCandidate candidate = assignment.candidate();
+                    if ("INSUFFICIENT_EVIDENCE".equals(result.status())) {
+                        List<RulebookActionEvidence> candidateEvidence = assignment.evidenceIds().stream()
+                                .map(evidenceById::get).filter(Objects::nonNull).toList();
+                        RulebookActionEvidence sourceEvidence = evidenceById.get(candidate.sourceChunkId());
+                        log("dev_rulebook_action_extraction stage=assigned_action_insufficient_evidence documentId={} extractionVersion={} batchIndex={} candidateId={} actionKind={} sourcePage={} sourceLocatorFingerprint={} expectedEvidenceCountMin=1 actualEvidenceCount={} actualEvidenceChars={} evidenceChunkIds={} reasonLength={} reasonFingerprint={} recoveryAction=retain_unconfirmed_and_review_source outcome=insufficient_evidence",
+                                documentId, extractionVersion, checkpointIndex, candidate.id(), candidate.actionKind(),
+                                sourceEvidence == null ? -1 : sourceEvidence.pageNumber(), fingerprint(candidate.sourceLocator()),
+                                candidateEvidence.size(), candidateEvidence.stream().mapToInt(item -> item.text().length()).sum(),
+                                assignment.evidenceIds(), result.reason() == null ? 0 : result.reason().length(),
+                                fingerprint(Objects.toString(result.reason(), "")));
+                    }
                     if (result.definition() != null) definitions.add(result.definition());
                     actionCoverage.add(new RulebookActionDefinitionCoverage(candidate.id(), candidate.name(), candidate.sourceLocator(),
                             result.status(), result.reason()));
@@ -585,17 +599,19 @@ public final class RulebookActionDefinitionExtractionService {
                     followupRules);
             String sourceLocator = original.candidate().sourceLocator();
             pendingFollowups.add(new TargetedFollowup(retry, known, List.copyOf(missing), sourceLocator, lookupStarted));
-            log("dev_rulebook_action_extraction stage=targeted_lookup_started documentId={} actionId={} requestedFields={} seenEvidenceCount={} sourceLocatorFingerprint={} candidateLimit={} lookupKind=exact_locator outcome=started",
+            log("dev_rulebook_action_extraction stage=targeted_lookup_started documentId={} actionId={} requestedFields={} seenEvidenceCount={} sourceLocatorFingerprint={} candidateLimit={} lookupKind=source_page_then_rulebook_name outcome=started",
                     documentId, original.candidate().id(), missing, ownEvidenceIds.size(), fingerprint(sourceLocator), TARGETED_CANDIDATES_PER_QUERY);
         }
         List<TargetedFollowup> readyFollowups = new ArrayList<>();
+        List<TargetedFollowup> nameSearchFollowups = new ArrayList<>();
         for (int start = 0; start < pendingFollowups.size(); start += TARGETED_SEARCH_BATCH_SIZE) {
             List<TargetedFollowup> searchBatch = pendingFollowups.subList(start,
                     Math.min(start + TARGETED_SEARCH_BATCH_SIZE, pendingFollowups.size()));
+            int queuedBefore = nameSearchFollowups.size();
             List<String> locators = searchBatch.stream().map(TargetedFollowup::sourceLocator).distinct().toList();
             long searchStarted = System.nanoTime();
             int candidateLimit = TARGETED_CANDIDATES_PER_QUERY;
-            log("dev_rulebook_action_extraction stage=targeted_lookup_batch_started documentId={} expectedActionIds={} expectedLocatorCount={} lookupKind=exact_locator outcome=started",
+            log("dev_rulebook_action_extraction stage=targeted_lookup_batch_started documentId={} expectedActionIds={} expectedLocatorCount={} lookupKind=source_page_then_rulebook_name outcome=started",
                     documentId, searchBatch.stream().map(item -> item.assignment().candidate().id()).toList(), locators.size());
             Map<String, List<EvidenceCandidate>> results;
             try {
@@ -622,7 +638,6 @@ public final class RulebookActionDefinitionExtractionService {
                 List<String> ownIds = task.assignment().evidenceIds();
                 RulebookActionEvidence sourceEvidence = evidenceById.get(task.assignment().candidate().sourceChunkId());
                 if (sourceEvidence == null) throw new IllegalStateException("action source evidence is missing from its assignment");
-                LinkedHashMap<String, RulebookActionEvidence> added = new LinkedHashMap<>();
                 for (EvidenceCandidate match : found) {
                     if (!match.documentId().value().equals(documentId) || match.extractionVersion() != scopeVersion
                             || match.documentType() != DocumentType.RULEBOOK
@@ -633,8 +648,20 @@ public final class RulebookActionDefinitionExtractionService {
                                 match.provenance().pageNumber(), fingerprint(match.locator()));
                         throw new InvalidEvidenceLookupResultException("source page lookup returned evidence outside the authorized document or page");
                     }
+                }
+                LinkedHashMap<String, RulebookActionEvidence> added = new LinkedHashMap<>();
+                List<String> evidenceFields = targetedEvidenceFields(task.assignment());
+                List<EvidenceCandidate> relevantCandidates = found.stream()
+                        .filter(match -> containsExactActionHeading(match.excerpt(), task.assignment().candidate().name()))
+                        .sorted(java.util.Comparator.comparingInt((EvidenceCandidate match) ->
+                                matchingNeededFieldCount(match.excerpt(), task.assignment().candidate().name(), evidenceFields)).reversed())
+                        .toList();
+                List<EvidenceCandidate> newRelevantCandidates = relevantCandidates.stream()
+                        .filter(match -> !ownIds.contains(match.chunkId().value().toString())).toList();
+                List<EvidenceCandidate> relevant = newRelevantCandidates.stream()
+                        .limit(Math.min(1, Math.max(0, MAX_TARGETED_EVIDENCE_PER_ACTION - ownIds.size()))).toList();
+                for (EvidenceCandidate match : relevant) {
                     String id = match.chunkId().value().toString();
-                    if (ownIds.contains(id)) continue;
                     RulebookActionEvidence evidence = new RulebookActionEvidence(id, match.locator(), match.excerpt(), match.provenance().pageNumber());
                     RulebookActionEvidence previous = evidenceById.putIfAbsent(id, evidence);
                     if (previous != null && (!previous.locator().equals(evidence.locator()) || !previous.text().equals(evidence.text()))) {
@@ -649,8 +676,124 @@ public final class RulebookActionDefinitionExtractionService {
                         documentId, task.assignment().candidate().id(), fingerprint(task.sourceLocator()), TARGETED_CANDIDATES_PER_QUERY,
                         found.size(), added.size(), added.keySet(), added.values().stream().mapToInt(item -> item.text().length()).sum(),
                         (System.nanoTime() - task.lookupStarted()) / 1_000_000, added.isEmpty() ? "partial" : "completed");
-                if (added.isEmpty()) continue;
+                log("dev_rulebook_action_extraction stage=targeted_page_evidence_selection actionId={} expectedSelection=exact_action_heading_ranked_by_field_evidence actualRetrievedCount={} actualRelevantCount={} actualSelectedCount={} maxSelectedCount={} excludedNonmatchingCount={} excludedByCapCount={} recoveryAction={} outcome={}",
+                        task.assignment().candidate().id(), found.size(), relevantCandidates.size(), added.size(),
+                        Math.min(1, Math.max(0, MAX_TARGETED_EVIDENCE_PER_ACTION - ownIds.size())),
+                        found.size() - relevantCandidates.size(), newRelevantCandidates.size() - relevant.size(),
+                        added.isEmpty() ? "keep_original_and_continue_name_search" : "preserve_matching_page_evidence",
+                        added.isEmpty() ? "partial" : "completed");
                 List<String> ids = new ArrayList<>(ownIds);
+                ids.addAll(added.keySet());
+                if (!added.isEmpty()) assignmentEvidenceIds.put(task.assignment().candidate().id(), List.copyOf(ids));
+                RulebookActionAssignment retry = new RulebookActionAssignment(task.assignment().candidate(), ids,
+                        task.assignment().queryFingerprint(), found.size(), task.known() == null ? Map.of() : task.known().fields(),
+                        task.requestedFields(), task.assignment().availableSharedRules());
+                List<RulebookActionEvidence> combined = ids.stream().map(evidenceById::get).toList();
+                TargetedFollowup prepared = new TargetedFollowup(retry, task.known(), task.requestedFields(), task.sourceLocator(),
+                        combined, task.addedEvidenceCount() + added.size(), task.lookupStarted());
+                boolean completeDirectEvidence = newRelevantCandidates.stream().anyMatch(match ->
+                        containsAllNeededFields(match.excerpt(), task.assignment().candidate().name(), evidenceFields));
+                if (completeDirectEvidence) readyFollowups.add(prepared);
+                else nameSearchFollowups.add(prepared);
+            }
+            log("dev_rulebook_action_extraction stage=targeted_lookup_batch_completed documentId={} expectedLocatorCount={} actualLocatorCount={} actualCandidateCount={} actionIds={} queuedNameSearchCount={} elapsedMs={} outcome=completed",
+                    documentId, locators.size(), results.size(), results.values().stream().mapToInt(List::size).sum(),
+                    searchBatch.stream().map(item -> item.assignment().candidate().id()).toList(),
+                    nameSearchFollowups.size() - queuedBefore, (System.nanoTime() - searchStarted) / 1_000_000);
+        }
+        for (int start = 0; start < nameSearchFollowups.size(); start += TARGETED_SEARCH_BATCH_SIZE) {
+            List<TargetedFollowup> batch = nameSearchFollowups.subList(start,
+                    Math.min(start + TARGETED_SEARCH_BATCH_SIZE, nameSearchFollowups.size()));
+            List<EvidenceSearchRequest> requests = batch.stream().map(task -> {
+                RulebookActionCandidate candidate = task.assignment().candidate();
+                String query = candidate.name();
+                List<UUID> excluded = task.assignment().evidenceIds().stream().map(UUID::fromString).toList();
+                return new EvidenceSearchRequest(new OwnerPlayerId(CATALOG_OWNER), null, null,
+                        "rulebook-action-definition-followup", "action:" + candidate.id(),
+                        List.of(new AuthorizedDocumentScope(new KnowledgeDocumentId(documentId), scopeVersion,
+                                DocumentType.RULEBOOK, new OwnerPlayerId(CATALOG_OWNER))), List.of(), query,
+                        TARGETED_NAME_SEARCH_LIMIT, excluded);
+            }).toList();
+            long searchStarted = System.nanoTime();
+            log("dev_rulebook_action_extraction stage=targeted_name_search_started documentId={} expectedActionIds={} expectedRequestCount={} expectedScopeVersion={} candidateLimit={} queryFingerprints={} outcome=started",
+                    documentId, batch.stream().map(task -> task.assignment().candidate().id()).toList(), requests.size(),
+                    scopeVersion, TARGETED_NAME_SEARCH_LIMIT, requests.stream().map(request -> fingerprint(request.query())).toList());
+            List<EvidenceSearchResult> results;
+            try {
+                results = evidenceSearch.searchBatch(requests);
+            } catch (RuntimeException failure) {
+                log("dev_rulebook_action_extraction stage=targeted_name_search_failed documentId={} actionIds={} expectedRequestCount={} failureClass={} elapsedMs={} recoveryAction=retain_unconfirmed_candidate outcome=failed",
+                        documentId, batch.stream().map(task -> task.assignment().candidate().id()).toList(), requests.size(),
+                        failure.getClass().getSimpleName(), (System.nanoTime() - searchStarted) / 1_000_000);
+                throw failure;
+            }
+            if (results == null || results.size() != batch.size()) {
+                log("dev_rulebook_action_extraction stage=targeted_name_search_result_validation documentId={} expectedActionCount={} actualResultCount={} failureKind=result_count_mismatch recoveryAction=reject_search_result outcome=failed",
+                        documentId, batch.size(), results == null ? -1 : results.size());
+                throw new IllegalStateException("targeted rulebook name search result count mismatch");
+            }
+            int addedEvidenceCount = 0;
+            for (int index = 0; index < batch.size(); index++) {
+                TargetedFollowup task = batch.get(index);
+                List<EvidenceCandidate> found = results.get(index).candidates();
+                LinkedHashMap<String, RulebookActionEvidence> added = new LinkedHashMap<>();
+                int availableEvidence = Math.max(0, MAX_TARGETED_EVIDENCE_PER_ACTION - task.assignment().evidenceIds().size());
+                List<String> evidenceFields = targetedEvidenceFields(task.assignment());
+                List<EvidenceCandidate> relevantCandidates = found.stream()
+                        .filter(match -> containsExactActionHeading(match.excerpt(), task.assignment().candidate().name()))
+                        .sorted(java.util.Comparator.comparingInt((EvidenceCandidate match) ->
+                                matchingNeededFieldCount(match.excerpt(), task.assignment().candidate().name(), evidenceFields)).reversed())
+                        .toList();
+                List<EvidenceCandidate> selected = relevantCandidates.stream()
+                        .filter(match -> !task.assignment().evidenceIds().contains(match.chunkId().value().toString()))
+                        .limit(Math.min(1, availableEvidence))
+                        .toList();
+                for (EvidenceCandidate match : selected) {
+                    if (!match.documentId().value().equals(documentId) || match.extractionVersion() != scopeVersion
+                            || match.documentType() != DocumentType.RULEBOOK) {
+                        log("dev_rulebook_action_extraction stage=targeted_name_scope_validation actionId={} expectedDocumentId={} expectedScopeVersion={} expectedDocumentType=RULEBOOK actualDocumentId={} actualScopeVersion={} actualDocumentType={} failureKind=candidate_outside_authorized_document recoveryAction=reject_search_result outcome=failed",
+                                task.assignment().candidate().id(), documentId, scopeVersion, match.documentId().value(),
+                                match.extractionVersion(), match.documentType());
+                        throw new IllegalStateException("targeted rulebook name search returned evidence outside its authorized document");
+                    }
+                    String id = match.chunkId().value().toString();
+                    if (task.assignment().evidenceIds().contains(id)) continue;
+                    RulebookActionEvidence evidence = new RulebookActionEvidence(id, match.locator(), match.excerpt(),
+                            match.provenance().pageNumber());
+                    RulebookActionEvidence previous = evidenceById.putIfAbsent(id, evidence);
+                    if (previous != null && (!previous.locator().equals(evidence.locator()) || !previous.text().equals(evidence.text()))) {
+                        log("dev_rulebook_action_extraction stage=targeted_evidence_id_conflict actionId={} evidenceId={} expectedTextLength={} actualTextLength={} expectedLocatorFingerprint={} actualLocatorFingerprint={} failureKind=conflicting_chunk_identity recoveryAction=reject_search_result outcome=failed",
+                                task.assignment().candidate().id(), id, previous.text().length(), evidence.text().length(),
+                                fingerprint(previous.locator()), fingerprint(evidence.locator()));
+                        throw new IllegalStateException("targeted dense RAG returned conflicting evidence for one chunk ID");
+                    }
+                    added.putIfAbsent(id, previous == null ? evidence : previous);
+                }
+                addedEvidenceCount += added.size();
+                log("dev_rulebook_action_extraction stage=targeted_name_search_candidates documentId={} actionId={} expectedCandidateCount=0..{} actualCandidateCount={} actualNewEvidenceCount={} addedEvidenceIds={} returnedChars={} returnedPages={} elapsedMs={} outcome={}",
+                        documentId, task.assignment().candidate().id(), TARGETED_NAME_SEARCH_LIMIT, found.size(), added.size(), added.keySet(),
+                        added.values().stream().mapToInt(item -> item.text().length()).sum(),
+                        added.values().stream().map(RulebookActionEvidence::pageNumber).distinct().toList(),
+                        (System.nanoTime() - task.lookupStarted()) / 1_000_000, added.isEmpty() ? "partial" : "completed");
+                log("dev_rulebook_action_extraction stage=targeted_evidence_selection actionId={} expectedSelection=exact_action_heading_ranked_by_field_evidence actualRetrievedCount={} actualSelectedCount={} maxSelectedCount={} excludedNonmatchingCount={} excludedByCapCount={} recoveryAction={} outcome={}",
+                        task.assignment().candidate().id(), found.size(), added.size(), Math.min(1, availableEvidence),
+                        found.size() - relevantCandidates.size(), relevantCandidates.size() - selected.size(),
+                        added.isEmpty() ? "retain_original_evidence_only" : "preserve_selected_evidence",
+                        added.isEmpty() ? "partial" : "completed");
+                log("dev_rulebook_action_extraction stage=targeted_name_search_ranking documentId={} actionId={} rankedCandidates={} outcome=completed",
+                        documentId, task.assignment().candidate().id(), found.stream().map(item -> item.chunkId().value() + "@page="
+                                + item.provenance().pageNumber() + ":rank=" + Objects.toString(item.denseRank(), "unknown")
+                                + ":similarity=" + Objects.toString(item.denseSimilarity(), "unknown")).toList());
+                if (added.isEmpty()) {
+                    if (task.addedEvidenceCount() == 0) {
+                        log("dev_rulebook_action_extraction stage=targeted_followup_skipped documentId={} actionId={} requestedFields={} expectedNewEvidenceCountMin=1 actualNewEvidenceCount=0 originalEvidenceCount={} recoveryAction=retain_insufficient_evidence_without_ai_retry outcome=unresolved",
+                                documentId, task.assignment().candidate().id(), task.requestedFields(), task.assignment().evidenceIds().size());
+                    } else {
+                        readyFollowups.add(task);
+                    }
+                    continue;
+                }
+                List<String> ids = new ArrayList<>(task.assignment().evidenceIds());
                 ids.addAll(added.keySet());
                 assignmentEvidenceIds.put(task.assignment().candidate().id(), List.copyOf(ids));
                 RulebookActionAssignment retry = new RulebookActionAssignment(task.assignment().candidate(), ids,
@@ -660,10 +803,9 @@ public final class RulebookActionDefinitionExtractionService {
                 readyFollowups.add(new TargetedFollowup(retry, task.known(), task.requestedFields(), task.sourceLocator(),
                         combined, added.size(), task.lookupStarted()));
             }
-            log("dev_rulebook_action_extraction stage=targeted_lookup_batch_completed documentId={} expectedLocatorCount={} actualLocatorCount={} actualCandidateCount={} actionIds={} collectedEvidenceCount={} elapsedMs={} outcome=completed",
-                    documentId, locators.size(), results.size(), results.values().stream().mapToInt(List::size).sum(),
-                    searchBatch.stream().map(item -> item.assignment().candidate().id()).toList(),
-                    readyFollowups.size(), (System.nanoTime() - searchStarted) / 1_000_000);
+            log("dev_rulebook_action_extraction stage=targeted_name_search_completed documentId={} expectedActionCount={} actualActionCount={} addedEvidenceCount={} elapsedMs={} outcome={}",
+                    documentId, batch.size(), results.size(), addedEvidenceCount, (System.nanoTime() - searchStarted) / 1_000_000,
+                    addedEvidenceCount == 0 ? "partial" : "completed");
         }
         for (List<TargetedFollowup> batch : targetedFollowupBatches(readyFollowups, documentId, extractionVersion, actor)) {
             List<RulebookActionAssignment> followupAssignments = batch.stream().map(TargetedFollowup::assignment).toList();
@@ -674,8 +816,12 @@ public final class RulebookActionDefinitionExtractionService {
                     "action:" + task.assignment().candidate().id(), task.assignment().queryFingerprint(), task.assignment().candidateCount())).toList();
             long batchStarted = System.nanoTime();
             long estimatedTokens = estimateTargetedBatch(batch, followupEvidence, documentId, extractionVersion, actor);
-            log("dev_rulebook_action_extraction stage=targeted_batch_started documentId={} expectedActionIds={} expectedActionCount={} evidenceCount={} inputChars={} estimatedInputTokens={} totalInputTokenLimit={} externalTokenReserve={} usableInputTokenLimit={} aiRequestCount=1 outcome=started",
+            log("dev_rulebook_action_extraction stage=targeted_batch_started documentId={} expectedActionIds={} expectedActionCount={} evidenceCount={} evidenceIds={} evidencePages={} perActionEvidence={} inputChars={} estimatedInputTokens={} totalInputTokenLimit={} externalTokenReserve={} usableInputTokenLimit={} aiRequestCount=1 outcome=started",
                     documentId, followupAssignments.stream().map(item -> item.candidate().id()).toList(), followupAssignments.size(), followupEvidence.size(),
+                    followupEvidence.stream().map(RulebookActionEvidence::id).toList(),
+                    followupEvidence.stream().map(RulebookActionEvidence::pageNumber).distinct().toList(),
+                    batch.stream().map(task -> task.assignment().candidate().id() + ":"
+                            + task.evidence().stream().map(item -> item.id() + "@" + item.pageNumber()).toList()).toList(),
                     followupEvidence.stream().mapToInt(item -> item.text().length()).sum(), estimatedTokens, targetedInputTokenLimit,
                     targetedExternalTokenReserve, effectiveTargetedInputTokenLimit());
             List<RulebookActionDefinitionResult> results;
@@ -707,8 +853,13 @@ public final class RulebookActionDefinitionExtractionService {
                 RulebookActionCandidate candidate = task.assignment().candidate();
                 RulebookActionDefinitionResult refined = byId.get(candidate.id());
                 if (refined == null || refined.definition() == null || "FAILED".equals(refined.status())) {
-                    log("dev_rulebook_action_extraction stage=targeted_followup_unusable documentId={} actionId={} expectedResultCount=1 actualResultCount={} requestedFields={} addedEvidenceCount={} recoveryAction=retain_initial_definition outcome=partial",
-                            documentId, candidate.id(), refined == null ? 0 : 1, task.requestedFields(), task.addedEvidenceCount());
+                    log("dev_rulebook_action_extraction stage=targeted_followup_unusable documentId={} actionId={} expectedResultCount=1 actualResultCount={} requestedFields={} availableEvidenceIds={} availableEvidencePages={} resultStatus={} reasonLength={} reasonFingerprint={} recoveryAction=retain_initial_definition outcome=partial",
+                            documentId, candidate.id(), refined == null ? 0 : 1, task.requestedFields(),
+                            task.evidence().stream().map(RulebookActionEvidence::id).toList(),
+                            task.evidence().stream().map(RulebookActionEvidence::pageNumber).distinct().toList(),
+                            refined == null ? "missing" : refined.status(),
+                            refined == null || refined.reason() == null ? 0 : refined.reason().length(),
+                            fingerprint(refined == null ? "" : Objects.toString(refined.reason(), "")));
                     continue;
                 }
                 if (!candidate.id().equals(refined.definition().id()) || !candidate.name().equals(refined.definition().name())
@@ -720,8 +871,10 @@ public final class RulebookActionDefinitionExtractionService {
                 current.put(candidate.id(), new RulebookActionDefinitionResult(candidate.id(), "COMPLETED", merged,
                         null, refined.neededFields(), refined.sharedRules(), merged.sharedRuleRefs()));
                 refined.sharedRules().forEach(rule -> reusableRules.putIfAbsent(rule.id(), rule));
-                log("dev_rulebook_action_extraction stage=targeted_followup_completed documentId={} actionId={} requestedFields={} addedEvidenceCount={} mergedFieldCount={} elapsedMs={} outcome=completed",
-                        documentId, candidate.id(), task.requestedFields(), task.addedEvidenceCount(), merged.fields().size(),
+                RulebookActionEvidence cited = task.evidence().stream().filter(item -> item.id().equals(refined.definition().sourceChunkId())).findFirst().orElse(null);
+                log("dev_rulebook_action_extraction stage=targeted_followup_completed documentId={} actionId={} requestedFields={} addedEvidenceCount={} selectedSourceChunkId={} selectedSourcePage={} selectedSourceWasInModelInput={} resultingFieldNames={} unresolvedFieldNames={} elapsedMs={} outcome=completed",
+                        documentId, candidate.id(), task.requestedFields(), task.addedEvidenceCount(), refined.definition().sourceChunkId(),
+                        cited == null ? -1 : cited.pageNumber(), cited != null, merged.fields().keySet(), refined.neededFields(),
                         (System.nanoTime() - task.lookupStarted()) / 1_000_000);
             }
             log("dev_rulebook_action_extraction stage=targeted_batch_completed documentId={} expectedActionCount={} actualResultCount={} evidenceCount={} inputChars={} aiRequestCount=1 elapsedMs={} outcome=completed",
@@ -746,25 +899,30 @@ public final class RulebookActionDefinitionExtractionService {
             List<TargetedFollowup> candidateTasks = new ArrayList<>(current);
             candidateTasks.add(task);
             long tokens = estimateTargetedBatch(candidateTasks, combined.values().stream().toList(), documentId, extractionVersion, actor);
-            if (!current.isEmpty() && tokens > effectiveTargetedInputTokenLimit()) {
+            boolean countExceeded = combined.size() > MAX_AGENT_EVIDENCE;
+            if (!current.isEmpty() && (tokens > effectiveTargetedInputTokenLimit() || countExceeded)) {
                 long currentTokens = estimateTargetedBatch(current, evidence.values().stream().toList(), documentId, extractionVersion, actor);
-                log("dev_rulebook_action_extraction stage=targeted_batch_split documentId={} currentActionIds={} nextActionId={} currentEstimatedTokens={} combinedEstimatedTokens={} usableInputTokenLimit={} currentEvidenceCount={} combinedEvidenceCount={} currentInputChars={} combinedInputChars={} recoveryAction=start_next_whole_action_batch outcome=partial",
+                log("dev_rulebook_action_extraction stage=targeted_batch_split documentId={} currentActionIds={} nextActionId={} currentEstimatedTokens={} combinedEstimatedTokens={} usableInputTokenLimit={} currentEvidenceCount={} combinedEvidenceCount={} currentInputChars={} combinedInputChars={} evidenceCountLimit={} splitReasons={} recoveryAction=start_next_whole_action_batch outcome=partial",
                         documentId, current.stream().map(item -> item.assignment().candidate().id()).toList(),
                         task.assignment().candidate().id(), currentTokens, tokens, effectiveTargetedInputTokenLimit(), evidence.size(),
                         combined.size(), evidence.values().stream().mapToInt(item -> item.text().length()).sum(),
-                        combined.values().stream().mapToInt(item -> item.text().length()).sum());
+                        combined.values().stream().mapToInt(item -> item.text().length()).sum(), MAX_AGENT_EVIDENCE,
+                        java.util.stream.Stream.of(tokens > effectiveTargetedInputTokenLimit() ? "tokens" : null,
+                                countExceeded ? "evidence_count" : null)
+                                .filter(Objects::nonNull).toList());
                 batches.add(List.copyOf(current));
                 current.clear();
                 evidence.clear();
                 combined = new LinkedHashMap<>();
                 for (RulebookActionEvidence item : task.evidence()) combined.putIfAbsent(item.id(), item);
                 tokens = estimateTargetedBatch(List.of(task), combined.values().stream().toList(), documentId, extractionVersion, actor);
+                countExceeded = combined.size() > MAX_AGENT_EVIDENCE;
             }
-            if (tokens > effectiveTargetedInputTokenLimit()) {
-                log("dev_rulebook_action_extraction stage=targeted_action_over_budget documentId={} actionId={} estimatedInputTokens={} totalInputTokenLimit={} externalTokenReserve={} usableInputTokenLimit={} evidenceCount={} inputChars={} failureKind=single_action_exceeds_budget recoveryAction=raise_configured_token_limit_or_reduce_source_scope outcome=failed",
+            if (tokens > effectiveTargetedInputTokenLimit() || countExceeded) {
+                log("dev_rulebook_action_extraction stage=targeted_action_over_budget documentId={} actionId={} estimatedInputTokens={} totalInputTokenLimit={} externalTokenReserve={} usableInputTokenLimit={} evidenceCount={} inputChars={} evidenceCountLimit={} failureKind=single_action_exceeds_budget recoveryAction=retain_unconfirmed_and_require_smaller_verified_source outcome=failed",
                         documentId, task.assignment().candidate().id(), tokens, targetedInputTokenLimit, targetedExternalTokenReserve,
                         effectiveTargetedInputTokenLimit(), task.evidence().size(),
-                        task.evidence().stream().mapToInt(item -> item.text().length()).sum());
+                        task.evidence().stream().mapToInt(item -> item.text().length()).sum(), MAX_AGENT_EVIDENCE);
                 throw new TargetedInputBudgetExceededException("targeted action " + task.assignment().candidate().id()
                         + " requires " + tokens + " estimated input tokens; available limit is " + effectiveTargetedInputTokenLimit());
             }
@@ -800,14 +958,82 @@ public final class RulebookActionDefinitionExtractionService {
                 java.util.stream.Stream.concat(known.sharedRuleRefs().stream(), refined.sharedRuleRefs().stream()).distinct().toList());
     }
 
+    private static List<String> targetedEvidenceFields(RulebookActionAssignment assignment) {
+        if (!assignment.neededFields().isEmpty()) return assignment.neededFields();
+        return "SPELL".equals(assignment.candidate().actionKind())
+                ? List.of("range", "duration", "castingTime", "components") : List.of();
+    }
+
     private static String fieldMeaning(String field) {
         return switch (field) {
             case "cost" -> "consumed action or resource cost";
-            case "range", "normalRangeFeet", "longRangeFeet" -> "use distance range";
+            case "range", "normalRangeFeet", "longRangeFeet" -> "range";
             case "targetMode" -> "target selection";
             case "effectShape", "lengthFeet", "widthFeet", "heightFeet", "radiusFeet" -> "effect area shape and dimensions";
             case "pathBlocking", "propagation" -> "effect blocking and path rules";
             case "attackSave" -> "attack or saving check";
+            default -> field.replaceAll("([a-z])([A-Z])", "$1 $2").toLowerCase(Locale.ROOT);
+        };
+    }
+
+    private static boolean containsExactActionHeading(String excerpt, String actionName) {
+        return !nearbyTextAfterActionHeading(excerpt, actionName).isEmpty();
+    }
+
+    private static boolean containsAllNeededFields(String excerpt, String actionName, List<String> neededFields) {
+        return nearbyTextAfterActionHeading(excerpt, actionName).stream().anyMatch(nearby -> neededFields.isEmpty()
+                || neededFields.stream().map(RulebookActionDefinitionExtractionService::evidenceTerm)
+                        .filter(term -> !term.isBlank()).distinct().allMatch(term -> containsEvidenceTerm(nearby, term)));
+    }
+
+    private static List<String> nearbyTextAfterActionHeading(String excerpt, String actionName) {
+        if (excerpt == null || actionName == null) return List.of();
+        String text = excerpt.toLowerCase(Locale.ROOT);
+        String name = normalizeEvidenceLabel(actionName);
+        String[] lines = text.split("\\R");
+        List<String> nearbyTexts = new ArrayList<>();
+        for (int index = 0; index < lines.length; index++) {
+            String heading = normalizeEvidenceLabel(lines[index]);
+            if (heading.equals(name)) {
+                StringBuilder nearby = new StringBuilder(lines[index]);
+                for (int next = index + 1; next < lines.length && nearby.length() < lines[index].length() + 700; next++)
+                    nearby.append('\n').append(lines[next]);
+                nearbyTexts.add(nearby.toString());
+            }
+        }
+        return List.copyOf(nearbyTexts);
+    }
+
+    private static int matchingNeededFieldCount(String excerpt, String actionName, List<String> neededFields) {
+        if (excerpt == null || neededFields.isEmpty()) return 0;
+        List<String> terms = neededFields.stream().map(RulebookActionDefinitionExtractionService::evidenceTerm)
+                .filter(term -> !term.isBlank()).distinct().toList();
+        return nearbyTextAfterActionHeading(excerpt, actionName).stream().mapToInt(nearby ->
+                (int) terms.stream().filter(term -> containsEvidenceTerm(nearby, term)).count()).max().orElse(0);
+    }
+
+    private static boolean containsEvidenceTerm(String text, String term) {
+        int index = text.indexOf(term);
+        while (index >= 0) {
+            int end = index + term.length();
+            if ((index == 0 || !Character.isLetterOrDigit(text.charAt(index - 1)))
+                    && (end == text.length() || !Character.isLetterOrDigit(text.charAt(end)))) return true;
+            index = text.indexOf(term, index + 1);
+        }
+        return false;
+    }
+
+    private static String normalizeEvidenceLabel(String value) {
+        return value.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
+    private static String evidenceTerm(String field) {
+        return switch (field) {
+            case "castingTime" -> "casting time";
+            case "attackSave" -> "attack";
+            case "damageEffect" -> "damage";
+            case "targetMode" -> "target";
+            case "normalRangeFeet", "longRangeFeet", "rangeForm" -> "range";
             default -> field.replaceAll("([a-z])([A-Z])", "$1 $2").toLowerCase(Locale.ROOT);
         };
     }

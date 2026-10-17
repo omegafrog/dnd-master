@@ -39,6 +39,12 @@ public interface GmCompletionAdapter {
         return completeWithSelection(soloPlayerId, operationId, prompt, parser, requested);
     }
 
+    default <T> GmCompletionResult<T> completeWithImageAndResolution(UUID soloPlayerId, String operationId,
+            GmPrompt prompt, StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+            GmProviderSelectionResolver.EndpointResolution resolution, JsonNode outputSchema) {
+        throw new UnsupportedOperationException("image completion is not supported by this adapter");
+    }
+
     default <T> GmCompletionResult<T> completeWithResolutionAndSubtasks(UUID soloPlayerId, String operationId,
             String prompt, StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
             GmProviderSelectionResolver.EndpointResolution resolution, JsonNode outputSchema,

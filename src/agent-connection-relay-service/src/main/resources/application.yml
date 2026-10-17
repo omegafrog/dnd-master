@@ -14,6 +14,9 @@ relay:
   execution-timeout: ${RELAY_EXECUTION_TIMEOUT:PT3M}
   max-payload-bytes: ${RELAY_MAX_PAYLOAD_BYTES:16777216}
   redis-timeout: ${RELAY_REDIS_TIMEOUT:PT2S}
+  scenario-lookup:
+    base-url: ${RELAY_SCENARIO_LOOKUP_BASE_URL:http://127.0.0.1:8080/}
+    timeout: ${RELAY_SCENARIO_LOOKUP_TIMEOUT:PT10S}
 management:
   endpoints:
     web:

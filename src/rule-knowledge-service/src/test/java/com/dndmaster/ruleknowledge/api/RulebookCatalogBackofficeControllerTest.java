@@ -14,6 +14,7 @@ import com.dndmaster.ruleknowledge.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
 import com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository;
+import com.dndmaster.ruleknowledge.application.definition.RulebookActionDefinitionRepository;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.RulebookFileStorage;
@@ -71,6 +72,40 @@ class RulebookCatalogBackofficeControllerTest {
         mockMvc.perform(post("/api/v1/backoffice/rulebook-catalog/" + revisionId + "/publish")
                         .header("Authorization", "Bearer admin-session"))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void indexed_catalog_rulebook_can_be_published_before_action_definitions_are_extracted() throws Exception {
+        UUID documentId = UUID.randomUUID();
+        UUID revisionId = UUID.randomUUID();
+        CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
+        CatalogRulebookRevision revision = new CatalogRulebookRevision(revisionId, RulebookEdition.DND_5E_2014,
+                "D&D 5e", documentId, 1, CatalogRevisionStatus.QUEUED, false, null,
+                Instant.now(), Instant.now());
+        when(catalog.findAll()).thenReturn(List.of(revision));
+        RulebookRegistrationRepository registrations = mock(RulebookRegistrationRepository.class);
+        Instant now = Instant.now();
+        when(registrations.findById(new RulebookId(documentId))).thenReturn(Optional.of(new StoredRulebookRegistration(
+                new RulebookId(documentId), new OwnerPlayerId(CATALOG_OWNER), "op", "hash", RulebookFormat.PDF, 1,
+                "storage", ProcessingStatus.INDEXED, null, null, List.of(), null, 1, now, now,
+                DocumentType.RULEBOOK, "rules.pdf", "", List.of(), List.of(), List.of(), "op", "ev-1", "policy",
+                "manifest", List.of())));
+        RulebookActionDefinitionRepository actionDefinitions = mock(RulebookActionDefinitionRepository.class);
+        when(actionDefinitions.find(documentId, "ev-1")).thenReturn(Optional.empty());
+        GameSystemDefinitionRepository definitions = mock(GameSystemDefinitionRepository.class);
+        when(definitions.findPublished(documentId)).thenReturn(Optional.empty());
+        PlayerSessionLookupPort sessions = mock(PlayerSessionLookupPort.class);
+        when(sessions.resolvePlayerId("admin-session")).thenReturn(Optional.of(ADMIN));
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(new RulebookCatalogBackofficeController(catalog,
+                mock(RulebookPipelineApplicationService.class), registrations, definitions, sessions,
+                mock(RulebookFileStorage.class), actionDefinitions, ADMIN.toString())).build();
+
+        mvc.perform(post("/api/v1/backoffice/rulebook-catalog/{id}/publish", revisionId)
+                        .header("Authorization", "Bearer admin-session"))
+                .andExpect(status().isOk());
+
+        verify(catalog).publish(org.mockito.ArgumentMatchers.argThat(published ->
+                published.id().equals(revisionId) && published.status() == CatalogRevisionStatus.READY));
     }
 
     @Test

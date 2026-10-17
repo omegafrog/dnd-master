@@ -20,6 +20,7 @@ from preprocessing_agent.utils.tokens import count_tokens
 _LINE_BREAK_HYPHEN = re.compile(r"(?<=[A-Za-z])[-\u00ad]\s*\n\s*(?=[a-z])")
 _EXTRACTED_HYPHEN = re.compile(r"([a-z]{3,})-([a-z]{3,})")
 _MARKDOWN_HEADING = re.compile(r"(?m)^(#{1,6}\s*[^\n]+)\n(?!\n)")
+_LIST_ITEM = re.compile(r"^(?:[-*•▪◦‣]|\d+[.)]|[A-Za-z][.)])\s+")
 _BASIC_RULES_FOOTER = re.compile(
     r"D\s*&\s*D\s+Basic\s+Rules\s+\(\s*Version\s+1\.0\s*\)\s*\.\s*"
     r"Not\s+for\s+resale\s*\.?\s*"
@@ -40,6 +41,30 @@ def _normalize_embedding_text(text: str) -> str:
     text = _BASIC_RULES_FOOTER.sub(" ", text)
     text = _MARKDOWN_HEADING.sub(r"\1\n\n", text)
     return text
+
+
+def linearize_prose(text: str) -> str:
+    """Join PDF line wraps while retaining list-item and paragraph boundaries."""
+    text = _LINE_BREAK_HYPHEN.sub("", text)
+    paragraphs: list[str] = []
+    current = ""
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if current:
+                paragraphs.append(current)
+                current = ""
+            if paragraphs and paragraphs[-1] != "":
+                paragraphs.append("")
+            continue
+        if _LIST_ITEM.match(line) and current:
+            paragraphs.append(current)
+            current = line
+        else:
+            current = f"{current} {line}".strip()
+    if current:
+        paragraphs.append(current)
+    return "\n".join(paragraphs).strip()
 
 
 def _boundary_signature(line: str) -> str:

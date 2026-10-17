@@ -15,6 +15,7 @@ import sys
 import os
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -25,6 +26,7 @@ from preprocessing_agent.domain.layout import BoundingBox, PageGeometry, LayoutB
 from preprocessing_agent.domain.serialization import to_dict
 from preprocessing_agent.layout import ReadingOrderPlanner
 from preprocessing_agent.layout.page_classification import form_content_state, form_geometry_counts, is_form_like
+from preprocessing_agent.layout.table_candidate_scoring import TABLE_SCREEN_DPI, assess_table_candidates
 from preprocessing_agent.parsers.pdf import PdfDocumentParser, _classify_text_detection_hypothesis, _find_native_tables, _native_table_candidate_diagnostic, _reconcile_native_table_candidates, _reconstruct_native_table, _without_consumed_header_blocks
 from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
 from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector, document_reference_font_size
@@ -40,6 +42,7 @@ _LAYOUT_ANALYSIS_VERSION = "reading-order-v2"
 def _page_layout_fingerprint(page: Mapping[str, Any]) -> str:
     geometry = page.get("geometry", {})
     blocks = [{"block_id": str(block.get("block_id", "")), "kind": block.get("kind", "text"),
+               "table_id": block.get("table_id"), "row": block.get("row"), "column": block.get("column"),
                "extraction_method": block.get("extraction_method", "native"),
                "text_sha256": hashlib.sha256(str(block.get("text", "")).encode()).hexdigest(),
                "bbox": [float(value) for value in block.get("bbox", ())]}
@@ -191,18 +194,27 @@ class NativePdfPort(Protocol):
 
 
 class PyMuPdfNativePdfAdapter:
-    def __init__(self, *, analyze_structure: bool = True) -> None:
-        self.analyze_structure = analyze_structure
+    provider_name = "pymupdf"
 
-    def extract(self, source: Path) -> list[Mapping[str, Any]]:
+    def __init__(self, *, analyze_structure: bool = True, table_extractor: Any | None = None) -> None:
+        self.analyze_structure = analyze_structure
+        if table_extractor is None:
+            from preprocessing_agent.adapters.llm_table_extractor import AiProviderTableExtractor
+            table_extractor = AiProviderTableExtractor.from_environment()
+        self.table_extractor = table_extractor
+
+    def extract(self, source: Path, *, page_numbers: Sequence[int] | None = None) -> list[Mapping[str, Any]]:
         try:
             with contextlib.redirect_stdout(sys.stderr):
                 import fitz  # type: ignore
         except ImportError as exc:
             raise RuntimeError("PyMuPDF is required for PDF process requests") from exc
         pages: list[Mapping[str, Any]] = []
+        pending_screen_pages: list[tuple[Any, ...]] = []
         with fitz.open(source) as document:
             for number, page in enumerate(document, 1):
+                if page_numbers is not None and number not in page_numbers:
+                    continue
                 rect = page.rect
                 blocks = []
                 image_regions = [tuple(float(value) for value in image["bbox"])
@@ -214,9 +226,10 @@ class PyMuPdfNativePdfAdapter:
                 font_metadata = _font_metadata_by_block(page) if self.analyze_structure else {}
                 text_spans = {}
                 text_lines = {}
+                scoring_blocks = []
                 text_payload = page.get_text("dict")
                 text_blocks = text_payload.get("blocks", ()) if isinstance(text_payload, Mapping) else ()
-                for text_block in text_blocks if self.analyze_structure else ():
+                for text_block in text_blocks:
                     key = tuple(float(value) for value in text_block.get("bbox", ()))
                     detailed_spans = []
                     detailed_lines = []
@@ -252,9 +265,11 @@ class PyMuPdfNativePdfAdapter:
                         continue
                     size, font = font_metadata.get(tuple(float(value) for value in raw[:4]), (None, None))
                     block = {"block_id": f"p{number}-b{index}", "text": text, "bbox": raw[:4]}
+                    block_lines = text_lines.get(tuple(float(value) for value in raw[:4]), [])
+                    scoring_blocks.append({**block, "lines": block_lines})
                     if self.analyze_structure:
                         block.update(spans=text_spans.get(tuple(float(value) for value in raw[:4]), []),
-                                     lines=text_lines.get(tuple(float(value) for value in raw[:4]), []))
+                                     lines=block_lines)
                     # Keep typography useful for heading confidence without
                     # turning page numbers and running headers (normally 8-9pt)
                     # into furniture merely because metadata is present.
@@ -274,7 +289,9 @@ class PyMuPdfNativePdfAdapter:
                 # PyMuPDF's table finder is the native structured extraction
                 # seam. Keep cells as geometry-bearing blocks so downstream
                 # structure detection receives real row/column provenance.
-                found_tables = _find_native_tables(page, number) if self.analyze_structure else []
+                native_candidates = (_find_native_tables(page, number)
+                                     if self.analyze_structure or self.table_extractor is not None else [])
+                found_tables = native_candidates if self.analyze_structure else []
                 reconstructed = []
                 reconstruction_elapsed = []
                 for table, strategy in found_tables:
@@ -325,11 +342,47 @@ class PyMuPdfNativePdfAdapter:
                     blocks = [block for block in blocks if block.get("kind") == "table_cell" or not _inside_table_region(block.get("bbox"), table_regions)]
                 blocks = list(_deduplicate_blocks(blocks))
                 text_line_count = sum(len(block.get("lines", ())) for block in text_blocks)
-                if not self.analyze_structure:
-                    form_diagnostics = form_geometry_counts(page.get_drawings(), text_line_count)
-                else:
-                    form_diagnostics = _page_form_diagnostics(page, blocks)
+                drawings = list(page.get_drawings() or ())
+                form_diagnostics = form_geometry_counts(drawings, text_line_count)
                 page_classification = "form" if is_form_like(**form_diagnostics) else "text-native"
+                previous_page = pages[-1] if pages else {}
+                previous_native_tables = previous_page.get("native_table_diagnostics", ())
+                previous_confirmed_native_table = any(
+                    isinstance(item, Mapping)
+                    and item.get("decision") in {"confirmed_structured", "strong_unresolved"}
+                    for item in previous_native_tables
+                ) if isinstance(previous_native_tables, (list, tuple)) else False
+                assessment = (assess_table_candidates(
+                    blocks=scoring_blocks,
+                    lines=[line for values in text_lines.values() for line in values],
+                    drawings=drawings,
+                    image_regions=image_regions,
+                    native_candidates=native_candidates,
+                    width=float(rect.width), height=float(rect.height), page_number=number,
+                    previous_page_had_table=bool(previous_confirmed_native_table or
+                        previous_page.get("table_extraction_diagnostics", {}).get("table_count", 0)),
+                ) if self.table_extractor is not None and page_classification != "form" else None)
+                table_extraction_diagnostics: dict[str, Any] = {
+                    "status": ("skipped_form" if page_classification == "form" else
+                               "pending" if self.table_extractor is not None else "not_configured"),
+                    "table_count": 0, "cell_count": 0,
+                }
+                if assessment is not None:
+                    table_extraction_diagnostics["candidate_assessment"] = assessment
+                    _dev_log("dev_preprocessing_table_score stage=page_assessed pageNumber=%d regionCount=%d nativeCandidateCount=%d expectedExtractionRegionCount=local_scored_regions actualExtractionRegionCount=%d expectedScoreAtLeast=%d actualScore=%d thresholdForScreening=%d components=%s penalties=%s exceptions=%s route=%s recoveryAction=%s outcome=assessed",
+                             number, assessment["region_count"], len(native_candidates),
+                             len(assessment.get("extraction_regions", ())),
+                             assessment["policy"]["extract_threshold"], assessment["score"],
+                             assessment["policy"]["screen_threshold"],
+                             assessment["components"], assessment["penalties"], assessment["exceptions"],
+                             assessment["route"], "extract_region" if assessment["route"] == "extract" else
+                             "screen_region" if assessment["route"] == "screen" else "skip_image_processing")
+                elif page_classification != "form" and self.table_extractor is None:
+                    _dev_log("dev_preprocessing_table_llm stage=page_skipped pageNumber=%d expectedConfiguredProvider=openai_compatible actualConfiguredProvider=none route=pymupdf_text_only recoveryAction=record_page_warning outcome=skipped",
+                             number)
+                if page_classification == "form":
+                    _dev_log("dev_preprocessing_table_llm stage=page_skipped pageNumber=%d expectedPageType=non_form actualPageType=form route=preserve_form_asset recoveryAction=skip_table_model_call outcome=skipped",
+                             number)
                 _dev_log("dev_preprocessing_layout stage=page_classification pageNumber=%d drawingCount=%d alignedLineCount=%d longHorizontalLineCount=%d textLineCount=%d expectedFormEvidence=repeated_writing_rules actualForm=%s route=%s outcome=%s",
                          number, form_diagnostics["drawing_count"], form_diagnostics["aligned_line_count"],
                          form_diagnostics["long_horizontal_line_count"], form_diagnostics["text_line_count"], page_classification == "form",
@@ -342,12 +395,272 @@ class PyMuPdfNativePdfAdapter:
                                    image_region_count=len(image_regions),
                                    text_block_count=sum(bool(str(block.get("text", "")).strip()) for block in blocks)),
                                "populated_form_field_count": len(populated_widgets),
-                               "image_regions": image_regions}
+                               "image_regions": image_regions,
+                               "table_extraction_diagnostics": table_extraction_diagnostics}
                 if self.analyze_structure:
-                    page_result.update(native_table_candidate_count=len(found_tables),
+                    page_result.update(native_table_candidate_count=len(native_candidates),
                                        native_table_diagnostics=table_diagnostics)
                 pages.append(page_result)
+                if assessment is not None and assessment["route"] == "extract":
+                    started = time.monotonic()
+                    try:
+                        _extract_vision_candidate_region(page_result, page, assessment, number,
+                                                         rect.width, rect.height, self.table_extractor, fitz)
+                        page_result["table_extraction_diagnostics"]["candidate_screen"] = "high_score_direct"
+                    except Exception as exc:
+                        table_extraction_diagnostics.update(
+                            status="failed", failure_code=(str(exc) if str(exc).startswith("TABLE_LLM_")
+                                                            else type(exc).__name__),
+                            candidate_screen="high_score_direct_extraction_failed")
+                        _dev_log("dev_preprocessing_table_extract stage=direct_region_failed pageNumber=%d expectedScoreAtLeast=%d actualScore=%d failureType=%s elapsedMs=%d route=pymupdf_text_only recoveryAction=preserve_text_and_warn outcome=partial",
+                                 number, assessment["policy"]["extract_threshold"], assessment["score"],
+                                 type(exc).__name__, round((time.monotonic() - started) * 1000))
+                elif assessment is not None and assessment["route"] == "screen":
+                    started = time.monotonic()
+                    try:
+                        clip = _candidate_clip(assessment, rect.width, rect.height, fitz)
+                        thumbnail = page.get_pixmap(matrix=fitz.Matrix(TABLE_SCREEN_DPI / 72, TABLE_SCREEN_DPI / 72),
+                                                    clip=clip, alpha=False)
+                        pending_screen_pages.append((page_result, thumbnail.tobytes("png"), thumbnail.width,
+                                                     thumbnail.height, number, rect.width, rect.height,
+                                                     bool(native_candidates), assessment))
+                        _dev_log("dev_preprocessing_table_screen stage=region_rendered pageNumber=%d expectedDpi=%d actualPixelWidth=%d actualPixelHeight=%d regionBbox=%s elapsedMs=%d route=low_resolution_visual_screen outcome=ready",
+                                 number, TABLE_SCREEN_DPI, thumbnail.width, thumbnail.height,
+                                 assessment["region_bbox"], round((time.monotonic() - started) * 1000))
+                    except Exception as exc:
+                        table_extraction_diagnostics.update(status="failed", failure_code=(str(exc) if str(exc).startswith("TABLE_LLM_") else type(exc).__name__),
+                                                            candidate_screen="region_render_failed")
+                        _dev_log("dev_preprocessing_table_screen stage=region_render_failed pageNumber=%d expectedDpi=%d actualRegion=%s failureType=%s elapsedMs=%d route=pymupdf_text_only recoveryAction=preserve_text_and_warn outcome=partial",
+                                 number, TABLE_SCREEN_DPI, assessment["region_bbox"], type(exc).__name__,
+                                 round((time.monotonic() - started) * 1000))
+                elif assessment is not None:
+                    table_extraction_diagnostics.update(status="not_screened_low_score",
+                                                        candidate_screen="below_threshold_not_sampled")
+                if len(pending_screen_pages) == 4:
+                    _finish_vision_screen_batch(pending_screen_pages, self.table_extractor, fitz, document)
+                    pending_screen_pages = []
+            if pending_screen_pages:
+                _finish_vision_screen_batch(pending_screen_pages, self.table_extractor, fitz, document)
         return pages
+
+
+def _finish_vision_screen_batch(
+        batch: list[tuple[Any, ...]],
+        extractor: Any, fitz: Any, document: Any) -> None:
+    page_numbers = [item[4] for item in batch]
+    started = time.monotonic()
+    contact_sheet = _vision_candidate_contact_sheet(batch, fitz)
+    screen_failure_code = None
+    try:
+        candidates = set(extractor.detect_candidates(contact_sheet, page_numbers=page_numbers))
+        screen_result = "completed"
+    except Exception as exc:
+        candidates = set()
+        screen_result = "native_candidates_only"
+        screen_failure_code = str(exc) if str(exc).startswith("TABLE_LLM_") else type(exc).__name__
+        # shortcut: visual-only tables remain unresolved during a screening outage; rerun after the provider recovers.
+        _dev_log("dev_preprocessing_table_llm stage=candidate_screen_failed expectedPageCount=%d pageNumbers=%s expectedOutcome=valid_candidate_page_numbers actualFailureType=%s actualFailureCode=%s elapsedMs=%d route=native_candidate_fallback recoveryAction=extract_native_candidates_and_mark_other_pages_unresolved outcome=warning",
+                 len(batch), page_numbers, type(exc).__name__, screen_failure_code,
+                 round((time.monotonic() - started) * 1000))
+    native_candidates = {item[4] for item in batch if item[7]}
+    selected = candidates | native_candidates
+    _dev_log("dev_preprocessing_table_llm stage=candidate_screen_completed expectedPageCount=%d actualCandidateCount=%d actualNativeCandidateCount=%d pageNumbers=%s candidatePageNumbers=%s screenResult=%s imageBytes=%d elapsedMs=%d route=recall_first_union recoveryAction=extract_selected_pages outcome=completed",
+             len(batch), len(candidates), len(native_candidates), page_numbers, sorted(selected), screen_result,
+             len(contact_sheet), round((time.monotonic() - started) * 1000))
+    for page_result, _, _, _, page_number, page_width, page_height, native_candidate, assessment in batch:
+        if page_number not in selected:
+            assessment = page_result.get("table_extraction_diagnostics", {}).get("candidate_assessment")
+            page_result["table_extraction_diagnostics"] = {
+                "status": "no_tables" if screen_result == "completed" else "candidate_screen_failed",
+                "provider": "openai_compatible_vision",
+                "model": getattr(extractor, "model", "injected"), "table_count": 0, "cell_count": 0,
+                "candidate_screen": ("completed_no_candidate" if screen_result == "completed"
+                                      else "failed_native_candidates_only"),
+                **({"failure_code": screen_failure_code or "TABLE_LLM_CANDIDATE_SCREEN_FAILED"}
+                   if screen_result != "completed" else {}),
+                **({"candidate_assessment": assessment} if assessment is not None else {}),
+            }
+            _dev_log("dev_preprocessing_table_llm stage=candidate_region_skipped pageNumber=%d expectedScreenSuccess=true actualNativeCandidate=%s actualVisualCandidate=false actualScreenResult=%s recoveryAction=keep_pymupdf_text_and_mark_unresolved outcome=%s",
+                     page_number, native_candidate, screen_result,
+                     "skipped" if screen_result == "completed" else "warning")
+            continue
+        page_started = time.monotonic()
+        candidate_reason = ("screen_failed_native_candidate" if screen_result != "completed" else
+                            "native_and_visual" if native_candidate and page_number in candidates else
+                            "native_geometry" if native_candidate else "visual_screen")
+        try:
+            source_page = document.load_page(page_number - 1)
+            extraction_result = _extract_vision_candidate_region(
+                page_result, source_page, assessment, page_number, page_width, page_height, extractor, fitz)
+            page_result["table_extraction_diagnostics"]["candidate_screen"] = candidate_reason
+            _dev_log("dev_preprocessing_table_llm stage=candidate_region_extraction_completed pageNumber=%d expectedCandidate=true actualRegionCount=%d actualTableCount=%d actualCellCount=%d imageBytes=%d elapsedMs=%d route=cropped_region_provider recoveryAction=preserve_unmatched_native_text outcome=%s",
+                     page_number, len(assessment.get("extraction_regions", ())),
+                     page_result["table_extraction_diagnostics"]["table_count"],
+                     page_result["table_extraction_diagnostics"]["cell_count"], extraction_result["image_bytes"],
+                     round((time.monotonic() - page_started) * 1000),
+                     page_result["table_extraction_diagnostics"]["status"])
+        except Exception as exc:
+            assessment = page_result.get("table_extraction_diagnostics", {}).get("candidate_assessment")
+            page_result["table_extraction_diagnostics"] = {
+                "status": "failed", "provider": "openai_compatible_vision",
+                "model": getattr(extractor, "model", "injected"), "table_count": 0, "cell_count": 0,
+                "candidate_screen": candidate_reason,
+                "failure_code": str(exc) if str(exc).startswith("TABLE_LLM_") else type(exc).__name__,
+                **({"candidate_assessment": assessment} if assessment is not None else {}),
+            }
+            _dev_log("dev_preprocessing_table_llm stage=candidate_region_extraction_failed pageNumber=%d expectedCandidate=true actualFailureType=%s elapsedMs=%d route=pymupdf_text_only recoveryAction=preserve_native_text_and_warn outcome=partial",
+                     page_number, type(exc).__name__, round((time.monotonic() - page_started) * 1000))
+
+
+def _candidate_clip(assessment: Mapping[str, Any], page_width: float, page_height: float, fitz: Any) -> Any:
+    raw = assessment.get("region_bbox")
+    if not isinstance(raw, (list, tuple)) or len(raw) != 4:
+        return fitz.Rect(0, 0, page_width, page_height)
+    x0, y0, x1, y1 = (float(value) for value in raw)
+    margin = max(8.0, min(24.0, max(x1 - x0, y1 - y0) * .015))
+    return fitz.Rect(max(0.0, x0 - margin), max(0.0, y0 - margin),
+                     min(page_width, x1 + margin), min(page_height, y1 + margin))
+
+
+def _extract_vision_candidate_region(page_result: dict[str, Any], page: Any,
+                                     assessment: Mapping[str, Any], page_number: int,
+                                     page_width: float, page_height: float,
+                                     extractor: Any, fitz: Any) -> dict[str, int]:
+    started = time.monotonic()
+    regions = assessment.get("extraction_regions") or []
+    tables: list[dict[str, Any]] = []
+    image_bytes = 0
+    failed_regions = []
+    if not regions:
+        page_result["table_extraction_diagnostics"].update(
+            status="candidate_region_unresolved", failure_code="TABLE_CANDIDATE_REGION_UNRESOLVED",
+            candidate_region_bbox=assessment.get("region_bbox"), candidate_score=assessment.get("score"))
+        _dev_log("dev_preprocessing_table_extract stage=region_unresolved pageNumber=%d expectedLocalRegion=true actualRegionCount=0 score=%s recoveryAction=preserve_native_text_and_warn outcome=warning",
+                 page_number, assessment.get("score"))
+        return {"image_bytes": 0}
+    for index, region in enumerate(regions):
+        if not isinstance(region, (list, tuple)) or len(region) != 4:
+            continue
+        region_assessment = {**assessment, "region_bbox": region}
+        clip = _candidate_clip(region_assessment, page_width, page_height, fitz)
+        try:
+            rendered = page.get_pixmap(matrix=fitz.Matrix(1.5, 1.5), clip=clip, alpha=False).tobytes("png")
+            local_tables = extractor.extract(rendered, page_width=clip.width, page_height=clip.height)
+            tables.extend(_translate_crop_tables(local_tables, clip, page_width, page_height))
+            image_bytes += len(rendered)
+            region_area_ratio = clip.width * clip.height / max(page_width * page_height, 1)
+            _dev_log("dev_preprocessing_table_extract stage=region_extracted pageNumber=%d regionIndex=%d expectedRegion=%s actualRegion=%s actualRegionAreaRatio=%.4f score=%s imageBytes=%d elapsedMs=%d route=cropped_region_provider recoveryAction=preserve_unmatched_native_text outcome=completed",
+                     page_number, index, region,
+                     [round(float(value), 2) for value in (clip.x0, clip.y0, clip.x1, clip.y1)],
+                     region_area_ratio, assessment.get("score"), len(rendered),
+                     round((time.monotonic() - started) * 1000))
+        except Exception as exc:
+            failure_code = str(exc) if str(exc).startswith("TABLE_LLM_") else type(exc).__name__
+            failed_regions.append({"region_index": index, "failure_code": failure_code})
+            _dev_log("dev_preprocessing_table_extract stage=region_failed pageNumber=%d regionIndex=%d expectedRegion=%s actualFailureType=%s actualFailureCode=%s elapsedMs=%d route=continue_other_regions recoveryAction=preserve_successful_regions_and_native_text outcome=partial",
+                     page_number, index, region, type(exc).__name__, failure_code,
+                     round((time.monotonic() - started) * 1000))
+    _merge_vision_tables_into_page(page_result, tables, page_number, page_width, page_height, extractor)
+    if failed_regions:
+        page_result["table_extraction_diagnostics"]["region_extraction_failures"] = failed_regions
+        page_result["table_extraction_diagnostics"]["status"] = (
+            "partial_tables" if page_result["table_extraction_diagnostics"].get("table_count", 0) else "failed")
+    page_result["table_extraction_diagnostics"].update(
+        candidate_region_bbox=assessment.get("region_bbox"),
+        candidate_score=assessment.get("score"), extraction_resolution_dpi=108)
+    return {"image_bytes": image_bytes}
+
+
+def _translate_crop_tables(tables: Sequence[Mapping[str, Any]], clip: Any,
+                           page_width: float, page_height: float) -> list[dict[str, Any]]:
+    translated: list[dict[str, Any]] = []
+    for table in tables:
+        result = dict(table)
+        result["bbox"] = _crop_box_to_page(table.get("bbox"), clip, page_width, page_height)
+        cells = table.get("cells")
+        if not isinstance(cells, list):
+            raise ValueError("TABLE_LLM_INVALID_CELLS")
+        result["cells"] = [{**dict(cell), "bbox": _crop_box_to_page(cell.get("bbox"), clip, page_width, page_height)}
+                           for cell in cells if isinstance(cell, Mapping)]
+        if len(result["cells"]) != len(cells):
+            raise ValueError("TABLE_LLM_INVALID_CELL")
+        translated.append(result)
+    return translated
+
+
+def _crop_box_to_page(value: object, clip: Any, page_width: float, page_height: float) -> list[int]:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        raise ValueError("TABLE_LLM_INVALID_BBOX")
+    x0, y0, x1, y1 = (float(item) for item in value)
+    if not (0 <= x0 < x1 <= 1000 and 0 <= y0 < y1 <= 1000):
+        raise ValueError("TABLE_LLM_INVALID_BBOX")
+    return [max(0, min(1000, round((clip.x0 + x0 * clip.width / 1000) * 1000 / page_width))),
+            max(0, min(1000, round((clip.y0 + y0 * clip.height / 1000) * 1000 / page_height))),
+            max(0, min(1000, round((clip.x0 + x1 * clip.width / 1000) * 1000 / page_width))),
+            max(0, min(1000, round((clip.y0 + y1 * clip.height / 1000) * 1000 / page_height)))]
+
+
+def _merge_vision_tables_into_page(page_result: dict[str, Any], tables: list[dict[str, Any]],
+                                   page_number: int, page_width: float, page_height: float,
+                                   extractor: Any) -> None:
+    from preprocessing_agent.adapters.llm_table_extractor import page_table_blocks
+
+    candidate_diagnostics = page_result.get("table_extraction_diagnostics", {})
+    preserved_assessment = candidate_diagnostics.get("candidate_assessment")
+    preserved_region = candidate_diagnostics.get("candidate_region_bbox")
+    preserved_score = candidate_diagnostics.get("candidate_score")
+    preserved_resolution = candidate_diagnostics.get("extraction_resolution_dpi")
+    table_blocks, table_regions, rejected_tables = page_table_blocks(
+        tables, page_number=page_number, page_width=page_width, page_height=page_height)
+    blocks, replaced_count, preserved_overlap_count = _merge_vision_table_blocks(
+        page_result["blocks"], table_blocks, table_regions)
+    if table_blocks:
+        by_id = {str(block["block_id"]): block for block in blocks}
+        plan = ReadingOrderPlanner().plan(blocks)
+        blocks = [by_id[block_id] for block_id in (*plan.ordered_block_ids, *plan.furniture_block_ids)]
+    page_result["blocks"] = blocks
+    page_result["table_extraction_diagnostics"] = {
+        "status": ("partial_tables" if table_blocks and rejected_tables else
+                   "tables_found" if table_blocks else "failed" if rejected_tables else "no_tables"),
+        "provider": "openai_compatible_vision", "model": getattr(extractor, "model", "injected"),
+        "table_count": len(table_regions), "cell_count": len(table_blocks),
+        "native_blocks_replaced": replaced_count,
+        "overlapping_native_blocks_preserved": preserved_overlap_count,
+        "rejected_tables": rejected_tables,
+        **({"candidate_assessment": preserved_assessment} if preserved_assessment is not None else {}),
+        **({"candidate_region_bbox": preserved_region} if preserved_region is not None else {}),
+        **({"candidate_score": preserved_score} if preserved_score is not None else {}),
+        **({"extraction_resolution_dpi": preserved_resolution} if preserved_resolution is not None else {}),
+    }
+    _dev_log("dev_preprocessing_table_llm stage=page_merge_completed pageNumber=%d expectedTableCount=%d actualTableCount=%d actualCellCount=%d replacedNativeBlockCount=%d preservedOverlapBlockCount=%d rejectedCellCount=%d outcome=%s",
+             page_number, len(tables), len(table_regions), len(table_blocks), replaced_count,
+             preserved_overlap_count, len(rejected_tables), page_result["table_extraction_diagnostics"]["status"])
+    for rejected in rejected_tables:
+        if rejected["failure_code"] == "TABLE_LLM_DUPLICATE_OVERLAPPING_REGION":
+            _dev_log("dev_preprocessing_table_llm stage=duplicate_table_discarded pageNumber=%d tableIndex=%d duplicateOfTableIndex=%d expectedSameCellContentAndOverlap=true actualFailureCode=%s recoveryAction=keep_first_table outcome=deduplicated",
+                     page_number, rejected["table_index"], rejected["duplicate_of_table_index"],
+                     rejected["failure_code"])
+            continue
+        _dev_log("dev_preprocessing_table_llm stage=table_cell_rejected pageNumber=%d tableIndex=%d cellIndex=%d row=%d column=%d expectedFailureCode=TABLE_LLM_CELL_OUTSIDE_TABLE actualFailureCode=%s expectedCellInsideTable=true actualTableBbox=%s actualCellBbox=%s recoveryAction=preserve_native_text outcome=rejected",
+                 page_number, rejected["table_index"], rejected["cell_index"], rejected["row"],
+                 rejected["column"], rejected["failure_code"], rejected["table_bbox"], rejected["cell_bbox"])
+
+
+def _vision_candidate_contact_sheet(
+        pages: list[tuple[dict[str, Any], bytes, int, int, int, float, float, bool]], fitz: Any) -> bytes:
+    columns, label_height = 4, 20
+    tile_width = max(item[2] for item in pages)
+    tile_height = max(item[3] for item in pages) + label_height
+    sheet = fitz.open()
+    try:
+        page = sheet.new_page(width=columns * tile_width, height=math.ceil(len(pages) / columns) * tile_height)
+        for slot, (_, image, width, height, number, *_rest) in enumerate(pages):
+            left, top = slot % columns * tile_width, slot // columns * tile_height
+            page.insert_text((left + 4, top + 14), f"PDF page {number}", fontsize=10)
+            page.insert_image(fitz.Rect(left, top + label_height, left + width, top + label_height + height), stream=image)
+        return page.get_pixmap(alpha=False).tobytes("png")
+    finally:
+        sheet.close()
 
 
 def _font_metadata_by_block(page: Any) -> dict[tuple[float, float, float, float], tuple[float | None, str | None]]:
@@ -365,13 +678,6 @@ def _font_metadata_by_block(page: Any) -> dict[tuple[float, float, float, float]
         key = tuple(float(value) for value in raw["bbox"])
         metadata[key] = (float(first.get("size")) if first.get("size") is not None else None, str(first.get("font")) if first.get("font") else None)
     return metadata
-
-
-def _page_form_diagnostics(page: Any, blocks: list[Mapping[str, Any]]) -> dict[str, int]:
-    get_drawings = getattr(page, "get_drawings", None)
-    drawings = get_drawings() if callable(get_drawings) else ()
-    return form_geometry_counts(drawings,
-                                sum(len(block.get("lines", ())) for block in blocks))
 
 
 def _inside_table_region(bbox: object, regions: list[tuple[float, float, float, float]]) -> bool:
@@ -438,7 +744,26 @@ class ExtractionApplicationService:
     def __init__(self, native_pdf: NativePdfPort | None = None, render: PageRenderPort | None = None,
                  ocr: OcrPort | None = None, *, analyze_structure: bool = False) -> None:
         self.analyze_structure = analyze_structure
-        self.native_pdf = native_pdf or PyMuPdfNativePdfAdapter(analyze_structure=analyze_structure)
+        if native_pdf is not None:
+            self.native_pdf = native_pdf
+        else:
+            provider = os.getenv("PREPROCESSING_PDF_PROVIDER", "hybrid").strip().casefold()
+            if provider == "hybrid":
+                from preprocessing_agent.adapters.hybrid_pdf import HybridPdfAdapter
+                self.native_pdf = HybridPdfAdapter()
+            elif provider == "pymupdf4llm":
+                from preprocessing_agent.adapters.pymupdf4llm_pdf import PyMuPdf4LlmPdfAdapter
+                self.native_pdf = PyMuPdf4LlmPdfAdapter()
+            elif provider == "pymupdf":
+                self.native_pdf = PyMuPdfNativePdfAdapter(analyze_structure=analyze_structure)
+            elif provider == "docling":
+                from preprocessing_agent.adapters.docling_pdf import DoclingPdfAdapter
+                self.native_pdf = DoclingPdfAdapter()
+            else:
+                raise ValueError(f"unsupported PREPROCESSING_PDF_PROVIDER: {provider}")
+        self._pdf_provider_name = getattr(self.native_pdf, "provider_name", "injected")
+        _dev_log("dev_preprocessing_pdf_provider stage=selected expectedProvider=hybrid actualProvider=%s route=application_extraction outcome=selected",
+                 self._pdf_provider_name)
         self.render = render or PyMuPdfPageRenderAdapter()
         self.ocr = ocr or TesseractOcrAdapter()
         # Publication always requires a real renderer.  Fixtures and callers
@@ -508,8 +833,8 @@ class ExtractionApplicationService:
                 index.pop(idempotency_key, None)
         recovered = request.get("recovered_pages", {})
         extraction_started = time.monotonic()
-        _dev_log("dev_preprocessing_run stage=source_extraction_started expectedPageCount=from_source actualRecoveredPageCount=%d sourceType=%s outcome=started",
-                 len(recovered) if isinstance(recovered, Mapping) else 0, source.suffix.lower() or "text")
+        _dev_log("dev_preprocessing_run stage=source_extraction_started provider=%s expectedPageCount=from_source actualRecoveredPageCount=%d sourceType=%s outcome=started",
+                 self._pdf_provider_name, len(recovered) if isinstance(recovered, Mapping) else 0, source.suffix.lower() or "text")
         try:
             raw_pages = self.native_pdf.extract(source) if source.suffix.lower() == ".pdf" else self._text_pages(source)
             if isinstance(recovered, Mapping):
@@ -574,6 +899,11 @@ class ExtractionApplicationService:
                     pending_findings.append(str(raw["capability_error"]))
                     if not any(str(block.get("text", "")).strip() for block in raw.get("blocks", ())):
                         raise ValueError(str(raw["capability_error"]))
+                table_diagnostic = raw.get("table_extraction_diagnostics", {})
+                if isinstance(table_diagnostic, Mapping) and table_diagnostic.get("status") in {"failed", "partial_tables", "not_configured"}:
+                    pending_findings.append("TABLE_EXTRACTION_NOT_CONFIGURED" if table_diagnostic.get("status") == "not_configured"
+                                            else "TABLE_EXTRACTION_PARTIAL" if table_diagnostic.get("status") == "partial_tables"
+                                            else "TABLE_EXTRACTION_FAILED")
                 geometry = PageGeometry(float(geometry_raw["width"]), float(geometry_raw["height"]))
                 if not math.isfinite(geometry.width) or not math.isfinite(geometry.height):
                     raise ValueError("INVALID_GEOMETRY")
@@ -706,6 +1036,7 @@ class ExtractionApplicationService:
                                 "blocks": blocks, "layout": layout_evidence,
                                 "heading_associations": heading_evidence,
                                 "heading_candidates": heading_candidate_evidence,
+                                "table_extraction_diagnostics": raw.get("table_extraction_diagnostics", {}),
                                 "tables": table_evidence, "layout_validation": layout_validation}
                     page_status = PageStatus.VALIDATED
                 else:
@@ -716,7 +1047,8 @@ class ExtractionApplicationService:
                                 "form_diagnostics": form_diagnostics or {},
                                 "geometry": {"width": geometry.width, "height": geometry.height,
                                              "unit": geometry.unit, "origin": geometry.origin},
-                                "blocks": blocks}
+                                "blocks": blocks,
+                                "table_extraction_diagnostics": raw.get("table_extraction_diagnostics", {})}
                 page_status = (PageStatus.USABLE_WITH_WARNINGS if pending_findings
                                else page_status if self.analyze_structure else PageStatus.VALIDATED)
                 findings = list(dict.fromkeys(pending_findings))
@@ -751,6 +1083,7 @@ class ExtractionApplicationService:
                             "form_content_state": raw.get("form_content_state", "unknown") if isinstance(raw, Mapping) else "unknown",
                             "image_regions": raw.get("image_regions", []) if isinstance(raw, Mapping) else [],
                             "blocks": raw.get("blocks", []) if isinstance(raw, Mapping) else [],
+                            "table_extraction_diagnostics": raw.get("table_extraction_diagnostics", {}) if isinstance(raw, Mapping) else {},
                             "geometry": raw.get("geometry", {}) if isinstance(raw, Mapping) else {},
                             "layout": to_dict(layout_plan) if "layout_plan" in locals() and layout_plan is not None else {},
                             "table_diagnostics": table_diagnostics,
@@ -802,6 +1135,8 @@ class ExtractionApplicationService:
                 manifest_path = temp_dir / "manifest.json"
                 manifest_data = json.loads(manifest_path.read_text())
                 manifest_data["source_sha256"] = source_hash
+                if self._pdf_provider_name in {"pymupdf", "pymupdf4llm", "docling", "hybrid"}:
+                    manifest_data["pdf_provider"] = self._pdf_provider_name
                 manifest_data.setdefault("source", {})["sha256"] = source_hash
                 excluded_form_pages = sorted(number for number, page in version.pages.items()
                                              if page.status == PageStatus.EXCLUDED_FORM)
@@ -1204,7 +1539,9 @@ class ExtractionApplicationService:
                         if raw_pages is None:
                             extraction_started = time.monotonic()
                             try:
-                                raw_pages = self.native_pdf.extract(source_path)
+                                raw_pages = (self.native_pdf.extract(source_path, page_numbers=tuple(wanted))
+                                             if isinstance(self.native_pdf, PyMuPdfNativePdfAdapter)
+                                             else self.native_pdf.extract(source_path))
                             except Exception as exc:
                                 _dev_log("dev_preprocessing_retry stage=source_extraction_failed versionId=%s requestId=%s selectedPageCount=%d failureType=%s elapsedMs=%d outcome=failed",
                                          version_id, request_id, len(wanted), type(exc).__name__,
@@ -1459,3 +1796,34 @@ class ExtractionApplicationService:
 def _dev_log(message: str, *args: Any) -> None:
     if os.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "").lower() in {"1", "true", "yes", "on"}:
         _LOGGER.info(message, *args)
+
+
+def _merge_vision_table_blocks(
+        source_blocks: list[dict[str, Any]], table_blocks: list[dict[str, Any]],
+        table_regions: list[tuple[float, float, float, float]]) -> tuple[list[dict[str, Any]], int, int]:
+    """Replace only native text blocks whose contents the extracted cells cover."""
+    cell_tokens = {token for block in table_blocks for token in re.findall(r"\w+", str(block.get("text", "")).casefold())}
+    kept: list[dict[str, Any]] = []
+    replaced = 0
+    preserved_overlap = 0
+    for block in source_blocks:
+        box = block.get("bbox")
+        if block.get("kind") == "table_cell" or not _center_in_any(box, table_regions):
+            kept.append(block)
+            continue
+        tokens = re.findall(r"\w+", str(block.get("text", "")).casefold())
+        coverage = sum(token in cell_tokens for token in tokens) / len(tokens) if tokens else 0.0
+        if coverage >= 0.8:
+            replaced += 1
+        else:
+            kept.append(block)
+            preserved_overlap += 1
+    return [*kept, *table_blocks], replaced, preserved_overlap
+
+
+def _center_in_any(box: Any, regions: list[tuple[float, float, float, float]]) -> bool:
+    if not isinstance(box, (list, tuple)) or len(box) != 4:
+        return False
+    x = (float(box[0]) + float(box[2])) / 2
+    y = (float(box[1]) + float(box[3])) / 2
+    return any(x0 <= x <= x1 and y0 <= y <= y1 for x0, y0, x1, y1 in regions)

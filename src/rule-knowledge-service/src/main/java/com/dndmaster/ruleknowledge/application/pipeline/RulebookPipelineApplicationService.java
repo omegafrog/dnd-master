@@ -51,7 +51,7 @@ import org.slf4j.LoggerFactory;
 public final class RulebookPipelineApplicationService implements RulebookUploadProcessor {
     private static final Logger LOGGER = LoggerFactory.getLogger(RulebookPipelineApplicationService.class);
     private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
-    private static final Duration PROCESSING_LEASE = Duration.ofMinutes(10);
+    private static final Duration PROCESSING_LEASE = Duration.ofMinutes(100);
     private static final int PENDING_BATCH_SIZE = 10;
 
     private final RulebookRegistrationApplicationService registrationService;
@@ -334,12 +334,12 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 // instead of turning a valid user retry into an opaque 500.
                 result = preprocessingProcessPort.preprocess(new PreprocessingRunRequest(
                         registration.operationKey(), workingRoot.resolve("source.pdf"), registration.contentHash(),
-                        "rag-preprocessing-v1", artifactRoot, null));
+                        "rag-preprocessing-v2", artifactRoot, null, preprocessingActor(registration)));
                 validatePreprocessingResult(registration, result);
             } else {
                 result = preprocessingProcessPort.retryPages(new PreprocessingRetryRequest(
                         requestId, registration.candidateExtractionVersion(), artifactRoot, selected, layoutSelections,
-                        confirmedBy == null ? null : confirmedBy.toString()));
+                        confirmedBy == null ? null : confirmedBy.toString(), preprocessingActor(registration)));
                 validateRetryResult(registration, requestId, selected, result);
             }
             StoredRulebookRegistration latest = registrationRepository.findById(rulebookId).orElseThrow();
@@ -357,8 +357,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             }
             if (!"READY".equals(result.status())) throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
             publishPreprocessed(latest, result);
-            extractActionDefinitions(latest, result.versionId(), latest.version(), result.pages(),
-                    latest.extractionActorPlayerId());
+            logActionDefinitionExtractionDeferred(latest, result, "retry_pages_published");
             StoredRulebookRegistration indexed = withPreprocessing(latest, ProcessingStatus.INDEXED, null, result,
                     sourcePreviewExtractor.preview(registration.format(), fileStorage.read(new StoredRulebookFile(registration.storageKey()))));
             registrationRepository.save(indexed);
@@ -408,15 +407,12 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         return new RulebookProcessingResult(rulebookId, ProcessingStatus.INDEXED, List.of());
     }
 
-    private void extractActionDefinitions(StoredRulebookRegistration registration, String version, long scopeVersion,
-            List<PreprocessingPageState> pages, java.util.UUID extractionActorPlayerId) {
-        if (!registration.ownerPlayerId().value().equals(CATALOG_OWNER) || registration.documentType() != DocumentType.RULEBOOK) return;
-        if (actionDefinitionExtractionService == null) throw new IllegalStateException("action definition extraction is not configured");
-        if (extractionActorPlayerId == null)
-            throw new IllegalStateException("authenticated extraction actor was not stored for this registration");
-        var extraction = actionDefinitionExtractionService.extract(registration.rulebookId().value(), version,
-                scopeVersion, pages, extractionActorPlayerId);
-        if (!"COMPLETED".equals(extraction.status())) throw new IllegalStateException("action definition extraction did not complete");
+    private static void logActionDefinitionExtractionDeferred(StoredRulebookRegistration registration,
+            PreprocessingRunResult result, String publicationStage) {
+        if (!registration.ownerPlayerId().value().equals(CATALOG_OWNER)
+                || registration.documentType() != DocumentType.RULEBOOK) return;
+        log("dev_rulebook_action_extraction stage=automatic_extraction_deferred documentId={} extractionVersion={} pageCount={} publicationStage={} recoveryAction=extract_selected_definitions_when_needed outcome=deferred",
+                registration.rulebookId().value(), result.versionId(), result.pages().size(), publicationStage);
     }
 
     private RulebookProcessingResult processClaimedRegistration(StoredRulebookRegistration registration) {
@@ -492,7 +488,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             Files.createDirectories(output);
             Files.write(source, storedContent);
             PreprocessingRunResult result = preprocessingProcessPort.preprocess(new PreprocessingRunRequest(
-                    registration.operationKey(), source, registration.contentHash(), "rag-preprocessing-v1", output, null));
+                    registration.operationKey(), source, registration.contentHash(), "rag-preprocessing-v2", output, null,
+                    preprocessingActor(registration)));
             validatePreprocessingResult(registration, result);
             log("dev_preprocessing_publication stage=page_result_validation documentId={} expectedPageCount={} actualPageCount={} searchablePageCount={} warningPageCount={} unreadablePageCount={} status={} outcome=validated",
                     registration.rulebookId().value(), result.pages().size(), result.pages().size(),
@@ -520,8 +517,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                             diagnosticWarnings(result.pages()));
                 }
                 publishPreprocessed(registration, result);
-                extractActionDefinitions(registration, result.versionId(), registration.version(), result.pages(),
-                        registration.extractionActorPlayerId());
+                logActionDefinitionExtractionDeferred(registration, result, "partial_pages_published");
                 StoredRulebookRegistration indexedWithWarnings = withPreprocessing(registration,
                         ProcessingStatus.INDEXED_WITH_WARNINGS, null, result, previewResult);
                 registrationRepository.save(indexedWithWarnings);
@@ -536,8 +532,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             }
             if ("READY".equals(result.status())) {
                 publishPreprocessed(registration, result);
-                extractActionDefinitions(registration, result.versionId(), registration.version(), result.pages(),
-                        registration.extractionActorPlayerId());
+                logActionDefinitionExtractionDeferred(registration, result, "pages_published");
                 ProcessingStatus nextStatus = ragExtractionPublicationService == null
                         ? ProcessingStatus.VALIDATED : ProcessingStatus.INDEXED;
                 StoredRulebookRegistration validated = withPreprocessing(
@@ -570,6 +565,13 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         return Duration.ofNanos(System.nanoTime() - startedAt).toMillis();
     }
 
+    private UUID preprocessingActor(StoredRulebookRegistration registration) {
+        UUID actor = registration.extractionActorPlayerId();
+        log("dev_preprocessing_actor stage=identity_selection documentId={} actorSource={} outcome=selected",
+                registration.rulebookId().value(), actor == null ? "owner_fallback" : "stored_extraction_actor");
+        return actor == null ? registration.ownerPlayerId().value() : actor;
+    }
+
     private RulebookProcessingResult rejectUnsupportedFormat(StoredRulebookRegistration registration) {
         StoredRulebookRegistration rejected = withStatus(
                 registration, ProcessingStatus.REJECTED, null, null, "UNSUPPORTED_FORMAT", null, List.of());
@@ -591,7 +593,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         if (!registration.contentHash().equals(result.sourceSha256())) {
             throw new PreprocessingProcessException("SOURCE_HASH_MISMATCH");
         }
-        if (!"rag-preprocessing-v1".equals(result.policyVersion())) {
+        if (!"rag-preprocessing-v2".equals(result.policyVersion())) {
             throw new PreprocessingProcessException("POLICY_VERSION_MISMATCH");
         }
         if (result.pages().isEmpty()) {
@@ -662,7 +664,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             StoredRulebookRegistration registration, String requestId, List<Integer> selected, PreprocessingRunResult result) {
         if (!requestId.equals(result.requestId())) throw new PreprocessingProcessException("CORRELATION_ID_MISMATCH");
         if (!registration.contentHash().equals(result.sourceSha256())) throw new PreprocessingProcessException("SOURCE_HASH_MISMATCH");
-        if (!"rag-preprocessing-v1".equals(result.policyVersion())) throw new PreprocessingProcessException("POLICY_VERSION_MISMATCH");
+        if (!"rag-preprocessing-v2".equals(result.policyVersion())) throw new PreprocessingProcessException("POLICY_VERSION_MISMATCH");
         if (result.pages().isEmpty()) throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
         // A page retry may legitimately remain quarantined as NEEDS_REVIEW. In
         // that case the preprocessing process keeps the candidate version;

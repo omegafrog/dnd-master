@@ -79,7 +79,7 @@ function renderReview(
 }
 
 describe('PackageBlueprintReviewPage', () => {
-  it('shows the official spell inventory, source and unsupported review state', async () => {
+  it('shows stored spell definitions, source and unsupported review state', async () => {
     renderReview(async () => ({
       ...preparation(),
       spellDefinitions: [{
@@ -104,7 +104,7 @@ describe('PackageBlueprintReviewPage', () => {
       }],
     }))
 
-    const inventory = await screen.findByRole('region', { name: '기본 룰북 주문 목록' })
+    const inventory = await screen.findByRole('region', { name: '주문 및 행동 규칙' })
     await userEvent.setup().click(within(inventory).getByText('1개 주문과 출처 보기'))
     expect(within(inventory).getByRole('listitem')).toHaveTextContent(
       /원문 문서 7b56c41d-f2d1-46b0-9f7a-87845bb5a879, 위치 page=87;node=node-2478, 원문 버전 sha256:7a0c5d8bf52d15092f156d78418aa3d43307e271f810d2f06bf2f0258e9288a3, 추출 7/,
@@ -114,13 +114,21 @@ describe('PackageBlueprintReviewPage', () => {
     expect(within(inventory).getByRole('listitem')).toHaveTextContent('실행 미지원 · 검토 대기')
   })
 
+  it('explains that rule evidence is searched during play when no definitions were prepared', async () => {
+    renderReview(async () => preparation())
+
+    const rules = await screen.findByRole('region', { name: '주문 및 행동 규칙' })
+    expect(within(rules).getByText(/모험 준비 중에는 행동 규칙을 미리 추출하지 않습니다/)).toBeInTheDocument()
+    expect(within(rules).queryByText(/주문과 출처 보기/)).not.toBeInTheDocument()
+  })
+
   it('adds a source-linked ranged action using the preparation revision', async () => {
     const current = { ...preparation(), preparationId: 'prep-1', spellDefinitionRevision: 3,
       packageSources: [{ documentId: 'source-doc-1', originalFilename: '무기 규칙.pdf', extractionVersion: 2 }], spellDefinitions: [] }
     const addActionDefinition = vi.fn(async (_preparationId: string, _definition: unknown) => current)
     render(<PackageBlueprintReviewPage packageId="package-1" setupApi={{ getPlayPreparation: async () => current,
       addActionDefinition }} sessionApi={{ create: vi.fn() }} onSessionCreated={vi.fn()} />)
-    const inventory = await screen.findByRole('region', { name: '기본 룰북 주문 목록' })
+    const inventory = await screen.findByRole('region', { name: '주문 및 행동 규칙' })
     await userEvent.setup().click(within(inventory).getByText('출처를 확인한 행동 정의 추가'))
     await userEvent.setup().type(within(inventory).getByRole('textbox', { name: '새 행동 이름' }), '장궁 공격')
     await userEvent.setup().selectOptions(within(inventory).getByRole('combobox', { name: '새 행동 출처 문서' }), 'source-doc-1')
@@ -155,7 +163,7 @@ describe('PackageBlueprintReviewPage', () => {
     render(<PackageBlueprintReviewPage packageId="package-1" setupApi={{ getPlayPreparation: async () => current,
       editSpellDefinition, approveSpellDefinition }} sessionApi={{ create: vi.fn() }} onSessionCreated={vi.fn()} />)
 
-    const inventory = await screen.findByRole('region', { name: '기본 룰북 주문 목록' })
+    const inventory = await screen.findByRole('region', { name: '주문 및 행동 규칙' })
     await userEvent.setup().click(within(inventory).getByText('1개 주문과 출처 보기'))
     await userEvent.setup().click(within(inventory).getByText('정의 검토·수정'))
     await userEvent.setup().clear(within(inventory).getByRole('textbox', { name: 'Acid Splash 공격·내성' }))
@@ -186,7 +194,7 @@ describe('PackageBlueprintReviewPage', () => {
     render(<PackageBlueprintReviewPage packageId="package-1" setupApi={{ getPlayPreparation: async () => current,
       editSpellDefinition }} sessionApi={{ create: vi.fn() }} onSessionCreated={vi.fn()} />)
 
-    const inventory = await screen.findByRole('region', { name: '기본 룰북 주문 목록' })
+    const inventory = await screen.findByRole('region', { name: '주문 및 행동 규칙' })
     await userEvent.setup().click(within(inventory).getByText('1개 주문과 출처 보기'))
     await userEvent.setup().click(within(inventory).getByText('정의 검토·수정'))
     await userEvent.setup().selectOptions(within(inventory).getByRole('combobox', { name: '기둥 효과 원기둥 높이 방향' }), 'DOWN')

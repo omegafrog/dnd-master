@@ -1053,8 +1053,15 @@ public class RuntimeTurnApplicationService {
                 .withScenarioModel(scenarioPackage.scenarioModel())
                 .withRagSearchContext(ragSearchContext(playerActionEvidenceScope(command, adventure, binding,
                         scenarioPackage, knowledgeDocumentIds(adventure, scenarioPackage), knownEvidenceIds)));
+        boolean sessionOpening = SESSION_OPENING_ACTION.equals(command.action());
+        if (sessionOpening && com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
+            LOGGER.info("dev_runtime_planning_path turnId={} mode=narration_only expectedCandidates=0 actualCandidates=0 situationProposal=false stateMutation=false recoveryAction=preserve_prepared_state",
+                    command.turnId());
+        }
         RuntimePlanningResult planningResult = stage(command.turnId(), "gm_runtime_planning",
-                () -> planningPort.planWithOutcomes(planningRequest));
+                () -> sessionOpening
+                        ? new RuntimePlanningResult(planningPort.planNarration(planningRequest), List.of())
+                        : planningPort.planWithOutcomes(planningRequest));
         RuntimePlan plan = planningResult.plan();
         logSituationDiagnostic(command.turnId(), "proposed", planningResult.resolutionProposal(), null);
         EvidencePack groundingEvidencePack = evidencePack;
@@ -1182,9 +1189,11 @@ public class RuntimeTurnApplicationService {
         PlayerVisibleTurn visibleInput = new PlayerVisibleTurn(plan.narration(), plan.scene(), List.of(), pendingNarrativeDelta, narrativeContext);
         RuntimeTurnResolution turnResolution = new RuntimeTurnResolution(plan.judgment(), null,
                 planningResult.toolOutcomes().stream().map(RuntimeTurnApplicationService::renderOutcome).toList());
+        String openingNarration = plan.narration();
         RuntimeTurn ready = stage(command.turnId(), "narration_safety_and_presentation", () -> safetyOrchestrator.resolveAndNarrate(requested,
                 turnResolution,
-                pending, proposal.completionProposal(), () -> writerPort.write(visibleInput).prose()));
+                pending, proposal.completionProposal(), sessionOpening
+                        ? () -> openingNarration : () -> writerPort.write(visibleInput).prose()));
         if (ready.lifecycle() == RuntimeTurnLifecycle.DISCARDED) {
             runtimeTurnRepository.save(ready);
             throw new IllegalStateException("runtime narration safety retries exhausted");

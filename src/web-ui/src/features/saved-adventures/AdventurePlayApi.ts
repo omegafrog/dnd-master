@@ -74,6 +74,7 @@ export type CombatMapView = {
 
 export type MapGridAlignment = { mapId: string; version: number; imageRevision: string; imageViewId?: string; originX: number; originY: number; cellSize: number }
 export type MapGridAlignmentRequest = { mapId: string; commandId: string; expectedVersion: number; imageRevision: string; originX: number; originY: number; cellSize: number }
+export type MapGridAnalysis = { status: 'DETECTED' | 'UNRESOLVED'; width?: number; height?: number; cellSize?: number; originX?: number; originY?: number; confidence?: number }
 export type MapBoundary = { x: number; y: number; orientation: 'HORIZONTAL' | 'VERTICAL'; kind: 'WALL' | 'DOOR'; open: boolean }
 export type MapBoundaryCandidate = { x: number; y: number; orientation: 'HORIZONTAL' | 'VERTICAL'; kind: 'WALL' | 'DOOR'; confidence: number; evidence: string[]; source?: string }
 export type MapBoundaryProposal = { mapVersion: number; obstacles: Array<{ x: number; y: number }>; doors: Array<{ x: number; y: number; open: boolean }>; boundaries: MapBoundary[]; crop?: string; candidates?: MapBoundaryCandidate[]; alignmentVersion?: number; imageRevision?: string }
@@ -173,6 +174,8 @@ export interface AdventurePlayApi {
   detectMapBoundaries?(adventureId: string): Promise<MapBoundaryProposal>
   getMapGridAlignment?(adventureId: string): Promise<MapGridAlignment>
   applyMapGridAlignment?(adventureId: string, alignment: MapGridAlignmentRequest): Promise<MapGridAlignment>
+  analyzeMapGrid?(adventureId: string, crop: { x: number; y: number; width: number; height: number }): Promise<MapGridAnalysis>
+  calibrateMapGrid?(adventureId: string, request: { mapId: string; expectedVersion: number; width: number; height: number; cellSize: number; originX: number; originY: number; imageWidth: number; imageHeight: number }): Promise<void>
   updateCombatMapLayout?(adventureId: string, draft: CombatMapLayoutDraft): Promise<void>
   previewMapMovement?(adventureId: string, request: MapMovementPreviewRequest): Promise<MapMovementPreview>
   getPendingMapMovement?(adventureId: string): Promise<PendingMapMovement | null>
@@ -346,6 +349,18 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
       body: JSON.stringify(alignment),
+    })
+  }
+
+  analyzeMapGrid(adventureId: string, crop: { x: number; y: number; width: number; height: number }) {
+    return request<MapGridAnalysis>(`/api/v1/adventures/${adventureId}/combat-map/analyze-grid`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(crop),
+    })
+  }
+
+  calibrateMapGrid(adventureId: string, calibration: { mapId: string; expectedVersion: number; width: number; height: number; cellSize: number; originX: number; originY: number; imageWidth: number; imageHeight: number }) {
+    return request<void>(`/api/v1/adventures/${adventureId}/combat-map/calibration`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json', ...this.authHeaders() }, body: JSON.stringify(calibration),
     })
   }
 

@@ -90,8 +90,23 @@ public class RuleKnowledgeApiConfiguration {
             ObjectMapper objectMapper,
             @Value("${rule-knowledge.preprocessing.python-executable:python3}") String pythonExecutable,
             @Value("${rule-knowledge.preprocessing.working-directory:..}") String workingDirectory,
-            @Value("${rule-knowledge.preprocessing.timeout:10m}") Duration timeout) {
-        return new ProcessCliPreprocessingAdapter(pythonExecutable, Path.of(workingDirectory), timeout, objectMapper);
+            @Value("${rule-knowledge.preprocessing.timeout:90m}") Duration timeout,
+            @Value("${ai-game-master.base-url:http://127.0.0.1:8080/}") String aiBaseUrl,
+            @Value("${rule-knowledge.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            @Value("${rule-knowledge.action-extraction.endpoint-id:}") String endpointId,
+            @Value("${rule-knowledge.action-extraction.provider:ollama}") String provider,
+            @Value("${rule-knowledge.action-extraction.model:exaone3.5:7.8b}") String model,
+            @Value("${rule-knowledge.action-extraction.reasoning:medium}") String reasoning,
+            @Value("${rule-knowledge.action-extraction.timeout:180s}") Duration aiTimeout) {
+        Map<String, String> aiRoute = new java.util.HashMap<>();
+        aiRoute.put("PREPROCESSING_AI_PROVIDER_URL", aiBaseUrl);
+        aiRoute.put("PREPROCESSING_AI_INTERNAL_TOKEN", internalToken);
+        aiRoute.put("PREPROCESSING_AI_PROVIDER", provider);
+        aiRoute.put("PREPROCESSING_AI_MODEL", model);
+        aiRoute.put("PREPROCESSING_AI_REASONING", reasoning);
+        aiRoute.put("PREPROCESSING_AI_TIMEOUT_SECONDS", Long.toString(Math.max(1, aiTimeout.toSeconds())));
+        if (endpointId != null && !endpointId.isBlank()) aiRoute.put("PREPROCESSING_AI_ENDPOINT_ID", endpointId);
+        return new ProcessCliPreprocessingAdapter(pythonExecutable, Path.of(workingDirectory), timeout, objectMapper, aiRoute);
     }
 
     @Bean

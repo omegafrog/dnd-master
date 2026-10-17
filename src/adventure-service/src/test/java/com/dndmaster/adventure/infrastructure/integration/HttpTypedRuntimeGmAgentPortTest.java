@@ -90,6 +90,43 @@ class HttpTypedRuntimeGmAgentPortTest {
     }
 
     @Test
+    void session_opening_accepts_only_narration_and_never_proposes_runtime_changes() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/gm/runtime-turn")).willReturn(aResponse().withStatus(200).withBody("""
+                {"narration":"낡은 술통 사이로 희미한 불빛이 흔들리고, 문밖에서는 누군가 다급히 문을 두드립니다."}
+                """)));
+        UUID soloPlayerId = UUID.randomUUID();
+        UUID endpointId = UUID.randomUUID();
+        server.stubFor(post(urlEqualTo("/internal/gm/runtime-endpoint")).willReturn(aResponse().withStatus(200).withBody("{\"endpointId\":\"" + endpointId + "\",\"endpointVersion\":\"1970-01-01T00:00:00Z\",\"provider\":\"codex-cli\",\"model\":\"gpt-5.6-luna\",\"reasoning\":\"medium\"}")));
+        GmContextEnvelope context = new GmContextEnvelope(
+                AdventureId.generate(), new OwnerPlayerId(soloPlayerId), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), 1, new AdventureContext("cellar", "quiet", "", ""), null,
+                "SESSION_OPENING", new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of(),
+                "준비된 시작 상황: 양조장 지하실, 문밖의 다급한 노크", "codex-cli", "gpt-5.6-luna", "medium",
+                new RequestedGmProviderSelection(endpointId, "codex-cli", "gpt-5.6-luna", "medium"), null,
+                List.of(), List.of(), "준비된 시작 상황: 양조장 지하실, 문밖의 다급한 노크", List.of());
+        HttpTypedRuntimeGmAgentPort port = new HttpTypedRuntimeGmAgentPort(
+                HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2),
+                new ObjectMapper(), "service-token", "codex-cli/gpt-5.6-luna=272000");
+
+        var result = port.plan(context);
+
+        org.junit.jupiter.api.Assertions.assertEquals("낡은 술통 사이로 희미한 불빛이 흔들리고, 문밖에서는 누군가 다급히 문을 두드립니다.",
+                result.plan().narration());
+        org.junit.jupiter.api.Assertions.assertNull(result.situationProposal());
+        org.junit.jupiter.api.Assertions.assertFalse(result.plan().combatStartRequested());
+        org.junit.jupiter.api.Assertions.assertTrue(result.plan().combatEnemies().isEmpty());
+        org.junit.jupiter.api.Assertions.assertFalse(result.plan().mapEntryRequested());
+        org.junit.jupiter.api.Assertions.assertFalse(result.plan().checkProposal().required());
+        server.verify(postRequestedFor(urlEqualTo("/internal/gm/runtime-turn"))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.prompt",
+                        com.github.tomakehurst.wiremock.client.WireMock.containing("narration only")))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath("$.prompt",
+                        com.github.tomakehurst.wiremock.client.WireMock.containing("상황을 다시 생성·수정·전환하거나"))));
+    }
+
+    @Test
     void maps_model_selected_storybook_and_rulebook_keys_back_to_the_exact_evidence_items(CapturedOutput output) {
         server = new WireMockServer(0);
         server.start();

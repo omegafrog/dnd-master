@@ -39,7 +39,7 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
     public List<UUID> rerank(EvidenceRerankRequest request) {
         Objects.requireNonNull(request, "request must not be null");
         try {
-            String body = mapper.writeValueAsString(new Request(request.soloPlayerId(), request.query(), request.policyId(), candidates(request.candidates())));
+            String body = mapper.writeValueAsString(new Request(request.soloPlayerId(), request.query(), request.policyId(), request.resultLimit(), candidates(request.candidates())));
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/evidence-rerank"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
@@ -61,7 +61,7 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
                 throw new EvidenceAcquisitionContractException("evidence reranking failed with status " + response.statusCode());
             }
             List<UUID> ids = List.copyOf(mapper.readValue(response.body(), Response.class).orderedCandidateIds());
-            validateIds(ids, request.candidates());
+            validateIds(ids, request.candidates(), request.resultLimit());
             devLog("dev_agent_response operation=evidence_rerank policy={} queryFingerprint={} inputCount={} orderedIds={}",
                     request.policyId(), com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(request.query()),
                     request.candidates().size(), ids);
@@ -77,10 +77,11 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
     private static List<Candidate> candidates(List<EvidenceCandidate> candidates) {
         return candidates.stream().map(candidate -> new Candidate(candidate.id().toString(), candidate.documentType(), candidate.locator(), candidate.excerpt())).toList();
     }
-    private static void validateIds(List<UUID> ids, List<EvidenceCandidate> candidates) {
+    private static void validateIds(List<UUID> ids, List<EvidenceCandidate> candidates, int resultLimit) {
         var available = candidates.stream().map(EvidenceCandidate::id).collect(java.util.stream.Collectors.toSet());
-        if (ids.size() > 30 || ids.size() != new LinkedHashSet<>(ids).size() || !available.containsAll(ids)) {
-            throw new EvidenceAcquisitionContractException("reranker returned invalid candidate identifiers");
+        if (ids.size() > resultLimit || ids.size() != new LinkedHashSet<>(ids).size() || !available.containsAll(ids)) {
+            throw new EvidenceAcquisitionContractException("reranker returned invalid candidate identifiers; expectedAtMost="
+                    + resultLimit + " actual=" + ids.size());
         }
     }
     private static boolean isTransient(int status) { return status == 429 || status >= 500; }
@@ -88,7 +89,7 @@ public final class HttpEvidenceRerankerPort implements EvidenceRerankerPort {
         if (com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) LOGGER.info(pattern, args);
     }
     private static String required(String value, String name) { if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank"); return value; }
-    record Request(UUID soloPlayerId, String query, String taskContext, List<Candidate> candidates) {}
+    record Request(UUID soloPlayerId, String query, String taskContext, int resultLimit, List<Candidate> candidates) {}
     record Candidate(String evidenceId, String documentType, String locator, String excerpt) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<UUID> orderedCandidateIds) {}
 }

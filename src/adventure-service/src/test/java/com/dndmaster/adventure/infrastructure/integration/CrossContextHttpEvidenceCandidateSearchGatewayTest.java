@@ -41,7 +41,7 @@ class CrossContextHttpEvidenceCandidateSearchGatewayTest {
                 .withRequestBody(equalToJson("""
                         {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","stageKey":"runtime",
                          "actionIntent":"MIXED","scope":[{"documentId":"%s","extractionVersion":7,"documentType":"RULEBOOK"}],
-                         "activeLocators":["p:3"],"excludedEvidenceIds":[],"query":"attack question","denseLimit":30}
+                         "activeLocators":["p:3"],"excludedEvidenceIds":[],"query":"attack question","denseLimit":40}
                         """.formatted(ownerId, sessionId, scenarioPackageId, documentId)))
                 .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
                         {"ownerId":"%s","sessionId":"%s","scenarioPackageId":"%s","candidates":[
@@ -89,7 +89,7 @@ class CrossContextHttpEvidenceCandidateSearchGatewayTest {
                 .withRequestBody(matchingJsonPath("$.scope[0].documentType", equalTo("RULEBOOK")))
                 .withRequestBody(matchingJsonPath("$.scope[1].documentType", equalTo("STORYBOOK")))
                 .withRequestBody(matchingJsonPath("$.excludedEvidenceIds[0]", equalTo(knownEvidenceId)))
-                .withRequestBody(matchingJsonPath("$.denseLimit", equalTo("30")))
+                .withRequestBody(matchingJsonPath("$.denseLimit", equalTo("40")))
                 .withRequestBody(matchingJsonPath("$.query", equalTo(query)))
                 .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody(("{" + envelope
                         + ",\"candidates\":[{\"chunkId\":\"%s\",\"documentId\":\"%s\",\"extractionVersion\":7,\"documentType\":\"RULEBOOK\",\"locator\":\"p:3\",\"excerpt\":\"base rule\"},"

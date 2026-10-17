@@ -15,7 +15,6 @@ import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.CharacterLimit;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
-import com.dndmaster.adventure.domain.scenario.FixedSaveDc;
 import com.dndmaster.adventure.domain.scenario.SaveDc;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate;
@@ -42,9 +41,7 @@ import java.util.regex.Pattern;
 public final class ScenarioPackageCompilationService {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(ScenarioPackageCompilationService.class);
     private static final String SCENARIO_MODEL_COMPILATION_VERSION = "scenario-model-v3";
-    private static final String COMPILER_VERSION = "resolution-compiler-v3";
-    private static final String DICE_PATTERN = "(?i)\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?";
-    private static final String RECHARGE_PATTERN = "\\d+\\s*-\\s*\\d+";
+    private static final String COMPILER_VERSION = "resolution-compiler-v4";
     private static final Pattern CHARACTER_LIMIT_PATTERN = Pattern.compile(
             "(?i)(?:(?:exactly|must\\s+be\\s+(?:a\\s+)?party\\s+of|requires?\\s+(?:a\\s+)?party\\s+of|반드시|정확히|꼭)\\s+)?(?:(?:최대|up\\s+to|maximum(?:\\s+of)?|max|recommended|권장)\\s*)?(?:party\\s+of\\s*)?(\\d+)\\s*(?:명|players?|users?)(?:\\s*(?:exactly|must|required|반드시|정확히|꼭))?");
     private final ScenarioPackageRepository repository;
@@ -214,15 +211,10 @@ public final class ScenarioPackageCompilationService {
                         : com.dndmaster.adventure.domain.scenario.CompilationOutcome.COMPLETE;
         // Preserve the historical report status for old readers. The explicit outcome above
         // carries the required/optional policy that the legacy enum cannot express.
-        boolean hasUnsafeInvalid = units.stream().filter(unit -> unit.status() == ResolutionStatus.INVALID)
-                .anyMatch(unit -> !unit.validationMessages().equals(List.of("dice expression is invalid")));
-        boolean hasRecoverableDiceFailure = units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.INVALID
-                && unit.validationMessages().equals(List.of("dice expression is invalid")));
-        ResolutionStatus reportStatus = hasUnsafeInvalid
-                || (!units.isEmpty() && units.stream().allMatch(unit -> unit.status() == ResolutionStatus.INVALID))
+        ResolutionStatus reportStatus = units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.INVALID)
                 ? ResolutionStatus.INVALID
                 : units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.PARTIAL)
-                        || hasRecoverableDiceFailure ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
+                        ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
         if (!overrideResult.overrides().isEmpty()) {
             overrideRepository.saveAll(overrideResult.overrides());
         }
@@ -486,9 +478,6 @@ public final class ScenarioPackageCompilationService {
                 incomplete.add("instruction visibility is missing");
             }
         }
-        if (candidate.kind() != null) {
-            validateByKind(candidate, detail, invalid, incomplete);
-        }
         validateDetail(detail, invalid, incomplete);
         ResolutionStatus status = !invalid.isEmpty()
                 ? ResolutionStatus.INVALID
@@ -511,44 +500,6 @@ public final class ScenarioPackageCompilationService {
                 detail,
                 status,
                 messages);
-    }
-
-    private static void validateByKind(
-            ResolutionCandidate candidate,
-            ScenarioResolutionDetail detail,
-            List<String> invalid,
-            List<String> incomplete) {
-        switch (candidate.kind()) {
-            case SKILL_ABILITY_CHECK, SAVING_THROW, PASSIVE_THRESHOLD -> {
-                if (candidate.abilityOrSkill() == null || candidate.abilityOrSkill().isBlank()) {
-                    incomplete.add("ability or skill is missing");
-                }
-                validateDc(candidate.dc(), invalid, incomplete);
-            }
-            case ATTACK_ROLL -> {
-                if (!validDice(candidate.diceExpression())) invalid.add("dice expression is invalid");
-            }
-            case OPPOSED_CHECK -> {
-                if (candidate.abilityOrSkill() == null || candidate.abilityOrSkill().isBlank()) {
-                    incomplete.add("ability or skill is missing");
-                }
-                if (candidate.dc() instanceof FixedSaveDc fixed && (fixed.value() < 0 || fixed.value() > 100)) {
-                    invalid.add("DC is outside supported range");
-                }
-            }
-            case DICE_ROLL, DAMAGE_ROLL, HEALING_ROLL, INITIATIVE_ROLL -> {
-                if (!validDice(candidate.diceExpression())) invalid.add("dice expression is invalid");
-            }
-            case RECHARGE_ROLL -> {
-                if (!validRecharge(candidate.diceExpression())) invalid.add("recharge range is invalid");
-            }
-            case RANDOM_TABLE -> {
-                if (!validDice(candidate.diceExpression())) invalid.add("dice expression is invalid");
-                if (detail.randomTable().isEmpty()) invalid.add("random table entries are missing");
-                if ("PARTIAL".equalsIgnoreCase(detail.tableCoverage())) incomplete.add("random table coverage is PARTIAL");
-            }
-            case SPECIAL_ROLL -> incomplete.add("special roll requires manual runtime support");
-        }
     }
 
     private static void validateCanonicalContract(ScenarioResolutionDetail detail, List<String> invalid) {
@@ -618,30 +569,6 @@ public final class ScenarioPackageCompilationService {
             if (entry.outcome() == null || entry.outcome().isBlank()) invalid.add("random table outcome is missing");
             if (entry.sourceRefs().isEmpty()) invalid.add("random table source reference is missing");
         }
-    }
-
-    private static void validateDc(SaveDc dc, List<String> invalid, List<String> incomplete) {
-        if (dc == null) {
-            incomplete.add("DC resolution is missing");
-        } else if (dc instanceof FixedSaveDc fixed && (fixed.value() <= 0 || fixed.value() > 100)) {
-            invalid.add("DC is outside supported range");
-        }
-    }
-
-    private static boolean validDice(String expression) {
-        if (expression == null || !expression.matches(DICE_PATTERN)) return false;
-        String[] parts = expression.toLowerCase().replace(" ", "").split("d");
-        int dice = Integer.parseInt(parts[0]);
-        int sides = Integer.parseInt(parts[1].replaceFirst("[+-].*", ""));
-        return dice > 0 && sides > 0 && dice <= 100 && sides <= 1000;
-    }
-
-    private static boolean validRecharge(String expression) {
-        if (expression == null || !expression.matches(RECHARGE_PATTERN)) return false;
-        String[] parts = expression.replace(" ", "").split("-");
-        int minimum = Integer.parseInt(parts[0]);
-        int maximum = Integer.parseInt(parts[1]);
-        return minimum >= 1 && maximum <= 20 && minimum <= maximum;
     }
 
     private static String fingerprint(ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates) {

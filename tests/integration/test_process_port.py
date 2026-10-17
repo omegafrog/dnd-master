@@ -68,7 +68,7 @@ def test_needs_review_quarantines_current_root_artifacts(tmp_path: Path) -> None
     bad = tmp_path / "bad.pdf"
     bad.write_bytes(b"not a pdf")
     blocked = dict(request, request_id="blocked", source_path=str(bad), source_sha256=hashlib.sha256(bad.read_bytes()).hexdigest())
-    proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(blocked), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(blocked), text=True, capture_output=True, env={"PYTHONPATH": "src", "PREPROCESSING_PDF_PROVIDER": "pymupdf"})
     assert proc.returncode == 3
     assert json.loads(proc.stdout)["error"]["code"] == "NATIVE_EXTRACTION_FAILED"
     assert (output / "current.json").exists()

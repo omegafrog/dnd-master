@@ -40,9 +40,15 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
     private final Path workingDirectory;
     private final Duration timeout;
     private final ObjectMapper objectMapper;
+    private final Map<String, String> childEnvironment;
 
     public ProcessCliPreprocessingAdapter(
             String pythonExecutable, Path workingDirectory, Duration timeout, ObjectMapper objectMapper) {
+        this(pythonExecutable, workingDirectory, timeout, objectMapper, Map.of());
+    }
+
+    public ProcessCliPreprocessingAdapter(String pythonExecutable, Path workingDirectory, Duration timeout,
+            ObjectMapper objectMapper, Map<String, String> childEnvironment) {
         this.pythonExecutable = requireText(pythonExecutable, "pythonExecutable");
         this.workingDirectory = Objects.requireNonNull(workingDirectory, "workingDirectory must not be null")
                 .toAbsolutePath().normalize();
@@ -51,6 +57,7 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
             throw new IllegalArgumentException("timeout must be positive");
         }
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
+        this.childEnvironment = Map.copyOf(Objects.requireNonNull(childEnvironment, "childEnvironment must not be null"));
     }
 
     @Override
@@ -67,6 +74,7 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
         if (request.versionId() != null) {
             payload.put("version_id", request.versionId());
         }
+        if (request.executionActorPlayerId() != null) payload.put("execution_actor_player_id", request.executionActorPlayerId().toString());
         return invoke(payload, "preprocess", request.requestId(), request.sourceSha256(), request.policyVersion(), null);
     }
 
@@ -93,6 +101,7 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
         payload.put("artifact_root", request.artifactRoot().toAbsolutePath().normalize().toString());
         payload.put("pages", request.pages());
         payload.put("layout_selections", request.layoutSelections());
+        if (request.executionActorPlayerId() != null) payload.put("execution_actor_player_id", request.executionActorPlayerId().toString());
         if (request.confirmedBy() != null) payload.put("confirmed_by", request.confirmedBy());
         return invoke(payload,
                 "retry_pages", request.requestId(), null, null, request.versionId());
@@ -110,6 +119,9 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
             ProcessBuilder builder = new ProcessBuilder(pythonExecutable, "-m", MODULE)
                     .directory(workingDirectory.toFile())
                     .redirectErrorStream(false);
+            builder.environment().putAll(childEnvironment);
+            Object actorId = request.get("execution_actor_player_id");
+            if (actorId instanceof String value) builder.environment().put("PREPROCESSING_AI_SOLO_PLAYER_ID", value);
             Path sourceRoot = workingDirectory.resolve("src");
             if (Files.isDirectory(sourceRoot)) {
                 String existingPythonPath = builder.environment().get("PYTHONPATH");

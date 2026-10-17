@@ -193,10 +193,14 @@ public final class ScenarioCompilationWorker {
             List<ResolutionCandidate> extractedCandidates = candidates == null ? List.of() : List.copyOf(candidates);
             devLog("dev_compilation_stage compilationId={} bundleId={} stage=candidate_extraction inputExcerptCount={} candidateCount={} candidates={}",
                     claimed.id(), bundle.id().value(), resolutionExcerpts.size(), extractedCandidates.size(), candidateKeys(extractedCandidates));
+            long validationStartedAt = System.nanoTime();
+            devLog("dev_compilation_stage compilationId={} bundleId={} stage=candidate_validation result=started candidateCount={} policy=evidence_and_contract_integrity",
+                    claimed.id(), bundle.id().value(), extractedCandidates.size());
             List<ScenarioResolutionUnit> rawResolutionUnits = compiler.validateResolutionCandidates(bundle,
                     extractedCandidates, resolutionExcerpts);
-            devLog("dev_compilation_stage compilationId={} bundleId={} stage=candidate_validation candidateCount={} unitStatuses={}",
-                    claimed.id(), bundle.id().value(), extractedCandidates.size(), unitStatuses(rawResolutionUnits));
+            devLog("dev_compilation_stage compilationId={} bundleId={} stage=candidate_validation result=completed candidateCount={} actualUnitCount={} elapsedMs={} policy=evidence_and_contract_integrity unitStatuses={}",
+                    claimed.id(), bundle.id().value(), extractedCandidates.size(), rawResolutionUnits.size(),
+                    (System.nanoTime() - validationStartedAt) / 1_000_000, unitStatuses(rawResolutionUnits));
             candidates = repairInvalidCandidates(
                     claimed.id().toString(), bundle, extractedCandidates, resolutionExcerpts);
             devLog("dev_compilation_stage compilationId={} bundleId={} stage=candidate_repair candidatesBefore={} candidatesAfter={} candidates={}",

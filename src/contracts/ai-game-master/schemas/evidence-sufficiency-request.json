@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dnd-master.local/contracts/ai-game-master/v1/evidence-sufficiency-request.json",
+  "title": "근거 충분성 판단 요청",
+  "description": "PLAYER_ACTION은 리랭킹된 후보 최대 20개를 받는다. 그 밖의 정책은 최대 30개까지 받는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["soloPlayerId", "policy", "taskContext", "candidates", "pinnedEvidenceIds"],
+  "properties": {
+    "soloPlayerId": { "type": "string", "format": "uuid" },
+    "policy": { "enum": ["PLAYER_ACTION", "SCENARIO_PREPARATION", "OPENING_SCENE", "RULE_GUIDANCE"] },
+    "taskContext": { "type": "string", "minLength": 1 },
+    "candidates": {
+      "type": "array",
+      "maxItems": 30,
+      "items": { "$ref": "evidence-rerank-request.json#/$defs/candidate" }
+    },
+    "pinnedEvidenceIds": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 30,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "policy": { "const": "PLAYER_ACTION" } }, "required": ["policy"] },
+      "then": {
+        "properties": {
+          "candidates": { "maxItems": 20 },
+          "pinnedEvidenceIds": { "maxItems": 20 }
+        }
+      }
+    }
+  ]
+}

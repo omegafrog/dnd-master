@@ -41,7 +41,7 @@ public final class OpenAiGmProvider implements GmCompletionAdapter {
         return complete(operationId, new GmPrompt(prompt), parser, outputSchema);
     }
 
-    private <T> T complete(String operationId, GmPrompt prompt, StructuredResponseParser<T> parser, JsonNode outputSchema) {
+    public <T> T complete(String operationId, GmPrompt prompt, StructuredResponseParser<T> parser, JsonNode outputSchema) {
         try {
             Object input = prompt.hasImage()
                     ? List.of(Map.of("role", "user", "content", List.of(

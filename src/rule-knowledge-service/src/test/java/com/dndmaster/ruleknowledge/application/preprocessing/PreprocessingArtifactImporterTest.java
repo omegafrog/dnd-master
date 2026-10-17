@@ -47,7 +47,7 @@ class PreprocessingArtifactImporterTest {
                 + "{\"page_number\":3,\"block_index\":1,\"char_start\":4,\"char_end\":10,\"bbox\":[2,3,31,41],\"table_id\":\"p3-table-0\",\"table_cell\":\"r1:c2\"}],"
                 + "\"section_path\":[\"Combat\"]}\n");
         PreprocessingRunResult result = new PreprocessingRunResult(
-                "retry-1", "candidate-2", "READY", "a".repeat(64), "rag-preprocessing-v1",
+                "retry-1", "candidate-2", "READY", "a".repeat(64), "rag-preprocessing-v2",
                 List.of(new PreprocessingPageState(2, "VALIDATED", 2, List.of())),
                 new PreprocessingArtifactManifest("b".repeat(64), Map.of("chunks", java.util.HexFormat.of().formatHex(
                         java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(chunks)))), Map.of("chunks", chunks)));
@@ -99,7 +99,7 @@ class PreprocessingArtifactImporterTest {
                 "form", Map.of("drawing_count", 180, "aligned_line_count", 466,
                         "long_horizontal_line_count", 154, "text_line_count", 15));
         PreprocessingRunResult result = new PreprocessingRunResult("retry-1", "candidate-2", "READY",
-                "a".repeat(64), "rag-preprocessing-v1", List.of(excluded),
+                "a".repeat(64), "rag-preprocessing-v2", List.of(excluded),
                 new PreprocessingArtifactManifest("b".repeat(64), Map.of("chunks", java.util.HexFormat.of()
                         .formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(chunks)))),
                         Map.of("chunks", chunks)));
@@ -125,7 +125,7 @@ class PreprocessingArtifactImporterTest {
 
     private static PreprocessingRunResult resultFor(Path chunks) throws Exception {
         return new PreprocessingRunResult(
-                "retry-1", "candidate-2", "READY", "a".repeat(64), "rag-preprocessing-v1",
+                "retry-1", "candidate-2", "READY", "a".repeat(64), "rag-preprocessing-v2",
                 List.of(new PreprocessingPageState(2, "VALIDATED", 2, List.of())),
                 new PreprocessingArtifactManifest("b".repeat(64), Map.of("chunks", java.util.HexFormat.of().formatHex(
                         java.security.MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(chunks)))), Map.of("chunks", chunks)));

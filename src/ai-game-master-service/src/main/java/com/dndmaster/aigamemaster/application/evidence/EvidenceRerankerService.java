@@ -20,15 +20,15 @@ public final class EvidenceRerankerService {
         EvidenceModelPrompt.Candidates promptCandidates = EvidenceModelPrompt.candidates(request.candidates());
         Set<String> modelIds = Set.copyOf(promptCandidates.evidenceIdByModelId().keySet());
         EvidenceRerankResponse response = stage.execute(request.soloPlayerId(), "evidence-rerank", rerankInstruction(request, promptCandidates),
-                raw -> parse(raw, modelIds));
+                raw -> parse(raw, modelIds, request.resultLimit()));
         List<String> ordered = response.orderedCandidateIds().stream()
                 .map(promptCandidates::evidenceId).filter(java.util.Objects::nonNull).toList();
-        if (ordered.isEmpty()) ordered = request.candidates().stream().limit(30)
+        if (ordered.isEmpty()) ordered = request.candidates().stream().limit(request.resultLimit())
                 .map(EvidenceCandidate::evidenceId).toList();
         return new EvidenceRerankResponse(ordered);
     }
 
-    private EvidenceRerankResponse parse(String raw, Set<String> candidateIds) {
+    private EvidenceRerankResponse parse(String raw, Set<String> candidateIds, int resultLimit) {
         try {
             JsonNode root = mapper.readTree(raw);
             if (root == null || !root.isObject() || !root.path("orderedCandidateIds").isArray()) {
@@ -46,8 +46,8 @@ public final class EvidenceRerankerService {
                                 + " valueType=" + id.getNodeType().name());
                 ids.add(id.asText());
             }
-            if (ids.size() > 30) throw invalid(EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
-                    "ordered candidate ID count exceeds 30; idCount=" + ids.size());
+            if (ids.size() > resultLimit) throw invalid(EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
+                    "ordered candidate ID count exceeds resultLimit; expectedAtMost=" + resultLimit + " actual=" + ids.size());
             if (ids.size() != new HashSet<>(ids).size()) throw invalid(
                     EvidenceModelOutputException.Category.INVALID_IDENTIFIER,
                     "ordered candidate IDs contain duplicates; idCount=" + ids.size());
@@ -66,8 +66,8 @@ public final class EvidenceRerankerService {
     }
     private static String rerankInstruction(EvidenceRerankRequest request, EvidenceModelPrompt.Candidates candidates) {
         return "TASK=EVIDENCE_RERANK\nReturn JSON {\"orderedCandidateIds\":[...]}. "
-                + "Return at most 30 unique short c-number IDs, copied exactly from the supplied candidates. "
-                + "Order by relevance; do not remove candidates by a score threshold before applying the 30-ID limit. "
+                + "Return at most " + request.resultLimit() + " unique short c-number IDs, copied exactly from the supplied candidates. "
+                + "Order by relevance; do not remove candidates by a score threshold before applying the result limit. "
                 + "QUERY=" + request.query() + "\nTASK_CONTEXT=" + request.taskContext()
                 + "\nCANDIDATES=" + candidates.prompt();
     }

@@ -67,20 +67,32 @@ class RuntimeGmPromptComposerTest {
     }
 
     @Test
-    void defines_small_player_facing_situations_and_transitions_separately_from_adventure_completion() {
+    void opening_uses_the_prepared_situation_and_requests_narration_only() {
         String prompt = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(),
                 1, new AdventureContext("양조장", "", "", ""), null, "SESSION_OPENING",
                 new EvidencePack(List.of(), List.of(), List.of()), List.of()).composePrompt(272_000);
-
-        assertTrue(prompt.contains("모험 전체의 목표와 완료 조건은 LOCKED_SCENARIO_MODEL의 objectives와 resolutionCriteria에 두고"));
-        assertTrue(prompt.contains("SESSION_OPENING에서는 RUNTIME_CONTEXT의 currentSituation이 모험 전체의 objectives나 resolutionCriteria를 담은 시작용 값이어도"));
-        assertTrue(prompt.contains("일행이 이번 상황에서 이룰 수 있는 가까운 결과 하나"));
-        assertTrue(prompt.contains("LOCKED_SCENARIO_MODEL의 시작 장면과 인물에 근거한 작은 오프닝 상황"));
-        assertTrue(prompt.contains("NPC가 플레이어 캐릭터에게 직접 제안하게 서술하고"));
-        assertTrue(prompt.contains("플레이어의 수락·거절·감정·의도는 대신 결정하지 마세요"));
+        assertTrue(prompt.contains("준비 단계에서 시작 상황은 이미 선택·저장되어 있습니다"));
+        assertTrue(prompt.contains("상황을 다시 생성·수정·전환하거나 새 사건"));
+        assertTrue(prompt.contains("JSON object with narration only"));
+        assertTrue(prompt.contains("길이를 짧게 제한하지 말고"));
+        assertTrue(!prompt.contains("SITUATION_PROGRESS_RULE"));
+        assertTrue(!prompt.contains("ADVENTURE_COMPLETION_RULE"));
+        assertTrue(!prompt.contains("scene, judgment, narration, situation"));
+        assertTrue(!prompt.contains("판정제안"));
         assertTrue(!prompt.contains("Glowkindle"));
-        assertTrue(prompt.contains("일행이 실제로 다른 장소로 이동해 새 과제가 시작되면 TRANSITION을 사용"));
-        assertTrue(prompt.contains("작은 상황 하나를 해결했다고 모험을 완료하지 마세요"));
+    }
+
+    @Test
+    void ordinary_turn_keeps_situation_progress_and_runtime_output_contract() {
+        String prompt = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(),
+                1, new AdventureContext("양조장", "", "문을 연다", ""), null, "문을 연다",
+                new EvidencePack(List.of(), List.of(), List.of()), List.of()).composePrompt(272_000);
+
+        assertTrue(prompt.contains("SITUATION_PROGRESS_RULE"));
+        assertTrue(prompt.contains("TRANSITION"));
+        assertTrue(prompt.contains("판정제안"));
+        assertTrue(prompt.contains("For an ordinary turn, do not include abilities or actions"));
+        assertTrue(!prompt.contains("narration only"));
     }
 
     @Test

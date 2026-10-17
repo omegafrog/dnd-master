@@ -1,0 +1,102 @@
+{
+  "label_status": "draft-awaiting-human-confirmation",
+  "extraction_rerun": false,
+  "sample_pages": 100,
+  "evaluable_pages": 93,
+  "uncertain_excluded": 7,
+  "definition": "A table is a visibly row/column-organized data region; prose callouts, card-style stat blocks, contents pages, and diagrams are not tables.",
+  "documents": {
+    "dnd5th": {
+      "n": 17,
+      "gold_positive": 7,
+      "pred_positive": 8,
+      "tp": 7,
+      "fp": 1,
+      "fn": 0,
+      "tn": 9,
+      "precision": 0.875,
+      "recall": 1.0,
+      "f1": 0.9333
+    },
+    "ironsworn-digital-edition-rulebook": {
+      "n": 19,
+      "gold_positive": 1,
+      "pred_positive": 1,
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "tn": 18,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "cairn-2e-players-guide": {
+      "n": 19,
+      "gold_positive": 9,
+      "pred_positive": 9,
+      "tp": 9,
+      "fp": 0,
+      "fn": 0,
+      "tn": 10,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "cairn-2e-wardens-guide": {
+      "n": 19,
+      "gold_positive": 6,
+      "pred_positive": 6,
+      "tp": 6,
+      "fp": 0,
+      "fn": 0,
+      "tn": 13,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "basic-roleplaying-orc-content-document": {
+      "n": 19,
+      "gold_positive": 5,
+      "pred_positive": 6,
+      "tp": 5,
+      "fp": 1,
+      "fn": 0,
+      "tn": 13,
+      "precision": 0.8333,
+      "recall": 1.0,
+      "f1": 0.9091
+    }
+  },
+  "overall": {
+    "n": 93,
+    "gold_positive": 28,
+    "pred_positive": 30,
+    "tp": 28,
+    "fp": 2,
+    "tn": 63,
+    "precision": 0.9333,
+    "recall": 1.0,
+    "f1": 0.9655,
+    "fn": 0
+  },
+  "false_positive_pages": [
+    {
+      "document": "dnd5th",
+      "page": 16,
+      "predicted_table_ids": [
+        "pymupdf:p16-table-0"
+      ]
+    },
+    {
+      "document": "basic-roleplaying-orc-content-document",
+      "page": 278,
+      "predicted_table_ids": [
+        "docling:p278-table-0",
+        "docling:p278-table-1",
+        "docling:p278-table-2",
+        "docling:p278-table-3"
+      ]
+    }
+  ],
+  "missed_table_pages": []
+}

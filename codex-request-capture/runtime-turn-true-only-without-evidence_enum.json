@@ -1,0 +1,212 @@
+{
+  "id": 20,
+  "method": "turn/start",
+  "params": {
+    "threadId": "01a14847-40df-7ae0-b030-ac6aa40af415",
+    "input": [
+      {
+        "type": "text",
+        "text": "LOCKED_SCENARIO_AND_MAP_DATA={\"scenarioModel\":{\"schemaVersion\":1,\"actors\":[{\"elementId\":\"actor-party\",\"type\":\"adventuring-party\",\"attributes\":{\"displayName\":\"Adventurers\",\"role\":\"party undertaking the brewery job\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=1:chunk=chk_34509c5eb2fecc4001537f9d450cac44bb77fa26aaf04f9cbe05220a67fe3fbe\"}]},{\"elementId\":\"actor-giant-rat\",\"type\":\"hostile-creature\",\"attributes\":{\"displayName\":\"Giant Rat\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_bb8106a82262073995c68820370cf3dfc75528d8a7e0626db3e914692331e046\"}]},{\"elementId\":\"actor-giant-centipede\",\"type\":\"hostile-creature\",\"attributes\":{\"displayName\":\"Giant Centipede\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=3:chunk=chk_53334378085aaccc6158e2ca48ddcfba1d4ccdb31e38d91ec7d3e1f10cdfc183\"}]},{\"elementId\":\"actor-giant-inferno-spider\",\"type\":\"hostile-creature\",\"attributes\":{\"displayName\":\"Giant Inferno Spider\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=3:chunk=chk_d83ea24c77766c8152cd9b0aa9cd41a166e91305c98bba58803cbd7f9fa6d8b8\"}]}],\"locations\":[{\"elementId\":\"location-beer-cellar\",\"type\":\"dungeon-area\",\"attributes\":{\"displayName\":\"Beer Cellar\",\"description\":\"Dark cellar containing barrels, casks, tools, and a hole in the wall\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_bb8106a82262073995c68820370cf3dfc75528d8a7e0626db3e914692331e046\"}]},{\"elementId\":\"location-mosaic-corridor\",\"type\":\"dungeon-area\",\"attributes\":{\"displayName\":\"Mosaic Corridor\",\"description\":\"Dusty stone corridor with an elemental mosaic trap\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=3:chunk=chk_3a6c6f4eebdf20d97af675d640ea84edfc98faf7774f2d615ad6cac7d939dc82\"}]},{\"elementId\":\"location-well-room\",\"type\":\"dungeon-area\",\"attributes\":{\"displayName\":\"Well Room\",\"description\":\"Small room containing a deep stone well\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=3:chunk=chk_53334378085aaccc6158e2ca48ddcfba1d4ccdb31e38d91ec7d3e1f10cdfc183\"}]},{\"elementId\":\"location-lab\",\"type\":\"dungeon-area\",\"attributes\":{\"displayName\":\"The Lab\",\"description\":\"Ruined laboratory or workroom in the old Wizard’s Tower\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=3:chunk=chk_d83ea24c77766c8152cd9b0aa9cd41a166e91305c98bba58803cbd7f9fa6d8b8\"}]}],\"objectives\":[{\"elementId\":\"objective-clear-rats\",\"type\":\"primary-objective\",\"attributes\":{\"description\":\"Dispose of the giant rats in the brewery cellar\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_1349ba143edbaba61773abfec45ef889c54f49febb35733893a35e751a87667d\"}]},{\"elementId\":\"objective-find-origin\",\"type\":\"primary-objective\",\"attributes\":{\"description\":\"Find out where the rats came from\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_bb8106a82262073995c68820370cf3dfc75528d8a7e0626db3e914692331e046\"}]},{\"elementId\":\"objective-prevent-future-surprises\",\"type\":\"primary-objective\",\"attributes\":{\"description\":\"Make sure the rats will not cause similar problems in the future\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_bb8106a82262073995c68820370cf3dfc75528d8a7e0626db3e914692331e046\"}]}],\"revelations\":[{\"elementId\":\"revelation-ancient-ruin\",\"type\":\"backstory-revelation\",\"attributes\":{\"description\":\"The cellar wall is a remnant of a long-forgotten ruin associated with the old Wizard’s Tower\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_1349ba143edbaba61773abfec45ef889c54f49febb35733893a35e751a87667d\"}]},{\"elementId\":\"revelation-inferno-spider-origin\",\"type\":\"creature-origin-revelation\",\"attributes\":{\"description\":\"The Giant Inferno Spider was produced by spilled potions from the Storeroom\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=3:chunk=chk_d83ea24c77766c8152cd9b0aa9cd41a166e91305c98bba58803cbd7f9fa6d8b8\"}]},{\"elementId\":\"revelation-rat-transformation-potion\",\"type\":\"hazard-revelation\",\"attributes\":{\"description\":\"A black rat drinking from a damaged bottle labeled with remnants of “-tion of enlargement” transforms into a Giant Rat after roughly one minute\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=4:chunk=chk_a9c596300478a8d64734ef0f3a2f0c6067feced2a64e0bc9ee8ee3996114c73a\"}]}],\"encounters\":[{\"elementId\":\"encounter-beer-cellar-giant-rats\",\"type\":\"combat-scenario\",\"attributes\":{\"location\":\"Beer Cellar\",\"displayName\":\"Giant Rats\",\"count\":8,\"enemyKey\":\"giant-rat\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_bb8106a82262073995c68820370cf3dfc75528d8a7e0626db3e914692331e046\"}]},{\"elementId\":\"encounter-well-room-giant-centipedes\",\"type\":\"combat-scenario\",\"attributes\":{\"location\":\"Well Room\",\"displayName\":\"Giant Centipedes\",\"count\":3,\"enemyKey\":\"giant-centipede\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=3:chunk=chk_53334378085aaccc6158e2ca48ddcfba1d4ccdb31e38d91ec7d3e1f10cdfc183\"}]},{\"elementId\":\"encounter-lab-giant-inferno-spider\",\"type\":\"combat-scenario\",\"attributes\":{\"location\":\"The Lab\",\"displayName\":\"Giant Inferno Spider\",\"count\":1,\"enemyKey\":\"giant-inferno-spider\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=3:chunk=chk_d83ea24c77766c8152cd9b0aa9cd41a166e91305c98bba58803cbd7f9fa6d8b8\"}]}],\"relationships\":[{\"elementId\":\"relationship-glowkindle-hires-party\",\"type\":\"quest-assignment\",\"attributes\":{\"from\":\"actor-glowkindle\",\"to\":\"actor-party\",\"description\":\"Glowkindle hires the adventurers to resolve the cellar problem\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_1349ba143edbaba61773abfec45ef889c54f49febb35733893a35e751a87667d\"}]},{\"elementId\":\"relationship-cellar-to-ruin\",\"type\":\"location-connection\",\"attributes\":{\"from\":\"location-beer-cellar\",\"to\":\"location-mosaic-corridor\",\"description\":\"The cellar connects to the corridor through a hole in the wall\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_bb8106a82262073995c68820370cf3dfc75528d8a7e0626db3e914692331e046\"}]},{\"elementId\":\"relationship-rats-flee-trap\",\"type\":\"creature-behavior\",\"attributes\":{\"from\":\"actor-giant-rat\",\"to\":\"location-mosaic-corridor\",\"description\":\"After five Giant Rats are killed, survivors attempt to flee through the hole; any that escape are killed by the corridor trap\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_ec18e7f31f095f53a5b6ddca822190a2f0c9de270dcc5a1daf331b36b5cb79d0\"}]}],\"resolutionCriteria\":[{\"elementId\":\"resolution-clear-cellars\",\"type\":\"success-criterion\",\"attributes\":{\"description\":\"The cellars are cleared of the giant rats and the source of the problem is investigated\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_1349ba143edbaba61773abfec45ef889c54f49febb35733893a35e751a87667d\"}]},{\"elementId\":\"resolution-report-to-glowkindle\",\"type\":\"success-criterion\",\"attributes\":{\"description\":\"The adventurers return to Glowkindle and report how the journey went\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=4:chunk=chk_a9c596300478a8d64734ef0f3a2f0c6067feced2a64e0bc9ee8ee3996114c73a\"}]},{\"elementId\":\"resolution-payment\",\"type\":\"reward-criterion\",\"attributes\":{\"description\":\"Glowkindle pays 25 gp per party member\"},\"sourceRefs\":[{\"knowledgeDocumentId\":{\"value\":\"099a3ca0-2198-4f27-a566-f594b6e3ee1b\"},\"extractionVersion\":2,\"locator\":\"page=2:chunk=chk_ec18e7f31f095f53a5b6ddca822190a2f0c9de270dcc5a1daf331b36b5cb79d0\"}]}],\"startingSituation\":\"The adventurers are directed to the Wizard’s Tower Brewing Co., where Glowkindle hires them to clear giant rats from the beer cellar, discover where they came from, and prevent similar problems in the future.\"},\"tacticalMaps\":[{\"mapId\":\"b3d7811d-f889-3c61-a17f-36fb575169ab\",\"grid\":{\"originX\":0.0,\"originY\":0.0,\"cellSize\":1.0,\"rotation\":0.0,\"distance\":\"5ft\"},\"walls\":[],\"doors\":[],\"obstacles\":[]},{\"mapId\":\"776170bb-becc-3009-9433-764ed816fbb8\",\"grid\":{\"originX\":0.0,\"originY\":0.0,\"cellSize\":1.0,\"rotation\":0.0,\"distance\":\"5ft\"},\"walls\":[],\"doors\":[],\"obstacles\":[]},{\"mapId\":\"410edf5b-0b39-38c4-ba15-e67cbf4f28d7\",\"grid\":{\"originX\":0.0,\"originY\":0.0,\"cellSize\":1.0,\"rotation\":0.0,\"distance\":\"5ft\"},\"walls\":[],\"doors\":[],\"obstacles\":[]}],\"mapSceneBindings\":[]}\n\n현재 상황 관련 장기 기록 (GM이 문맥으로 판단)\n\n\n압축된 이전 대화\n\n\n압축하지 않은 최근 대화\n[AI_GAME_MASTER: 모험가들은 Wizard’s Tower Brewing Co.의 양조장 안, 홉과 맥주의 진한 향이 밴 작은 바에 모여 있습니다. 건물은 깨끗하고 질서정연하지만, 일꾼들의 시선은 지하 저장고로 내려가는 바닥의 출입구를 향할 때마다 굳어집니다. 양조장 주인 글로우킨들은 잔을 내려놓으며, 지하실을 넓히던 인부들이 오래전에 잊힌 폐허의 벽을 발견했고 그 벽에 구멍을 낸 뒤 개만큼이나 커다란 검은 쥐들이 어둠에서 쏟아져 나왔다고 설명했습니다. 인부들은 간신히 빠져나왔지만 지하실은 이제 사용할 수 없고, 양조장 운영도 멈춰 있습니다. 글로우킨들은 쥐를 처리하고, 쥐들이 어디에서 왔는지 밝혀내며, 같은 문제가 다시 일어나지 않게 해 달라고 의뢰했습니다. 그가 바닥의 해치를 열자 차갑고 마른 공기와 맥주, 축축한 털 냄새가 위로 올라옵니다. 아래 어둠 속에서는 나무 바닥을 긁는 발톱 소리와 희미한 찍찍거림이 이어집니다. 글로우킨들이 계단 곁으로 비켜서며 말합니다. \"저 아래가 문제의 지하실입니다. 무사히 돌아오십시오.\"]\n\n최신 캐릭터 시트·Current Situation·이번 턴 근거·플레이어 입력\nCHARACTER_SHEETS=[{\"characterSheetId\":\"24500812-248c-4bff-9468-01a15612563e\",\"sessionId\":\"7a6ef015-531a-416e-8510-2e046f2bc60a\",\"ownerPlayerId\":\"00000000-0000-0000-0000-000000000001\",\"adventureId\":\"7a6ef015-531a-416e-8510-2e046f2bc60a\",\"edition\":\"DND_5E_2014\",\"characterName\":\"Potent Brew Test Hero\",\"level\":1,\"inspiration\":false,\"race\":\"인간\",\"characterClass\":\"파이터\",\"background\":\"현자\",\"startingAbilities\":\"strength=15,dexterity=14,constitution=13,intelligence=12,wisdom=10,charisma=8\",\"derivedStatistics\":\"{\\\"abilityScores\\\":{\\\"strength\\\":16,\\\"dexterity\\\":15,\\\"constitution\\\":14,\\\"intelligence\\\":13,\\\"wisdom\\\":11,\\\"charisma\\\":9},\\\"abilityModifiers\\\":{\\\"strength\\\":3,\\\"dexterity\\\":2,\\\"constitution\\\":2,\\\"intelligence\\\":1,\\\"wisdom\\\":0,\\\"charisma\\\":-1},\\\"proficiencyBonus\\\":2,\\\"initiative\\\":2,\\\"speed\\\":30,\\\"hitDie\\\":\\\"d10\\\",\\\"hitPointMaximum\\\":12,\\\"armorClass\\\":12,\\\"savingThrowBonuses\\\":{\\\"strength\\\":5,\\\"dexterity\\\":2,\\\"constitution\\\":4,\\\"intelligence\\\":1,\\\"wisdom\\\":0,\\\"charisma\\\":-1},\\\"skillBonuses\\\":{\\\"역사\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":1},\\\"통찰\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":0},\\\"지각\\\":{\\\"proficient\\\":true,\\\"expertise\\\":false,\\\"bonus\\\":2},\\\"종교\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":1},\\\"기만\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":-1},\\\"운동\\\":{\\\"proficient\\\":true,\\\"expertise\\\":false,\\\"bonus\\\":5},\\\"설득\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":-1},\\\"공연\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":-1},\\\"수사\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":1},\\\"자연\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":1},\\\"손재주\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":2},\\\"생존\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":0},\\\"위협\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":-1},\\\"은신\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":2},\\\"동물 조련\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":0},\\\"의학\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":0},\\\"곡예\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":2},\\\"비전학\\\":{\\\"proficient\\\":false,\\\"expertise\\\":false,\\\"bonus\\\":1}},\\\"passivePerception\\\":12,\\\"attacks\\\":[{\\\"weaponId\\\":\\\"unarmed\\\",\\\"label\\\":\\\"비무장 공격\\\",\\\"attackBonus\\\":5,\\\"damage\\\":\\\"1+3\\\",\\\"damageType\\\":\\\"타격\\\",\\\"range\\\":null,\\\"mode\\\":\\\"UNARMED\\\",\\\"ammunitionRequired\\\":false,\\\"versatileDamage\\\":null}],\\\"spellAttackBonus\\\":null,\\\"spellSaveDc\\\":null}\",\"characterBuild\":\"{\\\"schemaVersion\\\": 2, \\\"rulesetRevision\\\": 1, \\\"subrace\\\": \\\"\\\", \\\"subclass\\\": \\\"\\\", \\\"skillProficiencies\\\": [\\\"운동\\\", \\\"지각\\\"], \\\"expertise\\\": [], \\\"equipmentSelections\\\": {\\\"weapon\\\": \\\"default\\\"}, \\\"ruleChoices\\\": {}, \\\"ownedEquipment\\\": [], \\\"ownedWeaponIds\\\": [], \\\"equippedItems\\\": {\\\"armor\\\": \\\"\\\", \\\"shield\\\": false, \\\"mainHandWeaponId\\\": null, \\\"offHandWeaponId\\\": null, \\\"twoHandedWeaponId\\\": null}, \\\"cantrips\\\": [], \\\"learnedOrPreparedSpells\\\": []}\",\"characterState\":\"{\\\"currentHitPoints\\\": 1, \\\"temporaryHitPoints\\\": 0, \\\"experience\\\": 0, \\\"equippedItems\\\": {\\\"armor\\\": \\\"\\\", \\\"shield\\\": false, \\\"mainHandWeaponId\\\": null, \\\"offHandWeaponId\\\": null, \\\"twoHandedWeaponId\\\": null}, \\\"ammunition\\\": {}, \\\"spellSlots\\\": []}\",\"version\":0}]\nRUNTIME_CONTEXT={\"currentContext\":{\"currentScene\":\"brewery-rat-job-discovered\",\"npcState\":null,\"pendingAction\":\"SESSION_OPENING\",\"latestJudgment\":\"모험 시작\",\"narrativeState\":null},\"currentSituation\":\"CurrentSituation[situationId=0a6dbb71-81eb-46df-9d55-41481435eabc, revision=1, location=opening, problem=모험가들은 양조장 지하의 거대 쥐를 처리하고 쥐가 나타난 원인을 조사해야 한다., threat=양조장 지하의 거대 쥐가 양조장 운영과 모험가들의 안전을 위협한다., goal=양조장 지하의 거대 쥐 문제를 해결하고 쥐의 유래를 조사한다., activeCombatScenarioId=null, firstNarration=모험가들은 Wizard’s Tower Brewing Co.의 양조장 안, 홉과 맥주의 진한 향이 밴 작은 바에 모여 있습니다. 건물은 깨끗하고 질서정연하지만, 일꾼들의 시선은 지하 저장고로 내려가는 바닥의 출입구를 향할 때마다 굳어집니다. 양조장 주인 글로우킨들은 잔을 내려놓으며, 지하실을 넓히던 인부들이 오래전에 잊힌 폐허의 벽을 발견했고 그 벽에 구멍을 낸 뒤 개만큼이나 커다란 검은 쥐들이 어둠에서 쏟아져 나왔다고 설명했습니다. 인부들은 간신히 빠져나왔지만 지하실은 이제 사용할 수 없고, 양조장 운영도 멈춰 있습니다. 글로우킨들은 쥐를 처리하고, 쥐들이 어디에서 왔는지 밝혀내며, 같은 문제가 다시 일어나지 않게 해 달라고 의뢰했습니다. 그가 바닥의 해치를 열자 차갑고 마른 공기와 맥주, 축축한 털 냄새가 위로 올라옵니다. 아래 어둠 속에서는 나무 바닥을 긁는 발톱 소리와 희미한 찍찍거림이 이어집니다. 글로우킨들이 계단 곁으로 비켜서며 말합니다. \\\"저 아래가 문제의 지하실입니다. 무사히 돌아오십시오.\\\"]\\n준비된 시츄에이션 brewery-rat-job-discovered: 의도=[REVELATION, FUNNEL_OPPORTUNITY], 필수=true, 선행=[], 핵심 문제=모험가들은 양조장 지하의 거대 쥐를 처리하고 쥐가 나타난 원인을 조사해야 한다., 위협=양조장 지하의 거대 쥐가 양조장 운영과 모험가들의 안전을 위협한다., 압박=거대 쥐 문제가 해결되지 않으면 양조장 지하의 위협이 계속된다., 진행 조건=양조장 지하의 거대 쥐 문제를 해결하고 쥐의 유래를 조사한다., 관련 폭로=[rat-job-details-known], 관련 압박=[rat-infestation-persists], 관련 진행 조건=[rat-job-resolution], 관련 결과=[]\",\"runtimeFacts\":[],\"narrativeContext\":{\"actorId\":\"00000000-0000-0000-0000-000000000001\",\"currentScene\":\"모험가들은 양조장 지하의 거대 쥐를 처리하고 쥐가 나타난 원인을 조사해야 한다.\",\"stateVersion\":0,\"factsKnownBy\":[],\"worldFacts\":[],\"characterKnowledge\":{},\"relationships\":[],\"activeThreads\":[],\"recentEvents\":[]}}\nCOMPOSITE_FACT_LOOKUP_RESULTS=[{\"source\":\"SCENARIO_MODEL\",\"status\":\"FOUND\",\"answer\":\"해치를 열면 양조장 지하실로 내려가는 계단이 있고, 아래에서 발톱 긁는 소리와 희미한 찍찍거림이 들립니다.\",\"supportingElementIds\":[\"location-beer-cellar\"],\"evidence\":[]},{\"source\":\"STORYBOOK_RAG\",\"answer\":\"The party may hear about the work by examining job\\nboards set up in the square, talking to an old friend or simply\\nchatting to the locals over a pint.\\n\\nHowever this\\nhappens,\\nthey are\\ninstructed\\nto\\nask for\\nGlowkindle at the Wizards’ Tower Brewery. Most innkeepers\\nand beer aficionados will be able to point hopeful adventurers\\nin the brewery’s direction, so long as they ask politely and\\nmaybe buy a drink first!\\n\\nIf you are running the game for new players, it may be best\\nto start the adventure with them already on the road.\\n\\n3\\n\\n4\\n5\\n\\n2\\n\\n1\\n\\nMeeting Glowkindle\\nYou follow the directions you’ve been given, trudging maybe a\\nmile or two out of town along an old dirt road that winds its\\nway up a low hill.\\n\\nAs you near the top a large stone building comes into view,\\nflanked by a couple ofbarns. By the door is a brightly painted\\nsign that reads ‘The Wizard’s Tower Brewing Co. For the\\nFreshest Pint in the Realm!’\\n-------------------------------------------------------------------------------------------------------\\nShould the adventurers knock on the door it will be answered\\nby\\na\\nfairly\\nyoung\\nGnome\\nwho\\nnevertheless\\nsports\\nan\\nimpressive beard, as well as a white shirt and tight black\\ntrousers held up with green suspenders. This is Glowkindle ,\\nthe owner of the brewery.\\n\\nAfter a moment of confusion he will notice the party’s\\nweaponry\\nand\\nmagical\\ntools\\nand\\nrealise\\nthey\\nmust\\nbe\\nadventurers. The gnome offers to explain what he needs from\\nthe party over a drink and - if they’re willing - will lead them\\ninto a small bar set up in a corner of the brewery.\",\"locator\":\"page=2:chunk=chk_f40fceecb60337b23883d21e1ef49a165aeb7d2ddafe0ae32284033e4b30f231\",\"citationKey\":\"STORYBOOK:099a3ca0-2198-4f27-a566-f594b6e3ee1b:2:page=2:chunk=chk_f40fceecb60337b23883d21e1ef49a165aeb7d2ddafe0ae32284033e4b30f231\"},{\"source\":\"RULEBOOK_RAG\",\"answer\":\"and \\nSurvival skills reflect aptitude in certain kinds of Wis-\\ndom checks.\\n\\t Animal Handling. When there is any question whether \\nyou can calm down a domesticated animal, keep a mount\\n\\nFinding a Hidden Object\\nWhen your character searches for a hidden object such as \\na secret door or a trap, the DM typically asks you to make \\na Wisdom (Perception) check. Such a check can be used to \\nfind hidden details or other information and clues that you \\nmight otherwise overlook.\\n\\t In most cases, you need to describe where you are looking \\nin order for the DM to determine your chance of success. \\nFor example, a key is hidden beneath a set of folded clothes \\nin the top drawer of a bureau. If you tell the DM that you \\npace around the room, looking at the walls and furniture for \\nclues, you have no chance of finding the key, regardless of \\nyour Wisdom (Perception) check result. You would have to \\nspecify that you were opening the drawers or searching the \\nbureau in order to have any chance of success.\\n\\nOS\\n\\nDIOL\\n\\nOLDIE\\n\\nIE\\n\\nEI\\n\\nFINDING\\n\\nA\\n\\nHIDDEN\\n\\nOBjEcT\\n\\nWhen\\n\\nyour\\n\\ncharacter\\n\\nsearches\\n\\nfor\\n\\na\\n\\nhidden\\n\\nobject\\n\\nsuch\\n\\nas\\n\\na\\n\\nsecret\\n\\ndoor\\n\\nor\\n\\na\\n\\ntrap,\\n\\nthe\\n\\nDM\\n\\ntypically\\n\\nasks\\n\\nyou\\n\\nto\\n\\nmake\\n\\na\\n\\nWisdom\\n\\n(Perception)\\n\\ncheck.\\n\\nSuch\\n\\na\\n\\ncheck\\n\\ncan\\n\\nbe\\n\\nused\\n\\nto\\n\\nfind\\n\\nhidden\\n\\ndetails\\n\\nor\\n\\nother\\n\\ninformation\\n\\nand\\n\\nclues\\n\\nthat\\n\\nyou\\n\\nmight\\n\\notherwise\\n\\noverlook.\\n\\nIn\\n\\nmost\\n\\ncases,\\n\\nyou\\n\\nneed\\n\\nto\\n\\ndescribe\\n\\nwhere\\n\\nyou\\n\\nare\\n\\nlooking\\n\\nin\\n\\norder\\n\\nfor\\n\\nthe\\n\\nDM\\n\\nto\\n\\ndetermine\\n\\nyour\\n\\nchance\\n\\nof\\n\\nsuccess.\\n\\nFor\\n\\nexample,\\n\\na\\n\\nkey\\n\\nis\\n\\nhidden\\n\\nbeneath\\n\\na\\n\\nset\\n\\nof\\n\\nfolded\\n\\nclothes\\n\\nin\\n\\nthe\\n\\ntop\\n\\ndrawer\\n\\nof\\n\\na\\n\\nbureau.\\n\\nIf\\n\\nyou\\n\\ntell\\n\\nthe\\n\\nDM\\n\\nthat\\n\\nyou\\n\\npace\\n\\naround\\n\\nthe\\n\\nroom,\\n\\nlooking\\n\\nat\\n\\nthe\\n\\nwalls\\n\\nand\\n\\nfurniture\\n\\nfor\\n\\nclues,\\n\\nyou\\n\\nhave\\n\\nno\\n\\nchance\\n\\nof\\n\\nfinding\\n\\nthe\\n\\nkey,\\n\\nregardless\\n\\nof\\n\\nyour\\n\\nWisdom\\n\\n(Perception)\\n\\ncheck\\n\\nresult.\\n\\nYou\\n\\nwould\\n\\nhave\\n\\nto\\n\\nspecify\\n\\nthat\\n\\nyou\\n\\nwere\\n\\nopening\\n\\nthe\\n\\ndrawers\\n\\nor\\n\\nsearching\\n\\nthe\\n\\nbureau\\n\\nin\\n\\norder\\n\\nto\\n\\nhave\\n\\nany\\n\\nchance\\n\\nof\\n\\nsuccess.\",\"locator\":\"page=64:chunk=chk_cdab32d9ee27c985768ff3a31f5b61c65d95dcc74251ae7f24b88bb5123f45b1\",\"citationKey\":\"RULEBOOK:3c9f3f30-af6c-4617-b4b2-715ee578b564:2:page=64:chunk=chk_cdab32d9ee27c985768ff3a31f5b61c65d95dcc74251ae7f24b88bb5123f45b1\"}]\nACTION=해치를 열고 계단 아래를 조심스럽게 살펴본다.\n\n입력된 모험 문맥, 이번 행동, 캐릭터, 근거를 바탕으로 판정이 필요한지와 판정 방식·수치·성공 및 실패 결과를 결정하세요. 판정이 필요하지 않으면 판정제안의 필요를 false로 하고 나머지 열 항목은 모두 null로 두세요. 판정이 필요하면 열 항목을 모두 채우고 난이도는 1~40, 보정치는 -10~20으로 쓰세요. 이유와 성공·실패 결과는 각각 한 문장, 60자 이내로 간결하게 쓰세요. 인용 근거는 입력에 있는 근거키만 쓰세요. 장면 서술이나 상황 변경은 작성하지 말고 출력 스키마의 필드만 반환하세요.\n\nOUTPUT_SCHEMA=Return exactly one JSON object matching the supplied schema."
+      }
+    ],
+    "model": "gpt-6-luna",
+    "approvalPolicy": "never",
+    "sandboxPolicy": {
+      "type": "readOnly"
+    },
+    "effort": "medium",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://dnd-master.local/contracts/ai-game-master/v1/noncombat-turn-response.json",
+      "title": "비전투 턴 응답",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "judgment",
+        "citedEvidence",
+        "판정제안"
+      ],
+      "properties": {
+        "judgment": {
+          "type": "string"
+        },
+        "citedEvidence": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "판정제안": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "필요",
+            "이유",
+            "판정능력또는기술",
+            "대상캐릭터ID",
+            "굴림주체",
+            "굴림식",
+            "보정치",
+            "난이도",
+            "근거키",
+            "성공시결과",
+            "실패시결과"
+          ],
+          "properties": {
+            "필요": {
+              "type": "boolean"
+            },
+            "이유": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "판정능력또는기술": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "대상캐릭터ID": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            },
+            "굴림주체": {
+              "enum": [
+                "플레이어",
+                "시스템",
+                null
+              ],
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "굴림식": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "보정치": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": -10,
+              "maximum": 20
+            },
+            "난이도": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "maximum": 40
+            },
+            "근거키": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string",
+                "pattern": "[^\\u0009-\\u000D\\u001C-\\u0020\\u1680\\u2000-\\u2006\\u2008-\\u200A\\u2028-\\u2029\\u205F\\u3000]"
+              }
+            },
+            "성공시결과": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "실패시결과": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "필요",
+                "이유",
+                "판정능력또는기술",
+                "대상캐릭터ID",
+                "굴림주체",
+                "굴림식",
+                "보정치",
+                "난이도",
+                "근거키",
+                "성공시결과",
+                "실패시결과"
+              ],
+              "properties": {
+                "필요": {
+                  "enum": [
+                    true
+                  ],
+                  "type": "boolean"
+                },
+                "이유": {
+                  "type": "string"
+                },
+                "판정능력또는기술": {
+                  "type": "string"
+                },
+                "대상캐릭터ID": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "굴림주체": {
+                  "type": "string",
+                  "enum": [
+                    "플레이어",
+                    "시스템"
+                  ]
+                },
+                "굴림식": {
+                  "type": "string"
+                },
+                "보정치": {
+                  "type": "integer",
+                  "minimum": -10,
+                  "maximum": 20
+                },
+                "난이도": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 40
+                },
+                "근거키": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "pattern": "[^\\u0009-\\u000D\\u001C-\\u0020\\u1680\\u2000-\\u2006\\u2008-\\u200A\\u2028-\\u2029\\u205F\\u3000]"
+                  },
+                  "minItems": 1
+                },
+                "성공시결과": {
+                  "type": "string"
+                },
+                "실패시결과": {
+                  "type": "string"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -132,6 +132,22 @@ class DocumentTreeBuilder:
         return result
 
 
+def intentionally_excluded_source_blocks(document: ParsedDocument) -> dict[str, str]:
+    """Return blocks deliberately omitted by the tree's repeated-furniture policy."""
+    repeated = _repeated_furniture(document)
+    excluded: dict[str, str] = {}
+    for page in document.pages:
+        furniture_ids = set(page.layout_plan.furniture_block_ids) if page.layout_plan else set()
+        for block in page.blocks:
+            if block.source_span.table_id is not None or block.source_span.table_cell is not None:
+                continue
+            if block.block_id in furniture_ids or _is_repeated_furniture_block(block, repeated):
+                excluded[block.block_id] = "page_furniture"
+            elif _is_page_marker(block):
+                excluded[block.block_id] = "page_marker"
+    return excluded
+
+
 def _repeated_furniture(document: ParsedDocument) -> frozenset[str]:
     occurrences: dict[str, set[int]] = {}
     for page in document.pages:

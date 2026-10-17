@@ -49,9 +49,14 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
+@ExtendWith(OutputCaptureExtension.class)
 class RulebookPipelineApplicationServiceTest {
     private static final OwnerPlayerId OWNER = new OwnerPlayerId(UUID.fromString("36c6b6fd-2f36-4b79-9a91-614f9e35bd91"));
+    private static final OwnerPlayerId CATALOG_OWNER = new OwnerPlayerId(UUID.fromString("00000000-0000-0000-0000-000000000005"));
     private static final UUID EXTRACTION_ACTOR = UUID.fromString("e32d6ae7-aea0-4b11-b830-44272ce3bd88");
 
     @Test
@@ -179,7 +184,7 @@ class RulebookPipelineApplicationServiceTest {
     @Test
     void processPendingClaimsLegacyAndStaleProcessingRows() {
         TestHarness harness = new TestHarness();
-        Instant stale = Instant.now().minusSeconds(900);
+        Instant stale = Instant.now().minusSeconds(6_060);
         StoredRulebookRegistration queued = registration(harness, "op-queued", ProcessingStatus.QUEUED, Instant.now(), "queued");
         StoredRulebookRegistration legacy = registration(harness, "op-legacy", ProcessingStatus.UPLOADED, Instant.now(), "legacy");
         StoredRulebookRegistration extracted = registration(harness, "op-extracted", ProcessingStatus.EXTRACTED, Instant.now(), "extracted");
@@ -214,6 +219,7 @@ class RulebookPipelineApplicationServiceTest {
 
         StoredRulebookRegistration stored = harness.repository.findByOperationKey("pdf-review").orElseThrow();
         assertEquals(1, preprocessing.preprocessCalls);
+        assertEquals(EXTRACTION_ACTOR, preprocessing.lastRequest.executionActorPlayerId());
         assertEquals(ProcessingStatus.NEEDS_REVIEW, results.get(0).status());
         assertEquals(ProcessingStatus.NEEDS_REVIEW, stored.processingStatus());
         assertEquals("candidate-1", stored.candidateExtractionVersion());
@@ -244,6 +250,34 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals(1, stored.previewAssets().size());
         assertEquals(0, harness.extractor.calls);
         assertEquals(0, harness.embeddingPort.calls);
+    }
+
+    @Test
+    void catalogRulebookIndexingDoesNotExtractAllActionDefinitions(CapturedOutput output) {
+        RecordingPreprocessingPort preprocessing = new RecordingPreprocessingPort("READY");
+        TestHarness harness = new TestHarness(preprocessing);
+        UploadRulebookCommand command = new UploadRulebookCommand(
+                "catalog-rulebook", CATALOG_OWNER, DocumentType.RULEBOOK, RulebookFormat.PDF,
+                "pdf bytes".getBytes(StandardCharsets.UTF_8), "rules.pdf", EXTRACTION_ACTOR);
+
+        String previousDiagnostics = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            harness.service.process(command);
+            List<RulebookProcessingResult> results = harness.service.processPending();
+
+            assertEquals(ProcessingStatus.VALIDATED, results.get(0).status());
+            assertEquals(ProcessingStatus.VALIDATED,
+                    harness.repository.findByOperationKey("catalog-rulebook").orElseThrow().processingStatus());
+            assertEquals(1, preprocessing.preprocessCalls);
+            org.junit.jupiter.api.Assertions.assertTrue(output.getAll()
+                    .contains("stage=automatic_extraction_deferred"));
+            org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("pageCount=1"));
+            org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("outcome=deferred"));
+        } finally {
+            if (previousDiagnostics == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previousDiagnostics);
+        }
     }
 
     @Test
@@ -377,6 +411,7 @@ class RulebookPipelineApplicationServiceTest {
     private static final class RecordingPreprocessingPort implements PreprocessingProcessPort {
         private final String status;
         private int preprocessCalls;
+        private PreprocessingRunRequest lastRequest;
 
         private RecordingPreprocessingPort(String status) {
             this.status = status;
@@ -385,6 +420,7 @@ class RulebookPipelineApplicationServiceTest {
         @Override
         public PreprocessingRunResult preprocess(PreprocessingRunRequest request) {
             preprocessCalls++;
+            lastRequest = request;
             return new PreprocessingRunResult(
                     request.requestId(), "candidate-1", status, request.sourceSha256(), request.policyVersion(),
                     List.of(new PreprocessingPageState(

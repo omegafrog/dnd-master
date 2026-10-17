@@ -28,8 +28,6 @@ import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.networknt.schema.SchemaRegistry;
-import com.networknt.schema.SpecificationVersion;
 
 /** Adapts the published Scenario Package into the minimum first-stage artifact request. */
 public final class ScenarioPackageStageArtifactAdapter implements StorybookEvidenceLookupPort,
@@ -174,108 +172,17 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         if (!"codex-cli".equalsIgnoreCase(binding.selection().provider())) {
             return StageDetailedGenerationPort.super.generateAll(requests);
         }
-        long batchStartedAt = System.nanoTime();
-        ScenarioPackage scenarioPackage = loadPackage(requests.getFirst().scenarioPackageId());
-        Set<UUID> allowedMapIds = scenarioPackage.mapDefinitions().stream().map(definition -> definition.id())
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
-        List<JsonNode> stageSchemas = new ArrayList<>();
-        Map<String, String> promptsByStage = new LinkedHashMap<>();
-        for (var request : requests) {
-            var first = requests.getFirst();
-            if (!request.scenarioPackageId().equals(first.scenarioPackageId())
-                    || !request.sessionId().equals(first.sessionId())
-                    || !request.adventureId().equals(first.adventureId())
-                    || request.backboneRevision() != first.backboneRevision()
-                    || !request.evidence().equals(first.evidence()) || promptsByStage.containsKey(request.stageId())) {
-                throw new IllegalArgumentException("initial stage batch must belong to one adventure");
-            }
-            List<List<String>> rules = lookupRules(scenarioPackage, request.sessionId(), request.requiredSituations());
-            String prompt = detailedPrompt(scenarioPackage, request.stageId(), request.evidence(), request.requiredSituations(),
-                    request.alreadyAssignedRequiredSituationIds(), rules)
-                    + (request.openingSituationRequired() ? " The openingSituationIndex must select one situation because this is the first stage." : "");
-            devLog("dev_initial_situation_batch_stage stageId={} openingSituationRequired={} requiredSituationCount={} requiredSituationIds={} ruleEvidence={} sourceRefCount={} mapCount={} promptChars={} promptFingerprint={}",
-                    request.stageId(), request.openingSituationRequired(), request.requiredSituations().size(),
-                    request.requiredSituations().stream().map(RequiredSituation::situationId).toList(),
-                    ruleEvidenceInventory(request.requiredSituations(), rules), request.evidence().size(), allowedMapIds.size(),
-                    prompt.length(), com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(prompt));
-            promptsByStage.put(request.stageId(), prompt);
-            JsonNode stageSchema = outputSchema("stage:" + request.stageId(), request.evidence(),
-                    request.openingSituationRequired(), allowedMapIds, null, request.requiredSituations());
-            stageSchemas.add(stageSchema);
-        }
-        Map<String, Object> stageProperties = new LinkedHashMap<>();
-        for (int i = 0; i < requests.size(); i++) {
-            stageProperties.put(requests.get(i).stageId(), stageSchemas.get(i));
-        }
-        JsonNode batchSchema = mapper.valueToTree(objectSchema(Map.of("stages", objectSchema(stageProperties))));
-        List<String> stageIds = requests.stream().map(StageDetailedGenerationPort.Request::stageId).toList();
-        String prompt = "Prepare the requested detailed adventure stages. Call delegate_stage_tasks exactly once for every supplied stage ID. Do not create or replace stage results yourself. Return each delegated result unchanged under stages[stageId], with exactly one entry for every supplied stageId and no other IDs. Do not combine stages, duplicate situations, invent maps, repair or rewrite delegated results, or add text outside JSON.\nREQUESTED_STAGE_IDS="
-                + json(stageIds);
-        var first = requests.getFirst();
-        devLog("dev_initial_situation_batch outcome=started adventureId={} sessionId={} packageId={} stageCount={} stageIds={} promptChars={} promptFingerprint={} schemaChars={} allowedMapCount={}",
-                first.adventureId().value(), first.sessionId().value(), first.scenarioPackageId(), requests.size(),
-                requests.stream().map(StageDetailedGenerationPort.Request::stageId).toList(), prompt.length(),
-                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(prompt),
-                batchSchema.toString().length(), allowedMapIds.size());
-        JsonNode generated = generate(first.sessionId(), first.adventureId().value(), first.scenarioPackageId(),
-                "stage-batch", prompt, first.evidence(), false, allowedMapIds, null, true, batchSchema,
-                List.of(),
-                java.util.stream.IntStream.range(0, requests.size()).mapToObj(index -> {
-                    var request = requests.get(index);
-                    return new InitialSituationGmPort.StageTask(request.stageId(), promptsByStage.get(request.stageId()),
-                            stageSchemas.get(index));
-                }).toList());
-        validateBatchResponse(generated, batchSchema, requests, batchStartedAt);
-        JsonNode stages = generated.path("stages");
-        List<String> returnedStageIds = new ArrayList<>();
-        List<String> stageDetails = new ArrayList<>();
-        if (stages.isObject()) {
-            stages.fieldNames().forEachRemaining(returnedStageIds::add);
-            stages.fields().forEachRemaining(entry -> stageDetails.add(entry.getKey() + ":detailObject=" + entry.getValue().isObject()));
-        }
-        List<String> expectedStageIds = requests.stream().map(StageDetailedGenerationPort.Request::stageId).toList();
-        devLog("dev_initial_situation_batch_response outcome=received requestId={} expectedStageCount={} stagesType={} actualStageCount={} expectedStageIds={} returnedStageIds={} stageDetails={} topLevelFields={} responseChars={} responseFingerprint={}",
-                "initial-situation:" + first.adventureId() + ":" + first.scenarioPackageId() + ":stage-batch",
-                requests.size(), stages.getNodeType(), stages.isObject() ? stages.size() : 0, expectedStageIds,
-                returnedStageIds, stageDetails, jsonFields(generated), generated.toString().length(),
-                com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.fingerprint(generated.toString()));
-        Map<String, JsonNode> detailsByStage = new LinkedHashMap<>();
-        for (String stageId : expectedStageIds) {
-            JsonNode detail = stages.path(stageId);
-            detailsByStage.put(stageId, detail);
-        }
+        long startedAt = System.nanoTime();
+        devLog("dev_initial_situation_batch outcome=started adventureId={} sessionId={} packageId={} expectedStageCount={} stageIds={} strategy=sequential_single_stage_requests",
+                requests.getFirst().adventureId().value(), requests.getFirst().sessionId().value(),
+                requests.getFirst().scenarioPackageId(), requests.size(),
+                requests.stream().map(StageDetailedGenerationPort.Request::stageId).toList());
         List<DetailedStage> result = new ArrayList<>(requests.size());
-        for (var request : requests) {
-            try {
-                result.add(materializeDetailedStage(request, detailsByStage.get(request.stageId()), promptsByStage.get(request.stageId()), allowedMapIds, false));
-            } catch (RuntimeException | Error failure) {
-                devLog("dev_initial_situation_batch outcome=failed reason=stage_materialization stageId={} stageCount={} failureClass={} failureDetail={}",
-                        request.stageId(), requests.size(), failure.getClass().getSimpleName(),
-                        com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.safeBody(failure.getMessage()));
-                throw failure;
-            }
-        }
-        devLog("dev_initial_situation_batch_response outcome=materialized stageCount={} situationCount={} stageSituationCounts={} elapsedMs={}",
-                result.size(), result.stream().mapToInt(stage -> stage.situations().size()).sum(),
-                result.stream().map(stage -> stage.stageId() + ":" + stage.situations().size()).toList(),
-                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - batchStartedAt));
+        for (var request : requests) result.add(generate(request));
+        devLog("dev_initial_situation_batch outcome=completed adventureId={} expectedStageCount={} actualStageCount={} elapsedMs={} strategy=sequential_single_stage_requests",
+                requests.getFirst().adventureId().value(), requests.size(), result.size(),
+                java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
         return List.copyOf(result);
-    }
-
-    private void validateBatchResponse(JsonNode generated, JsonNode batchSchema,
-            List<StageDetailedGenerationPort.Request> requests, long startedAt) {
-        var validator = SchemaRegistry.withDefaultDialect(SpecificationVersion.DRAFT_2020_12).getSchema(batchSchema);
-        var violations = validator.validate(generated);
-        if (!violations.isEmpty()) {
-            List<String> expectedIds = requests.stream().map(StageDetailedGenerationPort.Request::stageId).toList();
-            List<String> returnedIds = jsonFields(generated.path("stages"));
-            devLog("dev_initial_situation_batch_response outcome=failed requestId={} reason=schema_validation expectedStageIds={} returnedStageIds={} expectedStagesType=object actualStagesType={} violationCount={} violationPaths={} elapsedMs={} recoveryAction=reject_response",
-                    "initial-situation:" + requests.getFirst().adventureId() + ":" + requests.getFirst().scenarioPackageId() + ":stage-batch",
-                    expectedIds, returnedIds, generated.path("stages").getNodeType(), violations.size(),
-                    violations.stream().limit(20).map(v -> v.getInstanceLocation().toString()).toList(),
-                    java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
-            throw new IllegalStateException("Codex stage batch does not match the requested output schema");
-        }
     }
 
     private DetailedStage materializeDetailedStage(StageDetailedGenerationPort.Request request, JsonNode generated,

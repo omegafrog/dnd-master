@@ -63,6 +63,32 @@ class GmCompletionRouterAiExecutionPortTest {
     }
 
     @Test
+    void table_page_image_and_schema_are_forwarded_through_the_selected_codex_route() throws Exception {
+        AtomicReference<AiExecutionRequest> captured = new AtomicReference<>();
+        UUID endpointId = UUID.randomUUID();
+        UUID playerId = UUID.randomUUID();
+        var registry = new AgentEndpointRegistry(new InMemoryAgentEndpointStore());
+        registry.save(new AgentEndpoint(endpointId, "codex", AgentEndpoint.Provider.CODEX_CLI,
+                URI.create("https://codex.example/"), "gpt-5.6-luna", null, true, java.time.Instant.now()));
+        var router = new GmCompletionRouter(new SpringAiChatAdapter(mock(ChatModel.class), 1,
+                new SafeAiAuditLogger(message -> { })),
+                new GmProviderProperties("ollama", "unused", "medium", URI.create("https://api.openai.com/"), "", Duration.ofSeconds(5)),
+                registry, request -> { captured.set(request); return new AiExecutionSuccess("{\"tables\":[]}"); });
+        var requested = new RequestedGmProviderSelection(endpointId, "codex-cli", "gpt-5.6-luna", "medium");
+        var resolution = new GmProviderSelectionResolver(registry).resolveEndpoint(requested);
+        var schema = new ObjectMapper().readTree("{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false}");
+        String image = "data:image/png;base64,cGFnZQ==";
+
+        router.completeWithImageAndResolution(playerId, "table-extraction", new GmPrompt("extract table", image),
+                value -> value, requested, resolution, schema);
+
+        assertThat(captured.get().soloPlayerId()).isEqualTo(playerId);
+        assertThat(captured.get().imageDataUri()).isEqualTo(image);
+        assertThat(captured.get().outputSchema()).isEqualTo(schema);
+        assertThat(captured.get().outputFormat()).isEqualTo("JSON");
+    }
+
+    @Test
     void preflight_endpoint_snapshot_is_the_one_used_for_execution() {
         AtomicReference<AiExecutionRequest> captured = new AtomicReference<>();
         UUID endpointId = UUID.randomUUID();

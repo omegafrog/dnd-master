@@ -203,13 +203,7 @@ public final class RulebookCatalogBackofficeController {
         UUID adminPlayerId = requireAdmin(authorization);
         CatalogRulebookRevision current = repository.findAll().stream().filter(item -> item.id().equals(catalogRevisionId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "catalog revision not found"));
-        StoredRulebookRegistration publicationRegistration = current.rulebookId() == null ? null
-                : registrations.findById(new RulebookId(current.rulebookId())).orElse(null);
-        boolean actionDefinitionsReady = actionDefinitions == null || publicationRegistration != null
-                && publicationRegistration.candidateExtractionVersion() != null
-                && actionDefinitions.find(publicationRegistration.rulebookId().value(), publicationRegistration.candidateExtractionVersion())
-                        .map(item -> "COMPLETED".equals(item.status())).orElse(false);
-        if (current.rulebookId() == null || !actionDefinitionsReady || registrations.findById(new RulebookId(current.rulebookId()))
+        if (current.rulebookId() == null || registrations.findById(new RulebookId(current.rulebookId()))
                 .map(item -> item.processingStatus().isSearchable()
                         && item.documentType() == DocumentType.RULEBOOK
                         && item.ownerPlayerId().value().equals(CATALOG_OWNER) && item.version() > 0)

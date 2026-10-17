@@ -578,22 +578,27 @@ public final class CombatMapViewService {
         if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
         CombatMap current = state.map();
         GridSpec nextGrid = new GridSpec(request.width(), request.height(), request.cellSize(), current.grid().distanceUnit());
+        if (current.tokens().stream().anyMatch(token -> !nextGrid.contains(token.position()))
+                || current.obstacles().stream().anyMatch(position -> !nextGrid.contains(position))
+                || current.doors().stream().anyMatch(door -> !nextGrid.contains(door.position()))
+                || current.spatialFeatures().stream().flatMap(feature -> feature.cells().stream()).anyMatch(position -> !nextGrid.contains(position))
+                || current.boundaries().stream().anyMatch(boundary -> !boundary.inside(nextGrid))) {
+            throw new IllegalArgumentException("new grid dimensions would exclude saved map content");
+        }
         GridPosition oldPlayer = current.tokens().stream().filter(token -> token.type() == TokenType.PLAYER)
                 .map(CombatToken::position).findFirst().orElse(null);
-        GridPosition nextPlayer = request.playerX() == null
-                ? scale(oldPlayer, current.grid(), nextGrid)
-                : new GridPosition(request.playerX(), request.playerY());
+        GridPosition nextPlayer = request.playerX() == null ? oldPlayer : new GridPosition(request.playerX(), request.playerY());
         List<CombatToken> tokens = current.tokens().stream().map(token ->
                 token.type() == TokenType.PLAYER
-                        ? copy(token, nextPlayer)
-                        : copy(token, scale(token.position(), current.grid(), nextGrid))).toList();
-        Set<GridPosition> obstacles = current.obstacles().stream().map(position -> scale(position, current.grid(), nextGrid)).collect(Collectors.toSet());
-        List<Door> doors = current.doors().stream().map(door -> new Door(scale(door.position(), current.grid(), nextGrid), door.open())).toList();
-        if (nextPlayer == null || obstacles.contains(nextPlayer) || doors.stream().anyMatch(door -> !door.open() && door.position().equals(nextPlayer))) {
+                        ? request.playerX() == null ? token : copy(token, nextPlayer)
+                        : token).toList();
+        Set<GridPosition> obstacles = current.obstacles();
+        List<Door> doors = List.copyOf(current.doors());
+        if (nextPlayer != null && (obstacles.contains(nextPlayer) || doors.stream().anyMatch(door -> !door.open() && door.position().equals(nextPlayer)))) {
             throw new IllegalArgumentException("player start cell is blocked");
         }
         List<MapLayer> layers = new ArrayList<>(current.layers().stream()
-                .filter(layer -> !Set.of("GRID_BOUNDS", "GRID_SOURCE", "GRID_META").contains(layer.type())).toList());
+                .filter(layer -> !Set.of("GRID_BOUNDS", "GRID_SOURCE", "GRID_META", "MAP_LAYOUT_CONFIRMED", "MAP_BOUNDARY_CANDIDATES").contains(layer.type())).toList());
         layers.add(new MapLayer("GRID_BOUNDS", request.originX() + "," + request.originY() + ","
                 + request.width() * request.cellSize() + "," + request.height() * request.cellSize() + ","
                 + request.imageWidth() + "," + request.imageHeight(), LayerVisibility.PLAYER_VISIBLE));

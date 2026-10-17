@@ -1,0 +1,212 @@
+{
+  "status": "draft-awaiting-human-confirmation",
+  "purpose": "Compare source-PDF table regions and cell grids with the already stored hybrid extraction outputs.",
+  "extraction_rerun": false,
+  "annotation_method": "Rendered original PDF pages inspected visually. Table means a visibly row/column-organized data region; prose callouts, cards, and decorative boxes are not tables.",
+  "new_label_file": "hybrid-table-gold-draft.jsonl",
+  "existing_label_sources": [
+    {
+      "file": "../2026-10-13/pilot/basic-roleplaying-structure-gold.jsonl",
+      "status": "draft-awaiting-human-confirmation"
+    },
+    {
+      "file": "../2026-10-13/pilot/cairn-player-structure-gold.jsonl",
+      "status": "draft-awaiting-human-confirmation"
+    },
+    {
+      "file": "../2026-10-13/pilot/cairn-warden-structure-gold.jsonl",
+      "status": "draft-awaiting-human-confirmation"
+    }
+  ],
+  "sampling": {
+    "dnd5th": {
+      "pdf_sha256": "d00d1081a11d7f988f58769f0154aadcea0d32d8dbd04d31cef16980f57be985",
+      "pdf_pages": [
+        26,
+        35,
+        45,
+        60,
+        69,
+        76,
+        106,
+        114
+      ],
+      "selection": "Fixed-seed source-PDF contact sheet; source-positive and source-negative pages retained as a diagnostic pilot, not a prevalence estimate."
+    },
+    "ironsworn": {
+      "pdf_sha256": "c1cfba6573cbd57ecb1aa02ad925b57e6946468da58f88ae0fd9c7013496e2b9",
+      "pdf_pages": [
+        28,
+        51,
+        86,
+        119,
+        152,
+        184
+      ],
+      "selection": "Fixed-seed source-PDF contact sheet; source-positive and source-negative pages retained as a diagnostic pilot, not a prevalence estimate."
+    },
+    "ironsworn_targeted_diagnostic": {
+      "pdf_page": 186,
+      "included_in_random_aggregate": false,
+      "reason": "Selected after seeing the extraction ambiguity diagnostics; kept separate to avoid inflating the source-only sample."
+    }
+  },
+  "coordinate_note": "New table bounding boxes were marked from source-PDF renders with page-point coordinate grids, independently of the extracted table coordinates; rows are intentionally empty for those pages, so they support page/region scoring only. Cell-grid scoring comes only from existing draft pilot labels.",
+  "limitations": [
+    "All labels remain drafts pending user confirmation.",
+    "The source-only page sample is small and intentionally balanced for diagnosis; scores are not whole-book accuracy estimates.",
+    "Bounding-box overlap threshold for a match is IoU >= 0.50.",
+    "A table page counts as correct only when at least one predicted table region matches a labeled region; extra predicted regions are false positives.",
+    "The saved extraction summary does not record the exact source-code revision or dependency lock used for extraction; the report identifies the stored output directory and source PDF hashes instead."
+  ],
+  "page_presence_gold_file": "page-table-presence-gold-draft.jsonl",
+  "page_presence_sample": {
+    "dnd5th": {
+      "source_sha256": "d00d1081a11d7f988f58769f0154aadcea0d32d8dbd04d31cef16980f57be985",
+      "pdf_pages": [
+        4,
+        12,
+        16,
+        22,
+        23,
+        51,
+        61,
+        66,
+        67,
+        70,
+        73,
+        75,
+        84,
+        94,
+        105,
+        132,
+        149,
+        156,
+        168,
+        169
+      ],
+      "sampling": "20 pages selected with fixed Python random seed string expanded-gold-20261016-dnd5th; previously labeled pages excluded",
+      "annotated_positive": 7,
+      "annotated_negative": 10,
+      "uncertain": 3
+    },
+    "ironsworn-digital-edition-rulebook": {
+      "source_sha256": "c1cfba6573cbd57ecb1aa02ad925b57e6946468da58f88ae0fd9c7013496e2b9",
+      "pdf_pages": [
+        6,
+        7,
+        19,
+        20,
+        40,
+        49,
+        56,
+        69,
+        72,
+        74,
+        80,
+        82,
+        130,
+        143,
+        144,
+        178,
+        203,
+        225,
+        251,
+        269
+      ],
+      "sampling": "20 pages selected with fixed Python random seed string expanded-gold-20261016-ironsworn-digital-edition-rulebook; previously labeled pages excluded",
+      "annotated_positive": 1,
+      "annotated_negative": 18,
+      "uncertain": 1
+    },
+    "cairn-2e-players-guide": {
+      "source_sha256": "ed2869946b0de9d97398c975a3dde8d5701250eb4c8776cb40907fe23c6300bb",
+      "pdf_pages": [
+        3,
+        4,
+        8,
+        13,
+        19,
+        26,
+        27,
+        30,
+        33,
+        35,
+        37,
+        45,
+        59,
+        62,
+        69,
+        71,
+        77,
+        81,
+        82,
+        88
+      ],
+      "sampling": "20 pages selected with fixed Python random seed string expanded-gold-20261016-cairn-2e-players-guide; previously labeled pages excluded",
+      "annotated_positive": 9,
+      "annotated_negative": 10,
+      "uncertain": 1
+    },
+    "cairn-2e-wardens-guide": {
+      "source_sha256": "7f3917fffb205a0e09f80145bc8bd78c982ad9a6fef18d9d84b64b9d4b5ece8e",
+      "pdf_pages": [
+        2,
+        9,
+        13,
+        39,
+        55,
+        59,
+        68,
+        81,
+        87,
+        90,
+        102,
+        109,
+        111,
+        114,
+        133,
+        145,
+        146,
+        155,
+        180,
+        183
+      ],
+      "sampling": "20 pages selected with fixed Python random seed string expanded-gold-20261016-cairn-2e-wardens-guide; previously labeled pages excluded",
+      "annotated_positive": 6,
+      "annotated_negative": 13,
+      "uncertain": 1
+    },
+    "basic-roleplaying-orc-content-document": {
+      "source_sha256": "d38af1fc2c27326b0ee8e42af0579684220ccf30809b195275d9daf29cedbb28",
+      "pdf_pages": [
+        13,
+        21,
+        49,
+        55,
+        65,
+        78,
+        89,
+        102,
+        103,
+        117,
+        121,
+        125,
+        130,
+        139,
+        155,
+        211,
+        219,
+        239,
+        250,
+        278
+      ],
+      "sampling": "20 pages selected with fixed Python random seed string expanded-gold-20261016-basic-roleplaying-orc-content-document; previously labeled pages excluded",
+      "annotated_positive": 5,
+      "annotated_negative": 14,
+      "uncertain": 1
+    }
+  },
+  "page_presence_evaluation": "page-table-presence-score-draft.json",
+  "page_presence_definition": "Visible row/column-organized data regions count as tables. Prose callouts, table-of-contents listings, diagrams, and card/stat-block layouts are excluded; uncertain cases are left unscored."
+}

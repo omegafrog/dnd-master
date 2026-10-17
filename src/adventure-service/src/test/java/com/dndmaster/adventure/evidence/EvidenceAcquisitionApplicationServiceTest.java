@@ -33,7 +33,10 @@ class EvidenceAcquisitionApplicationServiceTest {
                         assertEquals(2, request.additionalSearches());
                         yield List.of(third);
                     }
-                }, request -> request.candidates().stream().map(EvidenceCandidate::id).toList(),
+                }, request -> {
+                    assertEquals(20, request.resultLimit());
+                    return request.candidates().stream().map(EvidenceCandidate::id).toList();
+                },
                 request -> request.additionalSearches() < 2
                         ? SufficiencyDecision.insufficient(List.of(first.id()), Map.of(first.id(), "present"), "more context")
                         : SufficiencyDecision.sufficient(List.of(first.id(), third.id()), Map.of(first.id(), "present", third.id(), "needed")));
@@ -74,6 +77,7 @@ class EvidenceAcquisitionApplicationServiceTest {
         AtomicInteger reranks = new AtomicInteger();
         EvidenceAcquisitionApplicationService service = new EvidenceAcquisitionApplicationService(
                 request -> List.of(candidate), request -> {
+                    assertEquals(30, request.resultLimit());
                     if (reranks.getAndIncrement() == 0) throw new EvidenceAcquisitionTransientException("provider unavailable");
                     return List.of(candidate.id());
                 }, request -> SufficiencyDecision.sufficient(List.of(candidate.id()), Map.of(candidate.id(), "needed")));

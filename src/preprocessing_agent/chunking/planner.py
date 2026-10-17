@@ -140,7 +140,6 @@ def _diagnostics_enabled() -> bool:
 
 def _table_text(table: object, blocks: dict) -> tuple[str, tuple, int, tuple[SourceSegment, ...]]:
     rows = (*tuple(_value(table, "header_rows", ())), *tuple(_value(table, "rows", ())))
-    parts: list[str] = []
     spans = []
     segments = []
     serialized_cell_count = 0
@@ -149,14 +148,29 @@ def _table_text(table: object, blocks: dict) -> tuple[str, tuple, int, tuple[Sou
         values = []
         for cell in cells:
             value = str(_value(cell, "text", ""))
-            if value:
+            if value.strip():
                 serialized_cell_count += 1
                 values.append(value)
                 source_blocks = [blocks[item] for item in _value(cell, "source_block_ids", ()) if item in blocks]
                 matching_block = next((block for block in source_blocks if block.source_text == value), None)
                 if matching_block is not None:
                     segments.append(SourceSegment(value, matching_block.source_span))
-            spans.extend(blocks[item].source_span for item in _value(cell, "source_block_ids", ()) if item in blocks)
-        if values:
-            parts.append(" | ".join(values))
-    return "\n".join(parts), tuple(dict.fromkeys(spans)), serialized_cell_count, tuple(segments)
+                spans.extend(blocks[item].source_span for item in _value(cell, "source_block_ids", ()) if item in blocks)
+    return table_to_prose(table), tuple(dict.fromkeys(spans)), serialized_cell_count, tuple(segments)
+
+
+def table_to_prose(table: object) -> str:
+    headers = [str(_value(cell, "text", "")).strip()
+               for row in _value(table, "header_rows", ())
+               for cell in _value(row, "cells", ()) if str(_value(cell, "text", "")).strip()]
+    rows = [tuple(cell for cell in _value(row, "cells", ()) if str(_value(cell, "text", "")).strip())
+            for row in _value(table, "rows", ())]
+    rows = [row for row in rows if row]
+    if not rows:
+        return ", ".join(headers) + ("." if headers else "")
+    header_text = ", ".join(headers)
+    output = []
+    for index, row in enumerate(rows):
+        values = ", ".join(str(_value(cell, "text", "")).strip() for cell in row)
+        output.append(f"{header_text}: {values}." if index == 0 and header_text else f"{values}.")
+    return "\n".join(output)

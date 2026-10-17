@@ -9,7 +9,13 @@ public record PreprocessingRunRequest(
         String sourceSha256,
         String policyVersion,
         Path outputDir,
-        String versionId) {
+        String versionId,
+        java.util.UUID executionActorPlayerId) {
+
+    public PreprocessingRunRequest(String requestId, Path sourcePath, String sourceSha256,
+            String policyVersion, Path outputDir, String versionId) {
+        this(requestId, sourcePath, sourceSha256, policyVersion, outputDir, versionId, null);
+    }
 
     public PreprocessingRunRequest {
         requireText(requestId, "requestId");

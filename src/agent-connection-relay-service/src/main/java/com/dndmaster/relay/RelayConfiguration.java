@@ -26,6 +26,12 @@ public class RelayConfiguration {
             @Value("${relay.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new HttpRagToolSearch(HttpClient.newBuilder().connectTimeout(timeout).build(), baseUri, timeout, internalToken, mapper);
     }
+    @Bean HttpScenarioElementLookup httpScenarioElementLookup(ObjectMapper mapper,
+            @Value("${relay.scenario-lookup.base-url:http://127.0.0.1:8080/}") URI baseUri,
+            @Value("${relay.scenario-lookup.timeout:PT10S}") Duration timeout,
+            @Value("${relay.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new HttpScenarioElementLookup(HttpClient.newBuilder().connectTimeout(timeout).build(), baseUri, timeout, internalToken, mapper);
+    }
     @Bean IdentityServicePort identityServicePort(ObjectMapper objectMapper,
             @Value("${relay.identity-access.base-url:http://127.0.0.1:8080/}") URI baseUri,
             @Value("${relay.identity-access.timeout:PT2S}") Duration timeout,

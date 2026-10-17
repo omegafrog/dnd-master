@@ -37,13 +37,17 @@ def main() -> int:
             raise ValueError("UNSUPPORTED_SCHEMA")
         operation = request.get("operation")
         if operation == "preprocess":
-            if set(request) - {"schema_version", "operation", "request_id", "source_path", "source_sha256", "policy_version", "output_dir", "version_id"}:
+            if set(request) - {"schema_version", "operation", "request_id", "source_path", "source_sha256", "policy_version", "output_dir", "version_id", "execution_actor_player_id"}:
                 raise ValueError("INVALID_REQUEST")
             required = ("request_id", "source_path", "policy_version", "source_sha256", "output_dir")
             if any(not isinstance(request.get(key), str) or not request[key] for key in required) or not re.fullmatch(r"[0-9a-f]{64}", request["source_sha256"]):
                 raise ValueError("INVALID_REQUEST")
             if "version_id" in request and (not isinstance(request["version_id"], str) or not request["version_id"] or request["version_id"] in {".", ".."} or not re.fullmatch(r"[A-Za-z0-9._-]+", request["version_id"])):
                 raise ValueError("INVALID_REQUEST")
+            if "execution_actor_player_id" in request:
+                import uuid
+                try: uuid.UUID(request["execution_actor_player_id"])
+                except (ValueError, TypeError): raise ValueError("INVALID_REQUEST") from None
             response = ExtractionApplicationService().preprocess(request)
         elif operation == "status":
             if set(request) - {"schema_version", "operation", "request_id", "version_id", "artifact_root"}:
@@ -53,10 +57,14 @@ def main() -> int:
             response = ExtractionApplicationService().get_status(request["version_id"], request["artifact_root"])
             response = {**response, "request_id": request["request_id"]}
         elif operation == "retry_pages":
-            if set(request) - {"schema_version", "operation", "request_id", "version_id", "artifact_root", "pages", "layout_selections", "confirmed_by"}:
+            if set(request) - {"schema_version", "operation", "request_id", "version_id", "artifact_root", "pages", "layout_selections", "confirmed_by", "execution_actor_player_id"}:
                 raise ValueError("INVALID_REQUEST")
             if not isinstance(request.get("request_id"), str) or not request["request_id"] or not isinstance(request.get("version_id"), str) or not re.fullmatch(r"[A-Za-z0-9._-]+", request["version_id"]) or not isinstance(request.get("artifact_root"), str) or not request["artifact_root"] or not isinstance(request.get("pages"), list) or not request["pages"] or any(type(page) is not int or page < 1 for page in request["pages"]):
                 raise ValueError("INVALID_REQUEST")
+            if "execution_actor_player_id" in request:
+                import uuid
+                try: uuid.UUID(request["execution_actor_player_id"])
+                except (ValueError, TypeError): raise ValueError("INVALID_REQUEST") from None
             selections = request.get("layout_selections", {})
             if not isinstance(selections, dict) or any(
                 not str(page).isdigit() or not isinstance(regions, dict) or

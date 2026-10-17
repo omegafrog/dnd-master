@@ -153,8 +153,7 @@ public final class ScenarioExceptionHandler {
     public ResponseEntity<Map<String, String>> stateConflict(IllegalStateException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                 "error", "ADVENTURE_START_BLOCKED",
-                "message", exception.getMessage() == null ? "모험 시작 조건을 충족하지 못했습니다." : exception.getMessage(),
-                "recovery", "블루프린트를 재컴파일·발행한 뒤 start/recover로 세션을 복구하고 다시 시작하세요."));
+                "message", exception.getMessage() == null ? "모험 시작 조건을 충족하지 못했습니다." : exception.getMessage()));
     }
 
     @ExceptionHandler(CharacterCreationBlueprintRevisionConflictException.class)

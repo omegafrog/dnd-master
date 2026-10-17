@@ -30,7 +30,7 @@ public final class RemoteOllamaGmProvider implements GmCompletionAdapter {
                           com.fasterxml.jackson.databind.JsonNode outputSchema) {
         return complete(operationId, new GmPrompt(prompt), parser, outputSchema);
     }
-    private <T> T complete(String operationId, GmPrompt prompt, StructuredResponseParser<T> parser,
+    public <T> T complete(String operationId, GmPrompt prompt, StructuredResponseParser<T> parser,
                            com.fasterxml.jackson.databind.JsonNode outputSchema) {
         try {
             Map<String, Object> request = new java.util.HashMap<>(Map.of("model", model, "prompt", prompt.text(), "stream", false,

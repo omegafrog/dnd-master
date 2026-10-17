@@ -43,8 +43,8 @@ public class CombatMapApiConfiguration {
     }
 
     @Bean
-    MapGridAlignmentService mapGridAlignmentService(CombatMapViewStore maps, MapGridAlignmentStore alignments) {
-        return new MapGridAlignmentService(maps, alignments);
+    MapGridAlignmentService mapGridAlignmentService(CombatMapViewStore maps, MapGridAlignmentStore alignments, MapGridDetectionPort detector) {
+        return new MapGridAlignmentService(maps, alignments, detector);
     }
 
     @Bean

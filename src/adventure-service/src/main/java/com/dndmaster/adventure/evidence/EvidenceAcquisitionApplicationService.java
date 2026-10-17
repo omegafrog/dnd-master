@@ -32,7 +32,7 @@ public final class EvidenceAcquisitionApplicationService {
             List<EvidenceCandidate> reranked=rerank(request, List.copyOf(pool.values()), pinned);
             List<UUID> pinnedForJudge = List.copyOf(pinned);
             SufficiencyDecision decision=retry(() -> judge.judge(new EvidenceSufficiencyRequest(request.policyId(),request.query(),reranked,pinnedForJudge,additionalSearches,soloPlayerId(request))));
-            validateDecision(decision, reranked, pinned);
+            validateDecision(request, decision, reranked, pinned);
             if (DevelopmentDiagnostics.enabled()) {
                 LOGGER.info("dev_evidence_sufficiency_decision session={} package={} stage={} policy={} queryFingerprint={} additionalSearch={} rerankedCandidates={} sufficient={} selected={} reasons={} missing={}",
                         sessionId(request), packageId(request), stageKey(request), request.policyId(),
@@ -46,11 +46,13 @@ public final class EvidenceAcquisitionApplicationService {
         }
     }
     private List<EvidenceCandidate> rerank(EvidenceAcquisitionRequest request,List<EvidenceCandidate> pool,List<UUID> pinned) {
-        List<UUID> ids=retry(() -> reranker.rerank(new EvidenceRerankRequest(request.policyId(),request.query(),pool,soloPlayerId(request))));
-        if(ids.size()>30 || ids.size()!=new LinkedHashSet<>(ids).size()) throw new EvidenceAcquisitionContractException("reranker returned invalid candidate identifiers");
+        int resultLimit = "PLAYER_ACTION".equals(request.policyId()) ? 20 : 30;
+        List<UUID> ids=retry(() -> reranker.rerank(new EvidenceRerankRequest(request.policyId(),request.query(),pool,soloPlayerId(request),resultLimit)));
+        if(ids.size()>resultLimit || ids.size()!=new LinkedHashSet<>(ids).size()) throw new EvidenceAcquisitionContractException(
+                "reranker returned invalid candidate identifiers; expectedAtMost="+resultLimit+" actual="+ids.size());
         LinkedHashMap<UUID,EvidenceCandidate> available=new LinkedHashMap<>(); pool.forEach(c -> available.put(c.id(),c));
         if(!available.keySet().containsAll(ids) || !available.keySet().containsAll(pinned)) throw new EvidenceAcquisitionContractException("model returned candidate outside supplied scope");
-        List<EvidenceCandidate> selected=new ArrayList<>(); for(UUID id:pinned) selected.add(available.get(id)); for(UUID id:ids) if(selected.size()<30&&!pinned.contains(id)) selected.add(available.get(id));
+        List<EvidenceCandidate> selected=new ArrayList<>(); for(UUID id:pinned) selected.add(available.get(id)); for(UUID id:ids) if(selected.size()<resultLimit&&!pinned.contains(id)) selected.add(available.get(id));
         if (DevelopmentDiagnostics.enabled()) {
             LOGGER.info("dev_evidence_reranker_decision session={} package={} stage={} policy={} queryFingerprint={} pool={} modelOrder={} pinned={} finalOrder={}",
                     sessionId(request), packageId(request), stageKey(request), request.policyId(),
@@ -73,7 +75,11 @@ public final class EvidenceAcquisitionApplicationService {
     private static String stageKey(EvidenceAcquisitionRequest request) {
         return request.searchScope() == null ? "none" : request.searchScope().stageKey();
     }
-    private static void validateDecision(SufficiencyDecision decision,List<EvidenceCandidate> candidates,List<UUID> pinned) {
+    private static void validateDecision(EvidenceAcquisitionRequest request, SufficiencyDecision decision,List<EvidenceCandidate> candidates,List<UUID> pinned) {
+        if ("PLAYER_ACTION".equals(request.policyId()) && decision.selectedEvidenceIds().size() > 20) {
+            throw new EvidenceAcquisitionContractException("judge selected too many evidence items; expectedAtMost=20 actual="
+                    + decision.selectedEvidenceIds().size());
+        }
         LinkedHashSet<UUID> allowed=new LinkedHashSet<>(); candidates.forEach(c->allowed.add(c.id())); if(!allowed.containsAll(decision.selectedEvidenceIds())||!decision.selectedEvidenceIds().containsAll(pinned)) throw new EvidenceAcquisitionContractException("judge selected evidence outside supplied candidates or omitted pinned evidence");
     }
     private static void validateSearchCandidates(List<EvidenceCandidate> candidates) {

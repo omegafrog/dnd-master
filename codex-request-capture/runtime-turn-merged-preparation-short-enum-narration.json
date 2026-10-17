@@ -1,0 +1,31 @@
+{
+  "method": "turn/start",
+  "params": {
+    "model": "gpt-6-luna",
+    "effort": "medium",
+    "approvalPolicy": "never",
+    "sandboxPolicy": {
+      "type": "readOnly"
+    },
+    "input": [
+      {
+        "type": "text",
+        "text": "아래의 판정 결과와 상황·장면 결과를 바탕으로 플레이어에게 보여줄 한국어 서술만 작성하세요. 입력된 결과의 사실과 성공·실패 조건을 바꾸지 마세요. 근거에 없는 사실을 만들지 말고 숨은 사실을 공개하지 마세요. 행동을 되풀이하지 말고 결과만 최대 두 문장, 180자 이내로 서술하세요. JSON 객체 {\"narration\":\"...\"}만 반환하세요.\n\nRESOLUTION_RESULT={\"judgment\":\"해치를 열고 아래를 살펴보는 데 별도 판정은 필요하지 않습니다.\",\"citedEvidence\":null,\"판정제안\":{\"필요\":false,\"이유\":null,\"판정능력또는기술\":null,\"대상캐릭터ID\":null,\"굴림주체\":null,\"굴림식\":null,\"보정치\":null,\"난이도\":null,\"근거키\":null,\"성공시결과\":null,\"실패시결과\":null}}\n\nSITUATION_STATE_RESULT={\"scene\":\"해치 아래로 좁은 계단이 어둠 속 지하실까지 이어집니다. 아래쪽에서 나무를 긁는 소리와 희미한 찍찍거림이 들립니다.\",\"combatStart\":false,\"combatEnemies\":[],\"situation\":{\"kind\":\"CONTINUE\",\"location\":\"opening\",\"problem\":\"모험가들은 양조장 지하의 거대 쥐를 처리하고 쥐가 나타난 원인을 조사해야 한다.\",\"threat\":\"양조장 지하의 거대 쥐가 양조장 운영과 모험가들의 안전을 위협한다.\",\"goal\":\"양조장 지하의 거대 쥐 문제를 해결하고 쥐의 유래를 조사한다.\",\"basis\":\"SCENARIO\",\"reference\":\"brewery-rat-job-discovered\",\"required\":true},\"mapEntryRequested\":false,\"runtimeFacts\":[],\"completion\":{\"complete\":false,\"resolvedObjectiveIds\":null,\"satisfiedResolutionCriteriaIds\":null,\"concludingScene\":null}}"
+      }
+    ],
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "https://dnd-master.local/contracts/ai-game-master/v1/runtime-turn-narration.json",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "narration"
+      ],
+      "properties": {
+        "narration": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

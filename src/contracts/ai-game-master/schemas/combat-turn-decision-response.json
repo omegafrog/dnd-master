@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dnd-master.local/contracts/ai-game-master/v1/combat-turn-decision-response.json",
+  "title": "전투 행동 응답",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "actorId",
+    "kind",
+    "action",
+    "targetId",
+    "citationKeys",
+    "endTurnAssessment"
+  ],
+  "properties": {
+    "actorId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "kind": {
+      "enum": [
+        "ACTION",
+        "END_TURN"
+      ]
+    },
+    "action": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "targetId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "citationKeys": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "endTurnAssessment": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}

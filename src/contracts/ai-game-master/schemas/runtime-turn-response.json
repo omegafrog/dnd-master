@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://dnd-master.local/contracts/ai-game-master/v1/runtime-turn-response.json",
-  "title": "턴 진행 응답",
+  "$id": "https://dnd-master.local/contracts/ai-game-master/v1/noncombat-turn-response.json",
+  "title": "비전투 턴 응답",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -19,16 +19,13 @@
   ],
   "properties": {
     "scene": {
-      "type": "string",
-      "minLength": 1
+      "type": "string"
     },
     "judgment": {
-      "type": "string",
-      "minLength": 1
+      "type": "string"
     },
     "narration": {
-      "type": "string",
-      "minLength": 1
+      "type": "string"
     },
     "combatStart": {
       "type": "boolean"
@@ -43,9 +40,7 @@
           "scenarioId",
           "enemyKey",
           "name",
-          "count",
-          "abilities",
-          "actions"
+          "count"
         ],
         "properties": {
           "mode": {
@@ -67,81 +62,14 @@
             ]
           },
           "enemyKey": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           },
           "name": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           },
           "count": {
             "type": "integer",
             "minimum": 1
-          },
-          "abilities": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "ability",
-                "score",
-                "citationKeys"
-              ],
-              "properties": {
-                "ability": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "score": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 30
-                },
-                "citationKeys": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "minItems": 1
-                }
-              }
-            }
-          },
-          "actions": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "name",
-                "description",
-                "citationKeys"
-              ],
-              "properties": {
-                "name": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "description": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "citationKeys": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  },
-                  "minItems": 1
-                }
-              }
-            }
           }
         }
       }
@@ -171,29 +99,25 @@
           "type": [
             "string",
             "null"
-          ],
-          "minLength": 1
+          ]
         },
         "problem": {
           "type": [
             "string",
             "null"
-          ],
-          "minLength": 1
+          ]
         },
         "threat": {
           "type": [
             "string",
             "null"
-          ],
-          "minLength": 1
+          ]
         },
         "goal": {
           "type": [
             "string",
             "null"
-          ],
-          "minLength": 1
+          ]
         },
         "basis": {
           "enum": [
@@ -231,12 +155,10 @@
         ],
         "properties": {
           "subject": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           },
           "content": {
-            "type": "string",
-            "minLength": 1
+            "type": "string"
           }
         }
       }
@@ -289,8 +211,7 @@
         "null"
       ],
       "items": {
-        "type": "string",
-        "minLength": 1
+        "type": "string"
       }
     },
     "판정제안": {
@@ -512,12 +433,10 @@
               "type": "boolean"
             },
             "이유": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
             },
             "판정능력또는기술": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
             },
             "대상캐릭터ID": {
               "type": "string",
@@ -531,8 +450,7 @@
               ]
             },
             "굴림식": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
             },
             "보정치": {
               "type": "integer",
@@ -553,12 +471,10 @@
               "minItems": 1
             },
             "성공시결과": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
             },
             "실패시결과": {
-              "type": "string",
-              "minLength": 1
+              "type": "string"
             }
           }
         }

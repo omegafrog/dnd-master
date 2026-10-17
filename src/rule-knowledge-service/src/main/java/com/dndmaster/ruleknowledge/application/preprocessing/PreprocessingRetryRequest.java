@@ -10,7 +10,13 @@ public record PreprocessingRetryRequest(
         Path artifactRoot,
         List<Integer> pages,
         Map<Integer, Map<String, Integer>> layoutSelections,
-        String confirmedBy) {
+        String confirmedBy,
+        java.util.UUID executionActorPlayerId) {
+
+    public PreprocessingRetryRequest(String requestId, String versionId, Path artifactRoot,
+            List<Integer> pages, Map<Integer, Map<String, Integer>> layoutSelections, String confirmedBy) {
+        this(requestId, versionId, artifactRoot, pages, layoutSelections, confirmedBy, null);
+    }
 
     public PreprocessingRetryRequest {
         if (requestId == null || requestId.isBlank()) {
@@ -30,11 +36,11 @@ public record PreprocessingRetryRequest(
     }
 
     public PreprocessingRetryRequest(String requestId, String versionId, Path artifactRoot, List<Integer> pages) {
-        this(requestId, versionId, artifactRoot, pages, Map.of(), null);
+        this(requestId, versionId, artifactRoot, pages, Map.of(), null, null);
     }
 
     public PreprocessingRetryRequest(String requestId, String versionId, Path artifactRoot, List<Integer> pages,
             Map<Integer, Map<String, Integer>> layoutSelections) {
-        this(requestId, versionId, artifactRoot, pages, layoutSelections, null);
+        this(requestId, versionId, artifactRoot, pages, layoutSelections, null, null);
     }
 }

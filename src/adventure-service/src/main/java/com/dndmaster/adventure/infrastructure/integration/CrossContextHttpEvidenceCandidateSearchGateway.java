@@ -32,7 +32,8 @@ public final class CrossContextHttpEvidenceCandidateSearchGateway implements Evi
         Objects.requireNonNull(request,"request must not be null");
         EvidenceSearchScope scope=request.acquisitionRequest().searchScope();
         if(scope==null) throw new EvidenceAcquisitionContractException("evidence search requires a server-confirmed session document scope");
-        return search(request, scope, scope.documents(), 30);
+        int candidateLimit = "PLAYER_ACTION".equals(request.acquisitionRequest().policyId()) ? 40 : 30;
+        return search(request, scope, scope.documents(), candidateLimit);
     }
 
     private List<EvidenceCandidate> search(EvidenceCandidateSearchRequest request, EvidenceSearchScope scope,
@@ -44,7 +45,7 @@ public final class CrossContextHttpEvidenceCandidateSearchGateway implements Evi
             if(response.statusCode()/100!=2) throw new EvidenceAcquisitionContractException("evidence candidate search failed with status "+response.statusCode());
             Response parsed=mapper.readValue(response.body(),Response.class);
             validateEnvelope(parsed,scope);
-            return candidates(parsed.candidates(),documents);
+            return candidates(parsed.candidates(),documents,perRetrieverLimit);
         } catch(IOException exception) { throw new EvidenceAcquisitionTransientException("evidence candidate search failed endpoint=/" + CANDIDATE_SEARCH_PATH
                 + " causeClass=" + exception.getClass().getSimpleName());
         } catch(InterruptedException exception) { Thread.currentThread().interrupt(); throw new EvidenceAcquisitionTransientException("evidence candidate search interrupted"); }
@@ -53,8 +54,8 @@ public final class CrossContextHttpEvidenceCandidateSearchGateway implements Evi
         if(!scope.ownerId().equals(response.ownerId())||!scope.sessionId().equals(response.sessionId())||!scope.scenarioPackageId().equals(response.scenarioPackageId())||response.candidates()==null) throw new EvidenceAcquisitionContractException("evidence candidate response scope does not match its request");
     }
     private static List<EvidenceCandidate> candidates(List<Candidate> values,
-            List<EvidenceSearchScope.Document> requestedDocuments) {
-        if(values.size()>60) throw new EvidenceAcquisitionContractException("evidence candidate response exceeds the limit");
+            List<EvidenceSearchScope.Document> requestedDocuments, int candidateLimit) {
+        if(values.size()>candidateLimit) throw new EvidenceAcquisitionContractException("evidence candidate response exceeds the requested limit");
         var authorized=new LinkedHashMap<UUID,EvidenceSearchScope.Document>(); requestedDocuments.forEach(document->authorized.put(document.id(),document));
         return values.stream().map(candidate -> {
             EvidenceSearchScope.Document document=authorized.get(candidate.documentId());

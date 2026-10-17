@@ -98,9 +98,9 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         this.executionExecutor = Objects.requireNonNull(executionExecutor, "execution executor must not be null");
         this.connectionService = connectionService;
         if (executionPort instanceof LocalCodexAiExecutionPort localPort) {
-            localPort.setRagSearchHandler(this::requestRagSearch);
+            localPort.setMcpToolHandler(this::requestMcpTool);
         } else if (executionPort instanceof InstallationGuardedAiExecutionPort guardedPort) {
-            guardedPort.setRagSearchHandler(this::requestRagSearch);
+            guardedPort.setMcpToolHandler(this::requestMcpTool);
         }
     }
 
@@ -336,7 +336,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
         }
     }
 
-    private JsonNode requestRagSearch(String requestId, String query) throws Exception {
+    private JsonNode requestMcpTool(String requestId, String tool, String query) throws Exception {
         String callId = UUID.randomUUID().toString();
         CompletableFuture<JsonNode> pending = new CompletableFuture<>();
         toolCalls.put(callId, pending);
@@ -345,7 +345,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             if (current == null) throw new IllegalStateException("agent WebSocket is disconnected");
             String message = objectMapper.writeValueAsString(java.util.Map.of(
                     "type", "mcp_tool_call", "requestId", requestId, "callId", callId,
-                    "tool", "search_rules", "arguments", java.util.Map.of("query", query)));
+                    "tool", tool, "arguments", java.util.Map.of("query", query)));
             current.sendText(message, true).get(10, TimeUnit.SECONDS);
             return pending.get(150, TimeUnit.SECONDS);
         } finally {

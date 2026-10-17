@@ -9,7 +9,7 @@ import java.io.OutputStreamWriter;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 
-/** Minimal MCP stdio endpoint exposing the read-only search_rules tool to Codex CLI. */
+/** Minimal MCP stdio endpoint exposing read-only runtime knowledge tools to Codex CLI. */
 public final class McpStdioServer {
     private static final ObjectMapper JSON = new ObjectMapper();
     private McpStdioServer() {}
@@ -37,14 +37,14 @@ public final class McpStdioServer {
                 } else if ("notifications/initialized".equals(method)) {
                     continue;
                 } else if ("tools/list".equals(method)) {
-                    result = JSON.readTree("{\"tools\":[{\"name\":\"search_rules\",\"description\":\"행동을 해결할 때 규칙 적용이나 규칙 근거가 필요하면 현재 모험에 선택된 기본 룰북과 추가 룰북을 행동 및 상황을 설명하는 질의로 검색하세요. 두 자료 모두 서버가 확정한 범위 안에서 검색합니다. 이 도구는 근거만 찾으며 적용 여부는 직접 판단하세요.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1000}},\"required\":[\"query\"],\"additionalProperties\":false},\"annotations\":{\"readOnlyHint\":true,\"destructiveHint\":false,\"openWorldHint\":false}}]}");
+                    result = JSON.readTree("{\"tools\":[{\"name\":\"search_rules\",\"description\":\"행동을 해결할 때 규칙 적용이나 규칙 근거가 필요하면 현재 모험에 선택된 룰북을 검색하세요.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1000}},\"required\":[\"query\"],\"additionalProperties\":false},\"annotations\":{\"readOnlyHint\":true,\"destructiveHint\":false,\"openWorldHint\":false}},{\"name\":\"find_scenario_elements\",\"description\":\"시나리오 자료의 인물·장소·목표·사건·관계·단서를 확인하세요. 현재 모험에 잠긴 자료에서 실제 요소 ID와 일치하는 내용만 반환합니다. 상황 근거를 SCENARIO로 정하는 모든 경우 반드시 먼저 호출하고, 반환된 elementId만 reference로 사용하세요. 결과가 없으면 시나리오 ID를 추측하지 마세요.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1000}},\"required\":[\"query\"],\"additionalProperties\":false},\"annotations\":{\"readOnlyHint\":true,\"destructiveHint\":false,\"openWorldHint\":false}}]}");
                 } else if ("tools/call".equals(method)) {
                     String name = request.path("params").path("name").asText();
                     String query = request.path("params").path("arguments").path("query").asText("").trim();
-                    if (!"search_rules".equals(name) || query.isBlank() || query.length() > 1000) {
+                    if (!("search_rules".equals(name) || "find_scenario_elements".equals(name)) || query.isBlank() || query.length() > 1000) {
                         result = JSON.readTree("{\"content\":[{\"type\":\"text\",\"text\":\"Search request is invalid.\"}],\"isError\":true}");
                     } else {
-                        relayOut.write(JSON.writeValueAsString(JSON.createObjectNode().put("query", query))); relayOut.newLine(); relayOut.flush();
+                        relayOut.write(JSON.writeValueAsString(JSON.createObjectNode().put("tool", name).put("query", query))); relayOut.newLine(); relayOut.flush();
                         JsonNode searched = JSON.readTree(relayIn.readLine());
                         boolean success = searched.path("success").asBoolean(false);
                         String text = success ? JSON.writeValueAsString(searched.path("result")) : searched.path("error").asText("RAG search failed");

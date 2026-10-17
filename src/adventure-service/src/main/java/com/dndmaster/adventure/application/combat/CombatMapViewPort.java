@@ -24,6 +24,9 @@ public interface CombatMapViewPort {
             int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {
         throw new UnsupportedOperationException("combat map calibration unavailable");
     }
+    default GridAnalysis analyzeGrid(UUID mapId, UUID ownerId, int x, int y, int width, int height) {
+        throw new UnsupportedOperationException("combat map grid analysis unavailable");
+    }
     default void updateLayout(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId, List<Position> obstacles, List<Door> doors, String crop) {
         throw new UnsupportedOperationException("combat map layout editing unavailable");
     }
@@ -53,6 +56,7 @@ public interface CombatMapViewPort {
         }
     }
     record Grid(int width, int height, int cellSize, int distanceUnit) {}
+    record GridAnalysis(String status, Integer width, Integer height, Integer cellSize, Integer originX, Integer originY, Double confidence) {}
     record Token(UUID id, String type, int x, int y, int elevationFeet) {
         public Token(UUID id, String type, int x, int y) { this(id, type, x, y, 0); }
     }

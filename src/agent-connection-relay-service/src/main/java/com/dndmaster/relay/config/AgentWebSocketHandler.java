@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
@@ -19,6 +20,7 @@ import com.dndmaster.relay.application.RelayExecutionResult;
 import com.dndmaster.relay.application.RequestCompletionRegistry;
 import com.dndmaster.relay.infrastructure.WebSocketConnectionTransport;
 import com.dndmaster.relay.infrastructure.HttpRagToolSearch;
+import com.dndmaster.relay.infrastructure.HttpScenarioElementLookup;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import reactor.core.publisher.Mono;
@@ -36,11 +38,14 @@ public class AgentWebSocketHandler implements WebSocketHandler {
   private final RequestCompletionRegistry completionRegistry;
   private final ConnectionLeaseHeartbeat leaseHeartbeat;
   private final HttpRagToolSearch ragToolSearch;
+  private final HttpScenarioElementLookup scenarioElementLookup;
   private final java.util.Set<String> inFlightToolCalls = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+  @Autowired
   public AgentWebSocketHandler(IdentityServicePort ientityPort, LocalConnectionRegistry registry,
       RelayInstanceProperties properties, ObjectMapper objectMapper, RequestCompletionRegistry completionRegistry,
-      ConnectionLeaseService leaseService, HttpRagToolSearch ragToolSearch) {
+      ConnectionLeaseService leaseService, HttpRagToolSearch ragToolSearch,
+      HttpScenarioElementLookup scenarioElementLookup) {
     this.identityPort = ientityPort;
     this.registry = registry;
     this.properties = properties;
@@ -49,6 +54,13 @@ public class AgentWebSocketHandler implements WebSocketHandler {
     this.leaseHeartbeat = new ConnectionLeaseHeartbeat(
         leaseService, LEASE_TTL, LEASE_RENEW_INTERVAL);
     this.ragToolSearch = ragToolSearch;
+    this.scenarioElementLookup = scenarioElementLookup;
+  }
+
+  public AgentWebSocketHandler(IdentityServicePort identityPort, LocalConnectionRegistry registry,
+      RelayInstanceProperties properties, ObjectMapper objectMapper, RequestCompletionRegistry completionRegistry,
+      ConnectionLeaseService leaseService, HttpRagToolSearch ragToolSearch) {
+    this(identityPort, registry, properties, objectMapper, completionRegistry, leaseService, ragToolSearch, null);
   }
 
   @Override
@@ -100,18 +112,47 @@ public class AgentWebSocketHandler implements WebSocketHandler {
         String callId = node.path("callId").asText("");
         String tool = node.path("tool").asText("");
         String query = node.path("arguments").path("query").asText("");
-        if (!"search_rules".equals(tool) || requestId.isBlank() || callId.isBlank()) {
+        if (!("search_rules".equals(tool) || "find_scenario_elements".equals(tool)) || requestId.isBlank() || callId.isBlank()) {
+          logMcpRejected(requestId, tool, query, "INVALID_TOOL_CALL");
           return sendToolResult(transport, requestId, callId, false, null, "invalid MCP tool call");
         }
         var scope = registry.activeRagSearchContext(soloPlayerId, connectionId, requestId);
-        if (scope == null) return sendToolResult(transport, requestId, callId, false, null, "no active authorized search scope");
+        if (scope == null) {
+          logMcpRejected(requestId, tool, query, "NO_ACTIVE_SCOPE");
+          return sendToolResult(transport, requestId, callId, false, null, "no active authorized search scope");
+        }
+        if ("find_scenario_elements".equals(tool) && scenarioElementLookup == null) {
+          logMcpRejected(requestId, tool, query, "LOOKUP_UNAVAILABLE");
+          return sendToolResult(transport, requestId, callId, false, null, "scenario lookup is unavailable");
+        }
         String callKey = connectionId + ":" + callId;
-        if (!inFlightToolCalls.add(callKey)) return sendToolResult(transport, requestId, callId, false, null, "duplicate tool call");
-        return Mono.fromCallable(() -> ragToolSearch.search(soloPlayerId, scope, query))
+        if (!inFlightToolCalls.add(callKey)) {
+          logMcpRejected(requestId, tool, query, "DUPLICATE_CALL");
+          return sendToolResult(transport, requestId, callId, false, null, "duplicate tool call");
+        }
+        long startedAt = System.nanoTime();
+        if (diagnosticsEnabled()) org.slf4j.LoggerFactory.getLogger(AgentWebSocketHandler.class).info(
+            "dev_mcp_tool stage=start requestId={} tool={} queryChars={} sessionId={} packageId={}", requestId, tool,
+            query.length(), scope.path("sessionId").asText(""), scope.path("scenarioPackageId").asText(""));
+        return Mono.fromCallable(() -> "search_rules".equals(tool)
+                ? ragToolSearch.search(soloPlayerId, scope, query)
+                : scenarioElementLookup.search(soloPlayerId, scope, query))
             .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
-            .flatMap(result -> sendToolResult(transport, requestId, callId, true, result, ""))
-            .onErrorResume(failure -> sendToolResult(transport, requestId, callId, false, null,
-                failure.getMessage() == null ? "RAG search failed" : failure.getMessage()))
+            .flatMap(result -> {
+              if (diagnosticsEnabled()) org.slf4j.LoggerFactory.getLogger(AgentWebSocketHandler.class).info(
+                  "dev_mcp_tool stage=complete requestId={} tool={} resultCount={} elapsedMs={}", requestId, tool,
+                  result.path("elements").isArray() ? result.path("elements").size()
+                      : result.path("evidence").isArray() ? result.path("evidence").size() : 0,
+                  (System.nanoTime() - startedAt) / 1_000_000);
+              return sendToolResult(transport, requestId, callId, true, result, "");
+            })
+            .onErrorResume(failure -> {
+              if (diagnosticsEnabled()) org.slf4j.LoggerFactory.getLogger(AgentWebSocketHandler.class).warn(
+                  "dev_mcp_tool stage=failed requestId={} tool={} queryChars={} failureClass={} elapsedMs={} recovery=tool_error_returned",
+                  requestId, tool, query.length(), failure.getClass().getSimpleName(), (System.nanoTime() - startedAt) / 1_000_000);
+              return sendToolResult(transport, requestId, callId, false, null,
+                  failure.getMessage() == null ? "MCP lookup failed" : failure.getMessage());
+            })
             .doFinally(ignored -> inFlightToolCalls.remove(callKey));
       }
       try {
@@ -127,6 +168,17 @@ public class AgentWebSocketHandler implements WebSocketHandler {
         return Mono.error(failure);
       }
     });
+  }
+
+  private static boolean diagnosticsEnabled() {
+    return "true".equalsIgnoreCase(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+        System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+  }
+
+  private static void logMcpRejected(String requestId, String tool, String query, String reason) {
+    if (diagnosticsEnabled()) org.slf4j.LoggerFactory.getLogger(AgentWebSocketHandler.class).warn(
+        "dev_mcp_tool stage=rejected requestId={} tool={} queryChars={} reason={} recovery=tool_error_returned",
+        requestId, tool, query.length(), reason);
   }
 
   private Mono<Void> sendToolResult(WebSocketConnectionTransport transport, String requestId, String callId,

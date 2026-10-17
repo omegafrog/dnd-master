@@ -4,13 +4,17 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.UUID;
 
-public record EvidenceRerankRequest(String query, String taskContext, List<EvidenceCandidate> candidates, UUID soloPlayerId) {
+public record EvidenceRerankRequest(String query, String taskContext, List<EvidenceCandidate> candidates, UUID soloPlayerId, int resultLimit) {
+    public EvidenceRerankRequest(String query, String taskContext, List<EvidenceCandidate> candidates, UUID soloPlayerId) {
+        this(query, taskContext, candidates, soloPlayerId, "PLAYER_ACTION".equals(taskContext) ? 20 : 30);
+    }
     public EvidenceRerankRequest(String query, String taskContext, List<EvidenceCandidate> candidates) {
         this(query, taskContext, candidates, null);
     }
     public EvidenceRerankRequest {
         if (query == null || query.isBlank()) throw new IllegalArgumentException("query is required");
         if (taskContext == null || taskContext.isBlank()) throw new IllegalArgumentException("taskContext is required");
+        if (resultLimit < 1 || resultLimit > 30 || ("PLAYER_ACTION".equals(taskContext) && resultLimit != 20)) throw new IllegalArgumentException("resultLimit is invalid");
         candidates = immutableCandidates(candidates, 180);
     }
 

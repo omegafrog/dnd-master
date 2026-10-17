@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.dndmaster.aigamemaster.infrastructure.ai.EffectiveGmProviderSelection;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionResult;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionResolver;
 import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection;
 import com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser;
@@ -30,6 +31,119 @@ import org.springframework.http.ResponseEntity;
 class TypedAgentContractControllerTest {
     private static final UUID SOLO_PLAYER_ID = UUID.fromString("00000000-0000-0000-0000-000000000321");
     private static final UUID SELECTED_ENDPOINT_ID = UUID.fromString("00000000-0000-0000-0000-000000000322");
+
+    @Test
+    void table_extraction_uses_selected_ai_provider_with_image_and_schema() {
+        AtomicReference<GmPrompt> sentPrompt = new AtomicReference<>();
+        AtomicReference<JsonNode> sentSchema = new AtomicReference<>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new AssertionError("image provider path expected");
+            }
+            @Override public <T> GmCompletionResult<T> completeWithImageAndResolution(UUID soloPlayerId,
+                    String operation, GmPrompt prompt, StructuredResponseParser<T> parser,
+                    RequestedGmProviderSelection requested, GmProviderSelectionResolver.EndpointResolution resolution,
+                    JsonNode schema) {
+                sentPrompt.set(prompt);
+                sentSchema.set(schema);
+                return new GmCompletionResult<>(parser.parse("{\"tables\":[]}"), resolution.effectiveSelection());
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(),
+                new ApiRequestGuard("service-secret"), requested -> resolution("vision-model", requested));
+        var request = new TypedAgentContractController.TableExtractionRequest(SOLO_PLAYER_ID, SELECTED_ENDPOINT_ID,
+                "openai", "vision-model", "medium", "table-page:1", "data:image/png;base64,cGFnZQ==");
+
+        ResponseEntity<?> response = controller.preprocessingTableExtraction("service-secret", request);
+
+        org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.OK, response.getStatusCode());
+        org.junit.jupiter.api.Assertions.assertTrue(sentPrompt.get().hasImage());
+        org.junit.jupiter.api.Assertions.assertEquals(request.imageDataUri(), sentPrompt.get().imageDataUri());
+        org.junit.jupiter.api.Assertions.assertTrue(sentPrompt.get().text().contains("each distinct table once"));
+        org.junit.jupiter.api.Assertions.assertTrue(sentPrompt.get().text().contains("do not split one table"));
+        org.junit.jupiter.api.Assertions.assertTrue(sentPrompt.get().text().contains("Ignore prose columns"));
+        org.junit.jupiter.api.Assertions.assertEquals("object", sentSchema.get().path("type").asText());
+        org.junit.jupiter.api.Assertions.assertEquals("array", sentSchema.get().path("properties").path("tables").path("type").asText());
+    }
+
+    @Test
+    void ambiguous_table_resolution_sends_both_provider_candidates_to_selected_ai_provider() {
+        AtomicReference<GmPrompt> sentPrompt = new AtomicReference<>();
+        AtomicReference<JsonNode> sentSchema = new AtomicReference<>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new AssertionError("image provider path expected");
+            }
+            @Override public <T> GmCompletionResult<T> completeWithImageAndResolution(UUID soloPlayerId,
+                    String operation, GmPrompt prompt, StructuredResponseParser<T> parser,
+                    RequestedGmProviderSelection requested, GmProviderSelectionResolver.EndpointResolution resolution,
+                    JsonNode schema) {
+                sentPrompt.set(prompt);
+                sentSchema.set(schema);
+                return new GmCompletionResult<>(parser.parse("{\"tables\":[]}"), resolution.effectiveSelection());
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(),
+                new ApiRequestGuard("service-secret"), requested -> resolution("vision-model", requested));
+        JsonNode nativeCandidate = new ObjectMapper().valueToTree(Map.of(
+                "provider", "pymupdf", "tableId", "native-1", "bbox", List.of(0, 0, 1000, 1000),
+                "cells", List.of(Map.of("row", 0, "column", 0, "text", "Native text", "bbox", List.of(0, 0, 500, 500)))));
+        JsonNode doclingCandidate = new ObjectMapper().valueToTree(Map.of(
+                "provider", "docling", "tableId", "docling-1", "bbox", List.of(0, 0, 1000, 1000),
+                "cells", List.of(Map.of("row", 0, "column", 0, "text", "Docling text", "bbox", List.of(0, 0, 500, 500)))));
+        var request = new TypedAgentContractController.TableResolutionRequest(SOLO_PLAYER_ID, SELECTED_ENDPOINT_ID,
+                "openai", "vision-model", "medium", "table-resolution:1", "data:image/png;base64,cGFnZQ==",
+                List.of(nativeCandidate, doclingCandidate));
+
+        ResponseEntity<?> response = controller.preprocessingTableResolution("service-secret", request);
+
+        org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.OK, response.getStatusCode());
+        org.junit.jupiter.api.Assertions.assertTrue(sentPrompt.get().hasImage());
+        org.junit.jupiter.api.Assertions.assertTrue(sentPrompt.get().text().contains("Native text"));
+        org.junit.jupiter.api.Assertions.assertTrue(sentPrompt.get().text().contains("Docling text"));
+        org.junit.jupiter.api.Assertions.assertTrue(sentPrompt.get().text().contains("untrusted source content"));
+        org.junit.jupiter.api.Assertions.assertEquals("array", sentSchema.get().path("properties").path("tables").path("type").asText());
+    }
+
+    @Test
+    void table_candidate_screen_returns_only_requested_page_numbers() {
+        AtomicReference<GmPrompt> sentPrompt = new AtomicReference<>();
+        AtomicReference<JsonNode> sentSchema = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicBoolean duplicateCandidateRejected = new java.util.concurrent.atomic.AtomicBoolean();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new AssertionError("image provider path expected");
+            }
+            @Override public <T> GmCompletionResult<T> completeWithImageAndResolution(UUID soloPlayerId,
+                    String operation, GmPrompt prompt, StructuredResponseParser<T> parser,
+                    RequestedGmProviderSelection requested, GmProviderSelectionResolver.EndpointResolution resolution,
+                    JsonNode schema) {
+                sentPrompt.set(prompt);
+                sentSchema.set(schema);
+                try {
+                    parser.parse("{\"candidatePageNumbers\":[12,12]}");
+                } catch (IllegalArgumentException expected) {
+                    duplicateCandidateRejected.set(true);
+                }
+                return new GmCompletionResult<>(parser.parse("{\"candidatePageNumbers\":[12]}"), resolution.effectiveSelection());
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(),
+                new ApiRequestGuard("service-secret"), requested -> resolution("vision-model", requested));
+        var request = new TypedAgentContractController.TableCandidateRequest(SOLO_PLAYER_ID, SELECTED_ENDPOINT_ID,
+                "openai", "vision-model", "medium", "table-screen:1", "data:image/png;base64,cGFnZQ==", List.of(11, 12));
+
+        ResponseEntity<?> response = controller.preprocessingTableCandidates("service-secret", request);
+
+        org.junit.jupiter.api.Assertions.assertEquals(HttpStatus.OK, response.getStatusCode());
+        org.junit.jupiter.api.Assertions.assertTrue(sentPrompt.get().hasImage());
+        org.junit.jupiter.api.Assertions.assertTrue(sentPrompt.get().text().contains("[11, 12]"));
+        org.junit.jupiter.api.Assertions.assertEquals("array",
+                sentSchema.get().path("properties").path("candidatePageNumbers").path("type").asText());
+        org.junit.jupiter.api.Assertions.assertFalse(
+                sentSchema.get().path("properties").path("candidatePageNumbers").has("uniqueItems"));
+        org.junit.jupiter.api.Assertions.assertTrue(duplicateCandidateRejected.get());
+    }
 
     @Test
     void scenario_compilation_validation_reason_logs_only_known_shape_errors() {
@@ -106,10 +220,23 @@ class TypedAgentContractControllerTest {
 
     @Test
     void combat_turn_contract_returns_structured_source_cited_action() {
-        var controller = new TypedAgentContractController(selectedAdapter((operation, prompt, requested) ->
-                "{\"kind\":\"ACTION\",\"actorId\":\"00000000-0000-0000-0000-000000000323\","
-                        + "\"action\":\"Scimitar\",\"targetId\":\"00000000-0000-0000-0000-000000000324\","
-                        + "\"citationKeys\":[\"goblin-scimitar\"]}"), new ObjectMapper(),
+        var schema = new AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        String json = "{\"kind\":\"ACTION\",\"actorId\":\"00000000-0000-0000-0000-000000000323\","
+                + "\"action\":\"Scimitar\",\"targetId\":\"00000000-0000-0000-0000-000000000324\","
+                + "\"citationKeys\":[\"goblin-scimitar\"],\"endTurnAssessment\":null}";
+        GmCompletionAdapter capture = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new AssertionError("resolved provider path must be used");
+            }
+            @Override public <T> GmCompletionResult<T> completeWithResolution(UUID owner, String operation, String prompt,
+                    StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+                    GmProviderSelectionResolver.EndpointResolution resolution,
+                    com.fasterxml.jackson.databind.JsonNode ragContext, com.fasterxml.jackson.databind.JsonNode outputSchema) {
+                schema.set(outputSchema);
+                return new GmCompletionResult<>(parser.parse(json), resolution.effectiveSelection());
+            }
+        };
+        var controller = new TypedAgentContractController(capture, new ObjectMapper(),
                 new ApiRequestGuard("service-secret"), requested -> resolution("actual-model", requested));
         var request = new TypedAgentContractController.CombatTurnDecisionRequest(SOLO_PLAYER_ID, "combat-op",
                 SELECTED_ENDPOINT_ID, "openai", "actual-model", "high", SELECTED_ENDPOINT_ID,
@@ -120,6 +247,9 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertEquals("ACTION", result.kind());
         org.junit.jupiter.api.Assertions.assertEquals("Scimitar", result.action());
         org.junit.jupiter.api.Assertions.assertEquals(List.of("goblin-scimitar"), result.citationKeys());
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "https://dnd-master.local/contracts/ai-game-master/v1/combat-turn-decision-response.json",
+                schema.get().path("$id").asText());
     }
 
     @Test
@@ -294,6 +424,35 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertTrue(shortEstimate > 0);
         org.junit.jupiter.api.Assertions.assertTrue(expandedEstimate > shortEstimate);
         org.junit.jupiter.api.Assertions.assertEquals(Boolean.FALSE, ((Map<?, ?>) first.getBody()).get("includesProviderSystemAndToolOverhead"));
+    }
+
+    @Test
+    void token_estimate_validation_failure_logs_safe_reason_and_shape(CapturedOutput output) throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        var controller = new TypedAgentContractController(emptyAdapter(), mapper, new ApiRequestGuard("service-secret"));
+        var body = mapper.createObjectNode().put("soloPlayerId", SOLO_PLAYER_ID.toString()).putNull("endpointId")
+                .put("provider", "ollama").put("model", "model").put("reasoning", "medium").put("operationKey", "estimate-invalid");
+        body.set("extractionInput", mapper.readTree("""
+                {"documentId":"89ef62fc-af6c-4617-b4b2-715ee578b564","extractionVersion":"ev-1","queryCoverage":[],
+                 "evidence":[{"id":"82ad2366-a013-4d13-b922-9fa2c5970634","locator":"page=1","anchors":[{"id":"0","text":"PRIVATE_ESTIMATE_TEXT"}]}],
+                 "assignedActions":[{"id":"candidate-a","name":"Action A","actionKind":"SPELL","sourceLocator":"page=1","evidenceIds":["foreign-evidence-id"],"knownFields":{},"neededFields":[],"sharedRules":[]},
+                                   {"id":"candidate-b","name":"Action B","actionKind":"SPELL","sourceLocator":"page=1","evidenceIds":["82ad2366-a013-4d13-b922-9fa2c5970634"],"knownFields":{},"neededFields":[],"sharedRules":[]}]}
+                """));
+        body.set("outputSchema", assignedActionOutputSchema(mapper));
+        ((com.fasterxml.jackson.databind.node.ObjectNode) body.path("outputSchema").path("properties").path("candidateResults")
+                .path("items").path("properties").path("sharedRules")).put("maxItems", 0);
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            assertThrows(IllegalArgumentException.class, () -> controller.estimateRulebookActionInputTokens("service-secret", body));
+            org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("stage=token_estimate_request_validation"));
+            org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("failureReason=assigned action references evidence outside the supplied input"));
+            org.junit.jupiter.api.Assertions.assertTrue(output.getAll().contains("actualEvidenceCount=1"));
+            org.junit.jupiter.api.Assertions.assertFalse(output.getAll().contains("PRIVATE_ESTIMATE_TEXT"));
+        } finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
     }
 
     @Test
@@ -925,35 +1084,52 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
-    void runtime_turn_forwards_the_already_composed_single_prompt() {
+    void session_opening_uses_a_narration_only_response_contract() {
         AtomicReference<String> prompt = new AtomicReference<>();
         AtomicReference<RequestedGmProviderSelection> selection = new AtomicReference<>();
-        GmCompletionAdapter adapter = selectedAdapter((operation, value, requested) -> {
-            prompt.set(value);
-            selection.set(requested);
-            return "{\"scene\":\"양조장\",\"judgment\":\"안전함\",\"narration\":\"방 안은 조용합니다.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush") + ",\"combatStart\":true,\"mapEntryRequested\":true,\"판정제안\":{\"필요\":false},\"combatEnemies\":[{\"scenarioId\":\"cellar-rat-ambush\",\"enemyKey\":\"giant-rat\",\"name\":\"거대 쥐\",\"count\":8}]}";
-        });
+        AtomicReference<com.fasterxml.jackson.databind.JsonNode> schema = new AtomicReference<>();
+        GmCompletionAdapter capturingAdapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String value, StructuredResponseParser<T> parser) {
+                throw new AssertionError("resolved provider path must be used");
+            }
+            @Override public <T> GmCompletionResult<T> completeWithResolution(UUID owner, String operation, String value,
+                    StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+                    GmProviderSelectionResolver.EndpointResolution resolution,
+                    com.fasterxml.jackson.databind.JsonNode rag, com.fasterxml.jackson.databind.JsonNode outputSchema) {
+                schema.set(outputSchema);
+                prompt.set(value);
+                selection.set(requested);
+                return new GmCompletionResult<>(parser.parse("{\"narration\":\"양조장 안으로 습한 냄새가 밀려옵니다.\"}"), resolution.effectiveSelection());
+            }
+        };
 
         TypedAgentContractController controller = new TypedAgentContractController(
-                adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+                capturingAdapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
         TypedAgentContractController.RuntimeTurnResponse response = controller.runtimeTurn("service-secret",
                 new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "SESSION_OPENING",
                         SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high", List.of(), Map.of()));
 
-        org.junit.jupiter.api.Assertions.assertTrue(response.combatStart());
-        org.junit.jupiter.api.Assertions.assertTrue(response.mapEntryRequested());
-        org.junit.jupiter.api.Assertions.assertEquals("cellar-rat-ambush", response.combatEnemies().get(0).scenarioId());
-        org.junit.jupiter.api.Assertions.assertEquals(8, response.combatEnemies().get(0).count());
+        org.junit.jupiter.api.Assertions.assertEquals("양조장 안으로 습한 냄새가 밀려옵니다.", response.narration());
+        org.junit.jupiter.api.Assertions.assertFalse(response.combatStart());
+        org.junit.jupiter.api.Assertions.assertFalse(response.mapEntryRequested());
+        org.junit.jupiter.api.Assertions.assertNull(response.situation());
+        org.junit.jupiter.api.Assertions.assertEquals("opening-narration-response.json", schema.get().path("$id").asText().substring(
+                schema.get().path("$id").asText().lastIndexOf('/') + 1));
+        org.junit.jupiter.api.Assertions.assertEquals(List.of("narration"), java.util.stream.StreamSupport.stream(
+                schema.get().path("required").spliterator(), false).map(com.fasterxml.jackson.databind.JsonNode::asText).toList());
         org.junit.jupiter.api.Assertions.assertEquals(new RequestedGmProviderSelection(SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high"), selection.get());
         org.junit.jupiter.api.Assertions.assertEquals("ROLE=RUNTIME_GM", prompt.get());
     }
 
     @Test
-    void runtime_turn_passes_its_dedicated_schema_and_keeps_selection_and_rag_context() {
+    void runtime_turn_passes_its_dedicated_schema_and_keeps_selection_and_rag_context(CapturedOutput output) {
         var seenSchema = new AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
         var seenRag = new AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        var seenPrompt = new AtomicReference<String>();
         var seenSelection = new AtomicReference<RequestedGmProviderSelection>();
+        String allowedKey = "RULEBOOK:rules:2:page=18";
+        var mapper = new ObjectMapper();
         var adapter = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
                 throw new AssertionError("resolved provider path must be used");
@@ -965,38 +1141,106 @@ class TypedAgentContractControllerTest {
                     com.fasterxml.jackson.databind.JsonNode outputSchema) {
                 seenSchema.set(outputSchema);
                 seenRag.set(ragContext);
+                seenPrompt.set(prompt);
                 seenSelection.set(requested);
-                return new GmCompletionResult<>(parser.parse(runtimeResponse("[\"RULEBOOK:rules:2:page=18\"]")), resolution.effectiveSelection());
+                try {
+                    var output = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(runtimeResponse("[\"E1\"]"));
+                    output.putArray("citedEvidence").add("E1");
+                    ((com.fasterxml.jackson.databind.node.ObjectNode) output.path("situation")).put("reference", "E1");
+                    return new GmCompletionResult<>(parser.parse(output.toString()), resolution.effectiveSelection());
+                } catch (java.io.IOException invalid) {
+                    throw new IllegalStateException(invalid);
+                }
             }
         };
-        var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
-        var rag = new ObjectMapper().createObjectNode().put("query", "safe structured context");
-        String allowedKey = "RULEBOOK:rules:2:page=18";
+        var controller = new TypedAgentContractController(adapter, mapper, new ApiRequestGuard("service-secret"));
+        var rag = mapper.createObjectNode().put("query", "safe structured context").put("citationKey", allowedKey);
         var request = new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "schema-op", "look",
                 SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high", SELECTED_ENDPOINT_ID,
-                Instant.EPOCH.toString(), "openai", "gpt-5", "ROLE=RUNTIME_GM", rag, List.of(allowedKey));
+                Instant.EPOCH.toString(), "openai", "gpt-5", "ROLE=RUNTIME_GM " + allowedKey, rag, List.of(allowedKey));
 
-        controller.runtimeTurn("service-secret", request);
+        var response = controller.runtimeTurn("service-secret", request);
 
         org.junit.jupiter.api.Assertions.assertEquals("gpt-5", seenSelection.get().model());
         org.junit.jupiter.api.Assertions.assertEquals("high", seenSelection.get().reasoning());
-        org.junit.jupiter.api.Assertions.assertEquals(rag, seenRag.get());
-        org.junit.jupiter.api.Assertions.assertEquals("https://dnd-master.local/contracts/ai-game-master/v1/runtime-turn-response.json",
+        org.junit.jupiter.api.Assertions.assertEquals("ROLE=RUNTIME_GM E1", seenPrompt.get());
+        org.junit.jupiter.api.Assertions.assertEquals("E1", seenRag.get().path("citationKey").asText());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(allowedKey), response.checkProposal().evidenceKeys());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(allowedKey), response.citedEvidence());
+        org.junit.jupiter.api.Assertions.assertEquals(allowedKey, response.situation().reference());
+        org.junit.jupiter.api.Assertions.assertEquals("https://dnd-master.local/contracts/ai-game-master/v1/noncombat-turn-response.json",
                 seenSchema.get().path("$id").asText());
         var evidenceSchema = seenSchema.get().path("properties").path("판정제안").path("anyOf").get(1)
                 .path("properties").path("근거키");
         org.junit.jupiter.api.Assertions.assertTrue(evidenceSchema.path("items").path("pattern").asText().contains("\\u3000"));
         org.junit.jupiter.api.Assertions.assertEquals(1, evidenceSchema.path("minItems").asInt());
-        org.junit.jupiter.api.Assertions.assertEquals(allowedKey, evidenceSchema.path("items").path("enum").get(0).asText());
+        org.junit.jupiter.api.Assertions.assertEquals("E1", evidenceSchema.path("items").path("enum").get(0).asText());
         var checkBranches = seenSchema.get().path("properties").path("판정제안").path("anyOf");
-        for (var branch : checkBranches) {
-            org.junit.jupiter.api.Assertions.assertEquals("object", branch.path("type").asText());
-            org.junit.jupiter.api.Assertions.assertFalse(branch.path("additionalProperties").asBoolean());
-            org.junit.jupiter.api.Assertions.assertEquals(11, branch.path("required").size());
-            branch.path("properties").fields().forEachRemaining(field ->
-                    org.junit.jupiter.api.Assertions.assertTrue(field.getValue().has("type"),
-                            "provider strict schema branch property requires a type: " + field.getKey()));
+        for (var branch : checkBranches) org.junit.jupiter.api.Assertions.assertEquals(11, branch.path("required").size());
+        if ("true".equalsIgnoreCase(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")))) {
+            org.assertj.core.api.Assertions.assertThat(output).contains("dev_gm_evidence_key_aliases outcome=encoded")
+                    .contains("operationKey=schema-op").contains("evidenceKeyCount=1").contains("aliasCount=1")
+                    .contains("dev_gm_evidence_key_aliases outcome=decoded").contains("recoveryAction=continue_turn");
         }
+    }
+
+    @Test
+    void long_runtime_turn_uses_one_request_with_short_evidence_aliases_and_decodes_results() {
+        String allowedKey = "RULEBOOK:rules:2:page=18";
+        var mapper = new ObjectMapper();
+        var promptSeen = new AtomicReference<String>();
+        var operationSeen = new AtomicReference<String>();
+        var schemaSeen = new AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        var seenRag = new AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var rag = mapper.createObjectNode().put("citationKey", allowedKey);
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
+                throw new AssertionError("resolved provider path must be used");
+            }
+            @Override public <T> GmCompletionResult<T> completeWithResolution(UUID owner, String operation,
+                    String prompt, StructuredResponseParser<T> parser, RequestedGmProviderSelection requested,
+                    GmProviderSelectionResolver.EndpointResolution resolution,
+                    com.fasterxml.jackson.databind.JsonNode ragContext,
+                    com.fasterxml.jackson.databind.JsonNode outputSchema) {
+                calls.incrementAndGet();
+                operationSeen.set(operation);
+                promptSeen.set(prompt);
+                schemaSeen.set(outputSchema);
+                seenRag.set(ragContext);
+                com.fasterxml.jackson.databind.node.ObjectNode response;
+                try {
+                    response = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(runtimeResponse("[\"E1\"]"));
+                } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+                    throw new AssertionError(invalid);
+                }
+                response.withArray("citedEvidence").add("E1");
+                ((com.fasterxml.jackson.databind.node.ObjectNode) response.path("situation")).put("reference", "E1");
+                return new GmCompletionResult<>(parser.parse(response.toString()), resolution.effectiveSelection());
+            }
+        };
+        var controller = new TypedAgentContractController(adapter, mapper, new ApiRequestGuard("service-secret"));
+        String prompt = "ROLE=RUNTIME_GM\nLOCKED_SCENARIO_AND_MAP_DATA=" + allowedKey + "\nACTION=살펴본다\n"
+                + "상황 문맥 ".repeat(2_300);
+        var request = new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "single-call-evidence-aliases",
+                "살펴본다", SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high", SELECTED_ENDPOINT_ID,
+                Instant.EPOCH.toString(), "openai", "gpt-5", prompt, rag, List.of(allowedKey));
+
+        var response = controller.runtimeTurn("service-secret", request);
+
+        org.junit.jupiter.api.Assertions.assertEquals(1, calls.get());
+        org.junit.jupiter.api.Assertions.assertEquals("single-call-evidence-aliases", operationSeen.get());
+        org.junit.jupiter.api.Assertions.assertTrue(promptSeen.get().contains("LOCKED_SCENARIO_AND_MAP_DATA=E1"));
+        org.junit.jupiter.api.Assertions.assertTrue(promptSeen.get().contains("ACTION=살펴본다"));
+        org.junit.jupiter.api.Assertions.assertFalse(promptSeen.get().contains(allowedKey));
+        org.junit.jupiter.api.Assertions.assertEquals("E1", seenRag.get().path("citationKey").asText());
+        org.junit.jupiter.api.Assertions.assertEquals("E1", schemaSeen.get().path("properties")
+                .path("판정제안").path("anyOf").get(1).path("properties").path("근거키").path("items")
+                .path("enum").get(0).asText());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(allowedKey), response.citedEvidence());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(allowedKey), response.checkProposal().evidenceKeys());
+        org.junit.jupiter.api.Assertions.assertEquals(allowedKey, response.situation().reference());
     }
 
     @Test
@@ -1065,6 +1309,7 @@ class TypedAgentContractControllerTest {
     void runtime_turn_schema_limits_check_evidence_to_supplied_keys_when_available() throws Exception {
         String allowedKey = "RULEBOOK:rules:2:page=18";
         var adapter = new AtomicReference<com.fasterxml.jackson.databind.JsonNode>();
+        var result = new AtomicReference<TypedAgentContractController.RuntimeTurnResponse>();
         GmCompletionAdapter capture = new GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String prompt, StructuredResponseParser<T> parser) {
                 throw new AssertionError("resolved provider path must be used");
@@ -1074,27 +1319,42 @@ class TypedAgentContractControllerTest {
                     GmProviderSelectionResolver.EndpointResolution resolution,
                     com.fasterxml.jackson.databind.JsonNode ragContext, com.fasterxml.jackson.databind.JsonNode outputSchema) {
                 adapter.set(outputSchema);
-                String response = runtimeResponse("[\"" + allowedKey + "\"]");
+                String response = runtimeResponse("[\"E1\"]");
                 return new GmCompletionResult<>(parser.parse(response), resolution.effectiveSelection());
             }
         };
         var controller = new TypedAgentContractController(capture, new ObjectMapper(), new ApiRequestGuard("service-secret"));
-        controller.runtimeTurn("service-secret", new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID,
+        result.set(controller.runtimeTurn("service-secret", new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID,
                 "allowed-key", "look", SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high", SELECTED_ENDPOINT_ID,
-                Instant.EPOCH.toString(), "openai", "gpt-5", "ROLE=RUNTIME_GM", null, List.of(allowedKey)));
+                Instant.EPOCH.toString(), "openai", "gpt-5", "ROLE=RUNTIME_GM", null, List.of(allowedKey))));
         var allowedSchema = adapter.get();
+        org.junit.jupiter.api.Assertions.assertFalse(allowedSchema.path("properties").path("combatEnemies")
+                .path("items").path("properties").has("abilities"));
+        org.junit.jupiter.api.Assertions.assertFalse(allowedSchema.path("properties").path("combatEnemies")
+                .path("items").path("properties").has("actions"));
         var schemaValidator = com.networknt.schema.SchemaRegistry.withDefaultDialect(com.networknt.schema.SpecificationVersion.DRAFT_2020_12)
                 .getSchema(allowedSchema);
-        var allowedResponse = providerCompatibleRuntimeResponse(new ObjectMapper(), "[\"" + allowedKey + "\"]");
-        var unknownResponse = providerCompatibleRuntimeResponse(new ObjectMapper(), "[\"RULEBOOK:other:page=1\"]");
+        var allowedResponse = providerCompatibleRuntimeResponse(new ObjectMapper(), "[\"E1\"]");
+        var unknownResponse = providerCompatibleRuntimeResponse(new ObjectMapper(), "[\"E2\"]");
         org.junit.jupiter.api.Assertions.assertTrue(schemaValidator.validate(allowedResponse).isEmpty());
         org.junit.jupiter.api.Assertions.assertFalse(schemaValidator.validate(unknownResponse).isEmpty());
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(allowedKey), result.get().checkProposal().evidenceKeys());
 
         var noEvidenceResponse = controller.runtimeTurn("service-secret", new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID,
                 "no-evidence", "look", SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high", SELECTED_ENDPOINT_ID,
                 Instant.EPOCH.toString(), "openai", "gpt-5", "ROLE=RUNTIME_GM", null, List.of()));
         org.junit.jupiter.api.Assertions.assertTrue(noEvidenceResponse.checkProposal().required());
         org.junit.jupiter.api.Assertions.assertEquals(2, adapter.get().path("properties").path("판정제안").path("anyOf").size());
+
+        controller.runtimeTurn("service-secret", new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID,
+                "enemy-sheet-contract", "전투 진입 전 적 캐릭터 시트 후보를 작성한다. 요청: enemy", SELECTED_ENDPOINT_ID,
+                "openai", "gpt-5", "high", SELECTED_ENDPOINT_ID, Instant.EPOCH.toString(), "openai", "gpt-5",
+                "ROLE=RUNTIME_GM", null, List.of()));
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "https://dnd-master.local/contracts/ai-game-master/v1/enemy-sheet-preparation-response.json",
+                adapter.get().path("$id").asText());
+        org.junit.jupiter.api.Assertions.assertTrue(adapter.get().path("properties").path("combatEnemies")
+                .path("items").path("properties").has("abilities"));
     }
 
     @Test
@@ -1183,9 +1443,7 @@ class TypedAgentContractControllerTest {
 
     @Test
     void opening_rejects_player_visible_text_written_only_in_a_foreign_language() {
-        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"양조장\",\"judgment\":\"안전함\","
-                + "\"narration\":\"The room is quiet.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
-                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},\"combatEnemies\":[]}");
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"narration\":\"The room is quiet.\"}");
         TypedAgentContractController controller = new TypedAgentContractController(
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
@@ -1253,46 +1511,32 @@ class TypedAgentContractControllerTest {
 
     @Test
     void opening_accepts_korean_text_with_names_abbreviations_and_dice_notation() {
-        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"Potent Brew 양조장\",\"judgment\":\"HP 변화 없이 DC 12 확인과 1d20 굴림을 기다립니다.\","
-                + "\"narration\":\"NPC Bob이 입구에서 기다립니다. 어떻게 하시겠어요?\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
-                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},\"combatEnemies\":[]}");
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"narration\":\"NPC Bob이 입구에서 기다립니다. 어떻게 하시겠어요?\"}");
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
         var response = controller.runtimeTurn("service-secret",
                 new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "SESSION_OPENING", List.of()));
 
-        org.junit.jupiter.api.Assertions.assertEquals("Potent Brew 양조장", response.scene());
-        org.junit.jupiter.api.Assertions.assertEquals("HP 변화 없이 DC 12 확인과 1d20 굴림을 기다립니다.", response.judgment());
+        org.junit.jupiter.api.Assertions.assertNull(response.situation());
         org.junit.jupiter.api.Assertions.assertEquals("NPC Bob이 입구에서 기다립니다. 어떻게 하시겠어요?", response.narration());
     }
 
     @Test
     void opening_accepts_original_language_internal_values_with_korean_narration() {
-        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> """
-                {"scene":"Wizard’s Tower Brewing Co.","judgment":"No check required",
-                 "narration":"양조장 입구에서 주인이 도움을 요청합니다. 어떻게 하시겠어요?",
-                 "situation":{"kind":"CONTINUE","location":"Wizard’s Tower Brewing Co.",
-                   "problem":"Rats in cellar","threat":"Supplies at risk","goal":"Investigate cellar",
-                   "basis":"FALLBACK","reference":"","required":true},
-                 "combatStart":false,"mapEntryRequested":false,"판정제안":{"필요":false},
-                 "combatEnemies":[{"mode":"INSTANT","enemyKey":"giant-rat","name":"Giant Rat","count":1}],
-                 "runtimeFacts":[{"subject":"Brewery owner","content":"Requested help"}]}
-                """);
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) ->
+                "{\"narration\":\"양조장 입구에서 주인이 도움을 요청합니다. 어떻게 하시겠어요?\"}");
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
         var response = controller.runtimeTurn("service-secret",
                 new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "op", "SESSION_OPENING", List.of()));
 
-        org.junit.jupiter.api.Assertions.assertEquals("Wizard’s Tower Brewing Co.", response.scene());
-        org.junit.jupiter.api.Assertions.assertEquals("No check required", response.judgment());
+        org.junit.jupiter.api.Assertions.assertNull(response.situation());
         org.junit.jupiter.api.Assertions.assertEquals("양조장 입구에서 주인이 도움을 요청합니다. 어떻게 하시겠어요?", response.narration());
     }
 
     @Test
     void opening_rejects_player_visible_text_without_korean_letters() {
-        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"scene\":\"양조장\",\"judgment\":\"안전함\","
-                + "\"narration\":\"123 !!!\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush")
-                + ",\"combatStart\":false,\"mapEntryRequested\":false,\"판정제안\":{\"필요\":false},\"combatEnemies\":[]}");
+        GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> "{\"narration\":\"123 !!!\"}");
         TypedAgentContractController controller = new TypedAgentContractController(
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 

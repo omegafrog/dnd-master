@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 
 from preprocessing_agent.pipeline.extraction_service import ExtractionApplicationService, PyMuPdfNativePdfAdapter
+from preprocessing_agent.adapters.hybrid_pdf import HybridPdfAdapter
 from preprocessing_agent.adapters.ocr import TesseractOcrAdapter
 from preprocessing_agent.ports.extraction import RenderedPage, normalize_ocr_blocks
 
@@ -243,7 +244,7 @@ def test_searchable_pages_are_published_when_other_pages_need_review(tmp_path, m
     assert text not in caplog.text
 
 
-def test_default_search_path_skips_structure_analyzers_and_keeps_page_searchable(tmp_path, monkeypatch, caplog):
+def test_default_search_path_keeps_reading_order_without_heading_or_publication_analysis(tmp_path, monkeypatch, caplog):
     monkeypatch.setenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true")
     caplog.set_level("INFO")
     text = "This page has usable text and page coordinates even if structural analysis crashes. " * 20
@@ -253,7 +254,6 @@ def test_default_search_path_skips_structure_analyzers_and_keeps_page_searchable
         calls.append("called")
         raise RuntimeError("structure analysis must be disabled")
     for target in (
-        "preprocessing_agent.pipeline.extraction_service.ReadingOrderPlanner.plan",
         "preprocessing_agent.pipeline.extraction_service.HeadingAssociator.analyze",
         "preprocessing_agent.pipeline.extraction_service.TableStructureDetector.detect",
         "preprocessing_agent.pipeline.extraction_service.LayoutValidationService.validate",
@@ -272,7 +272,7 @@ def test_default_search_path_skips_structure_analyzers_and_keeps_page_searchable
     assert chunks and all(span["page_number"] == 1 for chunk in chunks for span in chunk["source_spans"])
     assert all(span["bbox"] == [5.0, 5.0, 90.0, 95.0]
                for chunk in chunks for span in chunk["source_spans"])
-    assert "dev_preprocessing_layout" not in caplog.text
+    assert "route=geometry_reading_order_only" in caplog.text
     assert "dev_preprocessing_heading" not in caplog.text
     assert "dev_preprocessing_page stage=completed pageNumber=1" in caplog.text
     assert text not in caplog.text
@@ -338,8 +338,7 @@ def test_unresolved_table_structure_does_not_block_default_search_extraction(tmp
 def test_service_wires_optional_tesseract_adapter_by_default():
     service = ExtractionApplicationService()
     assert isinstance(service.ocr, TesseractOcrAdapter)
-    assert isinstance(service.native_pdf, PyMuPdfNativePdfAdapter)
-    assert service.native_pdf.analyze_structure is False
+    assert isinstance(service.native_pdf, HybridPdfAdapter)
 
 
 def test_search_native_pdf_adapter_skips_table_reconstruction(tmp_path, monkeypatch):
