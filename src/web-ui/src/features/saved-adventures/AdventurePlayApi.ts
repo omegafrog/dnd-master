@@ -11,6 +11,8 @@ export type CharacterSheet = {
   intelligence: number
   wisdom: number
   charisma: number
+  resources?: Record<string, { current: number; maximum: number; recoveryCondition: string; abilityIds: string[] }>
+  learnedAbilityIds?: string[]
 }
 
 type CharacterSheetResponse = {
@@ -18,6 +20,7 @@ type CharacterSheetResponse = {
   characterName: string
   edition: string
   derivedStatistics: string
+  characterState?: string
 }
 
 export type SavedAdventure = {
@@ -238,6 +241,13 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
         // Keep the detail view usable even when an older sheet has no derived JSON.
       }
       const scores = derived.abilityScores ?? {}
+      let resources: CharacterSheet['resources'] = {}
+      let learnedAbilityIds: string[] = []
+      try {
+        const state = JSON.parse(sheet.characterState ?? '{}') as { resources?: CharacterSheet['resources']; learnedAbilityIds?: string[] }
+        resources = state.resources ?? {}
+        learnedAbilityIds = state.learnedAbilityIds ?? []
+      } catch { /* Older sheets may not have runtime state yet. */ }
       return {
         characterSheetId: sheet.characterSheetId,
         name: sheet.characterName,
@@ -249,6 +259,8 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
         intelligence: scores.intelligence ?? 0,
         wisdom: scores.wisdom ?? 0,
         charisma: scores.charisma ?? 0,
+        resources,
+        learnedAbilityIds,
       }
     })
   }

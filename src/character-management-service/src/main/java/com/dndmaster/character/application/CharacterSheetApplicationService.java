@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 public final class CharacterSheetApplicationService {
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final java.util.logging.Logger LOGGER = java.util.logging.Logger.getLogger(CharacterSheetApplicationService.class.getName());
     private final CharacterSheetRepository repository;
     private final AdventureEditionHttpPort adventureEditionHttpPort;
     private final SessionCharacterPolicyPort sessionPolicyPort;
@@ -152,6 +153,112 @@ public final class CharacterSheetApplicationService {
     }
 
     private static String runtimeFingerprint(RuntimeCharacterMutation mutation) { return "RUNTIME|" + mutation; }
+
+    public CharacterSheet updateAbilityResource(CharacterSheetId id, SessionId sessionId, UUID ownerPlayerId,
+            String resourceId, List<String> abilityIds, int current, int maximum, String recoveryCondition,
+            UUID commandId, long expectedVersion) {
+        if (resourceId == null || resourceId.isBlank() || current < 0 || maximum < current || recoveryCondition == null || recoveryCondition.isBlank()) {
+            throw new IllegalArgumentException("유효한 자원 식별자와 현재량·최대량·회복 조건이 필요합니다.");
+        }
+        String idKey = resourceId.trim();
+        Objects.requireNonNull(commandId, "command id must not be null");
+        List<String> abilities = Objects.requireNonNull(abilityIds, "ability IDs must not be null").stream()
+                .map(value -> { if (value == null || value.isBlank()) throw new IllegalArgumentException("능력 식별자가 비어 있습니다."); return value.trim(); })
+                .distinct().toList();
+        String fingerprint = "RESOURCE|SET|" + idKey + "|" + abilities + "|" + current + "|" + maximum + "|" + recoveryCondition;
+        return applyResourceChange(id, sessionId, ownerPlayerId, commandId, expectedVersion, fingerprint, state -> {
+            ObjectNode resource = JSON.createObjectNode();
+            resource.put("current", current); resource.put("maximum", maximum); resource.put("recoveryCondition", recoveryCondition);
+            resource.set("abilityIds", JSON.valueToTree(abilities));
+            JsonNode existingResources = state.get("resources");
+            ObjectNode resources;
+            if (existingResources == null) resources = state.putObject("resources");
+            else if (existingResources.isObject()) resources = (ObjectNode) existingResources;
+            else throw new IllegalArgumentException("저장된 resources 값이 객체가 아닙니다.");
+            resources.set(idKey, resource);
+            java.util.LinkedHashSet<String> learned = new java.util.LinkedHashSet<>();
+            JsonNode existing = state.get("learnedAbilityIds");
+            if (existing != null && existing.isArray()) existing.forEach(value -> { if (value.isTextual()) learned.add(value.asText()); });
+            learned.addAll(abilities);
+            state.set("learnedAbilityIds", JSON.valueToTree(learned));
+        });
+    }
+
+    public CharacterSheet changeAbilityResource(CharacterSheetId id, SessionId sessionId, UUID ownerPlayerId,
+            String resourceId, int amount, String recoveryCondition, boolean recover, UUID commandId, long expectedVersion) {
+        if (resourceId == null || resourceId.isBlank() || amount < 1 || recover && (recoveryCondition == null || recoveryCondition.isBlank())) {
+            throw new IllegalArgumentException("유효한 자원 식별자와 수량이 필요합니다.");
+        }
+        String idKey = resourceId.trim();
+        Objects.requireNonNull(commandId, "command id must not be null");
+        String fingerprint = "RESOURCE|" + (recover ? "RECOVER|" + recoveryCondition : "CONSUME") + "|" + idKey + "|" + amount;
+        return applyResourceChange(id, sessionId, ownerPlayerId, commandId, expectedVersion, fingerprint, state -> {
+            JsonNode resources = state.get("resources");
+            JsonNode found = resources == null ? null : resources.get(idKey);
+            if (found == null || !found.isObject()) throw new IllegalArgumentException("자원을 찾을 수 없습니다.");
+            ObjectNode resource = (ObjectNode) found;
+            int current = resourceInt(resource, "current"), maximum = resourceInt(resource, "maximum");
+            if (current > maximum) throw new IllegalArgumentException("현재 자원이 최대량을 초과합니다.");
+            if (recover) {
+                if (!recoveryCondition.equals(resource.path("recoveryCondition").asText())) throw new IllegalArgumentException("회복 조건이 저장된 규칙과 일치하지 않습니다.");
+                resource.put("current", current + Math.min(amount, maximum - current));
+            } else {
+                if (current < amount) throw new IllegalArgumentException("자원이 부족합니다.");
+                resource.put("current", current - amount);
+            }
+        });
+    }
+
+    private CharacterSheet applyResourceChange(CharacterSheetId id, SessionId sessionId, UUID ownerPlayerId,
+            UUID commandId, long expectedVersion, String fingerprint, java.util.function.Consumer<ObjectNode> update) {
+        long started = System.nanoTime();
+        long actualVersion = -1;
+        if (resourceDiagnosticsEnabled()) LOGGER.log(java.util.logging.Level.INFO,
+                "dev_character_resource start commandId={0} expectedVersion={1} fingerprintLength={2}",
+                new Object[]{commandId, expectedVersion, fingerprint.length()});
+        try {
+            CharacterSheet sheet = load(id); actualVersion = sheet.version();
+            if (!sheet.sessionId().equals(sessionId) || !Objects.equals(sheet.ownerPlayerId(), ownerPlayerId)) throw new IllegalStateException("character sheet belongs to another session or owner");
+            if (!sessionPolicyPort.policyFor(sheet.adventureId(), sheet.id()).runtimeMutationsAllowed()) throw new IllegalStateException("runtime character mutations are not allowed");
+            CharacterSheet replay = repository.findByCommandId(commandId).orElse(null);
+            if (replay != null) {
+                if (!fingerprint.equals(replay.operationFingerprint())) throw new IllegalStateException("character sheet command id reused with different payload");
+                if (resourceDiagnosticsEnabled()) LOGGER.log(java.util.logging.Level.INFO, "dev_character_resource complete commandId={0} branch=replay version={1} elapsedMs={2}", new Object[]{commandId, replay.version(), (System.nanoTime() - started) / 1_000_000});
+                return replay;
+            }
+            if (sheet.version() != expectedVersion) throw new IllegalStateException("character sheet version does not match");
+            String storedState = sheet.data().characterState();
+            ObjectNode state = storedState == null || storedState.isBlank() ? JSON.createObjectNode() : object(storedState, "characterState");
+            update.accept(state);
+            String nextState = JSON.writeValueAsString(state);
+            CharacterSheetData data = sheet.data();
+            CharacterSheetData proposed = data instanceof CharacterSheetData2014 d
+                    ? new CharacterSheetData2014(d.characterName(), d.level(), d.inspiration(), d.race(), d.characterClass(), d.background(), d.startingAbilities(), d.derivedStatistics(), d.characterBuild(), nextState)
+                    : new CharacterSheetData2024(data.characterName(), data.level(), ((CharacterSheetData2024) data).heroicInspiration(), data.race(), data.characterClass(), data.background(), data.startingAbilities(), data.derivedStatistics(), data.characterBuild(), nextState);
+            sheet.applyUpdate(new CharacterSheetUpdate(sheet.edition(), proposed, InputMode.STRUCTURED_SHEET, commandId, expectedVersion), mutationRulesResolver.rulesFor(sheet.edition()));
+            repository.save(sheet, expectedVersion + 1, commandId, fingerprint);
+            sheet.markPersisted(expectedVersion + 1, commandId, fingerprint);
+            if (resourceDiagnosticsEnabled()) LOGGER.log(java.util.logging.Level.INFO, "dev_character_resource complete commandId={0} branch=updated expectedVersion={1} actualVersion={2} elapsedMs={3}", new Object[]{commandId, expectedVersion, sheet.version(), (System.nanoTime() - started) / 1_000_000});
+            return sheet;
+        } catch (RuntimeException e) {
+            if (resourceDiagnosticsEnabled()) LOGGER.log(java.util.logging.Level.WARNING, "dev_character_resource failed commandId={0} failure={1} expectedVersion={2} actualVersion={3} elapsedMs={4}", new Object[]{commandId, e.getClass().getSimpleName(), expectedVersion, actualVersion, (System.nanoTime() - started) / 1_000_000});
+            throw e;
+        } catch (Exception e) {
+            if (resourceDiagnosticsEnabled()) LOGGER.log(java.util.logging.Level.WARNING, "dev_character_resource failed commandId={0} failure={1} expectedVersion={2} actualVersion={3} elapsedMs={4}", new Object[]{commandId, e.getClass().getSimpleName(), expectedVersion, actualVersion, (System.nanoTime() - started) / 1_000_000});
+            throw new IllegalArgumentException("invalid character runtime state", e);
+        }
+    }
+
+    private static int resourceInt(ObjectNode resource, String key) {
+        JsonNode value = resource.get(key);
+        if (value == null || !value.isIntegralNumber() || value.intValue() < 0) throw new IllegalArgumentException("저장된 자원 " + key + " 값이 올바르지 않습니다.");
+        return value.intValue();
+    }
+
+    private static boolean resourceDiagnosticsEnabled() {
+        return Boolean.parseBoolean(System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED",
+                System.getenv("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED")));
+    }
 
     private static void resetDeathSavingThrows(ObjectNode state) {
         state.put("deathSavingThrowSuccesses", 0);

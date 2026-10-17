@@ -2,6 +2,7 @@ package com.dndmaster.character;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.character.application.*;
 import com.dndmaster.character.domain.*;
@@ -182,6 +183,99 @@ class CharacterSheetApplicationServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.applyRuntimeMutation(sheet.id(),
                 new SessionId(adventureId.value()), owner, mutation, UUID.randomUUID(), 2));
         assertEquals(2, repository.findById(sheet.id()).orElseThrow().version());
+    }
+
+    @Test
+    void stores_ability_ids_and_resource_state_and_applies_internal_recovery_once() throws Exception {
+        InMemoryRepository repository = new InMemoryRepository();
+        UUID owner = UUID.randomUUID();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(repository,
+                id -> SheetEdition.DND_5E_2014, id -> SessionCharacterPolicy.started("DND_5E_2014"));
+        AdventureId adventureId = adventure();
+        CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("마루", 1, false, "인간", "위저드", "학자", "INT=16", "{}",
+                        "{\"ownedEquipment\":[],\"ownedWeaponIds\":[],\"subclass\":\"\"}",
+                        "{\"equippedItems\":{\"armor\":\"\",\"shield\":false,\"mainHandWeaponId\":null,\"offHandWeaponId\":null,\"twoHandedWeaponId\":null}}"), 0, null, null);
+        repository.save(sheet);
+        CharacterSheet configured = service.updateAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "arcane-charge", List.of("ability:blink"), 2, 3, "LONG_REST", UUID.randomUUID(), 0);
+        UUID consumeCommand = UUID.randomUUID();
+        CharacterSheet consumed = service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "arcane-charge", 1, null, false, consumeCommand, 1);
+        CharacterSheet replay = service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "arcane-charge", 1, null, false, consumeCommand, 1);
+        assertEquals(consumed.version(), replay.version());
+        CharacterSheet recovered = service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "arcane-charge", 5, "LONG_REST", true, UUID.randomUUID(), 2);
+        var state = new com.fasterxml.jackson.databind.ObjectMapper().readTree(recovered.data().characterState());
+        assertEquals(3, state.path("resources").path("arcane-charge").path("current").intValue());
+        assertEquals("ability:blink", state.path("learnedAbilityIds").get(0).asText());
+        assertEquals("LONG_REST", state.path("resources").path("arcane-charge").path("recoveryCondition").asText());
+        assertEquals(1, new com.fasterxml.jackson.databind.ObjectMapper().readTree(configured.data().characterState())
+                .path("resources").path("arcane-charge").path("abilityIds").size());
+    }
+
+    @Test
+    void rejects_resource_overdraw_and_recovery_not_confirmed_for_saved_condition() {
+        InMemoryRepository repository = new InMemoryRepository();
+        UUID owner = UUID.randomUUID();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(repository,
+                id -> SheetEdition.DND_5E_2014, id -> SessionCharacterPolicy.started("DND_5E_2014"));
+        AdventureId adventureId = adventure();
+        CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("마루", 1, false, "인간", "위저드", "학자", "INT=16", "{}",
+                        "{\"ownedEquipment\":[],\"ownedWeaponIds\":[],\"subclass\":\"\"}",
+                        "{\"equippedItems\":{\"armor\":\"\",\"shield\":false,\"mainHandWeaponId\":null,\"offHandWeaponId\":null,\"twoHandedWeaponId\":null}}"), 0, null, null);
+        repository.save(sheet);
+        service.updateAbilityResource(sheet.id(), sheet.sessionId(), owner, "charge", List.of(), 0, 2, "LONG_REST", UUID.randomUUID(), 0);
+        assertThrows(IllegalArgumentException.class, () -> service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "charge", 1, null, false, UUID.randomUUID(), 1));
+        assertThrows(IllegalArgumentException.class, () -> service.changeAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "charge", 1, "SHORT_REST", true, UUID.randomUUID(), 1));
+        assertEquals(1, repository.findById(sheet.id()).orElseThrow().version());
+    }
+
+    @Test
+    void resource_diagnostics_identify_command_branch_and_expected_actual_versions() {
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        var logger = java.util.logging.Logger.getLogger(CharacterSheetApplicationService.class.getName());
+        var records = new java.util.ArrayList<String>();
+        var handler = new java.util.logging.Handler() {
+            @Override public void publish(java.util.logging.LogRecord record) {
+                records.add(java.text.MessageFormat.format(record.getMessage(), record.getParameters()));
+            }
+            @Override public void flush() {}
+            @Override public void close() {}
+        };
+        logger.addHandler(handler);
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            InMemoryRepository repository = new InMemoryRepository();
+            UUID owner = UUID.randomUUID();
+            CharacterSheetApplicationService service = new CharacterSheetApplicationService(repository,
+                    id -> SheetEdition.DND_5E_2014, id -> SessionCharacterPolicy.started("DND_5E_2014"));
+            AdventureId adventureId = adventure();
+            CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                    new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
+                    new CharacterSheetData2014("마루", 1, false, "인간", "위저드", "학자", "INT=16", "{}",
+                            "{\"ownedEquipment\":[],\"ownedWeaponIds\":[],\"subclass\":\"\"}",
+                            "{\"equippedItems\":{\"armor\":\"\",\"shield\":false,\"mainHandWeaponId\":null,\"offHandWeaponId\":null,\"twoHandedWeaponId\":null}}"), 0, null, null);
+            repository.save(sheet);
+            UUID commandId = UUID.randomUUID();
+            service.updateAbilityResource(sheet.id(), sheet.sessionId(), owner, "charge", List.of("ability:test"),
+                    1, 2, "LONG_REST", commandId, 0);
+            String output = String.join("\n", records);
+            assertTrue(output.contains(commandId.toString()));
+            assertTrue(output.contains("branch=updated"));
+            assertTrue(output.contains("expectedVersion=0"));
+            assertTrue(output.contains("actualVersion=1"));
+        } finally {
+            logger.removeHandler(handler);
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
     }
 
     @Test

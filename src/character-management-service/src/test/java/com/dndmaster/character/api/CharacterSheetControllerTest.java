@@ -68,6 +68,38 @@ class CharacterSheetControllerTest {
     }
 
     @Test
+    void exposes_resource_mutations_only_through_the_internal_contract() throws Exception {
+        UUID sheetId = UUID.fromString("11111111-1111-1111-1111-111111111111");
+        UUID sessionId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        UUID ownerId = UUID.fromString("33333333-3333-3333-3333-333333333333");
+        UUID commandId = UUID.fromString("44444444-4444-4444-4444-444444444444");
+        CharacterSheet sheet = new CharacterSheet(new CharacterSheetId(sheetId), new AdventureId(sessionId),
+                new SessionId(sessionId), ownerId, SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("Aria", 1, false, "Elf", "Wizard", "Sage", "INT=16", "{}", "{}", "{}"), 2, null, null);
+        when(service.updateAbilityResource(any(), any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt(),
+                org.mockito.ArgumentMatchers.anyInt(), any(), any(), org.mockito.ArgumentMatchers.anyLong())).thenReturn(sheet);
+        when(service.changeAbilityResource(any(), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), any(), org.mockito.ArgumentMatchers.anyLong())).thenReturn(sheet);
+
+        mockMvc.perform(put("/internal/v1/character-sheets/{sheetId}/resources/{resourceId}", sheetId, "arcane-charge")
+                        .header("X-Internal-Token", "internal").header("X-Session-ID", sessionId).header("X-Owner-Player-ID", ownerId)
+                        .header("Idempotency-Key", commandId).header("If-Match-Version", "2").contentType("application/json")
+                        .content("{\"abilityIds\":[\"ability:blink\"],\"current\":2,\"maximum\":3,\"recoveryCondition\":\"LONG_REST\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/internal/v1/character-sheets/{sheetId}/resources/{resourceId}/recover", sheetId, "arcane-charge")
+                        .header("X-Internal-Token", "internal").header("X-Session-ID", sessionId).header("X-Owner-Player-ID", ownerId)
+                        .header("Idempotency-Key", commandId).header("If-Match-Version", "2").contentType("application/json")
+                        .content("{\"amount\":1,\"recoveryCondition\":\"LONG_REST\"}"))
+                .andExpect(status().isOk());
+
+        verify(requestGuard, org.mockito.Mockito.times(2)).internal("internal");
+        verify(service).updateAbilityResource(new CharacterSheetId(sheetId), new SessionId(sessionId), ownerId,
+                "arcane-charge", java.util.List.of("ability:blink"), 2, 3, "LONG_REST", commandId, 2);
+        verify(service).changeAbilityResource(new CharacterSheetId(sheetId), new SessionId(sessionId), ownerId,
+                "arcane-charge", 1, "LONG_REST", true, commandId, 2);
+    }
+
+    @Test
     void mapsNestedBlueprintValuesIntoStartingAbilities() throws Exception {
         UUID adventureId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         CharacterSheet sheet = new CharacterSheet(

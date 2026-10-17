@@ -41,6 +41,14 @@ export function CharacterSheetView({ sheetId, api }: { sheetId: string; api: Adv
           ))}
         </div>
       </div>
+      <section aria-labelledby="sheet-resources-heading" className="character-sheet-resources">
+        <h2 id="sheet-resources-heading">배운 능력과 자원</h2>
+        {(sheet.learnedAbilityIds?.length ?? 0) > 0 && <ul aria-label="배운 능력 식별자">{sheet.learnedAbilityIds!.map(id => <li key={id}>{id}</li>)}</ul>}
+        {Object.entries(sheet.resources ?? {}).length === 0 ? <p>저장된 능력 자원이 없습니다.</p> : Object.entries(sheet.resources ?? {}).map(([id, resource]) => <article key={id}>
+          <h3>{id}</h3><p>{resource.current}/{resource.maximum} · 회복 조건 {resource.recoveryCondition}</p>
+          {resource.abilityIds.length > 0 && <p>연결된 능력: {resource.abilityIds.join(', ')}</p>}
+        </article>)}
+      </section>
     </section>
   )
 }

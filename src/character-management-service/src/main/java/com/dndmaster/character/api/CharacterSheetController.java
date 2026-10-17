@@ -174,6 +174,33 @@ public class CharacterSheetController {
                 new com.dndmaster.character.application.RuntimeCharacterMutation(request.hitPointDelta(), request.currencyDelta(), request.addItems(), request.removeItems(), request.consumeSpellSlotLevel(), request.deathSavingThrowRoll()), commandId, expectedVersion));
     }
 
+    @PutMapping("/internal/v1/character-sheets/{sheetId}/resources/{resourceId}")
+    CharacterSheetResponse updateAbilityResource(@PathVariable UUID sheetId, @PathVariable String resourceId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestHeader("X-Session-ID") UUID sessionId, @RequestHeader("X-Owner-Player-ID") UUID ownerPlayerId,
+            @RequestHeader("Idempotency-Key") UUID commandId, @RequestHeader("If-Match-Version") long expectedVersion,
+            @RequestBody AbilityResourceRequest request) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        requestGuard.internal(internalToken);
+        return CharacterSheetResponse.from(characterSheetService.updateAbilityResource(new CharacterSheetId(sheetId),
+                new SessionId(sessionId), ownerPlayerId, resourceId, request.abilityIds(), request.current(), request.maximum(),
+                request.recoveryCondition(), commandId, expectedVersion));
+    }
+
+    @PostMapping("/internal/v1/character-sheets/{sheetId}/resources/{resourceId}/{action}")
+    CharacterSheetResponse changeAbilityResource(@PathVariable UUID sheetId, @PathVariable String resourceId, @PathVariable String action,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestHeader("X-Session-ID") UUID sessionId, @RequestHeader("X-Owner-Player-ID") UUID ownerPlayerId,
+            @RequestHeader("Idempotency-Key") UUID commandId, @RequestHeader("If-Match-Version") long expectedVersion,
+            @RequestBody AbilityResourceChangeRequest request) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        requestGuard.internal(internalToken);
+        if (!action.equals("consume") && !action.equals("recover")) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        return CharacterSheetResponse.from(characterSheetService.changeAbilityResource(new CharacterSheetId(sheetId),
+                new SessionId(sessionId), ownerPlayerId, resourceId, request.amount(), request.recoveryCondition(),
+                action.equals("recover"), commandId, expectedVersion));
+    }
+
     @GetMapping("/internal/v1/character-sheets")
     List<CharacterSheetSummaryResponse> listCharacterSheets(
             @RequestParam UUID ownerPlayerId,
@@ -291,6 +318,9 @@ public class CharacterSheetController {
                     background, startingAbilities, null, null, null, null);
         }
     }
+
+    public record AbilityResourceRequest(List<String> abilityIds, int current, int maximum, String recoveryCondition) {}
+    public record AbilityResourceChangeRequest(int amount, String recoveryCondition) {}
     public record RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems,
             List<String> removeItems, int consumeSpellSlotLevel, Integer deathSavingThrowRoll) {
         public RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems, List<String> removeItems) {
