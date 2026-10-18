@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { bootstrapStartedAdventure, explorationGroupStorybooks, hasRuntimeCredentials, isStorybookReady,
-  sessionCreationPayload } from './support/runtime-adventure'
+  explorationGroupLearnedAbilityIds, sessionCreationPayload } from './support/runtime-adventure'
 
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
@@ -24,11 +24,15 @@ test('exploration group bootstrap uses a non-combat map fixture', () => {
   ])
 })
 
+test('group-flow fixture starts with a learned ability for adventure preparation', () => {
+  expect(explorationGroupLearnedAbilityIds).toEqual(['spell-node-2810-fireball'])
+})
+
 test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다', async ({ page, request }) => {
   test.skip(!hasRuntimeCredentials(), '실제 백엔드 로그인 정보가 필요합니다')
   test.setTimeout(0)
 
-  const adventure = await bootstrapStartedAdventure(request, 2, explorationGroupStorybooks)
+  const adventure = await bootstrapStartedAdventure(request, 2, explorationGroupStorybooks, explorationGroupLearnedAbilityIds)
   await page.goto('/#/login')
   await page.getByLabel('이메일').fill(email!)
   await page.getByLabel('비밀번호').fill(password!)

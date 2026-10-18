@@ -14,6 +14,7 @@ export const explorationGroupStorybooks = [
   { path: new URL('../fixtures/exploration-groups-main.pdf', import.meta.url).pathname, role: 'MAIN_SCENARIO' },
   { path: new URL('../fixtures/exploration-groups-map.pdf', import.meta.url).pathname, role: 'MAP' },
 ] as const
+export const explorationGroupLearnedAbilityIds = ['spell-node-2810-fireball'] as const
 const composeFile = `${root}src/infra/compose.yaml`
 
 type Auth = { ownerPlayerId: string, headers: Record<string, string> }
@@ -45,13 +46,14 @@ export function sessionCreationPayload(packageId: string, blueprintRevision: num
   return { scenarioPackageId: packageId, blueprintId: packageId, blueprintRevision, partySize, preparationId }
 }
 
-export async function bootstrapStartedAdventure(request: APIRequestContext, partyMemberCount = 1, sources = storybooks) {
+export async function bootstrapStartedAdventure(request: APIRequestContext, partyMemberCount = 1, sources = storybooks,
+    learnedAbilityIds: readonly string[] = []) {
   const auth = await login(request)
   const prepared = await createPreparedPackage(request, auth, sources)
   const session = await createSession(request, auth, prepared, partyMemberCount)
   let version = session.version
   for (let member = 0; member < partyMemberCount; member++) {
-    const sheetId = await createCharacter(request, auth, session.sessionId)
+    const sheetId = await createCharacter(request, auth, session.sessionId, member === 0 ? learnedAbilityIds : [])
     const party = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/party`, {
       headers: { ...auth.headers, 'If-Match-Version': String(version) },
       data: { characterSheetId: sheetId, controlMode: 'DIRECT', nameMutableAfterStart: false, raceMutableAfterStart: false,
@@ -59,6 +61,11 @@ export async function bootstrapStartedAdventure(request: APIRequestContext, part
     })
     expect(party.ok(), await party.text()).toBeTruthy()
     version = (await party.json() as { version: number }).version
+  }
+  if (learnedAbilityIds.length > 0) {
+    const provider = await request.get(`${backend}/api/v1/adventure-sessions/${session.sessionId}/gm-provider`, { headers: auth.headers })
+    expect(provider.ok(), await provider.text()).toBeTruthy()
+    expect(await provider.json()).toEqual(expect.objectContaining({ provider: expect.any(String), model: expect.any(String), version: expect.any(Number) }))
   }
   const adventureId = crypto.randomUUID()
   const started = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/start`, {
@@ -177,14 +184,14 @@ async function createSession(request: APIRequestContext, auth: Auth, prepared: P
   return response.json() as Promise<{ sessionId: string, version: number }>
 }
 
-async function createCharacter(request: APIRequestContext, auth: Auth, sessionId: string) {
+async function createCharacter(request: APIRequestContext, auth: Auth, sessionId: string, learnedAbilityIds: readonly string[] = []) {
   const equippedItems = { armor: '', shield: false, mainHandWeaponId: null, offHandWeaponId: null, twoHandedWeaponId: null }
   const response = await request.post(`${backend}/internal/v1/adventure-sessions/${sessionId}/character-sheets`, { headers: auth.headers, data: {
     ownerPlayerId: auth.ownerPlayerId, edition: 'DND_5E_2014', characterName: `기록 검증 파이터 ${Date.now()}`, level: 1, inspiration: false, race: '인간', characterClass: '파이터', background: '현자',
     startingAbilities: 'strength=15,dexterity=14,constitution=13,intelligence=12,wisdom=10,charisma=8',
     derivedStatistics: JSON.stringify({ armorClass: 999, hitPointMaximum: 999 }),
     characterBuild: JSON.stringify({ schemaVersion: 2, rulesetRevision: 1, subrace: '', subclass: '', skillProficiencies: ['운동', '지각'], expertise: [], equipmentSelections: { weapon: 'default' }, ruleChoices: {}, ownedEquipment: [], ownedWeaponIds: [], equippedItems, cantrips: [], learnedOrPreparedSpells: [] }),
-    characterState: JSON.stringify({ currentHitPoints: 1, temporaryHitPoints: 0, experience: 0, equippedItems, ammunition: {}, spellSlots: [] }), blueprintValues: {},
+    characterState: JSON.stringify({ currentHitPoints: 1, temporaryHitPoints: 0, experience: 0, equippedItems, ammunition: {}, spellSlots: [], learnedAbilityIds }), blueprintValues: {},
   } })
   expect(response.ok(), await response.text()).toBeTruthy()
   return (await response.json() as { characterSheetId: string }).characterSheetId
