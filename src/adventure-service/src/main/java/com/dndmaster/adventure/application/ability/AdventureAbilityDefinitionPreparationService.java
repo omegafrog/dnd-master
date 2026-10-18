@@ -86,7 +86,7 @@ public final class AdventureAbilityDefinitionPreparationService {
         if (sourceDefinition != null && !sourceDefinition.isNull()) {
             try { validateSourceInputSet(requestedAbilityIds, sourceDefinition); }
             catch (IllegalArgumentException invalid) {
-                diagnostic("failed", adventureId, sessionId, requestedAbilityIds.isEmpty() ? "none" : requestedAbilityIds.getFirst(), 0,
+                diagnostic("source_input_required", adventureId, sessionId, requestedAbilityIds.isEmpty() ? "none" : requestedAbilityIds.getFirst(), 0,
                         "one_source_definition_per_requested_ability", 0, "invalid_source_input_set",
                         "requestedAbilityCount=" + requestedAbilityIds.size() + ";actualInputType=" + nodeType(sourceDefinition));
                 throw new AbilityDefinitionSourceInputRequiredException(requestedAbilityIds.isEmpty() ? "none" : requestedAbilityIds.getFirst(), invalid);
@@ -112,8 +112,8 @@ public final class AdventureAbilityDefinitionPreparationService {
             List<RuntimeEvidence> evidence = List.of();
             Map<UUID, Long> authorizedSources = Map.of();
             EvidenceSearchScope sourceScope = null;
+            JsonNode proposed;
             try {
-                JsonNode proposed;
                 if (sourceDefinition != null && !sourceDefinition.isNull()) {
                     SelectedSources selected = selectedSources(adventureId, sessionId, owner);
                     authorizedSources = selected.authorizedSourceVersions();
@@ -128,10 +128,6 @@ public final class AdventureAbilityDefinitionPreparationService {
                     sourceScope = searchResult.sourceScope();
                     proposed = generateValidated(adventureId, sessionId, owner, abilityId, evidence, authorizedSources);
                 }
-                definitions.prepare(adventureId.value(), abilityId, proposed);
-                diagnostic("complete", adventureId, sessionId, abilityId, evidence.size(), "valid_definition_saved",
-                        (System.nanoTime() - started) / 1_000_000, "none",
-                        "sourceDefinitionFields=" + fieldInventory(proposed));
             } catch (RuntimeException failure) {
                 String failureKind = failure instanceof AbilityDefinitionValidationException invalid
                         ? "validation_code=" + invalid.code() : failure.getClass().getSimpleName();
@@ -140,6 +136,17 @@ public final class AdventureAbilityDefinitionPreparationService {
                         "sourceInputRequired=true;actualEvidenceCount=" + evidence.size());
                 throw new AbilityDefinitionSourceInputRequiredException(abilityId, failure);
             }
+            try {
+                definitions.prepare(adventureId.value(), abilityId, proposed);
+            } catch (RuntimeException failure) {
+                diagnostic("failed", adventureId, sessionId, abilityId, evidence.size(), "definition_saved",
+                        (System.nanoTime() - started) / 1_000_000, failure.getClass().getSimpleName(),
+                        "definitionValidationCompleted=true;definitionSaveCompleted=false");
+                throw failure;
+            }
+            diagnostic("complete", adventureId, sessionId, abilityId, evidence.size(), "valid_definition_saved",
+                    (System.nanoTime() - started) / 1_000_000, "none",
+                    "sourceDefinitionFields=" + fieldInventory(proposed));
         }
     }
 
@@ -214,7 +221,22 @@ public final class AdventureAbilityDefinitionPreparationService {
         if (DevelopmentDiagnostics.enabled())
             LOGGER.info("dev_ability_preparation outcome={} adventureId={} sessionId={} abilityId={} evidenceCount={} expected={} actual={} failureKind={} elapsedMs={} recovery={}",
                     outcome, adventure.value(), session.value(), abilityId, evidenceCount, expected, actual, failureKind,
-                    elapsedMs, "source_definition_resubmission");
+                    elapsedMs, recoveryFor(outcome));
+    }
+
+    private static String recoveryFor(String outcome) {
+        return switch (outcome) {
+            case "started" -> "prepare_definition";
+            case "complete" -> "none";
+            case "search_retry" -> "try_next_distinct_query";
+            case "source_type_search_failure" -> "search_other_selected_source_type";
+            case "evidence_query_complete" -> "try_next_distinct_query";
+            case "generation_retry" -> "retry_transient_provider_once";
+            case "structured_output_repair" -> "regenerate_with_validation_feedback";
+            case "validation_recovery_exhausted", "generation_failed", "source_input_required" -> "resubmit_source_definition";
+            case "failed" -> "resolve_failure_then_retry_operation";
+            default -> "continue_preparation_flow";
+        };
     }
 
     private static String expectedFieldInventory() {

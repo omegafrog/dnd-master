@@ -152,7 +152,7 @@ class AdventureAbilityDefinitionPreparationServiceTest {
                     .collect(java.util.stream.Collectors.joining("\n"));
             assertThat(logs).contains("outcome=structured_output_repair", "abilityId=ability:blink",
                     "validation_code=SCHEMA_OR_IDENTIFIER", "expectedFields=abilityId,name,actionTiming",
-                    "actualFields=abilityId");
+                    "actualFields=abilityId", "recovery=regenerate_with_validation_feedback");
         } finally {
             logger.detachAppender(appender);
             if (previous == null) System.clearProperty(DevelopmentDiagnostics.FLAG);
@@ -272,15 +272,24 @@ class AdventureAbilityDefinitionPreparationServiceTest {
             assertThatThrownBy(() -> service.prepare(new AdventureId(packageId), sessionKey,
                     new OwnerPlayerId(ownerId), List.of("ability:blink"), JSON.readTree("{\"abilityId\":\"other\"}")))
                     .isInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
+            org.mockito.Mockito.doThrow(new IllegalStateException("definition store unavailable"))
+                    .when(definitions).prepare(packageId, "ability:blink", validDefinition(documentId));
+            assertThatThrownBy(() -> service.prepare(new AdventureId(packageId), sessionKey,
+                    new OwnerPlayerId(ownerId), List.of("ability:blink"), validDefinition(documentId)))
+                    .isInstanceOf(IllegalStateException.class)
+                    .isNotInstanceOf(AbilityDefinitionSourceInputRequiredException.class);
 
             verify(evidenceSearch, org.mockito.Mockito.never()).search(any());
-            verify(definitions).prepare(packageId, "ability:blink", validDefinition(documentId));
+            verify(definitions, times(2)).prepare(packageId, "ability:blink", validDefinition(documentId));
             String logs = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage)
                     .collect(java.util.stream.Collectors.joining("\n"));
             assertThat(logs).contains("dev_ability_preparation", "outcome=started", "outcome=complete",
                     "adventureId=" + packageId, "sessionId=" + sessionId, "abilityId=ability:blink",
                     "expected=valid_definition_saved", "actual=sourceDefinitionFields=",
-                    "outcome=failed", "failureKind=invalid_source_input_set", "actualInputType=object");
+                    "outcome=source_input_required", "failureKind=invalid_source_input_set",
+                    "actualInputType=object", "recovery=resubmit_source_definition",
+                    "outcome=failed", "expected=definition_saved", "definitionSaveCompleted=false",
+                    "recovery=resolve_failure_then_retry_operation");
         } finally {
             logger.detachAppender(appender);
             if (previous == null) System.clearProperty(DevelopmentDiagnostics.FLAG);
