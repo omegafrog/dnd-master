@@ -57,17 +57,20 @@ public final class TypedAgentContractController {
     private final ObjectMapper mapper;
     private final ApiRequestGuard requestGuard;
     private final java.util.function.Function<RequestedGmProviderSelection, GmProviderSelectionResolver.EndpointResolution> selectionResolver;
+    private final boolean seededMapEntryFlowFixture;
+    private static final String SEEDED_MAP_ENTRY_ACTION = "테스트에서 준비한 다음 시츄에이션 안으로 들어갑니다.";
 
     @Autowired
     public TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper,
             @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
-            AgentEndpointRegistry endpointRegistry) {
+            AgentEndpointRegistry endpointRegistry,
+            @Value("${adventure.integration.scenario-preparation.seed-map-entry-flow:false}") boolean seededMapEntryFlowFixture) {
         this(adapter, mapper, new ApiRequestGuard(internalToken),
-                new GmProviderSelectionResolver(endpointRegistry)::resolveEndpoint);
+                new GmProviderSelectionResolver(endpointRegistry)::resolveEndpoint, seededMapEntryFlowFixture);
     }
 
     public TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard) {
-        this(adapter, mapper, requestGuard, request -> testResolution(request));
+        this(adapter, mapper, requestGuard, request -> testResolution(request), false);
     }
 
     TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard,
@@ -77,10 +80,22 @@ public final class TypedAgentContractController {
 
     TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard,
             java.util.function.Function<RequestedGmProviderSelection, GmProviderSelectionResolver.EndpointResolution> selectionResolver) {
+        this(adapter, mapper, requestGuard, selectionResolver, false);
+    }
+
+    TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard,
+            boolean seededMapEntryFlowFixture) {
+        this(adapter, mapper, requestGuard, request -> testResolution(request), seededMapEntryFlowFixture);
+    }
+
+    TypedAgentContractController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard,
+            java.util.function.Function<RequestedGmProviderSelection, GmProviderSelectionResolver.EndpointResolution> selectionResolver,
+            boolean seededMapEntryFlowFixture) {
         this.adapter = Objects.requireNonNull(adapter, "adapter must not be null");
         this.mapper = Objects.requireNonNull(mapper, "mapper must not be null");
         this.requestGuard = Objects.requireNonNull(requestGuard, "request guard must not be null");
         this.selectionResolver = Objects.requireNonNull(selectionResolver);
+        this.seededMapEntryFlowFixture = seededMapEntryFlowFixture;
     }
 
     private static GmProviderSelectionResolver.EndpointResolution testResolution(RequestedGmProviderSelection request) {
@@ -918,6 +933,23 @@ public final class TypedAgentContractController {
         try {
             if (runtimeDiagnosticsEnabled()) log.info("dev_gm_runtime_prompt_flow outcome=selected operationKey={} branch=single_call promptChars={} schemaChars={} evidenceAliasCount={}",
                     request.operationKey(), runtimePrompt.length(), runtimeSchema.toString().length(), evidenceKeyAliases.aliases().size());
+            if (seededMapEntryFlowFixture && SEEDED_MAP_ENTRY_ACTION.equals(request.action())) {
+                long fixtureStartedAt = System.nanoTime();
+                if (runtimeDiagnosticsEnabled()) log.info("dev_gm_map_entry_fixture stage=response outcome=started operationKey={} expectedEligibleCandidateCount=1 promptChars={} mapEntryRequested=true",
+                        request.operationKey(), runtimePrompt.length());
+                try {
+                    RuntimeTurnResponse response = parseRuntimeTurn(seededMapEntryResponse(runtimePrompt), enemySheetPreparation);
+                    if (runtimeDiagnosticsEnabled()) log.info("dev_gm_map_entry_fixture stage=response outcome=completed operationKey={} expectedEligibleCandidateCount=1 actualSelectedSituationId={} mapEntryRequested={} elapsedMs={}",
+                            request.operationKey(), response.situation().selectedSituationId(), response.mapEntryRequested(),
+                            java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - fixtureStartedAt));
+                    return response;
+                } catch (RuntimeException failure) {
+                    if (runtimeDiagnosticsEnabled()) log.warn("dev_gm_map_entry_fixture stage=response outcome=failed operationKey={} expectedEligibleCandidateCount=1 actualSelectedSituationId=unresolved failureClass={} recoveryAction=propagate elapsedMs={}",
+                            request.operationKey(), failure.getClass().getSimpleName(),
+                            java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - fixtureStartedAt));
+                    throw failure;
+                }
+            }
             RuntimeTurnResponse response = adapter.completeWithResolution(request.soloPlayerId(), request.operationKey(), runtimePrompt,
                     json -> {
                         try {
@@ -962,6 +994,39 @@ public final class TypedAgentContractController {
         } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
             return json;
         }
+    }
+
+    private String seededMapEntryResponse(String prompt) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("([^\\s,;()=]+)\\(상태=AVAILABLE, 선택 가능=true")
+                .matcher(prompt);
+        java.util.Set<String> eligible = new java.util.LinkedHashSet<>();
+        while (matcher.find()) eligible.add(matcher.group(1));
+        if (eligible.size() != 1) {
+            throw new IllegalStateException("map entry fixture requires exactly one eligible destination situation");
+        }
+        String selectedSituationId = eligible.iterator().next();
+        var response = mapper.createObjectNode()
+                .put("scene", "준비된 목적지")
+                .put("judgment", "일행이 준비된 목적지 안으로 들어갑니다.")
+                .put("narration", "문을 지나 준비된 목적지에 들어섰고, 일행의 발밑으로 차가운 석재 바닥이 이어집니다.")
+                .put("combatStart", false)
+                .put("mapEntryRequested", true);
+        response.putArray("combatEnemies");
+        response.putObject("situation")
+                .put("kind", "TRANSITION")
+                .put("location", "준비된 목적지")
+                .put("problem", "목적지에 도착했습니다.")
+                .put("goal", "목적지를 살펴봅니다.")
+                .put("basis", "FALLBACK")
+                .put("reference", "준비된 진입 시츄에이션")
+                .put("selectedSituationId", selectedSituationId)
+                .put("required", true);
+        response.putArray("runtimeFacts");
+        response.putObject("completion").put("complete", false);
+        response.putArray("citedEvidence");
+        response.putObject("판정제안").put("필요", false);
+        return response.toString();
     }
 
     private record EvidenceKeyAliases(List<String> keys, Map<String, String> aliasesByKey,
@@ -1581,9 +1646,13 @@ public final class TypedAgentContractController {
             throw new IllegalArgumentException("combatStart requires at least one structured combat enemy");
         }
         JsonNode situation = root.path("situation");
-        requireOnlyFields(situation, java.util.Set.of("kind", "location", "problem", "threat", "goal", "basis", "reference", "required"),
+        requireOnlyFields(situation, java.util.Set.of("kind", "location", "problem", "threat", "goal", "basis", "reference", "selectedSituationId", "required"),
                 java.util.Set.of("kind", "basis", "required"), "situation");
         if (!situation.isObject()) throw new IllegalArgumentException("situation is required and must be an object");
+        if (!situation.has("selectedSituationId")
+                || !(situation.path("selectedSituationId").isNull() || situation.path("selectedSituationId").isTextual())) {
+            throw new IllegalArgumentException("situation selectedSituationId is required and must be string or null");
+        }
         String basis = required(situation, "basis").toUpperCase(java.util.Locale.ROOT);
         if (!basis.equals("SCENARIO") && !basis.equals("RAG") && !basis.equals("FALLBACK")) {
             throw new IllegalArgumentException("invalid situation basis");
@@ -1597,8 +1666,9 @@ public final class TypedAgentContractController {
         String problem = optional(situation, "problem");
         String threat = optional(situation, "threat");
         String goal = optional(situation, "goal");
-        SituationResponse response = new SituationResponse(kind, location, problem, threat, goal, basis, situation.path("reference").asText(""),
-                situation.path("required").booleanValue());
+        String selectedSituationId = optional(situation, "selectedSituationId");
+        SituationResponse response = new SituationResponse(kind, location, problem, threat, goal, basis,
+                situation.path("reference").asText(""), selectedSituationId, situation.path("required").booleanValue());
         List<RuntimeFactResponse> runtimeFacts = new java.util.ArrayList<>();
         JsonNode runtimeFactsNode = root.path("runtimeFacts");
         if (!runtimeFactsNode.isMissingNode() && !runtimeFactsNode.isNull()) {
@@ -2204,7 +2274,7 @@ public final class TypedAgentContractController {
         public CombatEnemyActionResponse { citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys); }
     }
     public record SituationResponse(String kind, String location, String problem, String threat, String goal,
-                                    String basis, String reference, boolean required) { }
+                                    String basis, String reference, String selectedSituationId, boolean required) { }
     public record RuntimeFactResponse(String subject, String content) { }
     public record CompletionResponse(boolean complete, List<String> resolvedObjectiveIds,
             List<String> satisfiedResolutionCriteriaIds, String concludingScene) {

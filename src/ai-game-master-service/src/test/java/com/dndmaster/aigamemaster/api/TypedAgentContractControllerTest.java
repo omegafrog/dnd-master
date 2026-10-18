@@ -1402,6 +1402,37 @@ class TypedAgentContractControllerTest {
     }
 
     @Test
+    void runtime_turn_uses_opt_in_map_entry_fixture_for_exact_player_action(CapturedOutput output) {
+        String prompt = "선택 가능한 시츄에이션 후보=gm-supplemented:package:stage-1:destination(상태=AVAILABLE, 선택 가능=true, 의도=[REVELATION], 필수=false)";
+        var adapter = selectedAdapter((operation, value, requested) -> {
+            throw new AssertionError("the opt-in fixture must supply the deterministic response");
+        });
+        var controller = new TypedAgentContractController(adapter, new ObjectMapper(),
+                new ApiRequestGuard("service-secret"), true);
+        String previous = System.getProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+        System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", "true");
+        try {
+            var request = new TypedAgentContractController.RuntimeTurnRequest(SOLO_PLAYER_ID, "map-entry-fixture-op",
+                    "테스트에서 준비한 다음 시츄에이션 안으로 들어갑니다.", SELECTED_ENDPOINT_ID, "openai", "gpt-5", "high",
+                    SELECTED_ENDPOINT_ID, Instant.EPOCH.toString(), "openai", "gpt-5", prompt);
+            var response = controller.runtimeTurn("service-secret", request);
+
+            org.junit.jupiter.api.Assertions.assertEquals("TRANSITION", response.situation().kind());
+            org.junit.jupiter.api.Assertions.assertEquals("gm-supplemented:package:stage-1:destination",
+                    response.situation().selectedSituationId());
+            org.junit.jupiter.api.Assertions.assertTrue(response.mapEntryRequested());
+            org.junit.jupiter.api.Assertions.assertTrue(response.narration().contains("차가운 석재 바닥"));
+            org.assertj.core.api.Assertions.assertThat(output.getAll()).contains("dev_gm_map_entry_fixture stage=response outcome=started")
+                    .contains("operationKey=map-entry-fixture-op").contains("expectedEligibleCandidateCount=1")
+                    .contains("dev_gm_map_entry_fixture stage=response outcome=completed")
+                    .contains("mapEntryRequested=true");
+        } finally {
+            if (previous == null) System.clearProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED");
+            else System.setProperty("ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED", previous);
+        }
+    }
+
+    @Test
     void runtime_turn_reads_optional_runtime_facts_from_the_typed_response() {
         var adapter = selectedAdapter((operation, value, requested) -> "{\"scene\":\"양조장\",\"judgment\":\"협상 가능\",\"narration\":\"글로우킨이 조건을 제안합니다.\",\"situation\":"
                 + situation("SCENARIO", "cellar")
@@ -1458,7 +1489,7 @@ class TypedAgentContractControllerTest {
                 {"scene":"Brewery cellar","judgment":"No check required",
                  "narration":"The room is quiet.","situation":{"kind":"CONTINUE",
                    "location":"Brewery cellar","problem":"Rats in cellar","threat":"Supplies at risk",
-                   "goal":"Investigate cellar","basis":"FALLBACK","reference":"","required":true},
+                   "goal":"Investigate cellar","basis":"FALLBACK","reference":"","selectedSituationId":null,"required":true},
                  "combatStart":false,"mapEntryRequested":false,"판정제안":{"필요":false},
                  "combatEnemies":[],"runtimeFacts":[{"subject":"Brewery owner","content":"Requested help"}]}
                 """);
@@ -1476,7 +1507,7 @@ class TypedAgentContractControllerTest {
                  "narration":"NPC Bob이 지하실 입구에서 기다립니다. 1d20 굴림은 필요하지 않습니다.",
                  "situation":{"kind":"CONTINUE","location":"Brewery cellar",
                    "problem":"Rats in cellar","threat":"Supplies at risk","goal":"Investigate cellar",
-                   "basis":"FALLBACK","reference":"","required":true},
+                   "basis":"FALLBACK","reference":"","selectedSituationId":null,"required":true},
                  "combatStart":false,"mapEntryRequested":false,"판정제안":{"필요":false},
                  "combatEnemies":[],"runtimeFacts":[{"subject":"Brewery owner","content":"Requested help"}]}
                 """);
@@ -1495,7 +1526,7 @@ class TypedAgentContractControllerTest {
         GmCompletionAdapter adapter = selectedAdapter((operation, prompt, requested) -> """
                 {"scene":"양조장 지하실","judgment":"문제를 확인했다","narration":"쥐가 통로를 막고 있습니다.",
                  "situation":{"kind":"TRANSITION","problem":"쥐가 통로를 막고 있다",
-                   "basis":"FALLBACK","reference":"","required":true},
+                   "basis":"FALLBACK","reference":"","selectedSituationId":"optional-candidate","required":true},
                  "combatStart":false,"mapEntryRequested":false,"판정제안":{"필요":false},"combatEnemies":[]}
                 """);
         var controller = new TypedAgentContractController(adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
@@ -1507,6 +1538,7 @@ class TypedAgentContractControllerTest {
         org.junit.jupiter.api.Assertions.assertEquals("쥐가 통로를 막고 있다", response.situation().problem());
         org.junit.jupiter.api.Assertions.assertNull(response.situation().threat());
         org.junit.jupiter.api.Assertions.assertNull(response.situation().goal());
+        org.junit.jupiter.api.Assertions.assertEquals("optional-candidate", response.situation().selectedSituationId());
     }
 
     @Test
@@ -1659,7 +1691,7 @@ class TypedAgentContractControllerTest {
     private static String situation(String basis, String reference) {
         return "{\"kind\":\"TRANSITION\",\"location\":\"지하 저장고\",\"problem\":\"위협을 찾기\","
                 + "\"threat\":\"적대적인 생물\",\"goal\":\"안전 확보\",\"basis\":\"" + basis
-                + "\",\"reference\":\"" + reference + "\",\"required\":true}";
+                + "\",\"reference\":\"" + reference + "\",\"selectedSituationId\":null,\"required\":true}";
     }
 
 }

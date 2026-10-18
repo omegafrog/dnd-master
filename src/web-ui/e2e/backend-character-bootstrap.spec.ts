@@ -482,12 +482,27 @@ test('fresh database bootstraps an adventure, creates a character, and prepares 
   expect(started.status).toBe('STARTED')
   const adventureId = started.adventureId
   const opening = await readPersistedOpeningSituation(adventureId)
-  expect(opening.mapNeeded).toBe(true)
-  expect(opening.mapDefinitionId).toBeTruthy()
+  expect(opening.mapNeeded).toBe(false)
+  expect(opening.mapDefinitionId).toBeNull()
+  const situations = await readPersistedSituations(adventureId)
+  const destination = situations.find(situation => !situation.opening && situation.mapNeeded)
+  expect(destination, 'the seeded destination should require a map').toBeTruthy()
+  expect(situations.filter(situation => situation.mapNeeded)).toHaveLength(1)
   const storedMapDefinitions = JSON.parse(await readStoredMapDefinitions(packageId)) as Array<{ id: string }>
-  expect(storedMapDefinitions.map(map => map.id)).toContain(opening.mapDefinitionId)
+  expect(storedMapDefinitions.map(map => map.id)).toContain(destination!.mapDefinitionId)
 
   const internalHeaders = { 'X-Internal-Token': process.env.INTERNAL_SERVICE_TOKEN ?? 'local-development-internal-token' }
+  const beforeEntryMap = await request.get(
+    `${backend}/internal/v1/adventures/${adventureId}/combat-map/player-view?ownerId=${ownerPlayerId}`, { headers: internalHeaders },
+  )
+  expect(beforeEntryMap.status(), 'a mapless opening must not activate a map').toBe(404)
+  const playerAction = '테스트에서 준비한 다음 시츄에이션 안으로 들어갑니다.'
+  await page.getByLabel('무엇을 하시겠어요?').fill(playerAction)
+  await page.getByRole('button', { name: '행동 보내기' }).click()
+  await expect(page.getByLabel('대화 기록').getByText(playerAction, { exact: true })).toBeVisible()
+  await expect.poll(() => readPersistedCurrentSituationId(adventureId), { timeout: 180_000, intervals: [1000, 2000, 5000] })
+    .toBe(destination!.situationId)
+
   const mapResponse = await request.get(
     `${backend}/internal/v1/adventures/${adventureId}/combat-map/player-view?ownerId=${ownerPlayerId}`, { headers: internalHeaders },
   )
@@ -580,7 +595,33 @@ async function readPersistedOpeningSituation(adventureId: string) {
     '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
   ])
   expect(stdout.trim(), 'opening Situation should be persisted in the stage artifact').not.toBe('')
-  return JSON.parse(stdout.trim()) as { mapNeeded: boolean; mapDefinitionId: string | null }
+  return JSON.parse(stdout.trim()) as { situationId: string; mapNeeded: boolean; mapDefinitionId: string | null }
+}
+
+async function readPersistedSituations(adventureId: string) {
+  const sql = `SELECT artifact_json::text FROM adventure_detailed_stage WHERE adventure_id = '${adventureId}'::uuid AND EXISTS (SELECT 1 FROM jsonb_array_elements(artifact_json->'situations') AS candidate(value) WHERE value->>'opening' = 'true') ORDER BY stage_id LIMIT 1`
+  const { stdout } = await execFileAsync('docker', [
+    'compose', ...(process.env.COMPOSE_PROJECT_NAME ? ['-p', process.env.COMPOSE_PROJECT_NAME] : []),
+    '-f', composeFile, 'exec', '-T', 'postgres', 'psql', '--username', 'postgres', '--dbname', 'postgres',
+    '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
+  ])
+  expect(stdout.trim(), 'the first detailed stage should be persisted').not.toBe('')
+  return (JSON.parse(stdout.trim()) as { situations: Array<{
+    situationId: string
+    opening: boolean
+    mapNeeded: boolean
+    mapDefinitionId: string | null
+  }> }).situations
+}
+
+async function readPersistedCurrentSituationId(adventureId: string) {
+  const sql = `SELECT current_situation_id FROM adventure WHERE adventure_id = '${adventureId}'::uuid`
+  const { stdout } = await execFileAsync('docker', [
+    'compose', ...(process.env.COMPOSE_PROJECT_NAME ? ['-p', process.env.COMPOSE_PROJECT_NAME] : []),
+    '-f', composeFile, 'exec', '-T', 'postgres', 'psql', '--username', 'postgres', '--dbname', 'postgres',
+    '--tuples-only', '--no-align', '--set', 'ON_ERROR_STOP=1', '--command', sql,
+  ])
+  return stdout.trim()
 }
 
 async function readStoredMapDefinitions(packageId: string) {
