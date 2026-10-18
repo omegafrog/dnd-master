@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.application.combat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -27,9 +28,36 @@ import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageR
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.mockito.ArgumentCaptor;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.LoggerFactory;
+import com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics;
+import ch.qos.logback.classic.spi.ILoggingEvent;
 
 class PreparedMapEntryCommitGateTest {
+    private final Logger logger = (Logger) LoggerFactory.getLogger(PreparedMapEntryCommitGate.class);
+    private ListAppender<ILoggingEvent> diagnostics;
+    private String previousDiagnosticsFlag;
+
+    @BeforeEach
+    void enableDiagnosticCapture() {
+        previousDiagnosticsFlag = System.getProperty(DevelopmentDiagnostics.FLAG);
+        System.setProperty(DevelopmentDiagnostics.FLAG, "true");
+        diagnostics = new ListAppender<>();
+        diagnostics.start();
+        logger.addAppender(diagnostics);
+    }
+
+    @AfterEach
+    void restoreDiagnosticCapture() {
+        logger.detachAppender(diagnostics);
+        if (previousDiagnosticsFlag == null) System.clearProperty(DevelopmentDiagnostics.FLAG);
+        else System.setProperty(DevelopmentDiagnostics.FLAG, previousDiagnosticsFlag);
+    }
+
     @Test
     void deactivates_the_previous_map_when_the_destination_situation_is_mapless() {
         Adventure adventure = adventureAt("road");
@@ -59,6 +87,12 @@ class PreparedMapEntryCommitGateTest {
         UUID ownerId = adventure.ownerPlayerId().value();
         verify(mapPreparation).deactivateForMaplessSituation(adventureId, ownerId);
         verify(mapPreparation, never()).activatePrepared(any(), any(), any(), any(int.class), any());
+        assertTrue(diagnostics.list.stream().map(ILoggingEvent::getFormattedMessage)
+                .anyMatch(message -> message.contains("situation_map_entry")
+                        && message.contains("outcome=mapless")
+                        && message.contains("situationId=road-entry")
+                        && message.contains("expectedMapNeeded=false")
+                        && message.contains("actualMapDefinitionId=null")));
     }
 
     @Test
@@ -106,6 +140,12 @@ class PreparedMapEntryCommitGateTest {
                 ArgumentCaptor.forClass(CombatMapPreparationPort.ActivationContext.class);
         verify(mapPreparation, times(1)).activatePrepared(eq(adventureId), eq(ownerId), eq(ruleSetId), eq(1), context.capture());
         assertEquals(true, context.getValue().entryEvidence().contains("저장고 안에 도착했다."));
+        assertTrue(diagnostics.list.stream().map(ILoggingEvent::getFormattedMessage)
+                .anyMatch(message -> message.contains("operation=situation_map_entry_prepare")
+                        && message.contains("outcome=completed")
+                        && message.contains("situationId=cellar-entry")
+                        && message.contains("mapDefinitionId=" + mapId)
+                        && message.contains("entryEvidenceChars=")));
     }
 
     @Test
