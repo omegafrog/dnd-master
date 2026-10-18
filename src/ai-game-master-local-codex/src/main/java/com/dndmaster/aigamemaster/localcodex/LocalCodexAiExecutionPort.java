@@ -146,7 +146,8 @@ public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoClo
                     "mcp_servers.rag_search.default_tools_approval_mode=\"auto\"",
                     "mcp_servers.rag_search.tools.search_rules.approval_mode=\"auto\"",
                     "mcp_servers.rag_search.tools.find_scenario_elements.approval_mode=\"auto\"",
-                    "mcp_servers.rag_search.enabled_tools=[\"search_rules\",\"find_scenario_elements\"]",
+                    "mcp_servers.rag_search.tools.lookup_learned_ability.approval_mode=\"auto\"",
+                    "mcp_servers.rag_search.enabled_tools=[\"search_rules\",\"find_scenario_elements\",\"lookup_learned_ability\"]",
                     "mcp_servers.rag_search.startup_timeout_sec=20",
                     "mcp_servers.rag_search.tool_timeout_sec=150");
         }
@@ -170,10 +171,11 @@ public final class LocalCodexAiExecutionPort implements AiExecutionPort, AutoClo
                         + "args = " + tomlArray(args) + "\n"
                         + "enabled = true\nrequired = true\n"
                         + "default_tools_approval_mode = \"auto\"\n"
-                        + "enabled_tools = [\"search_rules\", \"find_scenario_elements\"]\n"
+                        + "enabled_tools = [\"search_rules\", \"find_scenario_elements\", \"lookup_learned_ability\"]\n"
                         + "startup_timeout_sec = 20\ntool_timeout_sec = 150\n"
                         + "[mcp_servers.rag_search.tools.search_rules]\napproval_mode = \"auto\"\n"
-                        + "[mcp_servers.rag_search.tools.find_scenario_elements]\napproval_mode = \"auto\"\n";
+                        + "[mcp_servers.rag_search.tools.find_scenario_elements]\napproval_mode = \"auto\"\n"
+                        + "[mcp_servers.rag_search.tools.lookup_learned_ability]\napproval_mode = \"auto\"\n";
                 Path temporary;
                 try {
                     temporary = java.nio.file.Files.createTempFile(configPath.getParent(), "config-", ".tmp",

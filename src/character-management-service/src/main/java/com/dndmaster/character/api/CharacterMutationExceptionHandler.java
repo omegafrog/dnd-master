@@ -11,6 +11,15 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 /** Translates aggregate rule rejections into a stable contract consumable by GM tools. */
 @RestControllerAdvice(assignableTypes = CharacterSheetController.class)
 public final class CharacterMutationExceptionHandler {
+    @ExceptionHandler(com.dndmaster.character.infrastructure.AbilitySourceInputRequiredException.class)
+    ResponseEntity<AbilitySourceInputRequiredResponse> handleAbilitySourceInputRequired(
+            com.dndmaster.character.infrastructure.AbilitySourceInputRequiredException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new AbilitySourceInputRequiredResponse("SOURCE_INPUT_REQUIRED", exception.getMessage()));
+    }
+
+    public record AbilitySourceInputRequiredResponse(String status, String message) {}
+
     @ExceptionHandler(CharacterMutationRejectedException.class)
     ResponseEntity<CharacterMutationRejectionResponse> handle(CharacterMutationRejectedException exception) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)

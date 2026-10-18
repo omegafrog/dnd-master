@@ -37,6 +37,31 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class AdventureSessionPreparationBindingTest {
+    @Test
+    void published_package_with_rulebook_action_definitions_can_create_session_without_package_review_gate() {
+        UUID packageId = UUID.randomUUID();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        var blueprint = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.PUBLISHED,
+                List.of(new CharacterCreationBlueprint.Field("class", List.of(), true, "RULEBOOK", List.of(), "EXTRACTED", List.of())),
+                List.of(), new BlueprintProvenance(1, 1, List.of("RULEBOOK"), "OTHER_SYSTEM",
+                        UUID.randomUUID(), 1));
+        ScenarioPackage scenarioPackage = ScenarioPackage.rehydrate(packageId, ScenarioBundleId.generate(), 1,
+                "runtime-ability-preparation", List.of(), List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of(), CompilationOutcome.COMPLETE),
+                CharacterLimit.defaultLimit(), blueprint).withSpellDefinitions(List.of(actionDefinition(true, true)));
+        ScenarioPackageRepository packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(packageId)).thenReturn(Optional.of(scenarioPackage));
+        AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
+        AdventureSessionApplicationService service = new AdventureSessionApplicationService(sessions, packages,
+                mock(AdventureRepository.class), mock(RuntimeBindingApplicationService.class),
+                mock(AdventureSessionStartCoordinator.class));
+
+        service.create(owner, packageId, packageId, 1, null, null, null);
+
+        verify(sessions).save(any(), eq(0L));
+        verify(packages, never()).findSpellDefinitionPreparation(any());
+    }
+
     private static com.dndmaster.adventure.domain.scenario.StructuredSpellDefinition actionDefinition(boolean required, boolean active) {
         var source = com.dndmaster.adventure.domain.scenario.BasicRulebookSpellInventory.load(
                 new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()), 1).getFirst();

@@ -1052,7 +1052,8 @@ public class RuntimeTurnApplicationService {
                 adventure.currentSituation().toString() + selectedSituationContext, longTermFactsForPrompt(adventure))
                 .withScenarioModel(scenarioPackage.scenarioModel())
                 .withRagSearchContext(ragSearchContext(playerActionEvidenceScope(command, adventure, binding,
-                        scenarioPackage, knowledgeDocumentIds(adventure, scenarioPackage), knownEvidenceIds)));
+                        scenarioPackage, knowledgeDocumentIds(adventure, scenarioPackage), knownEvidenceIds),
+                        command.adventureId(), command.turnCharacterSheetId()));
         boolean sessionOpening = SESSION_OPENING_ACTION.equals(command.action());
         if (sessionOpening && com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.enabled()) {
             LOGGER.info("dev_runtime_planning_path turnId={} mode=narration_only expectedCandidates=0 actualCandidates=0 situationProposal=false stateMutation=false recoveryAction=preserve_prepared_state",
@@ -1463,14 +1464,20 @@ public class RuntimeTurnApplicationService {
                 document.extractionVersion(), type);
     }
 
-    private static Map<String, Object> ragSearchContext(com.dndmaster.adventure.evidence.EvidenceSearchScope scope) {
-        return Map.of("ownerId", scope.ownerId(), "sessionId", scope.sessionId(),
-                "scenarioPackageId", scope.scenarioPackageId(), "stageKey", scope.stageKey(),
-                "actionIntent", scope.actionIntent(),
-                "scope", scope.documents().stream().map(document -> Map.of(
+    private static Map<String, Object> ragSearchContext(com.dndmaster.adventure.evidence.EvidenceSearchScope scope,
+            com.dndmaster.adventure.domain.adventure.AdventureId adventureId,
+            com.dndmaster.adventure.domain.adventure.CharacterSheetId characterSheetId) {
+        Map<String, Object> context = new java.util.HashMap<>();
+        context.put("adventureId", adventureId.value());
+        context.put("ownerId", scope.ownerId()); context.put("sessionId", scope.sessionId());
+        context.put("scenarioPackageId", scope.scenarioPackageId()); context.put("stageKey", scope.stageKey());
+        context.put("actionIntent", scope.actionIntent());
+        if (characterSheetId != null) context.put("characterSheetId", characterSheetId.value());
+        context.put("scope", scope.documents().stream().map(document -> Map.of(
                         "documentId", document.id(), "extractionVersion", document.extractionVersion(),
-                        "documentType", document.type())).toList(),
-                "activeLocators", scope.activeLocators());
+                        "documentType", document.type())).toList());
+        context.put("activeLocators", scope.activeLocators());
+        return Map.copyOf(context);
     }
 
     List<RuntimeEvidence> searchCombatStatEvidence(SubmitRuntimeTurnCommand command, Adventure adventure,

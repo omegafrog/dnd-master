@@ -182,9 +182,15 @@ public class CharacterSheetController {
             @RequestBody AbilityResourceRequest request) {
         if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
         requestGuard.internal(internalToken);
-        return CharacterSheetResponse.from(characterSheetService.updateAbilityResource(new CharacterSheetId(sheetId),
-                new SessionId(sessionId), ownerPlayerId, resourceId, request.abilityIds(), request.current(), request.maximum(),
-                request.recoveryCondition(), commandId, expectedVersion));
+        var sheetIdValue = new CharacterSheetId(sheetId);
+        var sessionIdValue = new SessionId(sessionId);
+        var updated = request.sourceDefinition() == null || request.sourceDefinition().isNull()
+                ? characterSheetService.updateAbilityResource(sheetIdValue, sessionIdValue, ownerPlayerId, resourceId,
+                        request.abilityIds(), request.current(), request.maximum(), request.recoveryCondition(), commandId, expectedVersion)
+                : characterSheetService.updateAbilityResource(sheetIdValue, sessionIdValue, ownerPlayerId, resourceId,
+                        request.abilityIds(), request.current(), request.maximum(), request.recoveryCondition(), commandId, expectedVersion,
+                        request.sourceDefinition());
+        return CharacterSheetResponse.from(updated);
     }
 
     @PostMapping("/internal/v1/character-sheets/{sheetId}/resources/{resourceId}/{action}")
@@ -319,7 +325,12 @@ public class CharacterSheetController {
         }
     }
 
-    public record AbilityResourceRequest(List<String> abilityIds, int current, int maximum, String recoveryCondition) {}
+    public record AbilityResourceRequest(List<String> abilityIds, int current, int maximum, String recoveryCondition,
+            com.fasterxml.jackson.databind.JsonNode sourceDefinition) {
+        public AbilityResourceRequest(List<String> abilityIds, int current, int maximum, String recoveryCondition) {
+            this(abilityIds, current, maximum, recoveryCondition, null);
+        }
+    }
     public record AbilityResourceChangeRequest(int amount, String recoveryCondition) {}
     public record RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems,
             List<String> removeItems, int consumeSpellSlotLevel, Integer deathSavingThrowRoll) {

@@ -16,6 +16,11 @@ public final class CharacterSheetApplicationService {
     private final AdventureEditionHttpPort adventureEditionHttpPort;
     private final SessionCharacterPolicyPort sessionPolicyPort;
     private final CharacterMutationRulesResolver mutationRulesResolver;
+    private AbilityLearningPreparationPort abilityLearningPreparationPort = (adventure, session, owner, sheet, abilities) -> {};
+
+    public void setAbilityLearningPreparationPort(AbilityLearningPreparationPort port) {
+        abilityLearningPreparationPort = Objects.requireNonNull(port);
+    }
 
     public CharacterSheetApplicationService(
             CharacterSheetRepository repository, AdventureEditionHttpPort adventureEditionHttpPort) {
@@ -157,6 +162,13 @@ public final class CharacterSheetApplicationService {
     public CharacterSheet updateAbilityResource(CharacterSheetId id, SessionId sessionId, UUID ownerPlayerId,
             String resourceId, List<String> abilityIds, int current, int maximum, String recoveryCondition,
             UUID commandId, long expectedVersion) {
+        return updateAbilityResource(id, sessionId, ownerPlayerId, resourceId, abilityIds, current, maximum,
+                recoveryCondition, commandId, expectedVersion, null);
+    }
+
+    public CharacterSheet updateAbilityResource(CharacterSheetId id, SessionId sessionId, UUID ownerPlayerId,
+            String resourceId, List<String> abilityIds, int current, int maximum, String recoveryCondition,
+            UUID commandId, long expectedVersion, JsonNode sourceDefinition) {
         long started = CharacterResourceDiagnostics.begin(LOGGER, String.valueOf(commandId), safeResourceId(resourceId),
                 abilityIds == null ? 0 : abilityIds.size(), expectedVersion);
         List<String> abilities;
@@ -181,8 +193,49 @@ public final class CharacterSheetApplicationService {
             throw failure;
         }
         String fingerprint = resourceCommandFingerprint(id, sessionId, ownerPlayerId,
-                "SET|" + idKey + "|" + abilities + "|" + current + "|" + maximum + "|" + recoveryCondition);
-        return applyResourceChange(id, sessionId, ownerPlayerId, commandId, expectedVersion, fingerprint, started, state -> {
+                "SET|" + idKey + "|" + abilities + "|" + current + "|" + maximum + "|" + recoveryCondition
+                        + (sourceDefinition == null || sourceDefinition.isNull() ? "" : "|SOURCE=" + sourceDefinition));
+        CharacterSheet existingSheet = load(id);
+        if (!existingSheet.sessionId().equals(sessionId) || !Objects.equals(existingSheet.ownerPlayerId(), ownerPlayerId))
+            throw new IllegalStateException("character sheet belongs to another session or owner");
+        if (!sessionPolicyPort.policyFor(existingSheet.adventureId(), existingSheet.id()).runtimeMutationsAllowed())
+            throw new IllegalStateException("runtime character mutations are not allowed");
+        CharacterSheet replay = repository.findByCommandId(commandId).orElse(null);
+        if (replay != null) {
+            if (!fingerprint.equals(replay.operationFingerprint())) throw new IllegalStateException("character sheet command id reused with different payload");
+            abilityLearningPreparationPort.activate(existingSheet.adventureId().value(), sessionId, ownerPlayerId, id, abilities);
+            return replay;
+        }
+        if (existingSheet.version() != expectedVersion) throw new IllegalStateException("character sheet version does not match");
+        java.util.Set<String> learnedBefore = new java.util.HashSet<>();
+        try {
+            JsonNode previous = JSON.readTree(existingSheet.data().characterState()).path("learnedAbilityIds");
+            if (previous.isArray()) previous.forEach(value -> { if (value.isTextual()) learnedBefore.add(value.asText()); });
+        } catch (java.io.IOException failure) {
+            throw new IllegalArgumentException("saved learned ability IDs are invalid", failure);
+        }
+        List<String> newlyLearned = abilities.stream().filter(value -> !learnedBefore.contains(value)).toList();
+        if (!newlyLearned.isEmpty()) {
+            if (CharacterResourceDiagnostics.enabled()) LOGGER.info("dev_flow operation=ability_definition_preparation outcome=started adventureId="
+                    + existingSheet.adventureId().value() + " sessionId=" + sessionId.value() + " characterSheetId=" + id.value()
+                    + " abilityCount=" + newlyLearned.size() + " expected=definitions_prepared_before_sheet_commit");
+            long preparationStarted = System.nanoTime();
+            try {
+                abilityLearningPreparationPort.prepare(existingSheet.adventureId().value(), sessionId, ownerPlayerId, id, newlyLearned, sourceDefinition);
+                if (CharacterResourceDiagnostics.enabled()) LOGGER.info("dev_flow operation=ability_definition_preparation outcome=completed adventureId="
+                        + existingSheet.adventureId().value() + " sessionId=" + sessionId.value() + " characterSheetId=" + id.value()
+                        + " abilityCount=" + newlyLearned.size() + " actual=definitions_prepared_before_sheet_commit elapsedMs="
+                        + ((System.nanoTime() - preparationStarted) / 1_000_000));
+            } catch (RuntimeException failure) {
+                if (CharacterResourceDiagnostics.enabled()) LOGGER.warning("dev_flow operation=ability_definition_preparation outcome=failed adventureId="
+                        + existingSheet.adventureId().value() + " sessionId=" + sessionId.value() + " characterSheetId=" + id.value()
+                        + " abilityCount=" + newlyLearned.size() + " failureClass=" + failure.getClass().getSimpleName()
+                        + " elapsedMs=" + ((System.nanoTime() - preparationStarted) / 1_000_000)
+                        + " recovery=retry_learning_command_before_sheet_commit");
+                throw failure;
+            }
+        }
+        CharacterSheet updated = applyResourceChange(id, sessionId, ownerPlayerId, commandId, expectedVersion, fingerprint, started, state -> {
             ObjectNode resource = JSON.createObjectNode();
             resource.put("current", current); resource.put("maximum", maximum); resource.put("recoveryCondition", recoveryCondition);
             resource.set("abilityIds", JSON.valueToTree(abilities));
@@ -198,6 +251,8 @@ public final class CharacterSheetApplicationService {
             learned.addAll(abilities);
             state.set("learnedAbilityIds", JSON.valueToTree(learned));
         });
+        abilityLearningPreparationPort.activate(existingSheet.adventureId().value(), sessionId, ownerPlayerId, id, newlyLearned);
+        return updated;
     }
 
     public CharacterSheet changeAbilityResource(CharacterSheetId id, SessionId sessionId, UUID ownerPlayerId,

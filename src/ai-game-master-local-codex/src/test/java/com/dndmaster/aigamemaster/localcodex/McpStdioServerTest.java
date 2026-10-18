@@ -64,4 +64,29 @@ class McpStdioServerTest {
             }
         }
     }
+
+    @Test
+    void learnedAbilityLookupKeepsTheActualAbilityIdAcrossTheLocalRelay() throws Exception {
+        try (ServerSocket listener = new ServerSocket(0); var executor = Executors.newSingleThreadExecutor()) {
+            var relay = executor.submit(() -> {
+                try (Socket peer = listener.accept();
+                     BufferedReader input = new BufferedReader(new java.io.InputStreamReader(peer.getInputStream(), StandardCharsets.UTF_8));
+                     BufferedWriter output = new BufferedWriter(new OutputStreamWriter(peer.getOutputStream(), StandardCharsets.UTF_8))) {
+                    input.readLine();
+                    assertThat(new ObjectMapper().readTree(input.readLine()).path("arguments").path("query").asText())
+                            .isEqualTo("ability-id-actual-42");
+                    output.write("{\"success\":true,\"result\":{\"status\":\"FOUND\"}}\n"); output.flush();
+                }
+                return null;
+            });
+            try (Socket client = new Socket("127.0.0.1", listener.getLocalPort());
+                 var stdIn = new BufferedReader(new StringReader("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"lookup_learned_ability\",\"arguments\":{\"abilityId\":\"ability-id-actual-42\"}}}\n"));
+                 var stdOutBytes = new ByteArrayOutputStream();
+                 var stdOut = new BufferedWriter(new OutputStreamWriter(stdOutBytes, StandardCharsets.UTF_8))) {
+                McpStdioServer.serve(client, "run-token", stdIn, stdOut);
+                relay.get();
+                assertThat(stdOutBytes.toString(StandardCharsets.UTF_8)).contains("FOUND").doesNotContain("isError");
+            }
+        }
+    }
 }

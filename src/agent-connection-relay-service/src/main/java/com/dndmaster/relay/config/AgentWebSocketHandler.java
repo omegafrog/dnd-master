@@ -112,7 +112,9 @@ public class AgentWebSocketHandler implements WebSocketHandler {
         String callId = node.path("callId").asText("");
         String tool = node.path("tool").asText("");
         String query = node.path("arguments").path("query").asText("");
-        if (!("search_rules".equals(tool) || "find_scenario_elements".equals(tool)) || requestId.isBlank() || callId.isBlank()) {
+        String abilityId = node.path("arguments").path("abilityId").asText("");
+        if (!("search_rules".equals(tool) || "find_scenario_elements".equals(tool)
+                || "lookup_learned_ability".equals(tool)) || requestId.isBlank() || callId.isBlank()) {
           logMcpRejected(requestId, tool, query, "INVALID_TOOL_CALL");
           return sendToolResult(transport, requestId, callId, false, null, "invalid MCP tool call");
         }
@@ -121,7 +123,7 @@ public class AgentWebSocketHandler implements WebSocketHandler {
           logMcpRejected(requestId, tool, query, "NO_ACTIVE_SCOPE");
           return sendToolResult(transport, requestId, callId, false, null, "no active authorized search scope");
         }
-        if ("find_scenario_elements".equals(tool) && scenarioElementLookup == null) {
+        if (!("search_rules".equals(tool)) && scenarioElementLookup == null) {
           logMcpRejected(requestId, tool, query, "LOOKUP_UNAVAILABLE");
           return sendToolResult(transport, requestId, callId, false, null, "scenario lookup is unavailable");
         }
@@ -131,12 +133,16 @@ public class AgentWebSocketHandler implements WebSocketHandler {
           return sendToolResult(transport, requestId, callId, false, null, "duplicate tool call");
         }
         long startedAt = System.nanoTime();
+        if ("lookup_learned_ability".equals(tool)) query = abilityId;
         if (diagnosticsEnabled()) org.slf4j.LoggerFactory.getLogger(AgentWebSocketHandler.class).info(
             "dev_mcp_tool stage=start requestId={} tool={} queryChars={} sessionId={} packageId={}", requestId, tool,
             query.length(), scope.path("sessionId").asText(""), scope.path("scenarioPackageId").asText(""));
+        final String requestedQuery = query;
         return Mono.fromCallable(() -> "search_rules".equals(tool)
-                ? ragToolSearch.search(soloPlayerId, scope, query)
-                : scenarioElementLookup.search(soloPlayerId, scope, query))
+                ? ragToolSearch.search(soloPlayerId, scope, requestedQuery)
+                : "find_scenario_elements".equals(tool)
+                    ? scenarioElementLookup.search(soloPlayerId, scope, requestedQuery)
+                    : scenarioElementLookup.lookupAbility(soloPlayerId, scope, requestedQuery))
             .subscribeOn(reactor.core.scheduler.Schedulers.boundedElastic())
             .flatMap(result -> {
               if (diagnosticsEnabled()) org.slf4j.LoggerFactory.getLogger(AgentWebSocketHandler.class).info(
@@ -149,7 +155,7 @@ public class AgentWebSocketHandler implements WebSocketHandler {
             .onErrorResume(failure -> {
               if (diagnosticsEnabled()) org.slf4j.LoggerFactory.getLogger(AgentWebSocketHandler.class).warn(
                   "dev_mcp_tool stage=failed requestId={} tool={} queryChars={} failureClass={} elapsedMs={} recovery=tool_error_returned",
-                  requestId, tool, query.length(), failure.getClass().getSimpleName(), (System.nanoTime() - startedAt) / 1_000_000);
+                  requestId, tool, requestedQuery.length(), failure.getClass().getSimpleName(), (System.nanoTime() - startedAt) / 1_000_000);
               return sendToolResult(transport, requestId, callId, false, null,
                   failure.getMessage() == null ? "MCP lookup failed" : failure.getMessage());
             })

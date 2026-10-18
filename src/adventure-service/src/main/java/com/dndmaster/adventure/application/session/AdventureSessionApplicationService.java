@@ -41,6 +41,7 @@ public class AdventureSessionApplicationService {
     private final StageArtifactPreparationPort stagePreparation;
     private final RuntimeTurnApplicationService runtimeTurnService;
     private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
+    private com.dndmaster.adventure.application.ability.AdventureAbilityDefinitionPreparationService abilityDefinitionPreparationService;
     private com.dndmaster.adventure.dice.AdventureDicePorts initiativeDicePorts;
     private static final CharacterSheetOwnershipPort MISSING_OWNERSHIP_PORT = (session, owner, sheet) -> { throw new IllegalStateException("character sheet ownership verifier is required"); };
     private static final SessionKnowledgeSetRepository MISSING_SESSION_KNOWLEDGE_SET_REPOSITORY = new SessionKnowledgeSetRepository() { public java.util.Optional<SessionKnowledgeSet> findBySessionId(SessionId id) { return java.util.Optional.empty(); } public void save(SessionKnowledgeSet set) {} };
@@ -59,6 +60,10 @@ public class AdventureSessionApplicationService {
     public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService, AdventureSessionStartCoordinator startCoordinator, CharacterSheetOwnershipPort characterSheetOwnershipPort, SessionKnowledgeSetRepository sessionKnowledgeSetRepository, AiCompanionGenerationPort aiCompanionGenerationPort, AiCompanionSheetCreationPort aiCompanionSheetCreationPort, CombatMapPreparationPort combatMapPreparationPort, StageArtifactPreparationPort stagePreparation, RuntimeTurnApplicationService runtimeTurnService, com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) { this.repository = Objects.requireNonNull(repository); this.packageRepository = Objects.requireNonNull(packageRepository); this.adventureRepository = Objects.requireNonNull(adventureRepository); this.runtimeBindingService = Objects.requireNonNull(runtimeBindingService); this.startCoordinator = Objects.requireNonNull(startCoordinator); this.characterSheetOwnershipPort = Objects.requireNonNull(characterSheetOwnershipPort); this.sessionKnowledgeSetRepository = Objects.requireNonNull(sessionKnowledgeSetRepository); this.aiCompanionGenerationPort = Objects.requireNonNull(aiCompanionGenerationPort); this.aiCompanionSheetCreationPort = Objects.requireNonNull(aiCompanionSheetCreationPort); this.combatMapPreparationPort = Objects.requireNonNull(combatMapPreparationPort); this.stagePreparation = Objects.requireNonNull(stagePreparation); this.runtimeTurnService = runtimeTurnService; this.combatLifecycleService = combatLifecycleService; }
     public void setInitiativeDicePorts(com.dndmaster.adventure.dice.AdventureDicePorts dicePorts) {
         this.initiativeDicePorts = Objects.requireNonNull(dicePorts);
+    }
+    public void setAbilityDefinitionPreparationService(
+            com.dndmaster.adventure.application.ability.AdventureAbilityDefinitionPreparationService service) {
+        this.abilityDefinitionPreparationService = Objects.requireNonNull(service);
     }
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId) {
         return create(owner, scenarioPackageId, scenarioPackageId, 1, null);
@@ -83,13 +88,6 @@ public class AdventureSessionApplicationService {
         var scenarioPackage = packageRepository.findById(scenarioPackageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
         var blueprint = scenarioPackage.characterCreationBlueprint();
         requirePublishedBlueprint(scenarioPackage, blueprintId, blueprintRevision);
-        boolean hasDeclaredActionDefinitions = !scenarioPackage.spellDefinitions().isEmpty()
-                || blueprint.provenance().selectedRulebookId() != null
-                || scenarioPackage.documents().stream().anyMatch(document ->
-                        "RULEBOOK".equalsIgnoreCase(document.documentType()));
-        if (hasDeclaredActionDefinitions && preparationId == null) {
-            throw new IllegalStateException("spell/action review preparation is required before session creation");
-        }
         int partySize = partySize(scenarioPackage.characterLimit(), requestedPartySize);
         SessionId sessionId = SessionId.generate();
         com.dndmaster.adventure.domain.scenario.SpellDefinitionReviewPreparation review = null;
@@ -344,6 +342,12 @@ public class AdventureSessionApplicationService {
         com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(
                 LOGGER, "session_start_knowledge_set", context,
                 () -> initializeSessionKnowledgeSetIfMissing(session, scenarioPackage));
+        if (abilityDefinitionPreparationService != null) {
+            Adventure abilityPrepAdventure = adventure;
+            com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(LOGGER,
+                    "session_start_ability_definitions", context,
+                    () -> abilityDefinitionPreparationService.prepareAtAdventureStart(abilityPrepAdventure));
+        }
         Adventure activeAdventure = adventure;
         var openingSituation = preparedStage.openingSituation();
         var initialMapDefinition = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.measure(

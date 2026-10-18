@@ -58,8 +58,14 @@ public class CharacterManagementApiConfiguration {
     @Bean
     CharacterSheetApplicationService characterSheetApplicationService(
             CharacterSheetRepository repository, AdventureEditionHttpPort adventureEditionHttpPort,
-            SessionCharacterPolicyPort sessionCharacterPolicyPort) {
-        return new CharacterSheetApplicationService(repository, adventureEditionHttpPort, sessionCharacterPolicyPort);
+            SessionCharacterPolicyPort sessionCharacterPolicyPort,
+            @Value("${character.integration.adventure.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${character.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            ObjectMapper objectMapper) {
+        var service = new CharacterSheetApplicationService(repository, adventureEditionHttpPort, sessionCharacterPolicyPort);
+        service.setAbilityLearningPreparationPort(new com.dndmaster.character.infrastructure.AdventureAbilityLearningPreparationGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), internalToken, objectMapper));
+        return service;
     }
 
     @Bean

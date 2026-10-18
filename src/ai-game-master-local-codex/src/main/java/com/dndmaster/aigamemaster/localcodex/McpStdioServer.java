@@ -38,13 +38,25 @@ public final class McpStdioServer {
                     continue;
                 } else if ("tools/list".equals(method)) {
                     result = JSON.readTree("{\"tools\":[{\"name\":\"search_rules\",\"description\":\"행동을 해결할 때 규칙 적용이나 규칙 근거가 필요하면 현재 모험에 선택된 룰북을 검색하세요.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1000}},\"required\":[\"query\"],\"additionalProperties\":false},\"annotations\":{\"readOnlyHint\":true,\"destructiveHint\":false,\"openWorldHint\":false}},{\"name\":\"find_scenario_elements\",\"description\":\"시나리오 자료의 인물·장소·목표·사건·관계·단서를 확인하세요. 현재 모험에 잠긴 자료에서 실제 요소 ID와 일치하는 내용만 반환합니다. 상황 근거를 SCENARIO로 정하는 모든 경우 반드시 먼저 호출하고, 반환된 elementId만 reference로 사용하세요. 결과가 없으면 시나리오 ID를 추측하지 마세요.\",\"inputSchema\":{\"type\":\"object\",\"properties\":{\"query\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":1000}},\"required\":[\"query\"],\"additionalProperties\":false},\"annotations\":{\"readOnlyHint\":true,\"destructiveHint\":false,\"openWorldHint\":false}}]}");
+                    ((com.fasterxml.jackson.databind.node.ArrayNode) result.path("tools")).add(JSON.createObjectNode()
+                            .put("name", "lookup_learned_ability")
+                            .put("description", "현재 모험에서 캐릭터가 실제로 배운 능력의 저장된 상세정보를 능력 ID로 조회합니다. 이름으로 ID를 추정하지 마세요.")
+                            .set("inputSchema", JSON.readTree("{\"type\":\"object\",\"properties\":{\"abilityId\":{\"type\":\"string\",\"minLength\":1,\"maxLength\":200}},\"required\":[\"abilityId\"],\"additionalProperties\":false}")));
                 } else if ("tools/call".equals(method)) {
                     String name = request.path("params").path("name").asText();
                     String query = request.path("params").path("arguments").path("query").asText("").trim();
-                    if (!("search_rules".equals(name) || "find_scenario_elements".equals(name)) || query.isBlank() || query.length() > 1000) {
+                    String abilityId = request.path("params").path("arguments").path("abilityId").asText("").trim();
+                    boolean abilityLookup = "lookup_learned_ability".equals(name);
+                    if (!("search_rules".equals(name) || "find_scenario_elements".equals(name) || abilityLookup)
+                            || abilityLookup && (abilityId.isBlank() || abilityId.length() > 200)
+                            || !abilityLookup && (query.isBlank() || query.length() > 1000)) {
                         result = JSON.readTree("{\"content\":[{\"type\":\"text\",\"text\":\"Search request is invalid.\"}],\"isError\":true}");
                     } else {
-                        relayOut.write(JSON.writeValueAsString(JSON.createObjectNode().put("tool", name).put("query", query))); relayOut.newLine(); relayOut.flush();
+                        var call = JSON.createObjectNode().put("tool", name);
+                        // The internal Codex relay carries one text argument; the WebSocket
+                        // adapter maps it back to the public tool's abilityId field.
+                        call.set("arguments", JSON.createObjectNode().put("query", abilityLookup ? abilityId : query));
+                        relayOut.write(JSON.writeValueAsString(call)); relayOut.newLine(); relayOut.flush();
                         JsonNode searched = JSON.readTree(relayIn.readLine());
                         boolean success = searched.path("success").asBoolean(false);
                         String text = success ? JSON.writeValueAsString(searched.path("result")) : searched.path("error").asText("RAG search failed");

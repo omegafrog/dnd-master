@@ -16,6 +16,65 @@ import org.junit.jupiter.api.Test;
 
 class CharacterSheetApplicationServiceTest {
     @Test
+    void ability_is_not_registered_when_adventure_preparation_fails() throws Exception {
+        InMemoryRepository repository = new InMemoryRepository();
+        UUID owner = UUID.randomUUID();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(repository,
+                id -> SheetEdition.DND_5E_2014, id -> SessionCharacterPolicy.started("DND_5E_2014"));
+        AdventureId adventureId = adventure();
+        CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("마루", 1, false, "인간", "위저드", "학자", "INT=16", "{}",
+                        "{}", "{}"), 0, null, null);
+        repository.save(sheet);
+        service.setAbilityLearningPreparationPort((adventure, session, player, character, abilities) -> {
+            assertEquals(adventureId.value(), adventure);
+            assertEquals(List.of("ability:blink"), abilities);
+            throw new IllegalStateException("definition preparation failed");
+        });
+
+        assertThrows(IllegalStateException.class, () -> service.updateAbilityResource(sheet.id(), sheet.sessionId(), owner,
+                "arcane-charge", List.of("ability:blink"), 2, 3, "LONG_REST", UUID.randomUUID(), 0));
+        assertEquals(0, repository.findById(sheet.id()).orElseThrow().version());
+        assertTrue(new com.fasterxml.jackson.databind.ObjectMapper().readTree(
+                repository.findById(sheet.id()).orElseThrow().data().characterState())
+                .path("learnedAbilityIds").isMissingNode());
+    }
+
+    @Test
+    void accepts_a_source_definition_on_the_same_learning_request_after_preparation_failure() throws Exception {
+        InMemoryRepository repository = new InMemoryRepository();
+        UUID owner = UUID.randomUUID();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(repository,
+                id -> SheetEdition.DND_5E_2014, id -> SessionCharacterPolicy.started("DND_5E_2014"));
+        AdventureId adventureId = adventure();
+        CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId,
+                new SessionId(adventureId.value()), owner, SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("마루", 1, false, "인간", "위저드", "학자", "INT=16", "{}",
+                        "{\"ownedEquipment\":[],\"ownedWeaponIds\":[],\"subclass\":\"\"}",
+                        "{\"equippedItems\":{\"armor\":\"\",\"shield\":false,\"mainHandWeaponId\":null,\"offHandWeaponId\":null,\"twoHandedWeaponId\":null}}"),
+                0, null, null);
+        repository.save(sheet);
+        var sourceDefinition = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode()
+                .put("abilityId", "ability:blink").put("source", "book page 12");
+        service.setAbilityLearningPreparationPort(new AbilityLearningPreparationPort() {
+            @Override public void prepare(UUID adventure, SessionId session, UUID player, CharacterSheetId character,
+                    List<String> abilities) { throw new AssertionError("source definition overload should be used"); }
+            @Override public void prepare(UUID adventure, SessionId session, UUID player, CharacterSheetId character,
+                    List<String> abilities, com.fasterxml.jackson.databind.JsonNode supplied) {
+                assertEquals("ability:blink", supplied.path("abilityId").asText());
+            }
+        });
+
+        CharacterSheet updated = service.updateAbilityResource(sheet.id(), sheet.sessionId(), owner, "arcane-charge",
+                List.of("ability:blink"), 2, 3, "LONG_REST", UUID.randomUUID(), 0, sourceDefinition);
+
+        assertEquals(1, updated.version());
+        assertEquals("ability:blink", new com.fasterxml.jackson.databind.ObjectMapper().readTree(updated.data().characterState())
+                .path("learnedAbilityIds").get(0).asText());
+    }
+
+    @Test
     void stores_death_save_progress_stabilizes_and_restores_hit_point_on_natural_twenty() throws Exception {
         InMemoryRepository repository = new InMemoryRepository();
         UUID owner = UUID.randomUUID();

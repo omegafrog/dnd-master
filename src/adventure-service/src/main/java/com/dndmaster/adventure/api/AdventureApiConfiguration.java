@@ -90,6 +90,25 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.ability.AdventureAbilityDefinitionRepository adventureAbilityDefinitionRepository(
+            org.springframework.jdbc.core.JdbcTemplate jdbc, ObjectMapper mapper) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureAbilityDefinitionRepository(jdbc, mapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.ability.AdventureAbilityDefinitionPreparationService adventureAbilityDefinitionPreparationService(
+            com.dndmaster.adventure.application.ability.AdventureAbilityDefinitionRepository definitions,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages,
+            SessionKnowledgeSetRepository knowledgeSets, AdventureSessionRepository sessions,
+            RuntimeCharacterSheetReadPort sheets, RuntimeEvidenceSearchPort evidenceSearch,
+            GmProviderBindingRepository providerBindings,
+            com.dndmaster.adventure.application.scenario.preparation.InitialSituationGmPort gm,
+            ObjectMapper mapper) {
+        return new com.dndmaster.adventure.application.ability.AdventureAbilityDefinitionPreparationService(
+                definitions, packages, knowledgeSets, sessions, sheets, evidenceSearch, providerBindings, gm, mapper);
+    }
+
+    @Bean
     com.dndmaster.adventure.application.combat.CombatEncounterRepository combatEncounterRepository(DataSource dataSource) {
         return new PostgresCombatEncounterRepository(dataSource);
     }
@@ -218,6 +237,7 @@ public class AdventureApiConfiguration {
             StageArtifactPreparationApplicationService stagePreparation,
             com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService runtimeTurnService,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService,
+            com.dndmaster.adventure.application.ability.AdventureAbilityDefinitionPreparationService abilityDefinitionPreparationService,
             @org.springframework.beans.factory.annotation.Qualifier("adventureDicePorts")
             com.dndmaster.adventure.dice.AdventureDicePorts initiativeDicePorts) {
         AdventureSessionApplicationService service = new AdventureSessionApplicationService(repository, packageRepository, adventureRepository,
@@ -225,6 +245,7 @@ public class AdventureApiConfiguration {
                 sessionKnowledgeSetRepository, aiCompanionGenerationPort, aiCompanionSheetCreationPort,
                 combatMapPreparationPort, stagePreparation, runtimeTurnService, combatLifecycleService);
         service.setInitiativeDicePorts(initiativeDicePorts);
+        service.setAbilityDefinitionPreparationService(abilityDefinitionPreparationService);
         return service;
     }
 

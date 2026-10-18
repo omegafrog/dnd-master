@@ -345,7 +345,7 @@ public final class CodexWebSocketAgent implements AutoCloseable {
             if (current == null) throw new IllegalStateException("agent WebSocket is disconnected");
             String message = objectMapper.writeValueAsString(java.util.Map.of(
                     "type", "mcp_tool_call", "requestId", requestId, "callId", callId,
-                    "tool", tool, "arguments", java.util.Map.of("query", query)));
+                    "tool", tool, "arguments", java.util.Map.of("lookup_learned_ability".equals(tool) ? "abilityId" : "query", query)));
             current.sendText(message, true).get(10, TimeUnit.SECONDS);
             return pending.get(150, TimeUnit.SECONDS);
         } finally {
