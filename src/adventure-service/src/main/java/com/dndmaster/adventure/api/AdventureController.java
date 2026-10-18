@@ -733,15 +733,22 @@ public class AdventureController {
         if (!phaseId.equals(request.commandId())) throw new ApiRequestGuard.ApiContractException(409, "EXPLORATION_ENVIRONMENT_PHASE_ID_MISMATCH");
         if (cycle.pendingEnvironmentProposal() == null && adventure.version() != request.expectedVersion())
             throw new ApiRequestGuard.ApiContractException(409, "STALE_EXPLORATION_CYCLE");
+        List<UUID> expectedFeatureIds = cycle.pendingEnvironmentProposal() == null ? List.of()
+                : cycle.pendingEnvironmentProposal().featureInteractions().stream()
+                        .map(com.dndmaster.adventure.domain.runtime.ExplorationCycle.FeatureInteraction::featureId).toList();
         long started = com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.begin(LOGGER,
                 "exploration_environment_phase", "adventureId=" + adventureId + " phaseId=" + phaseId
                         + " cycle=" + cycle.cycleNumber() + " phase=" + cycle.environmentPhase()
                         + " mapVersionExpected=" + request.expectedVersion()
                         + " expectedEnemyMoves=" + (cycle.pendingEnvironmentProposal() == null ? "pending"
                                 : cycle.pendingEnvironmentProposal().enemyMoves().size())
+                        + " expectedFeatureInteractions=" + (cycle.pendingEnvironmentProposal() == null ? "pending"
+                                : cycle.pendingEnvironmentProposal().featureInteractions().size())
+                        + " expectedFeatureIds=" + expectedFeatureIds
                         + " completedActions=" + cycle.completedEnvironmentActions().size());
         long actualMapVersion = -1;
         int actualEnemyMoves = cycle.completedEnvironmentActions().size();
+        int actualFeatureInteractions = 0;
         try {
             var map = combatMapViewPort.playerView(adventureId, owner)
                     .orElseThrow(() -> new ApiRequestGuard.ApiContractException(409, "EXPLORATION_MAP_UNAVAILABLE"));
@@ -752,7 +759,10 @@ public class AdventureController {
                 var generated = runtimeTurnService.planExplorationEnvironmentPhase(new AdventureId(adventureId),
                         new OwnerPlayerId(owner), phaseId, cycle.environmentPhase(), gmMap);
                 proposal = new com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentProposal(
-                        generated.narration(), generated.enemyMoves(), map.version(), generated.encounterRequested(), null);
+                        generated.narration(), generated.enemyMoves(), generated.featureInteractions(), map.version(),
+                        generated.encounterRequested(), null);
+                expectedFeatureIds = proposal.featureInteractions().stream()
+                        .map(com.dndmaster.adventure.domain.runtime.ExplorationCycle.FeatureInteraction::featureId).toList();
                 if (cycle.environmentPhase() != com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnvironmentPhase.ENEMIES_PATROLS_AND_DETECTION
                         && !proposal.enemyMoves().isEmpty()) {
                     throw new ApiRequestGuard.ApiContractException(502, "ENEMY_MOVEMENT_OUTSIDE_ENVIRONMENT_MOVEMENT_PHASE");
@@ -763,6 +773,10 @@ public class AdventureController {
                     var command = environmentMovementCommand(map.mapId(), owner, move, distance,
                             appliedEdition(adventure).edition(), map.version(), phaseId);
                     combatMapPort.validateEnemyForEnvironment(command);
+                }
+                for (var interaction : proposal.featureInteractions()) {
+                    combatMapPort.validateSpatialFeatureInteractionForEnvironment(map.mapId(), owner,
+                            interaction.featureId(), map.version(), environmentFeatureActionId(phaseId, interaction.featureId()));
                 }
                 cycle = cycle.withEnvironmentProposal(proposal);
                 adventure.updateExplorationState(new OwnerPlayerId(owner), adventure.version(), state.withCycle(cycle));
@@ -787,11 +801,28 @@ public class AdventureController {
                 adventureRepository.save(latest);
                 state = state.withCycle(cycle);
             }
+            for (var interaction : proposal.featureInteractions()) {
+                UUID actionId = environmentFeatureActionId(phaseId, interaction.featureId());
+                if (cycle.completedEnvironmentActions().contains(actionId)) { version++; continue; }
+                var applied = combatMapPort.interactSpatialFeatureForEnvironment(map.mapId(), owner,
+                        interaction.featureId(), version, actionId);
+                version = applied.version();
+                actualMapVersion = version;
+                actualFeatureInteractions++;
+                cycle = cycle.completeEnvironmentAction(actionId);
+                Adventure latest = ownedAdventure(adventureId);
+                latest.updateExplorationState(new OwnerPlayerId(owner), latest.version(), state.withCycle(cycle));
+                adventureRepository.save(latest);
+                state = state.withCycle(cycle);
+            }
             if (proposal.encounterRequested()) {
                 com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.complete(LOGGER,
                         "exploration_environment_phase", "adventureId=" + adventureId + " phaseId=" + phaseId
                                 + " encounterRequested=true enemyMovesExpected=" + proposal.enemyMoves().size()
                                 + " enemyMovesApplied=" + actualEnemyMoves + " elapsedSeconds=" + cycle.elapsedSeconds()
+                                + " featureInteractionsExpected=" + proposal.featureInteractions().size()
+                                + " featureInteractionsApplied=" + actualFeatureInteractions
+                                + " featureIds=" + expectedFeatureIds
                                 + " result=handoff_pending recoveryAction=await_committed_gm_combat_start", started);
                 Adventure latest = ownedAdventure(adventureId);
                 return new ExplorationEnvironmentPhaseResponse(latest.version(), cycle, proposal.narration());
@@ -814,6 +845,9 @@ public class AdventureController {
                             + " cycle=" + cycle.cycleNumber() + " phase=" + cycle.environmentPhase()
                             + " expectedEnemyMoves=" + proposal.enemyMoves().size()
                             + " actualEnemyMoves=" + actualEnemyMoves
+                            + " expectedFeatureInteractions=" + proposal.featureInteractions().size()
+                            + " actualFeatureInteractions=" + actualFeatureInteractions
+                            + " featureIds=" + expectedFeatureIds
                             + " mapVersionExpected=" + proposal.expectedMapVersion()
                             + " mapVersionActual=" + actualMapVersion
                             + " elapsedSeconds=" + cycle.elapsedSeconds()
@@ -828,6 +862,10 @@ public class AdventureController {
                             + " expectedEnemyMoves=" + (cycle.pendingEnvironmentProposal() == null ? "pending"
                                     : cycle.pendingEnvironmentProposal().enemyMoves().size())
                             + " actualEnemyMoves=" + actualEnemyMoves
+                            + " expectedFeatureInteractions=" + (cycle.pendingEnvironmentProposal() == null ? "pending"
+                                    : cycle.pendingEnvironmentProposal().featureInteractions().size())
+                            + " actualFeatureInteractions=" + actualFeatureInteractions
+                            + " expectedFeatureIds=" + expectedFeatureIds
                             + " elapsedSeconds=" + cycle.elapsedSeconds()
                             + " pendingProposal=" + (cycle.pendingEnvironmentProposal() != null)
                             + " recoveryAction=retry_same_phase_id", started, failure);
@@ -837,6 +875,9 @@ public class AdventureController {
 
     private static UUID environmentActionId(UUID phaseId, UUID tokenId) {
         return UUID.nameUUIDFromBytes((phaseId + ":enemy:" + tokenId).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+    private static UUID environmentFeatureActionId(UUID phaseId, UUID featureId) {
+        return UUID.nameUUIDFromBytes((phaseId + ":feature-interaction:" + featureId).getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
     private static com.dndmaster.adventure.application.combat.CombatMapEnemyMovementCommand environmentMovementCommand(UUID mapId, UUID owner,
             com.dndmaster.adventure.domain.runtime.ExplorationCycle.EnemyMove move, int distance, String edition,

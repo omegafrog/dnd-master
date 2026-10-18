@@ -913,8 +913,8 @@ public final class TypedAgentContractController {
 
     private ExplorationEnvironmentResponse parseExplorationEnvironment(String json) {
         JsonNode root = readObject(json);
-        requireOnlyFields(root, Set.of("narration", "enemyMoves", "encounterRequested"),
-                Set.of("narration", "enemyMoves", "encounterRequested"), "exploration environment");
+        requireOnlyFields(root, Set.of("narration", "enemyMoves", "featureInteractions", "encounterRequested"),
+                Set.of("narration", "enemyMoves", "featureInteractions", "encounterRequested"), "exploration environment");
         String narration = required(root, "narration");
         JsonNode encounterRequestedNode = root.path("encounterRequested");
         if (!encounterRequestedNode.isBoolean()) throw new IllegalArgumentException("encounterRequested must be a boolean");
@@ -940,16 +940,31 @@ public final class TypedAgentContractController {
             }
             moves.add(new EnvironmentEnemyMove(tokenId, positions));
         }
-        return new ExplorationEnvironmentResponse(narration, moves, encounterRequestedNode.booleanValue());
+        JsonNode interactionsNode = root.path("featureInteractions");
+        if (!interactionsNode.isArray() || interactionsNode.size() > 100)
+            throw new IllegalArgumentException("featureInteractions must be an array of at most 100 items");
+        var interactions = new ArrayList<EnvironmentFeatureInteraction>();
+        var featureIds = new java.util.HashSet<java.util.UUID>();
+        for (JsonNode interaction : interactionsNode) {
+            requireOnlyFields(interaction, Set.of("featureId"), Set.of("featureId"), "environment feature interaction");
+            java.util.UUID featureId;
+            try { featureId = java.util.UUID.fromString(required(interaction, "featureId")); }
+            catch (IllegalArgumentException invalid) { throw new IllegalArgumentException("environment featureId must be a UUID", invalid); }
+            if (!featureIds.add(featureId)) throw new IllegalArgumentException("featureInteractions featureId must be unique");
+            interactions.add(new EnvironmentFeatureInteraction(featureId));
+        }
+        return new ExplorationEnvironmentResponse(narration, moves, interactions, encounterRequestedNode.booleanValue());
     }
 
     public record ExplorationEnvironmentRequest(java.util.UUID soloPlayerId, String operationKey,
             java.util.UUID endpointId, String provider, String model, String reasoning,
             java.util.UUID effectiveEndpointId, String effectiveEndpointVersion, String effectiveProvider,
             String effectiveModel, String prompt) { }
-    public record ExplorationEnvironmentResponse(String narration, List<EnvironmentEnemyMove> enemyMoves, boolean encounterRequested) {
-        public ExplorationEnvironmentResponse { enemyMoves = List.copyOf(enemyMoves); }
+    public record ExplorationEnvironmentResponse(String narration, List<EnvironmentEnemyMove> enemyMoves,
+            List<EnvironmentFeatureInteraction> featureInteractions, boolean encounterRequested) {
+        public ExplorationEnvironmentResponse { enemyMoves = List.copyOf(enemyMoves); featureInteractions = List.copyOf(featureInteractions); }
     }
+    public record EnvironmentFeatureInteraction(java.util.UUID featureId) { }
     public record EnvironmentEnemyMove(java.util.UUID tokenId, List<EnvironmentPosition> path) {
         public EnvironmentEnemyMove { path = List.copyOf(path); }
     }

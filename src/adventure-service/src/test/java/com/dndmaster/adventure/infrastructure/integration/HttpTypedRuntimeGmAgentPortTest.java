@@ -135,7 +135,7 @@ class HttpTypedRuntimeGmAgentPortTest {
                 .withBody("{\"endpointId\":\"" + endpointId + "\",\"endpointVersion\":\"1970-01-01T00:00:00Z\","
                         + "\"provider\":\"codex-cli\",\"model\":\"gpt-5.6-luna\",\"reasoning\":\"medium\"}")));
         server.stubFor(post(urlEqualTo("/internal/gm/exploration-environment")).willReturn(aResponse().withStatus(200)
-                .withBody("{\"narration\":\"적대적 접촉이 발생해 전투로 넘어갑니다.\",\"enemyMoves\":[],\"encounterRequested\":true}")));
+                .withBody("{\"narration\":\"적대적 접촉이 발생해 전투로 넘어갑니다.\",\"enemyMoves\":[],\"featureInteractions\":[],\"encounterRequested\":true}")));
         GmContextEnvelope context = new GmContextEnvelope(AdventureId.generate(), new OwnerPlayerId(ownerId),
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
                 new AdventureContext("복도", "조용한 통로", "", ""), null, "환경 순환",

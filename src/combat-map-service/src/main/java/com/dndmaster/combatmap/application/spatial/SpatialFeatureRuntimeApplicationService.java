@@ -39,6 +39,23 @@ public final class SpatialFeatureRuntimeApplicationService {
         return act(mapId, owner, tokenId, cell, expectedVersion, commandId, "INTERACT", runtime::interact);
     }
 
+    public void validateEnvironmentInteraction(MapId mapId, MapOwnerId owner, UUID featureId, long expectedVersion) {
+        VersionedOwnedCombatMap state = owned(mapId, owner);
+        requireVersion(state, expectedVersion);
+        runtime.validateFeatureInteraction(state.map(), featureId);
+    }
+
+    public SpatialRuntimeResult interactFeatureForEnvironment(MapId mapId, MapOwnerId owner, UUID featureId,
+            long expectedVersion, UUID commandId) {
+        VersionedOwnedCombatMap state = owned(mapId, owner);
+        String fingerprint = fingerprint(mapId, owner, "ENVIRONMENT_INTERACT", featureId);
+        CombatMap replay = replay(state, owner, commandId, fingerprint);
+        if (replay != null) return result(replay, List.of());
+        requireVersion(state, expectedVersion);
+        List<String> events = runtime.interactFeature(state.map(), featureId);
+        return save(state, owner, commandId, fingerprint, events);
+    }
+
     public SpatialRuntimeResult combatTurnStart(MapId mapId, MapOwnerId owner, long expectedVersion, UUID commandId) {
         VersionedOwnedCombatMap state = owned(mapId, owner);
         String fingerprint = fingerprint(mapId, owner, "COMBAT_TURN_START", commandId);

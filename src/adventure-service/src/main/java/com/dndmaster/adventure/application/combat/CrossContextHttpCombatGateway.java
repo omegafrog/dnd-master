@@ -475,6 +475,31 @@ public final class CrossContextHttpCombatGateway
     @Override public void validateEnemyForEnvironment(CombatMapEnemyMovementCommand command) {
         environmentEnemyMove(command, true);
     }
+
+    @Override public CombatMapSpatialResult interactSpatialFeatureForEnvironment(java.util.UUID mapId,
+            java.util.UUID ownerId, java.util.UUID featureId, long expectedVersion, java.util.UUID commandId) {
+        return spatialRequest(mapId, "environment-interact", commandId,
+                new EnvironmentSpatialActionRequest(ownerId, featureId, expectedVersion, commandId));
+    }
+
+    @Override public void validateSpatialFeatureInteractionForEnvironment(java.util.UUID mapId,
+            java.util.UUID ownerId, java.util.UUID featureId, long expectedVersion, java.util.UUID commandId) {
+        try {
+            String body = objectMapper.writeValueAsString(new EnvironmentSpatialActionRequest(ownerId, featureId, expectedVersion, commandId));
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId
+                            + "/spatial/environment-interact/validate"))
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300)
+                throw new CrossContextCallException("environment spatial feature validation failed with status " + response.statusCode());
+        } catch (IOException exception) {
+            throw new CrossContextCallException("environment spatial feature validation transport failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("environment spatial feature validation interrupted", exception);
+        }
+    }
     private long environmentEnemyMove(CombatMapEnemyMovementCommand command, boolean validateOnly) {
         try {
             String body = objectMapper.writeValueAsString(new EnvironmentEnemyMovementRequest(command.ownerPlayerId(),
@@ -822,6 +847,8 @@ public final class CrossContextHttpCombatGateway
             long expectedVersion, java.util.UUID commandId) {}
     private record MovementCancelRequest(java.util.UUID operationId, java.util.UUID commandId) {}
     private record SpatialTurnRequest(java.util.UUID ownerId, long expectedVersion, java.util.UUID commandId) {}
+    private record EnvironmentSpatialActionRequest(java.util.UUID ownerId, java.util.UUID featureId,
+            long expectedVersion, java.util.UUID commandId) {}
     private record GameTimeRequest(java.util.UUID ownerId, java.util.UUID adventureId, long ruleTurn,
             java.util.UUID causeId, long expectedVersion) {}
     private record AiStateRequest(

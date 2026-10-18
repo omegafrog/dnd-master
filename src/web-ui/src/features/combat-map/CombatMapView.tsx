@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
-import type { AdventurePlayApi, CombatMapView as CombatMapState, ExplorationGroup, MapBoundary, MapBoundaryProposal, MapMovementResult } from '../saved-adventures/AdventurePlayApi'
+import type { AdventurePlayApi, CombatMapView as CombatMapState, ExplorationCycle, ExplorationGroup, MapBoundary, MapBoundaryProposal, MapMovementResult } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
 import { MapGridAlignmentEditor } from './MapGridAlignmentEditor'
 import { MapCropEditor } from './MapCropEditor'
@@ -54,6 +54,7 @@ function logMapZoom(previous: number, zoom: number, outcome: 'changed' | 'reset'
 export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false, preparationMode = false, movementRemaining, onPreparationComplete, aimInteraction }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean; preparationMode?: boolean; movementRemaining?: number; onPreparationComplete?: () => void | Promise<void>; aimInteraction?: CombatAimMapInteraction }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [explorationGroups, setExplorationGroups] = useState<ExplorationGroup[]>([])
+  const [explorationCycle, setExplorationCycle] = useState<ExplorationCycle | null>(null)
   const [explorationVersion, setExplorationVersion] = useState<number | null>(null)
   const [explorationBusy, setExplorationBusy] = useState(false)
   const [splitMemberIds, setSplitMemberIds] = useState<Record<string, string>>({})
@@ -207,7 +208,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     if (preparationMode || !api.getExplorationGroups) return
     let active = true
     void api.getExplorationGroups(adventureId).then(result => {
-      if (active) { setExplorationGroups(result.groups); setExplorationVersion(result.version) }
+      if (active) { setExplorationGroups(result.groups); setExplorationVersion(result.version); setExplorationCycle(result.cycle ?? null) }
     }).catch(error => { if (active) setMessage(error instanceof Error ? error.message : '탐험 그룹을 불러오지 못했습니다.') })
     return () => { active = false }
   }, [adventureId, api, preparationMode, refreshToken])
@@ -232,6 +233,28 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       diagnosticEvent('exploration_groups_save', { outcome: 'failed', groupCount: next.length, failureClass: error instanceof Error ? error.name : 'UnknownError', elapsedMs: Math.round(performance.now() - started) })
     } finally { setExplorationBusy(false) }
   }
+
+  async function updateExplorationCycle(action: () => Promise<{ version: number; groups: ExplorationGroup[]; cycle?: ExplorationCycle | null }>) {
+    if (explorationBusy) return
+    const started = performance.now()
+    setExplorationBusy(true)
+    diagnosticEvent('exploration_cycle_ui', { outcome: 'started', phase: explorationCycle?.phase ?? 'NOT_STARTED', elapsedSeconds: explorationCycle?.elapsedSeconds ?? 0 })
+    try {
+      const updated = await action()
+      setExplorationVersion(updated.version)
+      setExplorationGroups(updated.groups)
+      setExplorationCycle(updated.cycle ?? null)
+      setMap(await api.getCombatMap(adventureId))
+      diagnosticEvent('exploration_cycle_ui', { outcome: 'completed', phase: updated.cycle?.phase ?? 'NOT_STARTED', elapsedSeconds: updated.cycle?.elapsedSeconds ?? 0, elapsedMs: Math.round(performance.now() - started) })
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '탐험 진행을 저장하지 못했습니다.')
+      diagnosticEvent('exploration_cycle_ui', { outcome: 'failed', phase: explorationCycle?.phase ?? 'NOT_STARTED', elapsedSeconds: explorationCycle?.elapsedSeconds ?? 0, failureClass: error instanceof Error ? error.name : 'UnknownError', elapsedMs: Math.round(performance.now() - started) })
+    } finally { setExplorationBusy(false) }
+  }
+
+  const currentExplorationGroupId = explorationCycle?.phase === 'GROUP_TURNS' && !explorationCycle.pendingMovementEvent
+    ? explorationCycle.groupOrder.find(id => !explorationCycle.completedGroups.includes(id)) ?? null
+    : null
 
   async function chooseCell(cell: { x: number; y: number }) {
     if (!map || !selectedToken) return
@@ -849,6 +872,34 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
       {!layoutEditing && tacticalMap}
       {!preparationMode && explorationGroups.length > 0 && api.saveExplorationGroups && <section className="exploration-groups" aria-label="탐험 그룹 관리">
         <h3>탐험 그룹과 대열</h3>
+        {api.startExplorationCycle && api.finishExplorationGroupTurn && api.resolveExplorationMovementEvent && api.advanceExplorationEnvironment && explorationVersion !== null && <section aria-label="탐험 순환">
+          {!explorationCycle ? <button type="button" disabled={explorationBusy} onClick={() => {
+            const commandId = createMapCommandIdentity().commandId
+            void updateExplorationCycle(() => api.startExplorationCycle!(adventureId, explorationVersion, commandId))
+          }}>탐험 순환 시작</button> : <>
+            <p role="status">탐험 순환 {explorationCycle.cycleNumber ?? ''} · 지난 시간 {explorationCycle.elapsedSeconds}초 · {explorationCycle.phase === 'GROUP_TURNS' ? '그룹 이동' : `환경 진행: ${explorationCycle.environmentPhase}`}</p>
+            {explorationCycle.pendingMovementEvent && <div role="alert" aria-label="이동 중단 사건">
+              <p>이동 중단: {explorationCycle.pendingMovementEvent.cause} · 위치 ({explorationCycle.pendingMovementEvent.finalPosition.x},{explorationCycle.pendingMovementEvent.finalPosition.y})</p>
+              {explorationCycle.pendingMovementEvent.publicEvents.length > 0 && <p>공개된 결과: {explorationCycle.pendingMovementEvent.publicEvents.join(', ')}</p>}
+              <button type="button" disabled={explorationBusy} onClick={() => void updateExplorationCycle(() => api.resolveExplorationMovementEvent!(adventureId, explorationCycle.pendingMovementEvent!.id, explorationVersion))}>사건을 해결하고 다음 그룹으로</button>
+            </div>}
+            {currentExplorationGroupId && <div>
+              <p>현재 이동 차례: {explorationGroups.find(group => group.id === currentExplorationGroupId)?.members.map(member => member.characterSheetId.slice(0, 8)).join(', ') ?? '그룹'}</p>
+              <button type="button" disabled={explorationBusy} onClick={() => {
+                const commandId = createMapCommandIdentity().commandId
+                void updateExplorationCycle(() => api.finishExplorationGroupTurn!(adventureId, currentExplorationGroupId, explorationVersion, commandId))
+              }}>현재 그룹 차례 완료</button>
+            </div>}
+            {explorationCycle.phase === 'ENVIRONMENT' && !explorationCycle.pendingMovementEvent && <div>
+              {explorationCycle.pendingEnvironmentProposal?.narration && <p>{explorationCycle.pendingEnvironmentProposal.narration}</p>}
+              {explorationCycle.pendingEnvironmentProposal?.encounterRequested && !explorationCycle.pendingEnvironmentProposal.linkedCombatEncounterId
+                ? <p role="alert">GM이 적대적 조우 전환을 요청했습니다. 모험 진행을 이어가면 일반 전투 시작 절차로 연결됩니다.</p>
+                : <button type="button" disabled={explorationBusy} onClick={() => {
+                  void updateExplorationCycle(() => api.advanceExplorationEnvironment!(adventureId, explorationVersion, explorationCycle.currentPhaseCommandId))
+                }}>환경 단계 진행</button>}
+            </div>}
+          </>}
+        </section>}
         {explorationGroups.map(group => {
           const token = map?.tokens?.find(item => item.id === group.mapTokenId)
           return <fieldset key={group.id}>

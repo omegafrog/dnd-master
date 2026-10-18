@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { CharacterSheetView } from '../character/CharacterSheetView'
 import { RoleDiceRoller } from '../dice/RoleDiceRoller'
-import { HttpAdventurePlayApi, type AdventurePlayApi, type CombatMapView as CombatMapState, type ExplorationGroup } from '../saved-adventures/AdventurePlayApi'
+import { HttpAdventurePlayApi, type AdventurePlayApi, type CombatMapView as CombatMapState, type ExplorationCycle, type ExplorationGroup } from '../saved-adventures/AdventurePlayApi'
 import { animateCommittedMovement, boundariesInStroke, CombatMapView } from './CombatMapView'
 import type { CombatAimMapInteraction } from './CombatMapView'
 import * as diagnostics from '../../shared/developmentDiagnostics'
@@ -84,6 +84,47 @@ it('saves formation changes and exposes a split at the group token current posit
     [expect.objectContaining({ members: expect.arrayContaining([
       expect.objectContaining({ characterSheetId: 'sheet-1' }), expect.objectContaining({ characterSheetId: 'sheet-2' }),
     ]) })]))
+})
+
+it('starts an exploration cycle and advances group then environment through the map UI', async () => {
+  const api = fakeApi()
+  const group = { id: 'g1', mapTokenId: 'p1', speed: 20, members: [
+    { characterSheetId: 'sheet-1', formation: 'FRONT' as const, speed: 20 },
+  ] }
+  let version = 2
+  let cycle: ExplorationCycle | null = null
+  api.getExplorationGroups = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.saveExplorationGroups = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.startExplorationCycle = vi.fn(async () => {
+    version++
+    cycle = { id: 'cycle-1', cycleNumber: 1, currentPhaseCommandId: 'phase-1', groupOrder: ['g1'], completedGroups: [], phase: 'GROUP_TURNS',
+      environmentPhase: 'ENEMIES_PATROLS_AND_DETECTION', elapsedSeconds: 0 }
+    return { version, groups: [group], cycle }
+  })
+  api.finishExplorationGroupTurn = vi.fn(async () => {
+    version++
+    cycle = { ...cycle!, completedGroups: ['g1'], phase: 'ENVIRONMENT' }
+    return { version, groups: [group], cycle }
+  })
+  api.resolveExplorationMovementEvent = vi.fn(async () => ({ version, groups: [group], cycle }))
+  api.advanceExplorationEnvironment = vi.fn(async () => {
+    version++
+    cycle = { ...cycle!, completedGroups: [], phase: 'GROUP_TURNS', elapsedSeconds: 6 }
+    return { version, groups: [group], cycle }
+  })
+  const user = userEvent.setup()
+
+  render(<CombatMapView adventureId="a1" api={api} />)
+
+  await user.click(await screen.findByRole('button', { name: '탐험 순환 시작' }))
+  expect(await screen.findByText(/지난 시간 0초 · 그룹 이동/)).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '현재 그룹 차례 완료' }))
+  await user.click(await screen.findByRole('button', { name: '환경 단계 진행' }))
+
+  expect(api.startExplorationCycle).toHaveBeenCalledWith('a1', 2, expect.any(String))
+  expect(api.finishExplorationGroupTurn).toHaveBeenCalledWith('a1', 'g1', 3, expect.any(String))
+  expect(api.advanceExplorationEnvironment).toHaveBeenCalledWith('a1', 4, 'phase-1')
+  expect(await screen.findByText(/지난 시간 6초 · 그룹 이동/)).toBeInTheDocument()
 })
 
 it('animates only the server committed traversed path', async () => {

@@ -23,6 +23,14 @@ public final class SpatialFeatureRuntimeService {
         return triggerResolver.resolve(map, SpatialTrigger.INTERACT, cell);
     }
 
+    public List<String> interactFeature(CombatMap map, java.util.UUID featureId) {
+        return triggerResolver.resolveFeatureInteraction(map, featureId);
+    }
+
+    public void validateFeatureInteraction(CombatMap map, java.util.UUID featureId) {
+        triggerResolver.validateFeatureInteraction(map, featureId);
+    }
+
     public List<String> combatTurnStart(CombatMap map) {
         return triggerResolver.resolveCombatTurnStart(map);
     }

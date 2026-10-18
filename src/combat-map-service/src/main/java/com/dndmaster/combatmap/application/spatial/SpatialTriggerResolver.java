@@ -26,6 +26,29 @@ public final class SpatialTriggerResolver {
         return List.copyOf(events);
     }
 
+    public List<String> resolveFeatureInteraction(CombatMap map, UUID featureId) {
+        SpatialFeature feature = validateFeatureInteraction(map, featureId);
+        GridPosition cell = feature.cells().stream().sorted(Comparator.comparingInt(GridPosition::x)
+                .thenComparingInt(GridPosition::y)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("spatial feature has no cells"));
+        return resolveFeature(feature, SpatialTrigger.INTERACT, cell);
+    }
+
+    public SpatialFeature validateFeatureInteraction(CombatMap map, UUID featureId) {
+        Objects.requireNonNull(map, "combat map must not be null");
+        Objects.requireNonNull(featureId, "spatial feature id must not be null");
+        SpatialFeature feature = map.spatialFeatures().stream().filter(candidate -> candidate.id().equals(featureId))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("spatial feature does not exist"));
+        if (!feature.triggers().contains(SpatialTrigger.INTERACT))
+            throw new IllegalArgumentException("spatial feature does not allow interaction");
+        if (feature.type() == com.dndmaster.combatmap.domain.SpatialFeatureType.MAGICAL_AREA_EFFECT)
+            throw new IllegalArgumentException("magical area effects do not support interaction");
+        if (!feature.canTrigger() || feature.visibility() == SpatialFeatureVisibility.HIDDEN)
+            throw new IllegalArgumentException("spatial feature is not currently interactable");
+        if (feature.cells().isEmpty()) throw new IllegalArgumentException("spatial feature has no cells");
+        return feature;
+    }
+
     /** Applies an observation only to features whose player-owned check succeeded. */
     public List<String> resolveObserved(CombatMap map, SpatialTrigger trigger, GridPosition cell,
             java.util.Set<java.util.UUID> successfulFeatureIds) {

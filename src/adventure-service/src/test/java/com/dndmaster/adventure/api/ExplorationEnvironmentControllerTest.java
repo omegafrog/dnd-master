@@ -218,7 +218,7 @@ class ExplorationEnvironmentControllerTest {
         System.setProperty(com.dndmaster.adventure.infrastructure.diagnostics.DevelopmentDiagnostics.FLAG, "true");
         try {
         UUID owner = UUID.randomUUID(), adventureId = UUID.randomUUID(), sheetId = UUID.randomUUID();
-        UUID groupId = UUID.randomUUID(), mapId = UUID.randomUUID(), enemyId = UUID.randomUUID(), phase1 = UUID.randomUUID();
+        UUID groupId = UUID.randomUUID(), mapId = UUID.randomUUID(), enemyId = UUID.randomUUID(), featureId = UUID.randomUUID(), phase1 = UUID.randomUUID();
         var party = List.of(new AdventurePartyMember(new CharacterSheetId(sheetId), ControlMode.DIRECT,
                 true, true, true, true, true, true));
         Adventure adventure = Adventure.create(new AdventureId(adventureId), SessionId.generate(), new OwnerPlayerId(owner),
@@ -236,6 +236,8 @@ class ExplorationEnvironmentControllerTest {
         CombatMapPort mapPort = mock(CombatMapPort.class);
         AtomicLong mapVersion = new AtomicLong(4);
         when(mapPort.moveEnemyForEnvironment(any())).thenAnswer(call -> mapVersion.incrementAndGet());
+        when(mapPort.interactSpatialFeatureForEnvironment(any(), any(), any(), anyLong(), any()))
+                .thenAnswer(call -> new CombatMapSpatialResult(mapId, mapVersion.incrementAndGet(), List.of("TRAP_INTERACTED:2,2")));
         Map<UUID, Long> appliedDurationCommands = new HashMap<>();
         when(mapPort.advanceDurations(any())).thenAnswer(call -> {
             var command = (CombatMapSpatialTurnCommand) call.getArgument(0);
@@ -256,7 +258,8 @@ class ExplorationEnvironmentControllerTest {
         when(runtime.planExplorationEnvironmentPhase(any(), any(), any(), any(), any())).thenReturn(
                 new ExplorationCycle.EnvironmentProposal("순찰병이 이동합니다.", List.of(new ExplorationCycle.EnemyMove(
                         enemyId, List.of(new ExplorationCycle.Position(3, 3), new ExplorationCycle.Position(4, 3))))),
-                new ExplorationCycle.EnvironmentProposal("함정과 주변 환경이 변하지 않습니다.", List.of()),
+                new ExplorationCycle.EnvironmentProposal("함정이 작동합니다.", List.of(), List.of(
+                        new ExplorationCycle.FeatureInteraction(featureId)), -1, false, null),
                 new ExplorationCycle.EnvironmentProposal("지속시간을 진행합니다.", List.of()));
         AuthenticatedPlayerResolver players = mock(AuthenticatedPlayerResolver.class);
         when(players.playerId()).thenReturn(owner);
@@ -292,6 +295,8 @@ class ExplorationEnvironmentControllerTest {
         assertEquals(6, current.elapsedSeconds());
         verify(runtime, times(3)).planExplorationEnvironmentPhase(any(), any(), any(), any(), any());
         verify(mapPort, times(1)).moveEnemyForEnvironment(any());
+        verify(mapPort, times(1)).validateSpatialFeatureInteractionForEnvironment(eq(mapId), eq(owner), eq(featureId), eq(5L), any());
+        verify(mapPort, times(1)).interactSpatialFeatureForEnvironment(eq(mapId), eq(owner), eq(featureId), anyLong(), any());
         var durationCommands = org.mockito.ArgumentCaptor.forClass(CombatMapSpatialTurnCommand.class);
         verify(mapPort, times(2)).advanceDurations(durationCommands.capture());
         assertEquals(durationCommands.getAllValues().get(0).commandId(), durationCommands.getAllValues().get(1).commandId());
@@ -307,6 +312,8 @@ class ExplorationEnvironmentControllerTest {
                 .reduce("", (left, right) -> left + "\n" + right);
         assertTrue(logs.contains("phaseId=" + cycle.currentPhaseCommandId()));
         assertTrue(logs.contains("expectedEnemyMoves=1 actualEnemyMoves=1"));
+        assertTrue(logs.contains("expectedFeatureInteractions=1"));
+        assertTrue(logs.contains("actualFeatureInteractions=1"));
         assertTrue(logs.contains("elapsedSeconds=6"));
         assertTrue(logs.contains("recoveryAction=retry_same_phase_id"));
         } finally {

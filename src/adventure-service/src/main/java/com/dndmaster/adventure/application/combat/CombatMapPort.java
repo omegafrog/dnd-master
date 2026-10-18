@@ -52,6 +52,14 @@ public interface CombatMapPort {
     default void validateEnemyForEnvironment(CombatMapEnemyMovementCommand command) {
         throw new UnsupportedOperationException("environment enemy movement validation is unavailable");
     }
+    default CombatMapSpatialResult interactSpatialFeatureForEnvironment(java.util.UUID mapId, java.util.UUID ownerId,
+            java.util.UUID featureId, long expectedVersion, java.util.UUID commandId) {
+        throw new UnsupportedOperationException("environment spatial feature interaction is unavailable");
+    }
+    default void validateSpatialFeatureInteractionForEnvironment(java.util.UUID mapId, java.util.UUID ownerId,
+            java.util.UUID featureId, long expectedVersion, java.util.UUID commandId) {
+        throw new UnsupportedOperationException("environment spatial feature interaction validation is unavailable");
+    }
 
     /** Player-owned spatial checks are rolled by the typed dice gateway before map resume. */
     default int rollSpatialCheck(SpatialCheckRollCommand command) {

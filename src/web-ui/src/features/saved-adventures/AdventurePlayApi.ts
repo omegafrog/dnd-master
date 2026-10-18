@@ -75,7 +75,19 @@ export type CombatMapView = {
   playerStartCandidates?: Array<{ x: number; y: number; confidence: number; evidence: string[]; source?: string }>
 }
 export type ExplorationGroup = { id: string; mapTokenId: string; speed: number; members: Array<{ characterSheetId: string; formation: 'FRONT' | 'MIDDLE' | 'REAR'; speed: number }> }
-export type ExplorationGroups = { version: number; groups: ExplorationGroup[] }
+export type ExplorationCycle = {
+  id: string
+  cycleNumber: number
+  currentPhaseCommandId: string
+  groupOrder: string[]
+  completedGroups: string[]
+  phase: 'GROUP_TURNS' | 'ENVIRONMENT'
+  environmentPhase: 'ENEMIES_PATROLS_AND_DETECTION' | 'HAZARDS_AND_ENVIRONMENT' | 'DURATIONS_AND_DEADLINES'
+  elapsedSeconds: number
+  pendingEnvironmentProposal?: { narration: string; encounterRequested: boolean; linkedCombatEncounterId?: string } | null
+  pendingMovementEvent?: { id: string; groupId: string; cause: string; publicEvents: string[]; finalPosition: { x: number; y: number } } | null
+}
+export type ExplorationGroups = { version: number; groups: ExplorationGroup[]; cycle?: ExplorationCycle | null }
 
 export type MapGridAlignment = { mapId: string; version: number; imageRevision: string; imageViewId?: string; originX: number; originY: number; cellSize: number }
 export type MapGridAlignmentRequest = { mapId: string; commandId: string; expectedVersion: number; imageRevision: string; originX: number; originY: number; cellSize: number }
@@ -175,6 +187,10 @@ export interface AdventurePlayApi {
   getCombatMap(adventureId: string): Promise<CombatMapView>
   getExplorationGroups?(adventureId: string): Promise<ExplorationGroups>
   saveExplorationGroups?(adventureId: string, expectedVersion: number, groups: Array<{ id: string; members: Array<{ characterSheetId: string; formation: 'FRONT' | 'MIDDLE' | 'REAR' }> }>): Promise<ExplorationGroups>
+  startExplorationCycle?(adventureId: string, expectedVersion: number, commandId: string): Promise<ExplorationGroups>
+  finishExplorationGroupTurn?(adventureId: string, groupId: string, expectedVersion: number, commandId: string): Promise<ExplorationGroups>
+  resolveExplorationMovementEvent?(adventureId: string, eventId: string, expectedVersion: number): Promise<ExplorationGroups>
+  advanceExplorationEnvironment?(adventureId: string, expectedVersion: number, commandId: string): Promise<ExplorationGroups>
   getCombatMapPreparation?(adventureId: string): Promise<CombatMapView>
   getPublicMapImage?(adventureId: string): Promise<string | null>
   getCombatMapPreparationImage?(adventureId: string): Promise<string | null>
@@ -335,6 +351,35 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
       method: 'PUT', headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
       body: JSON.stringify({ expectedVersion, groups }),
     })
+  }
+
+  startExplorationCycle(adventureId: string, expectedVersion: number, commandId: string) {
+    return request<ExplorationGroups>(`/api/v1/adventures/${adventureId}/exploration-cycle/start`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ expectedVersion, commandId }),
+    })
+  }
+
+  finishExplorationGroupTurn(adventureId: string, groupId: string, expectedVersion: number, commandId: string) {
+    return request<ExplorationGroups>(`/api/v1/adventures/${adventureId}/exploration-cycle/groups/${groupId}/finish`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ expectedVersion, commandId, interrupted: false }),
+    })
+  }
+
+  resolveExplorationMovementEvent(adventureId: string, eventId: string, expectedVersion: number) {
+    return request<ExplorationGroups>(`/api/v1/adventures/${adventureId}/exploration-cycle/events/${eventId}/resolve`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ expectedVersion }),
+    })
+  }
+
+  async advanceExplorationEnvironment(adventureId: string, expectedVersion: number, commandId: string) {
+    await request<{ adventureVersion: number; cycle: ExplorationCycle; narration: string }>(`/api/v1/adventures/${adventureId}/exploration-cycle/environment/advance`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ expectedVersion, commandId, interrupted: false }),
+    })
+    return this.getExplorationGroups(adventureId)
   }
 
   getCombatMapPreparation(adventureId: string) {

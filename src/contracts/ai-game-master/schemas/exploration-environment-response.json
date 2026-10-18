@@ -2,10 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["narration", "enemyMoves", "encounterRequested"],
+  "required": ["narration", "enemyMoves", "featureInteractions", "encounterRequested"],
   "properties": {
     "narration": { "type": "string", "minLength": 1 },
     "encounterRequested": { "type": "boolean" },
+    "featureInteractions": {
+      "type": "array", "maxItems": 100,
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["featureId"],
+        "properties": { "featureId": { "type": "string", "format": "uuid" } }
+      }
+    },
     "enemyMoves": {
       "type": "array",
       "items": {

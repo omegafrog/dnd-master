@@ -159,7 +159,7 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
             HttpResponse<String> selected = client.send(selectionRequest, HttpResponse.BodyHandlers.ofString());
             if (selected.statusCode() / 100 != 2) throw new IllegalStateException("selected GM model is unavailable");
             RuntimeEndpointResponse endpoint = mapper.readValue(selected.body(), RuntimeEndpointResponse.class);
-            String prompt = "ROLE=EXPLORATION_ENVIRONMENT_PHASE\nTASK=Judge nearby enemy movement and supported environment changes for one six-second phase. Set encounterRequested=true only when hostile contact or an event requires handing off this paused exploration cycle to normal combat startup. Return only the fixed schema. Do not invent map positions or change unsupported state.\n"
+            String prompt = "ROLE=EXPLORATION_ENVIRONMENT_PHASE\nTASK=Judge nearby enemy movement and supported environment changes for one six-second phase. Set encounterRequested=true only when hostile contact or an event requires handing off this paused exploration cycle to normal combat startup. featureInteractions may name only a map spatial feature whose triggers include INTERACT; runtime applies that existing feature interaction and validates its current state. Return only the fixed schema. Do not invent feature IDs, map positions, or unsupported state changes.\n"
                     + "CURRENT_SITUATION=" + context.currentSituation() + "\nESTABLISHED_SCENE="
                     + context.currentContext().currentScene() + "\nPHASE_INPUT=" + context.action();
             String body = mapper.writeValueAsString(new ExplorationEnvironmentRequest(context.ownerPlayerId().value(),

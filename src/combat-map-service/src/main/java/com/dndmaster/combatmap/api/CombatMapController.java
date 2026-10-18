@@ -594,6 +594,28 @@ public class CombatMapController {
                 new TokenId(request.tokenId()), new GridPosition(request.x(), request.y()), request.expectedVersion(), request.commandId()));
     }
 
+    @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/environment-interact/validate")
+    public void validateEnvironmentSpatialInteraction(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) EnvironmentSpatialActionRequest request) {
+        requestGuard.internal(token);
+        requireEnvironmentSpatialAction(request);
+        requireSpatialRuntime().validateEnvironmentInteraction(new MapId(mapId), new MapOwnerId(request.ownerId()),
+                request.featureId(), request.expectedVersion());
+    }
+
+    @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/environment-interact")
+    public SpatialRuntimeResponse interactFeatureForEnvironment(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestBody(required = false) EnvironmentSpatialActionRequest request) {
+        requestGuard.internal(token);
+        requireEnvironmentSpatialAction(request);
+        requireIdempotencyKey(idempotencyKey, request.commandId());
+        return SpatialRuntimeResponse.from(requireSpatialRuntime().interactFeatureForEnvironment(new MapId(mapId),
+                new MapOwnerId(request.ownerId()), request.featureId(), request.expectedVersion(), request.commandId()));
+    }
+
     @PostMapping("/internal/v1/combat-maps/{mapId}/spatial/combat-turn-start")
     public SpatialRuntimeResponse combatTurnStartSpatial(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
@@ -649,6 +671,12 @@ public class CombatMapController {
                 || request.expectedVersion() == null || request.expectedVersion() < 0) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_SPATIAL_ACTION");
         }
+    }
+
+    private static void requireEnvironmentSpatialAction(EnvironmentSpatialActionRequest request) {
+        if (request == null || request.ownerId() == null || request.featureId() == null
+                || request.expectedVersion() == null || request.expectedVersion() < 0 || request.commandId() == null)
+            throw new ApiRequestGuard.ApiContractException(400, "INVALID_ENVIRONMENT_SPATIAL_ACTION");
     }
 
     private static void requireCancelRequest(UUID operationId, String idempotencyKey, MovementCancelRequest request) {
@@ -821,6 +849,7 @@ public class CombatMapController {
     public record PositionRequest(Integer x, Integer y) {}
 
     public record SpatialActionRequest(UUID ownerId, UUID tokenId, Integer x, Integer y, Long expectedVersion, UUID commandId) {}
+    public record EnvironmentSpatialActionRequest(UUID ownerId, UUID featureId, Long expectedVersion, UUID commandId) {}
     public record SpatialTurnRequest(UUID ownerId, Long expectedVersion, UUID commandId) {}
     public record SpatialRuntimeResponse(UUID mapId, long mapVersion, List<String> publicEvents, UUID operationId,
             String status, com.dndmaster.combatmap.application.movement.PendingMovementCheck pendingCheck) {

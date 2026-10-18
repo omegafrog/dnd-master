@@ -103,15 +103,23 @@ public record ExplorationCycle(
         }
     }
 
-    public record EnvironmentProposal(String narration, List<EnemyMove> enemyMoves, long expectedMapVersion,
+    public record EnvironmentProposal(String narration, List<EnemyMove> enemyMoves,
+            List<FeatureInteraction> featureInteractions, long expectedMapVersion,
             boolean encounterRequested, UUID linkedCombatEncounterId) {
-        public EnvironmentProposal(String narration, List<EnemyMove> enemyMoves) { this(narration, enemyMoves, -1, false, null); }
+        public EnvironmentProposal(String narration, List<EnemyMove> enemyMoves) { this(narration, enemyMoves, List.of(), -1, false, null); }
         public EnvironmentProposal(String narration, List<EnemyMove> enemyMoves, long expectedMapVersion) {
-            this(narration, enemyMoves, expectedMapVersion, false, null);
+            this(narration, enemyMoves, List.of(), expectedMapVersion, false, null);
+        }
+        public EnvironmentProposal(String narration, List<EnemyMove> enemyMoves, long expectedMapVersion,
+                boolean encounterRequested, UUID linkedCombatEncounterId) {
+            this(narration, enemyMoves, List.of(), expectedMapVersion, encounterRequested, linkedCombatEncounterId);
         }
         public EnvironmentProposal {
             narration = narration == null ? "" : narration.trim();
             enemyMoves = List.copyOf(Objects.requireNonNull(enemyMoves));
+            featureInteractions = List.copyOf(Objects.requireNonNullElse(featureInteractions, List.of()));
+            if (featureInteractions.stream().map(FeatureInteraction::featureId).distinct().count() != featureInteractions.size())
+                throw new IllegalArgumentException("environment feature interactions must be unique by feature id");
             if (expectedMapVersion < -1) throw new IllegalArgumentException("expected map version is invalid");
             if (linkedCombatEncounterId != null && encounterRequested)
                 throw new IllegalArgumentException("linked combat encounter already satisfies the encounter handoff");
@@ -123,8 +131,11 @@ public record ExplorationCycle(
                 throw new IllegalStateException("environment phase did not request an encounter");
             if (linkedCombatEncounterId != null && !linkedCombatEncounterId.equals(encounterId))
                 throw new IllegalStateException("environment phase is already linked to another combat encounter");
-            return new EnvironmentProposal(narration, enemyMoves, expectedMapVersion, false, encounterId);
+            return new EnvironmentProposal(narration, enemyMoves, featureInteractions, expectedMapVersion, false, encounterId);
         }
+    }
+    public record FeatureInteraction(UUID featureId) {
+        public FeatureInteraction { Objects.requireNonNull(featureId); }
     }
     public record Position(int x, int y) { }
     public record EnemyMove(UUID tokenId, List<Position> path) {
@@ -150,6 +161,8 @@ public record ExplorationCycle(
         return groupOrder.stream().filter(id -> !completedGroups.contains(id)).findFirst().orElse(null);
     }
 
+    @com.fasterxml.jackson.annotation.JsonProperty(value = "currentPhaseCommandId",
+            access = com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
     public UUID currentPhaseCommandId() {
         if (phase != Phase.ENVIRONMENT) return null;
         return UUID.nameUUIDFromBytes((id + ":" + cycleNumber + ":" + environmentPhase)

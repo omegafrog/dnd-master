@@ -24,12 +24,16 @@ public record GmCombatMapResponse(UUID mapId, List<TokenResponse> tokens, List<O
     public record LayerResponse(String type, String value, String visibility) { }
     public record PositionResponse(int x, int y) { }
     public record SpatialFeatureResponse(UUID id, String type, List<PositionResponse> cells,
-            String visibility, String state, String origin, String sourceReference) {
+            String visibility, String state, String origin, String sourceReference, List<String> triggers) {
+        public SpatialFeatureResponse(UUID id, String type, List<PositionResponse> cells,
+                String visibility, String state, String origin, String sourceReference) {
+            this(id, type, cells, visibility, state, origin, sourceReference, List.of());
+        }
         static SpatialFeatureResponse from(com.dndmaster.combatmap.domain.SpatialFeature feature) {
             return new SpatialFeatureResponse(feature.id(), feature.type().name(),
                     feature.cells().stream().map(cell -> new PositionResponse(cell.x(), cell.y())).toList(),
                     feature.visibility().name(), feature.state().name(), feature.provenance().origin().name(),
-                    feature.provenance().sourceReference());
+                    feature.provenance().sourceReference(), feature.triggers().stream().map(Enum::name).sorted().toList());
         }
     }
 }

@@ -35,6 +35,40 @@ import org.junit.jupiter.api.Test;
 
 class SpatialFeatureRuntimeApplicationServiceTest {
     @Test
+    void environmentInteractionUsesOnlyDeclaredFeatureActionAndReplaysByCommandId() {
+        UUID ownerId = UUID.randomUUID();
+        MapOwnerId owner = new MapOwnerId(ownerId);
+        GridPosition cell = new GridPosition(2, 1);
+        SpatialFeature feature = new SpatialFeature(UUID.randomUUID(), SpatialFeatureType.TRAP, List.of(cell),
+                SpatialFeatureVisibility.DISCOVERED, SpatialFeature.State.DISCOVERED,
+                DetectionSpec.passive("perception", 12), Set.of(SpatialTrigger.INTERACT),
+                SpatialFeatureProvenance.storyPlan("story", 0, 0), false, -1);
+        SpatialFeature unsupportedFeature = new SpatialFeature(UUID.randomUUID(), SpatialFeatureType.HAZARD_AREA, List.of(new GridPosition(1, 1)),
+                SpatialFeatureVisibility.REVEALED, SpatialFeature.State.ACTIVE, null, Set.of(SpatialTrigger.ENTER_CELL),
+                SpatialFeatureProvenance.storyPlan("story", 0, 0), false, -1);
+        CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new GridSpec(4, 3, 50, 5), new PlayerId(ownerId), List.of(), Set.of(), List.of(), 0, null, null,
+                List.of(feature, unsupportedFeature));
+        InMemoryStore store = new InMemoryStore(owner, map);
+        SpatialFeatureRuntimeApplicationService service = new SpatialFeatureRuntimeApplicationService(store);
+        UUID commandId = UUID.randomUUID();
+
+        service.validateEnvironmentInteraction(map.id(), owner, feature.id(), 0);
+        var result = service.interactFeatureForEnvironment(map.id(), owner, feature.id(), 0, commandId);
+        var replay = service.interactFeatureForEnvironment(map.id(), owner, feature.id(), 1, commandId);
+
+        assertEquals(1, result.mapVersion());
+        assertEquals(List.of("TRAP_INTERACTED:2,1"), result.publicEvents());
+        assertEquals(1, replay.mapVersion());
+        assertEquals(List.of(), replay.publicEvents());
+        assertEquals(SpatialFeature.State.TRIGGERED, feature.state());
+        assertThrows(IllegalArgumentException.class, () -> service.validateEnvironmentInteraction(map.id(), owner,
+                unsupportedFeature.id(), 1));
+        assertThrows(IllegalArgumentException.class, () -> service.validateEnvironmentInteraction(map.id(), owner,
+                feature.id(), 1));
+    }
+
+    @Test
     void rejects_hidden_interaction_until_discovery_and_replays_without_duplicate_public_events() {
         UUID ownerId = UUID.randomUUID();
         MapOwnerId owner = new MapOwnerId(ownerId);
