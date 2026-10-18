@@ -49,6 +49,7 @@ test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다',
     if (!response.ok) throw new Error(`session read failed: ${response.status}`)
     return (await response.json() as { adventureId: string }).adventureId
   }, { sessionId: session.sessionId })
+  expect(await hasActiveMap(page, adventureId), 'the opening Situation is mapless').toBe(false)
   const playerAction = '테스트에서 준비한 다음 시츄에이션 안으로 들어갑니다.'
   await page.getByLabel('무엇을 하시겠어요?').fill(playerAction)
   await page.getByRole('button', { name: '행동 보내기' }).click()
