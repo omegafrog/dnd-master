@@ -75,7 +75,7 @@ class McpStdioServerTest {
                     input.readLine();
                     assertThat(new ObjectMapper().readTree(input.readLine()).path("arguments").path("query").asText())
                             .isEqualTo("ability-id-actual-42");
-                    output.write("{\"success\":true,\"result\":{\"status\":\"FOUND\"}}\n"); output.flush();
+                    output.write("{\"success\":true,\"result\":{\"status\":\"FOUND\",\"definition\":{\"abilityId\":\"ability-id-actual-42\",\"sourceLocations\":[{\"documentId\":\"doc-1\",\"extractionVersion\":2,\"locator\":\"page=4;node=7\"}]}}}\n"); output.flush();
                 }
                 return null;
             });
@@ -85,7 +85,13 @@ class McpStdioServerTest {
                  var stdOut = new BufferedWriter(new OutputStreamWriter(stdOutBytes, StandardCharsets.UTF_8))) {
                 McpStdioServer.serve(client, "run-token", stdIn, stdOut);
                 relay.get();
-                assertThat(stdOutBytes.toString(StandardCharsets.UTF_8)).contains("FOUND").doesNotContain("isError");
+                var toolResponse = new ObjectMapper().readTree(stdOutBytes.toString(StandardCharsets.UTF_8)).path("result");
+                assertThat(toolResponse.path("isError").asBoolean(false)).isFalse();
+                var content = new ObjectMapper().readTree(toolResponse.path("content").get(0).path("text").asText());
+                assertThat(content.path("status").asText()).isEqualTo("FOUND");
+                assertThat(content.path("definition").path("abilityId").asText()).isEqualTo("ability-id-actual-42");
+                assertThat(content.path("definition").path("sourceLocations").get(0).path("documentId").asText())
+                        .isEqualTo("doc-1");
             }
         }
     }
