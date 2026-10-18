@@ -48,6 +48,13 @@ test('지도에서 나눈 그룹과 대열을 저장하고 다시 불러온다',
   const formationResponse = await formationSaved
   expect(formationResponse.ok(), await formationResponse.text()).toBeTruthy()
 
+  const savedBeforeSplit = await readGroups(page, adventure.adventureId)
+  const mapBeforeSplit = await readMap(page, adventure.adventureId)
+  expect(savedBeforeSplit.groups).toHaveLength(1)
+  expect(mapBeforeSplit.tokens).toHaveLength(1)
+  expect(mapBeforeSplit.tokens[0].type).toBe('PLAYER')
+  expect(savedBeforeSplit.groups[0].mapTokenId).toBe(mapBeforeSplit.tokens[0].id)
+
   const splitSaved = page.waitForResponse(response => response.url().includes(`/api/v1/adventures/${adventure.adventureId}/exploration-groups`)
     && response.request().method() === 'PUT')
   await groupsPanel.getByRole('button', { name: '현재 위치에서 분리' }).click()
